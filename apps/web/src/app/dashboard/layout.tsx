@@ -15,6 +15,9 @@ import {
   Monitor,
   LogOut,
   Stethoscope,
+  BarChart3,
+  UserCog,
+  CalendarClock,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -30,6 +33,9 @@ const navByRole: Record<
     { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
     { href: "/dashboard/prescriptions", label: "Prescriptions", icon: FileText },
     { href: "/dashboard/doctors", label: "Doctors", icon: Stethoscope },
+    { href: "/dashboard/users", label: "Users", icon: UserCog },
+    { href: "/dashboard/schedule", label: "Schedule", icon: CalendarClock },
+    { href: "/dashboard/reports", label: "Reports", icon: BarChart3 },
   ],
   DOCTOR: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -37,6 +43,7 @@ const navByRole: Record<
     { href: "/dashboard/appointments", label: "Appointments", icon: Calendar },
     { href: "/dashboard/prescriptions", label: "Prescriptions", icon: FileText },
     { href: "/dashboard/patients", label: "Patients", icon: Users },
+    { href: "/dashboard/schedule", label: "Schedule", icon: CalendarClock },
   ],
   RECEPTION: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -45,6 +52,7 @@ const navByRole: Record<
     { href: "/dashboard/patients", label: "Patients", icon: Users },
     { href: "/dashboard/queue", label: "Queue", icon: Monitor },
     { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
+    { href: "/dashboard/reports", label: "Reports", icon: BarChart3 },
   ],
   NURSE: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },

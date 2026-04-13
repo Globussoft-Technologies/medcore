@@ -10,6 +10,8 @@ import {
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import { createPaymentOrder, verifyPayment } from "../services/razorpay";
+import { onBillGenerated, onPaymentReceived } from "../services/notification-triggers";
 
 const router = Router();
 router.use(authenticate);
@@ -77,6 +79,9 @@ router.post(
 
         return inv;
       });
+
+      // Fire-and-forget notification
+      onBillGenerated(invoice).catch(console.error);
 
       res.status(201).json({ success: true, data: invoice, error: null });
     } catch (err) {
@@ -207,6 +212,9 @@ router.post(
         return payment;
       });
 
+      // Fire-and-forget notification
+      onPaymentReceived(result, invoice).catch(console.error);
+
       res.status(201).json({ success: true, data: result, error: null });
     } catch (err) {
       next(err);
@@ -314,6 +322,132 @@ router.get(
         },
         error: null,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/billing/pay-online — create Razorpay order for an invoice
+router.post(
+  "/pay-online",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { invoiceId } = req.body;
+
+      if (!invoiceId) {
+        res.status(400).json({ success: false, data: null, error: "invoiceId is required" });
+        return;
+      }
+
+      const invoice = await prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        include: { payments: true },
+      });
+
+      if (!invoice) {
+        res.status(404).json({ success: false, data: null, error: "Invoice not found" });
+        return;
+      }
+
+      if (invoice.paymentStatus === "PAID") {
+        res.status(400).json({ success: false, data: null, error: "Invoice is already paid" });
+        return;
+      }
+
+      // Calculate remaining amount
+      const totalPaid = invoice.payments.reduce((sum, p) => sum + p.amount, 0);
+      const remaining = invoice.totalAmount - totalPaid;
+
+      if (remaining <= 0) {
+        res.status(400).json({ success: false, data: null, error: "No balance due" });
+        return;
+      }
+
+      const order = await createPaymentOrder(invoiceId, remaining);
+
+      res.json({
+        success: true,
+        data: {
+          orderId: order.orderId,
+          amount: order.amount,
+          currency: order.currency,
+          keyId: order.keyId,
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/billing/verify-payment — verify Razorpay payment and record it
+router.post(
+  "/verify-payment",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { razorpayOrderId, razorpayPaymentId, razorpaySignature, invoiceId } =
+        req.body;
+
+      if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature || !invoiceId) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "razorpayOrderId, razorpayPaymentId, razorpaySignature, and invoiceId are required",
+        });
+        return;
+      }
+
+      const isValid = verifyPayment(razorpayOrderId, razorpayPaymentId, razorpaySignature);
+
+      if (!isValid) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Payment verification failed — invalid signature",
+        });
+        return;
+      }
+
+      // Record the payment
+      const invoice = await prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        include: { payments: true },
+      });
+
+      if (!invoice) {
+        res.status(404).json({ success: false, data: null, error: "Invoice not found" });
+        return;
+      }
+
+      const totalPaid = invoice.payments.reduce((sum, p) => sum + p.amount, 0);
+      const remaining = invoice.totalAmount - totalPaid;
+
+      const result = await prisma.$transaction(async (tx) => {
+        const payment = await tx.payment.create({
+          data: {
+            invoiceId,
+            amount: remaining,
+            mode: "ONLINE",
+            transactionId: razorpayPaymentId,
+          },
+        });
+
+        const newTotalPaid = totalPaid + remaining;
+        const newStatus = newTotalPaid >= invoice.totalAmount ? "PAID" : "PARTIAL";
+
+        await tx.invoice.update({
+          where: { id: invoiceId },
+          data: { paymentStatus: newStatus },
+        });
+
+        return payment;
+      });
+
+      res.json({ success: true, data: result, error: null });
     } catch (err) {
       next(err);
     }

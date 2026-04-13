@@ -1,0 +1,35 @@
+{
+  "name": "@medcore/mobile",
+  "version": "1.0.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "dev": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "expo": "~53.0.0",
+    "expo-router": "~4.0.0",
+    "expo-status-bar": "~2.2.0",
+    "expo-secure-store": "~14.2.0",
+    "expo-constants": "~17.1.0",
+    "expo-linking": "~7.1.0",
+    "react": "^18.3.1",
+    "react-native": "~0.76.0",
+    "react-native-safe-area-context": "~4.14.0",
+    "react-native-screens": "~4.4.0",
+    "react-native-gesture-handler": "~2.20.0",
+    "react-native-reanimated": "~3.16.0",
+    "@expo/vector-icons": "^14.0.0",
+    "@react-native-async-storage/async-storage": "~2.1.0",
+    "react-dom": "^18.3.1",
+    "react-native-web": "~0.19.12"
+  },
+  "devDependencies": {
+    "@types/react": "~18.3.0",
+    "typescript": "~5.8.0"
+  }
+}

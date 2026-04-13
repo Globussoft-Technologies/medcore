@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { Search, Plus } from "lucide-react";
@@ -205,7 +206,9 @@ export default function PatientsPage() {
               {patients.map((p) => (
                 <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3 font-mono text-sm font-medium text-primary">
-                    {p.mrNumber}
+                    <Link href={`/dashboard/patients/${p.id}`} className="hover:underline">
+                      {p.mrNumber}
+                    </Link>
                   </td>
                   <td className="px-4 py-3 font-medium">{p.user.name}</td>
                   <td className="px-4 py-3 text-sm">{p.user.phone}</td>

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
 
 export default function LoginPage() {
@@ -79,7 +80,14 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="mt-6 rounded-lg bg-gray-50 p-4 text-xs text-gray-500">
+        <p className="mt-6 text-center text-sm text-gray-500">
+          New Patient?{" "}
+          <Link href="/register" className="font-medium text-primary hover:underline">
+            Register here
+          </Link>
+        </p>
+
+        <div className="mt-4 rounded-lg bg-gray-50 p-4 text-xs text-gray-500">
           <p className="font-medium">Demo Accounts:</p>
           <p>Admin: admin@medcore.local / admin123</p>
           <p>Doctor: dr.sharma@medcore.local / doctor123</p>

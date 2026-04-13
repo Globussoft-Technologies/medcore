@@ -3,6 +3,8 @@ import { prisma } from "@medcore/db";
 import { Role, createPrescriptionSchema } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import { generatePrescriptionPDF } from "../services/pdf";
+import { onPrescriptionReady } from "../services/notification-triggers";
 
 const router = Router();
 router.use(authenticate);
@@ -54,6 +56,9 @@ router.post(
           },
         },
       });
+
+      // Fire-and-forget notification
+      onPrescriptionReady(prescription as any).catch(console.error);
 
       res.status(201).json({ success: true, data: prescription, error: null });
     } catch (err) {
@@ -149,6 +154,28 @@ router.get(
 
       res.json({ success: true, data: prescription, error: null });
     } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/prescriptions/:id/pdf — render prescription as printable HTML
+router.get(
+  "/:id/pdf",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const html = await generatePrescriptionPDF(req.params.id);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Prescription not found") {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Prescription not found",
+        });
+        return;
+      }
       next(err);
     }
   }

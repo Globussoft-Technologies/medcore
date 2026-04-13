@@ -9,6 +9,7 @@ import { doctorRouter } from "./routes/doctors";
 import { billingRouter } from "./routes/billing";
 import { prescriptionRouter } from "./routes/prescriptions";
 import { queueRouter } from "./routes/queue";
+import { notificationRouter } from "./routes/notifications";
 import { errorHandler } from "./middleware/error";
 
 const app = express();
@@ -36,6 +37,7 @@ app.use("/api/v1/doctors", doctorRouter);
 app.use("/api/v1/billing", billingRouter);
 app.use("/api/v1/prescriptions", prescriptionRouter);
 app.use("/api/v1/queue", queueRouter);
+app.use("/api/v1/notifications", notificationRouter);
 
 // Health check
 app.get("/api/health", (_req, res) => {

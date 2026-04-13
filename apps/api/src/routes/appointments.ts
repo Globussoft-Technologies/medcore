@@ -8,6 +8,11 @@ import {
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import {
+  onAppointmentBooked,
+  onAppointmentCancelled,
+  onTokenCalled,
+} from "../services/notification-triggers";
 
 const router = Router();
 router.use(authenticate);
@@ -82,6 +87,9 @@ router.post(
         });
       }
 
+      // Fire-and-forget notification
+      onAppointmentBooked(appointment as any).catch(console.error);
+
       res.status(201).json({ success: true, data: appointment, error: null });
     } catch (err) {
       next(err);
@@ -134,6 +142,9 @@ router.post(
           tokenNumber,
         });
       }
+
+      // Fire-and-forget notification
+      onAppointmentBooked(appointment as any).catch(console.error);
 
       res.status(201).json({ success: true, data: appointment, error: null });
     } catch (err) {
@@ -230,6 +241,14 @@ router.patch(
             patientName: apt.patient?.user?.name,
           });
         }
+      }
+
+      // Fire-and-forget notifications based on status
+      if (req.body.status === "CANCELLED") {
+        onAppointmentCancelled(appointment as any).catch(console.error);
+      }
+      if (req.body.status === "IN_CONSULTATION") {
+        onTokenCalled(appointment as any).catch(console.error);
       }
 
       res.json({ success: true, data: appointment, error: null });

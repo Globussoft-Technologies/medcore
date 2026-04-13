@@ -1,11 +1,10 @@
 import { PrismaClient, Role, Gender } from "@prisma/client";
-import * as crypto from "crypto";
+import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
-// Simple hash for seeding — the API uses bcrypt
 function hashPassword(password: string): string {
-  return crypto.createHash("sha256").update(password).digest("hex");
+  return bcrypt.hashSync(password, 10);
 }
 
 async function main() {

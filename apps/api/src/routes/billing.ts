@@ -12,6 +12,7 @@ import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { createPaymentOrder, verifyPayment } from "../services/razorpay";
 import { onBillGenerated, onPaymentReceived } from "../services/notification-triggers";
+import { auditLog } from "../middleware/audit";
 
 const router = Router();
 router.use(authenticate);
@@ -82,6 +83,7 @@ router.post(
 
       // Fire-and-forget notification
       onBillGenerated(invoice).catch(console.error);
+      auditLog(req, "CREATE_INVOICE", "invoice", invoice.id, { invoiceNumber, patientId, totalAmount }).catch(console.error);
 
       res.status(201).json({ success: true, data: invoice, error: null });
     } catch (err) {
@@ -214,6 +216,7 @@ router.post(
 
       // Fire-and-forget notification
       onPaymentReceived(result, invoice).catch(console.error);
+      auditLog(req, "RECORD_PAYMENT", "payment", result.id, { invoiceId, amount, mode }).catch(console.error);
 
       res.status(201).json({ success: true, data: result, error: null });
     } catch (err) {

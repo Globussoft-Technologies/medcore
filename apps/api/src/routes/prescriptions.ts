@@ -5,6 +5,7 @@ import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { generatePrescriptionPDF } from "../services/pdf";
 import { onPrescriptionReady } from "../services/notification-triggers";
+import { auditLog } from "../middleware/audit";
 
 const router = Router();
 router.use(authenticate);
@@ -59,6 +60,7 @@ router.post(
 
       // Fire-and-forget notification
       onPrescriptionReady(prescription as any).catch(console.error);
+      auditLog(req, "CREATE_PRESCRIPTION", "prescription", prescription.id, { appointmentId, patientId, diagnosis }).catch(console.error);
 
       res.status(201).json({ success: true, data: prescription, error: null });
     } catch (err) {

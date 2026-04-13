@@ -54,6 +54,13 @@ export const api = {
       ...opts,
     }),
 
+  put: <T>(endpoint: string, body?: unknown, opts?: FetchOptions) =>
+    request<T>(endpoint, {
+      method: "PUT",
+      body: body ? JSON.stringify(body) : undefined,
+      ...opts,
+    }),
+
   delete: <T>(endpoint: string, opts?: FetchOptions) =>
     request<T>(endpoint, { method: "DELETE", ...opts }),
 };

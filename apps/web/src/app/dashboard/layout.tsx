@@ -18,6 +18,8 @@ import {
   BarChart3,
   UserCog,
   CalendarClock,
+  Bell,
+  Shield,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -36,6 +38,8 @@ const navByRole: Record<
     { href: "/dashboard/users", label: "Users", icon: UserCog },
     { href: "/dashboard/schedule", label: "Schedule", icon: CalendarClock },
     { href: "/dashboard/reports", label: "Reports", icon: BarChart3 },
+    { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
+    { href: "/dashboard/audit", label: "Audit Log", icon: Shield },
   ],
   DOCTOR: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -44,6 +48,7 @@ const navByRole: Record<
     { href: "/dashboard/prescriptions", label: "Prescriptions", icon: FileText },
     { href: "/dashboard/patients", label: "Patients", icon: Users },
     { href: "/dashboard/schedule", label: "Schedule", icon: CalendarClock },
+    { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
   ],
   RECEPTION: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -53,18 +58,21 @@ const navByRole: Record<
     { href: "/dashboard/queue", label: "Queue", icon: Monitor },
     { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
     { href: "/dashboard/reports", label: "Reports", icon: BarChart3 },
+    { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
   ],
   NURSE: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/dashboard/queue", label: "Queue", icon: Monitor },
     { href: "/dashboard/vitals", label: "Vitals", icon: Activity },
     { href: "/dashboard/patients", label: "Patients", icon: Users },
+    { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
   ],
   PATIENT: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/dashboard/appointments", label: "My Appointments", icon: Calendar },
     { href: "/dashboard/prescriptions", label: "Prescriptions", icon: FileText },
     { href: "/dashboard/billing", label: "Bills", icon: CreditCard },
+    { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
   ],
 };
 

@@ -411,6 +411,24 @@ model NotificationPreference {
   @@map("notification_preferences")
 }
 
+// ─── AUDIT ──────────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  details   Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
 // ─── SYSTEM ─────────────────────────────────────────────
 
 model SystemConfig {

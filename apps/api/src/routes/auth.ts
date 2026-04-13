@@ -2,9 +2,16 @@ import { Router, Request, Response, NextFunction } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { prisma } from "@medcore/db";
-import { loginSchema, registerSchema } from "@medcore/shared";
+import {
+  loginSchema,
+  registerSchema,
+  changePasswordSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+} from "@medcore/shared";
 import { validate } from "../middleware/validate";
 import { authenticate } from "../middleware/auth";
+import { auditLog } from "../middleware/audit";
 const router = Router();
 
 function generateTokens(userId: string, email: string, role: string) {
@@ -78,6 +85,8 @@ router.post(
         },
       });
 
+      auditLog(req, "REGISTER", "user", user.id, { email: user.email, role: user.role }).catch(console.error);
+
       res.status(201).json({
         success: true,
         data: {
@@ -134,6 +143,8 @@ router.post(
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         },
       });
+
+      auditLog(req, "LOGIN", "user", user.id, { email: user.email }).catch(console.error);
 
       res.json({
         success: true,
@@ -244,7 +255,145 @@ router.post(
       await prisma.refreshToken.deleteMany({
         where: { userId: req.user!.userId },
       });
+
+      auditLog(req, "LOGOUT", "user", req.user!.userId).catch(console.error);
+
       res.json({ success: true, data: null, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── Password Reset (in-memory code store) ────────────────────────
+
+const resetCodes = new Map<string, { code: string; expiresAt: number }>();
+
+// POST /api/v1/auth/forgot-password
+router.post(
+  "/forgot-password",
+  validate(forgotPasswordSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { email } = req.body;
+
+      const user = await prisma.user.findUnique({ where: { email } });
+      if (!user) {
+        // Return success even if user not found to avoid email enumeration
+        res.json({
+          success: true,
+          data: { message: "If that email exists, a reset code has been sent." },
+          error: null,
+        });
+        return;
+      }
+
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      resetCodes.set(email, { code, expiresAt: Date.now() + 10 * 60 * 1000 }); // 10 min
+
+      console.log(`[Password Reset] Code for ${email}: ${code}`);
+
+      res.json({
+        success: true,
+        data: { message: "If that email exists, a reset code has been sent." },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/auth/reset-password
+router.post(
+  "/reset-password",
+  validate(resetPasswordSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { email, code, newPassword } = req.body;
+
+      const stored = resetCodes.get(email);
+      if (!stored || stored.code !== code || stored.expiresAt < Date.now()) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Invalid or expired reset code",
+        });
+        return;
+      }
+
+      const user = await prisma.user.findUnique({ where: { email } });
+      if (!user) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "User not found",
+        });
+        return;
+      }
+
+      const passwordHash = await bcrypt.hash(newPassword, 10);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash },
+      });
+
+      resetCodes.delete(email);
+
+      res.json({
+        success: true,
+        data: { message: "Password has been reset successfully." },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/auth/change-password (authenticated)
+router.post(
+  "/change-password",
+  authenticate,
+  validate(changePasswordSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { currentPassword, newPassword } = req.body;
+
+      const user = await prisma.user.findUnique({
+        where: { id: req.user!.userId },
+      });
+
+      if (!user) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "User not found",
+        });
+        return;
+      }
+
+      const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+      if (!valid) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Current password is incorrect",
+        });
+        return;
+      }
+
+      const passwordHash = await bcrypt.hash(newPassword, 10);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash },
+      });
+
+      res.json({
+        success: true,
+        data: { message: "Password changed successfully." },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

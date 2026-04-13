@@ -13,6 +13,7 @@ import {
   onAppointmentCancelled,
   onTokenCalled,
 } from "../services/notification-triggers";
+import { auditLog } from "../middleware/audit";
 
 const router = Router();
 router.use(authenticate);
@@ -89,6 +90,7 @@ router.post(
 
       // Fire-and-forget notification
       onAppointmentBooked(appointment as any).catch(console.error);
+      auditLog(req, "BOOK_APPOINTMENT", "appointment", appointment.id, { patientId, doctorId, date }).catch(console.error);
 
       res.status(201).json({ success: true, data: appointment, error: null });
     } catch (err) {
@@ -145,6 +147,7 @@ router.post(
 
       // Fire-and-forget notification
       onAppointmentBooked(appointment as any).catch(console.error);
+      auditLog(req, "WALK_IN", "appointment", appointment.id, { patientId, doctorId }).catch(console.error);
 
       res.status(201).json({ success: true, data: appointment, error: null });
     } catch (err) {
@@ -250,6 +253,8 @@ router.patch(
       if (req.body.status === "IN_CONSULTATION") {
         onTokenCalled(appointment as any).catch(console.error);
       }
+
+      auditLog(req, "UPDATE_APPOINTMENT_STATUS", "appointment", req.params.id, { status: req.body.status }).catch(console.error);
 
       res.json({ success: true, data: appointment, error: null });
     } catch (err) {

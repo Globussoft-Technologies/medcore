@@ -11,3 +11,4 @@ deploy.py
 coverage/
 .DS_Store
 Thumbs.db
+backups/*.sql.gz

@@ -28,6 +28,8 @@ interface Slot {
   isAvailable: boolean;
 }
 
+type PatientTab = "upcoming" | "past" | "cancelled";
+
 export default function AppointmentsPage() {
   const { user } = useAuthStore();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -42,6 +44,10 @@ export default function AppointmentsPage() {
   const [filterDate, setFilterDate] = useState(
     new Date().toISOString().split("T")[0]
   );
+  const [patientTab, setPatientTab] = useState<PatientTab>("upcoming");
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+  const isPatient = user?.role === "PATIENT";
 
   useEffect(() => {
     loadAppointments();
@@ -51,9 +57,10 @@ export default function AppointmentsPage() {
   async function loadAppointments() {
     setLoading(true);
     try {
-      const res = await api.get<{ data: Appointment[] }>(
-        `/appointments?date=${filterDate}&limit=100`
-      );
+      const endpoint = isPatient
+        ? `/appointments?limit=200`
+        : `/appointments?date=${filterDate}&limit=100`;
+      const res = await api.get<{ data: Appointment[] }>(endpoint);
       setAppointments(res.data);
     } catch {
       // empty
@@ -110,6 +117,24 @@ export default function AppointmentsPage() {
     }
   }
 
+  function handleCancelClick(appointmentId: string) {
+    setCancellingId(appointmentId);
+  }
+
+  async function confirmCancel() {
+    if (!cancellingId) return;
+    try {
+      await api.patch(`/appointments/${cancellingId}/status`, {
+        status: "CANCELLED",
+      });
+      setCancellingId(null);
+      loadAppointments();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Cancel failed");
+      setCancellingId(null);
+    }
+  }
+
   const statusColors: Record<string, string> = {
     BOOKED: "bg-blue-100 text-blue-700",
     CHECKED_IN: "bg-yellow-100 text-yellow-700",
@@ -119,17 +144,82 @@ export default function AppointmentsPage() {
     NO_SHOW: "bg-gray-100 text-gray-500",
   };
 
+  // Filter appointments for patient tabs
+  const today = new Date().toISOString().split("T")[0];
+
+  function getFilteredAppointments(): Appointment[] {
+    if (!isPatient) return appointments;
+
+    switch (patientTab) {
+      case "upcoming":
+        return appointments.filter(
+          (a) =>
+            ["BOOKED", "CHECKED_IN"].includes(a.status) && a.date >= today
+        );
+      case "past":
+        return appointments.filter((a) => a.status === "COMPLETED");
+      case "cancelled":
+        return appointments.filter((a) =>
+          ["CANCELLED", "NO_SHOW"].includes(a.status)
+        );
+      default:
+        return appointments;
+    }
+  }
+
+  const filteredAppointments = getFilteredAppointments();
+
+  const tabClasses = (tab: PatientTab) =>
+    `px-4 py-2 text-sm font-medium rounded-lg transition ${
+      patientTab === tab
+        ? "bg-primary text-white"
+        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+    }`;
+
   return (
     <div>
+      {/* Cancel confirmation dialog */}
+      {cancellingId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-800">
+              Cancel Appointment
+            </h3>
+            <p className="mt-2 text-sm text-gray-600">
+              Are you sure you want to cancel this appointment? This action
+              cannot be undone.
+            </p>
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                onClick={() => setCancellingId(null)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Keep Appointment
+              </button>
+              <button
+                onClick={confirmCancel}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+              >
+                Yes, Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Appointments</h1>
+        <h1 className="text-2xl font-bold">
+          {isPatient ? "My Appointments" : "Appointments"}
+        </h1>
         <div className="flex items-center gap-3">
-          <input
-            type="date"
-            value={filterDate}
-            onChange={(e) => setFilterDate(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm"
-          />
+          {!isPatient && (
+            <input
+              type="date"
+              value={filterDate}
+              onChange={(e) => setFilterDate(e.target.value)}
+              className="rounded-lg border px-3 py-2 text-sm"
+            />
+          )}
           {(user?.role === "RECEPTION" || user?.role === "ADMIN") && (
             <button
               onClick={() => setShowBooking(!showBooking)}
@@ -140,6 +230,30 @@ export default function AppointmentsPage() {
           )}
         </div>
       </div>
+
+      {/* Patient filter tabs */}
+      {isPatient && (
+        <div className="mb-4 flex gap-2">
+          <button
+            onClick={() => setPatientTab("upcoming")}
+            className={tabClasses("upcoming")}
+          >
+            Upcoming
+          </button>
+          <button
+            onClick={() => setPatientTab("past")}
+            className={tabClasses("past")}
+          >
+            Past
+          </button>
+          <button
+            onClick={() => setPatientTab("cancelled")}
+            className={tabClasses("cancelled")}
+          >
+            Cancelled
+          </button>
+        </div>
+      )}
 
       {/* Booking form */}
       {showBooking && (
@@ -208,17 +322,24 @@ export default function AppointmentsPage() {
       <div className="rounded-xl bg-white shadow-sm">
         {loading ? (
           <div className="p-8 text-center text-gray-500">Loading...</div>
-        ) : appointments.length === 0 ? (
+        ) : filteredAppointments.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
-            No appointments for this date
+            {isPatient
+              ? patientTab === "upcoming"
+                ? "No upcoming appointments"
+                : patientTab === "past"
+                  ? "No past appointments"
+                  : "No cancelled appointments"
+              : "No appointments for this date"}
           </div>
         ) : (
           <table className="w-full">
             <thead>
               <tr className="border-b text-left text-sm text-gray-500">
                 <th className="px-4 py-3">Token</th>
-                <th className="px-4 py-3">Patient</th>
+                {!isPatient && <th className="px-4 py-3">Patient</th>}
                 <th className="px-4 py-3">Doctor</th>
+                <th className="px-4 py-3">Date</th>
                 <th className="px-4 py-3">Time</th>
                 <th className="px-4 py-3">Type</th>
                 <th className="px-4 py-3">Status</th>
@@ -226,16 +347,19 @@ export default function AppointmentsPage() {
               </tr>
             </thead>
             <tbody>
-              {appointments.map((apt) => (
+              {filteredAppointments.map((apt) => (
                 <tr key={apt.id} className="border-b last:border-0">
                   <td className="px-4 py-3 font-bold">{apt.tokenNumber}</td>
-                  <td className="px-4 py-3">
-                    <p className="font-medium">{apt.patient.user.name}</p>
-                    <p className="text-xs text-gray-500">
-                      {apt.patient.user.phone}
-                    </p>
-                  </td>
+                  {!isPatient && (
+                    <td className="px-4 py-3">
+                      <p className="font-medium">{apt.patient.user.name}</p>
+                      <p className="text-xs text-gray-500">
+                        {apt.patient.user.phone}
+                      </p>
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-sm">{apt.doctor.user.name}</td>
+                  <td className="px-4 py-3 text-sm">{apt.date}</td>
                   <td className="px-4 py-3 text-sm">
                     {apt.slotStart || "Walk-in"}
                   </td>
@@ -258,32 +382,47 @@ export default function AppointmentsPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    {apt.status === "BOOKED" && (
-                      <button
-                        onClick={() => updateStatus(apt.id, "CHECKED_IN")}
-                        className="rounded bg-yellow-500 px-2 py-1 text-xs text-white hover:bg-yellow-600"
-                      >
-                        Check In
-                      </button>
-                    )}
-                    {apt.status === "CHECKED_IN" && (
-                      <button
-                        onClick={() =>
-                          updateStatus(apt.id, "IN_CONSULTATION")
-                        }
-                        className="rounded bg-green-500 px-2 py-1 text-xs text-white hover:bg-green-600"
-                      >
-                        Start Consult
-                      </button>
-                    )}
-                    {apt.status === "IN_CONSULTATION" && (
-                      <button
-                        onClick={() => updateStatus(apt.id, "COMPLETED")}
-                        className="rounded bg-gray-500 px-2 py-1 text-xs text-white hover:bg-gray-600"
-                      >
-                        Complete
-                      </button>
-                    )}
+                    <div className="flex gap-2">
+                      {/* Cancel button for PATIENT, RECEPTION, ADMIN on BOOKED appointments */}
+                      {apt.status === "BOOKED" &&
+                        (isPatient ||
+                          user?.role === "RECEPTION" ||
+                          user?.role === "ADMIN") && (
+                          <button
+                            onClick={() => handleCancelClick(apt.id)}
+                            className="rounded bg-red-500 px-2 py-1 text-xs text-white hover:bg-red-600"
+                          >
+                            Cancel
+                          </button>
+                        )}
+                      {/* Staff action buttons */}
+                      {!isPatient && apt.status === "BOOKED" && (
+                        <button
+                          onClick={() => updateStatus(apt.id, "CHECKED_IN")}
+                          className="rounded bg-yellow-500 px-2 py-1 text-xs text-white hover:bg-yellow-600"
+                        >
+                          Check In
+                        </button>
+                      )}
+                      {!isPatient && apt.status === "CHECKED_IN" && (
+                        <button
+                          onClick={() =>
+                            updateStatus(apt.id, "IN_CONSULTATION")
+                          }
+                          className="rounded bg-green-500 px-2 py-1 text-xs text-white hover:bg-green-600"
+                        >
+                          Start Consult
+                        </button>
+                      )}
+                      {!isPatient && apt.status === "IN_CONSULTATION" && (
+                        <button
+                          onClick={() => updateStatus(apt.id, "COMPLETED")}
+                          className="rounded bg-gray-500 px-2 py-1 text-xs text-white hover:bg-gray-600"
+                        >
+                          Complete
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

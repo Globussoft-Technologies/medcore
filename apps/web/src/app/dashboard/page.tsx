@@ -52,7 +52,7 @@ export default function DashboardPage() {
       try {
         const today = new Date().toISOString().split("T")[0];
 
-        const [appointments, patients, invoices] = await Promise.all([
+        const [appointments, patients, pendingInvoices, partialInvoices, queueData] = await Promise.all([
           api
             .get<{ meta: { total: number } }>(
               `/appointments?date=${today}&limit=1`
@@ -66,13 +66,26 @@ export default function DashboardPage() {
               "/billing/invoices?status=PENDING&limit=1"
             )
             .catch(() => ({ meta: { total: 0 } })),
+          api
+            .get<{ meta: { total: number } }>(
+              "/billing/invoices?status=PARTIAL&limit=1"
+            )
+            .catch(() => ({ meta: { total: 0 } })),
+          api
+            .get<{ data: Array<{ waitingCount: number }> }>("/queue")
+            .catch(() => ({ data: [] })),
         ]);
+
+        const totalInQueue = (queueData.data ?? []).reduce(
+          (sum: number, doc: { waitingCount: number }) => sum + doc.waitingCount,
+          0
+        );
 
         setStats({
           todayAppointments: appointments.meta?.total ?? 0,
           totalPatients: patients.meta?.total ?? 0,
-          pendingBills: invoices.meta?.total ?? 0,
-          inQueueCount: 0,
+          pendingBills: (pendingInvoices.meta?.total ?? 0) + (partialInvoices.meta?.total ?? 0),
+          inQueueCount: totalInQueue,
         });
       } catch {
         // Stats will show 0

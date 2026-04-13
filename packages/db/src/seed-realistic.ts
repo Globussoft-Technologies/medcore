@@ -371,18 +371,38 @@ async function main() {
           }
         }
 
-        // ─── Billing (for completed appointments) ───
-        if (status === AppointmentStatus.COMPLETED) {
+        // ─── Billing (for completed and checked-in appointments) ───
+        const shouldBill = status === AppointmentStatus.COMPLETED ||
+          (status === AppointmentStatus.CHECKED_IN && Math.random() > 0.5) ||
+          (status === AppointmentStatus.IN_CONSULTATION);
+
+        if (shouldBill) {
           const invoiceNumber = `INV${String(invoiceSeq).padStart(6, "0")}`;
           const isFirstVisit = Math.random() > 0.4;
-          const items = [isFirstVisit ? BILLING_ITEMS[0] : BILLING_ITEMS[1]]; // consultation or follow-up
-          // Add random additional items
+          const items = [isFirstVisit ? BILLING_ITEMS[0] : BILLING_ITEMS[1]];
           if (Math.random() > 0.6) items.push(randomItem(BILLING_ITEMS.slice(2)));
           if (Math.random() > 0.8) items.push(randomItem(BILLING_ITEMS.slice(2)));
 
           const subtotal = items.reduce((s, it) => s + it.price, 0);
           const discount = Math.random() > 0.85 ? Math.round(subtotal * 0.1) : 0;
           const totalAmount = subtotal - discount;
+
+          // Determine payment status:
+          // - Completed past appointments: mostly PAID, some PENDING (unpaid follow-ups)
+          // - Today's completed: PAID
+          // - Checked-in / In-consultation: PENDING or PARTIAL
+          // - Some recent ones: PARTIAL (partial payment made)
+          let paymentStatus: PaymentStatus;
+          if (status === AppointmentStatus.COMPLETED) {
+            paymentStatus = dayOffset >= -2 && Math.random() > 0.7
+              ? PaymentStatus.PENDING
+              : PaymentStatus.PAID;
+          } else if (status === AppointmentStatus.IN_CONSULTATION) {
+            paymentStatus = Math.random() > 0.5 ? PaymentStatus.PENDING : PaymentStatus.PARTIAL;
+          } else {
+            // CHECKED_IN
+            paymentStatus = PaymentStatus.PENDING;
+          }
 
           const invoice = await prisma.invoice.create({
             data: {
@@ -393,7 +413,7 @@ async function main() {
               taxAmount: 0,
               discountAmount: discount,
               totalAmount,
-              paymentStatus: PaymentStatus.PAID,
+              paymentStatus,
               items: {
                 create: items.map(it => ({
                   description: it.desc,
@@ -406,17 +426,31 @@ async function main() {
             },
           });
 
-          // Payment
-          const mode = randomItem([PaymentMode.CASH, PaymentMode.CASH, PaymentMode.UPI, PaymentMode.CARD, PaymentMode.ONLINE]);
-          await prisma.payment.create({
-            data: {
-              invoiceId: invoice.id,
-              amount: totalAmount,
-              mode,
-              transactionId: mode !== PaymentMode.CASH ? `TXN${randomInt(100000, 999999)}` : null,
-              paidAt: date,
-            },
-          });
+          // Create payment records based on status
+          if (paymentStatus === PaymentStatus.PAID) {
+            const mode = randomItem([PaymentMode.CASH, PaymentMode.CASH, PaymentMode.UPI, PaymentMode.CARD, PaymentMode.ONLINE]);
+            await prisma.payment.create({
+              data: {
+                invoiceId: invoice.id,
+                amount: totalAmount,
+                mode,
+                transactionId: mode !== PaymentMode.CASH ? `TXN${randomInt(100000, 999999)}` : null,
+                paidAt: date,
+              },
+            });
+          } else if (paymentStatus === PaymentStatus.PARTIAL) {
+            // Partial: paid consultation fee only
+            const partialAmount = Math.round(totalAmount * 0.4);
+            await prisma.payment.create({
+              data: {
+                invoiceId: invoice.id,
+                amount: partialAmount,
+                mode: randomItem([PaymentMode.CASH, PaymentMode.UPI]),
+                paidAt: date,
+              },
+            });
+          }
+          // PENDING: no payment record
 
           // Insurance claim for some
           const patientData = await prisma.patient.findUnique({ where: { id: p.patientId } });

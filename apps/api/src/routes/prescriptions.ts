@@ -16,6 +16,119 @@ import { auditLog } from "../middleware/audit";
 const router = Router();
 router.use(authenticate);
 
+// Helper: check drug interactions across a set of medicine names
+// Returns warnings grouped by severity
+async function checkDrugInteractions(
+  newMedicineNames: string[],
+  patientId: string
+): Promise<{
+  warnings: Array<{
+    drugA: string;
+    drugB: string;
+    severity: string;
+    description: string;
+    source: "NEW_VS_NEW" | "NEW_VS_EXISTING";
+  }>;
+  hasBlocking: boolean;
+}> {
+  // Fetch medicines for the new prescription
+  const newMedicines = await prisma.medicine.findMany({
+    where: {
+      OR: newMedicineNames.flatMap((n) => [
+        { name: { equals: n, mode: "insensitive" as const } },
+        { genericName: { equals: n, mode: "insensitive" as const } },
+      ]),
+    },
+  });
+
+  // Fetch patient's active medicines from prescriptions in last 30 days
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const recentPrescriptions = await prisma.prescription.findMany({
+    where: {
+      patientId,
+      createdAt: { gte: thirtyDaysAgo },
+    },
+    include: { items: true },
+  });
+  const existingNames = Array.from(
+    new Set(
+      recentPrescriptions.flatMap((p) =>
+        p.items.map((i) => i.medicineName)
+      )
+    )
+  );
+  const existingMedicines = existingNames.length
+    ? await prisma.medicine.findMany({
+        where: {
+          OR: existingNames.flatMap((n) => [
+            { name: { equals: n, mode: "insensitive" as const } },
+            { genericName: { equals: n, mode: "insensitive" as const } },
+          ]),
+        },
+      })
+    : [];
+
+  const allIds = Array.from(
+    new Set([...newMedicines.map((m) => m.id), ...existingMedicines.map((m) => m.id)])
+  );
+  if (allIds.length < 2) return { warnings: [], hasBlocking: false };
+
+  const interactions = await prisma.drugInteraction.findMany({
+    where: {
+      AND: [{ drugAId: { in: allIds } }, { drugBId: { in: allIds } }],
+    },
+    include: { drugA: true, drugB: true },
+  });
+
+  const newIds = new Set(newMedicines.map((m) => m.id));
+  const warnings = interactions
+    .filter((i) => newIds.has(i.drugAId) || newIds.has(i.drugBId))
+    .map((i) => {
+      const source: "NEW_VS_NEW" | "NEW_VS_EXISTING" =
+        newIds.has(i.drugAId) && newIds.has(i.drugBId)
+          ? "NEW_VS_NEW"
+          : "NEW_VS_EXISTING";
+      return {
+        drugA: i.drugA.name,
+        drugB: i.drugB.name,
+        severity: i.severity,
+        description: i.description,
+        source,
+      };
+    });
+  const hasBlocking = warnings.some(
+    (w) => w.severity === "SEVERE" || w.severity === "CONTRAINDICATED"
+  );
+  return { warnings, hasBlocking };
+}
+
+// POST /api/v1/prescriptions/check-interactions — preview-only (no save)
+router.post(
+  "/check-interactions",
+  authorize(Role.DOCTOR, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { patientId, items } = req.body as {
+        patientId: string;
+        items: Array<{ medicineName: string }>;
+      };
+      if (!patientId || !Array.isArray(items)) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "patientId and items are required",
+        });
+        return;
+      }
+      const names = items.map((i) => i.medicineName).filter(Boolean);
+      const result = await checkDrugInteractions(names, patientId);
+      res.json({ success: true, data: result, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // POST /api/v1/prescriptions — create prescription (doctor)
 router.post(
   "/",
@@ -23,8 +136,30 @@ router.post(
   validate(createPrescriptionSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { appointmentId, patientId, diagnosis, items, advice, followUpDate } =
-        req.body;
+      const { appointmentId, patientId, diagnosis, items, advice, followUpDate, overrideWarnings } =
+        req.body as {
+          appointmentId: string;
+          patientId: string;
+          diagnosis: string;
+          items: Array<{ medicineName: string; dosage: string; frequency: string; duration: string; instructions?: string; refills?: number }>;
+          advice?: string;
+          followUpDate?: string;
+          overrideWarnings?: boolean;
+        };
+
+      // Drug interaction check before save
+      const names = items.map((i) => i.medicineName).filter(Boolean);
+      const { warnings, hasBlocking } = await checkDrugInteractions(names, patientId);
+
+      if (hasBlocking && !overrideWarnings) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Blocking drug interactions detected",
+          warnings,
+        });
+        return;
+      }
 
       // Get doctor record from user
       const doctor = await prisma.doctor.findUnique({
@@ -66,9 +201,20 @@ router.post(
 
       // Fire-and-forget notification
       onPrescriptionReady(prescription as any).catch(console.error);
-      auditLog(req, "CREATE_PRESCRIPTION", "prescription", prescription.id, { appointmentId, patientId, diagnosis }).catch(console.error);
+      auditLog(req, "CREATE_PRESCRIPTION", "prescription", prescription.id, {
+        appointmentId,
+        patientId,
+        diagnosis,
+        warningCount: warnings.length,
+        overrideWarnings: Boolean(overrideWarnings),
+      }).catch(console.error);
 
-      res.status(201).json({ success: true, data: prescription, error: null });
+      res.status(201).json({
+        success: true,
+        data: prescription,
+        warnings: warnings.length ? warnings : undefined,
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

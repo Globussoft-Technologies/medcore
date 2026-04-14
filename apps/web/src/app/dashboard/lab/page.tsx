@@ -20,6 +20,8 @@ interface LabOrder {
   orderNumber?: string;
   orderedAt: string;
   status: string;
+  priority?: string;
+  stat?: boolean;
   notes?: string | null;
   patient: { id: string; mrNumber?: string; user: { name: string } };
   doctor?: { user: { name: string } };
@@ -74,18 +76,21 @@ export default function LabPage() {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showOrderModal, setShowOrderModal] = useState(false);
+  const [statOnly, setStatOnly] = useState(false);
 
   const canOrder = user?.role === "DOCTOR";
 
   useEffect(() => {
     if (tab === "orders") loadOrders();
     else loadTests();
-  }, [tab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, statOnly]);
 
   async function loadOrders() {
     setLoading(true);
     try {
-      const res = await api.get<{ data: LabOrder[] }>("/lab/orders");
+      const qs = statOnly ? "?stat=true" : "";
+      const res = await api.get<{ data: LabOrder[] }>(`/lab/orders${qs}`);
       setOrders(res.data);
     } catch {
       // empty
@@ -148,13 +153,25 @@ export default function LabPage() {
         )}
       </div>
 
-      <div className="mb-4 flex gap-2">
+      <div className="mb-4 flex items-center gap-2">
         <button onClick={() => setTab("orders")} className={tabClass("orders")}>
           Orders
         </button>
         <button onClick={() => setTab("catalog")} className={tabClass("catalog")}>
           Test Catalog
         </button>
+        {tab === "orders" && (
+          <button
+            onClick={() => setStatOnly((v) => !v)}
+            className={`ml-auto rounded-full border px-3 py-1 text-xs font-semibold ${
+              statOnly
+                ? "border-red-600 bg-red-600 text-white"
+                : "border-red-300 bg-white text-red-700 hover:bg-red-50"
+            }`}
+          >
+            STAT Only
+          </button>
+        )}
       </div>
 
       {tab === "catalog" ? (
@@ -216,13 +233,27 @@ export default function LabPage() {
                 {orders.map((o) => (
                   <Fragment key={o.id}>
                     <tr
-                      className="cursor-pointer border-b last:border-0 hover:bg-gray-50"
+                      className={`cursor-pointer border-b last:border-0 hover:bg-gray-50 ${
+                        o.stat ? "border-l-4 border-l-red-500 bg-red-50/40" : ""
+                      }`}
                       onClick={() =>
                         setExpanded(expanded === o.id ? null : o.id)
                       }
                     >
                       <td className="px-4 py-3 font-medium">
-                        {o.orderNumber || o.id.slice(0, 8)}
+                        <div className="flex items-center gap-2">
+                          {o.orderNumber || o.id.slice(0, 8)}
+                          {o.stat && (
+                            <span className="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                              STAT
+                            </span>
+                          )}
+                          {!o.stat && o.priority === "URGENT" && (
+                            <span className="rounded bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                              URGENT
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <p className="font-medium">{o.patient.user.name}</p>
@@ -371,6 +402,7 @@ function NewOrderModal({
   const [tests, setTests] = useState<LabTest[]>([]);
   const [selectedTests, setSelectedTests] = useState<string[]>([]);
   const [notes, setNotes] = useState("");
+  const [priority, setPriority] = useState<"ROUTINE" | "URGENT" | "STAT">("ROUTINE");
 
   useEffect(() => {
     api
@@ -406,6 +438,7 @@ function NewOrderModal({
         patientId: selectedPatient.id,
         testIds: selectedTests,
         notes: notes || undefined,
+        priority,
       });
       onSaved();
       onClose();
@@ -515,6 +548,41 @@ function NewOrderModal({
                 ))
               )}
             </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">Priority</label>
+            <div className="flex gap-2">
+              {(["ROUTINE", "URGENT", "STAT"] as const).map((p) => (
+                <label
+                  key={p}
+                  className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${
+                    priority === p
+                      ? p === "STAT"
+                        ? "border-red-600 bg-red-50 text-red-800"
+                        : p === "URGENT"
+                        ? "border-orange-500 bg-orange-50 text-orange-800"
+                        : "border-primary bg-primary/10 text-primary"
+                      : "border-gray-300 text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="lab-priority"
+                    value={p}
+                    checked={priority === p}
+                    onChange={() => setPriority(p)}
+                    className="hidden"
+                  />
+                  {p}
+                </label>
+              ))}
+            </div>
+            {priority === "STAT" && (
+              <p className="mt-1 text-xs text-red-700">
+                STAT orders notify the lab team immediately.
+              </p>
+            )}
           </div>
 
           <div>

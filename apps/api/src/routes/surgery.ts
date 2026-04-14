@@ -356,17 +356,54 @@ router.patch(
   }
 );
 
-// PATCH /api/v1/surgery/:id/start
+// PATCH /api/v1/surgery/:id/start — enforces pre-op checklist
 router.patch(
   "/:id/start",
   authorize(Role.DOCTOR, Role.ADMIN, Role.NURSE),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const existing = await prisma.surgery.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Surgery not found" });
+        return;
+      }
+
+      const missing: string[] = [];
+      if (!existing.consentSigned) missing.push("Consent signed");
+      if (!existing.npoSince) missing.push("NPO (nil per oral) start time");
+      if (!existing.allergiesVerified) missing.push("Allergies verified");
+      if (!existing.siteMarked) missing.push("Surgical site marked");
+
+      const overrideChecklist = req.body?.overrideChecklist === true;
+      if (missing.length > 0 && !overrideChecklist) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Pre-op checklist incomplete",
+          missing,
+        });
+        return;
+      }
+
+      // Identify previous surgery in same OT (for turnaround tracking)
+      const prev = await prisma.surgery.findFirst({
+        where: {
+          otId: existing.otId,
+          id: { not: existing.id },
+          actualEndAt: { not: null },
+          status: "COMPLETED",
+        },
+        orderBy: { actualEndAt: "desc" },
+      });
+
       const surgery = await prisma.surgery.update({
         where: { id: req.params.id },
         data: {
           status: "IN_PROGRESS",
           actualStartAt: new Date(),
+          previousSurgeryId: prev?.id ?? null,
         },
         include: {
           patient: {
@@ -379,6 +416,8 @@ router.patch(
 
       auditLog(req, "START_SURGERY", "surgery", surgery.id, {
         caseNumber: surgery.caseNumber,
+        overrideChecklist,
+        previousSurgeryId: prev?.id ?? null,
       }).catch(console.error);
 
       res.json({ success: true, data: surgery, error: null });
@@ -395,12 +434,31 @@ router.patch(
   validate(completeSurgerySchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Enforce post-op notes
+      const postOp: string | undefined = req.body.postOpNotes;
+      if (!postOp || postOp.trim().length === 0) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "postOpNotes are required before completing a surgery",
+        });
+        return;
+      }
       const data: Record<string, unknown> = {
         status: "COMPLETED",
         actualEndAt: new Date(),
+        postOpNotes: postOp,
+        postOpChecklistBy: req.user!.userId,
       };
-      if (req.body.postOpNotes !== undefined) data.postOpNotes = req.body.postOpNotes;
       if (req.body.diagnosis !== undefined) data.diagnosis = req.body.diagnosis;
+      if (typeof req.body.spongeCountCorrect === "boolean")
+        data.sponge_countCorrect = req.body.spongeCountCorrect;
+      if (typeof req.body.instrumentCountCorrect === "boolean")
+        data.instrumentCountCorrect = req.body.instrumentCountCorrect;
+      if (typeof req.body.specimenLabeled === "boolean")
+        data.specimenLabeled = req.body.specimenLabeled;
+      if (typeof req.body.patientStable === "boolean")
+        data.patientStable = req.body.patientStable;
 
       const surgery = await prisma.surgery.update({
         where: { id: req.params.id },
@@ -660,6 +718,73 @@ router.get(
             Math.round(
               utilization.reduce((acc, d) => acc + d.hoursUsed, 0) * 10
             ) / 10,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/surgery/ots/:id/turnaround?date=YYYY-MM-DD — OT turnaround time
+// For each pair of sequential completed surgeries that day, measure gap
+// between prev.actualEndAt and next.actualStartAt
+router.get(
+  "/ots/:id/turnaround",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+      const start = new Date(`${date}T00:00:00.000Z`);
+      const end = new Date(`${date}T23:59:59.999Z`);
+
+      const surgeries = await prisma.surgery.findMany({
+        where: {
+          otId: req.params.id,
+          actualStartAt: { gte: start, lte: end },
+        },
+        orderBy: { actualStartAt: "asc" },
+        select: {
+          id: true,
+          caseNumber: true,
+          actualStartAt: true,
+          actualEndAt: true,
+          previousSurgeryId: true,
+        },
+      });
+
+      const gaps: Array<{
+        fromCase: string;
+        toCase: string;
+        gapMinutes: number;
+      }> = [];
+      for (let i = 1; i < surgeries.length; i++) {
+        const prev = surgeries[i - 1];
+        const cur = surgeries[i];
+        if (prev.actualEndAt && cur.actualStartAt) {
+          const gap = (cur.actualStartAt.getTime() - prev.actualEndAt.getTime()) / 60000;
+          if (gap >= 0) {
+            gaps.push({
+              fromCase: prev.caseNumber,
+              toCase: cur.caseNumber,
+              gapMinutes: Math.round(gap),
+            });
+          }
+        }
+      }
+      const avg =
+        gaps.length > 0
+          ? Math.round(gaps.reduce((s, g) => s + g.gapMinutes, 0) / gaps.length)
+          : 0;
+
+      res.json({
+        success: true,
+        data: {
+          otId: req.params.id,
+          date,
+          surgeryCount: surgeries.length,
+          gaps,
+          averageTurnaroundMinutes: avg,
         },
         error: null,
       });

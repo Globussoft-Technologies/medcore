@@ -17,6 +17,7 @@ interface Complaint {
   resolution: string | null;
   resolvedAt: string | null;
   createdAt: string;
+  slaDueAt?: string | null;
   patient?: { user: { name: string; phone: string } };
 }
 
@@ -40,6 +41,7 @@ const TABS: Array<{ key: string; label: string; status?: string }> = [
   { key: "UNDER_REVIEW", label: "Under Review", status: "UNDER_REVIEW" },
   { key: "RESOLVED", label: "Resolved", status: "RESOLVED" },
   { key: "ALL", label: "All" },
+  { key: "SLA", label: "SLA Dashboard" },
 ];
 
 const PRIORITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
@@ -53,6 +55,31 @@ const CATEGORIES = [
   "Other",
 ];
 
+const SLA_HOURS: Record<string, number> = {
+  CRITICAL: 4,
+  HIGH: 24,
+  MEDIUM: 72,
+  LOW: 168,
+};
+
+function computeSlaDue(c: Complaint): Date {
+  if (c.slaDueAt) return new Date(c.slaDueAt);
+  const h = SLA_HOURS[c.priority] ?? 72;
+  return new Date(new Date(c.createdAt).getTime() + h * 3600 * 1000);
+}
+
+function formatSla(due: Date, now: number): { text: string; overdue: boolean; pct: number } {
+  const diffMs = due.getTime() - now;
+  const overdue = diffMs < 0;
+  const absMs = Math.abs(diffMs);
+  const h = Math.floor(absMs / 3600000);
+  const m = Math.floor((absMs % 3600000) / 60000);
+  const text = overdue
+    ? `${h}h ${m}m overdue`
+    : `${h}h ${m}m left`;
+  return { text, overdue, pct: 0 };
+}
+
 export default function ComplaintsPage() {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -62,6 +89,7 @@ export default function ComplaintsPage() {
   const [resolveId, setResolveId] = useState<string | null>(null);
   const [resolveText, setResolveText] = useState("");
   const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
 
   const [form, setForm] = useState({
     name: "",
@@ -78,13 +106,24 @@ export default function ComplaintsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
+  // Tick every 30s for live countdowns
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+
   async function load() {
     setLoading(true);
     try {
       const qs = new URLSearchParams();
       const current = TABS.find((t) => t.key === tab);
       if (current?.status) qs.set("status", current.status);
-      qs.set("limit", "100");
+      // For SLA tab, fetch all non-resolved to compute
+      if (tab === "SLA") {
+        qs.set("limit", "200");
+      } else {
+        qs.set("limit", "100");
+      }
 
       const [listRes, statsRes] = await Promise.all([
         api.get<{ data: Complaint[] }>(`/complaints?${qs.toString()}`),
@@ -189,6 +228,19 @@ export default function ComplaintsPage() {
     CLOSED: "bg-gray-100 text-gray-700",
   };
 
+  // SLA calculations for dashboard
+  const active = complaints.filter(
+    (c) => c.status !== "RESOLVED" && c.status !== "CLOSED"
+  );
+  const atRisk = active.filter((c) => {
+    const due = computeSlaDue(c);
+    const totalMs = due.getTime() - new Date(c.createdAt).getTime();
+    const remainingMs = due.getTime() - now;
+    if (remainingMs < 0) return false;
+    return remainingMs / totalMs < 0.25;
+  });
+  const breached = active.filter((c) => computeSlaDue(c).getTime() < now);
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
@@ -230,7 +282,7 @@ export default function ComplaintsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="mb-4 flex gap-2">
+      <div className="mb-4 flex flex-wrap gap-2">
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -246,101 +298,251 @@ export default function ComplaintsPage() {
         ))}
       </div>
 
-      {/* Table */}
-      <div className="rounded-xl bg-white shadow-sm">
-        {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
-        ) : complaints.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
-            No complaints in this category
+      {tab === "SLA" ? (
+        <div className="space-y-6">
+          {/* SLA Summary cards */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="rounded-xl bg-white p-5 shadow-sm">
+              <p className="text-xs text-gray-500">At Risk (&lt;25% time left)</p>
+              <p className="text-3xl font-bold text-orange-600">
+                {atRisk.length}
+              </p>
+            </div>
+            <div className="rounded-xl bg-white p-5 shadow-sm">
+              <p className="text-xs text-gray-500">SLA Breached</p>
+              <p className="text-3xl font-bold text-red-600">
+                {breached.length}
+              </p>
+            </div>
+            <div className="rounded-xl bg-white p-5 shadow-sm">
+              <p className="text-xs text-gray-500">Avg Response Time</p>
+              <p className="text-3xl font-bold">
+                {stats?.avgResolutionHours || 0}h
+              </p>
+            </div>
           </div>
-        ) : (
-          <table className="w-full">
-            <thead>
-              <tr className="border-b text-left text-sm text-gray-500">
-                <th className="px-4 py-3">Ticket</th>
-                <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">Category</th>
-                <th className="px-4 py-3">Priority</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Assigned</th>
-                <th className="px-4 py-3">Created</th>
-                <th className="px-4 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {complaints.map((c) => {
-                const assignee = users.find((u) => u.id === c.assignedTo);
-                return (
-                  <tr key={c.id} className="border-b last:border-0">
-                    <td className="px-4 py-3 font-mono text-xs font-semibold">
-                      {c.ticketNumber}
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      {c.patient?.user.name || c.name || "-"}
-                    </td>
-                    <td className="px-4 py-3 text-sm">{c.category}</td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${priorityColor[c.priority] || ""}`}
-                      >
-                        {c.priority}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColor[c.status] || ""}`}
-                      >
-                        {c.status.replace(/_/g, " ")}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <select
-                        value={c.assignedTo || ""}
-                        onChange={(e) => assign(c.id, e.target.value)}
-                        className="rounded border px-2 py-1 text-xs"
-                        disabled={c.status === "RESOLVED" || c.status === "CLOSED"}
-                      >
-                        <option value="">
-                          {assignee ? assignee.name : "Unassigned"}
-                        </option>
-                        {users.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.name}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-500">
-                      {new Date(c.createdAt).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-2">
-                        {c.status === "OPEN" && (
-                          <button
-                            onClick={() => changeStatus(c.id, "UNDER_REVIEW")}
-                            className="rounded bg-blue-500 px-2 py-1 text-xs text-white hover:bg-blue-600"
-                          >
-                            Review
-                          </button>
-                        )}
-                        {c.status !== "RESOLVED" && c.status !== "CLOSED" && (
-                          <button
-                            onClick={() => setResolveId(c.id)}
-                            className="rounded bg-green-500 px-2 py-1 text-xs text-white hover:bg-green-600"
-                          >
-                            Resolve
-                          </button>
-                        )}
-                      </div>
-                    </td>
+
+          {/* At-risk list */}
+          <div className="rounded-xl bg-white shadow-sm">
+            <div className="border-b p-4">
+              <h3 className="font-semibold">At-Risk Complaints</h3>
+              <p className="text-xs text-gray-500">
+                Less than 25% of SLA time remaining
+              </p>
+            </div>
+            {atRisk.length === 0 ? (
+              <p className="p-6 text-center text-sm text-gray-500">
+                No at-risk complaints.
+              </p>
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b text-left text-xs text-gray-500">
+                    <th className="px-4 py-2">Ticket</th>
+                    <th className="px-4 py-2">Priority</th>
+                    <th className="px-4 py-2">Category</th>
+                    <th className="px-4 py-2">Status</th>
+                    <th className="px-4 py-2">SLA</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+                </thead>
+                <tbody>
+                  {atRisk.map((c) => {
+                    const sla = formatSla(computeSlaDue(c), now);
+                    return (
+                      <tr key={c.id} className="border-b last:border-0 text-sm">
+                        <td className="px-4 py-2 font-mono text-xs">
+                          {c.ticketNumber}
+                        </td>
+                        <td className="px-4 py-2">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${priorityColor[c.priority]}`}
+                          >
+                            {c.priority}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2">{c.category}</td>
+                        <td className="px-4 py-2">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColor[c.status]}`}
+                          >
+                            {c.status.replace(/_/g, " ")}
+                          </span>
+                        </td>
+                        <td
+                          className={`px-4 py-2 text-xs font-semibold ${sla.overdue ? "text-red-600" : "text-orange-600"}`}
+                        >
+                          {sla.text}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Breached list */}
+          {breached.length > 0 && (
+            <div className="rounded-xl bg-white shadow-sm">
+              <div className="border-b p-4">
+                <h3 className="font-semibold text-red-600">
+                  SLA Breached ({breached.length})
+                </h3>
+              </div>
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b text-left text-xs text-gray-500">
+                    <th className="px-4 py-2">Ticket</th>
+                    <th className="px-4 py-2">Priority</th>
+                    <th className="px-4 py-2">Category</th>
+                    <th className="px-4 py-2">Overdue By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {breached.map((c) => {
+                    const sla = formatSla(computeSlaDue(c), now);
+                    return (
+                      <tr key={c.id} className="border-b last:border-0 text-sm">
+                        <td className="px-4 py-2 font-mono text-xs">
+                          {c.ticketNumber}
+                        </td>
+                        <td className="px-4 py-2">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${priorityColor[c.priority]}`}
+                          >
+                            {c.priority}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2">{c.category}</td>
+                        <td className="px-4 py-2 text-xs font-semibold text-red-600">
+                          {sla.text}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Regular table */
+        <div className="rounded-xl bg-white shadow-sm">
+          {loading ? (
+            <div className="p-8 text-center text-gray-500">Loading...</div>
+          ) : complaints.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">
+              No complaints in this category
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead>
+                <tr className="border-b text-left text-sm text-gray-500">
+                  <th className="px-4 py-3">Ticket</th>
+                  <th className="px-4 py-3">Name</th>
+                  <th className="px-4 py-3">Category</th>
+                  <th className="px-4 py-3">Priority</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">SLA</th>
+                  <th className="px-4 py-3">Assigned</th>
+                  <th className="px-4 py-3">Created</th>
+                  <th className="px-4 py-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {complaints.map((c) => {
+                  const assignee = users.find((u) => u.id === c.assignedTo);
+                  const isResolved =
+                    c.status === "RESOLVED" || c.status === "CLOSED";
+                  const sla = !isResolved
+                    ? formatSla(computeSlaDue(c), now)
+                    : null;
+                  return (
+                    <tr key={c.id} className="border-b last:border-0">
+                      <td className="px-4 py-3 font-mono text-xs font-semibold">
+                        {c.ticketNumber}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {c.patient?.user.name || c.name || "-"}
+                      </td>
+                      <td className="px-4 py-3 text-sm">{c.category}</td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${priorityColor[c.priority] || ""}`}
+                        >
+                          {c.priority}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColor[c.status] || ""}`}
+                        >
+                          {c.status.replace(/_/g, " ")}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs">
+                        {sla ? (
+                          <span
+                            className={
+                              sla.overdue
+                                ? "font-semibold text-red-600"
+                                : "text-gray-600"
+                            }
+                          >
+                            {sla.text}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <select
+                          value={c.assignedTo || ""}
+                          onChange={(e) => assign(c.id, e.target.value)}
+                          className="rounded border px-2 py-1 text-xs"
+                          disabled={isResolved}
+                        >
+                          <option value="">
+                            {assignee ? assignee.name : "Unassigned"}
+                          </option>
+                          {users.map((u) => (
+                            <option key={u.id} value={u.id}>
+                              {u.name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-500">
+                        {new Date(c.createdAt).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-2">
+                          {c.status === "OPEN" && (
+                            <button
+                              onClick={() => changeStatus(c.id, "UNDER_REVIEW")}
+                              className="rounded bg-blue-500 px-2 py-1 text-xs text-white hover:bg-blue-600"
+                            >
+                              Review
+                            </button>
+                          )}
+                          {!isResolved && (
+                            <button
+                              onClick={() => setResolveId(c.id)}
+                              className="rounded bg-green-500 px-2 py-1 text-xs text-white hover:bg-green-600"
+                            >
+                              Resolve
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       {/* New complaint modal */}
       {showModal && (
@@ -415,7 +617,7 @@ export default function ComplaintsPage() {
                   >
                     {PRIORITIES.map((p) => (
                       <option key={p} value={p}>
-                        {p}
+                        {p} (SLA {SLA_HOURS[p]}h)
                       </option>
                     ))}
                   </select>

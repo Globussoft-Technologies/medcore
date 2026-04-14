@@ -43,6 +43,7 @@ import { feedbackRouter, complaintsRouter } from "./routes/feedback";
 import { chatRouter } from "./routes/chat";
 import { visitorsRouter } from "./routes/visitors";
 import { hrOpsRouter } from "./routes/hr-ops";
+import { searchRouter } from "./routes/search";
 import { errorHandler } from "./middleware/error";
 import { rateLimit } from "./middleware/rate-limit";
 import { sanitize } from "./middleware/sanitize";
@@ -112,6 +113,7 @@ app.use("/api/v1/complaints", complaintsRouter);
 app.use("/api/v1/chat", chatRouter);
 app.use("/api/v1/visitors", visitorsRouter);
 app.use("/api/v1/hr-ops", hrOpsRouter);
+app.use("/api/v1/search", searchRouter);
 
 // Health check
 app.get("/api/health", (_req, res) => {

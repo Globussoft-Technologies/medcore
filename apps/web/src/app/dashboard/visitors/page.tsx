@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Camera, Upload, X } from "lucide-react";
 import { api } from "@/lib/api";
 
 interface Visitor {
@@ -16,6 +17,7 @@ interface Visitor {
   checkInAt: string;
   checkOutAt: string | null;
   notes: string | null;
+  photoUrl?: string | null;
   patient?: { user: { name: string; phone: string } };
 }
 
@@ -48,6 +50,16 @@ export default function VisitorsPage() {
   const [printVisitor, setPrintVisitor] = useState<Visitor | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Camera state
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Photo data
+  const [photoData, setPhotoData] = useState<string | null>(null);
+
   const [form, setForm] = useState({
     name: "",
     phone: "",
@@ -63,6 +75,11 @@ export default function VisitorsPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+
+  // Cleanup camera on unmount / modal close
+  useEffect(() => {
+    return () => stopCamera();
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -84,6 +101,62 @@ export default function VisitorsPage() {
     setLoading(false);
   }
 
+  async function startCamera() {
+    setCameraError(null);
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Camera API not available");
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 320, height: 240 },
+      });
+      streamRef.current = stream;
+      setCameraOpen(true);
+      // wait a tick for video ref
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      }, 50);
+    } catch (err) {
+      setCameraError(
+        err instanceof Error ? err.message : "Camera unavailable"
+      );
+    }
+  }
+
+  function stopCamera() {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    setCameraOpen(false);
+  }
+
+  function capturePhoto() {
+    if (!videoRef.current) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = videoRef.current.videoWidth || 320;
+    canvas.height = videoRef.current.videoHeight || 240;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+    setPhotoData(dataUrl);
+    stopCamera();
+  }
+
+  function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") setPhotoData(result);
+    };
+    reader.readAsDataURL(file);
+  }
+
   async function checkIn() {
     if (!form.name) {
       alert("Name is required");
@@ -102,6 +175,20 @@ export default function VisitorsPage() {
       if (form.notes) body.notes = form.notes;
 
       const res = await api.post<{ data: Visitor }>("/visitors", body);
+      const newVisitor = res.data;
+
+      // If we captured a photo, save it
+      if (photoData) {
+        try {
+          await api.patch(`/visitors/${newVisitor.id}/photo`, {
+            photoUrl: photoData,
+          });
+          newVisitor.photoUrl = photoData;
+        } catch {
+          // ignore photo failure
+        }
+      }
+
       setShowModal(false);
       setForm({
         name: "",
@@ -113,8 +200,10 @@ export default function VisitorsPage() {
         department: "",
         notes: "",
       });
+      setPhotoData(null);
+      stopCamera();
       load();
-      setPrintVisitor(res.data);
+      setPrintVisitor(newVisitor);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed");
     }
@@ -128,6 +217,12 @@ export default function VisitorsPage() {
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed");
     }
+  }
+
+  function closeModal() {
+    setShowModal(false);
+    setPhotoData(null);
+    stopCamera();
   }
 
   const total = Object.values(stats?.byPurpose || {}).reduce(
@@ -220,6 +315,7 @@ export default function VisitorsPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b text-left text-sm text-gray-500">
+                <th className="px-4 py-3">Photo</th>
                 <th className="px-4 py-3">Pass #</th>
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Phone</th>
@@ -234,6 +330,20 @@ export default function VisitorsPage() {
             <tbody>
               {visitors.map((v) => (
                 <tr key={v.id} className="border-b last:border-0">
+                  <td className="px-4 py-3">
+                    {v.photoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={v.photoUrl}
+                        alt={v.name}
+                        className="h-10 w-10 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-500">
+                        {v.name.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-4 py-3 font-mono text-xs">
                     {v.passNumber}
                   </td>
@@ -285,7 +395,7 @@ export default function VisitorsPage() {
       {/* Check-in modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
             <h3 className="mb-4 text-lg font-semibold">Check In Visitor</h3>
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
@@ -390,10 +500,83 @@ export default function VisitorsPage() {
                   className="w-full rounded-lg border px-3 py-2 text-sm"
                 />
               </div>
+
+              {/* Photo capture */}
+              <div className="col-span-2">
+                <label className="mb-1 block text-xs font-medium text-gray-600">
+                  Photo
+                </label>
+                {cameraOpen ? (
+                  <div className="flex flex-col items-center gap-2 rounded-lg border bg-gray-50 p-3">
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      className="w-full max-w-xs rounded bg-black"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={capturePhoto}
+                        className="rounded bg-primary px-3 py-1 text-xs text-white"
+                      >
+                        Capture
+                      </button>
+                      <button
+                        onClick={stopCamera}
+                        className="rounded border px-3 py-1 text-xs"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : photoData ? (
+                  <div className="flex items-center gap-3 rounded-lg border p-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={photoData}
+                      alt="Captured"
+                      className="h-20 w-20 rounded object-cover"
+                    />
+                    <button
+                      onClick={() => setPhotoData(null)}
+                      className="flex items-center gap-1 rounded border px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                    >
+                      <X size={12} /> Remove
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={startCamera}
+                      className="flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
+                    >
+                      <Camera size={14} /> Capture Photo
+                    </button>
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
+                    >
+                      <Upload size={14} /> Upload Photo
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={onFileSelected}
+                      className="hidden"
+                    />
+                  </div>
+                )}
+                {cameraError && (
+                  <p className="mt-1 text-xs text-red-600">
+                    {cameraError}. Try uploading a photo instead.
+                  </p>
+                )}
+              </div>
             </div>
             <div className="mt-5 flex justify-end gap-3">
               <button
-                onClick={() => setShowModal(false)}
+                onClick={closeModal}
                 className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700"
               >
                 Cancel
@@ -416,6 +599,14 @@ export default function VisitorsPage() {
             <div id="visitor-pass" className="text-center">
               <h2 className="text-xl font-bold">VISITOR PASS</h2>
               <p className="mb-2 text-xs text-gray-500">MedCore Hospital</p>
+              {printVisitor.photoUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={printVisitor.photoUrl}
+                  alt={printVisitor.name}
+                  className="mx-auto mb-2 h-20 w-20 rounded-full border object-cover"
+                />
+              )}
               <div className="border-y py-3">
                 <p className="font-mono text-lg font-bold">
                   {printVisitor.passNumber}

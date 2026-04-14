@@ -272,6 +272,7 @@ const timelineIconMap = {
 // ───────────────────────────────────────────────────────
 
 type TabKey =
+  | "360"
   | "overview"
   | "timeline"
   | "medical"
@@ -290,7 +291,7 @@ export default function PatientDetailPage() {
   const [allergiesAlert, setAllergiesAlert] = useState<Allergy[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedVisit, setExpandedVisit] = useState<string | null>(null);
-  const [tab, setTab] = useState<TabKey>("overview");
+  const [tab, setTab] = useState<TabKey>("360");
   const [quickModal, setQuickModal] = useState<
     "vitals" | "book" | null
   >(null);
@@ -342,10 +343,10 @@ export default function PatientDetailPage() {
     })();
   }, [id, loadStats, loadAlerts]);
 
-  // Default tab: Timeline if currently admitted, else Overview
+  // Default tab: Timeline if currently admitted, else 360
   useEffect(() => {
     if (stats?.currentAdmissionId) {
-      setTab((t) => (t === "overview" ? "timeline" : t));
+      setTab((t) => (t === "360" || t === "overview" ? "timeline" : t));
     }
   }, [stats?.currentAdmissionId]);
 
@@ -392,6 +393,7 @@ export default function PatientDetailPage() {
   const isAdmin = user?.role === "ADMIN";
 
   const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
+    { key: "360", label: "360\u00B0", icon: <TrendingUp size={14} /> },
     { key: "overview", label: "Overview", icon: <ClipboardList size={14} /> },
     { key: "timeline", label: "Timeline", icon: <Activity size={14} /> },
     { key: "medical", label: "Medical Records", icon: <Heart size={14} /> },
@@ -636,6 +638,17 @@ export default function PatientDetailPage() {
           </button>
         ))}
       </div>
+
+      {/* 360 View */}
+      {tab === "360" && (
+        <Patient360Tab
+          patientId={id}
+          patient={patient}
+          stats={stats}
+          canEdit={canEdit}
+          onBookAppt={() => setQuickModal("book")}
+        />
+      )}
 
       {/* Overview */}
       {tab === "overview" && (
@@ -1602,6 +1615,143 @@ function InvoiceList({ invoices }: { invoices: InvoiceLine[] }) {
 // Lab Results Tab
 // ───────────────────────────────────────────────────────
 
+interface TrendPoint {
+  orderedAt: string;
+  orderNumber: string;
+  testName: string;
+  parameter: string;
+  value: string;
+  unit: string | null;
+  flag: string;
+}
+
+function parseRange(r?: string | null): { low?: number; high?: number } {
+  if (!r) return {};
+  const m = r.match(/([\d.]+)\s*[-–]\s*([\d.]+)/);
+  if (m) return { low: parseFloat(m[1]), high: parseFloat(m[2]) };
+  const lt = r.match(/<\s*([\d.]+)/);
+  if (lt) return { high: parseFloat(lt[1]) };
+  const gt = r.match(/>\s*([\d.]+)/);
+  if (gt) return { low: parseFloat(gt[1]) };
+  return {};
+}
+
+function TrendSparkline({
+  patientId,
+  parameter,
+  currentValue,
+  normalRange,
+}: {
+  patientId: string;
+  parameter: string;
+  currentValue: string;
+  normalRange?: string | null;
+}) {
+  const [points, setPoints] = useState<TrendPoint[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{ data: TrendPoint[] }>(
+          `/lab/results/trends?patientId=${patientId}&parameter=${encodeURIComponent(parameter)}`
+        );
+        if (!cancelled) setPoints(res.data);
+      } catch {
+        if (!cancelled) setPoints([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [patientId, parameter]);
+
+  if (!points) return <span className="text-xs text-gray-400">loading...</span>;
+
+  // Take last 5 numeric values, chronological
+  const numeric = points
+    .map((p) => ({ ...p, v: parseFloat(p.value) }))
+    .filter((p) => !isNaN(p.v))
+    .sort((a, b) => new Date(a.orderedAt).getTime() - new Date(b.orderedAt).getTime())
+    .slice(-5);
+
+  if (numeric.length < 2) {
+    return <span className="text-xs italic text-gray-400">No trend</span>;
+  }
+
+  const values = numeric.map((p) => p.v);
+  const { low, high } = parseRange(normalRange);
+  const combined = [...values];
+  if (typeof low === "number") combined.push(low);
+  if (typeof high === "number") combined.push(high);
+  const min = Math.min(...combined);
+  const max = Math.max(...combined);
+  const range = max - min || 1;
+
+  const W = 100;
+  const H = 30;
+  const xStep = W / (values.length - 1);
+  const toY = (v: number) => H - ((v - min) / range) * H;
+
+  const path = values
+    .map((v, i) => `${i === 0 ? "M" : "L"} ${i * xStep} ${toY(v)}`)
+    .join(" ");
+
+  const curr = parseFloat(currentValue);
+  const prev = numeric.length >= 2 ? numeric[numeric.length - 2].v : null;
+  const significantChange =
+    prev !== null && !isNaN(curr) && prev !== 0
+      ? Math.abs((curr - prev) / prev) > 0.2
+      : false;
+
+  return (
+    <div className="flex items-center gap-2">
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}>
+        {/* Reference range band */}
+        {typeof low === "number" && typeof high === "number" && (
+          <rect
+            x="0"
+            y={toY(high)}
+            width={W}
+            height={Math.max(0, toY(low) - toY(high))}
+            className="fill-green-100"
+          />
+        )}
+        {/* Line */}
+        <path
+          d={path}
+          className="fill-none stroke-blue-500"
+          strokeWidth="1.5"
+        />
+        {/* Points */}
+        {values.map((v, i) => (
+          <circle
+            key={i}
+            cx={i * xStep}
+            cy={toY(v)}
+            r={i === values.length - 1 ? 2.5 : 1.5}
+            className={
+              i === values.length - 1
+                ? significantChange
+                  ? "fill-red-600"
+                  : "fill-blue-600"
+                : "fill-blue-400"
+            }
+          />
+        ))}
+      </svg>
+      {significantChange && (
+        <span
+          title="Changed >20% from previous"
+          className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700"
+        >
+          Δ
+        </span>
+      )}
+    </div>
+  );
+}
+
 function LabResultsTab({ patientId }: { patientId: string }) {
   const [orders, setOrders] = useState<LabOrderFull[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1729,6 +1879,7 @@ function LabResultsTab({ patientId }: { patientId: string }) {
                               <th className="py-1.5 text-left">Unit</th>
                               <th className="py-1.5 text-left">Normal Range</th>
                               <th className="py-1.5 text-center">Flag</th>
+                              <th className="py-1.5 text-left">Trend (last 5)</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1765,6 +1916,14 @@ function LabResultsTab({ patientId }: { patientId: string }) {
                                   >
                                     {r.flag}
                                   </span>
+                                </td>
+                                <td className="py-1.5">
+                                  <TrendSparkline
+                                    patientId={patientId}
+                                    parameter={r.parameter}
+                                    currentValue={r.value}
+                                    normalRange={r.normalRange}
+                                  />
                                 </td>
                               </tr>
                             ))}
@@ -3211,5 +3370,582 @@ function DocumentUploadForm({
         </div>
       </form>
     </Modal>
+  );
+}
+
+// ───────────────────────────────────────────────────────
+// Patient 360 Tab
+// ───────────────────────────────────────────────────────
+
+function Patient360Tab({
+  patientId,
+  patient,
+  stats,
+  canEdit,
+  onBookAppt,
+}: {
+  patientId: string;
+  patient: PatientDetail & { photoUrl?: string | null };
+  stats: PatientStats | null;
+  canEdit: boolean;
+  onBookAppt: () => void;
+}) {
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const [vitals, setVitals] = useState<VitalsTrendPoint[]>([]);
+  const [prescriptions, setPrescriptions] = useState<
+    Array<{
+      id: string;
+      diagnosis: string;
+      createdAt: string;
+      doctor?: { user?: { name?: string } };
+      items: Array<{ medicineName: string; dosage: string; frequency: string; duration: string }>;
+    }>
+  >([]);
+  const [conditions, setConditions] = useState<Condition[]>([]);
+  const [allergyCount, setAllergyCount] = useState(0);
+  const [immunOverdue, setImmunOverdue] = useState(0);
+  const [labUnread, setLabUnread] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const ninety = new Date(Date.now() - 90 * 86400_000).toISOString();
+        const thirty = new Date(Date.now() - 30 * 86400_000).toISOString();
+
+        const [tRes, vRes, hRes, aRes, imRes, rxRes, cRes] = await Promise.all([
+          api
+            .get<{ data: TimelineEntry[] }>(`/patients/${patientId}/timeline`)
+            .catch(() => ({ data: [] })),
+          api
+            .get<{ data: VitalsTrendPoint[] }>(
+              `/patients/${patientId}/vitals-trend?from=${thirty}`
+            )
+            .catch(() => ({ data: [] })),
+          api
+            .get<{ data: any[] }>(`/patients/${patientId}/history`)
+            .catch(() => ({ data: [] })),
+          api
+            .get<{ data: Allergy[] }>(`/ehr/patients/${patientId}/allergies`)
+            .catch(() => ({ data: [] })),
+          api
+            .get<{ data: any[] }>(
+              `/ehr/patients/${patientId}/immunizations/schedule?filter=overdue`
+            )
+            .catch(() =>
+              api
+                .get<{ data: any[] }>(
+                  `/ehr/immunizations/schedule?patientId=${patientId}&filter=overdue`
+                )
+                .catch(() => ({ data: [] }))
+            ),
+          api
+            .get<{ data: any[] }>(`/prescriptions?patientId=${patientId}&limit=3`)
+            .catch(() => ({ data: [] })),
+          api
+            .get<{ data: Condition[] }>(`/ehr/patients/${patientId}/conditions`)
+            .catch(() => ({ data: [] })),
+        ]);
+
+        if (cancelled) return;
+        setTimeline((tRes.data || []).slice(0, 10));
+        setVitals(vRes.data || []);
+        setAllergyCount((aRes.data || []).length);
+        setImmunOverdue(Array.isArray(imRes.data) ? imRes.data.length : 0);
+        setPrescriptions((rxRes.data || []).slice(0, 3));
+        setConditions(
+          (cRes.data || []).filter(
+            (c: Condition) => c.status === "ACTIVE" || c.status === "RELAPSED"
+          )
+        );
+        // lab unread = orders completed but not yet "read" — approximate via completed in last 30d
+        const visits = hRes.data || [];
+        const since90 = new Date(ninety).getTime();
+        const recent = visits.filter(
+          (v: any) => new Date(v.date).getTime() >= since90
+        );
+        // compute metrics from recent visits
+        const labs = recent.filter((v: any) => v.labOrder || v.lab);
+        setLabUnread(labs.length);
+        (window as any).__p360_recent = recent;
+      } catch {
+        // noop
+      }
+      if (!cancelled) setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [patientId]);
+
+  const metrics = useMemo(() => {
+    const recent = (typeof window !== "undefined" && (window as any).__p360_recent) || [];
+    const total = recent.length;
+    let totalSpent = 0;
+    let consultDurSum = 0;
+    let consultCount = 0;
+    for (const v of recent) {
+      if (v.invoice?.paymentStatus === "PAID") totalSpent += v.invoice.totalAmount || 0;
+      if (v.consultationStartedAt && v.consultationEndedAt) {
+        const d =
+          new Date(v.consultationEndedAt).getTime() -
+          new Date(v.consultationStartedAt).getTime();
+        if (d > 0 && d < 4 * 3600_000) {
+          consultDurSum += d;
+          consultCount++;
+        }
+      }
+    }
+    const avgConsultMin =
+      consultCount > 0 ? Math.round(consultDurSum / consultCount / 60000) : 0;
+    return { visits: total, totalSpent, avgConsultMin };
+  }, [timeline.length, vitals.length]);
+
+  const bpPoints = vitals
+    .map((v) => v.bloodPressureSystolic)
+    .filter((x): x is number => x != null);
+  const pulsePoints = vitals
+    .map((v) => v.pulseRate)
+    .filter((x): x is number => x != null);
+  const weightPoints = vitals
+    .map((v) => v.weight)
+    .filter((x): x is number => x != null);
+
+  if (loading) return <div className="p-6 text-gray-500">Loading 360° view...</div>;
+
+  return (
+    <div className="space-y-4">
+      {/* Active items row */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <ActiveTile
+          label="Admission"
+          value={stats?.currentAdmissionId ? "Active" : "None"}
+          tone={stats?.currentAdmissionId ? "purple" : "gray"}
+          subtitle={stats?.currentAdmissionNumber || "not admitted"}
+          href={stats?.currentAdmissionId ? `/dashboard/ipd/${stats.currentAdmissionId}` : undefined}
+          Icon={BedDouble}
+        />
+        <ActiveTile
+          label="Pending Bills"
+          value={String(stats?.pendingBills || 0)}
+          tone={stats && stats.pendingBills > 0 ? "amber" : "gray"}
+          subtitle="unpaid invoices"
+          href="/dashboard/billing"
+          Icon={CreditCard}
+        />
+        <ActiveTile
+          label="Unread Labs"
+          value={String(labUnread)}
+          tone={labUnread > 0 ? "blue" : "gray"}
+          subtitle="recent results"
+          Icon={FlaskConical}
+        />
+        <ActiveTile
+          label="Overdue Immun."
+          value={String(immunOverdue)}
+          tone={immunOverdue > 0 ? "orange" : "gray"}
+          subtitle="vaccines due"
+          Icon={Syringe}
+        />
+        <ActiveTile
+          label="Active Allergies"
+          value={String(allergyCount)}
+          tone={allergyCount > 0 ? "red" : "gray"}
+          subtitle="recorded"
+          Icon={AlertTriangle}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {/* Left column */}
+        <div className="space-y-4 lg:col-span-2">
+          {/* Quick actions strip */}
+          <div className="rounded-xl bg-white p-4 shadow-sm">
+            <h3 className="mb-3 text-sm font-semibold text-gray-700">Quick Actions</h3>
+            <div className="flex flex-wrap gap-2">
+              <QuickBtn
+                label="Book Appointment"
+                color="bg-primary"
+                Icon={Calendar}
+                onClick={onBookAppt}
+              />
+              <QuickLink
+                href={`/dashboard/telemedicine/new?patientId=${patientId}`}
+                label="Telemedicine"
+                color="bg-purple-600"
+                Icon={User}
+              />
+              {!stats?.currentAdmissionId && (
+                <QuickLink
+                  href={`/dashboard/ipd/admit?patientId=${patientId}`}
+                  label="Admit"
+                  color="bg-indigo-600"
+                  Icon={BedDouble}
+                />
+              )}
+              <QuickLink
+                href={`/dashboard/lab/new?patientId=${patientId}`}
+                label="Order Lab"
+                color="bg-teal-600"
+                Icon={FlaskConical}
+              />
+              <QuickLink
+                href={`/dashboard/prescriptions/new?patientId=${patientId}`}
+                label="Write Prescription"
+                color="bg-green-600"
+                Icon={Pill}
+              />
+              <QuickLink
+                href={`/dashboard/billing/new?patientId=${patientId}`}
+                label="Generate Bill"
+                color="bg-amber-600"
+                Icon={Receipt}
+              />
+            </div>
+          </div>
+
+          {/* Recent activity feed */}
+          <div className="rounded-xl bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-700">Recent Activity</h3>
+              <span className="text-xs text-gray-400">Last 10 events</span>
+            </div>
+            {timeline.length === 0 ? (
+              <p className="py-6 text-center text-xs text-gray-400">No events yet</p>
+            ) : (
+              <div className="space-y-2">
+                {timeline.map((e) => {
+                  const colors = timelineColorMap[e.color] || timelineColorMap.gray;
+                  const Icon = (timelineIconMap as any)[e.icon] || Activity;
+                  return (
+                    <div
+                      key={e.id}
+                      className={`flex items-start gap-3 rounded-lg border-l-4 ${colors.border} ${colors.bg} p-2.5`}
+                    >
+                      <Icon size={16} className={colors.icon} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="truncate text-sm font-medium text-gray-800">
+                            {e.title}
+                          </p>
+                          <p className="shrink-0 text-[11px] text-gray-500">
+                            {new Date(e.timestamp).toLocaleDateString("en-IN", {
+                              day: "2-digit",
+                              month: "short",
+                            })}
+                          </p>
+                        </div>
+                        {e.description && (
+                          <p className="mt-0.5 truncate text-xs text-gray-600">
+                            {e.description}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Recent prescriptions */}
+          <div className="rounded-xl bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-700">Recent Prescriptions</h3>
+              <Link
+                href="/dashboard/prescriptions"
+                className="text-xs text-primary hover:underline"
+              >
+                View all
+              </Link>
+            </div>
+            {prescriptions.length === 0 ? (
+              <p className="py-4 text-center text-xs text-gray-400">No prescriptions</p>
+            ) : (
+              <div className="space-y-2">
+                {prescriptions.map((rx) => (
+                  <details key={rx.id} className="rounded-lg bg-green-50 p-3">
+                    <summary className="flex cursor-pointer items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">
+                          {rx.diagnosis}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Dr. {rx.doctor?.user?.name || "—"} ·{" "}
+                          {new Date(rx.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <span className="text-xs text-gray-500">
+                        {rx.items.length} item{rx.items.length === 1 ? "" : "s"}
+                      </span>
+                    </summary>
+                    <div className="mt-2 space-y-1 border-t border-green-200 pt-2">
+                      {rx.items.map((it, i) => (
+                        <p key={i} className="text-xs text-gray-700">
+                          <span className="font-medium">{it.medicineName}</span>{" "}
+                          — {it.dosage} · {it.frequency} · {it.duration}
+                        </p>
+                      ))}
+                    </div>
+                  </details>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right column */}
+        <div className="space-y-4">
+          {/* Hero */}
+          <div className="rounded-xl bg-white p-4 shadow-sm">
+            <div className="flex items-center gap-3">
+              {patient.photoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={patient.photoUrl}
+                  alt={patient.user.name}
+                  className="h-14 w-14 rounded-full object-cover"
+                />
+              ) : (
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+                  <User size={24} className="text-primary" />
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-gray-800">
+                  {patient.user.name}
+                </p>
+                <p className="truncate text-xs text-gray-500">
+                  {patient.mrNumber} ·{" "}
+                  {patient.age != null ? `${patient.age} y` : ""} ·{" "}
+                  {patient.gender}
+                </p>
+                {patient.bloodGroup && (
+                  <p className="text-xs text-gray-500">
+                    Blood: {patient.bloodGroup}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Key metrics */}
+          <div className="rounded-xl bg-white p-4 shadow-sm">
+            <h3 className="mb-3 text-sm font-semibold text-gray-700">
+              Last 90 Days
+            </h3>
+            <div className="grid grid-cols-2 gap-2">
+              <Metric label="Visits" value={String(metrics.visits)} />
+              <Metric
+                label="Spent"
+                value={`Rs. ${metrics.totalSpent.toFixed(0)}`}
+              />
+              <Metric
+                label="Avg Consult"
+                value={metrics.avgConsultMin ? `${metrics.avgConsultMin}m` : "—"}
+              />
+              <Metric label="Rx Count" value={String(prescriptions.length)} />
+            </div>
+          </div>
+
+          {/* Vital sparklines */}
+          <div className="rounded-xl bg-white p-4 shadow-sm">
+            <h3 className="mb-3 text-sm font-semibold text-gray-700">
+              Vital Trends (30d)
+            </h3>
+            <div className="space-y-3">
+              <Sparkline label="BP Systolic" unit="mmHg" values={bpPoints} color="#ef4444" />
+              <Sparkline label="Pulse" unit="bpm" values={pulsePoints} color="#3b82f6" />
+              <Sparkline label="Weight" unit="kg" values={weightPoints} color="#10b981" />
+            </div>
+          </div>
+
+          {/* Diagnoses */}
+          <div className="rounded-xl bg-white p-4 shadow-sm">
+            <h3 className="mb-3 text-sm font-semibold text-gray-700">
+              Active Diagnoses
+            </h3>
+            {conditions.length === 0 ? (
+              <p className="py-3 text-center text-xs text-gray-400">
+                No active conditions
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {conditions.slice(0, 6).map((c) => (
+                  <div key={c.id} className="flex items-center justify-between">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm text-gray-800">
+                        {c.condition}
+                      </p>
+                      {c.icd10Code && (
+                        <p className="text-xs text-gray-500">
+                          ICD-10: {c.icd10Code}
+                        </p>
+                      )}
+                    </div>
+                    <span
+                      className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                        conditionColors[c.status]
+                      }`}
+                    >
+                      {c.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActiveTile({
+  label,
+  value,
+  subtitle,
+  tone,
+  href,
+  Icon,
+}: {
+  label: string;
+  value: string;
+  subtitle: string;
+  tone: "purple" | "amber" | "blue" | "orange" | "red" | "gray";
+  href?: string;
+  Icon: React.ElementType;
+}) {
+  const toneMap: Record<string, string> = {
+    purple: "bg-purple-50 border-purple-200 text-purple-700",
+    amber: "bg-amber-50 border-amber-200 text-amber-700",
+    blue: "bg-blue-50 border-blue-200 text-blue-700",
+    orange: "bg-orange-50 border-orange-200 text-orange-700",
+    red: "bg-red-50 border-red-200 text-red-700",
+    gray: "bg-gray-50 border-gray-200 text-gray-600",
+  };
+  const body = (
+    <div className={`rounded-xl border p-3 ${toneMap[tone]}`}>
+      <div className="mb-1 flex items-center gap-1.5">
+        <Icon size={14} />
+        <p className="text-[11px] font-semibold uppercase tracking-wide opacity-80">
+          {label}
+        </p>
+      </div>
+      <p className="text-lg font-bold">{value}</p>
+      <p className="text-[11px] opacity-70">{subtitle}</p>
+    </div>
+  );
+  return href ? <Link href={href}>{body}</Link> : body;
+}
+
+function QuickBtn({
+  onClick,
+  label,
+  color,
+  Icon,
+}: {
+  onClick: () => void;
+  label: string;
+  color: string;
+  Icon: React.ElementType;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 rounded-lg ${color} px-3 py-1.5 text-xs font-medium text-white hover:opacity-90`}
+    >
+      <Icon size={13} /> {label}
+    </button>
+  );
+}
+
+function QuickLink({
+  href,
+  label,
+  color,
+  Icon,
+}: {
+  href: string;
+  label: string;
+  color: string;
+  Icon: React.ElementType;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`flex items-center gap-1.5 rounded-lg ${color} px-3 py-1.5 text-xs font-medium text-white hover:opacity-90`}
+    >
+      <Icon size={13} /> {label}
+    </Link>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-gray-50 p-2">
+      <p className="text-[11px] text-gray-500">{label}</p>
+      <p className="text-sm font-bold text-gray-800">{value}</p>
+    </div>
+  );
+}
+
+function Sparkline({
+  label,
+  unit,
+  values,
+  color,
+}: {
+  label: string;
+  unit: string;
+  values: number[];
+  color: string;
+}) {
+  if (values.length === 0) {
+    return (
+      <div>
+        <p className="mb-1 text-xs text-gray-500">
+          {label} <span className="text-gray-400">— no data</span>
+        </p>
+        <div className="h-8 rounded bg-gray-50" />
+      </div>
+    );
+  }
+  const w = 220;
+  const h = 32;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const stepX = values.length > 1 ? w / (values.length - 1) : w;
+  const pts = values
+    .map((v, i) => {
+      const x = i * stepX;
+      const y = h - ((v - min) / range) * (h - 4) - 2;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  const latest = values[values.length - 1];
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-gray-600">{label}</p>
+        <p className="text-xs font-semibold text-gray-800">
+          {latest}
+          <span className="ml-0.5 text-gray-400">{unit}</span>
+        </p>
+      </div>
+      <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+        <polyline
+          points={pts}
+          fill="none"
+          stroke={color}
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </div>
   );
 }

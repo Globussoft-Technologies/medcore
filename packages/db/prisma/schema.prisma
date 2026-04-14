@@ -548,8 +548,14 @@ model Patient {
   aadhaarMasked         String?
   photoUrl              String?
   mergedIntoId          String?
+  // Family linking (Apr 2026)
+  guardianPatientId    String?
 
   user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guardian             Patient?              @relation("PatientGuardian", fields: [guardianPatientId], references: [id])
+  dependents           Patient[]             @relation("PatientGuardian")
+  familyLinks          PatientFamilyLink[]   @relation("PatientPrimary")
+  familyLinkedBy       PatientFamilyLink[]   @relation("PatientRelated")
   appointments         Appointment[]
   vitals               Vitals[]
   prescriptions        Prescription[]
@@ -599,6 +605,9 @@ model Appointment {
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
 
+  // Group appointments (Apr 2026) — therapy / training sessions
+  groupId               String?
+
   patient      Patient       @relation(fields: [patientId], references: [id])
   doctor       Doctor        @relation(fields: [doctorId], references: [id])
   vitals       Vitals?
@@ -610,7 +619,25 @@ model Appointment {
   @@index([doctorId, date])
   @@index([patientId])
   @@index([date, status])
+  @@index([groupId])
   @@map("appointments")
+}
+
+// ─── PATIENT FAMILY LINKS (bidirectional) ───────────────
+model PatientFamilyLink {
+  id               String   @id @default(uuid())
+  patientId        String
+  relatedPatientId String
+  relationship     String // PARENT, CHILD, SPOUSE, SIBLING, GUARDIAN
+  createdAt        DateTime @default(now())
+
+  patient        Patient @relation("PatientPrimary", fields: [patientId], references: [id], onDelete: Cascade)
+  relatedPatient Patient @relation("PatientRelated", fields: [relatedPatientId], references: [id], onDelete: Cascade)
+
+  @@unique([patientId, relatedPatientId])
+  @@index([patientId])
+  @@index([relatedPatientId])
+  @@map("patient_family_links")
 }
 
 // ─── OPD — VITALS & CONSULTATION ────────────────────────
@@ -1203,6 +1230,9 @@ model LabOrder {
   completedAt     DateTime?
   rejectedAt      DateTime?
   rejectionReason String? // INSUFFICIENT_SAMPLE, HEMOLYZED, CLOTTED, WRONG_LABEL, etc.
+  // Priority routing (Apr 2026)
+  priority        String        @default("ROUTINE") // ROUTINE, URGENT, STAT
+  stat            Boolean       @default(false)
 
   patient   Patient        @relation(fields: [patientId], references: [id])
   doctor    Doctor         @relation(fields: [doctorId], references: [id])
@@ -1420,6 +1450,14 @@ model Surgery {
   complications        String? // JSON/text — "bleeding", "hypotension", etc.
   complicationSeverity String? // MILD, MODERATE, SEVERE
   bloodLossMl          Int?
+  // Turnaround tracking (Apr 2026)
+  previousSurgeryId    String?
+  // Post-op checklist (Apr 2026)
+  sponge_countCorrect  Boolean?
+  instrumentCountCorrect Boolean?
+  specimenLabeled      Boolean?
+  patientStable        Boolean?
+  postOpChecklistBy    String?
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
 
@@ -1652,6 +1690,8 @@ model TelemedicineSession {
   recordingUrl        String?
   followUpScheduledAt DateTime?
   patientJoinedAt     DateTime? // waiting room
+  // Chat during session (Apr 2026)
+  sessionMessages     Json? // Array<{id,sender,text,sentAt}>
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
@@ -1706,6 +1746,11 @@ model EmergencyCase {
   // Repeat visit (<72h) — cached at registration
   isRepeatVisit     Boolean         @default(false)
   treatmentOrders   String? // JSON list of meds/procedures given in ER
+  // Revised Trauma Score (Apr 2026)
+  rtsRespiratory    Int? // coded 0-4
+  rtsSystolic       Int? // coded 0-4
+  rtsGCS            Int? // coded 0-4
+  rtsScore          Float?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
@@ -1831,6 +1876,10 @@ model BloodUnit {
   status          BloodUnitStatus @default(AVAILABLE)
   storageLocation String?
   notes           String?
+  // Reservation (Apr 2026)
+  reservedUntil       DateTime?
+  reservedForRequestId String?
+  reservedBy          String?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 

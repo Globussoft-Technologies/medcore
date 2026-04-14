@@ -325,9 +325,12 @@ export default function InvoiceDetailPage() {
                 123 Medical Center Road, Healthcare District
               </p>
               <p className="text-sm text-gray-500">Phone: +91-XXXXXXXXXX</p>
+              <p className="mt-1 text-xs font-semibold text-gray-700">
+                GSTIN: 29ABCDE1234F1Z5
+              </p>
             </div>
             <div className="text-right">
-              <h2 className="text-lg font-semibold">INVOICE</h2>
+              <h2 className="text-lg font-semibold">TAX INVOICE</h2>
               <p className="font-mono text-sm font-medium text-primary">
                 {invoice.invoiceNumber}
               </p>
@@ -511,10 +514,20 @@ export default function InvoiceDetailPage() {
               <span>{fmtMoney(invoice.subtotal)}</span>
             </div>
             {invoice.taxAmount > 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Tax</span>
-                <span>{fmtMoney(invoice.taxAmount)}</span>
-              </div>
+              <>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">CGST (9%)</span>
+                  <span>{fmtMoney(invoice.taxAmount / 2)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">SGST (9%)</span>
+                  <span>{fmtMoney(invoice.taxAmount / 2)}</span>
+                </div>
+                <div className="flex justify-between border-t pt-1 text-sm font-medium">
+                  <span className="text-gray-600">Total GST (18%)</span>
+                  <span>{fmtMoney(invoice.taxAmount)}</span>
+                </div>
+              </>
             )}
             {invoice.discountAmount > 0 && (
               <div className="flex justify-between text-sm">

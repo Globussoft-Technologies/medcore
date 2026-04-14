@@ -672,4 +672,84 @@ router.post(
   }
 );
 
+// POST /api/v1/emergency/cases/:id/trauma-score — compute Revised Trauma Score
+// RTS = 0.9368 * GCS_code + 0.7326 * SBP_code + 0.2908 * RR_code  (range 0-7.8408)
+router.post(
+  "/cases/:id/trauma-score",
+  authorize(Role.DOCTOR, Role.NURSE, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { rtsRespiratory, rtsSystolic, rtsGCS } = req.body as {
+        rtsRespiratory: number;
+        rtsSystolic: number;
+        rtsGCS: number;
+      };
+      const valid =
+        [rtsRespiratory, rtsSystolic, rtsGCS].every(
+          (v) => Number.isInteger(v) && v >= 0 && v <= 4
+        );
+      if (!valid) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "rtsRespiratory, rtsSystolic, rtsGCS must be integers 0-4",
+        });
+        return;
+      }
+      const score =
+        0.9368 * rtsGCS + 0.7326 * rtsSystolic + 0.2908 * rtsRespiratory;
+      const rounded = Math.round(score * 1000) / 1000;
+
+      const existing = await prisma.emergencyCase.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!existing) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Emergency case not found",
+        });
+        return;
+      }
+
+      const updated = await prisma.emergencyCase.update({
+        where: { id: req.params.id },
+        data: {
+          rtsRespiratory,
+          rtsSystolic,
+          rtsGCS,
+          rtsScore: rounded,
+        },
+      });
+
+      // Interpretation
+      const interpretation =
+        rounded >= 7
+          ? "Minor — standard triage"
+          : rounded >= 4
+          ? "Moderate — urgent"
+          : "Severe — immediate resuscitation";
+
+      auditLog(req, "EMERGENCY_TRAUMA_SCORE", "emergencyCase", updated.id, {
+        rtsScore: rounded,
+        rtsRespiratory,
+        rtsSystolic,
+        rtsGCS,
+      }).catch(console.error);
+
+      res.status(201).json({
+        success: true,
+        data: {
+          case: updated,
+          rtsScore: rounded,
+          interpretation,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 export { router as emergencyRouter };

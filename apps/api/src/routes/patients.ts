@@ -907,4 +907,175 @@ router.get(
   }
 );
 
+// ─── FAMILY LINKING (Apr 2026) ──────────────────────────
+
+// GET /api/v1/patients/:id/family
+router.get(
+  "/:id/family",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const patient = await prisma.patient.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, guardianPatientId: true },
+      });
+      if (!patient) {
+        res.status(404).json({ success: false, data: null, error: "Patient not found" });
+        return;
+      }
+      const [guardian, dependents, familyLinks] = await Promise.all([
+        patient.guardianPatientId
+          ? prisma.patient.findUnique({
+              where: { id: patient.guardianPatientId },
+              include: { user: { select: { name: true, phone: true } } },
+            })
+          : Promise.resolve(null),
+        prisma.patient.findMany({
+          where: { guardianPatientId: patient.id },
+          include: { user: { select: { name: true, phone: true } } },
+        }),
+        prisma.patientFamilyLink.findMany({
+          where: { patientId: patient.id },
+          include: {
+            relatedPatient: {
+              include: { user: { select: { name: true, phone: true } } },
+            },
+          },
+        }),
+      ]);
+
+      res.json({
+        success: true,
+        data: { guardian, dependents, familyLinks },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/patients/:id/link-family
+router.post(
+  "/:id/link-family",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const patientId = req.params.id;
+      const { relatedPatientId, relationship } = req.body as {
+        relatedPatientId: string;
+        relationship: "PARENT" | "CHILD" | "SPOUSE" | "SIBLING" | "GUARDIAN";
+      };
+      if (!relatedPatientId || !relationship) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "relatedPatientId and relationship required",
+        });
+        return;
+      }
+      if (relatedPatientId === patientId) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Cannot link a patient to themselves",
+        });
+        return;
+      }
+      const [patient, related] = await Promise.all([
+        prisma.patient.findUnique({ where: { id: patientId } }),
+        prisma.patient.findUnique({ where: { id: relatedPatientId } }),
+      ]);
+      if (!patient || !related) {
+        res.status(404).json({ success: false, data: null, error: "Patient not found" });
+        return;
+      }
+
+      // Create bidirectional link (simplified — inverse relation is PARENT<->CHILD, otherwise same)
+      const inverse: Record<string, string> = {
+        PARENT: "CHILD",
+        CHILD: "PARENT",
+        SPOUSE: "SPOUSE",
+        SIBLING: "SIBLING",
+        GUARDIAN: "CHILD",
+      };
+
+      const [a, b] = await prisma.$transaction([
+        prisma.patientFamilyLink.upsert({
+          where: {
+            patientId_relatedPatientId: { patientId, relatedPatientId },
+          },
+          create: { patientId, relatedPatientId, relationship },
+          update: { relationship },
+        }),
+        prisma.patientFamilyLink.upsert({
+          where: {
+            patientId_relatedPatientId: {
+              patientId: relatedPatientId,
+              relatedPatientId: patientId,
+            },
+          },
+          create: {
+            patientId: relatedPatientId,
+            relatedPatientId: patientId,
+            relationship: inverse[relationship] || relationship,
+          },
+          update: { relationship: inverse[relationship] || relationship },
+        }),
+      ]);
+
+      // If PARENT/GUARDIAN, set guardianPatientId on this patient
+      if (relationship === "PARENT" || relationship === "GUARDIAN") {
+        await prisma.patient.update({
+          where: { id: patientId },
+          data: { guardianPatientId: relatedPatientId },
+        });
+      }
+      if (relationship === "CHILD") {
+        await prisma.patient.update({
+          where: { id: relatedPatientId },
+          data: { guardianPatientId: patientId },
+        });
+      }
+
+      auditLog(req, "LINK_FAMILY", "patient", patientId, {
+        relatedPatientId,
+        relationship,
+      }).catch(console.error);
+
+      res.status(201).json({
+        success: true,
+        data: { primaryLink: a, inverseLink: b },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// DELETE /api/v1/patients/:id/link-family/:relatedId
+router.delete(
+  "/:id/link-family/:relatedId",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id, relatedId } = req.params;
+      await prisma.$transaction([
+        prisma.patientFamilyLink.deleteMany({
+          where: { patientId: id, relatedPatientId: relatedId },
+        }),
+        prisma.patientFamilyLink.deleteMany({
+          where: { patientId: relatedId, relatedPatientId: id },
+        }),
+      ]);
+      auditLog(req, "UNLINK_FAMILY", "patient", id, { relatedId }).catch(
+        console.error
+      );
+      res.json({ success: true, data: { unlinked: true }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 export { router as patientRouter };

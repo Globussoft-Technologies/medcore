@@ -22,6 +22,12 @@ interface QueueEntry {
   slotTime: string | null;
   hasVitals: boolean;
   estimatedWaitMinutes: number;
+  vulnerableFlags?: {
+    isSenior: boolean;
+    isChild: boolean;
+    isPregnant: boolean;
+    ageYears: number | null;
+  };
 }
 
 interface DoctorQueue {
@@ -152,12 +158,43 @@ export default function QueuePage() {
                       {entry.tokenNumber}
                     </div>
                     <div>
-                      <p className="font-medium">{entry.patientName}</p>
+                      <p className="flex items-center gap-2 font-medium">
+                        {entry.patientName}
+                        {entry.vulnerableFlags?.isChild && (
+                          <span
+                            title="Child under 5"
+                            className="rounded-full bg-pink-100 px-1.5 py-0.5 text-[10px] font-semibold text-pink-700"
+                          >
+                            👶 CHILD
+                          </span>
+                        )}
+                        {entry.vulnerableFlags?.isPregnant && (
+                          <span
+                            title="Active antenatal case"
+                            className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700"
+                          >
+                            🤰 ANC
+                          </span>
+                        )}
+                        {entry.vulnerableFlags?.isSenior && (
+                          <span
+                            title="Senior citizen (65+)"
+                            className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+                          >
+                            🧓 SENIOR
+                          </span>
+                        )}
+                      </p>
                       <p className="text-xs text-gray-500">
                         {entry.type === "WALK_IN" ? "Walk-in" : `Slot: ${entry.slotTime}`}
                         {entry.priority !== "NORMAL" && (
                           <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700">
                             {entry.priority}
+                          </span>
+                        )}
+                        {entry.vulnerableFlags?.ageYears !== null && entry.vulnerableFlags?.ageYears !== undefined && (
+                          <span className="ml-2 text-gray-400">
+                            · Age {entry.vulnerableFlags.ageYears}
                           </span>
                         )}
                       </p>

@@ -19,6 +19,7 @@ export const createPrescriptionSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
     .optional(),
+  overrideWarnings: z.boolean().optional(),
 });
 
 export const copyPrescriptionSchema = z.object({

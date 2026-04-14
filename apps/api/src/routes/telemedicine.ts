@@ -472,6 +472,89 @@ router.patch(
   }
 );
 
+// ─── Chat messages (Apr 2026) ──────────────────────────
+
+// GET /api/v1/telemedicine/:id/messages — list chat messages
+router.get(
+  "/:id/messages",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const session = await prisma.telemedicineSession.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, sessionMessages: true },
+      });
+      if (!session) {
+        res.status(404).json({ success: false, data: null, error: "Session not found" });
+        return;
+      }
+      const messages = Array.isArray(session.sessionMessages)
+        ? (session.sessionMessages as unknown as Array<Record<string, unknown>>)
+        : [];
+      res.json({ success: true, data: messages, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/telemedicine/:id/messages — append a chat message
+router.post(
+  "/:id/messages",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { text, sender } = req.body as {
+        text?: string;
+        sender?: "PATIENT" | "DOCTOR";
+      };
+      if (!text || !sender || (sender !== "PATIENT" && sender !== "DOCTOR")) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "text and sender (PATIENT|DOCTOR) required",
+        });
+        return;
+      }
+      const session = await prisma.telemedicineSession.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, sessionMessages: true, patientId: true, doctorId: true },
+      });
+      if (!session) {
+        res.status(404).json({ success: false, data: null, error: "Session not found" });
+        return;
+      }
+
+      const existing = Array.isArray(session.sessionMessages)
+        ? (session.sessionMessages as unknown as Array<Record<string, unknown>>)
+        : [];
+      const message = {
+        id: crypto.randomBytes(6).toString("hex"),
+        sender,
+        text,
+        sentAt: new Date().toISOString(),
+        senderUserId: req.user!.userId,
+      };
+      const updated = await prisma.telemedicineSession.update({
+        where: { id: session.id },
+        data: { sessionMessages: [...existing, message] as any },
+        select: { sessionMessages: true },
+      });
+
+      auditLog(req, "TELEMED_CHAT_MESSAGE", "telemedicineSession", session.id, {
+        sender,
+        len: text.length,
+      }).catch(console.error);
+
+      res.status(201).json({
+        success: true,
+        data: { message, messages: updated.sessionMessages },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // POST /api/v1/telemedicine/:id/prescription — create prescription from session
 router.post(
   "/:id/prescription",

@@ -775,4 +775,90 @@ router.get(
   }
 );
 
+// ─── GROUP APPOINTMENTS (therapy / training sessions) ─────
+// POST /api/v1/appointments/group — create N appointments with same groupId
+router.post(
+  "/group",
+  authorize(Role.RECEPTION, Role.ADMIN, Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { doctorId, date, slotStart, patientIds, notes } = req.body as {
+        doctorId: string;
+        date: string;
+        slotStart?: string;
+        patientIds: string[];
+        notes?: string;
+      };
+      if (!doctorId || !date || !Array.isArray(patientIds) || patientIds.length === 0) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "doctorId, date, and at least one patientId required",
+        });
+        return;
+      }
+      const dateObj = new Date(date);
+      const groupId = `GRP-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+      const created: Array<{ id: string; tokenNumber: number; patientId: string }> = [];
+      let nextToken = await getNextToken(doctorId, dateObj);
+      for (const patientId of patientIds) {
+        const appt = await prisma.appointment.create({
+          data: {
+            patientId,
+            doctorId,
+            date: dateObj,
+            slotStart: slotStart ?? null,
+            tokenNumber: nextToken,
+            type: "SCHEDULED",
+            status: "BOOKED",
+            notes: notes ? `[GROUP] ${notes}` : `[GROUP ${groupId}]`,
+            groupId,
+          },
+        });
+        created.push({ id: appt.id, tokenNumber: appt.tokenNumber, patientId });
+        nextToken += 1;
+      }
+
+      auditLog(req, "CREATE_GROUP_APPOINTMENT", "appointment", groupId, {
+        doctorId,
+        date,
+        patientCount: patientIds.length,
+      }).catch(console.error);
+
+      res.status(201).json({
+        success: true,
+        data: { groupId, appointments: created },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/appointments/group/:groupId — all members
+router.get(
+  "/group/:groupId",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const members = await prisma.appointment.findMany({
+        where: { groupId: req.params.groupId },
+        include: {
+          patient: { include: { user: { select: { name: true, phone: true } } } },
+          doctor: { include: { user: { select: { name: true } } } },
+        },
+        orderBy: { tokenNumber: "asc" },
+      });
+      res.json({
+        success: true,
+        data: { groupId: req.params.groupId, members },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 export { router as appointmentRouter };

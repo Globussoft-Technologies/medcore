@@ -78,6 +78,7 @@ export const dischargeSchema = z.object({
   conditionAtDischarge: z.enum(CONDITION_AT_DISCHARGE).optional(),
   dischargeMedications: z.string().optional(),
   followUpInstructions: z.string().optional(),
+  forceDischarge: z.boolean().optional(),
 });
 
 export const intakeOutputSchema = z.object({

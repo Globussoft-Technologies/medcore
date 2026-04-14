@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Pin, SmilePlus, MoreHorizontal } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { getSocket } from "@/lib/socket";
@@ -26,6 +27,10 @@ interface Message {
   type: string;
   createdAt: string;
   sender: { id: string; name: string; role: string };
+  reactions?: Record<string, string[]> | null;
+  isPinned?: boolean;
+  pinnedAt?: string | null;
+  pinnedBy?: string | null;
 }
 
 interface Room {
@@ -37,6 +42,8 @@ interface Room {
   lastMessage: Message | null;
   unreadCount: number;
 }
+
+const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
 function initials(name: string): string {
   return name
@@ -63,9 +70,13 @@ export default function ChatPage() {
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [pinnedMessages, setPinnedMessages] = useState<Message[]>([]);
+  const [showPinned, setShowPinned] = useState(false);
   const [input, setInput] = useState("");
   const [userSearch, setUserSearch] = useState("");
   const [showUsers, setShowUsers] = useState(false);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [pickerFor, setPickerFor] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -83,6 +94,7 @@ export default function ChatPage() {
     const sock = getSocket();
     sock.emit("chat:join", selectedRoom.id);
     loadMessages(selectedRoom.id);
+    loadPinned(selectedRoom.id);
     markRead(selectedRoom.id);
 
     const handler = (msg: Message) => {
@@ -92,11 +104,20 @@ export default function ChatPage() {
       }
       loadRooms();
     };
+    const reactionHandler = (msg: Message) => {
+      if (msg.roomId === selectedRoom.id) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === msg.id ? { ...m, ...msg } : m))
+        );
+      }
+    };
     sock.on("chat:message", handler);
+    sock.on("chat:reaction", reactionHandler);
 
     return () => {
       sock.emit("chat:leave", selectedRoom.id);
       sock.off("chat:message", handler);
+      sock.off("chat:reaction", reactionHandler);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRoom?.id]);
@@ -128,6 +149,17 @@ export default function ChatPage() {
       setTimeout(scrollToBottom, 50);
     } catch {
       setMessages([]);
+    }
+  }
+
+  async function loadPinned(roomId: string) {
+    try {
+      const res = await api.get<{ data: Message[] }>(
+        `/chat/rooms/${roomId}/pinned`
+      );
+      setPinnedMessages(res.data);
+    } catch {
+      setPinnedMessages([]);
     }
   }
 
@@ -165,6 +197,37 @@ export default function ChatPage() {
       setInput("");
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed");
+    }
+  }
+
+  async function toggleReaction(messageId: string, emoji: string) {
+    try {
+      const res = await api.post<{ data: Message }>(
+        `/chat/messages/${messageId}/reactions`,
+        { emoji }
+      );
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, ...res.data } : m))
+      );
+      setPickerFor(null);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Reaction failed");
+    }
+  }
+
+  async function togglePin(msg: Message) {
+    try {
+      const res = await api.patch<{ data: Message }>(
+        `/chat/messages/${msg.id}/pin`,
+        { pinned: !msg.isPinned }
+      );
+      setMessages((prev) =>
+        prev.map((m) => (m.id === msg.id ? { ...m, ...res.data } : m))
+      );
+      if (selectedRoom) loadPinned(selectedRoom.id);
+      setMenuFor(null);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Pin failed");
     }
   }
 
@@ -300,7 +363,7 @@ export default function ChatPage() {
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white">
                 {initials(roomDisplayName(selectedRoom))}
               </div>
-              <div>
+              <div className="flex-1">
                 <p className="font-semibold">{roomDisplayName(selectedRoom)}</p>
                 <p className="text-xs text-gray-500">
                   {selectedRoom.participants.length} participant
@@ -309,9 +372,45 @@ export default function ChatPage() {
               </div>
             </div>
 
+            {/* Pinned banner */}
+            {pinnedMessages.length > 0 && (
+              <div className="border-b bg-amber-50 px-4 py-2 text-xs">
+                <button
+                  onClick={() => setShowPinned(!showPinned)}
+                  className="flex items-center gap-2 font-medium text-amber-900 hover:text-amber-700"
+                >
+                  <Pin size={12} />
+                  {pinnedMessages.length} pinned message
+                  {pinnedMessages.length !== 1 ? "s" : ""}
+                  <span className="text-amber-700 underline">
+                    {showPinned ? "Hide" : "View all pinned"}
+                  </span>
+                </button>
+                {showPinned && (
+                  <div className="mt-2 space-y-2">
+                    {pinnedMessages.map((p) => (
+                      <div
+                        key={p.id}
+                        className="rounded bg-white px-3 py-2 text-xs shadow-sm"
+                      >
+                        <p className="mb-0.5 font-semibold text-gray-700">
+                          {p.sender?.name || "User"}
+                        </p>
+                        <p className="text-gray-600">{p.content}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div
               ref={scrollRef}
               className="flex-1 space-y-4 overflow-y-auto bg-gray-50 p-4"
+              onClick={() => {
+                setMenuFor(null);
+                setPickerFor(null);
+              }}
             >
               {groups.map((g) => (
                 <div key={g.date}>
@@ -322,10 +421,14 @@ export default function ChatPage() {
                   </div>
                   {g.msgs.map((m) => {
                     const mine = m.senderId === user?.id;
+                    const reactions = (m.reactions || {}) as Record<string, string[]>;
+                    const reactionEntries = Object.entries(reactions).filter(
+                      ([, arr]) => arr && arr.length > 0
+                    );
                     return (
                       <div
                         key={m.id}
-                        className={`mb-2 flex gap-2 ${mine ? "flex-row-reverse" : ""}`}
+                        className={`group mb-2 flex gap-2 ${mine ? "flex-row-reverse" : ""}`}
                       >
                         <div
                           className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-white ${
@@ -334,27 +437,141 @@ export default function ChatPage() {
                         >
                           {initials(m.sender.name)}
                         </div>
-                        <div
-                          className={`max-w-md rounded-2xl px-4 py-2 text-sm ${
-                            mine
-                              ? "bg-primary text-white"
-                              : "bg-white text-gray-800 shadow-sm"
-                          }`}
-                        >
-                          {!mine && (
-                            <p className="mb-1 text-xs font-semibold">
-                              {m.sender.name}
-                            </p>
-                          )}
-                          <p>{m.content}</p>
-                          <p
-                            className={`mt-1 text-xs ${mine ? "text-white/70" : "text-gray-400"}`}
+                        <div className="relative flex max-w-md flex-col gap-1">
+                          <div
+                            className={`rounded-2xl px-4 py-2 text-sm ${
+                              mine
+                                ? "bg-primary text-white"
+                                : "bg-white text-gray-800 shadow-sm"
+                            }`}
                           >
-                            {new Date(m.createdAt).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </p>
+                            {!mine && (
+                              <p className="mb-1 text-xs font-semibold">
+                                {m.sender.name}
+                              </p>
+                            )}
+                            <p className="whitespace-pre-wrap">{m.content}</p>
+                            <div className="mt-1 flex items-center gap-2">
+                              {m.isPinned && (
+                                <Pin
+                                  size={10}
+                                  className={
+                                    mine ? "text-white/70" : "text-amber-500"
+                                  }
+                                />
+                              )}
+                              <p
+                                className={`text-xs ${mine ? "text-white/70" : "text-gray-400"}`}
+                              >
+                                {new Date(m.createdAt).toLocaleTimeString([], {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Reaction pills */}
+                          {reactionEntries.length > 0 && (
+                            <div
+                              className={`flex flex-wrap gap-1 ${mine ? "justify-end" : ""}`}
+                            >
+                              {reactionEntries.map(([emoji, userIds]) => {
+                                const reacted = user
+                                  ? userIds.includes(user.id)
+                                  : false;
+                                return (
+                                  <button
+                                    key={emoji}
+                                    onClick={() =>
+                                      toggleReaction(m.id, emoji)
+                                    }
+                                    className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition ${
+                                      reacted
+                                        ? "border-primary bg-primary/10"
+                                        : "border-gray-200 bg-white hover:bg-gray-50"
+                                    }`}
+                                  >
+                                    <span>{emoji}</span>
+                                    <span className="font-semibold">
+                                      {userIds.length}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {/* Action buttons (visible on hover) */}
+                          <div
+                            className={`absolute ${mine ? "left-0 -translate-x-full" : "right-0 translate-x-full"} top-0 hidden gap-1 pr-2 pl-2 group-hover:flex`}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              onClick={() =>
+                                setPickerFor(
+                                  pickerFor === m.id ? null : m.id
+                                )
+                              }
+                              className="rounded-full bg-white p-1 shadow hover:bg-gray-50"
+                              title="Add reaction"
+                            >
+                              <SmilePlus size={14} />
+                            </button>
+                            <button
+                              onClick={() =>
+                                setMenuFor(menuFor === m.id ? null : m.id)
+                              }
+                              className="rounded-full bg-white p-1 shadow hover:bg-gray-50"
+                              title="More"
+                            >
+                              <MoreHorizontal size={14} />
+                            </button>
+                          </div>
+
+                          {/* Reaction picker */}
+                          {pickerFor === m.id && (
+                            <div
+                              className={`absolute ${mine ? "right-0" : "left-0"} -top-10 z-10 flex gap-1 rounded-full bg-white p-1 shadow-lg`}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {REACTION_EMOJIS.map((emoji) => (
+                                <button
+                                  key={emoji}
+                                  onClick={() => toggleReaction(m.id, emoji)}
+                                  className="rounded-full p-1 text-lg transition hover:scale-125 hover:bg-gray-100"
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Context menu */}
+                          {menuFor === m.id && (
+                            <div
+                              className={`absolute ${mine ? "right-0" : "left-0"} top-8 z-10 w-40 rounded-lg bg-white py-1 shadow-lg`}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                onClick={() => togglePin(m)}
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50"
+                              >
+                                <Pin size={12} />
+                                {m.isPinned ? "Unpin" : "Pin message"}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setPickerFor(m.id);
+                                  setMenuFor(null);
+                                }}
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50"
+                              >
+                                <SmilePlus size={12} />
+                                Add reaction
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );

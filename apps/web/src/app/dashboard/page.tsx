@@ -308,38 +308,7 @@ export default function DashboardPage() {
       )}
 
       {/* Patient-specific view */}
-      {isPatient && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            title="My Appointments"
-            value={fmt(data.todayAppointments)}
-            icon={Calendar}
-            color="bg-primary"
-            href="/dashboard/appointments"
-          />
-          <StatCard
-            title="Prescriptions"
-            value={fmt(data.pendingBills)}
-            icon={FileText}
-            color="bg-secondary"
-            href="/dashboard/prescriptions"
-          />
-          <StatCard
-            title="Pending Bills"
-            value={fmt(data.pendingBills)}
-            icon={CreditCard}
-            color="bg-accent"
-            href="/dashboard/billing"
-          />
-          <StatCard
-            title="Notifications"
-            value="-"
-            icon={Bell}
-            color="bg-purple-600"
-            href="/dashboard/notifications"
-          />
-        </div>
-      )}
+      {isPatient && <PatientHome />}
 
       {!isPatient && (
         <>
@@ -724,5 +693,340 @@ function QuickAction({
       <Icon className="text-primary" size={24} />
       <span className="text-xs font-medium text-gray-700">{label}</span>
     </Link>
+  );
+}
+
+// ──────────────────────────────────────────────────────────
+// Patient Portal Home
+// ──────────────────────────────────────────────────────────
+
+function PatientHome() {
+  const [upcoming, setUpcoming] = useState<any | null>(null);
+  const [bills, setBills] = useState<any[]>([]);
+  const [rx, setRx] = useState<any[]>([]);
+  const [labs, setLabs] = useState<any[]>([]);
+  const [notifs, setNotifs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const today = new Date().toISOString().split("T")[0];
+      const [ap, inv, rxRes, labRes, noRes] = await Promise.all([
+        api
+          .get<{ data: any[] }>(
+            `/appointments?mine=true&from=${today}&status=BOOKED,CHECKED_IN&limit=5`
+          )
+          .catch(() => ({ data: [] })),
+        api
+          .get<{ data: any[] }>(
+            `/billing/invoices?mine=true&status=PENDING,PARTIAL&limit=5`
+          )
+          .catch(() => ({ data: [] })),
+        api
+          .get<{ data: any[] }>(`/prescriptions?mine=true&limit=5`)
+          .catch(() => ({ data: [] })),
+        api
+          .get<{ data: any[] }>(`/lab/orders?mine=true&limit=5`)
+          .catch(() => ({ data: [] })),
+        api
+          .get<{ data: any[] }>(`/notifications?unread=true&limit=5`)
+          .catch(() => ({ data: [] })),
+      ]);
+      const upc = (ap.data || []).sort(
+        (a: any, b: any) =>
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+      )[0];
+      setUpcoming(upc || null);
+      setBills(inv.data || []);
+      setRx((rxRes.data || []).slice(0, 5));
+      setLabs((labRes.data || []).slice(0, 5));
+      setNotifs((noRes.data || []).slice(0, 5));
+      setLoading(false);
+    })();
+  }, []);
+
+  return (
+    <div className="space-y-4">
+      {/* Quick actions */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <QuickAction
+          href="/dashboard/appointments/book"
+          icon={Calendar}
+          label="Book Appointment"
+        />
+        <QuickAction
+          href="/dashboard/telemedicine/book"
+          icon={Video}
+          label="Telemedicine"
+        />
+        <QuickAction
+          href="/dashboard/prescriptions"
+          icon={FileText}
+          label="My Prescriptions"
+        />
+        <QuickAction
+          href="/dashboard/billing"
+          icon={CreditCard}
+          label="My Bills"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* Upcoming appointment */}
+        <div className="rounded-xl bg-white p-5 shadow-sm">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <Calendar size={14} /> My Upcoming Appointment
+          </h2>
+          {!upcoming ? (
+            <div className="py-6 text-center">
+              <p className="text-sm text-gray-400">No upcoming appointments</p>
+              <Link
+                href="/dashboard/appointments/book"
+                className="mt-2 inline-block rounded-lg bg-primary px-3 py-1.5 text-xs text-white hover:opacity-90"
+              >
+                Book one now
+              </Link>
+            </div>
+          ) : (
+            <div className="rounded-lg bg-gradient-to-br from-blue-50 to-white p-4">
+              <p className="text-lg font-semibold text-gray-800">
+                {new Date(upcoming.date).toLocaleDateString("en-IN", {
+                  weekday: "long",
+                  day: "numeric",
+                  month: "short",
+                })}{" "}
+                {upcoming.slotStart && (
+                  <span className="text-primary">· {upcoming.slotStart}</span>
+                )}
+              </p>
+              <p className="mt-1 text-sm text-gray-600">
+                Dr. {upcoming.doctor?.user?.name || "—"}
+                {upcoming.doctor?.specialization
+                  ? ` · ${upcoming.doctor.specialization}`
+                  : ""}
+              </p>
+              <p className="mt-0.5 text-xs text-gray-500">
+                Type: {upcoming.type}
+              </p>
+              <div className="mt-3 flex gap-2">
+                {upcoming.type === "TELEMEDICINE" && (
+                  <Link
+                    href={`/dashboard/telemedicine?id=${upcoming.id}`}
+                    className="rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700"
+                  >
+                    Join Session
+                  </Link>
+                )}
+                <Link
+                  href={`/dashboard/appointments?id=${upcoming.id}`}
+                  className="rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
+                >
+                  View Details
+                </Link>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Pending bills */}
+        <div className="rounded-xl bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+              <CreditCard size={14} /> My Pending Bills
+            </h2>
+            <Link
+              href="/dashboard/billing"
+              className="text-xs text-primary hover:underline"
+            >
+              All bills
+            </Link>
+          </div>
+          {bills.length === 0 ? (
+            <p className="py-6 text-center text-sm text-gray-400">
+              No pending bills 🎉
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {bills.map((b: any) => (
+                <div
+                  key={b.id}
+                  className="flex items-center gap-3 rounded-lg border border-amber-100 bg-amber-50/40 p-3"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-800">
+                      Rs. {(b.totalAmount || 0).toLocaleString("en-IN")}
+                    </p>
+                    <p className="truncate text-[11px] text-gray-500">
+                      #{b.invoiceNumber} ·{" "}
+                      {new Date(b.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <Link
+                    href={`/dashboard/billing?id=${b.id}&pay=1`}
+                    className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+                  >
+                    Pay Online
+                  </Link>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Prescriptions */}
+        <div className="rounded-xl bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+              <FileText size={14} /> Recent Prescriptions
+            </h2>
+            <Link
+              href="/dashboard/prescriptions"
+              className="text-xs text-primary hover:underline"
+            >
+              All
+            </Link>
+          </div>
+          {rx.length === 0 ? (
+            <p className="py-6 text-center text-sm text-gray-400">
+              No prescriptions yet
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {rx.map((p: any) => (
+                <div
+                  key={p.id}
+                  className="flex items-center gap-3 rounded-lg border border-green-100 bg-green-50/40 p-3"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate text-sm font-semibold text-gray-800">
+                      {p.diagnosis}
+                    </p>
+                    <p className="truncate text-[11px] text-gray-500">
+                      Dr. {p.doctor?.user?.name || "—"} ·{" "}
+                      {new Date(p.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <div className="flex gap-1">
+                    <Link
+                      href={`/dashboard/prescriptions?id=${p.id}`}
+                      className="rounded-lg border px-2 py-1 text-[11px] hover:bg-white"
+                    >
+                      View
+                    </Link>
+                    {p.pdfUrl && (
+                      <a
+                        href={p.pdfUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-lg bg-green-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-green-700"
+                      >
+                        PDF
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Lab results */}
+        <div className="rounded-xl bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+              <FlaskConical size={14} /> Recent Lab Results
+            </h2>
+            <Link
+              href="/dashboard/lab"
+              className="text-xs text-primary hover:underline"
+            >
+              All
+            </Link>
+          </div>
+          {labs.length === 0 ? (
+            <p className="py-6 text-center text-sm text-gray-400">
+              No lab results
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {labs.map((l: any) => (
+                <Link
+                  key={l.id}
+                  href={`/dashboard/lab?id=${l.id}`}
+                  className="flex items-center gap-3 rounded-lg border border-gray-100 p-2.5 hover:border-primary/40"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate text-sm font-medium">
+                      Order #{l.orderNumber}
+                    </p>
+                    <p className="truncate text-[11px] text-gray-500">
+                      {new Date(l.orderedAt).toLocaleDateString()} ·{" "}
+                      {l.items?.length || 0} test
+                      {l.items?.length === 1 ? "" : "s"}
+                    </p>
+                  </div>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                      l.status === "COMPLETED"
+                        ? "bg-green-100 text-green-700"
+                        : "bg-gray-100 text-gray-600"
+                    }`}
+                  >
+                    {l.status}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Notifications */}
+        <div className="rounded-xl bg-white p-5 shadow-sm lg:col-span-2">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+              <Bell size={14} /> Notifications
+            </h2>
+            <Link
+              href="/dashboard/notifications"
+              className="text-xs text-primary hover:underline"
+            >
+              View all
+            </Link>
+          </div>
+          {notifs.length === 0 ? (
+            <p className="py-4 text-center text-sm text-gray-400">
+              You&apos;re all caught up
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {notifs.map((n: any) => (
+                <div
+                  key={n.id}
+                  className="flex items-start gap-3 rounded-lg border border-gray-100 p-2.5"
+                >
+                  <Bell size={14} className="mt-0.5 text-primary" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-gray-800">
+                      {n.title}
+                    </p>
+                    <p className="truncate text-[11px] text-gray-500">
+                      {n.message}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-[10px] text-gray-400">
+                    {new Date(n.createdAt).toLocaleDateString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {loading && (
+        <p className="text-center text-xs text-gray-400">Loading…</p>
+      )}
+    </div>
   );
 }

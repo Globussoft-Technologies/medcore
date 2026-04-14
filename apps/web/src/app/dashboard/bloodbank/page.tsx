@@ -63,6 +63,8 @@ interface BloodUnit {
   expiresAt: string;
   status: string;
   storageLocation?: string | null;
+  reservedUntil?: string | null;
+  reservedForRequestId?: string | null;
 }
 
 interface InventorySummary {
@@ -176,6 +178,44 @@ export default function BloodBankPage() {
     } catch (err) {
       alert((err as Error).message);
     }
+  }
+
+  async function reserveUnits(hours = 24) {
+    if (!matchingRequest) return;
+    if (selectedMatchIds.size === 0) return alert("Select units to reserve");
+    try {
+      const ids = Array.from(selectedMatchIds);
+      for (const id of ids) {
+        await api.post(`/bloodbank/units/${id}/reserve`, {
+          requestId: matchingRequest.id,
+          durationHours: hours,
+        });
+      }
+      alert(`Reserved ${ids.length} unit(s) for ${hours}h`);
+      setMatchingRequest(null);
+      setMatchUnits([]);
+      setSelectedMatchIds(new Set());
+      load();
+    } catch (err) {
+      alert((err as Error).message);
+    }
+  }
+
+  async function releaseReservation(unitId: string) {
+    try {
+      await api.post(`/bloodbank/units/${unitId}/release`, {});
+      load();
+    } catch (err) {
+      alert((err as Error).message);
+    }
+  }
+
+  function formatRemaining(until: string): string {
+    const ms = new Date(until).getTime() - Date.now();
+    if (ms <= 0) return "Expired";
+    const h = Math.floor(ms / (60 * 60 * 1000));
+    const m = Math.floor((ms % (60 * 60 * 1000)) / 60000);
+    return `${h}h ${m}m left`;
   }
 
   const now = new Date();
@@ -590,6 +630,13 @@ export default function BloodBankPage() {
               </button>
               <button
                 disabled={selectedMatchIds.size === 0}
+                onClick={() => reserveUnits(24)}
+                className="rounded border border-amber-500 bg-amber-50 px-4 py-2 text-sm text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+              >
+                Reserve {selectedMatchIds.size} Unit(s) (24h)
+              </button>
+              <button
+                disabled={selectedMatchIds.size === 0}
                 onClick={issueUnits}
                 className="rounded bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50"
               >
@@ -599,6 +646,50 @@ export default function BloodBankPage() {
           </div>
         </div>
       )}
+
+      {/* Reserved units panel (bottom) */}
+      {tab === "inventory" && (() => {
+        const reserved = units.filter((u) => u.status === "RESERVED");
+        if (reserved.length === 0) return null;
+        return (
+          <div className="mt-6 rounded-xl bg-white p-5 shadow">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-semibold text-amber-800">
+                Reserved Units ({reserved.length})
+              </h3>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {reserved.map((u) => (
+                <div
+                  key={u.id}
+                  className="rounded-lg border border-amber-300 bg-amber-50 p-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-xs">{u.unitNumber}</span>
+                    <span className="rounded bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white">
+                      RESERVED
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-600">
+                    {u.bloodGroup.replace(/_/g, " ")} • {u.component.replace(/_/g, " ")}
+                  </p>
+                  {u.reservedUntil && (
+                    <p className="mt-1 text-xs font-medium text-amber-800">
+                      {formatRemaining(u.reservedUntil)}
+                    </p>
+                  )}
+                  <button
+                    onClick={() => releaseReservation(u.id)}
+                    className="mt-2 text-xs font-medium text-red-600 hover:underline"
+                  >
+                    Release
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

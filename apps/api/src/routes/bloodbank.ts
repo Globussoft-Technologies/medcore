@@ -1069,4 +1069,168 @@ router.get(
   }
 );
 
+// ───────────────────────────────────────────────────────
+// RESERVATION (Apr 2026)
+// ───────────────────────────────────────────────────────
+
+// POST /api/v1/bloodbank/units/:id/reserve — reserve a unit for X hours
+router.post(
+  "/units/:id/reserve",
+  authorize(Role.DOCTOR, Role.ADMIN, Role.NURSE),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { requestId, durationHours } = req.body as {
+        requestId?: string;
+        durationHours?: number;
+      };
+      const hours = Number.isFinite(durationHours as number) && (durationHours as number) > 0
+        ? Math.min(Number(durationHours), 72)
+        : 24;
+
+      const unit = await prisma.bloodUnit.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!unit) {
+        res.status(404).json({ success: false, data: null, error: "Unit not found" });
+        return;
+      }
+      if (unit.status !== "AVAILABLE") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `Unit not available to reserve (${unit.status})`,
+        });
+        return;
+      }
+      if (unit.expiresAt && new Date(unit.expiresAt) < new Date()) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: "Unit has expired",
+        });
+        return;
+      }
+
+      const reservedUntil = new Date(Date.now() + hours * 60 * 60 * 1000);
+      const updated = await prisma.bloodUnit.update({
+        where: { id: unit.id },
+        data: {
+          status: "RESERVED",
+          reservedUntil,
+          reservedForRequestId: requestId ?? null,
+          reservedBy: req.user!.userId,
+        },
+      });
+
+      auditLog(req, "RESERVE_BLOOD_UNIT", "blood_unit", updated.id, {
+        requestId,
+        reservedUntil,
+        durationHours: hours,
+      }).catch(console.error);
+
+      res.status(201).json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/bloodbank/units/:id/release — release a reservation manually
+router.post(
+  "/units/:id/release",
+  authorize(Role.DOCTOR, Role.ADMIN, Role.NURSE),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const unit = await prisma.bloodUnit.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!unit) {
+        res.status(404).json({ success: false, data: null, error: "Unit not found" });
+        return;
+      }
+      if (unit.status !== "RESERVED") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `Unit is not reserved (${unit.status})`,
+        });
+        return;
+      }
+      const updated = await prisma.bloodUnit.update({
+        where: { id: unit.id },
+        data: {
+          status: "AVAILABLE",
+          reservedUntil: null,
+          reservedForRequestId: null,
+          reservedBy: null,
+        },
+      });
+      auditLog(req, "RELEASE_BLOOD_UNIT_RESERVATION", "blood_unit", updated.id).catch(
+        console.error
+      );
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/bloodbank/release-expired-reservations — cron endpoint
+router.post(
+  "/release-expired-reservations",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const now = new Date();
+      const expired = await prisma.bloodUnit.findMany({
+        where: {
+          status: "RESERVED",
+          reservedUntil: { lte: now },
+        },
+        select: { id: true, unitNumber: true },
+      });
+      if (expired.length === 0) {
+        res.json({ success: true, data: { released: 0 }, error: null });
+        return;
+      }
+      await prisma.bloodUnit.updateMany({
+        where: { id: { in: expired.map((u) => u.id) } },
+        data: {
+          status: "AVAILABLE",
+          reservedUntil: null,
+          reservedForRequestId: null,
+          reservedBy: null,
+        },
+      });
+      auditLog(req, "RELEASE_EXPIRED_RESERVATIONS", "blood_unit", "batch", {
+        released: expired.length,
+        unitNumbers: expired.map((u) => u.unitNumber),
+      }).catch(console.error);
+      res.json({
+        success: true,
+        data: { released: expired.length, unitNumbers: expired.map((u) => u.unitNumber) },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/bloodbank/units/reserved — list reserved units
+router.get(
+  "/units/reserved",
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const units = await prisma.bloodUnit.findMany({
+        where: { status: "RESERVED" },
+        orderBy: { reservedUntil: "asc" },
+      });
+      res.json({ success: true, data: units, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 export { router as bloodbankRouter };

@@ -97,6 +97,8 @@ router.get(
         patientId,
         doctorId,
         status,
+        priority,
+        stat,
         page = "1",
         limit = "20",
       } = req.query as Record<string, string | undefined>;
@@ -108,6 +110,8 @@ router.get(
       if (patientId) where.patientId = patientId;
       if (doctorId) where.doctorId = doctorId;
       if (status) where.status = status;
+      if (priority) where.priority = priority;
+      if (stat === "true") where.stat = true;
 
       // Patients see only their own
       if (req.user!.role === "PATIENT") {
@@ -129,7 +133,7 @@ router.get(
           },
           skip,
           take,
-          orderBy: { orderedAt: "desc" },
+          orderBy: [{ stat: "desc" }, { orderedAt: "desc" }],
         }),
         prisma.labOrder.count({ where }),
       ]);
@@ -206,9 +210,18 @@ router.post(
   validate(createLabOrderSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { patientId, doctorId, admissionId, testIds, notes } = req.body;
+      const { patientId, doctorId, admissionId, testIds, notes, priority } = req.body as {
+        patientId: string;
+        doctorId: string;
+        admissionId?: string;
+        testIds: string[];
+        notes?: string;
+        priority?: "ROUTINE" | "URGENT" | "STAT";
+      };
 
       const orderNumber = await generateOrderNumber();
+      const normalizedPriority = priority === "STAT" || priority === "URGENT" ? priority : "ROUTINE";
+      const isStat = normalizedPriority === "STAT";
 
       const order = await prisma.labOrder.create({
         data: {
@@ -217,6 +230,8 @@ router.post(
           doctorId,
           admissionId,
           notes,
+          priority: normalizedPriority,
+          stat: isStat,
           items: {
             create: testIds.map((testId: string) => ({ testId })),
           },
@@ -224,13 +239,49 @@ router.post(
         include: {
           items: { include: { test: true } },
           patient: { include: { user: { select: { name: true } } } },
-          doctor: { include: { user: { select: { name: true } } } },
+          doctor: { include: { user: { select: { name: true, id: true } } } },
         },
       });
+
+      // STAT: fire-and-forget notify lab techs + ordering doctor
+      if (isStat) {
+        (async () => {
+          try {
+            const labTechs = await prisma.user.findMany({
+              where: { role: "NURSE", isActive: true },
+              select: { id: true },
+              take: 10,
+            });
+            const targets = [
+              ...labTechs.map((u) => u.id),
+              order.doctor.user.id,
+            ];
+            const { sendNotification } = await import(
+              "../services/notification"
+            );
+            const { NotificationType } = await import("@medcore/shared");
+            await Promise.all(
+              targets.map((uid) =>
+                sendNotification({
+                  userId: uid,
+                  type: NotificationType.APPOINTMENT_REMINDER, // reuse for now
+                  title: "STAT Lab Order",
+                  message: `STAT lab order ${orderNumber} created — immediate action required.`,
+                  data: { orderId: order.id, orderNumber, priority: "STAT" },
+                })
+              )
+            );
+          } catch (e) {
+            console.error("[lab-stat-notify]", e);
+          }
+        })();
+      }
 
       auditLog(req, "CREATE_LAB_ORDER", "lab_order", order.id, {
         orderNumber,
         testCount: testIds.length,
+        priority: normalizedPriority,
+        stat: isStat,
       }).catch(console.error);
 
       res.status(201).json({ success: true, data: order, error: null });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
@@ -49,8 +49,15 @@ import {
   MessageCircle,
   UserCheck,
   Undo2,
+  Search,
+  CalendarRange,
+  Briefcase,
+  PiggyBank,
+  Megaphone,
+  CalendarOff,
 } from "lucide-react";
 import clsx from "clsx";
+import { SearchPalette } from "./_components/search-palette";
 
 const navByRole: Record<
   string,
@@ -58,6 +65,8 @@ const navByRole: Record<
 > = {
   ADMIN: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/dashboard/admin-console", label: "Admin Console", icon: LayoutDashboard },
+    { href: "/dashboard/calendar", label: "Calendar", icon: CalendarRange },
     { href: "/dashboard/appointments", label: "Appointments", icon: Calendar },
     { href: "/dashboard/patients", label: "Patients", icon: Users },
     { href: "/dashboard/queue", label: "Queue", icon: Monitor },
@@ -88,6 +97,11 @@ const navByRole: Record<
     { href: "/dashboard/users", label: "Users", icon: UserCog },
     { href: "/dashboard/duty-roster", label: "Duty Roster", icon: Users2 },
     { href: "/dashboard/leave-management", label: "Leave Requests", icon: PlaneTakeoff },
+    { href: "/dashboard/leave-calendar", label: "Leave Calendar", icon: CalendarDays },
+    { href: "/dashboard/holidays", label: "Holidays", icon: CalendarOff },
+    { href: "/dashboard/payroll", label: "Payroll", icon: Wallet },
+    { href: "/dashboard/budgets", label: "Budgets", icon: PiggyBank },
+    { href: "/dashboard/broadcasts", label: "Broadcasts", icon: Megaphone },
     { href: "/dashboard/schedule", label: "Schedule", icon: CalendarClock },
     { href: "/dashboard/reports", label: "Reports", icon: BarChart3 },
     { href: "/dashboard/analytics", label: "Analytics", icon: TrendingUp },
@@ -100,6 +114,8 @@ const navByRole: Record<
   ],
   DOCTOR: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/dashboard/workspace", label: "Workspace", icon: Briefcase },
+    { href: "/dashboard/calendar", label: "Calendar", icon: CalendarRange },
     { href: "/dashboard/queue", label: "My Queue", icon: Monitor },
     { href: "/dashboard/appointments", label: "Appointments", icon: Calendar },
     { href: "/dashboard/admissions", label: "Admissions", icon: BedDouble },
@@ -123,6 +139,7 @@ const navByRole: Record<
   ],
   RECEPTION: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/dashboard/calendar", label: "Calendar", icon: CalendarRange },
     { href: "/dashboard/appointments", label: "Appointments", icon: Calendar },
     { href: "/dashboard/walk-in", label: "Walk-in", icon: UserPlus },
     { href: "/dashboard/patients", label: "Patients", icon: Users },
@@ -149,6 +166,8 @@ const navByRole: Record<
   ],
   NURSE: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/dashboard/workstation", label: "Workstation", icon: Activity },
+    { href: "/dashboard/calendar", label: "Calendar", icon: CalendarRange },
     { href: "/dashboard/queue", label: "Queue", icon: Monitor },
     { href: "/dashboard/wards", label: "Wards", icon: Hotel },
     { href: "/dashboard/admissions", label: "Admissions", icon: BedDouble },
@@ -170,6 +189,7 @@ const navByRole: Record<
   ],
   PATIENT: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/dashboard/calendar", label: "Calendar", icon: CalendarRange },
     { href: "/dashboard/appointments", label: "My Appointments", icon: Calendar },
     { href: "/dashboard/telemedicine", label: "Telemedicine", icon: Video },
     { href: "/dashboard/prescriptions", label: "Prescriptions", icon: FileText },
@@ -186,6 +206,7 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const { user, isLoading, loadSession, logout } = useAuthStore();
+  const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
     loadSession();
@@ -196,6 +217,18 @@ export default function DashboardLayout({
       router.push("/login");
     }
   }, [user, isLoading, router]);
+
+  // Ctrl+K / Cmd+K shortcut
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   if (isLoading || !user) {
     return (
@@ -212,10 +245,30 @@ export default function DashboardLayout({
       {/* Sidebar */}
       <aside className="flex w-64 flex-col bg-sidebar text-white">
         <div className="border-b border-white/10 p-5">
-          <h1 className="text-xl font-bold">MedCore</h1>
-          <p className="mt-1 text-xs text-gray-400">
-            {user.name} ({user.role})
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-xl font-bold">MedCore</h1>
+              <p className="mt-1 text-xs text-gray-400">
+                {user.name} ({user.role})
+              </p>
+            </div>
+            <button
+              onClick={() => setSearchOpen(true)}
+              title="Search (Ctrl+K)"
+              className="rounded-lg p-2 text-gray-300 transition hover:bg-sidebar-hover hover:text-white"
+            >
+              <Search size={18} />
+            </button>
+          </div>
+          <button
+            onClick={() => setSearchOpen(true)}
+            className="mt-3 flex w-full items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/10"
+          >
+            <Search size={13} /> Search...
+            <kbd className="ml-auto rounded bg-black/30 px-1 py-0.5 text-[10px]">
+              Ctrl K
+            </kbd>
+          </button>
         </div>
 
         <nav className="flex-1 overflow-y-auto p-3">
@@ -254,6 +307,8 @@ export default function DashboardLayout({
       <main className="flex-1 overflow-y-auto bg-bg">
         <div className="p-6">{children}</div>
       </main>
+
+      <SearchPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>
   );
 }

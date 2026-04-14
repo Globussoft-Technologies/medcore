@@ -283,6 +283,8 @@ router.post(
         inventoryItemId: string;
         batchNumber: string;
         quantity: number;
+        unitPrice: number;
+        lineAmount: number;
       }> = [];
       const warnings: string[] = [];
 
@@ -353,18 +355,66 @@ router.post(
             inventoryItemId: inv.id,
             batchNumber: inv.batchNumber,
             quantity: qty,
+            unitPrice: inv.sellingPrice,
+            lineAmount: inv.sellingPrice * qty,
           });
         }
       });
 
+      // Auto-billing: if this prescription's appointment has a PENDING invoice,
+      // append dispensed items as InvoiceItems.
+      let autoBilled: {
+        invoiceId: string | null;
+        addedLines: number;
+        addedAmount: number;
+      } = { invoiceId: null, addedLines: 0, addedAmount: 0 };
+      if (dispensed.length > 0) {
+        try {
+          const invoice = await prisma.invoice.findUnique({
+            where: { appointmentId: prescription.appointmentId },
+          });
+          if (invoice && invoice.paymentStatus === "PENDING") {
+            const itemsToCreate = dispensed.map((d) => ({
+              invoiceId: invoice.id,
+              description: `Pharmacy: ${d.medicineName} (Batch ${d.batchNumber})`,
+              category: "PHARMACY",
+              quantity: d.quantity,
+              unitPrice: d.unitPrice,
+              amount: d.lineAmount,
+            }));
+            const addedAmount = itemsToCreate.reduce((s, i) => s + i.amount, 0);
+            await prisma.$transaction([
+              prisma.invoiceItem.createMany({ data: itemsToCreate }),
+              prisma.invoice.update({
+                where: { id: invoice.id },
+                data: {
+                  subtotal: invoice.subtotal + addedAmount,
+                  totalAmount: invoice.totalAmount + addedAmount,
+                },
+              }),
+            ]);
+            autoBilled = {
+              invoiceId: invoice.id,
+              addedLines: itemsToCreate.length,
+              addedAmount,
+            };
+          }
+        } catch (e) {
+          console.error("[pharmacy-autobill]", e);
+          warnings.push("Auto-billing failed; dispense completed without line items");
+        }
+      }
+
       auditLog(req, "DISPENSE_PRESCRIPTION", "prescription", prescriptionId, {
         dispensedCount: dispensed.length,
         warningCount: warnings.length,
+        autoBilledInvoiceId: autoBilled.invoiceId,
+        autoBilledAmount: autoBilled.addedAmount,
       }).catch(console.error);
 
       res.json({
         success: true,
-        data: { dispensed, warnings, prescriptionId },
+        data: { dispensed, warnings, prescriptionId, autoBilled },
         error: null,
       });
     } catch (err) {

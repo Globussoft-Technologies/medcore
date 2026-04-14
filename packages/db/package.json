@@ -14,6 +14,14 @@
     "db:seed-phase4-ops": "tsx src/seed-phase4-ops.ts",
     "db:seed-ancillary": "tsx src/seed-ancillary-enhancements.ts",
     "db:seed-ops-enhancements": "tsx src/seed-ops-enhancements.ts",
+    "db:seed-pediatric": "tsx src/seed-pediatric-patients.ts",
+    "db:seed-chat": "tsx src/seed-chat-conversations.ts",
+    "db:seed-complaints": "tsx src/seed-complaints-data.ts",
+    "db:seed-assets-history": "tsx src/seed-asset-history.ts",
+    "db:seed-doctor-ratings": "tsx src/seed-doctor-ratings.ts",
+    "db:seed-visitors-history": "tsx src/seed-visitors-history.ts",
+    "db:seed-notifications-history": "tsx src/seed-notifications-history.ts",
+    "db:seed-lab-panels": "tsx src/seed-lab-panels.ts",
     "db:studio": "prisma studio"
   },
   "dependencies": {

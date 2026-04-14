@@ -63,6 +63,18 @@ export default function PrescriptionsPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
 
+  // Drug interaction warning state
+  interface InteractionWarning {
+    drugA: string;
+    drugB: string;
+    severity: string;
+    description: string;
+    source: string;
+  }
+  const [interactionWarnings, setInteractionWarnings] = useState<InteractionWarning[]>([]);
+  const [showInteractionModal, setShowInteractionModal] = useState(false);
+  const [checkingInteractions, setCheckingInteractions] = useState(false);
+
   useEffect(() => {
     loadPrescriptions();
     api
@@ -141,8 +153,7 @@ export default function PrescriptionsPage() {
     setMedicines(updated);
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submitPrescription(override: boolean) {
     try {
       await api.post("/prescriptions", {
         appointmentId: form.appointmentId,
@@ -151,13 +162,54 @@ export default function PrescriptionsPage() {
         items: medicines.filter((m) => m.medicineName),
         advice: form.advice || undefined,
         followUpDate: form.followUpDate || undefined,
+        overrideWarnings: override,
       });
       setShowForm(false);
+      setShowInteractionModal(false);
+      setInteractionWarnings([]);
       setForm({ appointmentId: "", patientId: "", diagnosis: "", advice: "", followUpDate: "" });
       setMedicines([{ medicineName: "", dosage: "", frequency: "", duration: "", instructions: "" }]);
       loadPrescriptions();
     } catch (err) {
+      const anyErr = err as Error & { payload?: { warnings?: InteractionWarning[]; error?: string } };
+      if (anyErr.payload?.warnings && anyErr.payload.warnings.length > 0) {
+        setInteractionWarnings(anyErr.payload.warnings);
+        setShowInteractionModal(true);
+        return;
+      }
       alert(err instanceof Error ? err.message : "Failed to create prescription");
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.patientId) return;
+    const items = medicines.filter((m) => m.medicineName);
+    if (items.length === 0) {
+      alert("Add at least one medicine");
+      return;
+    }
+    // Preview interaction check before saving
+    setCheckingInteractions(true);
+    try {
+      const preview = await api.post<{
+        data: { warnings: InteractionWarning[]; hasBlocking: boolean };
+      }>("/prescriptions/check-interactions", {
+        patientId: form.patientId,
+        items,
+      });
+      setCheckingInteractions(false);
+      if (preview.data.hasBlocking) {
+        setInteractionWarnings(preview.data.warnings);
+        setShowInteractionModal(true);
+        return;
+      }
+      // Non-blocking: proceed; warnings (if any) will still be returned in response
+      await submitPrescription(false);
+    } catch (err) {
+      setCheckingInteractions(false);
+      // If preview itself fails, fall back to normal POST
+      await submitPrescription(false);
     }
   }
 
@@ -430,6 +482,81 @@ export default function PrescriptionsPage() {
           ))
         )}
       </div>
+
+      {/* Drug Interaction Alert Modal */}
+      {showInteractionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-xl">
+            <div className="border-b border-red-200 bg-red-50 px-6 py-4">
+              <h2 className="text-lg font-semibold text-red-800">
+                Drug Interaction Warning
+              </h2>
+              <p className="mt-1 text-sm text-red-700">
+                The following interactions were detected between the prescribed medicines and the patient&apos;s active medications:
+              </p>
+            </div>
+            <div className="max-h-[50vh] overflow-y-auto p-6">
+              <ul className="space-y-3">
+                {interactionWarnings.map((w, i) => (
+                  <li
+                    key={i}
+                    className={`rounded-lg border-l-4 p-3 ${
+                      w.severity === "CONTRAINDICATED" || w.severity === "SEVERE"
+                        ? "border-red-500 bg-red-50"
+                        : w.severity === "MODERATE"
+                        ? "border-orange-400 bg-orange-50"
+                        : "border-yellow-400 bg-yellow-50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">
+                        {w.drugA} ↔ {w.drugB}
+                      </span>
+                      <span
+                        className={`rounded px-2 py-0.5 text-xs font-semibold ${
+                          w.severity === "CONTRAINDICATED" || w.severity === "SEVERE"
+                            ? "bg-red-600 text-white"
+                            : w.severity === "MODERATE"
+                            ? "bg-orange-500 text-white"
+                            : "bg-yellow-500 text-white"
+                        }`}
+                      >
+                        {w.severity}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm text-gray-700">{w.description}</p>
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      {w.source === "NEW_VS_NEW"
+                        ? "Both medicines in this prescription"
+                        : "Patient already on one of these"}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="flex items-center justify-end gap-3 border-t bg-gray-50 px-6 py-4">
+              <button
+                onClick={() => setShowInteractionModal(false)}
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancel and revise
+              </button>
+              <button
+                onClick={() => submitPrescription(true)}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+              >
+                Override and continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {checkingInteractions && (
+        <div className="fixed bottom-6 right-6 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white shadow-lg">
+          Checking drug interactions...
+        </div>
+      )}
     </div>
   );
 }

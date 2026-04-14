@@ -214,6 +214,98 @@ router.post(
   }
 );
 
+// GET /api/v1/admissions/:id/discharge-readiness — checklist before discharge
+router.get(
+  "/:id/discharge-readiness",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const admissionId = req.params.id;
+      const admission = await prisma.admission.findUnique({
+        where: { id: admissionId },
+      });
+      if (!admission) {
+        res.status(404).json({ success: false, data: null, error: "Admission not found" });
+        return;
+      }
+
+      // Outstanding bills
+      const pendingInvoices = await prisma.invoice.findMany({
+        where: {
+          patientId: admission.patientId,
+          paymentStatus: { in: ["PENDING", "PARTIAL"] },
+        },
+        select: { id: true, invoiceNumber: true, totalAmount: true },
+      });
+      const payments = pendingInvoices.length
+        ? await prisma.payment.findMany({
+            where: { invoiceId: { in: pendingInvoices.map((i) => i.id) } },
+          })
+        : [];
+      const paidByInv: Record<string, number> = {};
+      for (const p of payments) {
+        paidByInv[p.invoiceId] = (paidByInv[p.invoiceId] || 0) + p.amount;
+      }
+      let outstandingAmount = 0;
+      for (const inv of pendingInvoices) {
+        outstandingAmount += Math.max(0, inv.totalAmount - (paidByInv[inv.id] || 0));
+      }
+
+      // Pending lab results (lab orders on this admission not COMPLETED/CANCELLED)
+      const pendingLabs = await prisma.labOrder.count({
+        where: {
+          admissionId,
+          status: { notIn: ["COMPLETED", "CANCELLED"] },
+        },
+      });
+
+      // Pending medications — active orders with no recent administration (last 12h)
+      const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000);
+      const activeOrders = await prisma.medicationOrder.findMany({
+        where: { admissionId, isActive: true },
+        include: {
+          administrations: {
+            where: { administeredAt: { gte: twelveHoursAgo } },
+            select: { id: true },
+            take: 1,
+          },
+        },
+      });
+      const pendingMedications = activeOrders.filter((o) => o.administrations.length === 0).length;
+
+      // Summary / follow-up / meds-on-discharge
+      const dischargeSummaryWritten = Boolean(admission.dischargeSummary);
+      const followUpGiven = Boolean(admission.followUpInstructions);
+      const medsOnDischargeSpecified = Boolean(admission.dischargeMedications);
+
+      const ready =
+        outstandingAmount <= 0 &&
+        pendingLabs === 0 &&
+        pendingMedications === 0 &&
+        dischargeSummaryWritten &&
+        medsOnDischargeSpecified;
+
+      res.json({
+        success: true,
+        data: {
+          admissionId,
+          ready,
+          outstandingBillsCount: pendingInvoices.length,
+          outstandingAmount,
+          pendingInvoices,
+          pendingLabOrders: pendingLabs,
+          pendingMedications,
+          dischargeSummaryWritten,
+          followUpGiven,
+          medsOnDischargeSpecified,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // PATCH /api/v1/admissions/:id/discharge
 router.patch(
   "/:id/discharge",
@@ -231,6 +323,40 @@ router.patch(
       if (existing.status === "DISCHARGED") {
         res.status(409).json({ success: false, data: null, error: "Admission already discharged" });
         return;
+      }
+
+      // Outstanding bill guard unless forceDischarge=true
+      const forceDischarge = req.body.forceDischarge === true;
+      if (!forceDischarge) {
+        const pendingInvoices = await prisma.invoice.findMany({
+          where: {
+            patientId: existing.patientId,
+            paymentStatus: { in: ["PENDING", "PARTIAL"] },
+          },
+          select: { id: true, totalAmount: true },
+        });
+        if (pendingInvoices.length > 0) {
+          const payments = await prisma.payment.findMany({
+            where: { invoiceId: { in: pendingInvoices.map((i) => i.id) } },
+          });
+          const paidByInv: Record<string, number> = {};
+          for (const p of payments) {
+            paidByInv[p.invoiceId] = (paidByInv[p.invoiceId] || 0) + p.amount;
+          }
+          let outstanding = 0;
+          for (const inv of pendingInvoices) {
+            outstanding += Math.max(0, inv.totalAmount - (paidByInv[inv.id] || 0));
+          }
+          if (outstanding > 0) {
+            res.status(400).json({
+              success: false,
+              data: null,
+              error: `Outstanding bill balance of Rs. ${outstanding.toFixed(2)}. Settle bills or pass forceDischarge: true.`,
+              outstanding,
+            });
+            return;
+          }
+        }
       }
 
       // Compute bill before closing

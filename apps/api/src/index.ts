@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import fs from "fs";
+import path from "path";
 import { createServer } from "http";
 import { Server as SocketServer } from "socket.io";
 import { authRouter } from "./routes/auth";
@@ -19,12 +21,26 @@ import { wardRouter, bedsRouter } from "./routes/wards";
 import { admissionRouter } from "./routes/admissions";
 import { medicationRouter } from "./routes/medication";
 import { nurseRoundRouter } from "./routes/nurse-rounds";
+import { ehrRouter } from "./routes/ehr";
+import { uploadsRouter } from "./routes/uploads";
+import { referralRouter } from "./routes/referrals";
+import { surgeryRouter } from "./routes/surgery";
+import { shiftRouter } from "./routes/shifts";
+import { leaveRouter } from "./routes/leaves";
+import { packageRouter } from "./routes/packages";
+import { supplierRouter } from "./routes/suppliers";
+import { purchaseOrderRouter } from "./routes/purchase-orders";
+import { expenseRouter } from "./routes/expenses";
 import { errorHandler } from "./middleware/error";
 import { rateLimit } from "./middleware/rate-limit";
 import { sanitize } from "./middleware/sanitize";
 
 const app = express();
 const httpServer = createServer(app);
+
+// Ensure EHR uploads directory exists at startup
+const uploadsDir = path.join(process.cwd(), "uploads", "ehr");
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
 const io = new SocketServer(httpServer, {
   cors: {
@@ -61,6 +77,16 @@ app.use("/api/v1/beds", bedsRouter);
 app.use("/api/v1/admissions", admissionRouter);
 app.use("/api/v1/medication", medicationRouter);
 app.use("/api/v1/nurse-rounds", nurseRoundRouter);
+app.use("/api/v1/ehr", ehrRouter);
+app.use("/api/v1/uploads", uploadsRouter);
+app.use("/api/v1/referrals", referralRouter);
+app.use("/api/v1/surgery", surgeryRouter);
+app.use("/api/v1/shifts", shiftRouter);
+app.use("/api/v1/leaves", leaveRouter);
+app.use("/api/v1/packages", packageRouter);
+app.use("/api/v1/suppliers", supplierRouter);
+app.use("/api/v1/purchase-orders", purchaseOrderRouter);
+app.use("/api/v1/expenses", expenseRouter);
 
 // Health check
 app.get("/api/health", (_req, res) => {

@@ -147,6 +147,99 @@ enum StockMovementType {
   DAMAGED
 }
 
+// ─── PHASE 3 ENUMS ──────────────────────────────────────
+
+enum AllergySeverity {
+  MILD
+  MODERATE
+  SEVERE
+  LIFE_THREATENING
+}
+
+enum ConditionStatus {
+  ACTIVE
+  CONTROLLED
+  RESOLVED
+  RELAPSED
+}
+
+enum DocumentType {
+  LAB_REPORT
+  IMAGING
+  DISCHARGE_SUMMARY
+  CONSENT
+  INSURANCE
+  REFERRAL_LETTER
+  ID_PROOF
+  OTHER
+}
+
+enum ReferralStatus {
+  PENDING
+  ACCEPTED
+  COMPLETED
+  DECLINED
+  EXPIRED
+}
+
+enum SurgeryStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  POSTPONED
+}
+
+enum ShiftType {
+  MORNING
+  AFTERNOON
+  NIGHT
+  ON_CALL
+}
+
+enum ShiftStatus {
+  SCHEDULED
+  PRESENT
+  ABSENT
+  LATE
+  LEAVE
+}
+
+enum LeaveType {
+  CASUAL
+  SICK
+  EARNED
+  MATERNITY
+  PATERNITY
+  UNPAID
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  RECEIVED
+  CANCELLED
+}
+
+enum ExpenseCategory {
+  SALARY
+  UTILITIES
+  EQUIPMENT
+  MAINTENANCE
+  CONSUMABLES
+  RENT
+  MARKETING
+  OTHER
+}
+
 // ─── USERS & AUTH ───────────────────────────────────────
 
 model User {
@@ -168,6 +261,11 @@ model User {
   medicationAdministrations MedicationAdministration[]
   nurseRounds               NurseRound[]
   stockMovements            StockMovement[]
+  uploadedDocuments         PatientDocument[]
+  shifts                    StaffShift[]
+  leaveRequests             LeaveRequest[]             @relation("LeaveOwner")
+  approvedLeaves            LeaveRequest[]             @relation("LeaveApprover")
+  recordedExpenses          Expense[]
 
   @@index([email])
   @@index([phone])
@@ -206,6 +304,9 @@ model Doctor {
   admissions        Admission[]
   medicationOrders  MedicationOrder[]
   labOrders         LabOrder[]
+  referralsFrom     Referral[]         @relation("ReferrerDoctor")
+  referralsTo       Referral[]         @relation("RefereeDoctor")
+  surgeriesLead     Surgery[]          @relation("LeadSurgeon")
 
   @@map("doctors")
 }
@@ -255,14 +356,22 @@ model Patient {
   insuranceProvider     String?
   insurancePolicyNumber String?
 
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  appointments    Appointment[]
-  vitals          Vitals[]
-  prescriptions   Prescription[]
-  invoices        Invoice[]
-  insuranceClaims InsuranceClaim[]
-  admissions      Admission[]
-  labOrders       LabOrder[]
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointments      Appointment[]
+  vitals            Vitals[]
+  prescriptions     Prescription[]
+  invoices          Invoice[]
+  insuranceClaims   InsuranceClaim[]
+  admissions        Admission[]
+  labOrders         LabOrder[]
+  allergies         PatientAllergy[]
+  chronicConditions ChronicCondition[]
+  familyHistory     FamilyHistory[]
+  immunizations     Immunization[]
+  documents         PatientDocument[]
+  referralsFrom     Referral[]         @relation("PatientReferrals")
+  surgeries         Surgery[]
+  packagePurchases  PackagePurchase[]
 
   @@index([mrNumber])
   @@map("patients")
@@ -813,4 +922,337 @@ model LabResult {
 
   @@index([orderItemId])
   @@map("lab_results")
+}
+
+// ═══════════════════════════════════════════════════════
+// PHASE 3: ELECTRONIC HEALTH RECORDS (EHR)
+// ═══════════════════════════════════════════════════════
+
+model PatientAllergy {
+  id        String          @id @default(uuid())
+  patientId String
+  allergen  String
+  severity  AllergySeverity @default(MILD)
+  reaction  String?
+  notes     String?
+  notedBy   String // user id
+  notedAt   DateTime        @default(now())
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@map("patient_allergies")
+}
+
+model ChronicCondition {
+  id            String          @id @default(uuid())
+  patientId     String
+  condition     String
+  icd10Code     String?
+  diagnosedDate DateTime?       @db.Date
+  status        ConditionStatus @default(ACTIVE)
+  notes         String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@map("chronic_conditions")
+}
+
+model FamilyHistory {
+  id        String  @id @default(uuid())
+  patientId String
+  relation  String // Mother, Father, Sibling, etc.
+  condition String
+  notes     String?
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@map("family_history")
+}
+
+model Immunization {
+  id             String    @id @default(uuid())
+  patientId      String
+  vaccine        String
+  doseNumber     Int?
+  dateGiven      DateTime  @db.Date
+  administeredBy String? // user id or external provider
+  batchNumber    String?
+  manufacturer   String?
+  site           String? // left arm, etc.
+  nextDueDate    DateTime? @db.Date
+  notes          String?
+  createdAt      DateTime  @default(now())
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@index([nextDueDate])
+  @@map("immunizations")
+}
+
+model PatientDocument {
+  id         String       @id @default(uuid())
+  patientId  String
+  type       DocumentType
+  title      String
+  filePath   String // server file path or URL
+  fileSize   Int? // bytes
+  mimeType   String?
+  uploadedBy String // user id
+  notes      String?
+  createdAt  DateTime     @default(now())
+
+  patient  Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  uploader User    @relation(fields: [uploadedBy], references: [id])
+
+  @@index([patientId])
+  @@index([type])
+  @@map("patient_documents")
+}
+
+// ═══════════════════════════════════════════════════════
+// PHASE 3: REFERRALS
+// ═══════════════════════════════════════════════════════
+
+model Referral {
+  id               String         @id @default(uuid())
+  referralNumber   String         @unique
+  patientId        String
+  fromDoctorId     String
+  toDoctorId       String? // null if external
+  externalProvider String? // external hospital/specialist name
+  externalContact  String?
+  specialty        String?
+  reason           String
+  notes            String?
+  status           ReferralStatus @default(PENDING)
+  referredAt       DateTime       @default(now())
+  respondedAt      DateTime?
+
+  patient    Patient @relation("PatientReferrals", fields: [patientId], references: [id])
+  fromDoctor Doctor  @relation("ReferrerDoctor", fields: [fromDoctorId], references: [id])
+  toDoctor   Doctor? @relation("RefereeDoctor", fields: [toDoctorId], references: [id])
+
+  @@index([patientId])
+  @@index([fromDoctorId])
+  @@index([status])
+  @@map("referrals")
+}
+
+// ═══════════════════════════════════════════════════════
+// PHASE 3: SURGERY / OPERATION THEATER
+// ═══════════════════════════════════════════════════════
+
+model OperatingTheater {
+  id        String  @id @default(uuid())
+  name      String  @unique
+  floor     String?
+  equipment String?
+  dailyRate Float   @default(0)
+  isActive  Boolean @default(true)
+
+  surgeries Surgery[]
+
+  @@map("operating_theaters")
+}
+
+model Surgery {
+  id                String        @id @default(uuid())
+  caseNumber        String        @unique
+  patientId         String
+  surgeonId         String
+  otId              String
+  procedure         String
+  scheduledAt       DateTime
+  durationMin       Int? // estimated duration
+  actualStartAt     DateTime?
+  actualEndAt       DateTime?
+  status            SurgeryStatus @default(SCHEDULED)
+  anaesthesiologist String?
+  assistants        String? // comma-separated names or JSON
+  preOpNotes        String?
+  postOpNotes       String?
+  diagnosis         String?
+  cost              Float?        @default(0)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  patient Patient          @relation(fields: [patientId], references: [id])
+  surgeon Doctor           @relation("LeadSurgeon", fields: [surgeonId], references: [id])
+  ot      OperatingTheater @relation(fields: [otId], references: [id])
+
+  @@index([patientId])
+  @@index([surgeonId])
+  @@index([scheduledAt])
+  @@index([status])
+  @@map("surgeries")
+}
+
+// ═══════════════════════════════════════════════════════
+// PHASE 3: STAFF HR (SHIFTS & LEAVE)
+// ═══════════════════════════════════════════════════════
+
+model StaffShift {
+  id        String      @id @default(uuid())
+  userId    String
+  date      DateTime    @db.Date
+  type      ShiftType
+  startTime String // HH:MM
+  endTime   String
+  status    ShiftStatus @default(SCHEDULED)
+  notes     String?
+  createdAt DateTime    @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date, type])
+  @@index([date])
+  @@index([status])
+  @@map("staff_shifts")
+}
+
+model LeaveRequest {
+  id              String      @id @default(uuid())
+  userId          String
+  type            LeaveType
+  fromDate        DateTime    @db.Date
+  toDate          DateTime    @db.Date
+  totalDays       Int
+  reason          String
+  status          LeaveStatus @default(PENDING)
+  approvedBy      String?
+  approvedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  user     User  @relation("LeaveOwner", fields: [userId], references: [id], onDelete: Cascade)
+  approver User? @relation("LeaveApprover", fields: [approvedBy], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@map("leave_requests")
+}
+
+// ═══════════════════════════════════════════════════════
+// PHASE 3: FINANCE EXPANSION
+// ═══════════════════════════════════════════════════════
+
+model HealthPackage {
+  id            String   @id @default(uuid())
+  name          String
+  description   String?
+  services      String // comma-separated list or JSON
+  price         Float
+  discountPrice Float?
+  validityDays  Int      @default(365)
+  category      String? // Master Checkup, Diabetes Package, etc.
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  purchases PackagePurchase[]
+
+  @@index([category])
+  @@map("health_packages")
+}
+
+model PackagePurchase {
+  id             String   @id @default(uuid())
+  purchaseNumber String   @unique
+  packageId      String
+  patientId      String
+  purchasedAt    DateTime @default(now())
+  expiresAt      DateTime
+  amountPaid     Float
+  servicesUsed   String? // JSON tracking which services consumed
+  isFullyUsed    Boolean  @default(false)
+
+  package HealthPackage @relation(fields: [packageId], references: [id])
+  patient Patient       @relation(fields: [patientId], references: [id])
+
+  @@index([patientId])
+  @@index([packageId])
+  @@map("package_purchases")
+}
+
+model Supplier {
+  id            String   @id @default(uuid())
+  name          String   @unique
+  contactPerson String?
+  phone         String?
+  email         String?
+  address       String?
+  gstNumber     String?
+  paymentTerms  String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  purchaseOrders PurchaseOrder[]
+
+  @@map("suppliers")
+}
+
+model PurchaseOrder {
+  id          String              @id @default(uuid())
+  poNumber    String              @unique
+  supplierId  String
+  status      PurchaseOrderStatus @default(DRAFT)
+  orderedAt   DateTime            @default(now())
+  expectedAt  DateTime?
+  receivedAt  DateTime?
+  subtotal    Float
+  taxAmount   Float               @default(0)
+  totalAmount Float
+  notes       String?
+  createdBy   String? // user id
+  approvedBy  String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  supplier Supplier            @relation(fields: [supplierId], references: [id])
+  items    PurchaseOrderItem[]
+
+  @@index([supplierId])
+  @@index([status])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id          String  @id @default(uuid())
+  poId        String
+  description String // item name/description
+  medicineId  String?
+  quantity    Int
+  unitPrice   Float
+  amount      Float
+
+  purchaseOrder PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+
+  @@index([poId])
+  @@map("purchase_order_items")
+}
+
+model Expense {
+  id             String          @id @default(uuid())
+  category       ExpenseCategory
+  amount         Float
+  description    String
+  date           DateTime        @db.Date
+  paidTo         String?
+  paidBy         String // user id
+  referenceNo    String?
+  attachmentPath String?
+  createdAt      DateTime        @default(now())
+
+  user User @relation(fields: [paidBy], references: [id])
+
+  @@index([date])
+  @@index([category])
+  @@map("expenses")
 }

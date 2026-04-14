@@ -9,6 +9,8 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "tsx src/seed.ts",
+    "db:seed-hr": "tsx src/seed-hr.ts",
+    "db:seed-finance": "tsx src/seed-finance.ts",
     "db:studio": "prisma studio"
   },
   "dependencies": {

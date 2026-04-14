@@ -13,4 +13,8 @@ export * from "./validation/prescription";
 export * from "./validation/pharmacy";
 export * from "./validation/lab";
 export * from "./validation/ipd";
+export * from "./validation/ehr";
+export * from "./validation/clinical";
+export * from "./validation/hr";
+export * from "./validation/finance";
 export * from "./constants";

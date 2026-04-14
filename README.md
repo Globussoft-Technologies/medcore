@@ -9,9 +9,9 @@
 
 ## Highlights
 
-- **54 web pages** across 4 major phases + 5 deepening passes
-- **200+ API endpoints** with role-based access control
-- **80+ Prisma models** covering every hospital workflow
+- **65+ web pages** across 4 major phases + 6 deepening/re-audit passes
+- **250+ API endpoints** with role-based access control
+- **85+ Prisma models** covering every hospital workflow
 - **Real-time WebSocket** for queue & chat updates
 - **Mobile app** (React Native + Expo) for patients
 - **Production-ready**: PM2 auto-restart, daily DB backups, health monitoring
@@ -650,6 +650,18 @@ Module-by-module deep analysis followed by feature enhancements and additional s
 **Operations cluster** — GST split (CGST+SGST), package auto-discount, advance deposits, credit notes, consolidated IPD bill, supplier contracts, performance metrics, payments, catalogs, GRN with partial receipts, recurring POs, expense approval workflow, budgets, leave balances, holiday calendar, attendance summary, payroll calculation, feedback sentiment, complaint SLA, chat reactions/pinning/mentions/channels, visitor blacklist, photo, limits, notification templates, quiet hours, admin broadcasts, delivery tracking.
 
 **Analytics cluster** — Period comparison (previous period/year), date range presets, patient growth/retention, no-show analysis, ER performance metrics, IPD trends, pharmacy expiry risk, feedback trends, CSV exports, Report Builder with saved configs, print-friendly dashboard.
+
+### Deep Re-Audit Pass (v1.1.0)
+
+A second module-by-module pass adding UI for hidden backend features, cross-module integrations, and 30+ deep module features.
+
+**UI for hidden backend features** — Complaint SLA countdown with At-Risk dashboard, leave calendar month view, payroll calculator with CSV export, budget vs actual with variance charts, chat reactions + pinning UI, visitor photo capture (webcam + upload), notification broadcast composer with multi-channel preview, holiday calendar with Indian holidays, GST breakdown on invoice detail, lab result trend sparklines.
+
+**Cross-module integrations** — Global search palette (Ctrl+K), Patient 360° tab with sparklines + activity feed, Admin Control Center, Unified Calendar across appointments/surgeries/ANC/shifts, Doctor Workspace, Nurse Workstation, Patient self-service portal.
+
+**Module-specific deep additions** — Drug interaction check on Rx write (blocks SEVERE/CONTRAINDICATED), STAT lab priority with auto-notify, admission discharge-readiness checklist with bill settlement guard, blood unit reservation with 24h expiry + auto-release cron, group appointments (shared groupId), patient family linking (PatientFamilyLink model), queue vulnerable-group priority boost (seniors 65+, children under 5, ANC patients), surgery pre-op + post-op checklist enforcement, telemedicine in-session chat, ER trauma score (RTS) calculator, pharmacy auto-billing on dispense, OT turnaround-time tracking.
+
+**Enhanced seed data (8 files)** — 8 pediatric patients with growth + UIP immunizations, 40+ chat messages with reactions, 15 complaints at various SLA stages, asset maintenance history (2 years) with transfers + disposals, 30-50 doctor ratings per doctor, 50 visitor history + blacklist, 220 notification logs, 10 specialty lab panels with 20 orders.
 
 ---
 

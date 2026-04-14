@@ -22,6 +22,7 @@ import { admissionRouter } from "./routes/admissions";
 import { medicationRouter } from "./routes/medication";
 import { nurseRoundRouter } from "./routes/nurse-rounds";
 import { ehrRouter } from "./routes/ehr";
+import { icd10Router } from "./routes/icd10";
 import { uploadsRouter } from "./routes/uploads";
 import { referralRouter } from "./routes/referrals";
 import { surgeryRouter } from "./routes/surgery";
@@ -41,6 +42,7 @@ import { assetsRouter } from "./routes/assets";
 import { feedbackRouter, complaintsRouter } from "./routes/feedback";
 import { chatRouter } from "./routes/chat";
 import { visitorsRouter } from "./routes/visitors";
+import { hrOpsRouter } from "./routes/hr-ops";
 import { errorHandler } from "./middleware/error";
 import { rateLimit } from "./middleware/rate-limit";
 import { sanitize } from "./middleware/sanitize";
@@ -88,6 +90,7 @@ app.use("/api/v1/admissions", admissionRouter);
 app.use("/api/v1/medication", medicationRouter);
 app.use("/api/v1/nurse-rounds", nurseRoundRouter);
 app.use("/api/v1/ehr", ehrRouter);
+app.use("/api/v1/icd10", icd10Router);
 app.use("/api/v1/uploads", uploadsRouter);
 app.use("/api/v1/referrals", referralRouter);
 app.use("/api/v1/surgery", surgeryRouter);
@@ -108,6 +111,7 @@ app.use("/api/v1/feedback", feedbackRouter);
 app.use("/api/v1/complaints", complaintsRouter);
 app.use("/api/v1/chat", chatRouter);
 app.use("/api/v1/visitors", visitorsRouter);
+app.use("/api/v1/hr-ops", hrOpsRouter);
 
 // Health check
 app.get("/api/health", (_req, res) => {

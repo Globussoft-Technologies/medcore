@@ -4,6 +4,9 @@ import {
   Role,
   createExpenseSchema,
   updateExpenseSchema,
+  approveExpenseSchema,
+  expenseBudgetSchema,
+  EXPENSE_APPROVAL_THRESHOLD,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -111,13 +114,16 @@ router.get(
   }
 );
 
-// POST /api/v1/expenses
+// POST /api/v1/expenses — creates; auto-PENDING if > threshold
 router.post(
   "/",
   authorize(Role.ADMIN, Role.RECEPTION),
   validate(createExpenseSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const isAdmin = req.user!.role === Role.ADMIN;
+      const over = req.body.amount > EXPENSE_APPROVAL_THRESHOLD;
+      const approvalStatus = over && !isAdmin ? "PENDING" : "APPROVED";
       const expense = await prisma.expense.create({
         data: {
           category: req.body.category,
@@ -126,6 +132,12 @@ router.post(
           date: new Date(req.body.date),
           paidTo: req.body.paidTo,
           referenceNo: req.body.referenceNo,
+          attachmentPath: req.body.attachmentPath,
+          isRecurring: !!req.body.isRecurring,
+          recurringFrequency: req.body.recurringFrequency,
+          approvalStatus,
+          approvedBy: approvalStatus === "APPROVED" ? req.user!.userId : null,
+          approvedAt: approvalStatus === "APPROVED" ? new Date() : null,
           paidBy: req.user!.userId,
         },
         include: { user: { select: { id: true, name: true, role: true } } },
@@ -134,6 +146,7 @@ router.post(
       auditLog(req, "CREATE_EXPENSE", "expense", expense.id, {
         category: expense.category,
         amount: expense.amount,
+        approvalStatus,
       }).catch(console.error);
 
       res.status(201).json({ success: true, data: expense, error: null });
@@ -181,6 +194,228 @@ router.delete(
       });
       auditLog(req, "DELETE_EXPENSE", "expense", expense.id).catch(console.error);
       res.json({ success: true, data: expense, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// OPS ENHANCEMENTS: APPROVAL + BUDGETS + RECURRING
+// ═══════════════════════════════════════════════════════
+
+// GET /api/v1/expenses/pending — admin approval queue
+router.get(
+  "/pending",
+  authorize(Role.ADMIN),
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const pending = await prisma.expense.findMany({
+        where: { approvalStatus: "PENDING" },
+        include: { user: { select: { id: true, name: true, role: true } } },
+        orderBy: { createdAt: "asc" },
+      });
+      const totalPending = pending.reduce((s, e) => s + e.amount, 0);
+      res.json({
+        success: true,
+        data: { pending, totalPending, count: pending.length },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/expenses/:id/approve
+router.patch(
+  "/:id/approve",
+  authorize(Role.ADMIN),
+  validate(approveExpenseSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const existing = await prisma.expense.findUnique({ where: { id: req.params.id } });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Expense not found" });
+        return;
+      }
+      if (existing.approvalStatus !== "PENDING") {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `Expense is already ${existing.approvalStatus}`,
+        });
+        return;
+      }
+      const updated = await prisma.expense.update({
+        where: { id: existing.id },
+        data: {
+          approvalStatus: req.body.approved ? "APPROVED" : "REJECTED",
+          approvedBy: req.user!.userId,
+          approvedAt: new Date(),
+          rejectionReason: req.body.approved ? null : req.body.rejectionReason,
+        },
+      });
+      auditLog(
+        req,
+        req.body.approved ? "EXPENSE_APPROVED" : "EXPENSE_REJECTED",
+        "expense",
+        existing.id,
+        { amount: existing.amount }
+      ).catch(console.error);
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/expenses/recurring — list recurring templates
+router.get(
+  "/recurring",
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const items = await prisma.expense.findMany({
+        where: { isRecurring: true, parentExpenseId: null },
+        orderBy: { date: "desc" },
+      });
+      res.json({ success: true, data: items, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/expenses/:id/generate-recurring — clone as a new expense for next period
+router.post(
+  "/:id/generate-recurring",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parent = await prisma.expense.findUnique({ where: { id: req.params.id } });
+      if (!parent) {
+        res.status(404).json({ success: false, data: null, error: "Parent expense not found" });
+        return;
+      }
+      if (!parent.isRecurring) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Parent expense is not marked as recurring",
+        });
+        return;
+      }
+      const nextDate = new Date(parent.date);
+      switch (parent.recurringFrequency) {
+        case "QUARTERLY":
+          nextDate.setMonth(nextDate.getMonth() + 3);
+          break;
+        case "YEARLY":
+          nextDate.setFullYear(nextDate.getFullYear() + 1);
+          break;
+        case "MONTHLY":
+        default:
+          nextDate.setMonth(nextDate.getMonth() + 1);
+      }
+      const newExp = await prisma.expense.create({
+        data: {
+          category: parent.category,
+          amount: parent.amount,
+          description: `${parent.description} (auto-generated)`,
+          date: nextDate,
+          paidTo: parent.paidTo,
+          paidBy: req.user!.userId,
+          referenceNo: parent.referenceNo,
+          isRecurring: false, // instance, not template
+          parentExpenseId: parent.id,
+          approvalStatus: parent.amount > EXPENSE_APPROVAL_THRESHOLD ? "PENDING" : "APPROVED",
+          approvedBy: parent.amount > EXPENSE_APPROVAL_THRESHOLD ? null : req.user!.userId,
+          approvedAt: parent.amount > EXPENSE_APPROVAL_THRESHOLD ? null : new Date(),
+        },
+      });
+      auditLog(req, "EXPENSE_RECURRING_GEN", "expense", newExp.id, {
+        parentId: parent.id,
+      }).catch(console.error);
+      res.status(201).json({ success: true, data: newExp, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/expenses/budgets?year=&month=
+router.get(
+  "/budgets",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const now = new Date();
+      const year = parseInt((req.query.year as string) || String(now.getFullYear()), 10);
+      const month = parseInt((req.query.month as string) || String(now.getMonth() + 1), 10);
+      const [budgets, expenses] = await Promise.all([
+        prisma.expenseBudget.findMany({ where: { year, month } }),
+        prisma.expense.findMany({
+          where: {
+            approvalStatus: { not: "REJECTED" },
+            date: {
+              gte: new Date(year, month - 1, 1),
+              lt: new Date(year, month, 1),
+            },
+          },
+        }),
+      ]);
+
+      const actualByCat: Record<string, number> = {};
+      for (const e of expenses) {
+        actualByCat[e.category] = (actualByCat[e.category] || 0) + e.amount;
+      }
+      const rows = budgets.map((b) => ({
+        category: b.category,
+        budget: b.amount,
+        actual: +(actualByCat[b.category] || 0).toFixed(2),
+        variance: +((actualByCat[b.category] || 0) - b.amount).toFixed(2),
+        utilisation:
+          b.amount > 0
+            ? +(((actualByCat[b.category] || 0) / b.amount) * 100).toFixed(1)
+            : 0,
+      }));
+      res.json({
+        success: true,
+        data: {
+          year,
+          month,
+          rows,
+          uncategorizedActual: Object.entries(actualByCat)
+            .filter(([c]) => !budgets.some((b) => b.category === c))
+            .map(([category, actual]) => ({ category, actual })),
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/expenses/budgets
+router.post(
+  "/budgets",
+  authorize(Role.ADMIN),
+  validate(expenseBudgetSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { category, year, month, amount, notes } = req.body;
+      const budget = await prisma.expenseBudget.upsert({
+        where: { category_year_month: { category, year, month } },
+        update: { amount, notes },
+        create: { category, year, month, amount, notes },
+      });
+      auditLog(req, "BUDGET_UPSERT", "expense_budget", budget.id, {
+        category,
+        year,
+        month,
+        amount,
+      }).catch(console.error);
+      res.status(201).json({ success: true, data: budget, error: null });
     } catch (err) {
       next(err);
     }

@@ -10,25 +10,44 @@ import {
   addInvoiceItemSchema,
   applyDiscountSchema,
   bulkPaymentSchema,
+  createCreditNoteSchema,
+  createAdvancePaymentSchema,
+  applyAdvanceSchema,
+  consolidatedInvoiceSchema,
+  sendReminderSchema,
   INVOICE_NUMBER_PREFIX,
+  CREDIT_NOTE_PREFIX,
+  ADVANCE_RECEIPT_PREFIX,
+  DEFAULT_GST_PERCENT,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { createPaymentOrder, verifyPayment } from "../services/razorpay";
 import { onBillGenerated, onPaymentReceived } from "../services/notification-triggers";
 import { auditLog } from "../middleware/audit";
+import { splitGst } from "../services/ops-helpers";
 
 const router = Router();
 router.use(authenticate);
 
-// POST /api/v1/billing/invoices — create invoice
+// POST /api/v1/billing/invoices — create invoice (with GST split, package discount, advance)
 router.post(
   "/invoices",
   authorize(Role.RECEPTION, Role.ADMIN),
   validate(createInvoiceSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { appointmentId, patientId, items, taxPercentage, discountAmount, notes } = req.body;
+      const {
+        appointmentId,
+        patientId,
+        items,
+        taxPercentage,
+        discountAmount,
+        applyPackageDiscount,
+        applyAdvance,
+        dueDate,
+        notes,
+      } = req.body;
 
       // Generate invoice number
       const config = await prisma.systemConfig.findUnique({
@@ -43,8 +62,71 @@ router.post(
           sum + item.quantity * item.unitPrice,
         0
       );
-      const taxAmount = (subtotal * (taxPercentage || 0)) / 100;
-      const totalAmount = subtotal + taxAmount - (discountAmount || 0);
+      const gstPct = taxPercentage != null ? taxPercentage : 0;
+      const { taxAmount, cgstAmount, sgstAmount } = splitGst(subtotal, gstPct);
+
+      // Package discount — if patient has an active HealthPackage matching any
+      // item description / category, apply 10% on matching items.
+      let packageDiscount = 0;
+      let appliedPackageId: string | null = null;
+      if (applyPackageDiscount) {
+        const activePurchase = await prisma.packagePurchase.findFirst({
+          where: {
+            patientId,
+            expiresAt: { gt: new Date() },
+            isFullyUsed: false,
+          },
+          include: { package: true },
+          orderBy: { purchasedAt: "desc" },
+        });
+        if (activePurchase?.package?.services) {
+          const covered = activePurchase.package.services
+            .toLowerCase()
+            .split(/[,;]/)
+            .map((s) => s.trim())
+            .filter(Boolean);
+          for (const it of items as Array<{
+            description: string;
+            category: string;
+            quantity: number;
+            unitPrice: number;
+          }>) {
+            const hay = `${it.description} ${it.category}`.toLowerCase();
+            if (covered.some((c) => c && hay.includes(c))) {
+              packageDiscount += it.quantity * it.unitPrice * 0.1;
+            }
+          }
+          appliedPackageId = activePurchase.id;
+          packageDiscount = +packageDiscount.toFixed(2);
+        }
+      }
+
+      // Advance payment application
+      let advanceApplied = 0;
+      let advanceToConsume: Array<{ id: string; use: number }> = [];
+      if (applyAdvance) {
+        const advances = await prisma.advancePayment.findMany({
+          where: { patientId, balance: { gt: 0 } },
+          orderBy: { createdAt: "asc" },
+        });
+        const gross = subtotal + taxAmount - (discountAmount || 0) - packageDiscount;
+        let remaining = Math.max(0, gross);
+        for (const adv of advances) {
+          if (remaining <= 0) break;
+          const use = Math.min(adv.balance, remaining);
+          advanceToConsume.push({ id: adv.id, use });
+          advanceApplied += use;
+          remaining -= use;
+        }
+        advanceApplied = +advanceApplied.toFixed(2);
+      }
+
+      const totalAmount =
+        subtotal +
+        taxAmount -
+        (discountAmount || 0) -
+        packageDiscount -
+        advanceApplied;
 
       const invoice = await prisma.$transaction(async (tx) => {
         const inv = await tx.invoice.create({
@@ -54,9 +136,15 @@ router.post(
             patientId,
             subtotal,
             taxAmount,
+            cgstAmount,
+            sgstAmount,
             discountAmount: discountAmount || 0,
-            totalAmount,
+            packageDiscount,
+            advanceApplied,
+            totalAmount: Math.max(0, +totalAmount.toFixed(2)),
+            dueDate: dueDate ? new Date(dueDate) : undefined,
             notes,
+            paymentStatus: advanceApplied >= totalAmount && totalAmount >= 0 ? "PAID" : "PENDING",
             items: {
               create: items.map(
                 (item: {
@@ -77,10 +165,56 @@ router.post(
           include: { items: true },
         });
 
-        await tx.systemConfig.update({
-          where: { key: "next_invoice_number" },
-          data: { value: String(invSeq + 1) },
-        });
+        // Record advance consumption (as negative-balance adjustment)
+        for (const a of advanceToConsume) {
+          await tx.advancePayment.update({
+            where: { id: a.id },
+            data: { balance: { decrement: a.use } },
+          });
+          await tx.payment.create({
+            data: {
+              invoiceId: inv.id,
+              amount: a.use,
+              mode: "CASH", // placeholder — advance-backed
+              transactionId: `ADVANCE:${a.id}`,
+            },
+          });
+        }
+
+        // Record package consumption
+        if (appliedPackageId && packageDiscount > 0) {
+          const pp = await tx.packagePurchase.findUnique({
+            where: { id: appliedPackageId },
+          });
+          if (pp) {
+            const existing = pp.servicesUsed
+              ? (JSON.parse(pp.servicesUsed) as unknown[])
+              : [];
+            existing.push({
+              invoiceId: inv.id,
+              usedAt: new Date().toISOString(),
+              discount: packageDiscount,
+              services: items.map(
+                (it: { description: string }) => it.description
+              ),
+            });
+            await tx.packagePurchase.update({
+              where: { id: appliedPackageId },
+              data: { servicesUsed: JSON.stringify(existing) },
+            });
+          }
+        }
+
+        if (config) {
+          await tx.systemConfig.update({
+            where: { key: "next_invoice_number" },
+            data: { value: String(invSeq + 1) },
+          });
+        } else {
+          await tx.systemConfig.create({
+            data: { key: "next_invoice_number", value: String(invSeq + 1) },
+          });
+        }
 
         return inv;
       });
@@ -1097,6 +1231,588 @@ router.get(
       res.json({
         success: true,
         data: { series, totals, groupBy, from: start, to: end },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// OPS ENHANCEMENTS: CREDIT NOTES
+// ═══════════════════════════════════════════════════════
+
+async function nextCreditNoteNumber(): Promise<string> {
+  const last = await prisma.creditNote.findFirst({
+    orderBy: { noteNumber: "desc" },
+    select: { noteNumber: true },
+  });
+  let n = 1;
+  if (last?.noteNumber) {
+    const m = last.noteNumber.match(/(\d+)$/);
+    if (m) n = parseInt(m[1], 10) + 1;
+  }
+  return `${CREDIT_NOTE_PREFIX}${String(n).padStart(6, "0")}`;
+}
+
+// POST /api/v1/billing/credit-notes — issue a credit note against a PAID invoice
+router.post(
+  "/credit-notes",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  validate(createCreditNoteSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { invoiceId, amount, reason } = req.body;
+
+      const invoice = await prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        include: { payments: true, creditNotes: true },
+      });
+      if (!invoice) {
+        res.status(404).json({ success: false, data: null, error: "Invoice not found" });
+        return;
+      }
+      const alreadyCredited = invoice.creditNotes.reduce((s, c) => s + c.amount, 0);
+      if (alreadyCredited + amount > invoice.totalAmount) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Total credit notes cannot exceed invoice total",
+        });
+        return;
+      }
+
+      const noteNumber = await nextCreditNoteNumber();
+      const note = await prisma.creditNote.create({
+        data: {
+          noteNumber,
+          invoiceId,
+          amount,
+          reason,
+          issuedBy: req.user!.userId,
+        },
+      });
+
+      auditLog(req, "ISSUE_CREDIT_NOTE", "credit_note", note.id, {
+        noteNumber,
+        invoiceId,
+        amount,
+      }).catch(console.error);
+
+      res.status(201).json({ success: true, data: note, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/billing/credit-notes — list
+router.get(
+  "/credit-notes",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { invoiceId, from, to } = req.query as Record<string, string | undefined>;
+      const where: Record<string, unknown> = {};
+      if (invoiceId) where.invoiceId = invoiceId;
+      if (from || to) {
+        where.createdAt = {
+          ...(from ? { gte: new Date(from) } : {}),
+          ...(to ? { lte: new Date(to) } : {}),
+        };
+      }
+      const notes = await prisma.creditNote.findMany({
+        where,
+        include: {
+          invoice: {
+            include: {
+              patient: { include: { user: { select: { name: true } } } },
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      const total = notes.reduce((s, n) => s + n.amount, 0);
+      res.json({ success: true, data: { notes, total, count: notes.length }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// OPS ENHANCEMENTS: ADVANCE PAYMENTS / DEPOSITS
+// ═══════════════════════════════════════════════════════
+
+async function nextAdvanceReceiptNumber(): Promise<string> {
+  const last = await prisma.advancePayment.findFirst({
+    orderBy: { receiptNumber: "desc" },
+    select: { receiptNumber: true },
+  });
+  let n = 1;
+  if (last?.receiptNumber) {
+    const m = last.receiptNumber.match(/(\d+)$/);
+    if (m) n = parseInt(m[1], 10) + 1;
+  }
+  return `${ADVANCE_RECEIPT_PREFIX}${String(n).padStart(6, "0")}`;
+}
+
+// POST /api/v1/billing/advances — patient prepays a deposit
+router.post(
+  "/advances",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  validate(createAdvancePaymentSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { patientId, amount, mode, transactionId, notes } = req.body;
+      const receiptNumber = await nextAdvanceReceiptNumber();
+      const adv = await prisma.advancePayment.create({
+        data: {
+          receiptNumber,
+          patientId,
+          amount,
+          balance: amount,
+          mode,
+          transactionId,
+          notes,
+          receivedBy: req.user!.userId,
+        },
+      });
+      auditLog(req, "ADVANCE_RECEIVED", "advance_payment", adv.id, {
+        receiptNumber,
+        patientId,
+        amount,
+      }).catch(console.error);
+      res.status(201).json({ success: true, data: adv, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/billing/advances?patientId=
+router.get(
+  "/advances",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { patientId } = req.query as Record<string, string | undefined>;
+
+      // Patients can only see their own
+      if (req.user!.role === "PATIENT") {
+        const me = await prisma.patient.findUnique({
+          where: { userId: req.user!.userId },
+        });
+        if (!me) {
+          res.json({ success: true, data: [], error: null });
+          return;
+        }
+        const mine = await prisma.advancePayment.findMany({
+          where: { patientId: me.id },
+          orderBy: { createdAt: "desc" },
+        });
+        res.json({ success: true, data: mine, error: null });
+        return;
+      }
+
+      const where: Record<string, unknown> = {};
+      if (patientId) where.patientId = patientId;
+      const advances = await prisma.advancePayment.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+      });
+      res.json({ success: true, data: advances, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/billing/advances/apply — manually apply an advance to an invoice
+router.post(
+  "/advances/apply",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  validate(applyAdvanceSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { advanceId, invoiceId, amount } = req.body;
+      const adv = await prisma.advancePayment.findUnique({
+        where: { id: advanceId },
+      });
+      if (!adv) {
+        res.status(404).json({ success: false, data: null, error: "Advance not found" });
+        return;
+      }
+      if (amount > adv.balance) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `Amount exceeds available advance balance (${adv.balance})`,
+        });
+        return;
+      }
+      const inv = await prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        include: { payments: true },
+      });
+      if (!inv) {
+        res.status(404).json({ success: false, data: null, error: "Invoice not found" });
+        return;
+      }
+      if (inv.patientId !== adv.patientId) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Advance belongs to a different patient",
+        });
+        return;
+      }
+      const result = await prisma.$transaction(async (tx) => {
+        await tx.advancePayment.update({
+          where: { id: advanceId },
+          data: { balance: { decrement: amount } },
+        });
+        const pay = await tx.payment.create({
+          data: {
+            invoiceId,
+            amount,
+            mode: "CASH",
+            transactionId: `ADVANCE:${advanceId}`,
+          },
+        });
+        const totalPaid =
+          inv.payments.reduce((s, p) => s + p.amount, 0) + amount;
+        const newStatus =
+          totalPaid >= inv.totalAmount ? "PAID" : "PARTIAL";
+        await tx.invoice.update({
+          where: { id: invoiceId },
+          data: {
+            paymentStatus: newStatus,
+            advanceApplied: { increment: amount },
+          },
+        });
+        return pay;
+      });
+      auditLog(req, "ADVANCE_APPLIED", "advance_payment", advanceId, {
+        invoiceId,
+        amount,
+      }).catch(console.error);
+      res.status(201).json({ success: true, data: result, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// OPS ENHANCEMENTS: CONSOLIDATED IPD BILL (on discharge)
+// ═══════════════════════════════════════════════════════
+// Aggregates bed charges, medication costs, lab orders, and surgeries for an admission.
+
+router.post(
+  "/consolidated",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  validate(consolidatedInvoiceSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { admissionId, taxPercentage, discountAmount, applyAdvance, notes } = req.body;
+      const admission = await prisma.admission.findUnique({
+        where: { id: admissionId },
+        include: {
+          bed: true,
+          patient: true,
+        },
+      });
+      if (!admission) {
+        res.status(404).json({ success: false, data: null, error: "Admission not found" });
+        return;
+      }
+
+      // Bed charges — (discharge or now) − admittedAt days × dailyRate
+      const start = admission.admittedAt.getTime();
+      const endTs = (admission.dischargedAt || new Date()).getTime();
+      const days = Math.max(1, Math.ceil((endTs - start) / (86400000)));
+      const bedAmount = days * admission.bed.dailyRate;
+
+      // Medication cost — simplified: count MedicationAdministration with cost 10 rs each (placeholder)
+      const adminCount = await prisma.medicationAdministration.count({
+        where: { medicationOrder: { admissionId }, status: "ADMINISTERED" },
+      });
+      const medAmount = adminCount * 10;
+
+      // Labs — sum of LabOrderItem test prices
+      const labOrders = await prisma.labOrder.findMany({
+        where: { admissionId },
+        include: { items: { include: { test: true } } },
+      });
+      const labAmount = labOrders.reduce(
+        (s, lo) => s + lo.items.reduce((x, it) => x + (it.test?.price || 0), 0),
+        0
+      );
+
+      // Surgeries for this patient during this stay
+      const surgeries = await prisma.surgery.findMany({
+        where: {
+          patientId: admission.patientId,
+          scheduledAt: { gte: admission.admittedAt, lte: admission.dischargedAt || new Date() },
+        },
+      });
+      const surgeryAmount = surgeries.reduce((s, sg) => s + (sg.cost || 0), 0);
+
+      const lineItems = [
+        {
+          description: `Bed charges (${days} day${days > 1 ? "s" : ""}, ${admission.bed.bedNumber})`,
+          category: "BED",
+          quantity: days,
+          unitPrice: admission.bed.dailyRate,
+        },
+        {
+          description: `Medication administrations (${adminCount})`,
+          category: "MEDICATION",
+          quantity: adminCount || 1,
+          unitPrice: adminCount > 0 ? 10 : medAmount,
+        },
+        ...labOrders.flatMap((lo) =>
+          lo.items.map((it) => ({
+            description: `Lab: ${it.test?.name || "Test"} (Order ${lo.orderNumber})`,
+            category: "LAB",
+            quantity: 1,
+            unitPrice: it.test?.price || 0,
+          }))
+        ),
+        ...surgeries.map((s) => ({
+          description: `Surgery: ${s.procedure} (${s.caseNumber})`,
+          category: "SURGERY",
+          quantity: 1,
+          unitPrice: s.cost || 0,
+        })),
+      ].filter((i) => i.unitPrice > 0 || i.quantity > 0);
+
+      // Ensure at least one item
+      const safeItems = lineItems.length > 0
+        ? lineItems
+        : [{ description: "IPD Admission", category: "BED", quantity: 1, unitPrice: bedAmount }];
+
+      const subtotal = safeItems.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+      const { taxAmount, cgstAmount, sgstAmount } = splitGst(subtotal, taxPercentage);
+
+      // Advance
+      let advanceApplied = 0;
+      const consume: Array<{ id: string; use: number }> = [];
+      if (applyAdvance) {
+        const advances = await prisma.advancePayment.findMany({
+          where: { patientId: admission.patientId, balance: { gt: 0 } },
+          orderBy: { createdAt: "asc" },
+        });
+        let remaining = Math.max(0, subtotal + taxAmount - (discountAmount || 0));
+        for (const adv of advances) {
+          if (remaining <= 0) break;
+          const use = Math.min(adv.balance, remaining);
+          consume.push({ id: adv.id, use });
+          advanceApplied += use;
+          remaining -= use;
+        }
+      }
+
+      const totalAmount = Math.max(
+        0,
+        +(subtotal + taxAmount - (discountAmount || 0) - advanceApplied).toFixed(2)
+      );
+
+      // Create a synthetic "discharge" appointment reference if needed
+      const appt = await prisma.appointment.findFirst({
+        where: { patientId: admission.patientId },
+        orderBy: { createdAt: "desc" },
+      });
+      if (!appt) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Cannot create consolidated invoice without any patient appointment reference",
+        });
+        return;
+      }
+
+      // Generate invoice number
+      const config = await prisma.systemConfig.findUnique({
+        where: { key: "next_invoice_number" },
+      });
+      const invSeq = config ? parseInt(config.value) : 1;
+      const invoiceNumber = `${INVOICE_NUMBER_PREFIX}${String(invSeq).padStart(6, "0")}`;
+
+      // If an invoice already exists for this appointment, append items instead of failing
+      const existing = await prisma.invoice.findUnique({
+        where: { appointmentId: appt.id },
+      });
+      if (existing) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error:
+            "An invoice already exists against the patient's latest appointment. Use add-item endpoints instead.",
+        });
+        return;
+      }
+
+      const invoice = await prisma.$transaction(async (tx) => {
+        const inv = await tx.invoice.create({
+          data: {
+            invoiceNumber,
+            appointmentId: appt.id,
+            patientId: admission.patientId,
+            subtotal: +subtotal.toFixed(2),
+            taxAmount,
+            cgstAmount,
+            sgstAmount,
+            discountAmount: discountAmount || 0,
+            advanceApplied: +advanceApplied.toFixed(2),
+            totalAmount,
+            notes: notes ? `[IPD ${admission.admissionNumber}] ${notes}` : `[IPD ${admission.admissionNumber}]`,
+            paymentStatus: totalAmount === 0 ? "PAID" : "PENDING",
+            items: {
+              create: safeItems.map((it) => ({
+                description: it.description,
+                category: it.category,
+                quantity: it.quantity,
+                unitPrice: it.unitPrice,
+                amount: it.quantity * it.unitPrice,
+              })),
+            },
+          },
+          include: { items: true },
+        });
+        for (const c of consume) {
+          await tx.advancePayment.update({
+            where: { id: c.id },
+            data: { balance: { decrement: c.use } },
+          });
+          await tx.payment.create({
+            data: {
+              invoiceId: inv.id,
+              amount: c.use,
+              mode: "CASH",
+              transactionId: `ADVANCE:${c.id}`,
+            },
+          });
+        }
+        if (config) {
+          await tx.systemConfig.update({
+            where: { key: "next_invoice_number" },
+            data: { value: String(invSeq + 1) },
+          });
+        } else {
+          await tx.systemConfig.create({
+            data: { key: "next_invoice_number", value: String(invSeq + 1) },
+          });
+        }
+        return inv;
+      });
+
+      auditLog(req, "IPD_CONSOLIDATED_INVOICE", "invoice", invoice.id, {
+        admissionId,
+      }).catch(console.error);
+
+      res.status(201).json({ success: true, data: invoice, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// OPS ENHANCEMENTS: PAYMENT REMINDERS
+// ═══════════════════════════════════════════════════════
+
+router.post(
+  "/invoices/:id/reminder",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  validate(sendReminderSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const invoice = await prisma.invoice.findUnique({
+        where: { id: req.params.id },
+        include: {
+          payments: true,
+          patient: { include: { user: true } },
+        },
+      });
+      if (!invoice) {
+        res.status(404).json({ success: false, data: null, error: "Invoice not found" });
+        return;
+      }
+      if (invoice.paymentStatus === "PAID") {
+        res.status(400).json({ success: false, data: null, error: "Invoice already paid" });
+        return;
+      }
+      const paid = invoice.payments.reduce((s, p) => s + p.amount, 0);
+      const balance = invoice.totalAmount - paid;
+      const channel = (req.body.channel || "SMS") as "SMS" | "EMAIL" | "WHATSAPP";
+
+      // Stub: create a Notification row; any real gateway would pick it up.
+      await prisma.notification.create({
+        data: {
+          userId: invoice.patient.userId,
+          type: "BILL_GENERATED",
+          channel: channel === "WHATSAPP" ? "WHATSAPP" : channel === "EMAIL" ? "EMAIL" : "SMS",
+          title: `Payment reminder for ${invoice.invoiceNumber}`,
+          message: `Dear ${invoice.patient.user.name}, a balance of Rs.${balance.toFixed(
+            2
+          )} is due on invoice ${invoice.invoiceNumber}. Kindly settle it at the earliest.`,
+          data: { invoiceId: invoice.id, balance },
+          deliveryStatus: "QUEUED",
+        },
+      });
+
+      await prisma.invoice.update({
+        where: { id: invoice.id },
+        data: { reminderSentAt: new Date() },
+      });
+
+      auditLog(req, "PAYMENT_REMINDER", "invoice", invoice.id, { channel }).catch(
+        console.error
+      );
+
+      res.status(201).json({
+        success: true,
+        data: { invoiceId: invoice.id, channel, balance },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/billing/invoices/:id/tax-breakdown — GST (CGST + SGST) breakdown
+router.get(
+  "/invoices/:id/tax-breakdown",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const inv = await prisma.invoice.findUnique({ where: { id: req.params.id } });
+      if (!inv) {
+        res.status(404).json({ success: false, data: null, error: "Invoice not found" });
+        return;
+      }
+      // If legacy row didn't split, derive 50/50 on the fly.
+      const cg = inv.cgstAmount > 0 || inv.sgstAmount > 0
+        ? inv.cgstAmount
+        : +(inv.taxAmount / 2).toFixed(2);
+      const sg = inv.cgstAmount > 0 || inv.sgstAmount > 0
+        ? inv.sgstAmount
+        : +(inv.taxAmount - cg).toFixed(2);
+      const effectivePct =
+        inv.subtotal > 0 ? +((inv.taxAmount / inv.subtotal) * 100).toFixed(2) : 0;
+      res.json({
+        success: true,
+        data: {
+          invoiceId: inv.id,
+          subtotal: inv.subtotal,
+          taxAmount: inv.taxAmount,
+          cgstAmount: cg,
+          sgstAmount: sg,
+          effectivePct,
+          defaultGstPct: DEFAULT_GST_PERCENT,
+        },
         error: null,
       });
     } catch (err) {

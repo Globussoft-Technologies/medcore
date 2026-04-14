@@ -269,6 +269,29 @@ router.delete(
   }
 );
 
+// Common family-history templates (clients use these to autocomplete the UI)
+const FAMILY_HISTORY_TEMPLATES = [
+  { relation: "Father", condition: "Hypertension" },
+  { relation: "Father", condition: "Diabetes Mellitus Type 2" },
+  { relation: "Father", condition: "Coronary Artery Disease" },
+  { relation: "Father", condition: "Stroke" },
+  { relation: "Mother", condition: "Hypertension" },
+  { relation: "Mother", condition: "Diabetes Mellitus Type 2" },
+  { relation: "Mother", condition: "Breast Cancer" },
+  { relation: "Mother", condition: "Thyroid Disorder" },
+  { relation: "Sibling", condition: "Asthma" },
+  { relation: "Sibling", condition: "Epilepsy" },
+  { relation: "Grandparent", condition: "Alzheimer's Disease" },
+  { relation: "Grandparent", condition: "Osteoporosis" },
+];
+
+router.get(
+  "/family-history/templates",
+  (_req: Request, res: Response) => {
+    res.json({ success: true, data: FAMILY_HISTORY_TEMPLATES, error: null });
+  }
+);
+
 // ───────────────────────────────────────────────────────
 // FAMILY HISTORY
 // ───────────────────────────────────────────────────────
@@ -404,6 +427,110 @@ router.get(
         take: 200,
       });
       res.json({ success: true, data: rows, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Pediatric immunization schedule (simplified Indian IAP schedule)
+// Returns recommended vaccines with due-by-date based on patient DOB
+const PEDIATRIC_SCHEDULE: Array<{
+  vaccine: string;
+  ageLabel: string;
+  ageDays: number; // days from DOB
+}> = [
+  { vaccine: "BCG", ageLabel: "At Birth", ageDays: 0 },
+  { vaccine: "OPV 0", ageLabel: "At Birth", ageDays: 0 },
+  { vaccine: "Hepatitis B 1", ageLabel: "At Birth", ageDays: 0 },
+  { vaccine: "DPT 1", ageLabel: "6 weeks", ageDays: 42 },
+  { vaccine: "OPV 1", ageLabel: "6 weeks", ageDays: 42 },
+  { vaccine: "Hepatitis B 2", ageLabel: "6 weeks", ageDays: 42 },
+  { vaccine: "Rotavirus 1", ageLabel: "6 weeks", ageDays: 42 },
+  { vaccine: "Hib 1", ageLabel: "6 weeks", ageDays: 42 },
+  { vaccine: "DPT 2", ageLabel: "10 weeks", ageDays: 70 },
+  { vaccine: "OPV 2", ageLabel: "10 weeks", ageDays: 70 },
+  { vaccine: "Rotavirus 2", ageLabel: "10 weeks", ageDays: 70 },
+  { vaccine: "Hib 2", ageLabel: "10 weeks", ageDays: 70 },
+  { vaccine: "DPT 3", ageLabel: "14 weeks", ageDays: 98 },
+  { vaccine: "OPV 3", ageLabel: "14 weeks", ageDays: 98 },
+  { vaccine: "Hib 3", ageLabel: "14 weeks", ageDays: 98 },
+  { vaccine: "Measles 1 / MMR 1", ageLabel: "9 months", ageDays: 270 },
+  { vaccine: "Hepatitis A 1", ageLabel: "12 months", ageDays: 365 },
+  { vaccine: "MMR 2", ageLabel: "15 months", ageDays: 456 },
+  { vaccine: "DPT Booster 1", ageLabel: "18 months", ageDays: 540 },
+  { vaccine: "Typhoid", ageLabel: "2 years", ageDays: 730 },
+  { vaccine: "DPT Booster 2", ageLabel: "5 years", ageDays: 1825 },
+  { vaccine: "Tdap", ageLabel: "10 years", ageDays: 3650 },
+  { vaccine: "HPV 1", ageLabel: "10 years (girls)", ageDays: 3650 },
+];
+
+router.get(
+  "/patients/:patientId/immunizations/recommended",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!(await assertPatientAccess(req, res, req.params.patientId))) return;
+      const patient = await prisma.patient.findUnique({
+        where: { id: req.params.patientId },
+        select: { dateOfBirth: true, gender: true },
+      });
+      if (!patient) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Patient not found" });
+        return;
+      }
+      if (!patient.dateOfBirth) {
+        res.json({
+          success: true,
+          data: { items: [], note: "Date of birth required" },
+          error: null,
+        });
+        return;
+      }
+
+      const given = await prisma.immunization.findMany({
+        where: { patientId: req.params.patientId },
+        select: { vaccine: true },
+      });
+      const givenSet = new Set(given.map((g) => g.vaccine.toLowerCase()));
+
+      const dob = new Date(patient.dateOfBirth);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const items = PEDIATRIC_SCHEDULE.map((s) => {
+        const dueDate = new Date(dob);
+        dueDate.setDate(dueDate.getDate() + s.ageDays);
+        const received =
+          givenSet.has(s.vaccine.toLowerCase()) ||
+          Array.from(givenSet).some((g) =>
+            s.vaccine.toLowerCase().includes(g)
+          );
+        const status = received
+          ? "GIVEN"
+          : dueDate < today
+            ? "OVERDUE"
+            : dueDate.getTime() - today.getTime() <= 30 * 24 * 60 * 60 * 1000
+              ? "DUE_SOON"
+              : "UPCOMING";
+        return {
+          vaccine: s.vaccine,
+          ageLabel: s.ageLabel,
+          dueDate: dueDate.toISOString().split("T")[0],
+          status,
+          received,
+        };
+      });
+
+      res.json({
+        success: true,
+        data: {
+          dob: dob.toISOString().split("T")[0],
+          items,
+        },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

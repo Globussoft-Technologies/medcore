@@ -6,6 +6,8 @@ import {
   updateInventoryItemSchema,
   stockMovementSchema,
   dispensePrescriptionSchema,
+  batchRecallSchema,
+  stockAdjustmentSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -435,6 +437,296 @@ router.get(
       });
 
       res.json({ success: true, data: movements, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// BARCODE LOOKUP
+// ───────────────────────────────────────────────────────
+
+router.get(
+  "/inventory/barcode/:barcode",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const item = await prisma.inventoryItem.findFirst({
+        where: { barcode: req.params.barcode },
+        include: { medicine: true },
+      });
+      if (!item) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "No inventory matches that barcode" });
+        return;
+      }
+      res.json({ success: true, data: item, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// BATCH RECALL
+// ───────────────────────────────────────────────────────
+
+router.post(
+  "/inventory/:id/recall",
+  authorize(Role.ADMIN),
+  validate(batchRecallSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const item = await prisma.inventoryItem.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!item) {
+        res.status(404).json({ success: false, data: null, error: "Inventory item not found" });
+        return;
+      }
+
+      const updated = await prisma.$transaction(async (tx) => {
+        const u = await tx.inventoryItem.update({
+          where: { id: item.id },
+          data: {
+            recalled: true,
+            recalledAt: new Date(),
+            recallReason: req.body.reason,
+          },
+        });
+        // Quarantine by writing a movement that zeros the stock via ADJUSTMENT
+        if (item.quantity > 0) {
+          await tx.stockMovement.create({
+            data: {
+              inventoryItemId: item.id,
+              type: "ADJUSTMENT",
+              quantity: -item.quantity,
+              performedBy: req.user!.userId,
+              reason: `Batch recall: ${req.body.reason}`,
+            },
+          });
+          await tx.inventoryItem.update({
+            where: { id: item.id },
+            data: { quantity: 0 },
+          });
+        }
+        return u;
+      });
+
+      auditLog(req, "RECALL_INVENTORY_BATCH", "inventory_item", item.id, {
+        reason: req.body.reason,
+        batchNumber: item.batchNumber,
+      }).catch(console.error);
+
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// REORDER SUGGESTIONS (consumption rate driven)
+// ───────────────────────────────────────────────────────
+
+router.get(
+  "/reports/reorder-suggestions",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const days = parseInt((req.query.days as string) || "30");
+      const leadTimeDays = parseInt((req.query.leadTime as string) || "7");
+      const since = new Date(Date.now() - days * 24 * 3600 * 1000);
+
+      // Aggregate DISPENSED movements per medicineId over last N days
+      const movements = await prisma.stockMovement.findMany({
+        where: {
+          type: "DISPENSED",
+          createdAt: { gte: since },
+        },
+        include: { inventoryItem: { select: { medicineId: true } } },
+      });
+
+      const consumed: Record<string, number> = {};
+      for (const m of movements) {
+        const mid = m.inventoryItem.medicineId;
+        consumed[mid] = (consumed[mid] || 0) + Math.abs(m.quantity);
+      }
+
+      // Current stock + reorderLevel per medicine
+      const grouped = await prisma.inventoryItem.groupBy({
+        by: ["medicineId"],
+        _sum: { quantity: true },
+        _min: { reorderLevel: true },
+      });
+
+      const medIds = grouped.map((g) => g.medicineId);
+      const medicines = await prisma.medicine.findMany({
+        where: { id: { in: medIds } },
+        select: { id: true, name: true, genericName: true, category: true },
+      });
+      const medMap = new Map(medicines.map((m) => [m.id, m]));
+
+      const suggestions = grouped
+        .map((g) => {
+          const dailyUse = (consumed[g.medicineId] || 0) / days;
+          const stock = g._sum.quantity || 0;
+          const reorderLevel = g._min.reorderLevel || 0;
+          const projectedUse = dailyUse * leadTimeDays;
+          const suggestedQty = Math.max(
+            0,
+            Math.ceil(projectedUse * 2 + reorderLevel - stock)
+          );
+          const daysOfStock = dailyUse > 0 ? Math.floor(stock / dailyUse) : null;
+          return {
+            medicineId: g.medicineId,
+            medicine: medMap.get(g.medicineId),
+            currentStock: stock,
+            reorderLevel,
+            dailyConsumption: Math.round(dailyUse * 100) / 100,
+            daysOfStockRemaining: daysOfStock,
+            suggestedOrderQty: suggestedQty,
+            priority:
+              daysOfStock !== null && daysOfStock < leadTimeDays
+                ? "HIGH"
+                : stock <= reorderLevel
+                  ? "MEDIUM"
+                  : "LOW",
+          };
+        })
+        .filter((s) => s.suggestedOrderQty > 0 || s.currentStock <= s.reorderLevel)
+        .sort((a, b) => {
+          const order = { HIGH: 0, MEDIUM: 1, LOW: 2 } as Record<string, number>;
+          return order[a.priority] - order[b.priority];
+        });
+
+      res.json({
+        success: true,
+        data: { windowDays: days, leadTimeDays, suggestions },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// STOCK ADJUSTMENT WITH REASON CODES
+// ───────────────────────────────────────────────────────
+
+router.post(
+  "/stock-adjustments",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  validate(stockAdjustmentSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { inventoryItemId, quantity, reasonCode, reason } = req.body;
+
+      const movement = await prisma.$transaction(async (tx) => {
+        const item = await tx.inventoryItem.findUnique({
+          where: { id: inventoryItemId },
+        });
+        if (!item) throw new Error("Inventory item not found");
+        const newQty = item.quantity + quantity;
+        if (newQty < 0) throw new Error("Insufficient stock for adjustment");
+        await tx.inventoryItem.update({
+          where: { id: item.id },
+          data: { quantity: newQty },
+        });
+        return tx.stockMovement.create({
+          data: {
+            inventoryItemId,
+            type: "ADJUSTMENT",
+            quantity,
+            performedBy: req.user!.userId,
+            reason: `[${reasonCode}] ${reason ?? ""}`.trim(),
+          },
+          include: { inventoryItem: { include: { medicine: true } } },
+        });
+      });
+
+      auditLog(req, "STOCK_ADJUSTMENT", "stock_movement", movement.id, {
+        reasonCode,
+        quantity,
+      }).catch(console.error);
+
+      res.status(201).json({ success: true, data: movement, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// NARCOTIC / SCHEDULE DRUG LEDGER
+// ───────────────────────────────────────────────────────
+
+router.get(
+  "/reports/narcotics-ledger",
+  authorize(Role.ADMIN, Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { from, to } = req.query as Record<string, string | undefined>;
+      const movements = await prisma.stockMovement.findMany({
+        where: {
+          inventoryItem: { medicine: { isNarcotic: true } },
+          ...(from || to
+            ? {
+                createdAt: {
+                  ...(from ? { gte: new Date(from) } : {}),
+                  ...(to ? { lte: new Date(to) } : {}),
+                },
+              }
+            : {}),
+        },
+        include: {
+          inventoryItem: { include: { medicine: true } },
+          user: { select: { id: true, name: true, role: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 500,
+      });
+
+      res.json({ success: true, data: movements, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// SUBSTITUTION SUGGESTIONS (same generic, different brand)
+// ───────────────────────────────────────────────────────
+
+router.get(
+  "/substitutes/:medicineId",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const base = await prisma.medicine.findUnique({
+        where: { id: req.params.medicineId },
+      });
+      if (!base) {
+        res.status(404).json({ success: false, data: null, error: "Medicine not found" });
+        return;
+      }
+      const substitutes = await prisma.medicine.findMany({
+        where: {
+          id: { not: base.id },
+          genericName: base.genericName ?? undefined,
+          strength: base.strength ?? undefined,
+          form: base.form ?? undefined,
+        },
+        include: {
+          inventoryItems: {
+            where: { quantity: { gt: 0 }, recalled: false },
+            select: { quantity: true, sellingPrice: true, batchNumber: true },
+            take: 3,
+          },
+        },
+      });
+      res.json({ success: true, data: substitutes, error: null });
     } catch (err) {
       next(err);
     }

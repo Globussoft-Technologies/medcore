@@ -6,6 +6,7 @@ const prescriptionItemSchema = z.object({
   frequency: z.string().min(1, "Frequency is required"),
   duration: z.string().min(1, "Duration is required"),
   instructions: z.string().optional(),
+  refills: z.number().int().min(0).max(12).optional(),
 });
 
 export const createPrescriptionSchema = z.object({
@@ -20,4 +21,24 @@ export const createPrescriptionSchema = z.object({
     .optional(),
 });
 
+export const copyPrescriptionSchema = z.object({
+  previousPrescriptionId: z.string().uuid(),
+  appointmentId: z.string().uuid(),
+});
+
+export const sharePrescriptionSchema = z.object({
+  channel: z.enum(["WHATSAPP", "EMAIL", "SMS"]),
+});
+
+export const prescriptionTemplateSchema = z.object({
+  name: z.string().min(2),
+  diagnosis: z.string().min(1),
+  advice: z.string().optional(),
+  specialty: z.string().optional(),
+  items: z.array(prescriptionItemSchema).min(1),
+});
+
 export type CreatePrescriptionInput = z.infer<typeof createPrescriptionSchema>;
+export type CopyPrescriptionInput = z.infer<typeof copyPrescriptionSchema>;
+export type SharePrescriptionInput = z.infer<typeof sharePrescriptionSchema>;
+export type PrescriptionTemplateInput = z.infer<typeof prescriptionTemplateSchema>;

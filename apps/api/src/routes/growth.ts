@@ -295,4 +295,233 @@ router.delete(
   }
 );
 
+// ─── MILESTONE / IMMUNIZATION HELPERS ────────────────────
+
+// WHO milestone checklist
+const MILESTONES: Array<{ ageMonths: number; skill: string }> = [
+  { ageMonths: 1, skill: "Lifts head briefly when on tummy" },
+  { ageMonths: 2, skill: "Smiles socially" },
+  { ageMonths: 3, skill: "Holds head steady unsupported" },
+  { ageMonths: 4, skill: "Rolls over (tummy to back)" },
+  { ageMonths: 6, skill: "Sits with support; babbles" },
+  { ageMonths: 9, skill: "Sits without support; crawls" },
+  { ageMonths: 12, skill: "Stands with support; says mama/dada" },
+  { ageMonths: 15, skill: "Walks independently" },
+  { ageMonths: 18, skill: "Uses 10+ words; points at objects" },
+  { ageMonths: 24, skill: "2-word phrases; runs" },
+  { ageMonths: 36, skill: "Speaks short sentences; climbs stairs" },
+  { ageMonths: 48, skill: "Draws simple shapes; counts to 10" },
+  { ageMonths: 60, skill: "Tells simple stories; dresses self" },
+];
+
+// India UIP immunization schedule (simplified)
+const IMMUNIZATION_SCHEDULE: Array<{ vaccine: string; dueMonths: number }> = [
+  { vaccine: "BCG", dueMonths: 0 },
+  { vaccine: "OPV-0", dueMonths: 0 },
+  { vaccine: "Hepatitis B-0", dueMonths: 0 },
+  { vaccine: "OPV-1", dueMonths: 1.5 },
+  { vaccine: "Pentavalent-1", dueMonths: 1.5 },
+  { vaccine: "Rotavirus-1", dueMonths: 1.5 },
+  { vaccine: "PCV-1", dueMonths: 1.5 },
+  { vaccine: "OPV-2", dueMonths: 2.5 },
+  { vaccine: "Pentavalent-2", dueMonths: 2.5 },
+  { vaccine: "Rotavirus-2", dueMonths: 2.5 },
+  { vaccine: "PCV-2", dueMonths: 2.5 },
+  { vaccine: "OPV-3", dueMonths: 3.5 },
+  { vaccine: "Pentavalent-3", dueMonths: 3.5 },
+  { vaccine: "Rotavirus-3", dueMonths: 3.5 },
+  { vaccine: "IPV", dueMonths: 3.5 },
+  { vaccine: "Measles-Rubella-1", dueMonths: 9 },
+  { vaccine: "JE-1", dueMonths: 9 },
+  { vaccine: "PCV-Booster", dueMonths: 9 },
+  { vaccine: "Vitamin A-1", dueMonths: 9 },
+  { vaccine: "DPT-Booster-1", dueMonths: 16 },
+  { vaccine: "OPV-Booster", dueMonths: 16 },
+  { vaccine: "MR-2", dueMonths: 16 },
+  { vaccine: "JE-2", dueMonths: 16 },
+  { vaccine: "DPT-Booster-2", dueMonths: 60 },
+];
+
+function computeAgeMonths(dob: Date | null): number | null {
+  if (!dob) return null;
+  const now = Date.now();
+  const dobMs = new Date(dob).getTime();
+  return Math.floor((now - dobMs) / (30.4375 * 24 * 60 * 60 * 1000));
+}
+
+// GET /growth/patient/:patientId/milestones
+router.get(
+  "/patient/:patientId/milestones",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const patient = await prisma.patient.findUnique({
+        where: { id: req.params.patientId },
+      });
+      if (!patient) {
+        res.status(404).json({ success: false, data: null, error: "Patient not found" });
+        return;
+      }
+      const ageM = computeAgeMonths(patient.dateOfBirth);
+      const records = await prisma.growthRecord.findMany({
+        where: { patientId: req.params.patientId },
+        orderBy: { ageMonths: "desc" },
+      });
+      const noteBlob = records
+        .map((r) => `${r.milestoneNotes ?? ""} ${r.developmentalNotes ?? ""}`)
+        .join(" ")
+        .toLowerCase();
+
+      const checklist = MILESTONES.map((m) => {
+        const achieved = noteBlob.includes(m.skill.toLowerCase().split(";")[0]);
+        const due = ageM != null && ageM >= m.ageMonths;
+        return {
+          ageMonths: m.ageMonths,
+          skill: m.skill,
+          status: achieved ? "ACHIEVED" : due ? "OVERDUE" : "PENDING",
+        };
+      });
+
+      res.json({
+        success: true,
+        data: {
+          ageMonths: ageM,
+          checklist,
+          achieved: checklist.filter((c) => c.status === "ACHIEVED").length,
+          overdue: checklist.filter((c) => c.status === "OVERDUE").length,
+          total: checklist.length,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /growth/patient/:patientId/immunization-compliance
+router.get(
+  "/patient/:patientId/immunization-compliance",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const patient = await prisma.patient.findUnique({
+        where: { id: req.params.patientId },
+      });
+      if (!patient) {
+        res.status(404).json({ success: false, data: null, error: "Patient not found" });
+        return;
+      }
+      const ageM = computeAgeMonths(patient.dateOfBirth);
+      const given = await prisma.immunization.findMany({
+        where: { patientId: req.params.patientId },
+      });
+      const givenSet = new Set(
+        given.map((g) => g.vaccine.toLowerCase().replace(/\s+/g, ""))
+      );
+
+      const schedule = IMMUNIZATION_SCHEDULE.map((v) => {
+        const key = v.vaccine.toLowerCase().replace(/\s+/g, "");
+        const done = givenSet.has(key);
+        const isDue = ageM != null && ageM >= v.dueMonths;
+        return {
+          vaccine: v.vaccine,
+          dueMonths: v.dueMonths,
+          status: done
+            ? "GIVEN"
+            : isDue
+              ? "OVERDUE"
+              : "UPCOMING",
+          dueDateApprox:
+            patient.dateOfBirth != null
+              ? new Date(
+                  new Date(patient.dateOfBirth).getTime() +
+                    v.dueMonths * 30.4375 * 24 * 60 * 60 * 1000
+                )
+                  .toISOString()
+                  .slice(0, 10)
+              : null,
+        };
+      });
+
+      const given_count = schedule.filter((s) => s.status === "GIVEN").length;
+      const overdue_count = schedule.filter((s) => s.status === "OVERDUE").length;
+
+      res.json({
+        success: true,
+        data: {
+          ageMonths: ageM,
+          schedule,
+          givenCount: given_count,
+          overdueCount: overdue_count,
+          totalRequired: schedule.length,
+          compliancePct:
+            schedule.length > 0
+              ? Math.round(
+                  (given_count /
+                    Math.max(
+                      1,
+                      schedule.filter((s) => s.status !== "UPCOMING").length
+                    )) *
+                    100
+                )
+              : 0,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /growth/patient/:patientId/velocity — weight gain per month
+router.get(
+  "/patient/:patientId/velocity",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const records = await prisma.growthRecord.findMany({
+        where: { patientId: req.params.patientId, weightKg: { not: null } },
+        orderBy: { ageMonths: "asc" },
+      });
+      if (records.length < 2) {
+        res.json({
+          success: true,
+          data: { velocity: [], summary: { avgGainPerMonth: null } },
+          error: null,
+        });
+        return;
+      }
+      const velocity: Array<{
+        fromAge: number;
+        toAge: number;
+        weightGainKg: number;
+        gainKgPerMonth: number;
+      }> = [];
+      for (let i = 1; i < records.length; i++) {
+        const a = records[i - 1];
+        const b = records[i];
+        const months = Math.max(1, b.ageMonths - a.ageMonths);
+        const gain = (b.weightKg ?? 0) - (a.weightKg ?? 0);
+        velocity.push({
+          fromAge: a.ageMonths,
+          toAge: b.ageMonths,
+          weightGainKg: Math.round(gain * 100) / 100,
+          gainKgPerMonth: Math.round((gain / months) * 100) / 100,
+        });
+      }
+      const avg =
+        velocity.reduce((s, v) => s + v.gainKgPerMonth, 0) / velocity.length;
+      res.json({
+        success: true,
+        data: {
+          velocity,
+          summary: { avgGainPerMonth: Math.round(avg * 100) / 100 },
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 export { router as growthRouter };

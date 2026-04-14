@@ -33,6 +33,20 @@ interface Surgery {
   postOpNotes?: string | null;
   diagnosis?: string | null;
   cost?: number | null;
+  consentSigned?: boolean;
+  npoSince?: string | null;
+  allergiesVerified?: boolean;
+  antibioticsGiven?: boolean;
+  antibioticsAt?: string | null;
+  siteMarked?: boolean;
+  bloodReserved?: boolean;
+  anesthesiaStartAt?: string | null;
+  anesthesiaEndAt?: string | null;
+  incisionAt?: string | null;
+  closureAt?: string | null;
+  complications?: string | null;
+  complicationSeverity?: string | null;
+  bloodLossMl?: number | null;
   patient: {
     id: string;
     mrNumber?: string;
@@ -285,6 +299,14 @@ export default function SurgeryDetailPage() {
         </div>
       </div>
 
+      {/* Pre-op Checklist */}
+      <PreOpChecklistCard surgery={surgery} canEdit={canEdit} onUpdate={loadSurgery} />
+
+      {/* Complications */}
+      {(surgery.complications || surgery.status === "COMPLETED") && (
+        <ComplicationsCard surgery={surgery} canEdit={canEdit} onUpdate={loadSurgery} />
+      )}
+
       {/* Notes */}
       <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
@@ -426,6 +448,208 @@ export default function SurgeryDetailPage() {
               <CheckCircle2 size={16} /> Complete Surgery
             </button>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PreOpChecklistCard({
+  surgery,
+  canEdit,
+  onUpdate,
+}: {
+  surgery: Surgery;
+  canEdit: boolean;
+  onUpdate: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  async function toggle(field: string, value: boolean) {
+    if (!canEdit) return;
+    setSaving(true);
+    try {
+      const payload: Record<string, unknown> = { [field]: value };
+      if (field === "antibioticsGiven" && value) {
+        payload.antibioticsAt = new Date().toISOString();
+      }
+      await api.patch(`/surgery/${surgery.id}/preop`, payload);
+      onUpdate();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Save failed");
+    }
+    setSaving(false);
+  }
+  const items: Array<{ key: keyof Surgery; label: string }> = [
+    { key: "consentSigned", label: "Consent signed" },
+    { key: "allergiesVerified", label: "Allergies verified" },
+    { key: "antibioticsGiven", label: "Prophylactic antibiotics given" },
+    { key: "siteMarked", label: "Surgical site marked" },
+    { key: "bloodReserved", label: "Blood products reserved" },
+  ];
+  const done = items.filter((i) => !!surgery[i.key]).length;
+  return (
+    <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-gray-700">
+          Pre-Op Checklist
+        </h2>
+        <span className="text-xs text-gray-500">
+          {done}/{items.length} complete
+        </span>
+      </div>
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+        {items.map((it) => (
+          <label
+            key={String(it.key)}
+            className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+          >
+            <input
+              type="checkbox"
+              checked={!!surgery[it.key]}
+              disabled={!canEdit || saving}
+              onChange={(e) => toggle(String(it.key), e.target.checked)}
+            />
+            <span>{it.label}</span>
+          </label>
+        ))}
+        {surgery.npoSince && (
+          <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600 md:col-span-2">
+            NPO since: {new Date(surgery.npoSince).toLocaleString()}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ComplicationsCard({
+  surgery,
+  canEdit,
+  onUpdate,
+}: {
+  surgery: Surgery;
+  canEdit: boolean;
+  onUpdate: () => void;
+}) {
+  const [edit, setEdit] = useState(false);
+  const [form, setForm] = useState({
+    complications: surgery.complications ?? "",
+    complicationSeverity: surgery.complicationSeverity ?? "MILD",
+    bloodLossMl: surgery.bloodLossMl ?? 0,
+  });
+  async function save() {
+    if (!form.complications.trim()) {
+      alert("Complications description is required");
+      return;
+    }
+    try {
+      await api.patch(`/surgery/${surgery.id}/complications`, {
+        complications: form.complications,
+        complicationSeverity: form.complicationSeverity,
+        bloodLossMl: Number(form.bloodLossMl) || 0,
+      });
+      setEdit(false);
+      onUpdate();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Save failed");
+    }
+  }
+  return (
+    <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-gray-700">
+          Complications & Blood Loss
+        </h2>
+        {canEdit && !edit && (
+          <button
+            onClick={() => setEdit(true)}
+            className="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200"
+          >
+            {surgery.complications ? "Edit" : "Add"}
+          </button>
+        )}
+      </div>
+      {!edit && (
+        <div className="text-sm text-gray-700">
+          {surgery.complications ? (
+            <>
+              <p>
+                <span className="text-gray-500">Complications:</span>{" "}
+                {surgery.complications}
+              </p>
+              {surgery.complicationSeverity && (
+                <p>
+                  <span className="text-gray-500">Severity:</span>{" "}
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs ${
+                      surgery.complicationSeverity === "SEVERE"
+                        ? "bg-red-100 text-red-700"
+                        : surgery.complicationSeverity === "MODERATE"
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-green-100 text-green-700"
+                    }`}
+                  >
+                    {surgery.complicationSeverity}
+                  </span>
+                </p>
+              )}
+              {surgery.bloodLossMl != null && (
+                <p>
+                  <span className="text-gray-500">Estimated Blood Loss:</span>{" "}
+                  {surgery.bloodLossMl} ml
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-gray-500">No complications recorded.</p>
+          )}
+        </div>
+      )}
+      {edit && (
+        <div className="space-y-2">
+          <textarea
+            rows={2}
+            value={form.complications}
+            onChange={(e) => setForm({ ...form, complications: e.target.value })}
+            placeholder="Describe complications"
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <select
+              value={form.complicationSeverity}
+              onChange={(e) =>
+                setForm({ ...form, complicationSeverity: e.target.value })
+              }
+              className="rounded-lg border px-3 py-2 text-sm"
+            >
+              <option value="MILD">Mild</option>
+              <option value="MODERATE">Moderate</option>
+              <option value="SEVERE">Severe</option>
+            </select>
+            <input
+              type="number"
+              value={form.bloodLossMl}
+              onChange={(e) =>
+                setForm({ ...form, bloodLossMl: Number(e.target.value) })
+              }
+              placeholder="Blood loss (ml)"
+              className="rounded-lg border px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setEdit(false)}
+              className="rounded-lg border px-3 py-1 text-xs"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={save}
+              className="rounded-lg bg-primary px-3 py-1 text-xs text-white"
+            >
+              Save
+            </button>
+          </div>
         </div>
       )}
     </div>

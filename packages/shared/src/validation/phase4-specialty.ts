@@ -63,6 +63,19 @@ export const deliveryOutcomeSchema = z.object({
   outcomeNotes: z.string().optional(),
 });
 
+export const ultrasoundRecordSchema = z.object({
+  ancCaseId: z.string().uuid(),
+  scanDate: z.string().optional(),
+  gestationalWeeks: z.number().int().min(0).max(50).optional(),
+  efwGrams: z.number().int().nonnegative().optional(),
+  afi: z.number().nonnegative().optional(),
+  placentaPosition: z.string().optional(),
+  fetalHeartRate: z.number().int().min(60).max(220).optional(),
+  presentation: z.string().optional(),
+  findings: z.string().optional(),
+  impression: z.string().optional(),
+});
+
 // ─── PEDIATRIC GROWTH ───────────────────────────────
 
 export const createGrowthRecordSchema = z.object({
@@ -93,3 +106,4 @@ export type CreateAncVisitInput = z.infer<typeof createAncVisitSchema>;
 export type DeliveryOutcomeInput = z.infer<typeof deliveryOutcomeSchema>;
 export type CreateGrowthRecordInput = z.infer<typeof createGrowthRecordSchema>;
 export type UpdateGrowthRecordInput = z.infer<typeof updateGrowthRecordSchema>;
+export type UltrasoundRecordInput = z.infer<typeof ultrasoundRecordSchema>;

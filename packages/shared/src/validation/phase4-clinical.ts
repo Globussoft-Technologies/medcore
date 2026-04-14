@@ -84,6 +84,61 @@ export const updateEmergencyStatusSchema = z.object({
   outcomeNotes: z.string().optional(),
 });
 
+export const mlcDetailsSchema = z.object({
+  isMLC: z.boolean(),
+  mlcNumber: z.string().optional(),
+  mlcPoliceStation: z.string().optional(),
+  mlcFIRNumber: z.string().optional(),
+  mlcOfficerName: z.string().optional(),
+});
+
+export const erTreatmentOrderSchema = z.object({
+  orders: z.array(
+    z.object({
+      type: z.enum(["MEDICATION", "PROCEDURE", "INVESTIGATION", "OTHER"]),
+      name: z.string().min(1),
+      dose: z.string().optional(),
+      route: z.string().optional(),
+      givenAt: z.string().datetime().optional(),
+      notes: z.string().optional(),
+    })
+  ),
+});
+
+export const erToAdmissionSchema = z.object({
+  doctorId: z.string().uuid(),
+  bedId: z.string().uuid(),
+  reason: z.string().min(1),
+  diagnosis: z.string().optional(),
+});
+
+export const massCasualtySchema = z.object({
+  count: z.number().int().min(1).max(50),
+  incidentNote: z.string().optional(),
+  arrivalMode: z.string().optional().default("MASS_CASUALTY"),
+});
+
+export const telemedTechIssuesSchema = z.object({
+  technicalIssues: z.string().min(1),
+});
+
+export const telemedFollowUpSchema = z.object({
+  followUpScheduledAt: z.string().datetime(),
+});
+
+export const telemedPrescriptionSchema = z.object({
+  items: z.array(
+    z.object({
+      medicineName: z.string().min(1),
+      dosage: z.string().min(1),
+      frequency: z.string().min(1),
+      duration: z.string().optional(),
+      instructions: z.string().optional(),
+    })
+  ).min(1),
+  advice: z.string().optional(),
+});
+
 export type CreateTelemedicineInput = z.infer<typeof createTelemedicineSchema>;
 export type UpdateTelemedicineStatusInput = z.infer<
   typeof updateTelemedicineStatusSchema
@@ -100,3 +155,10 @@ export type AssignEmergencyDoctorInput = z.infer<
 export type UpdateEmergencyStatusInput = z.infer<
   typeof updateEmergencyStatusSchema
 >;
+export type MLCDetailsInput = z.infer<typeof mlcDetailsSchema>;
+export type ERTreatmentOrderInput = z.infer<typeof erTreatmentOrderSchema>;
+export type ERToAdmissionInput = z.infer<typeof erToAdmissionSchema>;
+export type MassCasualtyInput = z.infer<typeof massCasualtySchema>;
+export type TelemedTechIssuesInput = z.infer<typeof telemedTechIssuesSchema>;
+export type TelemedFollowUpInput = z.infer<typeof telemedFollowUpSchema>;
+export type TelemedPrescriptionInput = z.infer<typeof telemedPrescriptionSchema>;

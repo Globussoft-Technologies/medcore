@@ -9,6 +9,9 @@ import {
   createBloodUnitSchema,
   bloodRequestSchema,
   issueBloodSchema,
+  bloodScreeningSchema,
+  temperatureLogSchema,
+  crossMatchRecordSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -726,6 +729,340 @@ router.post(
       }).catch(console.error);
 
       res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// SCREENING TESTS
+// ───────────────────────────────────────────────────────
+
+router.post(
+  "/donations/:id/screening",
+  authorize(Role.DOCTOR, Role.ADMIN, Role.NURSE),
+  validate(bloodScreeningSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const donation = await prisma.bloodDonation.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!donation) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Donation not found" });
+        return;
+      }
+
+      const body = req.body;
+      const passed =
+        body.hivResult === "NEGATIVE" &&
+        body.hcvResult === "NEGATIVE" &&
+        body.hbsAgResult === "NEGATIVE" &&
+        body.syphilisResult === "NEGATIVE" &&
+        body.malariaResult === "NEGATIVE";
+
+      const screening = await prisma.bloodScreening.upsert({
+        where: { donationId: donation.id },
+        create: {
+          donationId: donation.id,
+          hivResult: body.hivResult,
+          hcvResult: body.hcvResult,
+          hbsAgResult: body.hbsAgResult,
+          syphilisResult: body.syphilisResult,
+          malariaResult: body.malariaResult,
+          bloodGrouping: body.bloodGrouping,
+          method: body.method,
+          notes: body.notes,
+          passed,
+          screenedBy: req.user!.userId,
+        },
+        update: {
+          hivResult: body.hivResult,
+          hcvResult: body.hcvResult,
+          hbsAgResult: body.hbsAgResult,
+          syphilisResult: body.syphilisResult,
+          malariaResult: body.malariaResult,
+          bloodGrouping: body.bloodGrouping,
+          method: body.method,
+          notes: body.notes,
+          passed,
+          screenedAt: new Date(),
+          screenedBy: req.user!.userId,
+        },
+      });
+
+      // If screening failed, discard all units from this donation
+      if (!passed) {
+        await prisma.bloodUnit.updateMany({
+          where: { donationId: donation.id, status: "AVAILABLE" },
+          data: { status: "DISCARDED" },
+        });
+      }
+
+      auditLog(req, "RECORD_BLOOD_SCREENING", "blood_screening", screening.id, {
+        donationId: donation.id,
+        passed,
+      }).catch(console.error);
+
+      res.status(201).json({ success: true, data: screening, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  "/donations/:id/screening",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const screening = await prisma.bloodScreening.findUnique({
+        where: { donationId: req.params.id },
+      });
+      res.json({ success: true, data: screening, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// DONOR ELIGIBILITY CHECK
+// ───────────────────────────────────────────────────────
+
+router.get(
+  "/donors/:id/eligibility",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const donor = await prisma.bloodDonor.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!donor) {
+        res.status(404).json({ success: false, data: null, error: "Donor not found" });
+        return;
+      }
+
+      const reasons: string[] = [];
+      // >=90 days since last donation
+      if (donor.lastDonation) {
+        const days = Math.floor(
+          (Date.now() - donor.lastDonation.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        if (days < 90) reasons.push(`Last donation was ${days} days ago (min 90)`);
+      }
+      // weight >= 50
+      if (donor.weight !== null && donor.weight < 50) {
+        reasons.push(`Weight ${donor.weight}kg below 50kg`);
+      }
+      // age 18-65
+      if (donor.dateOfBirth) {
+        const age = Math.floor(
+          (Date.now() - donor.dateOfBirth.getTime()) / (365.25 * 24 * 3600 * 1000)
+        );
+        if (age < 18) reasons.push(`Age ${age} below 18`);
+        if (age > 65) reasons.push(`Age ${age} above 65`);
+      }
+      if (!donor.isEligible) reasons.push("Marked ineligible in profile");
+
+      res.json({
+        success: true,
+        data: {
+          eligible: reasons.length === 0,
+          reasons,
+          requiresHbTest: true,
+          hbThreshold: 12.5,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// COMPATIBILITY MATRIX
+// ───────────────────────────────────────────────────────
+
+const PLASMA_COMPATIBILITY: Record<string, string[]> = {
+  A_POS: ["A_POS", "A_NEG", "AB_POS", "AB_NEG"],
+  A_NEG: ["A_POS", "A_NEG", "AB_POS", "AB_NEG"],
+  B_POS: ["B_POS", "B_NEG", "AB_POS", "AB_NEG"],
+  B_NEG: ["B_POS", "B_NEG", "AB_POS", "AB_NEG"],
+  AB_POS: ["AB_POS", "AB_NEG"],
+  AB_NEG: ["AB_POS", "AB_NEG"],
+  O_POS: ["O_POS", "O_NEG", "A_POS", "A_NEG", "B_POS", "B_NEG", "AB_POS", "AB_NEG"],
+  O_NEG: ["O_POS", "O_NEG", "A_POS", "A_NEG", "B_POS", "B_NEG", "AB_POS", "AB_NEG"],
+};
+
+router.get(
+  "/compatibility-matrix",
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      res.json({
+        success: true,
+        data: {
+          rbc: RBC_COMPATIBILITY,
+          plasma: PLASMA_COMPATIBILITY,
+          note: "RBC = recipient -> donor groups acceptable. Plasma = donor -> recipient groups.",
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// STOCK ALERTS (low on any group)
+// ───────────────────────────────────────────────────────
+
+router.get(
+  "/alerts/low-stock",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const threshold = parseInt((req.query.threshold as string) || "3");
+      const units = await prisma.bloodUnit.findMany({
+        where: { status: "AVAILABLE" },
+        select: { bloodGroup: true, component: true },
+      });
+      const counts: Record<string, Record<string, number>> = {};
+      for (const u of units) {
+        counts[u.bloodGroup] = counts[u.bloodGroup] || {};
+        counts[u.bloodGroup][u.component] = (counts[u.bloodGroup][u.component] || 0) + 1;
+      }
+      const alerts: Array<{ bloodGroup: string; component: string; available: number }> = [];
+      const GROUPS = ["A_POS", "A_NEG", "B_POS", "B_NEG", "AB_POS", "AB_NEG", "O_POS", "O_NEG"];
+      const COMPS = ["PACKED_RED_CELLS", "PLATELETS", "FRESH_FROZEN_PLASMA"];
+      for (const g of GROUPS) {
+        for (const c of COMPS) {
+          const n = counts[g]?.[c] || 0;
+          if (n < threshold) alerts.push({ bloodGroup: g, component: c, available: n });
+        }
+      }
+      res.json({ success: true, data: { threshold, alerts }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// TEMPERATURE LOG
+// ───────────────────────────────────────────────────────
+
+router.post(
+  "/temperature-logs",
+  authorize(Role.NURSE, Role.DOCTOR, Role.ADMIN),
+  validate(temperatureLogSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { location, temperature, notes } = req.body;
+      // Blood storage range differs per product; generic 2-6°C for RBC fridge, −30°C for plasma
+      const inRange =
+        /freezer|plasma/i.test(location)
+          ? temperature <= -18
+          : temperature >= 2 && temperature <= 6;
+
+      const log = await prisma.bloodTemperatureLog.create({
+        data: {
+          location,
+          temperature,
+          inRange,
+          notes,
+          recordedBy: req.user!.userId,
+        },
+      });
+
+      if (!inRange) {
+        auditLog(req, "BLOOD_TEMP_OUT_OF_RANGE", "blood_temperature_log", log.id, {
+          location,
+          temperature,
+        }).catch(console.error);
+      }
+
+      res.status(201).json({ success: true, data: log, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  "/temperature-logs",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { location, from, to } = req.query as Record<string, string | undefined>;
+      const where: Record<string, unknown> = {};
+      if (location) where.location = location;
+      if (from || to) {
+        const d: Record<string, Date> = {};
+        if (from) d.gte = new Date(from);
+        if (to) d.lte = new Date(to);
+        where.recordedAt = d;
+      }
+      const logs = await prisma.bloodTemperatureLog.findMany({
+        where,
+        orderBy: { recordedAt: "desc" },
+        take: 200,
+      });
+      res.json({ success: true, data: logs, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// CROSS-MATCH HISTORY
+// ───────────────────────────────────────────────────────
+
+router.post(
+  "/cross-matches",
+  authorize(Role.DOCTOR, Role.ADMIN, Role.NURSE),
+  validate(crossMatchRecordSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const record = await prisma.bloodCrossMatch.create({
+        data: {
+          requestId: req.body.requestId,
+          unitId: req.body.unitId,
+          compatible: req.body.compatible,
+          method: req.body.method,
+          notes: req.body.notes,
+          performedBy: req.user!.userId,
+        },
+      });
+
+      auditLog(req, "RECORD_CROSS_MATCH", "blood_cross_match", record.id, {
+        requestId: req.body.requestId,
+        unitId: req.body.unitId,
+        compatible: req.body.compatible,
+      }).catch(console.error);
+
+      res.status(201).json({ success: true, data: record, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  "/cross-matches",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { requestId, unitId } = req.query as Record<string, string | undefined>;
+      const where: Record<string, unknown> = {};
+      if (requestId) where.requestId = requestId;
+      if (unitId) where.unitId = unitId;
+      const records = await prisma.bloodCrossMatch.findMany({
+        where,
+        orderBy: { performedAt: "desc" },
+        take: 100,
+      });
+      res.json({ success: true, data: records, error: null });
     } catch (err) {
       next(err);
     }

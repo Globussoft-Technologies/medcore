@@ -6,6 +6,10 @@ import {
   triageSchema,
   assignEmergencyDoctorSchema,
   updateEmergencyStatusSchema,
+  mlcDetailsSchema,
+  erTreatmentOrderSchema,
+  erToAdmissionSchema,
+  massCasualtySchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -67,6 +71,19 @@ router.post(
 
       const caseNumber = await nextCaseNumber();
 
+      // Detect repeat visit within 72h
+      let isRepeatVisit = false;
+      if (patientId) {
+        const ago72 = new Date(Date.now() - 72 * 60 * 60 * 1000);
+        const prev = await prisma.emergencyCase.findFirst({
+          where: {
+            patientId,
+            arrivedAt: { gte: ago72 },
+          },
+        });
+        if (prev) isRepeatVisit = true;
+      }
+
       const emergencyCase = await prisma.emergencyCase.create({
         data: {
           caseNumber,
@@ -78,6 +95,7 @@ router.post(
           chiefComplaint,
           arrivedAt: new Date(),
           status: "WAITING",
+          isRepeatVisit,
         },
         include: {
           patient: { include: { user: { select: { name: true, phone: true } } } },
@@ -217,6 +235,33 @@ router.get(
         where: { status: "AVAILABLE" },
       });
 
+      // Door-to-doctor time (last 24h closed cases with seenAt)
+      const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const seenCases = await prisma.emergencyCase.findMany({
+        where: { seenAt: { not: null }, arrivedAt: { gte: since24h } },
+        select: { arrivedAt: true, seenAt: true },
+      });
+      let doorToDoctorTotalMs = 0;
+      for (const c of seenCases) {
+        if (c.seenAt)
+          doorToDoctorTotalMs +=
+            new Date(c.seenAt).getTime() - new Date(c.arrivedAt).getTime();
+      }
+      const avgDoorToDoctorMin =
+        seenCases.length > 0
+          ? Math.round(doorToDoctorTotalMs / seenCases.length / 60000)
+          : 0;
+
+      // MLC & repeat counts (last 24h)
+      const [mlcCount, repeatCount] = await Promise.all([
+        prisma.emergencyCase.count({
+          where: { isMLC: true, arrivedAt: { gte: since24h } },
+        }),
+        prisma.emergencyCase.count({
+          where: { isRepeatVisit: true, arrivedAt: { gte: since24h } },
+        }),
+      ]);
+
       res.json({
         success: true,
         data: {
@@ -225,6 +270,9 @@ router.get(
           byTriage,
           avgWaitMin,
           availableBeds,
+          avgDoorToDoctorMin,
+          mlcCount24h: mlcCount,
+          repeatVisitCount24h: repeatCount,
         },
         error: null,
       });
@@ -421,6 +469,203 @@ router.patch(
       }).catch(console.error);
 
       res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/emergency/cases/:id/mlc — mark MLC
+router.patch(
+  "/cases/:id/mlc",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE),
+  validate(mlcDetailsSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const existing = await prisma.emergencyCase.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Case not found" });
+        return;
+      }
+      const updated = await prisma.emergencyCase.update({
+        where: { id: req.params.id },
+        data: {
+          isMLC: req.body.isMLC,
+          mlcNumber: req.body.mlcNumber,
+          mlcPoliceStation: req.body.mlcPoliceStation,
+          mlcFIRNumber: req.body.mlcFIRNumber,
+          mlcOfficerName: req.body.mlcOfficerName,
+        },
+      });
+      auditLog(req, "UPDATE_MLC", "emergencyCase", updated.id, {
+        isMLC: req.body.isMLC,
+      }).catch(console.error);
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/emergency/cases/:id/orders — save treatment orders
+router.patch(
+  "/cases/:id/orders",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE),
+  validate(erTreatmentOrderSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const updated = await prisma.emergencyCase.update({
+        where: { id: req.params.id },
+        data: { treatmentOrders: JSON.stringify(req.body.orders) },
+      });
+      auditLog(req, "UPDATE_ER_ORDERS", "emergencyCase", updated.id, {
+        orderCount: req.body.orders.length,
+      }).catch(console.error);
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/emergency/cases/:id/admit — convert ER case to admission
+router.post(
+  "/cases/:id/admit",
+  authorize(Role.ADMIN, Role.DOCTOR),
+  validate(erToAdmissionSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const ec = await prisma.emergencyCase.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!ec) {
+        res.status(404).json({ success: false, data: null, error: "ER case not found" });
+        return;
+      }
+      if (!ec.patientId) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Cannot admit unknown patient — register first",
+        });
+        return;
+      }
+
+      const bed = await prisma.bed.findUnique({ where: { id: req.body.bedId } });
+      if (!bed || bed.status !== "AVAILABLE") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: "Target bed is not available",
+        });
+        return;
+      }
+
+      const last = await prisma.admission.findFirst({
+        orderBy: { admissionNumber: "desc" },
+        select: { admissionNumber: true },
+      });
+      let n = 1;
+      if (last?.admissionNumber) {
+        const m = last.admissionNumber.match(/(\d+)$/);
+        if (m) n = parseInt(m[1], 10) + 1;
+      }
+      const admissionNumber = `IPD${String(n).padStart(6, "0")}`;
+
+      const { admission, updatedCase } = await prisma.$transaction(async (tx) => {
+        const created = await tx.admission.create({
+          data: {
+            admissionNumber,
+            patientId: ec.patientId!,
+            doctorId: req.body.doctorId,
+            bedId: req.body.bedId,
+            reason: req.body.reason,
+            diagnosis: req.body.diagnosis,
+            admissionType: "EMERGENCY",
+            status: "ADMITTED",
+          },
+        });
+        await tx.bed.update({
+          where: { id: req.body.bedId },
+          data: { status: "OCCUPIED" },
+        });
+        const updatedC = await tx.emergencyCase.update({
+          where: { id: req.params.id },
+          data: {
+            status: "ADMITTED",
+            disposition: "ADMITTED",
+            linkedAdmissionId: created.id,
+            closedAt: new Date(),
+          },
+        });
+        return { admission: created, updatedCase: updatedC };
+      });
+
+      auditLog(req, "ER_TO_ADMISSION", "emergencyCase", updatedCase.id, {
+        admissionId: admission.id,
+        admissionNumber,
+      }).catch(console.error);
+
+      res.status(201).json({
+        success: true,
+        data: { admission, emergencyCase: updatedCase },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/emergency/mass-casualty — bulk register N unknown patients
+router.post(
+  "/mass-casualty",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION),
+  validate(massCasualtySchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { count, incidentNote, arrivalMode } = req.body;
+
+      const last = await prisma.emergencyCase.findFirst({
+        orderBy: { caseNumber: "desc" },
+        select: { caseNumber: true },
+      });
+      let start = 1;
+      if (last?.caseNumber) {
+        const m = last.caseNumber.match(/(\d+)$/);
+        if (m) start = parseInt(m[1], 10) + 1;
+      }
+
+      const now = new Date();
+      const tag =
+        incidentNote ??
+        `MCI-${now.toISOString().slice(0, 10).replace(/-/g, "")}`;
+      const toCreate = [];
+      for (let i = 0; i < count; i++) {
+        toCreate.push({
+          caseNumber: `ER${String(start + i).padStart(6, "0")}`,
+          unknownName: `${tag}-${String(i + 1).padStart(2, "0")}`,
+          arrivalMode: arrivalMode ?? "MASS_CASUALTY",
+          chiefComplaint: `Mass casualty incident: ${tag}`,
+          arrivedAt: now,
+          status: "WAITING" as const,
+        });
+      }
+
+      await prisma.emergencyCase.createMany({ data: toCreate });
+
+      auditLog(req, "MASS_CASUALTY_REGISTER", "emergencyCase", tag, {
+        count,
+        tag,
+      }).catch(console.error);
+
+      res.status(201).json({
+        success: true,
+        data: { tag, created: toCreate.length },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

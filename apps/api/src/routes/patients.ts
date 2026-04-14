@@ -1,8 +1,16 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "@medcore/db";
-import { createPatientSchema, updatePatientSchema, recordVitalsSchema, Role } from "@medcore/shared";
+import {
+  createPatientSchema,
+  updatePatientSchema,
+  recordVitalsSchema,
+  mergePatientSchema,
+  Role,
+} from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import { auditLog } from "../middleware/audit";
+import { computeVitalsFlags } from "../services/vitals-analysis";
 
 const router = Router();
 
@@ -21,13 +29,21 @@ router.get(
 
       const where: any = search
         ? {
-            OR: [
-              { mrNumber: { contains: search as string, mode: "insensitive" } },
-              { user: { name: { contains: search as string, mode: "insensitive" } } },
-              { user: { phone: { contains: search as string } } },
+            AND: [
+              { mergedIntoId: null },
+              {
+                OR: [
+                  { mrNumber: { contains: search as string, mode: "insensitive" } },
+                  { user: { name: { contains: search as string, mode: "insensitive" } } },
+                  { user: { phone: { contains: search as string } } },
+                  { user: { email: { contains: search as string, mode: "insensitive" } } },
+                  { address: { contains: search as string, mode: "insensitive" } },
+                  { abhaId: { contains: search as string } },
+                ],
+              },
             ],
           }
-        : {};
+        : { mergedIntoId: null };
 
       const [patients, total] = await Promise.all([
         prisma.patient.findMany({
@@ -214,15 +230,163 @@ router.post(
   validate(recordVitalsSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const analysis = computeVitalsFlags(req.body);
+
       const vitals = await prisma.vitals.create({
         data: {
           ...req.body,
           patientId: req.params.id,
           nurseId: req.user!.userId,
+          bmi: analysis.bmi,
+          isAbnormal: analysis.isAbnormal,
+          abnormalFlags: analysis.flags.length > 0 ? analysis.flags.join(",") : null,
         },
       });
 
-      res.status(201).json({ success: true, data: vitals, error: null });
+      // If critical, push a notification to the doctor for the appointment
+      if (analysis.isCritical && req.body.appointmentId) {
+        (async () => {
+          try {
+            const apt = await prisma.appointment.findUnique({
+              where: { id: req.body.appointmentId },
+              select: { doctorId: true, patient: { select: { user: { select: { name: true } } } } },
+            });
+            if (apt?.doctorId) {
+              const doc = await prisma.doctor.findUnique({
+                where: { id: apt.doctorId },
+                select: { userId: true },
+              });
+              if (doc?.userId) {
+                await prisma.notification.create({
+                  data: {
+                    userId: doc.userId,
+                    type: "APPOINTMENT_REMINDER" as any,
+                    channel: "PUSH" as any,
+                    title: "Critical Vitals Alert",
+                    message: `${apt.patient?.user?.name || "Patient"}: ${analysis.flags.join(", ")}`,
+                    data: { vitalsId: vitals.id, flags: analysis.flags } as any,
+                    sentAt: new Date(),
+                  },
+                });
+              }
+            }
+          } catch (e) {
+            console.error("vitals-critical-notify", e);
+          }
+        })().catch(console.error);
+      }
+
+      res.status(201).json({
+        success: true,
+        data: { ...vitals, analysis },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/patients/:id/merge — merge another patient record into this one
+router.post(
+  "/:id/merge",
+  authorize(Role.ADMIN),
+  validate(mergePatientSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const keepId = req.params.id;
+      const { otherPatientId } = req.body as { otherPatientId: string };
+      if (keepId === otherPatientId) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Cannot merge a patient into itself",
+        });
+        return;
+      }
+
+      const [keep, other] = await Promise.all([
+        prisma.patient.findUnique({ where: { id: keepId } }),
+        prisma.patient.findUnique({ where: { id: otherPatientId } }),
+      ]);
+
+      if (!keep || !other) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "One or both patients not found",
+        });
+        return;
+      }
+      if (other.mergedIntoId) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Source patient is already merged",
+        });
+        return;
+      }
+
+      const result = await prisma.$transaction(async (tx) => {
+        // Repoint all dependent child records to the keep patient
+        await tx.appointment.updateMany({
+          where: { patientId: otherPatientId },
+          data: { patientId: keepId },
+        });
+        await tx.vitals.updateMany({
+          where: { patientId: otherPatientId },
+          data: { patientId: keepId },
+        });
+        await tx.prescription.updateMany({
+          where: { patientId: otherPatientId },
+          data: { patientId: keepId },
+        });
+        await tx.invoice.updateMany({
+          where: { patientId: otherPatientId },
+          data: { patientId: keepId },
+        });
+        await tx.patientAllergy.updateMany({
+          where: { patientId: otherPatientId },
+          data: { patientId: keepId },
+        });
+        await tx.chronicCondition.updateMany({
+          where: { patientId: otherPatientId },
+          data: { patientId: keepId },
+        });
+        await tx.familyHistory.updateMany({
+          where: { patientId: otherPatientId },
+          data: { patientId: keepId },
+        });
+        await tx.immunization.updateMany({
+          where: { patientId: otherPatientId },
+          data: { patientId: keepId },
+        });
+        await tx.patientDocument.updateMany({
+          where: { patientId: otherPatientId },
+          data: { patientId: keepId },
+        });
+        await tx.labOrder.updateMany({
+          where: { patientId: otherPatientId },
+          data: { patientId: keepId },
+        });
+
+        // Mark the source as merged (keep for audit trail)
+        const marked = await tx.patient.update({
+          where: { id: otherPatientId },
+          data: { mergedIntoId: keepId },
+        });
+        return marked;
+      });
+
+      auditLog(req, "MERGE_PATIENT", "patient", keepId, {
+        mergedFrom: otherPatientId,
+      }).catch(console.error);
+
+      res.json({
+        success: true,
+        data: { keptId: keepId, mergedId: result.id },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }
@@ -560,9 +724,16 @@ router.get(
             bloodPressureSystolic: true,
             bloodPressureDiastolic: true,
             temperature: true,
+            temperatureUnit: true,
             pulseRate: true,
             spO2: true,
             weight: true,
+            height: true,
+            bmi: true,
+            isAbnormal: true,
+            abnormalFlags: true,
+            respiratoryRate: true,
+            painScale: true,
           },
         }),
         prisma.ipdVitals.findMany({

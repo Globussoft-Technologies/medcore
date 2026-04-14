@@ -164,8 +164,13 @@ export const tripRequestSchema = z.object({
   callerName: z.string().optional(),
   callerPhone: z.string().optional(),
   pickupAddress: z.string().min(1),
+  pickupLat: z.number().optional(),
+  pickupLng: z.number().optional(),
   dropAddress: z.string().optional(),
+  dropLat: z.number().optional(),
+  dropLng: z.number().optional(),
   chiefComplaint: z.string().optional(),
+  priority: z.enum(["RED", "YELLOW", "GREEN"]).optional(),
 });
 
 export const updateTripStatusSchema = z.object({

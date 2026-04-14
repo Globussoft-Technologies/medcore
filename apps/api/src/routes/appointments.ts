@@ -216,9 +216,16 @@ router.patch(
   validate(updateAppointmentStatusSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Auto-stamp timing fields on status transitions
+      const extraData: Record<string, unknown> = { status: req.body.status };
+      const now = new Date();
+      if (req.body.status === "CHECKED_IN") extraData.checkInAt = now;
+      if (req.body.status === "IN_CONSULTATION") extraData.consultationStartedAt = now;
+      if (req.body.status === "COMPLETED") extraData.consultationEndedAt = now;
+
       const appointment = await prisma.appointment.update({
         where: { id: req.params.id },
-        data: { status: req.body.status },
+        data: extraData,
         include: {
           patient: {
             include: { user: { select: { name: true, phone: true } } },
@@ -554,6 +561,84 @@ router.get(
   }
 );
 
+// GET /api/v1/appointments/no-shows — list missed appointments
+router.get(
+  "/no-shows",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { from, to, doctorId } = req.query;
+      const where: Record<string, unknown> = { status: "NO_SHOW" };
+      if (doctorId) where.doctorId = doctorId;
+      if (from || to) {
+        const range: Record<string, Date> = {};
+        if (from) range.gte = new Date(from as string);
+        if (to) range.lte = new Date(to as string);
+        where.date = range;
+      } else {
+        // default: last 30 days
+        const thirtyAgo = new Date();
+        thirtyAgo.setDate(thirtyAgo.getDate() - 30);
+        where.date = { gte: thirtyAgo };
+      }
+
+      const noShows = await prisma.appointment.findMany({
+        where,
+        include: {
+          patient: {
+            include: { user: { select: { name: true, phone: true } } },
+          },
+          doctor: { include: { user: { select: { name: true } } } },
+        },
+        orderBy: { date: "desc" },
+        take: 500,
+      });
+
+      res.json({ success: true, data: noShows, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/appointments/check-conflict?patientId=&date=&slotStart=
+// Detects double-booking of same patient at same time across doctors
+router.get(
+  "/check-conflict",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { patientId, date, slotStart, excludeId } = req.query;
+      if (!patientId || !date || !slotStart) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "patientId, date, slotStart are required",
+        });
+        return;
+      }
+      const conflicts = await prisma.appointment.findMany({
+        where: {
+          patientId: patientId as string,
+          date: new Date(date as string),
+          slotStart: slotStart as string,
+          status: { notIn: ["CANCELLED", "NO_SHOW"] },
+          ...(excludeId ? { id: { not: excludeId as string } } : {}),
+        },
+        include: {
+          doctor: { include: { user: { select: { name: true } } } },
+        },
+      });
+      res.json({
+        success: true,
+        data: { hasConflict: conflicts.length > 0, conflicts },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // GET /api/v1/appointments/stats — aggregate statistics
 router.get(
   "/stats",
@@ -579,6 +664,9 @@ router.get(
           slotStart: true,
           date: true,
           doctorId: true,
+          checkInAt: true,
+          consultationStartedAt: true,
+          consultationEndedAt: true,
         },
       });
 
@@ -592,12 +680,33 @@ router.get(
         NO_SHOW: 0,
       };
       const hourBuckets: Record<number, number> = {};
+      let waitSumMin = 0;
+      let waitCount = 0;
+      let consSumMin = 0;
+      let consCount = 0;
 
       for (const a of appointments) {
         byStatus[a.status] = (byStatus[a.status] ?? 0) + 1;
         if (a.slotStart) {
           const h = parseInt(a.slotStart.split(":")[0], 10);
           if (!isNaN(h)) hourBuckets[h] = (hourBuckets[h] ?? 0) + 1;
+        }
+        if (a.checkInAt && a.consultationStartedAt) {
+          const diff =
+            (a.consultationStartedAt.getTime() - a.checkInAt.getTime()) / 60000;
+          if (diff >= 0 && diff < 480) {
+            waitSumMin += diff;
+            waitCount += 1;
+          }
+        }
+        if (a.consultationStartedAt && a.consultationEndedAt) {
+          const diff =
+            (a.consultationEndedAt.getTime() - a.consultationStartedAt.getTime()) /
+            60000;
+          if (diff >= 0 && diff < 240) {
+            consSumMin += diff;
+            consCount += 1;
+          }
         }
       }
 
@@ -618,8 +727,10 @@ router.get(
           completedCount: byStatus.COMPLETED,
           cancelledCount: byStatus.CANCELLED,
           noShowCount: byStatus.NO_SHOW,
-          // No dedicated IN_CONSULTATION → COMPLETED timestamp on Appointment; use placeholder
-          avgConsultationTimeMin: 15,
+          avgWaitTimeMin:
+            waitCount > 0 ? Math.round((waitSumMin / waitCount) * 10) / 10 : null,
+          avgConsultationTimeMin:
+            consCount > 0 ? Math.round((consSumMin / consCount) * 10) / 10 : 15,
           peakHour,
           peakHourCount: peakCount >= 0 ? peakCount : 0,
         },

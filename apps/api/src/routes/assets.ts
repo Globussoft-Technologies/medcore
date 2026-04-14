@@ -7,6 +7,9 @@ import {
   assignAssetSchema,
   returnAssetSchema,
   maintenanceLogSchema,
+  assetTransferSchema,
+  assetDisposalSchema,
+  calibrationScheduleSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -355,6 +358,272 @@ router.post(
       auditLog(req, "RETURN_ASSET", "asset", assetId).catch(console.error);
 
       res.json({ success: true, data: result, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// DEPRECIATION (straight-line)
+// ───────────────────────────────────────────────────────
+
+router.get(
+  "/:id/depreciation",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const asset = await prisma.asset.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!asset) {
+        res.status(404).json({ success: false, data: null, error: "Asset not found" });
+        return;
+      }
+      if (!asset.purchaseCost || !asset.purchaseDate || !asset.usefulLifeYears) {
+        res.json({
+          success: true,
+          data: {
+            asset,
+            calculable: false,
+            reason: "Requires purchaseCost, purchaseDate and usefulLifeYears",
+          },
+          error: null,
+        });
+        return;
+      }
+      const salvage = asset.salvageValue ?? 0;
+      const perYear = (asset.purchaseCost - salvage) / asset.usefulLifeYears;
+      const ageYears =
+        (Date.now() - asset.purchaseDate.getTime()) / (365.25 * 24 * 3600 * 1000);
+      const accumulated = Math.min(perYear * ageYears, asset.purchaseCost - salvage);
+      const bookValue = Math.max(salvage, asset.purchaseCost - accumulated);
+      res.json({
+        success: true,
+        data: {
+          method: asset.depreciationMethod ?? "STRAIGHT_LINE",
+          purchaseCost: asset.purchaseCost,
+          salvageValue: salvage,
+          usefulLifeYears: asset.usefulLifeYears,
+          ageYears: Math.round(ageYears * 10) / 10,
+          annualDepreciation: Math.round(perYear * 100) / 100,
+          accumulatedDepreciation: Math.round(accumulated * 100) / 100,
+          bookValue: Math.round(bookValue * 100) / 100,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// AMC / CALIBRATION ALERTS
+// ───────────────────────────────────────────────────────
+
+router.get(
+  "/amc/expiring",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { days = "60" } = req.query as Record<string, string | undefined>;
+      const n = parseInt(days || "60");
+      const now = new Date();
+      const soon = new Date(now.getTime() + n * 24 * 3600 * 1000);
+      const assets = await prisma.asset.findMany({
+        where: { amcExpiryDate: { lte: soon, gte: now } },
+        orderBy: { amcExpiryDate: "asc" },
+      });
+      res.json({ success: true, data: assets, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  "/calibration/due",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { days = "30" } = req.query as Record<string, string | undefined>;
+      const n = parseInt(days || "30");
+      const now = new Date();
+      const soon = new Date(now.getTime() + n * 24 * 3600 * 1000);
+      const assets = await prisma.asset.findMany({
+        where: { nextCalibrationAt: { lte: soon } },
+        orderBy: { nextCalibrationAt: "asc" },
+      });
+      res.json({ success: true, data: assets, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.patch(
+  "/:id/calibration-schedule",
+  authorize(Role.ADMIN),
+  validate(calibrationScheduleSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { calibrationInterval, lastCalibrationAt } = req.body as {
+        calibrationInterval: number;
+        lastCalibrationAt?: string;
+      };
+      const last = lastCalibrationAt ? new Date(lastCalibrationAt) : new Date();
+      const next = new Date(last.getTime() + calibrationInterval * 24 * 3600 * 1000);
+
+      const asset = await prisma.asset.update({
+        where: { id: req.params.id },
+        data: {
+          calibrationInterval,
+          lastCalibrationAt: last,
+          nextCalibrationAt: next,
+        },
+      });
+      auditLog(req, "SET_CALIBRATION_SCHEDULE", "asset", asset.id, {
+        calibrationInterval,
+      }).catch(console.error);
+      res.json({ success: true, data: asset, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// ASSET TRANSFER
+// ───────────────────────────────────────────────────────
+
+router.post(
+  "/:id/transfer",
+  authorize(Role.ADMIN),
+  validate(assetTransferSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const asset = await prisma.asset.findUnique({ where: { id: req.params.id } });
+      if (!asset) {
+        res.status(404).json({ success: false, data: null, error: "Asset not found" });
+        return;
+      }
+
+      const { toDepartment, toLocation, reason, notes } = req.body;
+      const result = await prisma.$transaction(async (tx) => {
+        const transfer = await tx.assetTransfer.create({
+          data: {
+            assetId: asset.id,
+            fromDepartment: asset.department,
+            toDepartment,
+            fromLocation: asset.location,
+            toLocation,
+            reason,
+            notes,
+            transferredBy: req.user!.userId,
+          },
+        });
+        await tx.asset.update({
+          where: { id: asset.id },
+          data: {
+            department: toDepartment,
+            ...(toLocation ? { location: toLocation } : {}),
+          },
+        });
+        return transfer;
+      });
+
+      auditLog(req, "TRANSFER_ASSET", "asset", asset.id, {
+        from: asset.department,
+        to: toDepartment,
+      }).catch(console.error);
+
+      res.status(201).json({ success: true, data: result, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  "/:id/transfers",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const transfers = await prisma.assetTransfer.findMany({
+        where: { assetId: req.params.id },
+        orderBy: { transferredAt: "desc" },
+      });
+      res.json({ success: true, data: transfers, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// ASSET DISPOSAL
+// ───────────────────────────────────────────────────────
+
+router.post(
+  "/:id/dispose",
+  authorize(Role.ADMIN),
+  validate(assetDisposalSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { method, disposalValue, notes } = req.body;
+      const asset = await prisma.asset.update({
+        where: { id: req.params.id },
+        data: {
+          status: "RETIRED",
+          disposedAt: new Date(),
+          disposalMethod: method,
+          disposalValue: disposalValue,
+          disposalNotes: notes,
+        },
+      });
+      auditLog(req, "DISPOSE_ASSET", "asset", asset.id, { method, disposalValue }).catch(
+        console.error
+      );
+      res.json({ success: true, data: asset, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// QR CODE PAYLOAD (client renders QR)
+// ───────────────────────────────────────────────────────
+
+router.get(
+  "/:id/qr-payload",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const asset = await prisma.asset.findUnique({
+        where: { id: req.params.id },
+        select: {
+          id: true,
+          assetTag: true,
+          name: true,
+          category: true,
+          department: true,
+          serialNumber: true,
+        },
+      });
+      if (!asset) {
+        res.status(404).json({ success: false, data: null, error: "Asset not found" });
+        return;
+      }
+      // Include a URL the client can encode as QR
+      const payload = {
+        type: "ASSET",
+        assetTag: asset.assetTag,
+        id: asset.id,
+        name: asset.name,
+        url: `medcore://asset/${asset.id}`,
+      };
+      res.json({
+        success: true,
+        data: { asset, payload, qrText: JSON.stringify(payload) },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

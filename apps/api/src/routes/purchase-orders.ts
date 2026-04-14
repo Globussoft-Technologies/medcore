@@ -6,7 +6,9 @@ import {
   updatePOSchema,
   approvePOSchema,
   receivePOSchema,
+  createGrnSchema,
   PO_NUMBER_PREFIX,
+  GRN_NUMBER_PREFIX,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -102,7 +104,7 @@ router.post(
   validate(createPOSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { supplierId, items, expectedAt, notes, taxPercentage } = req.body;
+      const { supplierId, items, expectedAt, notes, taxPercentage, isRecurring, recurringFrequency } = req.body;
 
       const supplier = await prisma.supplier.findUnique({ where: { id: supplierId } });
       if (!supplier) {
@@ -136,6 +138,8 @@ router.post(
             subtotal,
             taxAmount,
             totalAmount,
+            isRecurring: isRecurring || false,
+            recurringFrequency: recurringFrequency || undefined,
             createdBy: req.user!.userId,
             items: {
               create: items.map(
@@ -486,6 +490,368 @@ router.post(
       auditLog(req, "CANCEL_PO", "purchase_order", po.id).catch(console.error);
 
       res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// OPS ENHANCEMENTS: GRN (Goods Receipt Note) — partial receipts
+// ═══════════════════════════════════════════════════════
+
+async function nextGrnNumber(): Promise<string> {
+  const last = await prisma.grn.findFirst({
+    orderBy: { grnNumber: "desc" },
+    select: { grnNumber: true },
+  });
+  let n = 1;
+  if (last?.grnNumber) {
+    const m = last.grnNumber.match(/(\d+)$/);
+    if (m) n = parseInt(m[1], 10) + 1;
+  }
+  return `${GRN_NUMBER_PREFIX}${String(n).padStart(6, "0")}`;
+}
+
+// POST /api/v1/purchase-orders/:id/grns — create a Goods Receipt Note (partial/full)
+router.post(
+  "/:id/grns",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const po = await prisma.purchaseOrder.findUnique({
+        where: { id: req.params.id },
+        include: { items: true, grns: { include: { items: true } } },
+      });
+      if (!po) {
+        res.status(404).json({ success: false, data: null, error: "Purchase order not found" });
+        return;
+      }
+      if (po.status !== "APPROVED" && po.status !== "RECEIVED") {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "GRNs can only be created against APPROVED or partially-RECEIVED POs",
+        });
+        return;
+      }
+
+      const parsed = createGrnSchema.safeParse({ ...req.body, poId: po.id });
+      if (!parsed.success) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Validation failed",
+          details: parsed.error.flatten(),
+        });
+        return;
+      }
+
+      // Compute already-received per item
+      const receivedByItem = new Map<string, number>();
+      for (const g of po.grns) {
+        for (const it of g.items) {
+          receivedByItem.set(it.poItemId, (receivedByItem.get(it.poItemId) || 0) + it.quantity);
+        }
+      }
+
+      for (const inc of parsed.data.items) {
+        const poItem = po.items.find((pi) => pi.id === inc.poItemId);
+        if (!poItem) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: `PO item ${inc.poItemId} not found`,
+          });
+          return;
+        }
+        const alreadyReceived = receivedByItem.get(inc.poItemId) || 0;
+        if (alreadyReceived + inc.quantity > poItem.quantity) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: `Cannot receive ${inc.quantity} more of "${poItem.description}" (ordered ${poItem.quantity}, already received ${alreadyReceived})`,
+          });
+          return;
+        }
+      }
+
+      const grnNumber = await nextGrnNumber();
+
+      const result = await prisma.$transaction(async (tx) => {
+        const grn = await tx.grn.create({
+          data: {
+            grnNumber,
+            poId: po.id,
+            receivedBy: req.user!.userId,
+            notes: parsed.data.notes,
+            invoiceNumber: parsed.data.invoiceNumber,
+            items: {
+              create: parsed.data.items.map((it) => ({
+                poItemId: it.poItemId,
+                quantity: it.quantity,
+                batchNumber: it.batchNumber,
+                expiryDate: it.expiryDate ? new Date(it.expiryDate) : undefined,
+                notes: it.notes,
+              })),
+            },
+          },
+          include: { items: true },
+        });
+
+        // Update inventory per item linked to a medicine
+        for (const gi of grn.items) {
+          const poItem = po.items.find((p) => p.id === gi.poItemId);
+          if (!poItem || !poItem.medicineId) continue;
+          const batch = gi.batchNumber || `PO-${po.poNumber}-${poItem.id.slice(0, 6)}`;
+          const expiry =
+            gi.expiryDate ||
+            (() => {
+              const d = new Date();
+              d.setFullYear(d.getFullYear() + 2);
+              return d;
+            })();
+          const existing = await tx.inventoryItem.findUnique({
+            where: { medicineId_batchNumber: { medicineId: poItem.medicineId, batchNumber: batch } },
+          });
+          let inv;
+          if (existing) {
+            inv = await tx.inventoryItem.update({
+              where: { id: existing.id },
+              data: { quantity: existing.quantity + gi.quantity, unitCost: poItem.unitPrice },
+            });
+          } else {
+            inv = await tx.inventoryItem.create({
+              data: {
+                medicineId: poItem.medicineId,
+                batchNumber: batch,
+                quantity: gi.quantity,
+                unitCost: poItem.unitPrice,
+                sellingPrice: poItem.unitPrice * 1.2,
+                expiryDate: expiry,
+                reorderLevel: 10,
+              },
+            });
+          }
+          await tx.stockMovement.create({
+            data: {
+              inventoryItemId: inv.id,
+              type: "PURCHASE",
+              quantity: gi.quantity,
+              referenceId: grn.id,
+              performedBy: req.user!.userId,
+              reason: `GRN ${grnNumber} for PO ${po.poNumber}`,
+            },
+          });
+        }
+
+        // Update PO status: if all items fully received, mark RECEIVED
+        const updatedReceived = new Map<string, number>(receivedByItem);
+        for (const it of parsed.data.items) {
+          updatedReceived.set(
+            it.poItemId,
+            (updatedReceived.get(it.poItemId) || 0) + it.quantity
+          );
+        }
+        const fullyReceived = po.items.every(
+          (pi) => (updatedReceived.get(pi.id) || 0) >= pi.quantity
+        );
+        if (fullyReceived) {
+          const supplier = await tx.supplier.findUnique({ where: { id: po.supplierId } });
+          await tx.purchaseOrder.update({
+            where: { id: po.id },
+            data: { status: "RECEIVED", receivedAt: new Date() },
+          });
+          // Track on-time deliveries & outstanding
+          const onTime =
+            po.expectedAt && new Date() <= po.expectedAt ? 1 : 0;
+          if (supplier) {
+            await tx.supplier.update({
+              where: { id: supplier.id },
+              data: {
+                onTimeDeliveries: { increment: onTime },
+                lateDeliveries: { increment: 1 - onTime },
+                outstandingAmount: { increment: po.totalAmount },
+              },
+            });
+          }
+        }
+
+        return grn;
+      });
+
+      auditLog(req, "CREATE_GRN", "grn", result.id, {
+        grnNumber,
+        poNumber: po.poNumber,
+      }).catch(console.error);
+
+      res.status(201).json({ success: true, data: result, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/purchase-orders/:id/grns
+router.get(
+  "/:id/grns",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const grns = await prisma.grn.findMany({
+        where: { poId: req.params.id },
+        include: { items: true },
+        orderBy: { receivedAt: "desc" },
+      });
+      res.json({ success: true, data: grns, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/purchase-orders/:id/invoice — record supplier invoice & compute variance
+router.patch(
+  "/:id/invoice",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { invoiceAmount, invoiceNumber } = req.body as {
+        invoiceAmount: number;
+        invoiceNumber: string;
+      };
+      if (typeof invoiceAmount !== "number" || !invoiceNumber) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "invoiceAmount (number) and invoiceNumber (string) are required",
+        });
+        return;
+      }
+      const po = await prisma.purchaseOrder.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!po) {
+        res.status(404).json({ success: false, data: null, error: "Purchase order not found" });
+        return;
+      }
+      const updated = await prisma.purchaseOrder.update({
+        where: { id: po.id },
+        data: { invoiceAmount, invoiceNumber },
+      });
+      auditLog(req, "PO_INVOICE_RECORDED", "purchase_order", po.id, {
+        invoiceAmount,
+        variance: invoiceAmount - po.totalAmount,
+      }).catch(console.error);
+      res.json({
+        success: true,
+        data: {
+          ...updated,
+          variance: +(invoiceAmount - po.totalAmount).toFixed(2),
+          variancePct: po.totalAmount
+            ? +(((invoiceAmount - po.totalAmount) / po.totalAmount) * 100).toFixed(2)
+            : 0,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/purchase-orders/reports/variance — variance report
+router.get(
+  "/reports/variance",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const pos = await prisma.purchaseOrder.findMany({
+        where: { invoiceAmount: { not: null } },
+        include: { supplier: { select: { name: true } } },
+        orderBy: { createdAt: "desc" },
+      });
+      const rows = pos.map((p) => ({
+        poNumber: p.poNumber,
+        supplierName: p.supplier.name,
+        totalAmount: p.totalAmount,
+        invoiceAmount: p.invoiceAmount,
+        variance: +((p.invoiceAmount || 0) - p.totalAmount).toFixed(2),
+      }));
+      const totalVariance = rows.reduce((s, r) => s + r.variance, 0);
+      res.json({
+        success: true,
+        data: { rows, totalVariance: +totalVariance.toFixed(2) },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/purchase-orders/:id/regenerate-recurring — clone as a new DRAFT PO
+router.post(
+  "/:id/regenerate-recurring",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parent = await prisma.purchaseOrder.findUnique({
+        where: { id: req.params.id },
+        include: { items: true },
+      });
+      if (!parent) {
+        res.status(404).json({ success: false, data: null, error: "Purchase order not found" });
+        return;
+      }
+      if (!parent.isRecurring) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Parent PO is not marked as recurring",
+        });
+        return;
+      }
+      const key = "next_po_number";
+      const config = await prisma.systemConfig.findUnique({ where: { key } });
+      const seq = config ? parseInt(config.value) : 1;
+      const poNumber = `${PO_NUMBER_PREFIX}${String(seq).padStart(6, "0")}`;
+      const po = await prisma.$transaction(async (tx) => {
+        const created = await tx.purchaseOrder.create({
+          data: {
+            poNumber,
+            supplierId: parent.supplierId,
+            status: "DRAFT",
+            subtotal: parent.subtotal,
+            taxAmount: parent.taxAmount,
+            totalAmount: parent.totalAmount,
+            notes: `Recurring from ${parent.poNumber}`,
+            createdBy: req.user!.userId,
+            parentPoId: parent.id,
+            isRecurring: true,
+            recurringFrequency: parent.recurringFrequency,
+            items: {
+              create: parent.items.map((i) => ({
+                description: i.description,
+                medicineId: i.medicineId,
+                quantity: i.quantity,
+                unitPrice: i.unitPrice,
+                amount: i.amount,
+              })),
+            },
+          },
+          include: { items: true },
+        });
+        if (config) {
+          await tx.systemConfig.update({ where: { key }, data: { value: String(seq + 1) } });
+        } else {
+          await tx.systemConfig.create({ data: { key, value: String(seq + 1) } });
+        }
+        return created;
+      });
+      auditLog(req, "PO_RECURRING_REGEN", "purchase_order", po.id, {
+        parentPoId: parent.id,
+      }).catch(console.error);
+      res.status(201).json({ success: true, data: po, error: null });
     } catch (err) {
       next(err);
     }

@@ -27,13 +27,51 @@ export default function VitalsPage() {
     bloodPressureSystolic: "",
     bloodPressureDiastolic: "",
     temperature: "",
+    temperatureUnit: "F" as "F" | "C",
     weight: "",
     height: "",
     pulseRate: "",
     spO2: "",
+    respiratoryRate: "",
+    painScale: "",
     notes: "",
   });
   const [saving, setSaving] = useState(false);
+
+  // ── Derived: BMI + abnormal flags ─────────────────────
+  const weightKg = form.weight ? parseFloat(form.weight) : NaN;
+  const heightCm = form.height ? parseFloat(form.height) : NaN;
+  const bmi =
+    !isNaN(weightKg) && !isNaN(heightCm) && heightCm > 0
+      ? Math.round((weightKg / Math.pow(heightCm / 100, 2)) * 10) / 10
+      : null;
+  const bmiCategory =
+    bmi === null
+      ? null
+      : bmi < 18.5
+        ? "Underweight"
+        : bmi < 25
+          ? "Normal"
+          : bmi < 30
+            ? "Overweight"
+            : "Obese";
+
+  const flags: string[] = [];
+  const sys = form.bloodPressureSystolic ? parseInt(form.bloodPressureSystolic) : NaN;
+  const dia = form.bloodPressureDiastolic ? parseInt(form.bloodPressureDiastolic) : NaN;
+  if (!isNaN(sys) && sys >= 140) flags.push("High BP");
+  if (!isNaN(sys) && sys < 90) flags.push("Low BP");
+  if (!isNaN(dia) && dia >= 90) flags.push("High Diastolic");
+  const spo2 = form.spO2 ? parseInt(form.spO2) : NaN;
+  if (!isNaN(spo2) && spo2 < 95) flags.push("Low SpO2");
+  const pulse = form.pulseRate ? parseInt(form.pulseRate) : NaN;
+  if (!isNaN(pulse) && pulse > 100) flags.push("Tachycardia");
+  if (!isNaN(pulse) && pulse < 50) flags.push("Bradycardia");
+  const tempNum = form.temperature ? parseFloat(form.temperature) : NaN;
+  const tempF =
+    !isNaN(tempNum) ? (form.temperatureUnit === "C" ? tempNum * 9 / 5 + 32 : tempNum) : NaN;
+  if (!isNaN(tempF) && tempF >= 100.4) flags.push("Fever");
+  if (!isNaN(tempF) && tempF < 95) flags.push("Hypothermia");
 
   useEffect(() => {
     api
@@ -76,23 +114,35 @@ export default function VitalsPage() {
         temperature: form.temperature
           ? parseFloat(form.temperature)
           : undefined,
+        temperatureUnit: form.temperatureUnit,
         weight: form.weight ? parseFloat(form.weight) : undefined,
         height: form.height ? parseFloat(form.height) : undefined,
         pulseRate: form.pulseRate ? parseInt(form.pulseRate) : undefined,
         spO2: form.spO2 ? parseInt(form.spO2) : undefined,
+        respiratoryRate: form.respiratoryRate
+          ? parseInt(form.respiratoryRate)
+          : undefined,
+        painScale: form.painScale ? parseInt(form.painScale) : undefined,
         notes: form.notes || undefined,
       });
 
-      alert("Vitals saved!");
+      alert(
+        flags.length > 0
+          ? `Vitals saved (Abnormal: ${flags.join(", ")})`
+          : "Vitals saved!"
+      );
       setSelectedPatient(null);
       setForm({
         bloodPressureSystolic: "",
         bloodPressureDiastolic: "",
         temperature: "",
+        temperatureUnit: "F",
         weight: "",
         height: "",
         pulseRate: "",
         spO2: "",
+        respiratoryRate: "",
+        painScale: "",
         notes: "",
       });
       if (selectedDoctor) loadQueue(selectedDoctor);
@@ -199,8 +249,32 @@ export default function VitalsPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
-                    Temperature (F)
+                  <label className="mb-1 flex items-center justify-between text-sm font-medium">
+                    <span>Temperature</span>
+                    <div className="flex gap-1 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, temperatureUnit: "F" })}
+                        className={`rounded px-1.5 py-0.5 ${
+                          form.temperatureUnit === "F"
+                            ? "bg-primary text-white"
+                            : "bg-gray-100 text-gray-600"
+                        }`}
+                      >
+                        °F
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, temperatureUnit: "C" })}
+                        className={`rounded px-1.5 py-0.5 ${
+                          form.temperatureUnit === "C"
+                            ? "bg-primary text-white"
+                            : "bg-gray-100 text-gray-600"
+                        }`}
+                      >
+                        °C
+                      </button>
+                    </div>
                   </label>
                   <input
                     type="number"
@@ -210,7 +284,7 @@ export default function VitalsPage() {
                       setForm({ ...form, temperature: e.target.value })
                     }
                     className="w-full rounded-lg border px-3 py-2 text-sm"
-                    placeholder="98.6"
+                    placeholder={form.temperatureUnit === "F" ? "98.6" : "37.0"}
                   />
                 </div>
                 <div>
@@ -272,6 +346,75 @@ export default function VitalsPage() {
                   />
                 </div>
               </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-4">
+                <div>
+                  <label className="mb-1 block text-sm font-medium">
+                    Respiratory Rate (/min)
+                  </label>
+                  <input
+                    type="number"
+                    value={form.respiratoryRate}
+                    onChange={(e) =>
+                      setForm({ ...form, respiratoryRate: e.target.value })
+                    }
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    placeholder="16"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">
+                    Pain Scale (0-10)
+                  </label>
+                  <div className="flex gap-1">
+                    {Array.from({ length: 11 }).map((_, i) => (
+                      <button
+                        type="button"
+                        key={i}
+                        onClick={() =>
+                          setForm({ ...form, painScale: String(i) })
+                        }
+                        className={`h-8 flex-1 rounded-md text-xs font-medium ${
+                          form.painScale === String(i)
+                            ? i >= 7
+                              ? "bg-danger text-white"
+                              : i >= 4
+                                ? "bg-amber-500 text-white"
+                                : "bg-secondary text-white"
+                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        }`}
+                      >
+                        {i}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Derived: BMI + Abnormal flags */}
+              {(bmi !== null || flags.length > 0) && (
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  {bmi !== null && (
+                    <div className="rounded-lg bg-blue-50 p-3 text-sm">
+                      <div className="text-xs text-gray-500">BMI</div>
+                      <div className="font-semibold">
+                        {bmi}{" "}
+                        <span className="text-xs font-normal text-gray-600">
+                          ({bmiCategory})
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  {flags.length > 0 && (
+                    <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+                      <div className="text-xs text-amber-600">
+                        Abnormal Findings
+                      </div>
+                      <div className="font-semibold">{flags.join(", ")}</div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="mt-4">
                 <label className="mb-1 block text-sm font-medium">Notes</label>

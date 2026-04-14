@@ -1,6 +1,12 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "@medcore/db";
-import { Role, createPrescriptionSchema } from "@medcore/shared";
+import {
+  Role,
+  createPrescriptionSchema,
+  copyPrescriptionSchema,
+  sharePrescriptionSchema,
+  prescriptionTemplateSchema,
+} from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { generatePrescriptionPDF } from "../services/pdf";
@@ -178,6 +184,264 @@ router.get(
         });
         return;
       }
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/prescriptions/:id/print — mark as printed
+router.post(
+  "/:id/print",
+  authorize(Role.DOCTOR, Role.ADMIN, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const updated = await prisma.prescription.update({
+        where: { id: req.params.id },
+        data: { printed: true, printedAt: new Date() },
+      });
+      auditLog(req, "PRINT_PRESCRIPTION", "prescription", updated.id).catch(
+        console.error
+      );
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/prescriptions/:id/share — record sharing via WhatsApp/Email/SMS
+router.post(
+  "/:id/share",
+  authorize(Role.DOCTOR, Role.ADMIN, Role.RECEPTION),
+  validate(sharePrescriptionSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { channel } = req.body as { channel: string };
+      const existing = await prisma.prescription.findUnique({
+        where: { id: req.params.id },
+        select: { sharedVia: true },
+      });
+      if (!existing) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Prescription not found",
+        });
+        return;
+      }
+      const channels = new Set(
+        (existing.sharedVia ?? "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      );
+      channels.add(channel);
+      const updated = await prisma.prescription.update({
+        where: { id: req.params.id },
+        data: {
+          sharedVia: Array.from(channels).join(","),
+          sharedAt: new Date(),
+        },
+      });
+      // fire-and-forget: log to console (stub)
+      console.log(`[share-rx] Prescription ${updated.id} shared via ${channel}`);
+      auditLog(req, "SHARE_PRESCRIPTION", "prescription", updated.id, {
+        channel,
+      }).catch(console.error);
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/prescriptions/copy-from-previous — copy items from a previous prescription
+router.post(
+  "/copy-from-previous",
+  authorize(Role.DOCTOR, Role.ADMIN),
+  validate(copyPrescriptionSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { previousPrescriptionId, appointmentId } = req.body as {
+        previousPrescriptionId: string;
+        appointmentId: string;
+      };
+
+      const prev = await prisma.prescription.findUnique({
+        where: { id: previousPrescriptionId },
+        include: { items: true },
+      });
+      if (!prev) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Previous prescription not found",
+        });
+        return;
+      }
+
+      const appt = await prisma.appointment.findUnique({
+        where: { id: appointmentId },
+        select: { patientId: true, doctorId: true },
+      });
+      if (!appt) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Appointment not found",
+        });
+        return;
+      }
+
+      // Get doctor record from user for this call
+      const doctor = await prisma.doctor.findUnique({
+        where: { userId: req.user!.userId },
+      });
+      const doctorId = doctor?.id || appt.doctorId;
+
+      const created = await prisma.prescription.create({
+        data: {
+          appointmentId,
+          patientId: appt.patientId,
+          doctorId,
+          diagnosis: prev.diagnosis,
+          advice: prev.advice,
+          copiedFromId: prev.id,
+          items: {
+            create: prev.items.map((i) => ({
+              medicineName: i.medicineName,
+              dosage: i.dosage,
+              frequency: i.frequency,
+              duration: i.duration,
+              instructions: i.instructions,
+              refills: i.refills,
+            })),
+          },
+        },
+        include: { items: true },
+      });
+
+      auditLog(req, "COPY_PRESCRIPTION", "prescription", created.id, {
+        copiedFrom: previousPrescriptionId,
+      }).catch(console.error);
+
+      res.status(201).json({ success: true, data: created, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/prescriptions/items/:itemId/refill — refill a prescription item
+router.post(
+  "/items/:itemId/refill",
+  authorize(Role.DOCTOR, Role.ADMIN, Role.NURSE),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const item = await prisma.prescriptionItem.findUnique({
+        where: { id: req.params.itemId },
+      });
+      if (!item) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Prescription item not found",
+        });
+        return;
+      }
+      if (item.refillsUsed >= item.refills) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "No refills remaining",
+        });
+        return;
+      }
+      const updated = await prisma.prescriptionItem.update({
+        where: { id: req.params.itemId },
+        data: { refillsUsed: { increment: 1 } },
+      });
+      auditLog(req, "REFILL_PRESCRIPTION_ITEM", "prescription_item", updated.id, {
+        refillsUsed: updated.refillsUsed,
+      }).catch(console.error);
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── PRESCRIPTION TEMPLATES ────────────────────────────
+
+// GET /api/v1/prescriptions/templates
+router.get(
+  "/templates/list",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { specialty, q } = req.query as Record<string, string | undefined>;
+      const where: Record<string, unknown> = { isActive: true };
+      if (specialty) where.specialty = specialty;
+      if (q) {
+        where.OR = [
+          { name: { contains: q, mode: "insensitive" } },
+          { diagnosis: { contains: q, mode: "insensitive" } },
+        ];
+      }
+      const templates = await prisma.prescriptionTemplate.findMany({
+        where,
+        orderBy: { name: "asc" },
+        take: 200,
+      });
+      res.json({ success: true, data: templates, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/prescriptions/templates
+router.post(
+  "/templates",
+  authorize(Role.DOCTOR, Role.ADMIN),
+  validate(prescriptionTemplateSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = req.body;
+      const created = await prisma.prescriptionTemplate.create({
+        data: {
+          name: body.name,
+          diagnosis: body.diagnosis,
+          advice: body.advice ?? null,
+          specialty: body.specialty ?? null,
+          items: body.items as any,
+          createdBy: req.user!.userId,
+        },
+      });
+      auditLog(req, "CREATE_RX_TEMPLATE", "prescription_template", created.id, {
+        name: body.name,
+      }).catch(console.error);
+      res.status(201).json({ success: true, data: created, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// DELETE /api/v1/prescriptions/templates/:id
+router.delete(
+  "/templates/:id",
+  authorize(Role.DOCTOR, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await prisma.prescriptionTemplate.update({
+        where: { id: req.params.id },
+        data: { isActive: false },
+      });
+      auditLog(req, "DELETE_RX_TEMPLATE", "prescription_template", req.params.id).catch(
+        console.error
+      );
+      res.json({ success: true, data: { id: req.params.id }, error: null });
+    } catch (err) {
       next(err);
     }
   }

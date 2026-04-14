@@ -6,6 +6,7 @@ import {
   updateAncCaseSchema,
   createAncVisitSchema,
   deliveryOutcomeSchema,
+  ultrasoundRecordSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -32,6 +33,75 @@ function addDays(date: Date, days: number): Date {
   const d = new Date(date);
   d.setUTCDate(d.getUTCDate() + days);
   return d;
+}
+
+// Calculate gestational age from LMP
+function weeksSinceLMP(lmp: Date): number {
+  const diffMs = Date.now() - new Date(lmp).getTime();
+  return Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000));
+}
+
+function trimesterFromWeeks(weeks: number): 1 | 2 | 3 {
+  if (weeks <= 12) return 1;
+  if (weeks <= 27) return 2;
+  return 3;
+}
+
+// Recommended schedule: monthly until 28w, biweekly 28-36w, weekly after
+function nextVisitFromWeeks(weeks: number, from: Date): Date {
+  let days = 28;
+  if (weeks >= 36) days = 7;
+  else if (weeks >= 28) days = 14;
+  return addDays(from, days);
+}
+
+// Compute high-risk score 0-10+
+function highRiskScore(params: {
+  ageAtConception?: number | null;
+  gravida: number;
+  parity: number;
+  hasPrevCSection?: boolean;
+  hasHypertension?: boolean;
+  hasDiabetes?: boolean;
+  bmi?: number | null;
+}): { score: number; reasons: string[] } {
+  const reasons: string[] = [];
+  let score = 0;
+  if (params.ageAtConception != null) {
+    if (params.ageAtConception < 18) {
+      score += 3;
+      reasons.push("Age < 18 (teen pregnancy)");
+    } else if (params.ageAtConception >= 35) {
+      score += 2;
+      reasons.push(`Age ${params.ageAtConception} (advanced maternal age)`);
+    }
+  }
+  if (params.gravida >= 5) {
+    score += 2;
+    reasons.push(`Grand multipara (G${params.gravida})`);
+  }
+  if (params.hasPrevCSection) {
+    score += 2;
+    reasons.push("Previous C-section");
+  }
+  if (params.hasHypertension) {
+    score += 3;
+    reasons.push("Hypertension");
+  }
+  if (params.hasDiabetes) {
+    score += 3;
+    reasons.push("Diabetes");
+  }
+  if (params.bmi != null) {
+    if (params.bmi < 18.5) {
+      score += 2;
+      reasons.push(`BMI ${params.bmi} (underweight)`);
+    } else if (params.bmi >= 30) {
+      score += 2;
+      reasons.push(`BMI ${params.bmi} (obese)`);
+    }
+  }
+  return { score, reasons };
 }
 
 // ─── DASHBOARD ──────────────────────────────────────
@@ -426,6 +496,172 @@ router.get(
         orderBy: { visitDate: "asc" },
       });
       res.json({ success: true, data: visits, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /antenatal/cases/:id/trimester — current gestational status
+router.get(
+  "/cases/:id/trimester",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const c = await prisma.antenatalCase.findUnique({
+        where: { id: req.params.id },
+        include: {
+          visits: { orderBy: { visitDate: "desc" }, take: 1 },
+        },
+      });
+      if (!c) {
+        res.status(404).json({ success: false, data: null, error: "ANC case not found" });
+        return;
+      }
+      const weeks = weeksSinceLMP(c.lmpDate);
+      const trimester = trimesterFromWeeks(weeks);
+      const suggestedNext = nextVisitFromWeeks(weeks, new Date());
+      res.json({
+        success: true,
+        data: {
+          weeks,
+          trimester,
+          eddDate: c.eddDate,
+          suggestedNextVisitDate: suggestedNext,
+          lastVisit: c.visits[0] ?? null,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /antenatal/cases/:id/risk-score — recalc + save
+router.post(
+  "/cases/:id/risk-score",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const c = await prisma.antenatalCase.findUnique({
+        where: { id: req.params.id },
+        include: { patient: true },
+      });
+      if (!c) {
+        res.status(404).json({ success: false, data: null, error: "ANC case not found" });
+        return;
+      }
+
+      let ageAtConception: number | null = null;
+      if (c.patient.dateOfBirth) {
+        const dobMs = new Date(c.patient.dateOfBirth).getTime();
+        const lmpMs = new Date(c.lmpDate).getTime();
+        ageAtConception = Math.floor(
+          (lmpMs - dobMs) / (365.25 * 24 * 60 * 60 * 1000)
+        );
+      } else if (c.patient.age != null) {
+        ageAtConception = c.patient.age;
+      }
+
+      const body = req.body || {};
+      const { score, reasons } = highRiskScore({
+        ageAtConception,
+        gravida: c.gravida,
+        parity: c.parity,
+        hasPrevCSection: !!body.hasPrevCSection,
+        hasHypertension: !!body.hasHypertension,
+        hasDiabetes: !!body.hasDiabetes,
+        bmi: body.bmi ?? null,
+      });
+
+      const isHighRisk = score >= 4 || c.isHighRisk;
+      const updated = await prisma.antenatalCase.update({
+        where: { id: c.id },
+        data: {
+          isHighRisk,
+          riskFactors: reasons.join("; ") || c.riskFactors,
+        },
+      });
+
+      auditLog(req, "ANC_RISK_SCORE", "antenatalCase", updated.id, {
+        score,
+        isHighRisk,
+      }).catch(console.error);
+
+      res.json({
+        success: true,
+        data: { score, isHighRisk, reasons, case: updated },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /antenatal/cases/:id/ultrasound — create USG record
+router.post(
+  "/cases/:id/ultrasound",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = ultrasoundRecordSchema.safeParse({
+        ...req.body,
+        ancCaseId: req.params.id,
+      });
+      if (!parsed.success) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Validation failed",
+          details: parsed.error.flatten(),
+        });
+        return;
+      }
+      const c = await prisma.antenatalCase.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!c) {
+        res.status(404).json({ success: false, data: null, error: "ANC case not found" });
+        return;
+      }
+      const usg = await prisma.ultrasoundRecord.create({
+        data: {
+          ancCaseId: req.params.id,
+          scanDate: parsed.data.scanDate
+            ? new Date(parsed.data.scanDate)
+            : new Date(),
+          gestationalWeeks: parsed.data.gestationalWeeks,
+          efwGrams: parsed.data.efwGrams,
+          afi: parsed.data.afi,
+          placentaPosition: parsed.data.placentaPosition,
+          fetalHeartRate: parsed.data.fetalHeartRate,
+          presentation: parsed.data.presentation,
+          findings: parsed.data.findings,
+          impression: parsed.data.impression,
+          recordedBy: req.user!.userId,
+        },
+      });
+      auditLog(req, "ANC_USG_RECORD", "ultrasoundRecord", usg.id, {
+        ancCaseId: req.params.id,
+      }).catch(console.error);
+      res.status(201).json({ success: true, data: usg, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /antenatal/cases/:id/ultrasound — list USG records
+router.get(
+  "/cases/:id/ultrasound",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rows = await prisma.ultrasoundRecord.findMany({
+        where: { ancCaseId: req.params.id },
+        orderBy: { scanDate: "desc" },
+      });
+      res.json({ success: true, data: rows, error: null });
     } catch (err) {
       next(err);
     }

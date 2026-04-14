@@ -13,7 +13,24 @@ export const createInvoiceSchema = z.object({
   items: z.array(invoiceItemSchema).min(1, "At least one item is required"),
   taxPercentage: z.number().min(0).max(100).default(0),
   discountAmount: z.number().min(0).default(0),
+  applyPackageDiscount: z.boolean().default(false), // auto-apply active package
+  applyAdvance: z.boolean().default(false), // auto-apply patient's advance
+  dueDate: z.string().optional(),
   notes: z.string().optional(),
+});
+
+// Consolidated IPD invoice on discharge — auto-computes all services
+export const consolidatedInvoiceSchema = z.object({
+  admissionId: z.string().uuid(),
+  taxPercentage: z.number().min(0).max(100).default(18),
+  discountAmount: z.number().min(0).default(0),
+  applyAdvance: z.boolean().default(true),
+  notes: z.string().optional(),
+});
+
+export const sendReminderSchema = z.object({
+  invoiceId: z.string().uuid(),
+  channel: z.enum(["SMS", "EMAIL", "WHATSAPP"]).default("SMS"),
 });
 
 export const recordPaymentSchema = z.object({

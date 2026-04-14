@@ -81,6 +81,29 @@ export const cancelSurgerySchema = z.object({
   reason: z.string().min(1, "Cancellation reason is required"),
 });
 
+export const preOpChecklistSchema = z.object({
+  consentSigned: z.boolean().optional(),
+  npoSince: z.string().datetime().optional(),
+  allergiesVerified: z.boolean().optional(),
+  antibioticsGiven: z.boolean().optional(),
+  antibioticsAt: z.string().datetime().optional(),
+  siteMarked: z.boolean().optional(),
+  bloodReserved: z.boolean().optional(),
+});
+
+export const intraOpTimingSchema = z.object({
+  anesthesiaStartAt: z.string().datetime().optional(),
+  anesthesiaEndAt: z.string().datetime().optional(),
+  incisionAt: z.string().datetime().optional(),
+  closureAt: z.string().datetime().optional(),
+});
+
+export const complicationsSchema = z.object({
+  complications: z.string().min(1),
+  complicationSeverity: z.enum(["MILD", "MODERATE", "SEVERE"]).optional(),
+  bloodLossMl: z.number().int().nonnegative().optional(),
+});
+
 export type CreateReferralInput = z.infer<typeof createReferralSchema>;
 export type UpdateReferralStatusInput = z.infer<typeof updateReferralStatusSchema>;
 export type CreateOTInput = z.infer<typeof createOTSchema>;
@@ -89,3 +112,6 @@ export type ScheduleSurgeryInput = z.infer<typeof scheduleSurgerySchema>;
 export type UpdateSurgeryInput = z.infer<typeof updateSurgerySchema>;
 export type CompleteSurgeryInput = z.infer<typeof completeSurgerySchema>;
 export type CancelSurgeryInput = z.infer<typeof cancelSurgerySchema>;
+export type PreOpChecklistInput = z.infer<typeof preOpChecklistSchema>;
+export type IntraOpTimingInput = z.infer<typeof intraOpTimingSchema>;
+export type ComplicationsInput = z.infer<typeof complicationsSchema>;

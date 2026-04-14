@@ -234,6 +234,12 @@ export default function AdmissionDetailPage({
   );
 }
 
+interface BillInfo {
+  days: number;
+  grandTotal: number;
+  breakdown: Array<{ label: string; days: number; ratePerDay: number; amount: number }>;
+}
+
 function OverviewTab({
   admission,
   onUpdate,
@@ -246,6 +252,21 @@ function OverviewTab({
   const [summary, setSummary] = useState("");
   const [wards, setWards] = useState<Ward[]>([]);
   const [newBedId, setNewBedId] = useState("");
+  const [bill, setBill] = useState<BillInfo | null>(null);
+  const [dischargeForm, setDischargeForm] = useState({
+    finalDiagnosis: "",
+    treatmentGiven: "",
+    conditionAtDischarge: "STABLE",
+    dischargeMedications: "",
+    followUpInstructions: "",
+  });
+
+  useEffect(() => {
+    api
+      .get<{ data: BillInfo }>(`/admissions/${admission.id}/bill`)
+      .then((res) => setBill(res.data))
+      .catch(() => {});
+  }, [admission.id]);
 
   useEffect(() => {
     if (transferOpen) {
@@ -260,6 +281,11 @@ function OverviewTab({
     try {
       await api.patch(`/admissions/${admission.id}/discharge`, {
         dischargeSummary: summary,
+        finalDiagnosis: dischargeForm.finalDiagnosis || undefined,
+        treatmentGiven: dischargeForm.treatmentGiven || undefined,
+        conditionAtDischarge: dischargeForm.conditionAtDischarge || undefined,
+        dischargeMedications: dischargeForm.dischargeMedications || undefined,
+        followUpInstructions: dischargeForm.followUpInstructions || undefined,
       });
       setDischargeOpen(false);
       onUpdate();
@@ -339,6 +365,28 @@ function OverviewTab({
           </dl>
         </div>
 
+        {bill && (
+          <div className="rounded-xl bg-white p-6 shadow-sm">
+            <h3 className="mb-3 font-semibold">Running Bill</h3>
+            <div className="space-y-2 text-sm">
+              {bill.breakdown.map((b, i) => (
+                <div key={i} className="flex justify-between">
+                  <span className="text-gray-600">
+                    {b.label} × {b.days}d @ ₹{b.ratePerDay}
+                  </span>
+                  <span className="font-medium">₹{b.amount.toLocaleString()}</span>
+                </div>
+              ))}
+              <div className="mt-2 flex justify-between border-t pt-2 text-base">
+                <span className="font-semibold">Total ({bill.days} days)</span>
+                <span className="font-bold text-primary">
+                  ₹{bill.grandTotal.toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {admission.status === "ADMITTED" && (
           <div className="rounded-xl bg-white p-6 shadow-sm">
             <h3 className="mb-3 font-semibold">Actions</h3>
@@ -362,16 +410,110 @@ function OverviewTab({
 
       {/* Discharge Modal */}
       {dischargeOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
             <h3 className="mb-4 font-semibold">Discharge Patient</h3>
-            <textarea
-              placeholder="Discharge summary"
-              value={summary}
-              onChange={(e) => setSummary(e.target.value)}
-              rows={5}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
-            />
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-gray-600">
+                  Discharge Summary *
+                </label>
+                <textarea
+                  value={summary}
+                  onChange={(e) => setSummary(e.target.value)}
+                  rows={3}
+                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-600">
+                    Final Diagnosis
+                  </label>
+                  <input
+                    value={dischargeForm.finalDiagnosis}
+                    onChange={(e) =>
+                      setDischargeForm({
+                        ...dischargeForm,
+                        finalDiagnosis: e.target.value,
+                      })
+                    }
+                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">
+                    Condition at Discharge
+                  </label>
+                  <select
+                    value={dischargeForm.conditionAtDischarge}
+                    onChange={(e) =>
+                      setDischargeForm({
+                        ...dischargeForm,
+                        conditionAtDischarge: e.target.value,
+                      })
+                    }
+                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                  >
+                    <option value="STABLE">Stable</option>
+                    <option value="IMPROVED">Improved</option>
+                    <option value="CRITICAL">Critical</option>
+                    <option value="UNCHANGED">Unchanged</option>
+                    <option value="DECEASED">Deceased</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">
+                  Treatment Given
+                </label>
+                <textarea
+                  value={dischargeForm.treatmentGiven}
+                  onChange={(e) =>
+                    setDischargeForm({
+                      ...dischargeForm,
+                      treatmentGiven: e.target.value,
+                    })
+                  }
+                  rows={2}
+                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">
+                  Discharge Medications
+                </label>
+                <textarea
+                  value={dischargeForm.dischargeMedications}
+                  onChange={(e) =>
+                    setDischargeForm({
+                      ...dischargeForm,
+                      dischargeMedications: e.target.value,
+                    })
+                  }
+                  rows={2}
+                  placeholder="e.g. Amoxicillin 500mg TID x 5 days"
+                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">
+                  Follow-up Instructions
+                </label>
+                <textarea
+                  value={dischargeForm.followUpInstructions}
+                  onChange={(e) =>
+                    setDischargeForm({
+                      ...dischargeForm,
+                      followUpInstructions: e.target.value,
+                    })
+                  }
+                  rows={2}
+                  placeholder="e.g. Review in 1 week with CBC report"
+                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
             <div className="mt-4 flex justify-end gap-2">
               <button
                 onClick={() => setDischargeOpen(false)}
@@ -381,7 +523,8 @@ function OverviewTab({
               </button>
               <button
                 onClick={discharge}
-                className="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600"
+                disabled={!summary.trim()}
+                className="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-50"
               >
                 Confirm Discharge
               </button>

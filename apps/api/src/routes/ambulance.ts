@@ -6,6 +6,9 @@ import {
   updateAmbulanceSchema,
   tripRequestSchema,
   completeTripSchema,
+  fuelLogSchema,
+  equipmentCheckSchema,
+  tripBillSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -119,8 +122,13 @@ router.post(
             callerName: req.body.callerName,
             callerPhone: req.body.callerPhone,
             pickupAddress: req.body.pickupAddress,
+            pickupLat: req.body.pickupLat,
+            pickupLng: req.body.pickupLng,
             dropAddress: req.body.dropAddress,
+            dropLat: req.body.dropLat,
+            dropLng: req.body.dropLng,
             chiefComplaint: req.body.chiefComplaint,
+            priority: req.body.priority,
           },
           include: {
             ambulance: true,
@@ -424,5 +432,188 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
     next(err);
   }
 });
+
+// ───────────────────────────────────────────────────────
+// GPS / TRIP LOCATION UPDATE
+// ───────────────────────────────────────────────────────
+
+router.patch(
+  "/trips/:id/location",
+  authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN, Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { pickupLat, pickupLng, dropLat, dropLng } = req.body as {
+        pickupLat?: number;
+        pickupLng?: number;
+        dropLat?: number;
+        dropLng?: number;
+      };
+      const trip = await prisma.ambulanceTrip.update({
+        where: { id: req.params.id },
+        data: {
+          ...(pickupLat !== undefined ? { pickupLat } : {}),
+          ...(pickupLng !== undefined ? { pickupLng } : {}),
+          ...(dropLat !== undefined ? { dropLat } : {}),
+          ...(dropLng !== undefined ? { dropLng } : {}),
+        },
+      });
+      res.json({ success: true, data: trip, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// EQUIPMENT CHECK
+// ───────────────────────────────────────────────────────
+
+router.patch(
+  "/trips/:id/equipment-check",
+  authorize(Role.NURSE, Role.DOCTOR, Role.ADMIN),
+  validate(equipmentCheckSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const trip = await prisma.ambulanceTrip.update({
+        where: { id: req.params.id },
+        data: {
+          equipmentChecked: req.body.equipmentChecked,
+          equipmentNotes: req.body.equipmentNotes,
+        },
+      });
+      auditLog(req, "AMBULANCE_EQUIPMENT_CHECK", "ambulance_trip", trip.id, {
+        checked: req.body.equipmentChecked,
+      }).catch(console.error);
+      res.json({ success: true, data: trip, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// TRIP BILLING (compute and link invoice)
+// ───────────────────────────────────────────────────────
+
+router.post(
+  "/trips/:id/bill",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  validate(tripBillSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const trip = await prisma.ambulanceTrip.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!trip) {
+        res.status(404).json({ success: false, data: null, error: "Trip not found" });
+        return;
+      }
+      if (!trip.patientId) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Trip has no linked patient",
+        });
+        return;
+      }
+
+      const { baseFare, perKmRate } = req.body as { baseFare: number; perKmRate: number };
+      const km = trip.distanceKm || 0;
+      const total = baseFare + perKmRate * km;
+
+      const updated = await prisma.ambulanceTrip.update({
+        where: { id: trip.id },
+        data: { cost: total },
+      });
+
+      auditLog(req, "BILL_AMBULANCE_TRIP", "ambulance_trip", trip.id, {
+        baseFare,
+        perKmRate,
+        km,
+        total,
+      }).catch(console.error);
+
+      res.status(201).json({
+        success: true,
+        data: {
+          trip: updated,
+          bill: {
+            baseFare,
+            perKmRate,
+            distanceKm: km,
+            total: Math.round(total * 100) / 100,
+          },
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// FUEL LOG
+// ───────────────────────────────────────────────────────
+
+router.post(
+  "/fuel-logs",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  validate(fuelLogSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const log = await prisma.ambulanceFuelLog.create({
+        data: {
+          ambulanceId: req.body.ambulanceId,
+          litres: req.body.litres,
+          costTotal: req.body.costTotal,
+          odometerKm: req.body.odometerKm,
+          stationName: req.body.stationName,
+          notes: req.body.notes,
+          filledBy: req.user!.userId,
+        },
+      });
+      auditLog(req, "AMBULANCE_FUEL_LOG", "ambulance_fuel_log", log.id, {
+        ambulanceId: req.body.ambulanceId,
+        litres: req.body.litres,
+      }).catch(console.error);
+      res.status(201).json({ success: true, data: log, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  "/fuel-logs",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { ambulanceId, from, to } = req.query as Record<string, string | undefined>;
+      const where: Record<string, unknown> = {};
+      if (ambulanceId) where.ambulanceId = ambulanceId;
+      if (from || to) {
+        const d: Record<string, Date> = {};
+        if (from) d.gte = new Date(from);
+        if (to) d.lte = new Date(to);
+        where.filledAt = d;
+      }
+      const logs = await prisma.ambulanceFuelLog.findMany({
+        where,
+        orderBy: { filledAt: "desc" },
+        include: { ambulance: { select: { vehicleNumber: true } } },
+        take: 200,
+      });
+      const totalCost = logs.reduce((s, l) => s + l.costTotal, 0);
+      const totalLitres = logs.reduce((s, l) => s + l.litres, 0);
+      res.json({
+        success: true,
+        data: { logs, totalCost: Math.round(totalCost * 100) / 100, totalLitres },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 export { router as ambulanceRouter };

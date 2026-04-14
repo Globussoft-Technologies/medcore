@@ -33,17 +33,59 @@ export const updateBedStatusSchema = z.object({
   notes: z.string().optional(),
 });
 
+export const ADMISSION_TYPES = [
+  "ELECTIVE",
+  "EMERGENCY",
+  "TRANSFER",
+  "MATERNITY",
+  "DAY_CARE",
+] as const;
+
+export const CONDITION_AT_DISCHARGE = [
+  "STABLE",
+  "IMPROVED",
+  "CRITICAL",
+  "UNCHANGED",
+  "DECEASED",
+] as const;
+
+export const INTAKE_OUTPUT_TYPES = [
+  "INTAKE_ORAL",
+  "INTAKE_IV",
+  "INTAKE_NG",
+  "OUTPUT_URINE",
+  "OUTPUT_STOOL",
+  "OUTPUT_VOMIT",
+  "OUTPUT_DRAIN",
+  "OUTPUT_OTHER",
+] as const;
+
 export const admitPatientSchema = z.object({
   patientId: z.string().uuid(),
   doctorId: z.string().uuid(),
   bedId: z.string().uuid(),
   reason: z.string().min(1),
   diagnosis: z.string().optional(),
+  admissionType: z.enum(ADMISSION_TYPES).optional(),
+  referredByDoctor: z.string().optional(),
 });
 
 export const dischargeSchema = z.object({
   dischargeSummary: z.string().min(1),
   dischargeNotes: z.string().optional(),
+  finalDiagnosis: z.string().optional(),
+  treatmentGiven: z.string().optional(),
+  conditionAtDischarge: z.enum(CONDITION_AT_DISCHARGE).optional(),
+  dischargeMedications: z.string().optional(),
+  followUpInstructions: z.string().optional(),
+});
+
+export const intakeOutputSchema = z.object({
+  admissionId: z.string().uuid(),
+  type: z.enum(INTAKE_OUTPUT_TYPES),
+  amountMl: z.number().int().nonnegative(),
+  description: z.string().optional(),
+  notes: z.string().optional(),
 });
 
 export const transferBedSchema = z.object({
@@ -103,3 +145,4 @@ export type MedicationOrderInput = z.infer<typeof medicationOrderSchema>;
 export type UpdateMedicationOrderInput = z.infer<typeof updateMedicationOrderSchema>;
 export type AdministerMedicationInput = z.infer<typeof administerMedicationSchema>;
 export type NurseRoundInput = z.infer<typeof nurseRoundSchema>;
+export type IntakeOutputInput = z.infer<typeof intakeOutputSchema>;

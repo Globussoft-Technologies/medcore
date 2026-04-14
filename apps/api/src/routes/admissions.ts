@@ -6,6 +6,7 @@ import {
   dischargeSchema,
   transferBedSchema,
   recordIpdVitalsSchema,
+  intakeOutputSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -143,7 +144,15 @@ router.post(
   validate(admitPatientSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { patientId, doctorId, bedId, reason, diagnosis } = req.body;
+      const {
+        patientId,
+        doctorId,
+        bedId,
+        reason,
+        diagnosis,
+        admissionType,
+        referredByDoctor,
+      } = req.body;
 
       const bed = await prisma.bed.findUnique({ where: { id: bedId } });
       if (!bed) {
@@ -170,6 +179,8 @@ router.post(
             bedId,
             reason,
             diagnosis,
+            admissionType: admissionType ?? null,
+            referredByDoctor: referredByDoctor ?? null,
             status: "ADMITTED",
           },
           include: {
@@ -222,6 +233,17 @@ router.patch(
         return;
       }
 
+      // Compute bill before closing
+      const bed = await prisma.bed.findUnique({ where: { id: existing.bedId } });
+      const days = Math.max(
+        1,
+        Math.ceil(
+          (Date.now() - new Date(existing.admittedAt).getTime()) /
+            (24 * 60 * 60 * 1000)
+        )
+      );
+      const totalBill = (bed?.dailyRate ?? 0) * days;
+
       const admission = await prisma.$transaction(async (tx) => {
         const updated = await tx.admission.update({
           where: { id: req.params.id },
@@ -230,6 +252,12 @@ router.patch(
             dischargedAt: new Date(),
             dischargeSummary: req.body.dischargeSummary,
             dischargeNotes: req.body.dischargeNotes,
+            finalDiagnosis: req.body.finalDiagnosis,
+            treatmentGiven: req.body.treatmentGiven,
+            conditionAtDischarge: req.body.conditionAtDischarge,
+            dischargeMedications: req.body.dischargeMedications,
+            followUpInstructions: req.body.followUpInstructions,
+            totalBillAmount: totalBill,
           },
           include: {
             patient: {
@@ -385,6 +413,204 @@ router.get(
         orderBy: { recordedAt: "desc" },
       });
       res.json({ success: true, data: vitals, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/admissions/:id/bill — running daily bill
+router.get(
+  "/:id/bill",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const admission = await prisma.admission.findUnique({
+        where: { id: req.params.id },
+        include: { bed: { include: { ward: true } } },
+      });
+      if (!admission) {
+        res.status(404).json({ success: false, data: null, error: "Admission not found" });
+        return;
+      }
+
+      const startMs = new Date(admission.admittedAt).getTime();
+      const endMs = admission.dischargedAt
+        ? new Date(admission.dischargedAt).getTime()
+        : Date.now();
+      const days = Math.max(1, Math.ceil((endMs - startMs) / (24 * 60 * 60 * 1000)));
+      const dailyRate = admission.bed?.dailyRate ?? 0;
+      const bedCharges = dailyRate * days;
+
+      // Fetch pharmacy/lab sub-totals if linked invoices exist — omitted for now
+      // Simple breakdown
+      const breakdown = [
+        {
+          label: `Bed Charges (${admission.bed?.ward?.name ?? "Ward"} / ${admission.bed?.bedNumber ?? "-"})`,
+          days,
+          ratePerDay: dailyRate,
+          amount: bedCharges,
+        },
+      ];
+
+      res.json({
+        success: true,
+        data: {
+          admissionId: admission.id,
+          admissionNumber: admission.admissionNumber,
+          admittedAt: admission.admittedAt,
+          dischargedAt: admission.dischargedAt,
+          days,
+          breakdown,
+          grandTotal: bedCharges,
+          currentTotal: admission.totalBillAmount ?? bedCharges,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/admissions/:id/intake-output — record I/O event
+router.post(
+  "/:id/intake-output",
+  authorize(Role.ADMIN, Role.NURSE, Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = intakeOutputSchema.safeParse({
+        ...req.body,
+        admissionId: req.params.id,
+      });
+      if (!parsed.success) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Validation failed",
+          details: parsed.error.flatten(),
+        });
+        return;
+      }
+      const admission = await prisma.admission.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!admission) {
+        res.status(404).json({ success: false, data: null, error: "Admission not found" });
+        return;
+      }
+
+      const io = await prisma.ipdIntakeOutput.create({
+        data: {
+          admissionId: req.params.id,
+          type: parsed.data.type,
+          amountMl: parsed.data.amountMl,
+          description: parsed.data.description,
+          notes: parsed.data.notes,
+          recordedBy: req.user!.userId,
+        },
+      });
+
+      auditLog(req, "RECORD_INTAKE_OUTPUT", "ipdIntakeOutput", io.id, {
+        admissionId: req.params.id,
+        type: io.type,
+        amountMl: io.amountMl,
+      }).catch(console.error);
+
+      res.status(201).json({ success: true, data: io, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/admissions/:id/intake-output?date=YYYY-MM-DD — daily I/O summary
+router.get(
+  "/:id/intake-output",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { date } = req.query;
+      const where: Record<string, unknown> = { admissionId: req.params.id };
+      if (date) {
+        const start = new Date(date as string);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(start);
+        end.setDate(end.getDate() + 1);
+        where.recordedAt = { gte: start, lt: end };
+      }
+      const rows = await prisma.ipdIntakeOutput.findMany({
+        where,
+        orderBy: { recordedAt: "desc" },
+      });
+
+      let totalIntake = 0;
+      let totalOutput = 0;
+      for (const r of rows) {
+        if (r.type.startsWith("INTAKE")) totalIntake += r.amountMl;
+        else if (r.type.startsWith("OUTPUT")) totalOutput += r.amountMl;
+      }
+
+      res.json({
+        success: true,
+        data: {
+          rows,
+          totalIntake,
+          totalOutput,
+          balance: totalIntake - totalOutput,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/admissions/:id/mar — Medication Administration Record grid
+// Returns a grid keyed by order -> list of administrations for the day
+router.get(
+  "/:id/mar",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { date } = req.query;
+      const admission = await prisma.admission.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, admissionNumber: true, status: true },
+      });
+      if (!admission) {
+        res.status(404).json({ success: false, data: null, error: "Admission not found" });
+        return;
+      }
+
+      const dateStart = date ? new Date(date as string) : new Date();
+      dateStart.setHours(0, 0, 0, 0);
+      const dateEnd = new Date(dateStart);
+      dateEnd.setDate(dateEnd.getDate() + 1);
+
+      const orders = await prisma.medicationOrder.findMany({
+        where: { admissionId: req.params.id },
+        orderBy: { createdAt: "asc" },
+        include: {
+          doctor: { include: { user: { select: { name: true } } } },
+          administrations: {
+            where: { scheduledAt: { gte: dateStart, lt: dateEnd } },
+            orderBy: { scheduledAt: "asc" },
+            include: {
+              nurse: { select: { id: true, name: true } },
+            },
+          },
+        },
+      });
+
+      res.json({
+        success: true,
+        data: {
+          admissionId: admission.id,
+          admissionNumber: admission.admissionNumber,
+          date: dateStart.toISOString().slice(0, 10),
+          orders,
+        },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

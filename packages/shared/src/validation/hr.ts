@@ -86,6 +86,44 @@ export const rejectLeaveSchema = z.object({
   rejectionReason: z.string().min(1, "Rejection reason is required"),
 });
 
+// ─── Leave Balance ─────────────────────────────────────
+export const leaveBalanceSchema = z.object({
+  userId: z.string().uuid(),
+  type: leaveTypeEnum,
+  year: z.number().int().min(2020).max(2100),
+  entitled: z.number().nonnegative(),
+  carried: z.number().nonnegative().default(0),
+});
+
+// Default annual entitlement per leave type (days)
+export const DEFAULT_LEAVE_ENTITLEMENT: Record<string, number> = {
+  CASUAL: 12,
+  SICK: 12,
+  EARNED: 20,
+  MATERNITY: 180,
+  PATERNITY: 15,
+  UNPAID: 0,
+};
+
+// ─── Holidays ──────────────────────────────────────────
+export const createHolidaySchema = z.object({
+  date: dateString,
+  name: z.string().min(1),
+  type: z.string().default("PUBLIC"),
+  description: z.string().optional(),
+});
+
+// ─── Payroll (simple calculation) ──────────────────────
+export const payrollCalcSchema = z.object({
+  userId: z.string().uuid(),
+  year: z.number().int().min(2020).max(2100),
+  month: z.number().int().min(1).max(12),
+  basicSalary: z.number().nonnegative(),
+  allowances: z.number().nonnegative().default(0),
+  deductions: z.number().nonnegative().default(0),
+  overtimeRate: z.number().nonnegative().default(0),
+});
+
 export type CreateShiftInput = z.infer<typeof createShiftSchema>;
 export type BulkShiftInput = z.infer<typeof bulkShiftSchema>;
 export type UpdateShiftInput = z.infer<typeof updateShiftSchema>;
@@ -94,3 +132,6 @@ export type CheckOutShiftInput = z.infer<typeof checkOutShiftSchema>;
 export type CreateLeaveRequestInput = z.infer<typeof createLeaveRequestSchema>;
 export type ApproveLeaveInput = z.infer<typeof approveLeaveSchema>;
 export type RejectLeaveInput = z.infer<typeof rejectLeaveSchema>;
+export type LeaveBalanceInput = z.infer<typeof leaveBalanceSchema>;
+export type CreateHolidayInput = z.infer<typeof createHolidaySchema>;
+export type PayrollCalcInput = z.infer<typeof payrollCalcSchema>;

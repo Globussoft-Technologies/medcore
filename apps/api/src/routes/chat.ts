@@ -4,9 +4,14 @@ import {
   Role,
   createChatRoomSchema,
   sendMessageSchema,
+  messageReactionSchema,
+  pinMessageSchema,
+  createChannelSchema,
 } from "@medcore/shared";
-import { authenticate } from "../middleware/auth";
+import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import { auditLog } from "../middleware/audit";
+import { extractMentions } from "../services/ops-helpers";
 
 const router = Router();
 router.use(authenticate);
@@ -254,6 +259,7 @@ router.post(
         return;
       }
 
+      const mentions = extractMentions(parsed.data.content);
       const msg = await prisma.chatMessage.create({
         data: {
           roomId: req.params.id,
@@ -261,9 +267,29 @@ router.post(
           content: parsed.data.content,
           type: parsed.data.type,
           attachmentUrl: parsed.data.attachmentUrl,
+          mentionIds: mentions.length > 0 ? mentions.join(",") : null,
         },
         include: { sender: { select: { id: true, name: true, role: true } } },
       });
+
+      // Fire-and-forget: notify mentioned users
+      if (mentions.length > 0) {
+        for (const mId of mentions) {
+          prisma.notification
+            .create({
+              data: {
+                userId: mId,
+                type: "SCHEDULE_SUMMARY",
+                channel: "PUSH",
+                title: `${msg.sender.name} mentioned you`,
+                message: parsed.data.content.slice(0, 160),
+                data: { roomId: req.params.id, messageId: msg.id },
+                deliveryStatus: "QUEUED",
+              },
+            })
+            .catch(console.error);
+        }
+      }
 
       await prisma.chatRoom.update({
         where: { id: req.params.id },
@@ -393,6 +419,232 @@ router.delete(
         data: { leftAt: new Date() },
       });
       res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// OPS ENHANCEMENTS: REACTIONS, PINS, SEARCH, CHANNELS, TYPING
+// ═══════════════════════════════════════════════════════
+
+// POST /api/v1/chat/messages/:id/reactions — toggle a reaction
+router.post(
+  "/messages/:id/reactions",
+  validate(messageReactionSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const msg = await prisma.chatMessage.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!msg) {
+        res.status(404).json({ success: false, data: null, error: "Message not found" });
+        return;
+      }
+      const participant = await prisma.chatParticipant.findUnique({
+        where: { roomId_userId: { roomId: msg.roomId, userId } },
+      });
+      if (!participant) {
+        res.status(403).json({ success: false, data: null, error: "Not a participant" });
+        return;
+      }
+      const { emoji } = req.body as { emoji: string };
+      const current = (msg.reactions as Record<string, string[]> | null) || {};
+      const list = new Set(current[emoji] || []);
+      // toggle
+      if (list.has(userId)) list.delete(userId);
+      else list.add(userId);
+      if (list.size === 0) delete current[emoji];
+      else current[emoji] = Array.from(list);
+
+      const updated = await prisma.chatMessage.update({
+        where: { id: msg.id },
+        data: { reactions: current as any },
+      });
+
+      const io = req.app.get("io");
+      if (io) io.to(`chat:${msg.roomId}`).emit("chat:reaction", updated);
+
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/chat/messages/:id/pin
+router.patch(
+  "/messages/:id/pin",
+  validate(pinMessageSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const msg = await prisma.chatMessage.findUnique({ where: { id: req.params.id } });
+      if (!msg) {
+        res.status(404).json({ success: false, data: null, error: "Message not found" });
+        return;
+      }
+      const participant = await prisma.chatParticipant.findUnique({
+        where: { roomId_userId: { roomId: msg.roomId, userId } },
+      });
+      if (!participant) {
+        res.status(403).json({ success: false, data: null, error: "Not a participant" });
+        return;
+      }
+      const updated = await prisma.chatMessage.update({
+        where: { id: msg.id },
+        data: {
+          isPinned: req.body.pinned,
+          pinnedAt: req.body.pinned ? new Date() : null,
+          pinnedBy: req.body.pinned ? userId : null,
+        },
+      });
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/chat/rooms/:id/pinned
+router.get(
+  "/rooms/:id/pinned",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const participant = await prisma.chatParticipant.findUnique({
+        where: { roomId_userId: { roomId: req.params.id, userId } },
+      });
+      if (!participant) {
+        res.status(403).json({ success: false, data: null, error: "Not a participant" });
+        return;
+      }
+      const pinned = await prisma.chatMessage.findMany({
+        where: { roomId: req.params.id, isPinned: true, deletedAt: null },
+        include: { sender: { select: { id: true, name: true } } },
+        orderBy: { pinnedAt: "desc" },
+      });
+      res.json({ success: true, data: pinned, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/chat/search?q=&roomId=
+router.get(
+  "/search",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const { q, roomId } = req.query as Record<string, string | undefined>;
+      if (!q || q.length < 2) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Query (q) must be at least 2 characters",
+        });
+        return;
+      }
+      const myRooms = await prisma.chatParticipant.findMany({
+        where: { userId, leftAt: null },
+        select: { roomId: true },
+      });
+      const ids = myRooms.map((r) => r.roomId);
+      const where: Record<string, unknown> = {
+        deletedAt: null,
+        roomId: { in: ids },
+        content: { contains: q, mode: "insensitive" },
+      };
+      if (roomId) where.roomId = roomId;
+      const results = await prisma.chatMessage.findMany({
+        where,
+        include: {
+          sender: { select: { id: true, name: true, role: true } },
+          room: { select: { id: true, name: true, isGroup: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      });
+      res.json({ success: true, data: results, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/chat/channels — admin creates a department-wide channel
+router.post(
+  "/channels",
+  authorize(Role.ADMIN),
+  validate(createChannelSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { name, department, participantIds } = req.body;
+      // Auto-populate participants if none supplied: users matching department name
+      let ids: string[] = participantIds || [];
+      if (ids.length === 0) {
+        const roleMap: Record<string, string[]> = {
+          Doctors: ["DOCTOR"],
+          Nursing: ["NURSE"],
+          Nurses: ["NURSE"],
+          Reception: ["RECEPTION"],
+          "All Staff": ["ADMIN", "DOCTOR", "NURSE", "RECEPTION"],
+        };
+        const roles = roleMap[department] || [];
+        if (roles.length > 0) {
+          const users = await prisma.user.findMany({
+            where: { role: { in: roles as any }, isActive: true },
+            select: { id: true },
+          });
+          ids = users.map((u) => u.id);
+        }
+      }
+      const me = req.user!.userId;
+      const unique = Array.from(new Set<string>([me, ...ids]));
+      const room = await prisma.chatRoom.create({
+        data: {
+          name,
+          department,
+          isChannel: true,
+          isGroup: true,
+          createdBy: me,
+          participants: { create: unique.map((uid) => ({ userId: uid })) },
+        },
+        include: {
+          participants: {
+            where: { leftAt: null },
+            include: { user: { select: { id: true, name: true, role: true } } },
+          },
+        },
+      });
+      auditLog(req, "CHAT_CHANNEL_CREATE", "chat_room", room.id, { department }).catch(
+        console.error
+      );
+      res.status(201).json({ success: true, data: room, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/chat/rooms/:id/typing — broadcast typing indicator
+router.post(
+  "/rooms/:id/typing",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const io = req.app.get("io");
+      if (io) {
+        io.to(`chat:${req.params.id}`).emit("chat:typing", {
+          roomId: req.params.id,
+          userId,
+          at: new Date().toISOString(),
+        });
+      }
+      res.json({ success: true, data: { ok: true }, error: null });
     } catch (err) {
       next(err);
     }

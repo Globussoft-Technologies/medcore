@@ -6,6 +6,9 @@ import {
   createTelemedicineSchema,
   endTelemedicineSchema,
   rateTelemedicineSchema,
+  telemedTechIssuesSchema,
+  telemedFollowUpSchema,
+  telemedPrescriptionSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -386,6 +389,150 @@ router.patch(
       }).catch(console.error);
 
       res.json({ success: true, data: session, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/telemedicine/:id/join — patient joins waiting room
+router.patch(
+  "/:id/join",
+  authorize(Role.PATIENT, Role.DOCTOR, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const existing = await prisma.telemedicineSession.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Session not found" });
+        return;
+      }
+
+      const session = await prisma.telemedicineSession.update({
+        where: { id: req.params.id },
+        data: {
+          patientJoinedAt: existing.patientJoinedAt ?? new Date(),
+          status: existing.status === "SCHEDULED" ? "WAITING" : existing.status,
+        },
+      });
+
+      auditLog(req, "TELEMED_JOIN_WAITING", "telemedicineSession", session.id, {
+        sessionNumber: session.sessionNumber,
+      }).catch(console.error);
+
+      res.json({ success: true, data: session, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/telemedicine/:id/tech-issues
+router.patch(
+  "/:id/tech-issues",
+  authorize(Role.PATIENT, Role.DOCTOR, Role.ADMIN),
+  validate(telemedTechIssuesSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const session = await prisma.telemedicineSession.update({
+        where: { id: req.params.id },
+        data: { technicalIssues: req.body.technicalIssues },
+      });
+      auditLog(req, "TELEMED_TECH_ISSUE", "telemedicineSession", session.id, {
+        issues: req.body.technicalIssues,
+      }).catch(console.error);
+      res.json({ success: true, data: session, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/telemedicine/:id/followup
+router.patch(
+  "/:id/followup",
+  authorize(Role.ADMIN, Role.DOCTOR),
+  validate(telemedFollowUpSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const session = await prisma.telemedicineSession.update({
+        where: { id: req.params.id },
+        data: {
+          followUpScheduledAt: new Date(req.body.followUpScheduledAt),
+        },
+      });
+      auditLog(req, "TELEMED_FOLLOWUP_SCHEDULED", "telemedicineSession", session.id, {
+        followUpScheduledAt: req.body.followUpScheduledAt,
+      }).catch(console.error);
+      res.json({ success: true, data: session, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/telemedicine/:id/prescription — create prescription from session
+router.post(
+  "/:id/prescription",
+  authorize(Role.ADMIN, Role.DOCTOR),
+  validate(telemedPrescriptionSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const existing = await prisma.telemedicineSession.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Session not found" });
+        return;
+      }
+      if (existing.status !== "COMPLETED" && existing.status !== "IN_PROGRESS") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: "Prescription requires session to be IN_PROGRESS or COMPLETED",
+        });
+        return;
+      }
+
+      // Serialize items to doctorNotes appendix + cache prescription id
+      const items = req.body.items as Array<{
+        medicineName: string;
+        dosage: string;
+        frequency: string;
+        duration?: string;
+        instructions?: string;
+      }>;
+
+      const rxBlock = [
+        "\n--- Prescription ---",
+        ...items.map(
+          (m, i) =>
+            `${i + 1}. ${m.medicineName} ${m.dosage} — ${m.frequency}${m.duration ? ` x ${m.duration}` : ""}${m.instructions ? ` (${m.instructions})` : ""}`
+        ),
+        req.body.advice ? `\nAdvice: ${req.body.advice}` : "",
+      ].join("\n");
+
+      const rxId = `TRX-${existing.sessionNumber}-${Date.now()}`;
+
+      const session = await prisma.telemedicineSession.update({
+        where: { id: req.params.id },
+        data: {
+          prescriptionId: rxId,
+          doctorNotes: (existing.doctorNotes ?? "") + rxBlock,
+        },
+      });
+
+      auditLog(req, "TELEMED_PRESCRIPTION_CREATED", "telemedicineSession", session.id, {
+        prescriptionId: rxId,
+        itemCount: items.length,
+      }).catch(console.error);
+
+      res.status(201).json({
+        success: true,
+        data: { session, prescriptionId: rxId, items, advice: req.body.advice },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

@@ -6,10 +6,13 @@ import {
   createFeedbackSchema,
   createComplaintSchema,
   updateComplaintSchema,
+  escalateComplaintSchema,
+  feedbackRequestSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { analyzeSentiment, computeSlaDueAt } from "../services/ops-helpers";
 
 const feedbackRouter = Router();
 
@@ -54,8 +57,17 @@ feedbackRouter.post(
         }
       }
 
+      const sent = analyzeSentiment(comment);
       const fb = await prisma.patientFeedback.create({
-        data: { patientId, category, rating, nps, comment },
+        data: {
+          patientId,
+          category,
+          rating,
+          nps,
+          comment,
+          sentiment: sent?.label as any,
+          sentimentScore: sent?.score,
+        },
       });
 
       res.status(201).json({ success: true, data: fb, error: null });
@@ -260,6 +272,7 @@ complaintsRouter.post(
 
       const ticketNumber = await nextTicketNumber();
 
+      const slaDueAt = computeSlaDueAt(priority || "MEDIUM");
       const complaint = await prisma.complaint.create({
         data: {
           ticketNumber,
@@ -270,6 +283,7 @@ complaintsRouter.post(
           description,
           priority: priority || "MEDIUM",
           status: "OPEN",
+          slaDueAt,
         },
         include: {
           patient: {
@@ -469,6 +483,164 @@ complaintsRouter.patch(
       );
 
       res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// OPS ENHANCEMENTS: ESCALATION, AUTO-ESCALATE, DASHBOARD
+// ═══════════════════════════════════════════════════════
+
+// POST /api/v1/complaints/:id/escalate — manual escalation
+complaintsRouter.post(
+  "/:id/escalate",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  validate(escalateComplaintSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const existing = await prisma.complaint.findUnique({ where: { id: req.params.id } });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Complaint not found" });
+        return;
+      }
+      if (existing.status === "RESOLVED" || existing.status === "CLOSED") {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `Cannot escalate a ${existing.status} complaint`,
+        });
+        return;
+      }
+      const updated = await prisma.complaint.update({
+        where: { id: existing.id },
+        data: {
+          status: "ESCALATED",
+          escalatedAt: new Date(),
+          escalationReason: req.body.reason,
+        },
+      });
+      auditLog(req, "COMPLAINT_ESCALATE", "complaint", existing.id, {
+        reason: req.body.reason,
+      }).catch(console.error);
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/complaints/auto-escalate — cron-safe: escalate overdue OPEN/UNDER_REVIEW
+complaintsRouter.post(
+  "/auto-escalate",
+  authorize(Role.ADMIN),
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const now = new Date();
+      const overdue = await prisma.complaint.findMany({
+        where: {
+          status: { in: ["OPEN", "UNDER_REVIEW"] },
+          slaDueAt: { lt: now },
+          escalatedAt: null,
+        },
+      });
+      let escalated = 0;
+      for (const c of overdue) {
+        await prisma.complaint.update({
+          where: { id: c.id },
+          data: {
+            status: "ESCALATED",
+            escalatedAt: now,
+            escalationReason: "Auto-escalated: SLA breach",
+          },
+        });
+        escalated++;
+      }
+      res.json({ success: true, data: { escalated }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/complaints/dashboard — management dashboard
+complaintsRouter.get(
+  "/reports/dashboard",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const now = Date.now();
+      const all = await prisma.complaint.findMany();
+      const stats = {
+        total: all.length,
+        open: all.filter((c) => c.status === "OPEN").length,
+        underReview: all.filter((c) => c.status === "UNDER_REVIEW").length,
+        resolved: all.filter((c) => c.status === "RESOLVED").length,
+        escalated: all.filter((c) => c.status === "ESCALATED").length,
+        closed: all.filter((c) => c.status === "CLOSED").length,
+        overdue: all.filter(
+          (c) =>
+            c.slaDueAt &&
+            c.slaDueAt.getTime() < now &&
+            c.status !== "RESOLVED" &&
+            c.status !== "CLOSED"
+        ).length,
+      };
+      const resolved = all.filter((c) => c.resolvedAt);
+      const avgResponseHours =
+        resolved.length > 0
+          ? +(
+              resolved.reduce(
+                (s, c) => s + (c.resolvedAt!.getTime() - c.createdAt.getTime()),
+                0
+              ) /
+              resolved.length /
+              3600000
+            ).toFixed(1)
+          : 0;
+      res.json({
+        success: true,
+        data: { stats, avgResponseHours },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/feedback/request — send a feedback-request notification
+feedbackRouter.post(
+  "/request",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  validate(feedbackRequestSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { patientId, channel } = req.body;
+      const patient = await prisma.patient.findUnique({
+        where: { id: patientId },
+        include: { user: true },
+      });
+      if (!patient) {
+        res.status(404).json({ success: false, data: null, error: "Patient not found" });
+        return;
+      }
+      await prisma.notification.create({
+        data: {
+          userId: patient.userId,
+          type: "SCHEDULE_SUMMARY",
+          channel: channel === "WHATSAPP" ? "WHATSAPP" : channel === "EMAIL" ? "EMAIL" : "SMS",
+          title: "How was your visit?",
+          message: `Hi ${patient.user.name}, thank you for visiting us. We'd love your feedback — it helps us serve you better.`,
+          data: { patientId, feedbackRequested: true },
+          deliveryStatus: "QUEUED",
+        },
+      });
+      auditLog(req, "FEEDBACK_REQUEST", "patient", patientId, { channel }).catch(
+        console.error
+      );
+      res.status(201).json({ success: true, data: { patientId, channel }, error: null });
     } catch (err) {
       next(err);
     }

@@ -11,15 +11,34 @@ interface PrescriptionRecord {
   advice: string | null;
   followUpDate: string | null;
   createdAt: string;
+  printed?: boolean;
+  sharedVia?: string | null;
   items: Array<{
+    id?: string;
     medicineName: string;
     dosage: string;
     frequency: string;
     duration: string;
     instructions: string | null;
+    refills?: number;
+    refillsUsed?: number;
   }>;
   doctor: { user: { name: string } };
   patient: { user: { name: string; phone: string } };
+}
+
+interface Template {
+  id: string;
+  name: string;
+  diagnosis: string;
+  advice: string | null;
+  items: Array<{
+    medicineName: string;
+    dosage: string;
+    frequency: string;
+    duration: string;
+    instructions?: string;
+  }>;
 }
 
 export default function PrescriptionsPage() {
@@ -41,9 +60,56 @@ export default function PrescriptionsPage() {
     { medicineName: "", dosage: "", frequency: "", duration: "", instructions: "" },
   ]);
 
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+
   useEffect(() => {
     loadPrescriptions();
+    api
+      .get<{ data: Template[] }>("/prescriptions/templates/list")
+      .then((r) => setTemplates(r.data))
+      .catch(() => {});
   }, []);
+
+  function applyTemplate(tplId: string) {
+    const tpl = templates.find((t) => t.id === tplId);
+    if (!tpl) return;
+    setForm((f) => ({
+      ...f,
+      diagnosis: tpl.diagnosis,
+      advice: tpl.advice ?? "",
+    }));
+    setMedicines(
+      tpl.items.map((i) => ({
+        medicineName: i.medicineName,
+        dosage: i.dosage,
+        frequency: i.frequency,
+        duration: i.duration,
+        instructions: i.instructions ?? "",
+      }))
+    );
+  }
+
+  async function markPrinted(id: string) {
+    try {
+      await api.post(`/prescriptions/${id}/print`, {});
+      // Open printable view
+      window.open(`/api/v1/prescriptions/${id}/pdf`, "_blank");
+      loadPrescriptions();
+    } catch {
+      /* noop */
+    }
+  }
+
+  async function shareVia(id: string, channel: "WHATSAPP" | "EMAIL" | "SMS") {
+    try {
+      await api.post(`/prescriptions/${id}/share`, { channel });
+      alert(`Prescription shared via ${channel}`);
+      loadPrescriptions();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to share");
+    }
+  }
 
   async function loadPrescriptions() {
     setLoading(true);
@@ -116,6 +182,27 @@ export default function PrescriptionsPage() {
           className="mb-6 rounded-xl bg-white p-6 shadow-sm"
         >
           <h2 className="mb-4 font-semibold">New Prescription</h2>
+
+          {templates.length > 0 && (
+            <div className="mb-4 flex items-center gap-2 rounded-lg bg-blue-50 p-3">
+              <label className="text-sm font-medium">Use Template:</label>
+              <select
+                value={selectedTemplateId}
+                onChange={(e) => {
+                  setSelectedTemplateId(e.target.value);
+                  if (e.target.value) applyTemplate(e.target.value);
+                }}
+                className="flex-1 rounded border px-2 py-1 text-sm"
+              >
+                <option value="">— Select a template —</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="mb-4 grid grid-cols-2 gap-4">
             <input
@@ -312,6 +399,31 @@ export default function PrescriptionsPage() {
                       {new Date(rx.followUpDate).toLocaleDateString("en-IN")}
                     </p>
                   )}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      onClick={() => markPrinted(rx.id)}
+                      className="rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
+                    >
+                      {rx.printed ? "Re-Print" : "Print"}
+                    </button>
+                    <button
+                      onClick={() => shareVia(rx.id, "WHATSAPP")}
+                      className="rounded-lg border px-3 py-1.5 text-xs text-green-700 hover:bg-green-50"
+                    >
+                      Share via WhatsApp
+                    </button>
+                    <button
+                      onClick={() => shareVia(rx.id, "EMAIL")}
+                      className="rounded-lg border px-3 py-1.5 text-xs text-blue-700 hover:bg-blue-50"
+                    >
+                      Share via Email
+                    </button>
+                    {rx.sharedVia && (
+                      <span className="ml-auto self-center text-xs text-gray-500">
+                        Shared: {rx.sharedVia}
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

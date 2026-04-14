@@ -5,6 +5,8 @@ import {
   createLeaveRequestSchema,
   approveLeaveSchema,
   rejectLeaveSchema,
+  leaveBalanceSchema,
+  DEFAULT_LEAVE_ENTITLEMENT,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -222,6 +224,28 @@ router.patch(
           updated.fromDate,
           updated.toDate
         );
+        // Increment leave balance used
+        const year = updated.fromDate.getFullYear();
+        prisma.leaveBalance
+          .upsert({
+            where: {
+              userId_type_year: {
+                userId: updated.userId,
+                type: updated.type,
+                year,
+              },
+            },
+            update: { used: { increment: updated.totalDays } },
+            create: {
+              userId: updated.userId,
+              type: updated.type,
+              year,
+              entitled:
+                (DEFAULT_LEAVE_ENTITLEMENT as Record<string, number>)[updated.type] ?? 0,
+              used: updated.totalDays,
+            },
+          })
+          .catch(console.error);
       }
 
       auditLog(req, `LEAVE_${status}`, "leaveRequest", id, { status }).catch(console.error);
@@ -316,5 +340,102 @@ router.patch("/:id/cancel", async (req: Request, res: Response, next: NextFuncti
     next(err);
   }
 });
+
+// ═══════════════════════════════════════════════════════
+// OPS ENHANCEMENTS: LEAVE BALANCES + CALENDAR
+// ═══════════════════════════════════════════════════════
+
+// GET /api/v1/leaves/balance?userId=&year=
+router.get(
+  "/balance",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const isAdmin = req.user!.role === Role.ADMIN;
+      const userId = isAdmin ? (req.query.userId as string) || req.user!.userId : req.user!.userId;
+      const year = parseInt((req.query.year as string) || String(new Date().getFullYear()), 10);
+
+      const balances = await prisma.leaveBalance.findMany({
+        where: { userId, year },
+      });
+      // Fill missing types with defaults
+      const out: Array<{ type: string; entitled: number; used: number; carried: number; remaining: number }> = [];
+      for (const [type, entitled] of Object.entries(DEFAULT_LEAVE_ENTITLEMENT)) {
+        const existing = balances.find((b) => b.type === type);
+        const e = existing?.entitled ?? entitled;
+        const u = existing?.used ?? 0;
+        const c = existing?.carried ?? 0;
+        out.push({
+          type,
+          entitled: e,
+          used: u,
+          carried: c,
+          remaining: +(e + c - u).toFixed(1),
+        });
+      }
+      res.json({ success: true, data: { userId, year, balances: out }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/leaves/balance — admin upsert balance
+router.post(
+  "/balance",
+  authorize(Role.ADMIN),
+  validate(leaveBalanceSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { userId, type, year, entitled, carried } = req.body;
+      const b = await prisma.leaveBalance.upsert({
+        where: { userId_type_year: { userId, type, year } },
+        update: { entitled, carried: carried || 0 },
+        create: { userId, type, year, entitled, carried: carried || 0 },
+      });
+      auditLog(req, "LEAVE_BALANCE_UPSERT", "leave_balance", b.id, req.body).catch(
+        console.error
+      );
+      res.status(201).json({ success: true, data: b, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/leaves/calendar?from=&to= — who is on leave (APPROVED) in window
+router.get(
+  "/calendar",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR, Role.NURSE),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const now = new Date();
+      const defaultFrom = new Date(now);
+      defaultFrom.setDate(defaultFrom.getDate() - 7);
+      const defaultTo = new Date(now);
+      defaultTo.setDate(defaultTo.getDate() + 30);
+
+      const from = req.query.from ? new Date(req.query.from as string) : defaultFrom;
+      const to = req.query.to ? new Date(req.query.to as string) : defaultTo;
+
+      const leaves = await prisma.leaveRequest.findMany({
+        where: {
+          status: "APPROVED",
+          fromDate: { lte: to },
+          toDate: { gte: from },
+        },
+        include: { user: { select: { id: true, name: true, role: true } } },
+        orderBy: { fromDate: "asc" },
+      });
+
+      res.json({
+        success: true,
+        data: { from, to, leaves },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 export { router as leaveRouter };

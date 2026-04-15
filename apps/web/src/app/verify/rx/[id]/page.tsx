@@ -1,7 +1,10 @@
 // Public prescription verification page reached via QR scan.
-// Server-renders a minimal verification card using /api/v1/public/verify/rx/:id.
+// Server-rendered (no client JS required) — uses Tailwind classes only.
+// Strings are inlined in English: this page must work without the i18n
+// client store (which is "use client"). Keys are mirrored in i18n.ts for
+// future SSR-friendly i18n refactor.
 
-import { notFound } from "next/navigation";
+import { CheckCircle2, ShieldAlert, Printer } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -28,7 +31,6 @@ async function fetchVerification(id: string): Promise<VerifyData | null> {
     process.env.API_INTERNAL_URL ||
     process.env.NEXT_PUBLIC_API_URL ||
     "http://localhost:4000/api/v1";
-  // Ensure we hit /public/verify/rx/:id (public endpoint, no auth)
   const url = `${base.replace(/\/$/, "")}/public/verify/rx/${encodeURIComponent(
     id
   )}`;
@@ -44,8 +46,7 @@ async function fetchVerification(id: string): Promise<VerifyData | null> {
       const json = (await res.json()) as VerifyData;
       return json;
     }
-    // Fall back: server returned HTML — extract minimal signals
-    // (current API returns HTML, so we parse loosely)
+    // Fallback: server returned HTML — parse loosely.
     const html = await res.text();
     if (/Prescription Not Found/i.test(html)) return null;
     const match = (re: RegExp) => (html.match(re)?.[1] || "").trim();
@@ -68,6 +69,28 @@ async function fetchVerification(id: string): Promise<VerifyData | null> {
   }
 }
 
+function PrintStyles() {
+  // Print-friendly CSS: white bg, remove shadows, hide nothing essential.
+  return (
+    <style
+      // eslint-disable-next-line react/no-unknown-property
+      dangerouslySetInnerHTML={{
+        __html: `
+          @media print {
+            body { background: #fff !important; }
+            .verify-no-print { display: none !important; }
+            .verify-card {
+              box-shadow: none !important;
+              border: 1px solid #cbd5e1 !important;
+            }
+            .verify-bg { background: #fff !important; }
+          }
+        `,
+      }}
+    />
+  );
+}
+
 export default async function VerifyPrescriptionPage({
   params,
 }: {
@@ -76,53 +99,37 @@ export default async function VerifyPrescriptionPage({
   const { id } = await params;
 
   const data = await fetchVerification(id);
+  const verifiedAt = new Date();
+  const verifiedAtStr = verifiedAt.toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 
   if (!data) {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          background: "#f1f5f9",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "20px",
-        }}
-      >
-        <div
-          style={{
-            maxWidth: "440px",
-            width: "100%",
-            background: "#fff",
-            borderRadius: "12px",
-            padding: "36px 28px",
-            boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
-            textAlign: "center",
-          }}
-        >
+      <div className="verify-bg flex min-h-screen items-center justify-center bg-gray-50 p-5 dark:bg-gray-950">
+        <PrintStyles />
+        <div className="verify-card w-full max-w-md rounded-2xl border border-red-200 bg-white p-8 text-center shadow-xl dark:border-red-900/50 dark:bg-gray-900">
           <div
-            style={{
-              width: 56,
-              height: 56,
-              margin: "0 auto 16px",
-              borderRadius: "50%",
-              background: "#fee2e2",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#dc2626",
-              fontSize: 28,
-              fontWeight: 700,
-            }}
+            className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400"
+            aria-hidden="true"
           >
-            !
+            <ShieldAlert className="h-8 w-8" />
           </div>
-          <h1 style={{ fontSize: 22, color: "#b91c1c", margin: "0 0 8px" }}>
+          <h1 className="mb-2 text-2xl font-bold text-red-700 dark:text-red-400">
             Prescription Not Found
           </h1>
-          <p style={{ color: "#64748b", fontSize: 14, margin: 0 }}>
-            The prescription ID <code>{id}</code> could not be verified in our
-            records. It may be invalid, expired, or revoked.
+          <p className="text-sm leading-relaxed text-gray-600 dark:text-gray-400">
+            The prescription ID{" "}
+            <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-800 dark:bg-gray-800 dark:text-gray-200">
+              {id}
+            </code>{" "}
+            could not be verified in our records. This may be a forged QR
+            code, or the prescription has been voided or revoked.
+          </p>
+          <p className="mt-4 text-xs text-gray-400 dark:text-gray-500">
+            If you believe this is an error, please contact the issuing
+            hospital directly.
           </p>
         </div>
       </div>
@@ -132,205 +139,142 @@ export default async function VerifyPrescriptionPage({
   const h = data.hospital;
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "linear-gradient(180deg, #eff6ff 0%, #f8fafc 300px)",
-        padding: "20px 16px 60px",
-        fontFamily:
-          "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-      }}
-    >
-      <div style={{ maxWidth: 520, margin: "0 auto" }}>
+    <div className="verify-bg min-h-screen bg-gray-50 px-4 py-8 font-sans text-gray-900 dark:bg-gray-950 dark:text-gray-100 md:py-12">
+      <PrintStyles />
+      <div className="mx-auto max-w-2xl">
         {/* Hospital letterhead */}
-        <div
-          style={{
-            textAlign: "center",
-            padding: "24px 16px 18px",
-            borderBottom: "3px double #2563eb",
-            marginBottom: 20,
-          }}
-        >
+        <header className="mb-6 border-b-2 border-double border-primary/60 pb-5 text-center">
           {h.logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={h.logoUrl}
-              alt={h.name}
-              style={{ maxHeight: 64, marginBottom: 8 }}
+              alt={`${h.name} logo`}
+              className="mx-auto mb-3 max-h-16"
             />
           ) : (
             <div
-              style={{
-                width: 64,
-                height: 64,
-                margin: "0 auto 10px",
-                borderRadius: 12,
-                background: "#2563eb",
-                color: "#fff",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 28,
-                fontWeight: 700,
-              }}
+              className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-xl bg-primary text-2xl font-bold text-white"
+              aria-hidden="true"
             >
               {h.name.charAt(0)}
             </div>
           )}
-          <h1
-            style={{
-              fontSize: 22,
-              color: "#1e3a8a",
-              margin: "0 0 4px",
-              fontWeight: 700,
-            }}
-          >
+          <h1 className="text-2xl font-bold tracking-tight text-blue-900 dark:text-blue-200">
             {h.name}
           </h1>
           {h.tagline && (
-            <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0" }}>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               {h.tagline}
             </p>
           )}
           {h.address && (
-            <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0" }}>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {h.address}
             </p>
           )}
-          <p style={{ fontSize: 11, color: "#94a3b8", margin: "2px 0" }}>
-            {h.phone ? `Phone: ${h.phone}` : ""}
-            {h.phone && h.email ? "  |  " : ""}
-            {h.email ? `Email: ${h.email}` : ""}
-          </p>
-        </div>
+          {(h.phone || h.email) && (
+            <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+              {h.phone && <span>Phone: {h.phone}</span>}
+              {h.phone && h.email && <span className="mx-2">|</span>}
+              {h.email && <span>Email: {h.email}</span>}
+            </p>
+          )}
+        </header>
 
         {/* Verification card */}
-        <div
-          style={{
-            background: "#fff",
-            borderRadius: 12,
-            padding: "28px 24px",
-            boxShadow: "0 10px 30px rgba(0,0,0,0.06)",
-            border: "1px solid #e2e8f0",
-          }}
-        >
-          <div style={{ textAlign: "center", marginBottom: 22 }}>
+        <article className="verify-card rounded-2xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-900 md:p-8">
+          {/* Hero badge */}
+          <div className="mb-6 text-center">
             <div
-              style={{
-                width: 64,
-                height: 64,
-                margin: "0 auto 12px",
-                borderRadius: "50%",
-                background: "#dcfce7",
-                color: "#15803d",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 34,
-                fontWeight: 700,
-                boxShadow: "0 0 0 4px #bbf7d0",
-              }}
-              aria-label="Verified"
+              className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-green-100 text-green-700 ring-4 ring-green-200 dark:bg-green-900/40 dark:text-green-400 dark:ring-green-900/60"
+              aria-hidden="true"
             >
-              {"\u2713"}
+              <CheckCircle2 className="h-12 w-12" strokeWidth={2.5} />
             </div>
-            <div
-              style={{
-                display: "inline-block",
-                background: "#16a34a",
-                color: "#fff",
-                padding: "6px 16px",
-                borderRadius: 999,
-                fontSize: 13,
-                fontWeight: 600,
-                letterSpacing: 0.3,
-              }}
-            >
-              VERIFIED &mdash; Authentic Prescription
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+              Verified Prescription
+            </h2>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+              Issued by Dr. {data.doctorName} on {data.dateIssued}
+            </p>
+            <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-green-600 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-white shadow-sm">
+              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+              Verified — Authentic Prescription
             </div>
-            <p
-              style={{
-                color: "#64748b",
-                fontSize: 12,
-                margin: "10px 0 0",
-              }}
-            >
+            <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
               This prescription has been validated against our records.
             </p>
           </div>
 
-          <dl
-            style={{
-              margin: 0,
-              display: "grid",
-              gridTemplateColumns: "140px 1fr",
-              gap: "10px 12px",
-              fontSize: 14,
-            }}
-          >
-            <dt style={{ color: "#64748b" }}>Prescription ID</dt>
-            <dd
-              style={{
-                margin: 0,
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-                color: "#0f172a",
-                wordBreak: "break-all",
-              }}
-            >
+          {/* Details */}
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 border-t border-gray-100 pt-6 text-sm dark:border-gray-800">
+            <dt className="font-medium text-gray-500 dark:text-gray-400">
+              Prescription ID
+            </dt>
+            <dd className="break-all font-mono text-gray-900 dark:text-gray-100">
               {data.prescriptionId}
             </dd>
 
-            <dt style={{ color: "#64748b" }}>Patient</dt>
-            <dd style={{ margin: 0, color: "#0f172a", fontWeight: 600 }}>
-              {data.patientInitial}
-              <span
-                style={{
-                  marginLeft: 8,
-                  fontSize: 11,
-                  color: "#94a3b8",
-                  fontWeight: 400,
-                }}
-              >
+            <dt className="font-medium text-gray-500 dark:text-gray-400">
+              Patient
+            </dt>
+            <dd className="text-gray-900 dark:text-gray-100">
+              <span className="font-semibold">{data.patientInitial}</span>
+              <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
                 (name masked for privacy)
               </span>
             </dd>
 
-            <dt style={{ color: "#64748b" }}>Doctor</dt>
-            <dd style={{ margin: 0, color: "#0f172a" }}>
+            <dt className="font-medium text-gray-500 dark:text-gray-400">
+              Doctor
+            </dt>
+            <dd className="text-gray-900 dark:text-gray-100">
               Dr. {data.doctorName}
             </dd>
 
-            <dt style={{ color: "#64748b" }}>Date Issued</dt>
-            <dd style={{ margin: 0, color: "#0f172a" }}>{data.dateIssued}</dd>
+            <dt className="font-medium text-gray-500 dark:text-gray-400">
+              Date Issued
+            </dt>
+            <dd className="text-gray-900 dark:text-gray-100">
+              {data.dateIssued}
+            </dd>
 
-            <dt style={{ color: "#64748b" }}>Status</dt>
-            <dd style={{ margin: 0, color: "#0f172a" }}>{data.status}</dd>
+            <dt className="font-medium text-gray-500 dark:text-gray-400">
+              Status
+            </dt>
+            <dd>
+              <span className="inline-flex rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                {data.status}
+              </span>
+            </dd>
+
+            <dt className="font-medium text-gray-500 dark:text-gray-400">
+              Verified At
+            </dt>
+            <dd className="text-gray-900 dark:text-gray-100">{verifiedAtStr}</dd>
           </dl>
 
-          <p
-            style={{
-              marginTop: 24,
-              fontSize: 11,
-              color: "#94a3b8",
-              textAlign: "center",
-              lineHeight: 1.5,
-            }}
-          >
-            For privacy, the patient&apos;s full name and medication details are
-            not disclosed on this public verification page. If you suspect
+          <p className="mt-6 border-t border-gray-100 pt-4 text-center text-xs leading-relaxed text-gray-500 dark:border-gray-800 dark:text-gray-400">
+            For privacy, the patient&apos;s full name and medication details
+            are not disclosed on this public verification page. If you suspect
             tampering, contact the issuing hospital.
           </p>
+        </article>
+
+        {/* Print button (hidden when printing) */}
+        <div className="verify-no-print mt-6 text-center">
+          <a
+            href="javascript:window.print()"
+            className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-gray-200 transition hover:bg-gray-50 dark:bg-gray-900 dark:text-gray-200 dark:ring-gray-700 dark:hover:bg-gray-800"
+            aria-label="Print verification"
+          >
+            <Printer className="h-4 w-4" aria-hidden="true" />
+            Print Verification
+          </a>
         </div>
 
-        <p
-          style={{
-            textAlign: "center",
-            fontSize: 11,
-            color: "#94a3b8",
-            marginTop: 18,
-          }}
-        >
-          Verified by {h.name} &middot; {new Date().getFullYear()}
+        <p className="mt-6 text-center text-xs text-gray-400 dark:text-gray-500">
+          Verified by {h.name} &middot; {verifiedAt.getFullYear()}
         </p>
       </div>
     </div>

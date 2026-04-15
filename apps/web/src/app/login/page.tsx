@@ -7,6 +7,7 @@ import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { LanguageDropdown } from "@/components/LanguageDropdown";
 import { toast } from "@/lib/toast";
+import { Activity, QrCode, Receipt, Smartphone, CheckCircle2 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -41,7 +42,7 @@ export default function LoginPage() {
         setTwoFAStep(true);
         return;
       }
-      toast.success("Welcome back!");
+      toast.success(t("login.welcome"));
       router.push("/dashboard");
     } catch (err) {
       const msg = err instanceof Error ? err.message : t("login.error.generic");
@@ -58,7 +59,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await verify2FA(tempToken, twoFACode.trim());
-      toast.success("Welcome back!");
+      toast.success(t("login.welcome"));
       router.push("/dashboard");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Invalid 2FA code";
@@ -69,172 +70,238 @@ export default function LoginPage() {
     }
   }
 
+  const features = [
+    { icon: Activity, text: t("login.marketing.feature1") },
+    { icon: QrCode, text: t("login.marketing.feature2") },
+    { icon: Receipt, text: t("login.marketing.feature3") },
+    { icon: Smartphone, text: t("login.marketing.feature4") },
+  ];
+
   return (
     <main
       id="main-content"
-      className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100 dark:from-gray-900 dark:to-gray-950"
+      className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-100 dark:from-gray-900 dark:via-gray-950 dark:to-gray-900"
     >
-      <div className="fixed right-4 top-4">
+      <div className="fixed right-4 top-4 z-10">
         <LanguageDropdown />
       </div>
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl dark:bg-gray-800">
-        <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold text-primary">{t("app.name")}</h1>
-          <p className="mt-2 text-gray-500 dark:text-gray-400">
-            {t("app.tagline")}
+
+      <div className="mx-auto grid min-h-screen max-w-6xl grid-cols-1 items-center gap-8 px-4 py-10 md:grid-cols-2 md:gap-12 md:px-8">
+        {/* Marketing column */}
+        <section
+          aria-labelledby="marketing-heading"
+          className="order-1 text-center md:order-none md:text-left"
+        >
+          <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-primary dark:bg-primary/20">
+            <span className="h-2 w-2 rounded-full bg-primary" aria-hidden="true" />
+            Hospital Management System
+          </div>
+          <h1
+            id="marketing-heading"
+            className="mt-4 text-4xl font-bold tracking-tight text-gray-900 dark:text-white md:text-5xl"
+          >
+            {t("app.name")}
+          </h1>
+          <p className="mt-3 text-base text-gray-600 dark:text-gray-300 md:text-lg">
+            {t("login.marketing.tagline")}
           </p>
-        </div>
 
-        {twoFAStep ? (
-          <form onSubmit={handle2FA} className="space-y-5" aria-label="2FA form">
-            {error && (
-              <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-danger dark:bg-red-900/30 dark:text-red-300">
-                {error}
-              </div>
-            )}
-            <div>
-              <label htmlFor="login-2fa" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">
-                Two-Factor Authentication Code
-              </label>
-              <input
-                id="login-2fa"
-                type="text"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                value={twoFACode}
-                onChange={(e) => setTwoFACode(e.target.value)}
-                required
-                placeholder="6-digit code or backup code"
-                className="w-full rounded-lg border border-gray-300 px-4 py-2.5 tracking-widest focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
-              />
-              <p className="mt-2 text-xs text-gray-500">
-                Open your authenticator app and enter the current code. You can also use one of your backup codes.
+          {/* Full feature list on md+ */}
+          <ul
+            className="mt-8 hidden space-y-4 md:block"
+            aria-label="Core features"
+          >
+            {features.map(({ icon: Icon, text }, i) => (
+              <li key={i} className="flex items-start gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary dark:bg-primary/20">
+                  <Icon className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <span className="pt-2 text-sm text-gray-700 dark:text-gray-200">
+                  {text}
+                </span>
+              </li>
+            ))}
+          </ul>
+
+          {/* Condensed paragraph on mobile */}
+          <p className="mt-4 text-sm text-gray-600 dark:text-gray-400 md:hidden">
+            {t("login.marketing.short")}
+          </p>
+        </section>
+
+        {/* Form column */}
+        <section
+          aria-labelledby="login-heading"
+          className="order-2 md:order-none"
+        >
+          <div className="mx-auto w-full max-w-md rounded-2xl bg-white p-8 shadow-xl ring-1 ring-gray-200 dark:bg-gray-800 dark:ring-gray-700">
+            <div className="mb-6 text-center">
+              <h2
+                id="login-heading"
+                className="text-2xl font-bold text-gray-900 dark:text-white"
+              >
+                {t("login.title")}
+              </h2>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {t("app.tagline")}
               </p>
             </div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-lg bg-primary py-2.5 font-medium text-white transition hover:bg-primary-dark disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
-            >
-              {loading ? "Verifying..." : "Verify"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setTwoFAStep(false);
-                setTempToken("");
-                setTwoFACode("");
-              }}
-              className="w-full text-center text-sm text-gray-500 hover:text-gray-700"
-            >
-              Back to login
-            </button>
-          </form>
-        ) : (
-        <form onSubmit={handleSubmit} className="space-y-5" aria-label="Login form">
-          {error && (
-            <div
-              role="alert"
-              className="rounded-lg bg-red-50 p-3 text-sm text-danger dark:bg-red-900/30 dark:text-red-300"
-            >
-              {error}
+
+            {twoFAStep ? (
+              <form onSubmit={handle2FA} className="space-y-5" aria-label="2FA form">
+                {error && (
+                  <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-danger dark:bg-red-900/30 dark:text-red-300">
+                    {error}
+                  </div>
+                )}
+                <div>
+                  <label htmlFor="login-2fa" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">
+                    {t("login.2fa.title")}
+                  </label>
+                  <input
+                    id="login-2fa"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={twoFACode}
+                    onChange={(e) => setTwoFACode(e.target.value)}
+                    required
+                    placeholder={t("login.2fa.placeholder")}
+                    className="w-full rounded-lg border border-gray-300 px-4 py-2.5 tracking-widest focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                  />
+                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    {t("login.2fa.hint")}
+                  </p>
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full rounded-lg bg-primary py-2.5 font-medium text-white transition hover:bg-primary-dark disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+                >
+                  {loading ? t("login.2fa.verifying") : t("login.2fa.verify")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTwoFAStep(false);
+                    setTempToken("");
+                    setTwoFACode("");
+                  }}
+                  className="w-full text-center text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                >
+                  {t("login.2fa.back")}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-5" aria-label="Login form">
+                {error && (
+                  <div
+                    role="alert"
+                    className="rounded-lg bg-red-50 p-3 text-sm text-danger dark:bg-red-900/30 dark:text-red-300"
+                  >
+                    {error}
+                  </div>
+                )}
+
+                <div>
+                  <label
+                    htmlFor="login-email"
+                    className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200"
+                  >
+                    {t("login.email")}
+                  </label>
+                  <input
+                    id="login-email"
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    className={
+                      "w-full rounded-lg border px-4 py-2.5 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:bg-gray-900 dark:text-gray-100 " +
+                      (fieldErrors.email ? "border-red-500" : "border-gray-300 dark:border-gray-700")
+                    }
+                    placeholder={t("login.email.placeholder")}
+                    aria-invalid={!!fieldErrors.email}
+                    aria-describedby={fieldErrors.email ? "login-email-err" : undefined}
+                  />
+                  {fieldErrors.email && (
+                    <p id="login-email-err" className="mt-1 text-xs text-red-600">
+                      {fieldErrors.email}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="login-password"
+                    className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200"
+                  >
+                    {t("login.password")}
+                  </label>
+                  <input
+                    id="login-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    className={
+                      "w-full rounded-lg border px-4 py-2.5 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:bg-gray-900 dark:text-gray-100 " +
+                      (fieldErrors.password ? "border-red-500" : "border-gray-300 dark:border-gray-700")
+                    }
+                    placeholder={t("login.password.placeholder")}
+                    aria-invalid={!!fieldErrors.password}
+                    aria-describedby={fieldErrors.password ? "login-password-err" : undefined}
+                  />
+                  {fieldErrors.password && (
+                    <p id="login-password-err" className="mt-1 text-xs text-red-600">
+                      {fieldErrors.password}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex justify-end">
+                  <Link
+                    href="/forgot-password"
+                    className="text-sm font-medium text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded"
+                  >
+                    {t("login.forgot")}
+                  </Link>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full rounded-lg bg-primary py-2.5 font-medium text-white transition hover:bg-primary-dark disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+                >
+                  {loading ? t("login.submit.loading") : t("login.submit")}
+                </button>
+              </form>
+            )}
+
+            <p className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
+              {t("login.newPatient")}{" "}
+              <Link
+                href="/register"
+                className="font-medium text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded"
+              >
+                {t("login.register")}
+              </Link>
+            </p>
+
+            <div className="mt-4 rounded-lg bg-gray-50 p-4 text-xs text-gray-500 dark:bg-gray-900 dark:text-gray-400">
+              <p className="flex items-center gap-1.5 font-medium">
+                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                {t("login.demo.title")}
+              </p>
+              <p>Admin: admin@medcore.local / admin123</p>
+              <p>Doctor: dr.sharma@medcore.local / doctor123</p>
+              <p>Reception: reception@medcore.local / reception123</p>
+              <p>Nurse: nurse@medcore.local / nurse123</p>
             </div>
-          )}
-
-          <div>
-            <label
-              htmlFor="login-email"
-              className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200"
-            >
-              {t("login.email")}
-            </label>
-            <input
-              id="login-email"
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className={
-                "w-full rounded-lg border px-4 py-2.5 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:bg-gray-900 dark:text-gray-100 " +
-                (fieldErrors.email ? "border-red-500" : "border-gray-300 dark:border-gray-700")
-              }
-              placeholder={t("login.email.placeholder")}
-              aria-invalid={!!fieldErrors.email}
-              aria-describedby={fieldErrors.email ? "login-email-err" : undefined}
-            />
-            {fieldErrors.email && (
-              <p id="login-email-err" className="mt-1 text-xs text-red-600">
-                {fieldErrors.email}
-              </p>
-            )}
           </div>
-
-          <div>
-            <label
-              htmlFor="login-password"
-              className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200"
-            >
-              {t("login.password")}
-            </label>
-            <input
-              id="login-password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className={
-                "w-full rounded-lg border px-4 py-2.5 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:bg-gray-900 dark:text-gray-100 " +
-                (fieldErrors.password ? "border-red-500" : "border-gray-300 dark:border-gray-700")
-              }
-              placeholder={t("login.password.placeholder")}
-              aria-invalid={!!fieldErrors.password}
-              aria-describedby={fieldErrors.password ? "login-password-err" : undefined}
-            />
-            {fieldErrors.password && (
-              <p id="login-password-err" className="mt-1 text-xs text-red-600">
-                {fieldErrors.password}
-              </p>
-            )}
-          </div>
-
-          <div className="flex justify-end">
-            <Link
-              href="/forgot-password"
-              className="text-sm font-medium text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded"
-            >
-              {t("login.forgot")}
-            </Link>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-lg bg-primary py-2.5 font-medium text-white transition hover:bg-primary-dark disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
-          >
-            {loading ? t("login.submit.loading") : t("login.submit")}
-          </button>
-        </form>
-        )}
-
-        <p className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
-          {t("login.newPatient")}{" "}
-          <Link
-            href="/register"
-            className="font-medium text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded"
-          >
-            {t("login.register")}
-          </Link>
-        </p>
-
-        <div className="mt-4 rounded-lg bg-gray-50 p-4 text-xs text-gray-500 dark:bg-gray-900 dark:text-gray-400">
-          <p className="font-medium">Demo Accounts:</p>
-          <p>Admin: admin@medcore.local / admin123</p>
-          <p>Doctor: dr.sharma@medcore.local / doctor123</p>
-          <p>Reception: reception@medcore.local / reception123</p>
-          <p>Nurse: nurse@medcore.local / nurse123</p>
-        </div>
+        </section>
       </div>
     </main>
   );

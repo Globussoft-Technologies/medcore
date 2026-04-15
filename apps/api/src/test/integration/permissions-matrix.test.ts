@@ -334,6 +334,282 @@ const MATRIX: MatrixRow[] = [
     body: {},
     label: "create ward",
   },
+
+  // ─── EXPANSION (+30 endpoints × 5 roles = +150 assertions) ───
+  //
+  // All entries below were read directly from `authorize(...)` decorators in
+  // routes/*.ts as of 2026-04. PHARMACIST and LAB_TECH routes are NOT in
+  // ALL_ROLES (those roles are not listed in the test enum), so rows below
+  // omit them — the 5-role matrix still exercises the auth decision for the
+  // 5 roles we *do* exercise. Routes where the only difference is PHARMACIST /
+  // LAB_TECH vs our existing rows are still included because they yield a
+  // clean allow/deny for the 5 roles under test.
+
+  // ── Pharmacy (returns, stock-adjust, transfer) ──
+  {
+    method: "POST",
+    path: "/api/v1/pharmacy/returns",
+    // authorize(ADMIN, PHARMACIST, NURSE) — PHARMACIST absent from ALL_ROLES
+    rolesAllowed: ["ADMIN", "NURSE"],
+    body: {},
+    label: "pharmacy return",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/pharmacy/stock-adjustments",
+    rolesAllowed: ["ADMIN", "RECEPTION"],
+    body: {},
+    label: "pharmacy stock adjustment",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/pharmacy/transfers",
+    rolesAllowed: ["ADMIN", "RECEPTION"],
+    body: {},
+    label: "pharmacy transfer",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/pharmacy/inventory/00000000-0000-0000-0000-000000000000/recall",
+    rolesAllowed: ["ADMIN"],
+    body: {},
+    label: "pharmacy recall batch",
+  },
+  {
+    method: "GET",
+    path: "/api/v1/pharmacy/reports/reorder-suggestions",
+    rolesAllowed: ["ADMIN", "RECEPTION"],
+    label: "pharmacy reorder suggestions",
+  },
+
+  // ── Lab (order status, result verify, batch results, QC) ──
+  {
+    method: "PATCH",
+    path: "/api/v1/lab/orders/00000000-0000-0000-0000-000000000000/status",
+    rolesAllowed: ["ADMIN", "DOCTOR", "NURSE"],
+    body: {},
+    label: "update lab order status",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/lab/results/batch",
+    // authorize(ADMIN, DOCTOR, LAB_TECH, NURSE)
+    rolesAllowed: ["ADMIN", "DOCTOR", "NURSE"],
+    body: {},
+    label: "batch lab results",
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/lab/results/00000000-0000-0000-0000-000000000000/verify",
+    rolesAllowed: ["DOCTOR"],
+    body: {},
+    label: "verify lab result",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/lab/qc",
+    rolesAllowed: ["ADMIN", "NURSE", "DOCTOR"],
+    body: {},
+    label: "lab QC log",
+  },
+  {
+    method: "GET",
+    path: "/api/v1/lab/qc/summary",
+    rolesAllowed: ["ADMIN", "DOCTOR", "NURSE"],
+    label: "lab QC summary",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/lab/orders/00000000-0000-0000-0000-000000000000/share-link",
+    rolesAllowed: ["ADMIN", "DOCTOR", "NURSE", "RECEPTION"],
+    body: {},
+    label: "lab share-link report",
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/lab/orders/00000000-0000-0000-0000-000000000000/reject-sample",
+    rolesAllowed: ["NURSE", "DOCTOR", "ADMIN"],
+    body: {},
+    label: "reject lab sample",
+  },
+
+  // ── Blood bank (cross-match, reserve, release, donations, screening) ──
+  {
+    method: "POST",
+    path: "/api/v1/bloodbank/cross-matches",
+    rolesAllowed: ["DOCTOR", "ADMIN", "NURSE"],
+    body: {},
+    label: "bloodbank cross-match",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/bloodbank/units/00000000-0000-0000-0000-000000000000/reserve",
+    rolesAllowed: ["DOCTOR", "ADMIN", "NURSE"],
+    body: {},
+    label: "reserve blood unit",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/bloodbank/units/00000000-0000-0000-0000-000000000000/release",
+    rolesAllowed: ["DOCTOR", "ADMIN", "NURSE"],
+    body: {},
+    label: "release blood unit",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/bloodbank/donations",
+    rolesAllowed: ["NURSE", "DOCTOR", "ADMIN"],
+    body: {},
+    label: "record blood donation",
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/bloodbank/donations/00000000-0000-0000-0000-000000000000/approve",
+    rolesAllowed: ["DOCTOR", "ADMIN"],
+    body: {},
+    label: "approve blood donation",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/bloodbank/release-expired-reservations",
+    rolesAllowed: ["ADMIN"],
+    body: {},
+    label: "release expired blood reservations",
+  },
+
+  // ── Surgery (start, complete, cancel, preop, intraop, complications) ──
+  {
+    method: "PATCH",
+    path: "/api/v1/surgery/00000000-0000-0000-0000-000000000000/start",
+    rolesAllowed: ["DOCTOR", "ADMIN", "NURSE"],
+    body: {},
+    label: "start surgery",
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/surgery/00000000-0000-0000-0000-000000000000/complete",
+    rolesAllowed: ["DOCTOR", "ADMIN"],
+    body: {},
+    label: "complete surgery",
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/surgery/00000000-0000-0000-0000-000000000000/cancel",
+    rolesAllowed: ["DOCTOR", "ADMIN"],
+    body: {},
+    label: "cancel surgery",
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/surgery/00000000-0000-0000-0000-000000000000/preop",
+    rolesAllowed: ["ADMIN", "DOCTOR", "NURSE"],
+    body: {},
+    label: "surgery preop checklist",
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/surgery/00000000-0000-0000-0000-000000000000/intraop",
+    rolesAllowed: ["ADMIN", "DOCTOR", "NURSE"],
+    body: {},
+    label: "surgery intraop notes",
+  },
+
+  // ── Emergency (triage, admit, assign, mlc, trauma-score) ──
+  {
+    method: "PATCH",
+    path: "/api/v1/emergency/cases/00000000-0000-0000-0000-000000000000/triage",
+    rolesAllowed: ["ADMIN", "NURSE", "DOCTOR"],
+    body: {},
+    label: "emergency triage update",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/emergency/cases/00000000-0000-0000-0000-000000000000/admit",
+    rolesAllowed: ["ADMIN", "DOCTOR"],
+    body: {},
+    label: "admit emergency case",
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/emergency/cases/00000000-0000-0000-0000-000000000000/assign",
+    rolesAllowed: ["ADMIN", "DOCTOR", "NURSE", "RECEPTION"],
+    body: {},
+    label: "assign emergency case",
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/emergency/cases/00000000-0000-0000-0000-000000000000/mlc",
+    rolesAllowed: ["ADMIN", "DOCTOR", "NURSE"],
+    body: {},
+    label: "emergency MLC update",
+  },
+
+  // ── Admissions (transfer, isolation-update, belongings) ──
+  {
+    method: "PATCH",
+    path: "/api/v1/admissions/00000000-0000-0000-0000-000000000000/transfer",
+    rolesAllowed: ["ADMIN", "DOCTOR", "NURSE"],
+    body: {},
+    label: "transfer admission bed",
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/admissions/00000000-0000-0000-0000-000000000000/isolation",
+    rolesAllowed: ["ADMIN", "DOCTOR", "NURSE"],
+    body: {},
+    label: "update admission isolation",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/admissions/00000000-0000-0000-0000-000000000000/belongings",
+    rolesAllowed: ["ADMIN", "NURSE", "RECEPTION"],
+    body: {},
+    label: "record admission belongings",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/admissions/00000000-0000-0000-0000-000000000000/intake-output",
+    rolesAllowed: ["ADMIN", "NURSE", "DOCTOR"],
+    body: {},
+    label: "admission intake/output",
+  },
+
+  // ── HR / Leaves / Payroll ──
+  {
+    method: "POST",
+    path: "/api/v1/hr-ops/holidays",
+    rolesAllowed: ["ADMIN"],
+    body: {},
+    label: "create holiday",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/hr-ops/payroll",
+    rolesAllowed: ["ADMIN"],
+    body: {},
+    label: "run payroll",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/hr-ops/overtime/auto-calculate",
+    rolesAllowed: ["ADMIN"],
+    body: {},
+    label: "auto-calc overtime",
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/leaves/00000000-0000-0000-0000-000000000000/approve",
+    rolesAllowed: ["ADMIN"],
+    body: {},
+    label: "approve leave",
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/leaves/00000000-0000-0000-0000-000000000000/reject",
+    rolesAllowed: ["ADMIN"],
+    body: {},
+    label: "reject leave",
+  },
 ];
 
 let app: any;

@@ -71,10 +71,9 @@ async function fetchVerification(id: string): Promise<VerifyData | null> {
 export default async function VerifyPrescriptionPage({
   params,
 }: {
-  params: Promise<{ id: string }> | { id: string };
+  params: Promise<{ id: string }>;
 }) {
-  const p = await Promise.resolve(params as { id: string });
-  const id = p.id;
+  const { id } = await params;
 
   const data = await fetchVerification(id);
 

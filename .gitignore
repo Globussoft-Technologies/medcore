@@ -8,8 +8,14 @@ dist/
 local.env
 deploy.py
 deploy_*.py
+debug_*.py
+*_debug.png
 *.log
 coverage/
 .DS_Store
 Thumbs.db
 backups/*.sql.gz
+.claude/
+*.tsbuildinfo
+playwright-report/
+test-results/

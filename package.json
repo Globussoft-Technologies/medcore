@@ -11,11 +11,29 @@
     "lint": "turbo lint",
     "db:generate": "turbo db:generate",
     "db:push": "turbo db:push",
-    "db:seed": "turbo db:seed"
+    "db:seed": "turbo db:seed",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:unit": "vitest run --dir packages/shared --dir apps/api/src/services",
+    "test:web": "vitest run --config apps/web/vitest.config.ts",
+    "test:contract": "vitest run --dir packages/shared/src/validation",
+    "test:api": "vitest run --dir apps/api/src/test/integration",
+    "test:smoke": "vitest run apps/api/src/test/smoke.test.ts",
+    "test:db:reset": "prisma db push --schema packages/db/prisma/schema.prisma --force-reset --skip-generate",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:install": "playwright install chromium"
   },
   "devDependencies": {
+    "@faker-js/faker": "^9.0.3",
+    "@playwright/test": "^1.48.0",
+    "@types/supertest": "^6.0.2",
+    "supertest": "^7.0.0",
     "turbo": "^2.5.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "vitest": "^2.1.4"
   },
   "packageManager": "npm@8.19.4",
   "engines": {

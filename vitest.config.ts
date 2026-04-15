@@ -36,8 +36,18 @@ export default defineConfig({
       exclude: [
         "**/*.test.ts",
         "**/test/**",
+        "**/dist/**",
+        "**/.next/**",
         "apps/api/src/server.ts",
       ],
+      // Baseline locked 2026-04-15 from `vitest run apps/api/src/services packages/shared --coverage`
+      // (unit + contract, no DB). Raise these as coverage grows; never lower without discussion.
+      thresholds: {
+        lines: 11,
+        branches: 57,
+        functions: 55,
+        statements: 11,
+      },
     },
   },
   resolve: {

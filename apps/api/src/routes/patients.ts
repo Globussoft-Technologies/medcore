@@ -157,9 +157,10 @@ router.post(
           },
         });
 
-        await tx.systemConfig.update({
+        await tx.systemConfig.upsert({
           where: { key: "next_mr_number" },
-          data: { value: String(mrSeq + 1) },
+          update: { value: String(mrSeq + 1) },
+          create: { key: "next_mr_number", value: String(mrSeq + 1) },
         });
 
         return { ...patient, user: { id: user.id, name: user.name, email: user.email, phone: user.phone } };

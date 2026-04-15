@@ -143,6 +143,9 @@ describeIfDB("Lab API (integration)", () => {
         testIds: [test.id],
         priority: "STAT",
       });
+    if (res.status >= 400) {
+      console.log("[STAT lab order] response:", res.status, JSON.stringify(res.body));
+    }
     expect([200, 201]).toContain(res.status);
     expect(res.body.data?.stat).toBe(true);
     expect(res.body.data?.priority).toBe("STAT");

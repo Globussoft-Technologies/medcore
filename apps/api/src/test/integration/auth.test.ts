@@ -30,7 +30,7 @@ describeIfDB("Auth API (integration)", () => {
       .post("/api/v1/auth/login")
       .send({ email: "admin@test.local", password: "password123" });
     expect(res.status).toBe(200);
-    expect(res.body?.data?.token || res.body?.token).toBeTruthy();
+    expect(res.body?.data?.tokens?.accessToken).toBeTruthy();
   });
 
   it("rejects bad credentials", async () => {

@@ -2,7 +2,12 @@ import { Heart, ShieldCheck, IndianRupee } from "lucide-react";
 import { Container } from "../_components/Container";
 import { CTASection } from "../_components/CTASection";
 
-export const metadata = { title: "About — MedCore" };
+export const metadata = {
+  title: "About",
+  description:
+    "MedCore is built by engineers and doctors for Indian hospitals. GST, UPI, India UIP immunization schedule, and DLT-compliant messaging are first-class, not afterthoughts.",
+  alternates: { canonical: "https://medcore.globusdemos.com/about" },
+};
 
 const team = [
   { name: "Arjun Menon", role: "Founder & CEO" },

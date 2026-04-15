@@ -3,7 +3,12 @@ import { CheckCircle2 } from "lucide-react";
 import { Container } from "../_components/Container";
 import { CTASection } from "../_components/CTASection";
 
-export const metadata = { title: "Features — MedCore" };
+export const metadata = {
+  title: "Features",
+  description:
+    "Clinical, operations, finance, HR, engagement, and mobile — every module in MedCore's hospital management platform explained.",
+  alternates: { canonical: "https://medcore.globusdemos.com/features" },
+};
 
 type Section = {
   id: string;

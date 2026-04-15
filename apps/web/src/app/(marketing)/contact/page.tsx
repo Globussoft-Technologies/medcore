@@ -2,7 +2,12 @@ import { Container } from "../_components/Container";
 import { EnquiryForm } from "./EnquiryForm";
 import { Mail, Phone, MapPin } from "lucide-react";
 
-export const metadata = { title: "Contact — MedCore" };
+export const metadata = {
+  title: "Contact & Demo Request",
+  description:
+    "Request a personalized MedCore demo. Our team will reply within one business day with a walkthrough tailored to your hospital's size and specialty.",
+  alternates: { canonical: "https://medcore.globusdemos.com/contact" },
+};
 
 export default function ContactPage() {
   return (

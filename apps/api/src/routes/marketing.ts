@@ -1,8 +1,17 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "@medcore/db";
 import { z } from "zod";
+import { rateLimit } from "../middleware/rate-limit";
 
 export const marketingRouter = Router();
+
+// Anti-spam: 10 enquiries per IP per minute. Public unauthenticated endpoint —
+// must be guarded against bot floods even though we have a honeypot + Zod.
+// Skipped in tests so the suite can fire dozens of requests without tripping.
+const enquiryRateLimit =
+  process.env.NODE_ENV === "test"
+    ? (_req: Request, _res: Response, next: NextFunction) => next()
+    : rateLimit(10, 60_000);
 
 const enquirySchema = z.object({
   fullName: z.string().trim().min(2).max(100),
@@ -19,9 +28,11 @@ const enquirySchema = z.object({
   website: z.string().optional(),
 });
 
-// POST /api/v1/marketing/enquiry — public, anti-spam honeypot, optional CRM forward.
+// POST /api/v1/marketing/enquiry — public, anti-spam honeypot + rate limit,
+// optional CRM forward.
 marketingRouter.post(
   "/enquiry",
+  enquiryRateLimit,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const parsed = enquirySchema.safeParse(req.body);

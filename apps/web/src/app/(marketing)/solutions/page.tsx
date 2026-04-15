@@ -3,7 +3,12 @@ import { CheckCircle2, Stethoscope, Building, Building2 } from "lucide-react";
 import { Container } from "../_components/Container";
 import { CTASection } from "../_components/CTASection";
 
-export const metadata = { title: "Solutions — MedCore" };
+export const metadata = {
+  title: "Solutions by Hospital Size",
+  description:
+    "MedCore adapts to small clinics, mid-size hospitals, and multi-specialty hospitals. Pick the bundle that fits your practice.",
+  alternates: { canonical: "https://medcore.globusdemos.com/solutions" },
+};
 
 const solutions = [
   {

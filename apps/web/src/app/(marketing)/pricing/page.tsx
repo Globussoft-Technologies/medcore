@@ -3,7 +3,12 @@ import { Check, X } from "lucide-react";
 import { Container } from "../_components/Container";
 import { CTASection } from "../_components/CTASection";
 
-export const metadata = { title: "Pricing — MedCore" };
+export const metadata = {
+  title: "Pricing",
+  description:
+    "Transparent monthly pricing for MedCore. Starter, Professional, and Enterprise plans — all modules included. No hidden fees, no setup charges.",
+  alternates: { canonical: "https://medcore.globusdemos.com/pricing" },
+};
 
 const tiers = [
   {

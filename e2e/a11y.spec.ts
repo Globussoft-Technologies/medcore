@@ -3,7 +3,16 @@ import AxeBuilder from "@axe-core/playwright";
 import { CREDS, apiLogin, injectAuth } from "./helpers";
 
 const PAGES = [
+  // Public marketing surface — first thing every visitor sees, must be clean.
+  "/",
+  "/features",
+  "/solutions",
+  "/pricing",
+  "/about",
+  "/contact",
+  // Auth
   "/login",
+  // Authenticated app
   "/dashboard",
   "/dashboard/appointments",
   "/dashboard/patients",
@@ -16,6 +25,17 @@ const PAGES = [
   "/dashboard/users",
   "/dashboard/admin-console",
 ];
+
+// Marketing paths don't need auth injection; set for fast path in the test.
+const PUBLIC_PATHS = new Set<string>([
+  "/",
+  "/features",
+  "/solutions",
+  "/pricing",
+  "/about",
+  "/contact",
+  "/login",
+]);
 
 interface Violation {
   id: string;
@@ -80,7 +100,7 @@ test.describe("a11y audit (axe-core, WCAG 2.1 AA)", () => {
   for (const path of PAGES) {
     test(`axe scan ${path}`, async ({ page, request }) => {
       try {
-        if (path !== "/login") {
+        if (!PUBLIC_PATHS.has(path)) {
           const { token, refresh } = await apiLogin(request, CREDS.ADMIN);
           await injectAuth(page, token, refresh);
         }

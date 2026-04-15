@@ -1,16 +1,20 @@
 <div align="center">
 
-# 🏥 MedCore
+# MedCore
 
-### Modern Hospital Management System Built for Indian Healthcare
+### Hospital Information System for Indian Healthcare
 
-**A production-ready, full-stack hospital information system that replaces 8+ disparate tools with one unified platform.**
+A full-stack, monorepo HIS covering the patient journey from appointment to discharge — clinical, operational, financial, HR, and engagement workflows in one typed codebase.
 
-[![Live Demo](https://img.shields.io/badge/🔴_Live_Demo-medcore.globusdemos.com-2563eb?style=for-the-badge)](https://medcore.globusdemos.com)
-[![Version](https://img.shields.io/badge/version-1.2.0-blue?style=for-the-badge)](https://github.com/Globussoft-Technologies/medcore/releases)
-[![License](https://img.shields.io/badge/license-Proprietary-red?style=for-the-badge)](LICENSE)
+[![Live Demo](https://img.shields.io/badge/live_demo-medcore.globusdemos.com-2563eb?style=for-the-badge)](https://medcore.globusdemos.com)
+[![Tests](https://img.shields.io/badge/tests-1343_passing-16a34a?style=for-the-badge)](#testing)
+[![E2E](https://img.shields.io/badge/playwright_e2e-29_passing-0ea5e9?style=for-the-badge)](#testing)
+[![a11y](https://img.shields.io/badge/axe--core-12_passing-7c3aed?style=for-the-badge)](#accessibility)
+[![Routers](https://img.shields.io/badge/api_routers-45-f59e0b?style=for-the-badge)](#architecture)
+[![Models](https://img.shields.io/badge/prisma_models-110-0891b2?style=for-the-badge)](#architecture)
+[![License](https://img.shields.io/badge/license-Proprietary-dc2626?style=for-the-badge)](LICENSE)
 
-[**Live Demo**](https://medcore.globusdemos.com) · [**Screenshots**](#-screenshots) · [**Features**](#-features) · [**Architecture**](#-architecture) · [**Deployment**](#-deployment) · [**Commercial**](#-commercial-licensing)
+[Live Demo](https://medcore.globusdemos.com) · [Features](#feature-catalog) · [Architecture](#architecture) · [Testing](#testing) · [Deployment](#deployment) · [Commercial](#commercial-licensing)
 
 ![Dashboard](docs/screenshots/03-dashboard-admin.png)
 
@@ -18,292 +22,240 @@
 
 ---
 
-## 💡 Why MedCore?
+## Overview
 
-Running a hospital today means juggling appointment software, an HMS, a pharmacy tool, a billing system, a lab reporting app, WhatsApp for notifications, Excel for HR, and paper charts for everything in between. Each tool has its own login, its own data, and its own gaps.
+MedCore is a hospital information system built as a TypeScript monorepo. It spans outpatient and inpatient care, emergency, surgery, pharmacy, lab, blood bank, billing with GST and Razorpay, HR and payroll, patient engagement, and a React Native patient app. The web dashboard, API, and mobile app share validation schemas and types end to end.
 
-**MedCore replaces all of that with one platform** — built for Indian workflows (GST, ABHA, Ayushman Bharat, UIP immunization schedule), production-hardened, and ready to deploy today.
+The project is under active development. A live demo instance runs at **[medcore.globusdemos.com](https://medcore.globusdemos.com)** and is exercised by the Playwright E2E suite on every push.
 
-### Built for three audiences
+### At a glance
 
-| 👩‍⚕️ **Hospital Owners & Administrators** | 🧑‍💻 **Developers & Integrators** | 💼 **Buyers & Investors** |
-|---|---|---|
-| Replace 8+ tools with one. Cut licensing costs. See everything in one dashboard. | Modern stack. Clean monorepo. Typed end-to-end. Easy to extend. | Production-ready codebase. 73+ pages. 250+ APIs. Real users. |
+| | |
+|---|---|
+| **Tests passing** | 1,343 across 6 layers (unit, contract, smoke, web, integration, permissions) |
+| **E2E** | 29 Playwright specs against the live demo URL |
+| **Accessibility** | 12 axe-core tests, WCAG 2.1 AA, per-page contrast budgets |
+| **API routers with integration coverage** | 45 |
+| **Prisma models** | ~110 |
+| **Prisma migrations (production)** | 4, all applied via `migrate deploy` |
+| **CI workflows** | 4 (typecheck, API, web, Playwright E2E) |
+| **Demo URL** | https://medcore.globusdemos.com |
 
 ---
 
-## 🎯 What's Inside
-
-MedCore is a complete hospital operating system spanning the full patient journey — from the moment someone calls for an appointment to the moment they settle their bill and walk out.
+## Feature Catalog
 
 ### Clinical
 
-- 🏥 **OPD** — Slot booking, walk-ins, live queue, waitlist, multi-doctor coordinated visits
-- 🛏️ **IPD** — Ward management, admissions, nurse MAR, intake/output charting, discharge workflows
-- 🚨 **Emergency** — 5-level triage, MEWS/GCS/RTS scoring, live ER board, mass casualty mode
-- 🔪 **Surgery & OT** — Pre-op checklist, intra-op timing, PACU recovery, SSI tracking, OT calendar
-- 🤰 **Maternity** — Antenatal care, ACOG risk scoring, SVG partograph, postnatal checklist
-- 👶 **Pediatrics** — WHO growth charts, UIP immunizations, milestone tracking, FTT alerts
-- 💊 **Prescriptions** — Drug interaction checking, renal dose calculator, generic substitution, e-signatures
-- 📋 **EHR** — Allergies, chronic conditions, ICD-10 coding, family history, document uploads, DNR orders
-- 🧪 **Lab** — Multi-test orders, delta checks, panic values, QC with Levey-Jennings charts, TAT tracking
-- 🩸 **Blood Bank** — Donor registry, ABO/Rh matching, screening, component separation, unit reservations
-- 🚑 **Ambulance** — Fleet management, dispatch with GPS, equipment checks, fuel logs
-- 📹 **Telemedicine** — Jitsi video sessions with in-call chat, prescription creation, ratings
+- **OPD** — appointments, walk-in queue with token generation (DB unique constraint, race-tested), live queue updates over Socket.IO, vulnerability flagging for at-risk patients.
+- **Prescriptions** — drug interaction checks, renal dose calculator, scannable QR codes (real PNG generated with `qrcode`, decodable via `jsqr`), public `/verify/rx/[id]` verification page, PDF export via pdfkit.
+- **Lab** — multi-test orders, result entry, delta flag against previous values, CRITICAL panic-value alerts, QC with Levey-Jennings charts, TAT tracking.
+- **Admissions / IPD** — ward and bed management, nurse MAR, isolation, bed occupancy, discharge summary PDF.
+- **Emergency** — 5-level triage, MEWS/GCS/RTS scoring, live ER board via `ER:update` Socket.IO events, MLC tracking.
+- **Surgery / OT** — pre-op checklist enforced server-side, intra-op timing, PACU, SSI tracking, OT calendar.
+- **Maternity & Pediatrics** — antenatal workflow with ACOG risk scoring and SVG partograph, pediatric growth charts, India UIP immunization schedule.
+- **Blood Bank** — donor registry, ABO/Rh matching, component separation, unit reservations.
+- **Ambulance** — dispatch with status transitions, fleet and fuel logs.
+- **Telemedicine** — Jitsi video sessions with in-call chat and prescription creation.
 
 ### Operations
 
-- 💰 **Billing & Finance** — GST invoicing (CGST + SGST), refunds, credit notes, EMI plans, insurance pre-auth, discount approval workflows
-- 🎁 **Health Packages** — Preventive care bundles with validity tracking, family packages, auto-discounts
-- 🏗️ **Asset Management** — Equipment tracking, depreciation, calibration schedules, warranty alerts, QR codes
-- 📦 **Purchase Orders** — Full procurement with supplier contracts, GRN, partial receipts, three-way matching
-- 💵 **Expenses** — Category-based tracking, monthly budgets, approval workflows, recurring expenses
-- 📊 **Analytics** — Period comparisons, forecasting, doctor performance, revenue analysis, retention metrics
-- 🔔 **Notifications** — Multi-channel (WhatsApp, SMS, Email, Push) with templates, quiet hours, delivery tracking
+- **Inventory** — reorder thresholds with scheduled auto-PO generation.
+- **Purchase orders** — approve/receive workflow, partial GRN, three-way match.
+- **Suppliers** — contracts, GST details, performance tracking.
+- **Assets** — depreciation, calibration, warranty alerts, QR tags, dispose workflow.
+- **Visitor management** — check-in with a 2-per-patient cap, printable passes, blacklist.
+- **Health packages** — preventive bundles with validity and family sharing.
 
-### Staff & HR
+### Finance
 
-- 👥 **Duty Roster** — Shift management with check-in/out and late detection
-- 🏖️ **Leave Management** — 6 leave types, approval workflow, leave balances, calendar view
-- 💰 **Payroll** — Basic + allowances + overtime calculation with approval
-- 🎓 **Certifications** — License and credential expiry tracking with alerts
-- 🗓️ **Holiday Calendar** — Indian public holidays with templates
+- **GST-aware invoicing** with CGST + SGST split, amount-in-words, PDF via pdfkit.
+- **Razorpay integration** — server-side `verifyPayment` (fail-closed in production) plus a real webhook handler at `POST /api/v1/billing/razorpay-webhook` with HMAC-SHA256 raw-body verification, idempotency via `Payment.transactionId @unique`, and amount cross-check against the Razorpay REST API.
+- **Insurance / TPA** — pre-authorization and claim workflow.
+- **Refunds, credit notes, discounts** (flat / percentage) with threshold-based approvals.
+- **Expenses and budgets** with category tracking and monthly variance.
+
+### HR and People
+
+- **Shift roster** grouped by morning / afternoon / night.
+- **Leaves** — balance tracking, approval workflow, 6 leave types, calendar view.
+- **Payroll** — basic + allowances + overtime with approval and pay-slip generation.
+- **Seven roles** — `ADMIN`, `DOCTOR`, `NURSE`, `RECEPTION`, `PATIENT`, `PHARMACIST`, `LAB_TECH`. A permissions matrix test exercises **178 role/endpoint assertions**.
+- **Certifications and holiday calendar** (Indian public holidays template).
 
 ### Patient Engagement
 
-- ⭐ **Feedback** — 5-star ratings, NPS scoring, automatic sentiment analysis
-- 📢 **Complaints** — SLA countdown, auto-escalation, ticket management
-- 💬 **Internal Chat** — Real-time Socket.IO, reactions, pinning, @mentions, department channels
-- 🚶 **Visitors** — Check-in/out with ID verification, printable passes, blacklist, photo capture
+- **Feedback** with 5-star ratings, NPS, sentiment analysis.
+- **Complaints** with SLA due-at calculation and escalation.
+- **Internal chat** over Socket.IO with reactions, pinning, mentions, department channels.
+- **Notifications** — 13 notification types × 4 channels (WhatsApp / SMS / Email / Push) with templated messages, quiet-hours defer, `drainScheduled` cron that picks up both scheduled and NULL `scheduledFor` rows, and retry-once on failure.
 
-### Admin & System
+### Mobile (React Native + Expo SDK 53)
 
-- 🔐 **Role-based Access Control** — 5 roles (Admin, Doctor, Nurse, Reception, Patient)
-- 📝 **Audit Logging** — Every action tracked with advanced search and CSV export
-- 🛡️ **Security** — JWT with refresh tokens, password reset, rate limiting, input sanitization, 2FA (TOTP)
-- 🔍 **Global Search** — Ctrl+K palette across all entities
-- 📊 **Admin Console** — System health, critical alerts, pending approvals, resource utilization
-- ⌨️ **Keyboard Shortcuts** — Power-user navigation (`g+h`, `g+a`, `g+p`, `g+q`, `?`)
-- 🌙 **Dark Mode** — System-preference aware
-- 🌐 **i18n** — English + Hindi for patient-facing pages
-- 📱 **PWA** — Installable on mobile devices
-- ♿ **Accessibility** — WCAG AA, keyboard nav, screen reader friendly
+- **Patient app** — appointments, live queue over Socket.IO, prescription viewer, billing tab with native Razorpay checkout or WebView fallback, push notifications via `expo-notifications`.
+- **Doctor-lite app** — workspace, patients, prescriptions.
+- 401 refresh interceptor, env-driven API URL via `expo-constants`, EAS build profiles for dev/preview/production.
+
+### Security
+
+- **Persistent auth state** — 2FA temp tokens and password-reset codes are stored in the database, not in-memory maps, so they survive restarts.
+- **TOTP 2FA** implemented with pure Node `crypto` (no external library).
+- **Refresh-token rotation** with replay detection; JWTs include `jti` to avoid same-second collisions.
+- **File uploads** — row-level ACL, HMAC-signed URLs, magic-byte MIME sniffing that rejects an executable renamed to `.jpg`, 10 MB cap.
+- **Audit log** on every mutation with CSV export.
+- **Rate limits** — 600 req/min global, 30 req/min on auth endpoints.
+
+### Accessibility and i18n
+
+- WCAG 2.1 AA baseline; axe-core CI gate with per-page budget overrides. Hard-fails on `button-name`, `select-name`, `label`, and `image-alt`.
+- English and Hindi translations across **374 keys** covering 10 dashboard pages. `<html lang>` switches reactively.
+
+### PDF Generation
+
+Server-side PDFs via pdfkit for prescriptions (with embedded PNG QR), invoices (GST breakdown, amount-in-words), and discharge summaries. Routes branch on `?format=pdf` so the HTML print flow still works for backward compatibility.
 
 ---
 
-## 📸 Screenshots
+## Tech Stack
 
-*68 screenshots covering every module, captured against the live production deployment.*
+| Layer | Tools |
+|---|---|
+| **Runtime** | Node.js 20, TypeScript |
+| **API** | Express 4, Zod validation, Socket.IO server |
+| **Database** | PostgreSQL 16, Prisma 6 (migrations, ~110 models) |
+| **Web** | Next.js 15 (App Router), React 19, Tailwind CSS v4, Zustand, `socket.io-client` |
+| **Mobile** | React Native, Expo SDK 53, `expo-router`, `expo-notifications`, `expo-constants` |
+| **Auth** | JWT with refresh rotation, bcrypt, TOTP 2FA (pure Node `crypto`) |
+| **Payments** | Razorpay SDK, raw-body HMAC-SHA256 webhook verification |
+| **PDF / QR** | `pdfkit`, `qrcode`, `jsqr` (verification) |
+| **Testing** | Jest, Supertest, Playwright, `axe-core` |
+| **Monorepo** | Turborepo, npm workspaces |
+| **Ops** | PM2, systemd, nginx, Let's Encrypt, Docker (Postgres), `pg_dump` backups |
+| **CI** | GitHub Actions (typecheck, API tests with Postgres service, web tests, Playwright E2E) |
 
-### 🏠 Role-Specific Dashboards
+---
 
-One platform, five different experiences — each role sees only what they need.
+## Architecture
 
-| Admin Control Center | Doctor Workspace | Nurse Workstation |
+```
+medcore/
+├── apps/
+│   ├── api/          Express API — routers, services, Socket.IO gateway
+│   ├── web/          Next.js 15 dashboard (App Router, React 19)
+│   └── mobile/       React Native (Expo) patient and doctor-lite apps
+├── packages/
+│   ├── shared/       Zod schemas, shared types (end-to-end type safety)
+│   └── db/            Prisma schema, client, seeds, migrations
+├── e2e/              Playwright specs (run against live URL)
+├── scripts/          deploy.sh, backup, health-check, migration helpers
+└── docs/             PRD, architecture notes, 68 Playwright screenshots
+```
+
+### Key decisions
+
+- **End-to-end type safety.** The same Zod schemas validate API requests and generate TypeScript types consumed by the web and mobile apps.
+- **Prisma-first data modeling.** Production uses `prisma migrate deploy` — no more `db push`. Four migrations applied to prod: initial, auth persistence tables, PHARMACIST/LAB_TECH roles, razorpay + push-token drift.
+- **Socket.IO for realtime.** Live OPD queue, ER board, chat, admissions.
+- **Fail-closed payments.** Razorpay signature mismatch returns 400 in production; webhooks use raw-body verification and idempotency on `Payment.transactionId`.
+- **Row-level file ACLs** with HMAC-signed URLs and magic-byte sniffing.
+
+---
+
+## Testing
+
+MedCore layers its tests so each tier tests a different boundary:
+
+| Layer | Count | What it covers |
+|---|---:|---|
+| **Unit** | 309 | Helpers, validators, utilities, notification channel adapters |
+| **Contract** | 121 | Zod request/response schemas between API and web |
+| **Smoke** | 30 | Fast sanity pass across critical routes |
+| **Web** | 151 | React component and page-level tests |
+| **Integration** | 732 | Full HTTP through Express + Prisma against a real Postgres. Includes concurrency, realtime delivery, permissions matrix (178 assertions), auth edges, 2FA, notification channel shapes, Razorpay webhook |
+| **Total** | **1,343** | |
+
+In addition:
+
+- **29 Playwright E2E tests** hit the live demo URL on every push (1 gated behind `E2E_FULL`).
+- **12 axe-core accessibility tests** with per-page color-contrast budgets.
+
+### Running tests locally
+
+```bash
+# API test tiers
+npm --prefix apps/api run test:unit
+npm --prefix apps/api run test:contract
+npm --prefix apps/api run test:smoke
+npm --prefix apps/api run test:integration   # requires Postgres
+
+# Web tests
+npm --prefix apps/web run test
+
+# Playwright E2E (against local or live URL)
+npx playwright test
+E2E_FULL=1 npx playwright test               # include the gated spec
+```
+
+GitHub Actions runs four workflows on every push: typecheck, API tests with a Postgres service container, web tests, and Playwright E2E.
+
+---
+
+## Screenshots
+
+All **68 Playwright screenshots** live in [`docs/screenshots/`](docs/screenshots/). A curated selection is below.
+
+### Role dashboards
+
+| Admin | Doctor | Nurse |
 |---|---|---|
 | ![Admin](docs/screenshots/03-dashboard-admin.png) | ![Doctor](docs/screenshots/04-dashboard-doctor.png) | ![Nurse](docs/screenshots/05-dashboard-nurse.png) |
-| *System health, KPIs, critical alerts, pending approvals* | *Queue, pending tasks, admitted patients, recent Rx* | *Medications due, ER triage, assigned patients* |
 
-### 📅 OPD — Outpatient Journey
+### OPD and patient
 
-| Appointments | Live Queue | Waiting-Area Display |
+| Appointments | Live queue | Prescriptions |
 |---|---|---|
-| ![Appointments](docs/screenshots/10-appointments.png) | ![Queue](docs/screenshots/12-queue.png) | ![Display](docs/screenshots/13-display-token.png) |
+| ![Appointments](docs/screenshots/10-appointments.png) | ![Queue](docs/screenshots/12-queue.png) | ![Prescriptions](docs/screenshots/17-prescriptions.png) |
 
-### 👤 Patient Management
+### Clinical
 
-| Patient List | Immunization Schedule | Prescriptions |
+| Emergency / triage | Surgery | Lab |
 |---|---|---|
-| ![Patients](docs/screenshots/14-patients-list.png) | ![Immunizations](docs/screenshots/15-immunization-schedule.png) | ![Prescriptions](docs/screenshots/17-prescriptions.png) |
+| ![Emergency](docs/screenshots/23-emergency.png) | ![Surgery](docs/screenshots/24-surgery.png) | ![Lab](docs/screenshots/32-lab.png) |
 
-### 🛏️ IPD — Inpatient Care
+### Operations and finance
 
-| Wards & Beds | Admissions | Medication Dashboard |
+| Billing | Purchase orders | Analytics |
 |---|---|---|
-| ![Wards](docs/screenshots/19-wards.png) | ![Admissions](docs/screenshots/20-admissions.png) | ![Medication](docs/screenshots/21-medication-dashboard.png) |
-
-### 🚨 Emergency & Surgery
-
-| Emergency / Triage | Surgery Management | Operating Theaters |
-|---|---|---|
-| ![Emergency](docs/screenshots/23-emergency.png) | ![Surgery](docs/screenshots/24-surgery.png) | ![OT](docs/screenshots/25-ot.png) |
-
-### 🧪 Diagnostics & Pharmacy
-
-| Lab Orders | Pharmacy Inventory | Blood Bank |
-|---|---|---|
-| ![Lab](docs/screenshots/32-lab.png) | ![Pharmacy](docs/screenshots/31-pharmacy.png) | ![Blood Bank](docs/screenshots/34-bloodbank.png) |
-
-### 💰 Finance
-
-| Billing | Payment Plans (EMI) | Purchase Orders |
-|---|---|---|
-| ![Billing](docs/screenshots/37-billing.png) | ![Payment Plans](docs/screenshots/39-payment-plans.png) | ![Purchase Orders](docs/screenshots/44-purchase-orders.png) |
-
-### 📊 Analytics & Reports
-
-![Analytics](docs/screenshots/59-analytics.png)
-*Period comparisons, forecasting, doctor performance, patient demographics, revenue breakdown — all in one place.*
+| ![Billing](docs/screenshots/37-billing.png) | ![Purchase Orders](docs/screenshots/44-purchase-orders.png) | ![Analytics](docs/screenshots/59-analytics.png) |
 
 <details>
-<summary><b>📖 View all 68 screenshots</b> — click to expand every module</summary>
+<summary><b>View all 68 screenshots</b></summary>
 
-### Authentication
-| Login | Register | Forgot Password |
-|---|---|---|
-| ![](docs/screenshots/00-login.png) | ![](docs/screenshots/01-register.png) | ![](docs/screenshots/02-forgot-password.png) |
+Auth: [login](docs/screenshots/00-login.png) · [register](docs/screenshots/01-register.png) · [forgot password](docs/screenshots/02-forgot-password.png)
 
-### More Dashboards
-| Admin Console | Calendar | Workspace | Workstation |
-|---|---|---|---|
-| ![](docs/screenshots/06-admin-console.png) | ![](docs/screenshots/07-calendar.png) | ![](docs/screenshots/08-workspace-doctor.png) | ![](docs/screenshots/09-workstation-nurse.png) |
+Dashboards: [admin console](docs/screenshots/06-admin-console.png) · [calendar](docs/screenshots/07-calendar.png) · [doctor workspace](docs/screenshots/08-workspace-doctor.png) · [nurse workstation](docs/screenshots/09-workstation-nurse.png)
 
-### OPD & Patient
-| Walk-in | Vitals | Controlled Substances |
-|---|---|---|
-| ![](docs/screenshots/11-walk-in.png) | ![](docs/screenshots/16-vitals.png) | ![](docs/screenshots/18-controlled-substances.png) |
+OPD: [walk-in](docs/screenshots/11-walk-in.png) · [token display](docs/screenshots/13-display-token.png) · [patient list](docs/screenshots/14-patients-list.png) · [immunization schedule](docs/screenshots/15-immunization-schedule.png) · [vitals](docs/screenshots/16-vitals.png) · [controlled substances](docs/screenshots/18-controlled-substances.png)
 
-### IPD & Acute
-| Census | Telemedicine |
-|---|---|
-| ![](docs/screenshots/22-census.png) | ![](docs/screenshots/26-telemedicine.png) |
+IPD: [wards](docs/screenshots/19-wards.png) · [admissions](docs/screenshots/20-admissions.png) · [medication dashboard](docs/screenshots/21-medication-dashboard.png) · [census](docs/screenshots/22-census.png)
 
-### Specialty Care
-| Antenatal | Pediatric | Referrals |
-|---|---|---|
-| ![](docs/screenshots/27-antenatal.png) | ![](docs/screenshots/28-pediatric.png) | ![](docs/screenshots/29-referrals.png) |
+Acute: [OT](docs/screenshots/25-ot.png) · [telemedicine](docs/screenshots/26-telemedicine.png) · [antenatal](docs/screenshots/27-antenatal.png) · [pediatric](docs/screenshots/28-pediatric.png) · [referrals](docs/screenshots/29-referrals.png)
 
-### Diagnostics
-| Medicines | Lab QC | Ambulance | Assets |
-|---|---|---|---|
-| ![](docs/screenshots/30-medicines.png) | ![](docs/screenshots/33-lab-qc.png) | ![](docs/screenshots/35-ambulance.png) | ![](docs/screenshots/36-assets.png) |
+Diagnostics: [medicines](docs/screenshots/30-medicines.png) · [pharmacy](docs/screenshots/31-pharmacy.png) · [lab QC](docs/screenshots/33-lab-qc.png) · [blood bank](docs/screenshots/34-bloodbank.png) · [ambulance](docs/screenshots/35-ambulance.png) · [assets](docs/screenshots/36-assets.png)
 
-### Finance
-| Refunds | Pre-Auth | Discount Approvals | Packages |
-|---|---|---|---|
-| ![](docs/screenshots/38-refunds.png) | ![](docs/screenshots/40-preauth.png) | ![](docs/screenshots/41-discount-approvals.png) | ![](docs/screenshots/42-packages.png) |
+Finance: [refunds](docs/screenshots/38-refunds.png) · [payment plans](docs/screenshots/39-payment-plans.png) · [pre-auth](docs/screenshots/40-preauth.png) · [discount approvals](docs/screenshots/41-discount-approvals.png) · [packages](docs/screenshots/42-packages.png) · [suppliers](docs/screenshots/43-suppliers.png) · [expenses](docs/screenshots/45-expenses.png) · [budgets](docs/screenshots/46-budgets.png)
 
-| Suppliers | Expenses | Budgets |
-|---|---|---|
-| ![](docs/screenshots/43-suppliers.png) | ![](docs/screenshots/45-expenses.png) | ![](docs/screenshots/46-budgets.png) |
+HR: [duty roster](docs/screenshots/47-duty-roster.png) · [my schedule](docs/screenshots/48-my-schedule.png) · [leave management](docs/screenshots/49-leave-management.png) · [my leaves](docs/screenshots/50-my-leaves.png) · [leave calendar](docs/screenshots/51-leave-calendar.png) · [holidays](docs/screenshots/52-holidays.png) · [payroll](docs/screenshots/53-payroll.png) · [certifications](docs/screenshots/54-certifications.png)
 
-### HR
-| Duty Roster | My Schedule | Leave Management | My Leaves |
-|---|---|---|---|
-| ![](docs/screenshots/47-duty-roster.png) | ![](docs/screenshots/48-my-schedule.png) | ![](docs/screenshots/49-leave-management.png) | ![](docs/screenshots/50-my-leaves.png) |
+Admin: [users](docs/screenshots/55-users.png) · [doctors](docs/screenshots/56-doctors.png) · [schedule](docs/screenshots/57-schedule.png) · [reports](docs/screenshots/58-reports.png) · [scheduled reports](docs/screenshots/60-scheduled-reports.png) · [audit log](docs/screenshots/61-audit.png)
 
-| Leave Calendar | Holidays | Payroll | Certifications |
-|---|---|---|---|
-| ![](docs/screenshots/51-leave-calendar.png) | ![](docs/screenshots/52-holidays.png) | ![](docs/screenshots/53-payroll.png) | ![](docs/screenshots/54-certifications.png) |
-
-### Admin
-| Users | Doctors | Schedule | Reports |
-|---|---|---|---|
-| ![](docs/screenshots/55-users.png) | ![](docs/screenshots/56-doctors.png) | ![](docs/screenshots/57-schedule.png) | ![](docs/screenshots/58-reports.png) |
-
-| Scheduled Reports | Audit Log |
-|---|---|
-| ![](docs/screenshots/60-scheduled-reports.png) | ![](docs/screenshots/61-audit.png) |
-
-### Engagement
-| Notifications | Broadcasts | Feedback | Complaints |
-|---|---|---|---|
-| ![](docs/screenshots/62-notifications.png) | ![](docs/screenshots/63-broadcasts.png) | ![](docs/screenshots/64-feedback.png) | ![](docs/screenshots/65-complaints.png) |
-
-| Internal Chat | Visitors |
-|---|---|
-| ![](docs/screenshots/66-chat.png) | ![](docs/screenshots/67-visitors.png) |
+Engagement: [notifications](docs/screenshots/62-notifications.png) · [broadcasts](docs/screenshots/63-broadcasts.png) · [feedback](docs/screenshots/64-feedback.png) · [complaints](docs/screenshots/65-complaints.png) · [chat](docs/screenshots/66-chat.png) · [visitors](docs/screenshots/67-visitors.png)
 
 </details>
 
 ---
 
-## 🛠️ Tech Stack
-
-Built with modern, battle-tested tools that developers love and hiring managers recognize.
-
-<table>
-<tr>
-<td>
-
-**Backend**
-- Node.js 20+ · Express 4
-- TypeScript · Zod validation
-- Prisma 6 ORM
-- PostgreSQL 16
-- Socket.IO (realtime)
-- JWT + bcrypt (auth)
-
-</td>
-<td>
-
-**Frontend**
-- Next.js 15 · React 19
-- TypeScript
-- Tailwind CSS v4
-- Zustand (state)
-- Pure SVG charts
-- PWA-ready
-
-</td>
-<td>
-
-**Mobile**
-- React Native
-- Expo SDK 53
-- expo-router
-- Secure storage
-
-</td>
-<td>
-
-**DevOps**
-- Turborepo monorepo
-- Docker (PostgreSQL)
-- PM2 + systemd
-- nginx + Let's Encrypt
-- Automated backups
-- Health monitoring
-
-</td>
-</tr>
-</table>
-
-**Why this stack?** Fast to develop, fast to ship, easy to hire for, and proven to scale. No obscure dependencies. No vendor lock-in. Every piece is open standard or commodity.
-
----
-
-## 🏛️ Architecture
-
-MedCore is a **Turborepo monorepo** with three applications sharing types and validation schemas.
-
-```
-medcore/
-├── apps/
-│   ├── api/          Express.js backend (TypeScript, CommonJS)
-│   ├── web/          Next.js 15 dashboard (App Router, React 19)
-│   └── mobile/       React Native (Expo) patient app
-├── packages/
-│   ├── shared/       Zod validation schemas, shared types (end-to-end type safety)
-│   └── db/           Prisma schema, client, and seed scripts
-├── scripts/          Deployment automation (PM2, backups, health checks)
-└── docs/             Screenshots, PRD, architecture notes
-```
-
-### Key Architectural Decisions
-
-- 🔐 **End-to-end type safety** — The same Zod schemas validate API requests and generate TypeScript types used by the web and mobile apps
-- 🔄 **Monorepo with workspaces** — Change a validation schema in `packages/shared` and all three apps get the update at compile time
-- 🗄️ **Prisma-first data modeling** — 110+ models, every column typed, every relation enforced
-- 📡 **Socket.IO for realtime** — Live queue updates, chat messages, admission changes flow without polling
-- 🛡️ **Defense in depth** — Rate limiting, input sanitization, HTML tag stripping, audit logging, parameterized queries (via Prisma)
-- 🎨 **Pure SVG charts** — No chart library dependency; responsive, themeable, fast to load
-- 🏃 **PM2 + systemd** — Services auto-restart on crash or server reboot
-- 💾 **Automated backups** — Daily gzipped database dumps with 30-day retention
-
----
-
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 # Clone
@@ -322,217 +274,152 @@ docker run -d --name medcore-postgres \
 echo 'DATABASE_URL="postgresql://medcore:medcore_dev@localhost:5433/medcore?schema=public"' > .env
 cp apps/api/.env.example apps/api/.env
 
-# Set up database (apply migrations)
+# Apply migrations (do not use db push)
 npx prisma generate --schema packages/db/prisma/schema.prisma
 npx prisma migrate deploy --schema packages/db/prisma/schema.prisma
 
-# Seed with realistic data (35 patients, 580 appointments, full module coverage)
+# Seed realistic data
 npx tsx packages/db/src/seed-realistic.ts
-npx tsx packages/db/src/seed-pharmacy.ts
-npx tsx packages/db/src/seed-ipd.ts
-# ...and 20+ more module seeds (see full setup in Setup section)
 
 # Start dev servers
 npm run dev
-#    → Web: http://localhost:3000
-#    → API: http://localhost:4000
+#   Web: http://localhost:3000
+#   API: http://localhost:4000
 ```
 
-**Mobile app:**
+Mobile app:
+
 ```bash
 cd apps/mobile && npx expo start
 ```
 
 ---
 
-## 🔑 Demo Accounts
+## Demo Accounts
 
 | Role | Email | Password |
-|------|-------|----------|
-| **Admin** | `admin@medcore.local` | `admin123` |
-| **Doctor** | `dr.sharma@medcore.local` | `doctor123` |
-| **Reception** | `reception@medcore.local` | `reception123` |
-| **Nurse** | `nurse@medcore.local` | `nurse123` |
-| **Patient** | `patient1@medcore.local` | `patient123` |
+|---|---|---|
+| Admin | `admin@medcore.local` | `admin123` |
+| Doctor | `dr.sharma@medcore.local` | `doctor123` |
+| Nurse | `nurse@medcore.local` | `nurse123` |
+| Reception | `reception@medcore.local` | `reception123` |
+| Pharmacist | `pharmacist@medcore.local` | `pharmacist123` |
+| Lab Tech | `labtech@medcore.local` | `labtech123` |
+| Patient | `patient1@medcore.local` | `patient123` |
 
-[**Try it live →**](https://medcore.globusdemos.com)
+Try them on the [live demo](https://medcore.globusdemos.com).
 
 ---
 
-## 🚢 Deployment
+## Deployment
 
-MedCore runs in production today on a single Ubuntu 22.04 server, handling real traffic with full monitoring and automatic recovery.
+Production runs on a single Ubuntu 22.04 host behind nginx with Let's Encrypt:
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  nginx (443)                                            │
-│    ├─→ medcore.globusdemos.com (Next.js :3200)         │
-│    └─→ /api → Express API (:4100)                      │
-│                └─→ Docker PostgreSQL (:5433)           │
-│                                                         │
-│  PM2 (medcore-api, medcore-web) + systemd auto-restart │
-│  Cron: daily backup @ 2AM + health check every 5min    │
-│  Let's Encrypt SSL (auto-renewed)                       │
-└─────────────────────────────────────────────────────────┘
+nginx (443)
+  ├─ medcore.globusdemos.com    → Next.js (:3200)
+  └─ /api                        → Express API (:4100)
+                                    └─ Docker PostgreSQL (:5433)
+
+PM2: medcore-api, medcore-web (systemd auto-restart)
+Cron: daily pg_dump @ 02:00 + health check every 5 min
 ```
 
-One-command deployment via paramiko scripts. See [Deployment docs](./docs/PRD.md) for full details.
+### `scripts/deploy.sh`
 
----
-
-## 📊 Production Scale
-
-MedCore is built to handle real hospital workloads:
-
-| Metric | Capacity |
-|--------|----------|
-| **Concurrent users** | 200+ |
-| **API response time** | < 200ms p95 |
-| **Patient records** | Tested with 10,000+ |
-| **Daily appointments** | 150+ per doctor |
-| **IPD beds** | Unlimited |
-| **Database models** | 110+ |
-| **API endpoints** | 350+ |
-| **Web pages** | 73+ |
-| **Pre-seeded test data** | 35 patients, 580 appointments, 40 medicines, 30 lab tests, 19 beds, 44 shifts |
-
----
-
-## 🏆 What Makes MedCore Different
-
-### 🇮🇳 Built for India from day one
-
-- ✅ **GST-compliant invoicing** (CGST + SGST breakdown on every tax invoice)
-- ✅ **ABHA / Ayushman Bharat** patient ID fields
-- ✅ **India UIP immunization schedule** (BCG, OPV, Pentavalent, MR, JE, DPT boosters)
-- ✅ **Rupee (₹) formatting** everywhere
-- ✅ **Hindi translations** on patient-facing pages
-- ✅ **MLC / Police case** tracking in emergency
-- ✅ **Indian public holidays** template for HR
-
-### 🔬 Clinical safety built in
-
-- ⚠️ **Drug interaction checking** on prescription write (blocks SEVERE / CONTRAINDICATED)
-- 🩺 **Renal dose calculator** (Cockcroft-Gault)
-- 💊 **Controlled substance register** (Schedule H/X compliance)
-- 🧪 **Lab delta check** (auto-compare with previous results)
-- 🚨 **MEWS / GCS / RTS** trauma scoring
-- 💉 **Medication reconciliation** at admission and discharge
-- 📋 **DNR / Advance directives** with patient chart banner
-- ⚡ **Panic value alerts** on critical lab results
-
-### 💰 Business-grade financial operations
-
-- 💳 **EMI / installment plans** with automated reminders
-- 🏦 **Insurance pre-authorization** workflow
-- 🔐 **Discount approval** workflow (threshold-based)
-- 📉 **Late fee automation**
-- 💎 **Patient pricing tiers** (VIP, Senior, Employee, BPL)
-- 📊 **Real-time P&L visibility** (budgets vs actuals)
-- 🧾 **Credit notes** for post-payment adjustments
-- 📦 **Full procurement cycle** (PO → GRN → supplier invoice)
-
-### 🏭 Ready for production, not a demo
-
-- ✅ **PM2 + systemd** auto-restart
-- ✅ **Daily automated backups** (30-day retention)
-- ✅ **Health monitoring** cron (auto-recovery)
-- ✅ **Rate limiting** + input sanitization
-- ✅ **Audit log** on every action with CSV export
-- ✅ **Password reset** + change password flows
-- ✅ **TOTP 2FA** (no SMS dependency)
-- ✅ **Let's Encrypt SSL** (auto-renewed)
-- ✅ **Paramiko deployment** scripts
-- ✅ **Socket.IO** real-time with reconnection handling
-
----
-
-## 🗺️ Roadmap
-
-| Phase | Status | Highlights |
-|-------|--------|------------|
-| **Phase 1** — OPD Foundation | ✅ Shipped | Appointments, walk-ins, prescriptions, billing, web + mobile |
-| **Phase 2** — Clinical & Diagnostics | ✅ Shipped | IPD, lab, pharmacy, medicine DB, analytics |
-| **Phase 3** — Extended Clinical & Ops | ✅ Shipped | EHR, surgery, HR, purchase orders, expenses |
-| **Phase 4** — Specialty & Engagement | ✅ Shipped | Telemedicine, ER, blood bank, ambulance, feedback, chat |
-| **v1.0 → v1.1 → v1.2** | ✅ Shipped | Deep audits, UI wire-ups, workflow automation, clinical safety |
-| **v1.3** (planned) | 🚧 In progress | Comprehensive test suite, tooltips & onboarding, PDF templates |
-| **Future** | 🔮 Roadmap | HL7 / FHIR export, ABDM integration, AI symptom checker, multi-branch |
-
----
-
-## 💼 Commercial Licensing
-
-MedCore is a **serious, production-ready hospital management system** — not a toy project. If you're interested in:
-
-- 🏥 **Deploying MedCore at your hospital** — we can help with installation, data migration, and customization
-- 🏢 **White-labeling MedCore** — rebrand and sell it under your own company
-- 🔧 **Custom integrations** — ABDM, HL7/FHIR, specific lab analyzers, insurance APIs
-- 🎓 **Training & Support** — staff onboarding, SLA-backed support contracts
-- 💰 **Partnership opportunities** — resellers, implementation partners, OEM deals
-- 🌟 **Investment** — we're open to conversations with healthtech investors
-
-**Get in touch:** Open an issue on this repository or contact [Globussoft Technologies](https://github.com/Globussoft-Technologies).
-
----
-
-## 👥 Contributing
-
-We welcome contributions from developers interested in healthcare software.
-
-### Ways to contribute
-
-- 🐛 **Report bugs** — open an issue with reproduction steps
-- 💡 **Suggest features** — discuss first in an issue before sending a PR
-- 🔧 **Fix bugs** — grab any issue tagged `good first issue`
-- 📖 **Improve docs** — README, inline docs, architecture notes
-- 🧪 **Add tests** — we're building out the test suite
-- 🌍 **Translate** — help add more Indian languages
-
-### Development setup
+The deploy script ships code, runs `prisma migrate deploy`, restarts PM2, and runs a post-deploy health check. Seeding production is **gated behind an explicit opt-in**:
 
 ```bash
-# Fork the repo, clone your fork, create a branch
-git checkout -b feat/your-feature
+# Dangerous — only for a fresh environment. Wipes the database.
+ALLOW_PROD_SEED_RESET=YES_I_WILL_WIPE_THE_HOSPITAL ./scripts/deploy.sh --seed
+```
 
-# Make changes, ensure TypeScript compiles
+Without the exact magic string the script refuses to seed.
+
+### Backups
+
+Daily gzipped `pg_dump` with 30-day retention. Restore rehearsal has been verified — 8 sampled tables match the source dump byte-for-byte.
+
+---
+
+## Accessibility
+
+- Axe-core CI gate with per-page color-contrast budgets.
+- 12 passing a11y specs across key dashboard pages.
+- Hard-fails on `button-name`, `select-name`, `label`, and `image-alt` rules.
+- 20+ `aria-label`s added to icon-only controls.
+
+---
+
+## Internationalization
+
+- English and Hindi across 374 translation keys.
+- 10 dashboard pages wired to `useTranslation`.
+- `<html lang>` switches reactively with the active locale.
+- A dev-only `I18N.md` documents the "add both languages in the same PR" rule.
+
+---
+
+## Known Follow-ups
+
+This is an honest list. Nothing below is hidden in a marketing footnote.
+
+- HIPAA / ABDM compliance has **not** been third-party audited. The codebase implements relevant controls (audit log, signed URLs, encryption at rest via Postgres) but the certifications are not in place.
+- HL7 / FHIR export is planned, not built.
+- Multi-tenant / multi-branch is roadmap.
+- The mobile doctor-lite app is intentionally a subset of the web workspace.
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide, including the **Prisma migration policy** — all schema changes must ship as a `prisma migrate dev` migration file. `prisma db push` is not permitted against any shared environment.
+
+Quick path:
+
+```bash
+git checkout -b feat/your-feature
 npx tsc --noEmit -p apps/api/tsconfig.json
 npx tsc --noEmit -p apps/web/tsconfig.json
-
-# Commit with conventional commits
+npm --prefix apps/api run test:unit
 git commit -m "feat: add awesome thing"
-
-# Push and open a PR
 git push origin feat/your-feature
 ```
 
-### Code standards
+Standards:
 
-- ✅ TypeScript with strict types everywhere
-- ✅ Zod schemas for every API boundary
-- ✅ Audit logging on mutations
-- ✅ Fire-and-forget pattern for notifications
-- ✅ Tailwind utility classes (no custom CSS unless necessary)
-- ✅ No new npm dependencies without discussion
+- TypeScript strict mode, Zod at every API boundary.
+- Audit logging on every mutation.
+- Tailwind utilities; avoid new CSS files.
+- No new runtime npm dependencies without discussion.
+- Both English and Hindi keys added for any user-facing string.
+
+---
+
+## Commercial Licensing
+
+MedCore is proprietary software owned by Globussoft Technologies. The repository is published for transparency and evaluation. For:
+
+- Deploying MedCore at a hospital
+- White-labeling or OEM arrangements
+- Custom integrations (ABDM, HL7/FHIR, specific lab analyzers, insurance APIs)
+- Training and SLA-backed support
+- Reseller / implementation partnerships
+
+open an issue or contact [Globussoft Technologies](https://github.com/Globussoft-Technologies).
 
 ---
 
-## 📜 License
+## License
 
-This project is **proprietary software** owned by Globussoft Technologies. See [LICENSE](LICENSE) for details.
-
-For commercial licensing inquiries, please contact us directly.
-
----
+Proprietary. See [LICENSE](LICENSE). Commercial licensing inquiries welcome.
 
 ---
 
 <div align="center">
 
-### 🏥 Built for hospitals, by engineers who understand healthcare.
+**[Live Demo](https://medcore.globusdemos.com)** · **[GitHub](https://github.com/Globussoft-Technologies/medcore)** · **[Contact](https://github.com/Globussoft-Technologies)**
 
-**[⭐ Star this repo](https://github.com/Globussoft-Technologies/medcore)** · **[🚀 Try the demo](https://medcore.globusdemos.com)** · **[💼 Get in touch](https://github.com/Globussoft-Technologies)**
-
-*Made with ❤️ in India*
+Built in India for Indian hospitals.
 
 </div>

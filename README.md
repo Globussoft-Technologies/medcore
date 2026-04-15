@@ -322,9 +322,9 @@ docker run -d --name medcore-postgres \
 echo 'DATABASE_URL="postgresql://medcore:medcore_dev@localhost:5433/medcore?schema=public"' > .env
 cp apps/api/.env.example apps/api/.env
 
-# Set up database
+# Set up database (apply migrations)
 npx prisma generate --schema packages/db/prisma/schema.prisma
-npx prisma db push --schema packages/db/prisma/schema.prisma
+npx prisma migrate deploy --schema packages/db/prisma/schema.prisma
 
 # Seed with realistic data (35 patients, 580 appointments, full module coverage)
 npx tsx packages/db/src/seed-realistic.ts

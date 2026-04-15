@@ -15,6 +15,8 @@ enum Role {
   RECEPTION
   NURSE
   PATIENT
+  PHARMACIST
+  LAB_TECH
 }
 
 enum Gender {
@@ -56,6 +58,12 @@ enum PaymentMode {
   UPI
   ONLINE
   INSURANCE
+}
+
+enum PaymentTxnStatus {
+  CAPTURED
+  FAILED
+  REFUNDED
 }
 
 enum ClaimStatus {
@@ -434,6 +442,9 @@ model User {
   twoFactorBackupCodes Json?
   preferredLanguage    String?
   defaultLandingPage   String?
+  pushToken            String?
+  pushPlatform         String?
+  pushTokenUpdatedAt   DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -458,6 +469,8 @@ model User {
   labQcEntries              LabQCEntry[]
   certifications            StaffCertification[]
   overtimeRecords           OvertimeRecord[]
+  passwordResetCodes        PasswordResetCode[]
+  twoFactorTempTokens       TwoFactorTempToken[]
 
   @@index([email])
   @@index([phone])
@@ -476,6 +489,36 @@ model RefreshToken {
 
   @@index([userId])
   @@map("refresh_tokens")
+}
+
+model PasswordResetCode {
+  id        String    @id @default(uuid())
+  userId    String
+  code      String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_codes")
+}
+
+model TwoFactorTempToken {
+  id        String    @id @default(uuid())
+  token     String    @unique
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("two_factor_temp_tokens")
 }
 
 // ─── DOCTOR ─────────────────────────────────────────────
@@ -810,6 +853,9 @@ model Invoice {
   discountAmount  Float         @default(0)
   totalAmount     Float
   paymentStatus   PaymentStatus @default(PENDING)
+  // Razorpay order id stored when /pay-online creates the order; used by
+  // the webhook handler to look up the invoice in O(1).
+  razorpayOrderId String?       @unique
   dueDate         DateTime?     @db.Date
   reminderSentAt  DateTime?
   // Late-fee automation (Apr 2026)
@@ -848,12 +894,16 @@ model InvoiceItem {
 }
 
 model Payment {
-  id            String      @id @default(uuid())
+  id            String            @id @default(uuid())
   invoiceId     String
   amount        Float
   mode          PaymentMode
-  transactionId String?
-  paidAt        DateTime    @default(now())
+  // Provider transaction id (Razorpay payment_id, etc.) — unique to enforce
+  // idempotency: replays of the same browser callback or webhook MUST NOT
+  // create duplicate Payment rows.
+  transactionId String?           @unique
+  status        PaymentTxnStatus  @default(CAPTURED)
+  paidAt        DateTime          @default(now())
 
   invoice Invoice @relation(fields: [invoiceId], references: [id])
 

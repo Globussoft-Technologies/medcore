@@ -262,7 +262,7 @@ router.post(
 // POST /api/v1/pharmacy/dispense — dispense a prescription
 router.post(
   "/dispense",
-  authorize(Role.ADMIN, Role.RECEPTION, Role.NURSE),
+  authorize(Role.ADMIN, Role.PHARMACIST, Role.NURSE),
   validate(dispensePrescriptionSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -852,7 +852,7 @@ router.get(
 
 router.post(
   "/returns",
-  authorize(Role.ADMIN, Role.RECEPTION, Role.NURSE),
+  authorize(Role.ADMIN, Role.PHARMACIST, Role.NURSE),
   validate(pharmacyReturnSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {

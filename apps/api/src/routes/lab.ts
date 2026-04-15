@@ -339,7 +339,7 @@ router.patch(
 // POST /api/v1/lab/results — record a result
 router.post(
   "/results",
-  authorize(Role.NURSE, Role.DOCTOR, Role.ADMIN),
+  authorize(Role.ADMIN, Role.DOCTOR, Role.LAB_TECH, Role.NURSE),
   validate(recordLabResultSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -642,7 +642,7 @@ router.patch(
 
 router.post(
   "/results/batch",
-  authorize(Role.NURSE, Role.DOCTOR, Role.ADMIN),
+  authorize(Role.ADMIN, Role.DOCTOR, Role.LAB_TECH, Role.NURSE),
   validate(batchResultSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {

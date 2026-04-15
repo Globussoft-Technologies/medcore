@@ -21,29 +21,35 @@ import {
 } from "../services/totp";
 const router = Router();
 
-// In-memory store for short-lived 2FA temp tokens issued during login.
-const twoFactorTempTokens = new Map<
-  string,
-  { userId: string; expiresAt: number }
->();
-function issueTempToken(userId: string): string {
+// 2FA temp tokens are persisted to Postgres so they survive process restarts
+// and behave correctly when the API runs across multiple instances.
+async function issueTempToken(userId: string): Promise<string> {
   const token =
-    Math.random().toString(36).slice(2) +
-    Math.random().toString(36).slice(2) +
-    Date.now().toString(36);
-  twoFactorTempTokens.set(token, {
-    userId,
-    expiresAt: Date.now() + 5 * 60 * 1000, // 5 min
+    crypto.randomBytes(24).toString("hex") + Date.now().toString(36);
+  await prisma.twoFactorTempToken.create({
+    data: {
+      token,
+      userId,
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 min
+    },
   });
   return token;
 }
-function consumeTempToken(token: string): string | null {
-  const entry = twoFactorTempTokens.get(token);
-  if (!entry || entry.expiresAt < Date.now()) {
-    twoFactorTempTokens.delete(token);
+async function consumeTempToken(token: string): Promise<string | null> {
+  const entry = await prisma.twoFactorTempToken.findUnique({ where: { token } });
+  if (!entry || entry.usedAt || entry.expiresAt < new Date()) {
+    if (entry) {
+      // Best-effort cleanup of expired/used row.
+      await prisma.twoFactorTempToken
+        .delete({ where: { id: entry.id } })
+        .catch(() => undefined);
+    }
     return null;
   }
-  twoFactorTempTokens.delete(token);
+  // Single-use: delete on consume so a replay cannot succeed.
+  await prisma.twoFactorTempToken
+    .delete({ where: { id: entry.id } })
+    .catch(() => undefined);
   return entry.userId;
 }
 
@@ -178,7 +184,7 @@ router.post(
 
       // If 2FA is enabled, do not issue real tokens — return a temp token.
       if (user.twoFactorEnabled && user.twoFactorSecret) {
-        const tempToken = issueTempToken(user.id);
+        const tempToken = await issueTempToken(user.id);
         res.json({
           success: true,
           data: { twoFactorRequired: true, tempToken },
@@ -322,9 +328,7 @@ router.post(
   }
 );
 
-// ─── Password Reset (in-memory code store) ────────────────────────
-
-const resetCodes = new Map<string, { code: string; expiresAt: number }>();
+// ─── Password Reset (DB-backed code store) ────────────────────────
 
 // POST /api/v1/auth/forgot-password
 router.post(
@@ -346,7 +350,19 @@ router.post(
       }
 
       const code = String(Math.floor(100000 + Math.random() * 900000));
-      resetCodes.set(email, { code, expiresAt: Date.now() + 10 * 60 * 1000 }); // 10 min
+
+      // Invalidate any prior unused codes so only the latest is valid.
+      await prisma.passwordResetCode.deleteMany({
+        where: { userId: user.id, usedAt: null },
+      });
+
+      await prisma.passwordResetCode.create({
+        data: {
+          userId: user.id,
+          code,
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 min
+        },
+      });
 
       console.log(`[Password Reset] Code for ${email}: ${code}`);
 
@@ -369,8 +385,8 @@ router.post(
     try {
       const { email, code, newPassword } = req.body;
 
-      const stored = resetCodes.get(email);
-      if (!stored || stored.code !== code || stored.expiresAt < Date.now()) {
+      const user = await prisma.user.findUnique({ where: { email } });
+      if (!user) {
         res.status(400).json({
           success: false,
           data: null,
@@ -379,23 +395,36 @@ router.post(
         return;
       }
 
-      const user = await prisma.user.findUnique({ where: { email } });
-      if (!user) {
-        res.status(404).json({
+      const stored = await prisma.passwordResetCode.findFirst({
+        where: {
+          userId: user.id,
+          code,
+          usedAt: null,
+          expiresAt: { gt: new Date() },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      if (!stored) {
+        res.status(400).json({
           success: false,
           data: null,
-          error: "User not found",
+          error: "Invalid or expired reset code",
         });
         return;
       }
 
       const passwordHash = await bcrypt.hash(newPassword, 10);
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { passwordHash },
-      });
-
-      resetCodes.delete(email);
+      await prisma.$transaction([
+        prisma.user.update({
+          where: { id: user.id },
+          data: { passwordHash },
+        }),
+        prisma.passwordResetCode.update({
+          where: { id: stored.id },
+          data: { usedAt: new Date() },
+        }),
+      ]);
 
       res.json({
         success: true,
@@ -744,7 +773,7 @@ router.post(
         });
         return;
       }
-      const userId = consumeTempToken(tempToken);
+      const userId = await consumeTempToken(tempToken);
       if (!userId) {
         res.status(401).json({
           success: false,

@@ -212,6 +212,32 @@ async function main() {
     console.log(`  Created Nurse: ${n.name}`);
   }
 
+  // Pharmacists (dispense + inventory ops)
+  const pharmacists = [
+    { email: "pharmacist@medcore.local", phone: "9999900030", name: "Vikas Joshi" },
+  ];
+  for (const p of pharmacists) {
+    await prisma.user.upsert({
+      where: { email: p.email },
+      update: {},
+      create: { ...p, passwordHash: hash("pharmacist123"), role: Role.PHARMACIST },
+    });
+    console.log(`  Created Pharmacist: ${p.name}`);
+  }
+
+  // Lab technicians (sample collection + result entry)
+  const labTechs = [
+    { email: "labtech@medcore.local", phone: "9999900040", name: "Sunita Bhosale" },
+  ];
+  for (const t of labTechs) {
+    await prisma.user.upsert({
+      where: { email: t.email },
+      update: {},
+      create: { ...t, passwordHash: hash("labtech123"), role: Role.LAB_TECH },
+    });
+    console.log(`  Created Lab Tech: ${t.name}`);
+  }
+
   // ─── 2. PATIENTS ──────────────────────────────────────
   console.log("\nRegistering patients...");
 

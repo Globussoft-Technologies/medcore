@@ -4,6 +4,8 @@ export enum Role {
   RECEPTION = "RECEPTION",
   NURSE = "NURSE",
   PATIENT = "PATIENT",
+  PHARMACIST = "PHARMACIST",
+  LAB_TECH = "LAB_TECH",
 }
 
 export interface UserBase {

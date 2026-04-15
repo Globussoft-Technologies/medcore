@@ -21,8 +21,11 @@ npm install --ignore-scripts 2>/dev/null || npm install
 echo "=== Generating Prisma client ==="
 DATABASE_URL="$DB_URL" npx prisma generate --schema packages/db/prisma/schema.prisma
 
-echo "=== Pushing schema changes ==="
-DATABASE_URL="$DB_URL" npx prisma db push --schema packages/db/prisma/schema.prisma --accept-data-loss
+echo "=== Applying database migrations ==="
+# Use prisma migrate deploy in production: it applies pending migrations from
+# packages/db/prisma/migrations and never resets data. Schema changes must go
+# through `prisma migrate dev --name <descriptor>` in development first.
+DATABASE_URL="$DB_URL" npx prisma migrate deploy --schema packages/db/prisma/schema.prisma
 
 echo "=== Building web app ==="
 cd apps/web && npx next build && cd ../..

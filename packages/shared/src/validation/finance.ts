@@ -75,6 +75,8 @@ export const receivePOSchema = z.object({
       })
     )
     .optional(),
+  notes: z.string().optional(),
+  invoiceNumber: z.string().optional(),
 });
 
 // ─── Expenses ──────────────────────────────────────────

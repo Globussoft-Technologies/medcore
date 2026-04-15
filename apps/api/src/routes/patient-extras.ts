@@ -5,21 +5,16 @@ import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { computePatientBaseline } from "../services/vitals-baseline";
+import {
+  generatePatientIdCardHTML,
+  generateVitalsHistoryHTML,
+  generateFitnessCertificateHTML,
+  generateDeathCertificateHTML,
+  generateServiceCertificateHTML,
+} from "../services/pdf";
 
 const router = Router();
 router.use(authenticate);
-
-// ─── Helpers ──────────────────────────────────────────
-
-function escapeHtml(text: string): string {
-  return (text ?? "")
-    .toString()
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
 
 // ─── GET /patients/:id/vitals-baseline ────────────────
 
@@ -43,127 +38,110 @@ router.get(
   authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const patientId = req.params.id;
-      const { from, to } = req.query;
-
-      const where: Record<string, unknown> = { patientId };
-      if (from || to) {
-        where.recordedAt = {
-          ...(from ? { gte: new Date(from as string) } : {}),
-          ...(to ? { lte: new Date(to as string) } : {}),
-        };
-      }
-
-      const [patient, vitals, hospitalCfg] = await Promise.all([
-        prisma.patient.findUnique({
-          where: { id: patientId },
-          include: { user: { select: { name: true, phone: true } } },
-        }),
-        prisma.vitals.findMany({
-          where: where as any,
-          orderBy: { recordedAt: "asc" },
-        }),
-        prisma.systemConfig.findMany({
-          where: { key: { in: ["hospital_name", "hospital_address", "hospital_phone"] } },
-        }),
-      ]);
-
-      if (!patient) {
-        res.status(404).json({ success: false, data: null, error: "Patient not found" });
-        return;
-      }
-
-      const cfgMap: Record<string, string> = {};
-      hospitalCfg.forEach((c) => (cfgMap[c.key] = c.value));
-
-      const rows = vitals
-        .map((v) => {
-          const date = new Date(v.recordedAt).toLocaleString("en-IN");
-          const bp =
-            v.bloodPressureSystolic && v.bloodPressureDiastolic
-              ? `${v.bloodPressureSystolic}/${v.bloodPressureDiastolic}`
-              : "—";
-          const temp = v.temperature
-            ? `${v.temperature}°${escapeHtml(v.temperatureUnit || "F")}`
-            : "—";
-          const flags = v.abnormalFlags
-            ? `<span style="color:#dc2626;font-weight:500;">${escapeHtml(v.abnormalFlags)}</span>`
-            : "";
-          return `
-            <tr>
-              <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:12px;">${escapeHtml(date)}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:center;">${bp}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:center;">${v.pulseRate ?? "—"}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:center;">${v.spO2 ?? "—"}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:center;">${temp}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:center;">${v.respiratoryRate ?? "—"}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:center;">${v.weight ?? "—"}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:center;">${v.bmi ?? "—"}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px;">${flags}</td>
-            </tr>`;
-        })
-        .join("\n");
-
-      // Simple inline trend data
-      const systolicPoints = vitals
-        .map((v) => v.bloodPressureSystolic)
-        .filter((x): x is number => typeof x === "number");
-      const minSys = systolicPoints.length ? Math.min(...systolicPoints) : 0;
-      const maxSys = systolicPoints.length ? Math.max(...systolicPoints) : 0;
-      const avgSys =
-        systolicPoints.length > 0
-          ? (systolicPoints.reduce((a, b) => a + b, 0) / systolicPoints.length).toFixed(1)
-          : "—";
-
-      const html = `<!DOCTYPE html>
-<html><head><meta charset="UTF-8" /><title>Vitals Report - ${escapeHtml(patient.user.name)}</title>
-<style>
-  body { font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b; margin: 0; padding: 0; }
-  .page { max-width: 1100px; margin: 0 auto; padding: 32px; }
-  table { width:100%; border-collapse: collapse; }
-  th { background:#f8fafc; text-align:left; padding:8px; font-size:11px; text-transform:uppercase; color:#64748b; border-bottom:2px solid #e2e8f0; }
-  @media print { .no-print { display:none !important } .page { padding: 16px } }
-</style></head>
-<body><div class="page">
-<div style="text-align:center;border-bottom:3px double #2563eb;padding-bottom:12px;margin-bottom:16px;">
-  <h1 style="font-size:22px;color:#2563eb;margin:0;">${escapeHtml(cfgMap.hospital_name || "Hospital")}</h1>
-  ${cfgMap.hospital_address ? `<p style="font-size:12px;color:#64748b;margin:3px 0;">${escapeHtml(cfgMap.hospital_address)}</p>` : ""}
-</div>
-<h2 style="text-align:center;font-size:16px;letter-spacing:1.5px;text-transform:uppercase;color:#475569;margin-bottom:16px;">Vitals Report</h2>
-<div style="display:flex;justify-content:space-between;margin-bottom:18px;font-size:13px;">
-  <div>
-    <p><strong>Patient:</strong> ${escapeHtml(patient.user.name)}</p>
-    <p><strong>MR#:</strong> ${escapeHtml(patient.mrNumber)}</p>
-    ${patient.age != null ? `<p><strong>Age:</strong> ${patient.age}</p>` : ""}
-    <p><strong>Gender:</strong> ${escapeHtml(patient.gender)}</p>
-  </div>
-  <div style="text-align:right;">
-    <p><strong>Generated:</strong> ${new Date().toLocaleString("en-IN")}</p>
-    <p><strong>Period:</strong> ${from ? escapeHtml(from as string) : "—"} → ${to ? escapeHtml(to as string) : "Present"}</p>
-    <p><strong>Readings:</strong> ${vitals.length}</p>
-  </div>
-</div>
-
-<div style="background:#f1f5f9;border-left:4px solid #2563eb;padding:10px 14px;margin-bottom:16px;font-size:13px;border-radius:0 6px 6px 0;">
-  <strong>Systolic BP summary:</strong> min ${minSys || "—"}, max ${maxSys || "—"}, avg ${avgSys}
-</div>
-
-<table>
-<thead><tr>
-<th>Date/Time</th><th style="text-align:center;">BP (mmHg)</th><th style="text-align:center;">Pulse</th><th style="text-align:center;">SpO2 (%)</th>
-<th style="text-align:center;">Temp</th><th style="text-align:center;">Resp</th><th style="text-align:center;">Weight (kg)</th><th style="text-align:center;">BMI</th><th>Flags</th>
-</tr></thead>
-<tbody>${rows || `<tr><td colspan="9" style="padding:20px;text-align:center;color:#94a3b8;">No vitals recorded.</td></tr>`}</tbody>
-</table>
-
-<div class="no-print" style="text-align:center;margin-top:24px;">
-  <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;">Print / Save as PDF</button>
-</div>
-</div></body></html>`;
-
+      const html = await generateVitalsHistoryHTML(
+        req.params.id,
+        req.query.from as string | undefined,
+        req.query.to as string | undefined
+      );
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);
     } catch (err) {
+      if (err instanceof Error && err.message === "Patient not found") {
+        res.status(404).json({ success: false, data: null, error: err.message });
+        return;
+      }
+      next(err);
+    }
+  }
+);
+
+// ─── GET /patients/:id/id-card ────────────────────────
+router.get(
+  "/patients/:id/id-card",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const html = await generatePatientIdCardHTML(req.params.id);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Patient not found") {
+        res.status(404).json({ success: false, data: null, error: err.message });
+        return;
+      }
+      next(err);
+    }
+  }
+);
+
+// ─── GET /patients/:id/fitness-certificate?purpose= ────
+router.get(
+  "/patients/:id/fitness-certificate",
+  authorize(Role.ADMIN, Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const purpose = (req.query.purpose as string) || "general employment";
+      const html = await generateFitnessCertificateHTML(req.params.id, purpose);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Patient not found") {
+        res.status(404).json({ success: false, data: null, error: err.message });
+        return;
+      }
+      next(err);
+    }
+  }
+);
+
+// ─── GET /patients/:id/death-certificate ──────────────
+router.get(
+  "/patients/:id/death-certificate",
+  authorize(Role.ADMIN, Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const cause = (req.query.cause as string) || "";
+      const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+      const time = (req.query.time as string) || "";
+      const manner = (req.query.manner as string) || "NATURAL";
+      const antecedent = (req.query.antecedent as string) || "";
+      const other = (req.query.other as string) || "";
+      const html = await generateDeathCertificateHTML(
+        req.params.id,
+        cause,
+        date,
+        time,
+        manner,
+        antecedent,
+        other
+      );
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Patient not found") {
+        res.status(404).json({ success: false, data: null, error: err.message });
+        return;
+      }
+      next(err);
+    }
+  }
+);
+
+// ─── GET /users/:id/service-certificate ───────────────
+router.get(
+  "/users/:id/service-certificate",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const conduct = (req.query.conduct as string) || "satisfactory";
+      const html = await generateServiceCertificateHTML(req.params.id, conduct);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch (err) {
+      if (err instanceof Error && err.message === "User not found") {
+        res.status(404).json({ success: false, data: null, error: err.message });
+        return;
+      }
       next(err);
     }
   }

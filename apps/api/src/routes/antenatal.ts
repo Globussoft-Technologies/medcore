@@ -16,6 +16,7 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { generateBirthCertificateHTML } from "../services/pdf";
 
 const router = Router();
 router.use(authenticate);
@@ -1043,6 +1044,26 @@ router.patch(
       });
       res.json({ success: true, data: v, error: null });
     } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/antenatal/cases/:id/birth-certificate
+router.get(
+  "/cases/:id/birth-certificate",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const html = await generateBirthCertificateHTML(req.params.id);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch (err) {
+      if (err instanceof Error) {
+        if (err.message === "ANC case not found" || err.message.includes("Delivery")) {
+          res.status(404).json({ success: false, data: null, error: err.message });
+          return;
+        }
+      }
       next(err);
     }
   }

@@ -379,26 +379,92 @@ router.post(
         }
       }
 
+      // Sum prior GRN receipts for this PO so we can compute running totals
+      // and support multiple partial receipts over time.
+      const priorGrns = await prisma.grn.findMany({
+        where: { poId: po.id },
+        include: { items: true },
+      });
+      const priorReceivedMap = new Map<string, number>();
+      for (const g of priorGrns) {
+        for (const gi of g.items) {
+          priorReceivedMap.set(
+            gi.poItemId,
+            (priorReceivedMap.get(gi.poItemId) ?? 0) + gi.quantity
+          );
+        }
+      }
+
+      // Determine if this receipt completes all items (full) or not (partial)
+      let fullyReceived = true;
+      for (const item of po.items) {
+        const thisQty = receivedItemsMap.has(item.id)
+          ? receivedItemsMap.get(item.id)!
+          : // No partial items supplied = assume full receipt
+            receivedItemsMap.size === 0
+            ? item.quantity
+            : 0;
+        const prior = priorReceivedMap.get(item.id) ?? 0;
+        if (prior + thisQty < item.quantity) {
+          fullyReceived = false;
+          break;
+        }
+      }
+
       const result = await prisma.$transaction(async (tx) => {
+        // Create GRN record for this receipt batch
+        const grnCount = await tx.grn.count({ where: { poId: po.id } });
+        const grn = await tx.grn.create({
+          data: {
+            grnNumber: `GRN-${po.poNumber}-${grnCount + 1}`,
+            poId: po.id,
+            receivedBy: req.user!.userId,
+            notes: req.body.notes,
+            invoiceNumber: req.body.invoiceNumber,
+            items: {
+              create: po.items
+                .map((item) => {
+                  const qty = receivedItemsMap.has(item.id)
+                    ? receivedItemsMap.get(item.id)!
+                    : receivedItemsMap.size === 0
+                      ? item.quantity
+                      : 0;
+                  return qty > 0
+                    ? {
+                        poItemId: item.id,
+                        quantity: qty,
+                      }
+                    : null;
+                })
+                .filter((v): v is { poItemId: string; quantity: number } => v !== null),
+            },
+          },
+          include: { items: true },
+        });
+
         const updated = await tx.purchaseOrder.update({
           where: { id: po.id },
-          data: { status: "RECEIVED", receivedAt: new Date() },
-          include: { supplier: true, items: true },
+          data: fullyReceived
+            ? { status: "RECEIVED", receivedAt: new Date() }
+            : { status: "APPROVED" }, // remain APPROVED for further partial receipts
+          include: { supplier: true, items: true, grns: { include: { items: true } } },
         });
 
         // For items that link to medicines, create inventory + stock movements
         for (const item of po.items) {
           if (!item.medicineId) continue;
 
-          const qty =
-            receivedItemsMap.has(item.id)
-              ? receivedItemsMap.get(item.id)!
-              : item.quantity;
+          const qty = receivedItemsMap.has(item.id)
+            ? receivedItemsMap.get(item.id)!
+            : receivedItemsMap.size === 0
+              ? item.quantity
+              : 0;
 
           if (qty <= 0) continue;
 
-          // Auto-generate batch number and default 2-year expiry
-          const batchNumber = `PO-${po.poNumber}-${item.id.slice(0, 6)}`;
+          // Auto-generate batch number scoped to this GRN so multiple
+          // partial receipts each create distinct inventory batches.
+          const batchNumber = `PO-${po.poNumber}-${grn.id.slice(0, 4)}-${item.id.slice(0, 6)}`;
           const expiryDate = new Date();
           expiryDate.setFullYear(expiryDate.getFullYear() + 2);
 

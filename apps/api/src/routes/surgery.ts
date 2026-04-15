@@ -353,6 +353,16 @@ router.patch(
         console.error
       );
 
+      // Realtime: notify OT board + surgery list
+      const io = req.app.get("io");
+      if (io && req.body.status) {
+        io.emit("surgery:status", {
+          surgeryId: surgery.id,
+          status: surgery.status,
+          otId: surgery.otId,
+        });
+      }
+
       res.json({ success: true, data: surgery, error: null });
     } catch (err) {
       next(err);
@@ -424,6 +434,15 @@ router.patch(
         previousSurgeryId: prev?.id ?? null,
       }).catch(console.error);
 
+      const io = req.app.get("io");
+      if (io) {
+        io.emit("surgery:status", {
+          surgeryId: surgery.id,
+          status: "IN_PROGRESS",
+          otId: surgery.otId,
+        });
+      }
+
       res.json({ success: true, data: surgery, error: null });
     } catch (err) {
       next(err);
@@ -479,6 +498,15 @@ router.patch(
       auditLog(req, "COMPLETE_SURGERY", "surgery", surgery.id, {
         caseNumber: surgery.caseNumber,
       }).catch(console.error);
+
+      const io = req.app.get("io");
+      if (io) {
+        io.emit("surgery:status", {
+          surgeryId: surgery.id,
+          status: "COMPLETED",
+          otId: surgery.otId,
+        });
+      }
 
       res.json({ success: true, data: surgery, error: null });
     } catch (err) {

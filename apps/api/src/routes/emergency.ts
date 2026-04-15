@@ -362,6 +362,16 @@ router.patch(
         triageLevel: parsed.data.triageLevel,
       }).catch(console.error);
 
+      // Realtime ER dashboard refresh
+      const io = req.app.get("io");
+      if (io) {
+        io.emit("emergency:update", {
+          caseId: updated.id,
+          status: updated.status,
+          triageLevel: updated.triageLevel,
+        });
+      }
+
       res.json({ success: true, data: updated, error: null });
     } catch (err) {
       next(err);
@@ -467,6 +477,15 @@ router.patch(
         status: req.body.status,
         disposition: req.body.disposition,
       }).catch(console.error);
+
+      const io = req.app.get("io");
+      if (io) {
+        io.emit("emergency:update", {
+          caseId: updated.id,
+          status: updated.status,
+          triageLevel: updated.triageLevel,
+        });
+      }
 
       res.json({ success: true, data: updated, error: null });
     } catch (err) {

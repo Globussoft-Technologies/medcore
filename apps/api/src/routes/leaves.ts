@@ -11,6 +11,7 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { generateLeaveLetterHTML } from "../services/pdf";
 
 const router = Router();
 router.use(authenticate);
@@ -433,6 +434,24 @@ router.get(
         error: null,
       });
     } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/leaves/:id/letter
+router.get(
+  "/:id/letter",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const html = await generateLeaveLetterHTML(req.params.id);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Leave request not found") {
+        res.status(404).json({ success: false, data: null, error: err.message });
+        return;
+      }
       next(err);
     }
   }

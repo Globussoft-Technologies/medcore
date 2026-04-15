@@ -14,6 +14,7 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { generateDischargeSummaryHTML } from "../services/pdf";
 
 const router = Router();
 router.use(authenticate);
@@ -209,6 +210,17 @@ router.post(
         doctorId,
         bedId,
       }).catch(console.error);
+
+      // Realtime: notify wards dashboard
+      const io = req.app.get("io");
+      if (io) {
+        io.emit("admission:status", {
+          admissionId: admission.id,
+          status: "ADMITTED",
+          ward: null,
+          bedId,
+        });
+      }
 
       res.status(201).json({ success: true, data: admission, error: null });
     } catch (err) {
@@ -411,6 +423,17 @@ router.patch(
       auditLog(req, "DISCHARGE_PATIENT", "admission", admission.id, {
         admissionNumber: admission.admissionNumber,
       }).catch(console.error);
+
+      // Realtime: notify wards dashboard + admission listeners
+      const io = req.app.get("io");
+      if (io) {
+        io.emit("admission:status", {
+          admissionId: admission.id,
+          status: "DISCHARGED",
+          ward: admission.bed?.ward?.name ?? null,
+          bedId: existing.bedId,
+        });
+      }
 
       res.json({ success: true, data: admission, error: null });
     } catch (err) {
@@ -1242,6 +1265,24 @@ router.get(
 
       res.json({ success: true, data: results, error: null });
     } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/admissions/:id/discharge-summary-pdf
+router.get(
+  "/:id/discharge-summary-pdf",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const html = await generateDischargeSummaryHTML(req.params.id);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Admission not found") {
+        res.status(404).json({ success: false, data: null, error: err.message });
+        return;
+      }
       next(err);
     }
   }

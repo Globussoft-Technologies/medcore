@@ -11,6 +11,7 @@ import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { isWithinQuietHours } from "../services/ops-helpers";
+import { sendNotification, retryNotification } from "../services/notification";
 
 const router = Router();
 router.use(authenticate);
@@ -413,6 +414,128 @@ router.get(
         },
         error: null,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PUT /api/v1/notifications/templates/:id — admin update single template
+router.put(
+  "/templates/:id",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { name, subject, body, isActive } = req.body as {
+        name?: string;
+        subject?: string;
+        body?: string;
+        isActive?: boolean;
+      };
+      const data: Record<string, unknown> = {};
+      if (name !== undefined) data.name = name;
+      if (subject !== undefined) data.subject = subject;
+      if (body !== undefined) data.body = body;
+      if (isActive !== undefined) data.isActive = isActive;
+      const updated = await prisma.notificationTemplate.update({
+        where: { id: req.params.id },
+        data,
+      });
+      auditLog(req, "NOTIFICATION_TEMPLATE_UPDATE", "notification_template", updated.id, data).catch(
+        console.error
+      );
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/notifications/delivery — admin delivery status viewer
+router.get(
+  "/delivery",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { status, channel, from, to, limit = "100" } = req.query as Record<string, string>;
+      const where: Record<string, unknown> = {};
+      if (status) where.deliveryStatus = status;
+      if (channel) where.channel = channel;
+      if (from || to) {
+        where.createdAt = {
+          ...(from ? { gte: new Date(from) } : {}),
+          ...(to ? { lte: new Date(to) } : {}),
+        };
+      }
+      const list = await prisma.notification.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: Math.min(parseInt(limit, 10) || 100, 500),
+        include: {
+          user: { select: { id: true, name: true, email: true, phone: true } },
+        },
+      });
+      res.json({ success: true, data: list, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/notifications/:id/retry — admin retry of a failed notification
+router.post(
+  "/:id/retry",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await retryNotification(req.params.id);
+      auditLog(req, "NOTIFICATION_RETRY", "notification", req.params.id, { ...result }).catch(
+        console.error
+      );
+      res.json({ success: result.ok, data: result, error: result.ok ? null : result.error });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/notifications/test — fire a test notification on one channel
+router.post(
+  "/test",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { channel } = req.body as { channel?: string };
+      if (!channel || !["WHATSAPP", "SMS", "EMAIL", "PUSH"].includes(channel)) {
+        res.status(400).json({ success: false, data: null, error: "Invalid channel" });
+        return;
+      }
+
+      // Temporarily bypass user preferences by inserting a one-off pref override:
+      // we simply call sendNotification — the dispatcher will respect prefs, so
+      // ensure the channel is enabled via a quick upsert before sending.
+      await prisma.notificationPreference.upsert({
+        where: {
+          userId_channel: {
+            userId: req.user!.userId,
+            channel: channel as any,
+          },
+        },
+        update: { enabled: true },
+        create: {
+          userId: req.user!.userId,
+          channel: channel as any,
+          enabled: true,
+        },
+      });
+
+      await sendNotification({
+        userId: req.user!.userId,
+        type: "SCHEDULE_SUMMARY" as any,
+        title: "MedCore Test Notification",
+        message: `This is a test ${channel} notification from MedCore.`,
+      });
+
+      res.json({ success: true, data: { sent: true, channel }, error: null });
     } catch (err) {
       next(err);
     }

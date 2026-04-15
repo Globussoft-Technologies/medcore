@@ -26,6 +26,7 @@ import { createPaymentOrder, verifyPayment } from "../services/razorpay";
 import { onBillGenerated, onPaymentReceived } from "../services/notification-triggers";
 import { auditLog } from "../middleware/audit";
 import { splitGst } from "../services/ops-helpers";
+import { generateInvoicePDF } from "../services/pdf";
 
 const router = Router();
 router.use(authenticate);
@@ -378,6 +379,18 @@ router.post(
       // Fire-and-forget notification
       onPaymentReceived(result, invoice).catch(console.error);
       auditLog(req, "RECORD_PAYMENT", "payment", result.id, { invoiceId, amount, mode }).catch(console.error);
+
+      // Real-time event for billing dashboard + reception home
+      const io = req.app.get("io");
+      if (io) {
+        io.emit("payment:received", {
+          invoiceId,
+          amount,
+          mode,
+          paymentId: result.id,
+          patientId: invoice.patientId,
+        });
+      }
 
       res.status(201).json({ success: true, data: result, error: null });
     } catch (err) {
@@ -2086,6 +2099,24 @@ router.get(
         error: null,
       });
     } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/billing/invoices/:id/pdf
+router.get(
+  "/invoices/:id/pdf",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const html = await generateInvoicePDF(req.params.id);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Invoice not found") {
+        res.status(404).json({ success: false, data: null, error: err.message });
+        return;
+      }
       next(err);
     }
   }

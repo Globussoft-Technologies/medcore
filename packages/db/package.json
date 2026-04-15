@@ -22,6 +22,8 @@
     "db:seed-visitors-history": "tsx src/seed-visitors-history.ts",
     "db:seed-notifications-history": "tsx src/seed-notifications-history.ts",
     "db:seed-lab-panels": "tsx src/seed-lab-panels.ts",
+    "db:seed-templates": "tsx src/seed-notification-templates.ts",
+    "db:seed-hospital-config": "tsx src/seed-hospital-config.ts",
     "db:studio": "prisma studio"
   },
   "dependencies": {

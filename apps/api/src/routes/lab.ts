@@ -18,6 +18,8 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { generateLabReportHTML } from "../services/pdf";
+import { sendNotification } from "../services/notification";
 
 const router = Router();
 router.use(authenticate);
@@ -358,7 +360,7 @@ router.post(
       // Delta-check: compare against previous result for same patient + same parameter + same test
       const orderContext = await prisma.labOrderItem.findUnique({
         where: { id: orderItemId },
-        include: { order: { select: { patientId: true, doctorId: true, orderNumber: true } } },
+        include: { order: { select: { id: true, patientId: true, doctorId: true, orderNumber: true } } },
       });
       let deltaFlag = false;
       if (orderContext) {
@@ -461,6 +463,17 @@ router.post(
         parameter,
         flag: flag ?? "NORMAL",
       }).catch(console.error);
+
+      // Realtime: notify ordering doctor
+      const io = req.app.get("io");
+      if (io) {
+        io.emit("lab:result", {
+          orderId: orderContext?.order?.id ?? null,
+          orderItemId,
+          resultId: result.id,
+          criticalFlag: (flag ?? "NORMAL") === "CRITICAL",
+        });
+      }
 
       res.status(201).json({ success: true, data: result, error: null });
     } catch (err) {
@@ -710,12 +723,42 @@ router.post(
             })
             .catch(() => {});
         }
+
+        // Also notify patient via SMS/WhatsApp (fire-and-forget) for critical values
+        if (order?.patient?.user) {
+          const paramList = criticals
+            .map(
+              (c) =>
+                `${c.parameter}: ${c.value}${c.unit ? " " + c.unit : ""}`
+            )
+            .join(", ");
+          sendNotification({
+            userId: order.patient.user.id,
+            type: "LAB_RESULT_READY" as never,
+            title: "URGENT: Critical lab result",
+            message: `Hi ${order.patient.user.name}, your lab order ${order.orderNumber} has critical value(s): ${paramList}. Please contact Dr. ${order.doctor?.user?.name ?? "your doctor"} immediately.`,
+            data: {
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              criticalCount: criticals.length,
+            },
+          }).catch((e) => console.error("[lab critical SMS]", e));
+        }
       }
 
       auditLog(req, "BATCH_LAB_RESULTS", "lab_order", orderId, {
         count: created.length,
         critical: criticals.length,
       }).catch(console.error);
+
+      const io = req.app.get("io");
+      if (io) {
+        io.emit("lab:result", {
+          orderId,
+          resultsCount: created.length,
+          criticalFlag: criticals.length > 0,
+        });
+      }
 
       res.status(201).json({
         success: true,
@@ -1267,6 +1310,24 @@ router.get(
         error: null,
       });
     } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/lab/orders/:id/pdf
+router.get(
+  "/orders/:id/pdf",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const html = await generateLabReportHTML(req.params.id);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Lab order not found") {
+        res.status(404).json({ success: false, data: null, error: err.message });
+        return;
+      }
       next(err);
     }
   }

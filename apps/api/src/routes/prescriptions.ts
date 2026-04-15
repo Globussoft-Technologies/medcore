@@ -9,7 +9,10 @@ import {
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
-import { generatePrescriptionPDF } from "../services/pdf";
+import {
+  generatePrescriptionPDF,
+  generatePrescriptionVerifyHTML,
+} from "../services/pdf";
 import { onPrescriptionReady } from "../services/notification-triggers";
 import { auditLog } from "../middleware/audit";
 
@@ -674,3 +677,77 @@ router.get(
 );
 
 export { router as prescriptionRouter };
+
+// ─── PUBLIC (no-auth) ROUTER for prescription verification ─
+export const publicPrescriptionRouter = Router();
+
+publicPrescriptionRouter.get(
+  "/verify/rx/:id",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      // Content negotiation: JSON for the Next.js verify page,
+      // HTML (legacy) for direct browser hits / the QR fallback.
+      const accept = String(req.headers.accept || "");
+      const wantsJson =
+        req.query.format === "json" ||
+        (accept.includes("application/json") && !accept.includes("text/html"));
+
+      if (wantsJson) {
+        const rx = await prisma.prescription.findUnique({
+          where: { id: req.params.id },
+          include: {
+            patient: { include: { user: { select: { name: true } } } },
+            doctor: { include: { user: { select: { name: true } } } },
+          },
+        });
+        if (!rx) {
+          res.status(404).json({ ok: false, error: "Prescription not found" });
+          return;
+        }
+        const cfg = await prisma.systemConfig.findMany({
+          where: {
+            key: {
+              in: [
+                "hospital_name",
+                "hospital_address",
+                "hospital_phone",
+                "hospital_email",
+                "hospital_logo_url",
+                "hospital_tagline",
+              ],
+            },
+          },
+        });
+        const map: Record<string, string> = {};
+        cfg.forEach((r) => (map[r.key] = r.value));
+        res.json({
+          ok: true,
+          prescriptionId: rx.id,
+          patientInitial: rx.patient.user.name.charAt(0).toUpperCase() + ".",
+          doctorName: rx.doctor.user.name,
+          dateIssued: new Date(rx.createdAt).toLocaleDateString("en-IN", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+          }),
+          status: rx.printed ? "Issued & Printed" : "Issued",
+          hospital: {
+            name: map.hospital_name || "Hospital",
+            address: map.hospital_address || "",
+            phone: map.hospital_phone || "",
+            email: map.hospital_email || "",
+            logoUrl: map.hospital_logo_url || "",
+            tagline: map.hospital_tagline || "",
+          },
+        });
+        return;
+      }
+
+      const html = await generatePrescriptionVerifyHTML(req.params.id);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch (err) {
+      next(err);
+    }
+  }
+);

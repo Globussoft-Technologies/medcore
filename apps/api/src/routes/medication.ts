@@ -330,6 +330,17 @@ router.patch(
         status: req.body.status,
       }).catch(console.error);
 
+      // Realtime: medication dashboard
+      const io = req.app.get("io");
+      if (io) {
+        io.emit("medication:administered", {
+          admissionId: updated.medicationOrder?.admissionId ?? null,
+          orderId: updated.medicationOrder?.id ?? null,
+          status: updated.status,
+          administrationId: updated.id,
+        });
+      }
+
       res.json({ success: true, data: updated, error: null });
     } catch (err) {
       next(err);

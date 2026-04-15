@@ -12,6 +12,7 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { generatePaySlipHTML } from "../services/pdf";
 
 const router = Router();
 router.use(authenticate);
@@ -529,6 +530,38 @@ router.patch(
       auditLog(req, "UPDATE_OVERTIME", "overtime_record", updated.id, req.body).catch(console.error);
       res.json({ success: true, data: updated, error: null });
     } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/hr-ops/payroll/:userId/slip?month=YYYY-MM
+router.get(
+  "/payroll/:userId/slip",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const isAdmin = req.user!.role === Role.ADMIN;
+      if (!isAdmin && req.user!.userId !== req.params.userId) {
+        res.status(403).json({ success: false, data: null, error: "Forbidden" });
+        return;
+      }
+      const month =
+        (req.query.month as string) ||
+        new Date().toISOString().slice(0, 7); // default current month
+      if (!/^\d{4}-\d{2}$/.test(month)) {
+        res
+          .status(400)
+          .json({ success: false, data: null, error: "month must be YYYY-MM" });
+        return;
+      }
+      const html = await generatePaySlipHTML(req.params.userId, month);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch (err) {
+      if (err instanceof Error && err.message === "User not found") {
+        res.status(404).json({ success: false, data: null, error: err.message });
+        return;
+      }
       next(err);
     }
   }

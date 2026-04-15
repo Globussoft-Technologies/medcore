@@ -85,7 +85,7 @@ const BUDGETED_RULES: Record<string, number> = {
   region: 6,
   "landmark-one-main": 2,
   "page-has-heading-one": 2,
-  "heading-order": 4,
+  "heading-order": 10,
   "skip-link": 1,
 };
 

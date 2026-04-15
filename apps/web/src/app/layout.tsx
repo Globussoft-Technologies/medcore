@@ -33,10 +33,10 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Inline script to apply theme before hydration — prevents flash */}
+        {/* Inline script to apply theme + language before hydration — prevents flash + sets html lang for screen readers */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var m=localStorage.getItem('medcore_theme')||'system';var d=m==='dark'||(m==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(d){document.documentElement.classList.add('dark');document.documentElement.style.colorScheme='dark';}}catch(e){}})();`,
+            __html: `(function(){try{var m=localStorage.getItem('medcore_theme')||'system';var d=m==='dark'||(m==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(d){document.documentElement.classList.add('dark');document.documentElement.style.colorScheme='dark';}var l=localStorage.getItem('medcore_lang');if(l==='en'||l==='hi'){document.documentElement.setAttribute('lang',l);}}catch(e){}})();`,
           }}
         />
       </head>

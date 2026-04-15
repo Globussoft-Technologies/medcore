@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
+import { useTranslation } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { SkeletonCard } from "@/components/Skeleton";
 import {
@@ -280,6 +281,7 @@ function CustomizeDashboardModal({
 
 export default function DashboardPage() {
   const { user } = useAuthStore();
+  const { t } = useTranslation();
   const [data, setData] = useState<DashboardData>({});
   const [loading, setLoading] = useState(true);
   const [widgets, setWidgets] = useState<DashboardWidget[]>(DEFAULT_WIDGETS);
@@ -436,9 +438,9 @@ export default function DashboardPage() {
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            Welcome, {user?.name}
+            {t("dashboard.home.greeting")}, {user?.name}
           </h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-700 dark:text-gray-300">
             {new Date().toLocaleDateString("en-IN", {
               weekday: "long",
               year: "numeric",
@@ -491,29 +493,29 @@ export default function DashboardPage() {
           {isWidgetVisible(widgets, "kpi_top") && (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
             <StatCard
-              title="Today's Appts"
+              title={t("dashboard.home.kpi.todayAppointments")}
               value={fmt(data.todayAppointments)}
-              subtitle={`${data.inQueueCount ?? 0} in queue`}
+              subtitle={`${data.inQueueCount ?? 0} ${t("dashboard.home.kpi.inQueue")}`}
               icon={Calendar}
               color="bg-primary"
               href="/dashboard/appointments"
             />
             <StatCard
-              title="Patients"
+              title={t("dashboard.home.kpi.totalPatients")}
               value={fmt(data.totalPatients)}
               icon={Users}
               color="bg-secondary"
               href="/dashboard/patients"
             />
             <StatCard
-              title="Today Revenue"
+              title={t("dashboard.home.kpi.todayRevenue")}
               value={money(data.todayRevenue)}
               icon={TrendingUp}
               color="bg-emerald-600"
               href="/dashboard/reports"
             />
             <StatCard
-              title="Beds Occupied"
+              title={t("dashboard.home.kpi.bedsOccupied")}
               value={`${fmt(data.bedsOccupied)}/${fmt(data.totalBeds)}`}
               subtitle={
                 data.totalBeds
@@ -525,17 +527,17 @@ export default function DashboardPage() {
               href="/dashboard/wards"
             />
             <StatCard
-              title="ER Active"
+              title={t("dashboard.home.kpi.erWaiting")}
               value={fmt(data.erWaiting)}
               subtitle={
-                data.erCritical ? `${data.erCritical} critical` : "None critical"
+                data.erCritical ? `${data.erCritical} ${t("dashboard.emergency.critical").toLowerCase()}` : "None critical"
               }
               icon={Siren}
               color={data.erCritical ? "bg-red-600" : "bg-orange-600"}
               href="/dashboard/emergency"
             />
             <StatCard
-              title="Pending Bills"
+              title={t("dashboard.home.kpi.pendingBills")}
               value={fmt(data.pendingBills)}
               icon={CreditCard}
               color="bg-accent"

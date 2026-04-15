@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { useTranslation } from "@/lib/i18n";
 import { Search, Plus, Users } from "lucide-react";
 import { DataTable, Column } from "@/components/DataTable";
 
@@ -21,6 +22,7 @@ interface PatientRecord {
 
 export default function PatientsPage() {
   const { user } = useAuthStore();
+  const { t } = useTranslation();
   const [patients, setPatients] = useState<PatientRecord[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -109,7 +111,7 @@ export default function PatientsPage() {
   const columns: Column<PatientRecord>[] = [
     {
       key: "mrNumber",
-      label: "MR Number",
+      label: t("dashboard.patients.col.mr"),
       sortable: true,
       filterable: true,
       render: (p) => (
@@ -124,24 +126,24 @@ export default function PatientsPage() {
     },
     {
       key: "name",
-      label: "Name",
+      label: t("dashboard.patients.col.name"),
       sortable: true,
       filterable: true,
       render: (p) => <span className="font-medium">{p.user?.name}</span>,
     },
     {
       key: "phone",
-      label: "Phone",
+      label: t("dashboard.patients.col.phone"),
       sortable: true,
       filterable: true,
       hideMobile: false,
       render: (p) => p.user?.phone,
     },
-    { key: "age", label: "Age", sortable: true, hideMobile: true },
-    { key: "gender", label: "Gender", sortable: true, filterable: true, hideMobile: true },
+    { key: "age", label: t("dashboard.patients.col.age"), sortable: true, hideMobile: true },
+    { key: "gender", label: t("dashboard.patients.col.gender"), sortable: true, filterable: true, hideMobile: true },
     {
       key: "bloodGroup",
-      label: "Blood Group",
+      label: t("dashboard.patients.col.bloodGroup"),
       sortable: true,
       filterable: true,
       hideMobile: true,
@@ -154,18 +156,19 @@ export default function PatientsPage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            Patients
+            {t("dashboard.patients.title")}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            {total} registered patients
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            {total} {t("dashboard.patients.subtitle")}
           </p>
         </div>
         {(user?.role === "RECEPTION" || user?.role === "ADMIN") && (
           <button
             onClick={() => setShowForm(!showForm)}
+            aria-label={t("dashboard.patients.register")}
             className="flex min-h-[44px] items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
           >
-            <Plus size={16} /> Register Patient
+            <Plus size={16} aria-hidden="true" /> {t("dashboard.patients.register")}
           </button>
         )}
       </div>
@@ -177,12 +180,16 @@ export default function PatientsPage() {
           className="mb-6 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800"
         >
           <h2 className="mb-4 font-semibold text-gray-900 dark:text-gray-100">
-            New Patient Registration
+            {t("dashboard.patients.register")}
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
+              <label htmlFor="patient-name" className="sr-only">
+                {t("dashboard.patients.fullName")}
+              </label>
               <input
-                placeholder="Full Name"
+                id="patient-name"
+                placeholder={t("dashboard.patients.fullName")}
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className={
@@ -195,7 +202,11 @@ export default function PatientsPage() {
               )}
             </div>
             <div>
+              <label htmlFor="patient-phone" className="sr-only">
+                {t("common.phone")}
+              </label>
               <input
+                id="patient-phone"
                 placeholder="Phone Number (10 digits)"
                 value={form.phone}
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
@@ -209,7 +220,11 @@ export default function PatientsPage() {
               )}
             </div>
             <div>
+              <label htmlFor="patient-email" className="sr-only">
+                {t("common.email")}
+              </label>
               <input
+                id="patient-email"
                 placeholder="Email (optional)"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
@@ -223,8 +238,12 @@ export default function PatientsPage() {
               )}
             </div>
             <div>
+              <label htmlFor="patient-age" className="sr-only">
+                {t("register.age")}
+              </label>
               <input
-                placeholder="Age"
+                id="patient-age"
+                placeholder={t("register.age")}
                 type="number"
                 value={form.age}
                 onChange={(e) => setForm({ ...form, age: e.target.value })}
@@ -237,21 +256,29 @@ export default function PatientsPage() {
                 <p className="mt-1 text-xs text-red-600">{formErrors.age}</p>
               )}
             </div>
+            <label htmlFor="patient-gender" className="sr-only">
+              {t("register.gender")}
+            </label>
             <select
+              id="patient-gender"
               value={form.gender}
               onChange={(e) => setForm({ ...form, gender: e.target.value })}
               className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             >
-              <option value="MALE">Male</option>
-              <option value="FEMALE">Female</option>
-              <option value="OTHER">Other</option>
+              <option value="MALE">{t("register.gender.male")}</option>
+              <option value="FEMALE">{t("register.gender.female")}</option>
+              <option value="OTHER">{t("register.gender.other")}</option>
             </select>
+            <label htmlFor="patient-blood" className="sr-only">
+              {t("dashboard.patients.bloodGroup")}
+            </label>
             <select
+              id="patient-blood"
               value={form.bloodGroup}
               onChange={(e) => setForm({ ...form, bloodGroup: e.target.value })}
               className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             >
-              <option value="">Blood Group (optional)</option>
+              <option value="">{t("dashboard.patients.bloodGroup")}</option>
               <option value="A+">A+</option>
               <option value="A-">A-</option>
               <option value="B+">B+</option>
@@ -261,8 +288,12 @@ export default function PatientsPage() {
               <option value="O+">O+</option>
               <option value="O-">O-</option>
             </select>
+            <label htmlFor="patient-address" className="sr-only">
+              {t("common.address")}
+            </label>
             <input
-              placeholder="Address"
+              id="patient-address"
+              placeholder={t("common.address")}
               value={form.address}
               onChange={(e) => setForm({ ...form, address: e.target.value })}
               className="col-span-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
@@ -273,14 +304,14 @@ export default function PatientsPage() {
               type="submit"
               className="min-h-[44px] rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
             >
-              Register
+              {t("dashboard.patients.register")}
             </button>
             <button
               type="button"
               onClick={() => setShowForm(false)}
               className="min-h-[44px] rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-700"
             >
-              Cancel
+              {t("common.cancel")}
             </button>
           </div>
         </form>
@@ -290,10 +321,15 @@ export default function PatientsPage() {
       <div className="relative mb-4">
         <Search
           size={16}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+          aria-hidden="true"
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600"
         />
+        <label htmlFor="patient-search" className="sr-only">
+          {t("common.search")}
+        </label>
         <input
-          placeholder="Search by name, phone, or MR number..."
+          id="patient-search"
+          placeholder={t("dashboard.patients.searchPlaceholder")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"

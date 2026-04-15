@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { useTranslation } from "@/lib/i18n";
 import { FREQUENCY_OPTIONS } from "@medcore/shared";
 import { toast } from "@/lib/toast";
 import { InfoIcon } from "@/components/Tooltip";
@@ -48,6 +49,7 @@ interface Template {
 
 export default function PrescriptionsPage() {
   const { user } = useAuthStore();
+  const { t } = useTranslation();
   const [prescriptions, setPrescriptions] = useState<PrescriptionRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -305,7 +307,7 @@ export default function PrescriptionsPage() {
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Prescriptions</h1>
+        <h1 className="text-2xl font-bold">{t("dashboard.prescriptions.title")}</h1>
         {user?.role === "DOCTOR" && (
           <button
             onClick={() => setShowForm(!showForm)}

@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
 import { useThemeStore } from "@/lib/theme";
+import { useTranslation } from "@/lib/i18n";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { Tooltip } from "@/components/Tooltip";
 import { HelpPanel } from "@/components/HelpPanel";
@@ -279,6 +280,7 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const { user, isLoading, loadSession, logout } = useAuthStore();
+  const { t } = useTranslation();
   const [searchOpen, setSearchOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
@@ -414,10 +416,91 @@ export default function DashboardLayout({
   if (isLoading || !user) {
     return (
       <div className="flex h-screen items-center justify-center bg-bg dark:bg-gray-900">
-        <p className="text-gray-500 dark:text-gray-400">Loading...</p>
+        <p className="text-gray-600 dark:text-gray-300">{t("common.loading")}</p>
       </div>
     );
   }
+
+  // Translate the static role-based nav labels via a small lookup. The lookup
+  // intentionally only covers the most common labels; anything not present
+  // falls back to its English source string so unmapped items still render.
+  const NAV_LABEL_TO_KEY: Record<string, string> = {
+    Dashboard: "dashboard.nav.dashboard",
+    "Admin Console": "dashboard.nav.adminConsole",
+    Calendar: "dashboard.nav.calendar",
+    Appointments: "dashboard.nav.appointments",
+    "My Appointments": "dashboard.nav.myAppointments",
+    Patients: "dashboard.nav.patients",
+    Queue: "dashboard.nav.queue",
+    "My Queue": "dashboard.nav.myQueue",
+    Wards: "dashboard.nav.wards",
+    Admissions: "dashboard.nav.admissions",
+    Medicines: "dashboard.nav.medicines",
+    Pharmacy: "dashboard.nav.pharmacy",
+    Lab: "dashboard.nav.lab",
+    "Lab QC": "dashboard.nav.labQc",
+    "Controlled Register": "dashboard.nav.controlledSubstances",
+    Immunizations: "dashboard.nav.immunizations",
+    Billing: "dashboard.nav.billing",
+    Refunds: "dashboard.nav.refunds",
+    "Payment Plans": "dashboard.nav.paymentPlans",
+    "Pre-Authorization": "dashboard.nav.preauth",
+    "Discount Approvals": "dashboard.nav.discountApprovals",
+    Packages: "dashboard.nav.packages",
+    Suppliers: "dashboard.nav.suppliers",
+    "Purchase Orders": "dashboard.nav.purchaseOrders",
+    Expenses: "dashboard.nav.expenses",
+    Prescriptions: "dashboard.nav.prescriptions",
+    Doctors: "dashboard.nav.doctors",
+    Referrals: "dashboard.nav.referrals",
+    Surgery: "dashboard.nav.surgery",
+    OTs: "dashboard.nav.ots",
+    Antenatal: "dashboard.nav.antenatal",
+    Pediatric: "dashboard.nav.pediatric",
+    "Blood Bank": "dashboard.nav.bloodBank",
+    Ambulance: "dashboard.nav.ambulance",
+    Assets: "dashboard.nav.assets",
+    Telemedicine: "dashboard.nav.telemedicine",
+    Emergency: "dashboard.nav.emergency",
+    Users: "dashboard.nav.users",
+    "Duty Roster": "dashboard.nav.dutyRoster",
+    "Leave Requests": "dashboard.nav.leaveRequests",
+    "Leave Calendar": "dashboard.nav.leaveCalendar",
+    Holidays: "dashboard.nav.holidays",
+    Payroll: "dashboard.nav.payroll",
+    Certifications: "dashboard.nav.certifications",
+    "Census Report": "dashboard.nav.census",
+    Budgets: "dashboard.nav.budgets",
+    Broadcasts: "dashboard.nav.broadcasts",
+    Schedule: "dashboard.nav.schedule",
+    "My Schedule": "dashboard.nav.mySchedule",
+    "My Leaves": "dashboard.nav.myLeaves",
+    Reports: "dashboard.nav.reports",
+    "Scheduled Reports": "dashboard.nav.scheduledReports",
+    Analytics: "dashboard.nav.analytics",
+    Notifications: "dashboard.nav.notifications",
+    "Audit Log": "dashboard.nav.audit",
+    Feedback: "dashboard.nav.feedback",
+    Complaints: "dashboard.nav.complaints",
+    Chat: "dashboard.nav.chat",
+    Visitors: "dashboard.nav.visitors",
+    Workspace: "dashboard.nav.workspace",
+    Workstation: "dashboard.nav.workstation",
+    Medication: "dashboard.nav.medication",
+    Vitals: "dashboard.nav.vitals",
+    "Walk-in": "dashboard.nav.walkIn",
+    Bills: "dashboard.nav.bills",
+    Home: "dashboard.nav.home",
+    Appts: "dashboard.nav.appts",
+    Stats: "dashboard.nav.stats",
+    Rx: "dashboard.nav.rx",
+    Profile: "common.profile",
+    Settings: "common.settings",
+    Work: "dashboard.nav.workstation",
+    Meds: "dashboard.nav.medication",
+  };
+  const tNav = (label: string) =>
+    NAV_LABEL_TO_KEY[label] ? t(NAV_LABEL_TO_KEY[label], label) : label;
 
   const nav = navByRole[user.role] || navByRole.PATIENT;
   const bottomNav = bottomNavByRole[user.role] || bottomNavByRole.PATIENT;
@@ -493,7 +576,7 @@ export default function DashboardLayout({
                 )}
               >
                 <Icon size={18} aria-hidden="true" />
-                {label}
+                {tNav(label)}
               </Link>
             );
           })}
@@ -506,7 +589,7 @@ export default function DashboardLayout({
               }}
               className="mt-2 flex w-full items-center gap-3 rounded-lg border border-white/10 px-3 py-2 text-xs text-gray-300 hover:bg-sidebar-hover hover:text-white"
             >
-              Take the tour
+              {t("dashboard.nav.takeTour")}
             </button>
           )}
         </nav>
@@ -516,13 +599,13 @@ export default function DashboardLayout({
             onClick={toggleTheme}
             aria-label={
               resolvedTheme === "dark"
-                ? "Switch to light mode"
-                : "Switch to dark mode"
+                ? t("common.lightMode")
+                : t("common.darkMode")
             }
             title={
               resolvedTheme === "dark"
-                ? "Switch to light mode"
-                : "Switch to dark mode"
+                ? t("common.lightMode")
+                : t("common.darkMode")
             }
             className="rounded-lg p-2 text-gray-300 transition hover:bg-sidebar-hover hover:text-white focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none"
           >
@@ -534,16 +617,16 @@ export default function DashboardLayout({
           </button>
           <button
             onClick={() => setShortcutsOpen(true)}
-            aria-label="Show keyboard shortcuts"
-            title="Keyboard shortcuts (?)"
+            aria-label={t("common.shortcuts")}
+            title={`${t("common.shortcuts")} (?)`}
             className="rounded-lg p-2 text-gray-300 transition hover:bg-sidebar-hover hover:text-white focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none"
           >
             <Keyboard size={18} aria-hidden="true" />
           </button>
           <Link
             href="/dashboard/settings"
-            aria-label="Settings"
-            title="Settings"
+            aria-label={t("common.settings")}
+            title={t("common.settings")}
             className="rounded-lg p-2 text-gray-300 transition hover:bg-sidebar-hover hover:text-white focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none"
           >
             <SettingsIcon size={18} aria-hidden="true" />
@@ -553,11 +636,11 @@ export default function DashboardLayout({
               logout();
               router.push("/login");
             }}
-            aria-label="Sign out"
+            aria-label={t("common.signOut")}
             className="ml-auto flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-300 transition hover:bg-sidebar-hover hover:text-white focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none"
           >
             <LogOut size={16} aria-hidden="true" />
-            <span>Sign Out</span>
+            <span>{t("common.signOut")}</span>
           </button>
         </div>
       </aside>
@@ -572,7 +655,7 @@ export default function DashboardLayout({
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
-            aria-label="Open menu"
+            aria-label={t("common.openMenu")}
             className="flex h-11 w-11 items-center justify-center rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             <Menu size={20} aria-hidden="true" />
@@ -583,7 +666,7 @@ export default function DashboardLayout({
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
-            aria-label="Open search"
+            aria-label={t("common.openSearch")}
             className="flex h-11 w-11 items-center justify-center rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             <Search size={18} aria-hidden="true" />
@@ -614,7 +697,7 @@ export default function DashboardLayout({
               )}
             >
               <Icon size={20} aria-hidden="true" />
-              <span className="truncate">{label}</span>
+              <span className="truncate">{tNav(label)}</span>
             </Link>
           );
         })}

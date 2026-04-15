@@ -70,7 +70,10 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100 dark:from-gray-900 dark:to-gray-950">
+    <main
+      id="main-content"
+      className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100 dark:from-gray-900 dark:to-gray-950"
+    >
       <div className="fixed right-4 top-4">
         <LanguageDropdown />
       </div>
@@ -233,6 +236,6 @@ export default function LoginPage() {
           <p>Nurse: nurse@medcore.local / nurse123</p>
         </div>
       </div>
-    </div>
+    </main>
   );
 }

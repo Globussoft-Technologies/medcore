@@ -4,6 +4,7 @@ import { useEffect, useState, Fragment } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { useTranslation } from "@/lib/i18n";
 import { Plus, FlaskConical } from "lucide-react";
 
 interface LabTest {
@@ -70,6 +71,7 @@ const FLAG_COLORS: Record<string, string> = {
 
 export default function LabPage() {
   const { user } = useAuthStore();
+  const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>("orders");
   const [orders, setOrders] = useState<LabOrder[]>([]);
   const [tests, setTests] = useState<LabTest[]>([]);
@@ -139,16 +141,16 @@ export default function LabPage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <FlaskConical className="text-primary" /> Laboratory
+            <FlaskConical className="text-primary" aria-hidden="true" /> {t("dashboard.lab.title")}
           </h1>
-          <p className="text-sm text-gray-500">Tests &amp; orders</p>
+          <p className="text-sm text-gray-700 dark:text-gray-300">{t("dashboard.lab.orders")}</p>
         </div>
         {canOrder && tab === "orders" && (
           <button
             onClick={() => setShowOrderModal(true)}
             className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
           >
-            <Plus size={16} /> New Order
+            <Plus size={16} aria-hidden="true" /> {t("dashboard.lab.newOrder")}
           </button>
         )}
       </div>

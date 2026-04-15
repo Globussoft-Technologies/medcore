@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { EmptyState } from "@/components/EmptyState";
 import {
@@ -70,6 +71,7 @@ function overdueClass(days: number) {
 
 export default function BillingPage() {
   const { user } = useAuthStore();
+  const { t } = useTranslation();
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [outstanding, setOutstanding] = useState<OutstandingRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -378,7 +380,7 @@ export default function BillingPage() {
   return (
     <div onClick={() => setOpenActionsFor(null)}>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Billing</h1>
+        <h1 className="text-2xl font-bold">{t("dashboard.billing.title")}</h1>
         <div className="flex items-center gap-2">
           <button
             onClick={(e) => {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { SkeletonTable } from "@/components/Skeleton";
 import { EmptyState } from "@/components/EmptyState";
@@ -240,6 +241,7 @@ function HBarChart({
 
 export default function AppointmentsPage() {
   const { user } = useAuthStore();
+  const { t } = useTranslation();
   const isPatient = user?.role === "PATIENT";
 
   // View toggle
@@ -769,22 +771,24 @@ export default function AppointmentsPage() {
       {cancellingId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-semibold text-gray-800">Cancel Appointment</h3>
-            <p className="mt-2 text-sm text-gray-600">
-              Are you sure you want to cancel this appointment? This action cannot be undone.
+            <h3 className="text-lg font-semibold text-gray-800">
+              {t("dashboard.actions.cancelAppointment")}
+            </h3>
+            <p className="mt-2 text-sm text-gray-700">
+              {t("dashboard.appointments.cancelConfirm")}
             </p>
             <div className="mt-5 flex justify-end gap-3">
               <button
                 onClick={() => setCancellingId(null)}
                 className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
-                Keep Appointment
+                {t("dashboard.actions.keepAppointment")}
               </button>
               <button
                 onClick={confirmCancel}
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
               >
-                Yes, Cancel
+                {t("dashboard.actions.confirmCancel")}
               </button>
             </div>
           </div>
@@ -807,10 +811,10 @@ export default function AppointmentsPage() {
                   setReschedTarget(null);
                   setReschedSlots([]);
                 }}
-                className="text-gray-400 hover:text-gray-600"
-                aria-label="Close"
+                className="text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100"
+                aria-label={t("common.close")}
               >
-                ✕
+                <span aria-hidden="true">✕</span>
               </button>
             </div>
             <div className="mt-4">
@@ -876,9 +880,10 @@ export default function AppointmentsPage() {
               </div>
               <button
                 onClick={() => setSelectedEvent(null)}
-                className="text-gray-400 hover:text-gray-600"
+                aria-label={t("common.close")}
+                className="text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100"
               >
-                ✕
+                <span aria-hidden="true">✕</span>
               </button>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
@@ -970,20 +975,26 @@ export default function AppointmentsPage() {
       {/* Header */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">
-          {isPatient ? "My Appointments" : "Appointments"}
+          {isPatient
+            ? t("dashboard.appointments.titleMine")
+            : t("dashboard.appointments.title")}
         </h1>
         <div className="flex items-center gap-3">
           {/* View toggle */}
-          <div className="inline-flex overflow-hidden rounded-lg border border-gray-200">
+          <div
+            className="inline-flex overflow-hidden rounded-lg border border-gray-200"
+            role="group"
+            aria-label="View mode"
+          >
             <button onClick={() => setView("list")} className={viewBtnClasses("list")}>
-              List
+              {t("dashboard.common.list")}
             </button>
             <button onClick={() => setView("calendar")} className={viewBtnClasses("calendar")}>
-              Calendar
+              {t("dashboard.common.calendarView")}
             </button>
             {!isPatient && (
               <button onClick={() => setView("stats")} className={viewBtnClasses("stats")}>
-                Stats
+                {t("dashboard.common.statsView")}
               </button>
             )}
           </div>
@@ -1000,11 +1011,13 @@ export default function AppointmentsPage() {
                   type="date"
                   value={filterDate}
                   onChange={(e) => setFilterDate(e.target.value)}
+                  aria-label="Filter by date"
                   className="rounded-lg border px-3 py-2 text-sm"
                 />
               )}
               <button
                 onClick={exportCSV}
+                aria-label="Export appointments to CSV"
                 className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
                 Export CSV
@@ -1023,7 +1036,7 @@ export default function AppointmentsPage() {
                   onClick={() => setShowBooking(!showBooking)}
                   className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
                 >
-                  Book Appointment
+                  {t("dashboard.actions.bookAppointment")}
                 </button>
                 <button
                   onClick={() => setShowWaitlistModal(true)}
@@ -1106,13 +1119,13 @@ export default function AppointmentsPage() {
           {isPatient && (
             <div className="mb-4 flex gap-2">
               <button onClick={() => setPatientTab("upcoming")} className={tabClasses("upcoming")}>
-                Upcoming
+                {t("dashboard.appointments.tab.upcoming")}
               </button>
               <button onClick={() => setPatientTab("past")} className={tabClasses("past")}>
-                Past
+                {t("dashboard.appointments.tab.past")}
               </button>
               <button onClick={() => setPatientTab("cancelled")} className={tabClasses("cancelled")}>
-                Cancelled
+                {t("dashboard.appointments.tab.cancelled")}
               </button>
             </div>
           )}
@@ -1120,11 +1133,14 @@ export default function AppointmentsPage() {
           {/* Booking form */}
           {showBooking && (
             <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
-              <h2 className="mb-4 font-semibold">Book New Appointment</h2>
+              <h2 className="mb-4 font-semibold">{t("dashboard.appointments.book.title")}</h2>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Doctor</label>
+                  <label htmlFor="appt-book-doctor" className="mb-1 block text-sm font-medium">
+                    {t("dashboard.appointments.doctor")}
+                  </label>
                   <select
+                    id="appt-book-doctor"
                     value={selectedDoctor}
                     onChange={(e) => {
                       setSelectedDoctor(e.target.value);
@@ -1132,7 +1148,7 @@ export default function AppointmentsPage() {
                     }}
                     className="w-full rounded-lg border px-3 py-2 text-sm"
                   >
-                    <option value="">Select Doctor</option>
+                    <option value="">{t("dashboard.appointments.selectDoctor")}</option>
                     {doctors.map((d) => (
                       <option key={d.id} value={d.id}>
                         {d.user.name} — {d.specialization}
@@ -1141,8 +1157,11 @@ export default function AppointmentsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Date</label>
+                  <label htmlFor="appt-book-date" className="mb-1 block text-sm font-medium">
+                    {t("dashboard.appointments.date")}
+                  </label>
                   <input
+                    id="appt-book-date"
                     type="date"
                     value={selectedDate}
                     onChange={(e) => {
@@ -1302,7 +1321,7 @@ export default function AppointmentsPage() {
             ) : (
               <table className="w-full">
                 <thead>
-                  <tr className="border-b text-left text-sm text-gray-500">
+                  <tr className="border-b text-left text-sm text-gray-700">
                     {!isPatient && (
                       <th className="px-4 py-3 w-8">
                         <input
@@ -1317,14 +1336,14 @@ export default function AppointmentsPage() {
                         />
                       </th>
                     )}
-                    <th className="px-4 py-3">Token</th>
-                    {!isPatient && <th className="px-4 py-3">Patient</th>}
-                    <th className="px-4 py-3">Doctor</th>
-                    <th className="px-4 py-3">Date</th>
-                    <th className="px-4 py-3">Time</th>
-                    <th className="px-4 py-3">Type</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Actions</th>
+                    <th className="px-4 py-3">{t("dashboard.appointments.col.token")}</th>
+                    {!isPatient && <th className="px-4 py-3">{t("dashboard.appointments.col.patient")}</th>}
+                    <th className="px-4 py-3">{t("dashboard.appointments.col.doctor")}</th>
+                    <th className="px-4 py-3">{t("dashboard.appointments.col.date")}</th>
+                    <th className="px-4 py-3">{t("dashboard.appointments.col.time")}</th>
+                    <th className="px-4 py-3">{t("dashboard.appointments.col.type")}</th>
+                    <th className="px-4 py-3">{t("dashboard.appointments.col.status")}</th>
+                    <th className="px-4 py-3">{t("dashboard.appointments.col.actions")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1382,9 +1401,10 @@ export default function AppointmentsPage() {
                               user?.role === "NURSE") && (
                               <button
                                 onClick={() => openReschedule(apt)}
-                                className="rounded bg-indigo-500 px-2 py-1 text-xs text-white hover:bg-indigo-600"
+                                aria-label={`Reschedule appointment for ${apt.patient.user.name} (token ${apt.tokenNumber})`}
+                                className="rounded bg-indigo-600 px-2 py-1 text-xs text-white hover:bg-indigo-700"
                               >
-                                Reschedule
+                                {t("dashboard.actions.reschedule")}
                               </button>
                             )}
                           {apt.status === "BOOKED" &&
@@ -1393,42 +1413,47 @@ export default function AppointmentsPage() {
                               user?.role === "ADMIN") && (
                               <button
                                 onClick={() => handleCancelClick(apt.id)}
-                                className="rounded bg-red-500 px-2 py-1 text-xs text-white hover:bg-red-600"
+                                aria-label={`Cancel appointment for ${apt.patient.user.name} (token ${apt.tokenNumber})`}
+                                className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-700"
                               >
-                                Cancel
+                                {t("common.cancel")}
                               </button>
                             )}
                           {["BOOKED", "CHECKED_IN"].includes(apt.status) && (
                             <button
                               onClick={() => downloadCalendarInvite(apt.id)}
-                              className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-100"
+                              aria-label={`Download calendar invite for token ${apt.tokenNumber}`}
+                              className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs text-emerald-800 hover:bg-emerald-100"
                               title="Download .ics file"
                             >
-                              Calendar Invite
+                              {t("dashboard.actions.calendarInvite")}
                             </button>
                           )}
                           {!isPatient && apt.status === "BOOKED" && (
                             <button
                               onClick={() => updateStatus(apt.id, "CHECKED_IN")}
-                              className="rounded bg-yellow-500 px-2 py-1 text-xs text-white hover:bg-yellow-600"
+                              aria-label={`Check in ${apt.patient.user.name}`}
+                              className="rounded bg-yellow-600 px-2 py-1 text-xs text-white hover:bg-yellow-700"
                             >
-                              Check In
+                              {t("dashboard.actions.checkIn")}
                             </button>
                           )}
                           {!isPatient && apt.status === "CHECKED_IN" && (
                             <button
                               onClick={() => updateStatus(apt.id, "IN_CONSULTATION")}
-                              className="rounded bg-green-500 px-2 py-1 text-xs text-white hover:bg-green-600"
+                              aria-label={`Start consultation for ${apt.patient.user.name}`}
+                              className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"
                             >
-                              Start Consult
+                              {t("dashboard.actions.startConsult")}
                             </button>
                           )}
                           {!isPatient && apt.status === "IN_CONSULTATION" && (
                             <button
                               onClick={() => updateStatus(apt.id, "COMPLETED")}
-                              className="rounded bg-gray-500 px-2 py-1 text-xs text-white hover:bg-gray-600"
+                              aria-label={`Mark consultation complete for ${apt.patient.user.name}`}
+                              className="rounded bg-gray-700 px-2 py-1 text-xs text-white hover:bg-gray-800"
                             >
-                              Complete
+                              {t("dashboard.actions.complete")}
                             </button>
                           )}
                         </div>
@@ -1473,9 +1498,10 @@ export default function AppointmentsPage() {
             <select
               value={calDoctor}
               onChange={(e) => setCalDoctor(e.target.value)}
+              aria-label="Filter calendar by doctor"
               className="rounded-lg border px-3 py-2 text-sm"
             >
-              <option value="">All Doctors</option>
+              <option value="">{t("dashboard.appointments.allDoctors")}</option>
               {doctors.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.user.name}
@@ -1545,6 +1571,7 @@ export default function AppointmentsPage() {
                               <button
                                 key={ev.id}
                                 onClick={() => setSelectedEvent(ev)}
+                                aria-label={`Token ${ev.tokenNumber}: ${ev.patientName} with Dr. ${ev.doctorName} at ${ev.startDateTime.slice(11, 16)} — status ${ev.status.replace(/_/g, " ")}. Open details.`}
                                 className={`absolute left-1 right-1 overflow-hidden rounded border px-1.5 py-0.5 text-left text-[10px] font-medium text-white shadow-sm ${
                                   STATUS_BLOCK_COLORS[ev.status] ||
                                   "bg-gray-400 border-gray-500"
@@ -1775,8 +1802,12 @@ function WaitlistModal({
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Join Waitlist</h3>
-          <button onClick={onClose} className="text-gray-400">
-            ✕
+          <button
+            onClick={onClose}
+            aria-label="Close dialog"
+            className="text-gray-600 hover:text-gray-800"
+          >
+            <span aria-hidden="true">✕</span>
           </button>
         </div>
         <div className="space-y-3">
@@ -1784,11 +1815,13 @@ function WaitlistModal({
             placeholder="Patient ID"
             value={patientId}
             onChange={(e) => setPatientId(e.target.value)}
+            aria-label="Patient ID"
             className="w-full rounded-lg border px-3 py-2 text-sm"
           />
           <select
             value={doctorId}
             onChange={(e) => setDoctorId(e.target.value)}
+            aria-label="Doctor"
             className="w-full rounded-lg border px-3 py-2 text-sm"
           >
             {doctors.map((d) => (
@@ -1811,6 +1844,7 @@ function WaitlistModal({
             placeholder="Reason"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
+            aria-label="Reason for waitlist"
             className="w-full rounded-lg border px-3 py-2 text-sm"
           />
         </div>
@@ -2096,8 +2130,12 @@ function GroupAppointmentModal({
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Group Appointment</h3>
-          <button onClick={onClose} className="text-gray-400">
-            ✕
+          <button
+            onClick={onClose}
+            aria-label="Close dialog"
+            className="text-gray-600 hover:text-gray-800"
+          >
+            <span aria-hidden="true">✕</span>
           </button>
         </div>
         <div className="space-y-3">
@@ -2113,6 +2151,7 @@ function GroupAppointmentModal({
           <select
             value={doctorId}
             onChange={(e) => setDoctorId(e.target.value)}
+            aria-label="Doctor"
             className="w-full rounded-lg border px-3 py-2 text-sm"
           >
             {doctors.map((d) => (
@@ -2209,8 +2248,12 @@ function CoordinatedVisitModal({
       <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Coordinate Multi-Doctor Visit</h3>
-          <button onClick={onClose} className="text-gray-400">
-            ✕
+          <button
+            onClick={onClose}
+            aria-label="Close dialog"
+            className="text-gray-600 hover:text-gray-800"
+          >
+            <span aria-hidden="true">✕</span>
           </button>
         </div>
         <div className="space-y-3">
@@ -2225,6 +2268,7 @@ function CoordinatedVisitModal({
             placeholder="Visit Name (e.g. Diabetes Review)"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            aria-label="Visit name"
             className="w-full rounded-lg border px-3 py-2 text-sm"
           />
           <div>

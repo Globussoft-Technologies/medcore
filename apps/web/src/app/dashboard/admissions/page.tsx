@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { Plus, BedDouble } from "lucide-react";
 import { DataTable, Column } from "@/components/DataTable";
@@ -70,6 +71,7 @@ function computeLOS(adm: Admission): number {
 
 export default function AdmissionsPage() {
   const { user } = useAuthStore();
+  const { t } = useTranslation();
   const [admissions, setAdmissions] = useState<Admission[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("admitted");
@@ -241,7 +243,7 @@ export default function AdmissionsPage() {
       hideMobile: true,
       render: (a) => (
         <div className="flex items-center gap-1 text-sm">
-          <BedDouble size={14} className="text-gray-400 dark:text-gray-500" />
+          <BedDouble size={14} className="text-gray-600 dark:text-gray-300" />
           {a.bed.ward.name} / {a.bed.bedNumber}
         </div>
       ),
@@ -297,9 +299,9 @@ export default function AdmissionsPage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            Admissions
+            {t("dashboard.admissions.title")}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-sm text-gray-700 dark:text-gray-300">
             In-patient admission management
           </p>
         </div>

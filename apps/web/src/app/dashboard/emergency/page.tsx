@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { useTranslation } from "@/lib/i18n";
 import { getSocket } from "@/lib/socket";
 import { InfoIcon } from "@/components/Tooltip";
 import { Plus, Siren, AlertTriangle, UserCheck, X } from "lucide-react";
@@ -91,6 +92,7 @@ function elapsedMin(dateStr: string): number {
 
 export default function EmergencyPage() {
   const { user } = useAuthStore();
+  const { t } = useTranslation();
   const [cases, setCases] = useState<EmergencyCase[]>([]);
   const [stats, setStats] = useState<EmergencyStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -338,10 +340,10 @@ export default function EmergencyPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Siren className="text-red-500" size={28} />
+          <Siren className="text-red-600" size={28} aria-hidden="true" />
           <div>
-            <h1 className="text-2xl font-bold">Emergency Department</h1>
-            <p className="text-sm text-gray-500">Real-time ER dashboard</p>
+            <h1 className="text-2xl font-bold">{t("dashboard.emergency.title")}</h1>
+            <p className="text-sm text-gray-700 dark:text-gray-300">Real-time ER dashboard</p>
           </div>
         </div>
         {canRegister && (

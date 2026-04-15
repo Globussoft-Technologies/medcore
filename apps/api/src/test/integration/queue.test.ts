@@ -42,8 +42,10 @@ describeIfDB("Queue API (integration)", () => {
 
   it("queue orders by token and status (tokenNumber set, priority normal)", async () => {
     const doctor = await createDoctorFixture();
-    const p1 = await createPatientFixture();
-    const p2 = await createPatientFixture();
+    // Fix age + gender so both patients have identical vulnerability rank
+    // (the queue route re-sorts by vulnerability flags after the DB orderBy).
+    const p1 = await createPatientFixture({ age: 30, gender: "MALE" });
+    const p2 = await createPatientFixture({ age: 30, gender: "MALE" });
     await createAppointmentFixture({
       patientId: p1.id,
       doctorId: doctor.id,

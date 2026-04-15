@@ -103,3 +103,71 @@ export function verifyPayment(
 
   return expectedSignature === signature;
 }
+
+/**
+ * Verifies a Razorpay webhook signature.
+ *
+ * Razorpay computes HMAC-SHA256 over the raw JSON request body using the
+ * webhook secret (configured per webhook in the Razorpay dashboard) and sends
+ * the hex digest in the `x-razorpay-signature` header.
+ *
+ * IMPORTANT: callers MUST pass the **raw** request body bytes, not a JSON
+ * re-serialization. Even key-order differences will break the signature. The
+ * webhook route mounts `express.raw({type:'application/json'})` so `req.body`
+ * is a Buffer when this is called.
+ *
+ * Fail-closed in production when the secret is missing — refusing to ack a
+ * webhook is far safer than blindly trusting an unsigned one.
+ */
+export function verifyWebhookSignature(
+  payload: string | Buffer,
+  signature: string | undefined,
+  secret: string | undefined
+): boolean {
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      console.error(
+        "[Razorpay] RAZORPAY_WEBHOOK_SECRET is unset in production — refusing webhook."
+      );
+      return false;
+    }
+    console.warn(
+      "[Razorpay] No webhook secret — accepting webhook (mock mode, non-production only)."
+    );
+    return true;
+  }
+  if (!signature) return false;
+
+  const expected = crypto.createHmac("sha256", secret).update(payload).digest("hex");
+  // Length-safe constant-time compare to avoid timing leaks.
+  let a: Buffer;
+  let b: Buffer;
+  try {
+    a = Buffer.from(expected, "hex");
+    b = Buffer.from(signature, "hex");
+  } catch {
+    return false;
+  }
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * Fetch an order from Razorpay so we can cross-check `amount_paid`. Returns
+ * `null` when Razorpay isn't configured (mock mode) so the caller can fall
+ * back to local invoice math instead of failing closed in dev.
+ */
+export async function fetchOrderAmountPaid(
+  orderId: string
+): Promise<number | null> {
+  const instance = getRazorpayInstance();
+  if (!instance) return null;
+  try {
+    const order = await instance.orders.fetch(orderId);
+    if (!order || typeof order.amount_paid !== "number") return null;
+    return order.amount_paid; // paise
+  } catch (e) {
+    console.error("[Razorpay] orders.fetch failed", e);
+    return null;
+  }
+}

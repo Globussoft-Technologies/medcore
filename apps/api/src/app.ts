@@ -8,7 +8,7 @@ import { authRouter } from "./routes/auth";
 import { patientRouter } from "./routes/patients";
 import { appointmentRouter } from "./routes/appointments";
 import { doctorRouter } from "./routes/doctors";
-import { billingRouter } from "./routes/billing";
+import { billingRouter, razorpayWebhookRouter } from "./routes/billing";
 import { prescriptionRouter, publicPrescriptionRouter } from "./routes/prescriptions";
 import { queueRouter } from "./routes/queue";
 import { notificationRouter } from "./routes/notifications";
@@ -80,6 +80,13 @@ export function buildApp() {
 
   // Middleware
   app.use(cors({ origin: process.env.CORS_ORIGIN || "http://localhost:3000" }));
+
+  // Razorpay webhook MUST be mounted before express.json() so the route's
+  // own express.raw() middleware can read the unparsed body (HMAC verify
+  // requires the exact bytes Razorpay signed). Auth is performed via HMAC
+  // signature, NOT JWT, so it is intentionally mounted before authenticate.
+  app.use("/api/v1/billing", razorpayWebhookRouter);
+
   app.use(express.json());
   app.use(sanitize);
   // Rate limiting is disabled in test mode to keep tests fast & deterministic.

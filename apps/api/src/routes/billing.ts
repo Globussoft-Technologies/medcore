@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from "express";
+import express, { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "@medcore/db";
 import {
   Role,
@@ -22,11 +22,17 @@ import {
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
-import { createPaymentOrder, verifyPayment } from "../services/razorpay";
+import {
+  createPaymentOrder,
+  verifyPayment,
+  fetchOrderAmountPaid,
+  verifyWebhookSignature,
+} from "../services/razorpay";
 import { onBillGenerated, onPaymentReceived } from "../services/notification-triggers";
 import { auditLog } from "../middleware/audit";
 import { splitGst } from "../services/ops-helpers";
 import { generateInvoicePDF } from "../services/pdf";
+import { generateInvoicePDFBuffer } from "../services/pdf-generator";
 
 const router = Router();
 router.use(authenticate);
@@ -543,6 +549,19 @@ router.post(
 
       const order = await createPaymentOrder(invoiceId, remaining);
 
+      // Persist the order id on the invoice so the webhook handler can look up
+      // the invoice in O(1) and the /verify-payment route can sanity-check
+      // that the browser-supplied orderId actually belongs to this invoice.
+      try {
+        await prisma.invoice.update({
+          where: { id: invoiceId },
+          data: { razorpayOrderId: order.orderId },
+        });
+      } catch (e) {
+        // Non-fatal: order creation succeeded, fall back to existing flow.
+        console.warn("[billing] failed to persist razorpayOrderId", e);
+      }
+
       res.json({
         success: true,
         data: {
@@ -589,6 +608,20 @@ router.post(
         return;
       }
 
+      // Idempotency: if we've already recorded this paymentId (e.g. webhook
+      // beat the browser callback), return success without re-charging.
+      const existing = await prisma.payment.findUnique({
+        where: { transactionId: razorpayPaymentId },
+      });
+      if (existing) {
+        res.json({
+          success: true,
+          data: { ...existing, alreadyProcessed: true },
+          error: null,
+        });
+        return;
+      }
+
       // Record the payment
       const invoice = await prisma.invoice.findUnique({
         where: { id: invoiceId },
@@ -600,31 +633,92 @@ router.post(
         return;
       }
 
+      // Cross-check that the orderId belongs to this invoice. Without this a
+      // signed callback for a *different* (cheaper) invoice could be replayed
+      // against an expensive invoice.
+      if (invoice.razorpayOrderId && invoice.razorpayOrderId !== razorpayOrderId) {
+        console.warn("[billing] orderId mismatch for invoice", {
+          invoiceId,
+          expected: invoice.razorpayOrderId,
+          got: razorpayOrderId,
+        });
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Order id does not belong to this invoice",
+        });
+        return;
+      }
+
       const totalPaid = invoice.payments.reduce((sum, p) => sum + p.amount, 0);
       const remaining = invoice.totalAmount - totalPaid;
+      const expectedPaise = Math.round(remaining * 100);
 
-      const result = await prisma.$transaction(async (tx) => {
-        const payment = await tx.payment.create({
-          data: {
-            invoiceId,
-            amount: remaining,
-            mode: "ONLINE",
-            transactionId: razorpayPaymentId,
-          },
+      // Cross-check the captured amount with Razorpay (server-to-server) to
+      // defeat a tampered browser POST that flips the rupee total. In mock
+      // mode (no creds) fetchOrderAmountPaid returns null and we skip the
+      // check — that's fine for dev but the production env always has creds.
+      const amountPaidPaise = await fetchOrderAmountPaid(razorpayOrderId);
+      if (amountPaidPaise !== null && amountPaidPaise < expectedPaise) {
+        console.warn("[billing] suspicious amount mismatch", {
+          invoiceId,
+          razorpayOrderId,
+          razorpayPaymentId,
+          expectedPaise,
+          amountPaidPaise,
+        });
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Captured amount is less than invoice balance",
+        });
+        return;
+      }
+
+      try {
+        const result = await prisma.$transaction(async (tx) => {
+          const payment = await tx.payment.create({
+            data: {
+              invoiceId,
+              amount: remaining,
+              mode: "ONLINE",
+              transactionId: razorpayPaymentId,
+              status: "CAPTURED",
+            },
+          });
+
+          const newTotalPaid = totalPaid + remaining;
+          const newStatus = newTotalPaid >= invoice.totalAmount ? "PAID" : "PARTIAL";
+
+          await tx.invoice.update({
+            where: { id: invoiceId },
+            data: { paymentStatus: newStatus },
+          });
+
+          return payment;
         });
 
-        const newTotalPaid = totalPaid + remaining;
-        const newStatus = newTotalPaid >= invoice.totalAmount ? "PAID" : "PARTIAL";
-
-        await tx.invoice.update({
-          where: { id: invoiceId },
-          data: { paymentStatus: newStatus },
-        });
-
-        return payment;
-      });
-
-      res.json({ success: true, data: result, error: null });
+        res.json({ success: true, data: result, error: null });
+      } catch (e: unknown) {
+        // P2002 = unique constraint failed — another concurrent request (most
+        // likely the webhook) recorded this payment first. Treat as success.
+        if (
+          e &&
+          typeof e === "object" &&
+          (e as { code?: string }).code === "P2002"
+        ) {
+          const dup = await prisma.payment.findUnique({
+            where: { transactionId: razorpayPaymentId },
+          });
+          res.json({
+            success: true,
+            data: { ...dup, alreadyProcessed: true },
+            error: null,
+          });
+          return;
+        }
+        throw e;
+      }
     } catch (err) {
       next(err);
     }
@@ -2109,6 +2203,18 @@ router.get(
   "/invoices/:id/pdf",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // `?format=pdf` -> real PDF, default -> legacy HTML print view.
+      if (req.query.format === "pdf") {
+        const buffer = await generateInvoicePDFBuffer(req.params.id);
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename=invoice-${req.params.id}.pdf`
+        );
+        res.setHeader("Content-Length", String(buffer.length));
+        res.end(buffer);
+        return;
+      }
       const html = await generateInvoicePDF(req.params.id);
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);
@@ -2123,3 +2229,259 @@ router.get(
 );
 
 export { router as billingRouter };
+
+// ─── RAZORPAY WEBHOOK ────────────────────────────────────
+//
+// Razorpay sends server-to-server callbacks for payment events. Unlike the
+// browser /verify-payment flow these are NOT authenticated by JWT — they are
+// authenticated by HMAC over the raw request body.
+//
+// This router is exported separately so it can be mounted BEFORE the auth
+// middleware on the main billing router. It also uses `express.raw` so we can
+// hash the un-parsed body — JSON.stringify on a parsed body would break HMAC
+// because key order / whitespace are not preserved.
+
+const webhookRouter = Router();
+
+interface WebhookPaymentEntity {
+  id?: string;
+  order_id?: string;
+  amount?: number; // paise
+  status?: string;
+  error_description?: string;
+  notes?: Record<string, string>;
+}
+interface WebhookEvent {
+  event?: string;
+  payload?: {
+    payment?: { entity?: WebhookPaymentEntity };
+    refund?: { entity?: { id?: string; payment_id?: string; amount?: number } };
+  };
+}
+
+async function handlePaymentCaptured(entity: WebhookPaymentEntity): Promise<void> {
+  const orderId = entity.order_id;
+  const paymentId = entity.id;
+  const amountPaise = entity.amount;
+  if (!orderId || !paymentId || typeof amountPaise !== "number") return;
+
+  // Idempotency check up front — Razorpay retries failed webhooks.
+  const existing = await prisma.payment.findUnique({
+    where: { transactionId: paymentId },
+  });
+  if (existing) return;
+
+  const invoice = await prisma.invoice.findFirst({
+    where: { razorpayOrderId: orderId },
+    include: { payments: true },
+  });
+  if (!invoice) {
+    console.warn("[razorpay-webhook] invoice not found for order", orderId);
+    return;
+  }
+
+  const totalPaid = invoice.payments.reduce((s, p) => s + p.amount, 0);
+  const remainingPaise = Math.round((invoice.totalAmount - totalPaid) * 100);
+  if (amountPaise < remainingPaise) {
+    console.warn("[razorpay-webhook] captured amount less than remaining", {
+      invoiceId: invoice.id,
+      amountPaise,
+      remainingPaise,
+    });
+    return;
+  }
+
+  const amountRupees = amountPaise / 100;
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.payment.create({
+        data: {
+          invoiceId: invoice.id,
+          amount: amountRupees,
+          mode: "ONLINE",
+          transactionId: paymentId,
+          status: "CAPTURED",
+        },
+      });
+      const newTotalPaid = totalPaid + amountRupees;
+      const newStatus = newTotalPaid >= invoice.totalAmount ? "PAID" : "PARTIAL";
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data: { paymentStatus: newStatus },
+      });
+    });
+
+    // Fire-and-forget notification — do NOT await; we want to ack the webhook
+    // quickly so Razorpay doesn't retry.
+    onPaymentReceived(
+      { id: paymentId, amount: amountRupees, mode: "ONLINE" },
+      {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        totalAmount: invoice.totalAmount,
+        patientId: invoice.patientId,
+      }
+    ).catch((e) => console.error("[razorpay-webhook] notify failed", e));
+  } catch (e: unknown) {
+    if (e && typeof e === "object" && (e as { code?: string }).code === "P2002") {
+      // Lost the race against /verify-payment — the row already exists. Ack OK.
+      return;
+    }
+    throw e;
+  }
+}
+
+async function handlePaymentFailed(entity: WebhookPaymentEntity): Promise<void> {
+  const orderId = entity.order_id;
+  const paymentId = entity.id;
+  if (!orderId || !paymentId) return;
+
+  const existing = await prisma.payment.findUnique({
+    where: { transactionId: paymentId },
+  });
+  if (existing) return;
+
+  const invoice = await prisma.invoice.findFirst({
+    where: { razorpayOrderId: orderId },
+  });
+  if (!invoice) return;
+
+  try {
+    await prisma.payment.create({
+      data: {
+        invoiceId: invoice.id,
+        amount: 0,
+        mode: "ONLINE",
+        transactionId: paymentId,
+        status: "FAILED",
+      },
+    });
+  } catch (e: unknown) {
+    if (e && typeof e === "object" && (e as { code?: string }).code === "P2002") return;
+    throw e;
+  }
+}
+
+async function handleRefundProcessed(entity: {
+  id?: string;
+  payment_id?: string;
+  amount?: number;
+}): Promise<void> {
+  const refundId = entity.id;
+  const paymentId = entity.payment_id;
+  if (!refundId || !paymentId) return;
+
+  const original = await prisma.payment.findUnique({
+    where: { transactionId: paymentId },
+  });
+  if (!original) return;
+
+  const refundTxnId = `RZP_REFUND:${refundId}`;
+  const dup = await prisma.payment.findUnique({
+    where: { transactionId: refundTxnId },
+  });
+  if (dup) return;
+
+  const refundAmount =
+    typeof entity.amount === "number" ? entity.amount / 100 : original.amount;
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.payment.create({
+        data: {
+          invoiceId: original.invoiceId,
+          amount: -Math.abs(refundAmount),
+          mode: "ONLINE",
+          transactionId: refundTxnId,
+          status: "REFUNDED",
+        },
+      });
+      const after = await tx.payment.findMany({
+        where: { invoiceId: original.invoiceId },
+      });
+      const net = after.reduce(
+        (s, p) => s + (p.status === "FAILED" ? 0 : p.amount),
+        0
+      );
+      const inv = await tx.invoice.findUnique({
+        where: { id: original.invoiceId },
+      });
+      if (!inv) return;
+      let newStatus: "PENDING" | "PARTIAL" | "PAID" | "REFUNDED";
+      if (net <= 0) newStatus = "REFUNDED";
+      else if (net >= inv.totalAmount) newStatus = "PAID";
+      else newStatus = "PARTIAL";
+      await tx.invoice.update({
+        where: { id: inv.id },
+        data: { paymentStatus: newStatus },
+      });
+    });
+  } catch (e: unknown) {
+    if (e && typeof e === "object" && (e as { code?: string }).code === "P2002") return;
+    throw e;
+  }
+}
+
+webhookRouter.post(
+  "/razorpay-webhook",
+  // raw-body: HMAC must be computed over the bytes Razorpay signed. Express's
+  // default JSON parser would discard whitespace + reorder keys, breaking the
+  // signature. Restrict the raw parser to ONLY this route.
+  express.raw({ type: "application/json", limit: "1mb" }),
+  async (req: Request, res: Response) => {
+    const signature = req.header("x-razorpay-signature");
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    const raw: Buffer = (req.body as Buffer) ?? Buffer.from("");
+
+    if (!signature) {
+      res.status(401).json({ success: false, error: "missing signature" });
+      return;
+    }
+    if (!verifyWebhookSignature(raw, signature, secret)) {
+      res.status(401).json({ success: false, error: "invalid signature" });
+      return;
+    }
+
+    let event: WebhookEvent;
+    try {
+      const text = Buffer.isBuffer(raw) ? raw.toString("utf8") : String(raw);
+      event = JSON.parse(text);
+    } catch {
+      res.status(400).json({ success: false, error: "invalid json" });
+      return;
+    }
+
+    // Ack quickly — do work synchronously only for idempotent state updates.
+    // Slow side-effects (notifications) are fire-and-forget inside handlers.
+    try {
+      switch (event.event) {
+        case "payment.captured":
+          if (event.payload?.payment?.entity) {
+            await handlePaymentCaptured(event.payload.payment.entity);
+          }
+          break;
+        case "payment.failed":
+          if (event.payload?.payment?.entity) {
+            await handlePaymentFailed(event.payload.payment.entity);
+          }
+          break;
+        case "refund.processed":
+          if (event.payload?.refund?.entity) {
+            await handleRefundProcessed(event.payload.refund.entity);
+          }
+          break;
+        default:
+          // Unknown / unhandled event — still 200 so Razorpay doesn't retry.
+          break;
+      }
+    } catch (e) {
+      console.error("[razorpay-webhook] handler error", e);
+      // Still 200: avoid an infinite Razorpay retry loop on handler bugs.
+      // Errors are logged for ops to investigate.
+    }
+
+    res.status(200).json({ success: true });
+  }
+);
+
+export { webhookRouter as razorpayWebhookRouter };

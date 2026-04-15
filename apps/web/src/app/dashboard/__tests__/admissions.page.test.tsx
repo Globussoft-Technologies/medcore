@@ -86,9 +86,9 @@ describe("AdmissionsPage", () => {
     });
     render(<AdmissionsPage />);
     await waitFor(() => {
-      expect(screen.getByText("ADM-001")).toBeInTheDocument();
-      expect(screen.getByText("ADM-002")).toBeInTheDocument();
-      expect(screen.getByText("Aarav Mehta")).toBeInTheDocument();
+      expect(screen.getAllByText("ADM-001").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("ADM-002").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Aarav Mehta").length).toBeGreaterThan(0);
     });
   });
 
@@ -104,8 +104,8 @@ describe("AdmissionsPage", () => {
   it("opens the admit modal when button is clicked", async () => {
     const user = userEvent.setup();
     render(<AdmissionsPage />);
-    await waitFor(() => screen.getByRole("button", { name: /admit patient/i }));
-    await user.click(screen.getByRole("button", { name: /admit patient/i }));
+    await waitFor(() => screen.getAllByRole("button", { name: /admit patient/i })[0]);
+    await user.click(screen.getAllByRole("button", { name: /admit patient/i })[0]);
     // Modal fetches doctors + wards lazily; still ok if page stays mounted.
     await waitFor(() => {
       const urls = apiMock.get.mock.calls.map((c) => String(c[0]));

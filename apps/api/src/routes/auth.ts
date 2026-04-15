@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
+import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { prisma } from "@medcore/db";
@@ -47,13 +48,14 @@ function consumeTempToken(token: string): string | null {
 }
 
 function generateTokens(userId: string, email: string, role: string) {
+  const jti = crypto.randomUUID();
   const accessToken = jwt.sign(
-    { userId, email, role },
+    { userId, email, role, jti },
     process.env.JWT_SECRET || "dev-secret",
     { expiresIn: "24h" }
   );
   const refreshToken = jwt.sign(
-    { userId, email, role },
+    { userId, email, role, jti: crypto.randomUUID() },
     process.env.JWT_REFRESH_SECRET || "dev-refresh-secret",
     { expiresIn: "7d" }
   );

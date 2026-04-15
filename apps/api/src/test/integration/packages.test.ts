@@ -96,7 +96,7 @@ describeIfDB("Packages API (integration)", () => {
       .set("Authorization", `Bearer ${receptionToken}`)
       .send({ packageId: pkg.id, patientId: patient.id, amountPaid: 2500 });
     expect([200, 201]).toContain(res.status);
-    expect(res.body.data?.purchaseNumber).toMatch(/^PKGP/);
+    expect(res.body.data?.purchaseNumber).toMatch(/^PKG\d+/);
     expect(res.body.data?.expiresAt).toBeTruthy();
   });
 

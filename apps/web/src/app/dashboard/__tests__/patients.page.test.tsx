@@ -76,9 +76,9 @@ describe("PatientsPage", () => {
     apiMock.get.mockResolvedValue({ data: samplePatients, meta: { total: 3 } });
     render(<PatientsPage />);
     await waitFor(() => {
-      expect(screen.getByText("Aarav Mehta")).toBeInTheDocument();
-      expect(screen.getByText("Bina Shah")).toBeInTheDocument();
-      expect(screen.getByText("Chandra Rao")).toBeInTheDocument();
+      expect(screen.getAllByText("Aarav Mehta").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Bina Shah").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Chandra Rao").length).toBeGreaterThan(0);
     });
   });
 

@@ -101,7 +101,11 @@ test.describe("Doctor journeys", () => {
     const page = doctorPage;
     await page.goto("/dashboard/ot");
     await expect(
-      page.getByRole("heading", { name: /ot|theatre|surgery/i }).first()
+      page
+        .getByRole("heading", {
+          name: /operating|theatre|theater|surgery|\bot\b/i,
+        })
+        .first()
     ).toBeVisible({ timeout: 15_000 });
 
     const newBtn = page

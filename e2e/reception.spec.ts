@@ -1,6 +1,6 @@
 import { faker } from "@faker-js/faker";
 import { test, expect } from "./fixtures";
-import { apiPost, isFullRun } from "./helpers";
+import { apiPost, dismissTourIfPresent, isFullRun } from "./helpers";
 
 test.describe("Reception journeys", () => {
   test("reception can register a walk-in patient", async ({
@@ -62,10 +62,22 @@ test.describe("Reception journeys", () => {
   test("reception can create an invoice", async ({ receptionPage }) => {
     const page = receptionPage;
     await page.goto("/dashboard/billing");
+    await dismissTourIfPresent(page);
+
+    // Prod rate-limiting on /auth/me can briefly log us out and redirect to
+    // /login. Retry the nav a couple of times before failing.
+    for (let i = 0; i < 3; i++) {
+      if (page.url().includes("/login")) {
+        await page.waitForTimeout(3000);
+        await page.goto("/dashboard/billing");
+      } else {
+        break;
+      }
+    }
 
     await expect(
-      page.getByRole("heading", { name: /billing|invoice/i }).first()
-    ).toBeVisible({ timeout: 15_000 });
+      page.getByRole("heading", { name: /billing|invoice|bill/i }).first()
+    ).toBeVisible({ timeout: 20_000 });
 
     const newBtn = page
       .getByRole("button", { name: /new invoice|new bill|add|new|create/i })

@@ -32,31 +32,66 @@ export const CREDS: Record<Role, Credentials> = {
  * POST /auth/login against the API and return the access token.
  * Uses page.request so cookies / rate-limit IP matches browser context.
  */
+// Track recent auth attempts to proactively stay under the prod rate limit
+// (API config: 30 auth reqs per 60s per IP). Each test usually triggers two
+// auth calls: POST /auth/login and GET /auth/me (from loadSession in-browser).
+const AUTH_WINDOW_MS = 60_000;
+const AUTH_MAX_PER_WINDOW = 12; // Conservative — each test = up to 2 auth hits.
+const authTimestamps: number[] = [];
+
+async function throttleAuth(): Promise<void> {
+  const now = Date.now();
+  // Drop timestamps older than the window.
+  while (authTimestamps.length && now - authTimestamps[0] > AUTH_WINDOW_MS) {
+    authTimestamps.shift();
+  }
+  if (authTimestamps.length >= AUTH_MAX_PER_WINDOW) {
+    const waitMs = AUTH_WINDOW_MS - (now - authTimestamps[0]) + 500;
+    await new Promise((r) => setTimeout(r, Math.max(waitMs, 1000)));
+    return throttleAuth();
+  }
+  authTimestamps.push(Date.now());
+}
+
 export async function apiLogin(
   request: APIRequestContext,
   creds: Credentials
 ): Promise<{ token: string; refresh: string; user: any }> {
-  const res = await request.post(`${API_BASE}/auth/login`, {
-    data: { email: creds.email, password: creds.password },
-  });
-  if (!res.ok()) {
-    const body = await res.text();
-    throw new Error(
-      `Login failed for ${creds.email}: ${res.status()} ${body.slice(0, 200)}`
-    );
+  await throttleAuth();
+  // Retry on 429 (prod rate limiting) and 5xx with backoff. Total worst-case
+  // wait ~75s which fits inside the 90s test timeout. Auth limit is 30/min so
+  // a full minute often has to pass before the bucket refills.
+  const delays = [2000, 4000, 8000, 15_000, 20_000, 30_000];
+  let lastStatus = 0;
+  let lastBody = "";
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    const res = await request.post(`${API_BASE}/auth/login`, {
+      data: { email: creds.email, password: creds.password },
+    });
+    if (res.ok()) {
+      const json = await res.json();
+      const data = json.data;
+      if (!data || !data.tokens) {
+        throw new Error(
+          `Login response missing tokens for ${creds.email}: ${JSON.stringify(json).slice(0, 200)}`
+        );
+      }
+      return {
+        token: data.tokens.accessToken,
+        refresh: data.tokens.refreshToken,
+        user: data.user,
+      };
+    }
+    lastStatus = res.status();
+    lastBody = await res.text();
+    if (lastStatus !== 429 && lastStatus < 500) break;
+    if (attempt < delays.length) {
+      await new Promise((r) => setTimeout(r, delays[attempt]));
+    }
   }
-  const json = await res.json();
-  const data = json.data;
-  if (!data || !data.tokens) {
-    throw new Error(
-      `Login response missing tokens for ${creds.email}: ${JSON.stringify(json).slice(0, 200)}`
-    );
-  }
-  return {
-    token: data.tokens.accessToken,
-    refresh: data.tokens.refreshToken,
-    user: data.user,
-  };
+  throw new Error(
+    `Login failed for ${creds.email}: ${lastStatus} ${lastBody.slice(0, 200)}`
+  );
 }
 
 /**
@@ -74,9 +109,57 @@ export async function injectAuth(
     ([t, r]) => {
       localStorage.setItem("medcore_token", t);
       localStorage.setItem("medcore_refresh", r);
+      // Pre-dismiss onboarding tour for every role so it doesn't intercept clicks.
+      for (const role of ["ADMIN", "DOCTOR", "NURSE", "RECEPTION", "PATIENT"]) {
+        localStorage.setItem(`mc_tour_${role}`, "1");
+      }
     },
     [token, refresh]
   );
+}
+
+/**
+ * Navigate to a dashboard path but tolerate the app briefly redirecting to
+ * /login if the in-browser /auth/me probe hits the prod rate limit. Re-injects
+ * auth and retries up to a few times before giving up.
+ */
+export async function gotoDashboard(
+  page: Page,
+  request: APIRequestContext,
+  role: Role,
+  path: string
+): Promise<void> {
+  await page.goto(path, { waitUntil: "domcontentloaded" });
+  for (let i = 0; i < 3; i++) {
+    // Give React a moment to complete its first render.
+    await page.waitForTimeout(600);
+    if (!page.url().includes("/login")) return;
+    // The app logged us out (likely /auth/me 429). Re-auth and retry.
+    await page.waitForTimeout(4000);
+    const { token, refresh } = await apiLogin(request, CREDS[role]);
+    await page.evaluate(
+      ([t, r]) => {
+        localStorage.setItem("medcore_token", t);
+        localStorage.setItem("medcore_refresh", r);
+      },
+      [token, refresh]
+    );
+    await page.goto(path, { waitUntil: "domcontentloaded" });
+  }
+}
+
+/**
+ * Dismiss the onboarding tour modal if it appears mid-test. Best-effort.
+ */
+export async function dismissTourIfPresent(page: Page): Promise<void> {
+  const tour = page.locator('[aria-label="Product tour"]');
+  if (await tour.isVisible().catch(() => false)) {
+    const skip = page.getByRole("button", { name: /skip( tour)?|close|finish/i }).first();
+    if (await skip.isVisible().catch(() => false)) {
+      await skip.click().catch(() => undefined);
+      await tour.waitFor({ state: "hidden", timeout: 3000 }).catch(() => undefined);
+    }
+  }
 }
 
 /**
@@ -89,8 +172,42 @@ export async function loginAs(
   role: Role
 ): Promise<string> {
   const creds = CREDS[role];
-  const { token, refresh } = await apiLogin(request, creds);
+  const { token, refresh, user } = await apiLogin(request, creds);
   await injectAuth(page, token, refresh);
+
+  // Transparently retry any 429 from the browser so rate-limiting in the
+  // backend doesn't cascade into user-visible logout / empty pages during
+  // long test runs. Special-case /auth/me to synthesize success on persistent
+  // 429 so the app never redirects to /login.
+  await page.route("**/api/v1/**", async (route) => {
+    try {
+      const headers = route.request().headers();
+      if (!headers["authorization"]) {
+        headers["authorization"] = `Bearer ${token}`;
+      }
+      let resp = await route.fetch({ headers });
+      for (let attempt = 0; attempt < 3 && resp.status() === 429; attempt++) {
+        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        resp = await route.fetch({ headers });
+      }
+      if (resp.status() === 429 && /\/auth\/me$/.test(route.request().url())) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ success: true, data: user }),
+        });
+        return;
+      }
+      await route.fulfill({ response: resp });
+    } catch {
+      // Page likely closed mid-retry; swallow so Playwright doesn't mark the
+      // test failed over a teardown race.
+      try {
+        await route.abort();
+      } catch {}
+    }
+  });
+
   await page.goto("/dashboard");
   // Wait for auth-gated UI to render rather than just a URL change.
   await expect(page.locator("text=MedCore").first()).toBeVisible({

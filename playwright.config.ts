@@ -10,14 +10,14 @@ const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:3000";
 
 export default defineConfig({
   testDir: "./e2e",
-  timeout: 45_000,
+  timeout: 120_000,
   expect: {
     timeout: 10_000,
   },
-  fullyParallel: true,
+  fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: 1,
-  workers: process.env.CI ? 2 : undefined,
+  retries: 0,
+  workers: 1,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL: BASE_URL,

@@ -70,3 +70,31 @@ export const api = {
   delete: <T>(endpoint: string, opts?: FetchOptions) =>
     request<T>(endpoint, { method: "DELETE", ...opts }),
 };
+
+/**
+ * Open an authenticated HTML print endpoint in a new window.
+ * Fetches with the user's JWT, then writes the HTML response to a blank popup
+ * which auto-triggers the browser print dialog.
+ */
+export async function openPrintEndpoint(endpoint: string): Promise<void> {
+  const token =
+    typeof window !== "undefined"
+      ? localStorage.getItem("medcore_token")
+      : null;
+  // Open early to avoid popup blockers
+  const win = window.open("", "_blank");
+  try {
+    const res = await fetch(`${API_BASE}${endpoint}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const html = await res.text();
+    if (win) {
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+    }
+  } catch (err) {
+    if (win) win.close();
+    alert(err instanceof Error ? err.message : "Failed to open document");
+  }
+}

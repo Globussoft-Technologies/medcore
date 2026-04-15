@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import { prisma } from "@medcore/db";
 import { NotificationType } from "@medcore/shared";
 import { sendNotification, drainScheduled } from "./notification";
@@ -358,6 +360,58 @@ async function autoDraftPurchaseOrders(): Promise<void> {
   }
 }
 
+// ─── Cleanup orphaned uploads (Task: cleanup_orphaned_uploads) ──
+//
+// Walks the on-disk EHR upload directory and deletes physical files that
+// are NOT referenced by any PatientDocument.filePath AND are older than
+// 30 days. This handles the case where an upload was written to disk but
+// the PatientDocument row was never created (eg. failed transaction) or
+// was hard-deleted afterwards. Logs the count of removed files.
+async function cleanupOrphanedUploads(): Promise<void> {
+  try {
+    const uploadDir = path.join(process.cwd(), "uploads", "ehr");
+    if (!fs.existsSync(uploadDir)) return;
+    const cutoffMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    let entries: string[] = [];
+    try {
+      entries = fs.readdirSync(uploadDir);
+    } catch {
+      return;
+    }
+    if (entries.length === 0) return;
+
+    // Build a set of all referenced storage filenames.
+    const referenced = new Set<string>();
+    const docs = await prisma.patientDocument.findMany({
+      select: { filePath: true },
+    });
+    for (const d of docs) {
+      if (!d.filePath) continue;
+      referenced.add(path.basename(d.filePath));
+    }
+
+    let removed = 0;
+    for (const name of entries) {
+      try {
+        if (referenced.has(name)) continue;
+        const full = path.join(uploadDir, name);
+        const stat = fs.statSync(full);
+        if (!stat.isFile()) continue;
+        if (stat.mtimeMs > cutoffMs) continue; // not old enough
+        fs.unlinkSync(full);
+        removed += 1;
+      } catch (err) {
+        console.error("[cleanup_orphaned_uploads] unlink", name, err);
+      }
+    }
+    if (removed > 0) {
+      console.log(`[cleanup_orphaned_uploads] removed ${removed} orphan file(s)`);
+    }
+  } catch (err) {
+    console.error("[cleanup_orphaned_uploads]", err);
+  }
+}
+
 // ─── Drain queued (deferred) notifications ─────────────
 
 async function notificationDrainQueued(): Promise<void> {
@@ -419,6 +473,11 @@ const TASKS: ScheduledTask[] = [
     name: "notification_drain_queued",
     intervalMinutes: 1,
     run: notificationDrainQueued,
+  },
+  {
+    name: "cleanup_orphaned_uploads",
+    intervalMinutes: 24 * 60,
+    run: cleanupOrphanedUploads,
   },
 ];
 

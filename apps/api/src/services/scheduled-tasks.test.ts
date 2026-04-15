@@ -16,6 +16,9 @@ const { sendNotification, prismaMock } = vi.hoisted(() => ({
       findFirst: vi.fn(async () => null),
       create: vi.fn(async (args: any) => ({ id: "po-1", ...args.data })),
     },
+    patientDocument: {
+      findMany: vi.fn(async () => []),
+    },
   } as any,
 }));
 

@@ -13,6 +13,7 @@ import {
   generatePrescriptionPDF,
   generatePrescriptionVerifyHTML,
 } from "../services/pdf";
+import { generatePrescriptionPDFBuffer } from "../services/pdf-generator";
 import { onPrescriptionReady } from "../services/notification-triggers";
 import { auditLog } from "../middleware/audit";
 
@@ -321,6 +322,20 @@ router.get(
   "/:id/pdf",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // ?format=pdf -> real server-rendered PDF buffer (application/pdf).
+      // Default behavior remains HTML (used by the existing in-browser
+      // print-view flow) so this is a backward-compatible addition.
+      if (req.query.format === "pdf") {
+        const buffer = await generatePrescriptionPDFBuffer(req.params.id);
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename=prescription-${req.params.id}.pdf`
+        );
+        res.setHeader("Content-Length", String(buffer.length));
+        res.end(buffer);
+        return;
+      }
       const html = await generatePrescriptionPDF(req.params.id);
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);

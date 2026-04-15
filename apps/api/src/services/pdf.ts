@@ -1,4 +1,5 @@
 import { prisma } from "@medcore/db";
+import { generatePrescriptionQrDataUrl } from "./pdf-generator";
 
 // ─── Helpers ────────────────────────────────────────────
 
@@ -239,13 +240,20 @@ export async function generatePrescriptionPDF(
 
   const verifyUrl = `https://medcore.globusdemos.com/verify/rx/${prescription.id}`;
 
-  // CSS-based fake QR / barcode placeholder
+  // Real, scannable QR code (PNG embedded as data URL). Falls back to a
+  // text-only block if QR generation fails for any reason — better to ship
+  // a printable Rx than to crash the request.
+  let qrImgTag = "";
+  try {
+    const dataUrl = await generatePrescriptionQrDataUrl(prescription.id);
+    qrImgTag = `<img src="${dataUrl}" alt="Verification QR" style="width:120px;height:120px;border:1px solid #e5e7eb;border-radius:4px;" />`;
+  } catch {
+    qrImgTag = `<div style="width:120px;height:120px;border:1px dashed #cbd5e1;display:flex;align-items:center;justify-content:center;font-size:10px;color:#94a3b8;">QR unavailable</div>`;
+  }
+
   const qrSection = `
   <div style="display:flex;align-items:center;gap:14px;margin-top:24px;padding:12px;border:1px dashed #cbd5e1;border-radius:6px;">
-    <div style="width:80px;height:80px;background:
-       repeating-linear-gradient(0deg,#000 0 4px,#fff 4px 8px),
-       repeating-linear-gradient(90deg,#000 0 4px,transparent 4px 8px);
-       border:2px solid #000;"></div>
+    ${qrImgTag}
     <div style="font-size:11px;color:#475569;">
       <p style="font-weight:600;margin-bottom:2px;">Authenticity Verification</p>
       <p>Scan this QR or visit:</p>

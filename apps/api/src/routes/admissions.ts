@@ -15,6 +15,7 @@ import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { generateDischargeSummaryHTML } from "../services/pdf";
+import { generateDischargeSummaryPDFBuffer } from "../services/pdf-generator";
 
 const router = Router();
 router.use(authenticate);
@@ -1275,6 +1276,18 @@ router.get(
   "/:id/discharge-summary-pdf",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // `?format=pdf` -> real PDF, default -> legacy HTML print view.
+      if (req.query.format === "pdf") {
+        const buffer = await generateDischargeSummaryPDFBuffer(req.params.id);
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename=discharge-summary-${req.params.id}.pdf`
+        );
+        res.setHeader("Content-Length", String(buffer.length));
+        res.end(buffer);
+        return;
+      }
       const html = await generateDischargeSummaryHTML(req.params.id);
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);

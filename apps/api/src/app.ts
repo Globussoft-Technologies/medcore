@@ -41,6 +41,7 @@ import { bloodbankRouter } from "./routes/bloodbank";
 import { ambulanceRouter } from "./routes/ambulance";
 import { assetsRouter } from "./routes/assets";
 import { feedbackRouter, complaintsRouter } from "./routes/feedback";
+import { marketingRouter } from "./routes/marketing";
 import { chatRouter } from "./routes/chat";
 import { visitorsRouter } from "./routes/visitors";
 import { hrOpsRouter } from "./routes/hr-ops";
@@ -150,6 +151,7 @@ export function buildApp() {
   app.use("/api/v1/payment-plans", paymentPlansRouter);
   app.use("/api/v1/preauth", preauthRouter);
   app.use("/api/v1/scheduled-reports", scheduledReportsRouter);
+  app.use("/api/v1/marketing", marketingRouter);
   app.use("/api/v1", patientExtrasRouter);
 
   // Health check

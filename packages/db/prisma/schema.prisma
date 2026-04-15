@@ -3211,3 +3211,23 @@ model ComponentSeparation {
   @@index([sourceDonationId])
   @@map("component_separations")
 }
+
+// ─── MARKETING ENQUIRY ──────────────────────────────────
+model MarketingEnquiry {
+  id                   String    @id @default(uuid())
+  fullName             String
+  email                String
+  phone                String
+  hospitalName         String
+  hospitalSize         String // "1-10" | "10-50" | "50-200" | "200+"
+  role                 String // "Administrator" | "Doctor" | "IT" | "Other"
+  message              String?
+  preferredContactTime String? // "Morning" | "Afternoon" | "Evening" | "Anytime"
+  source               String    @default("website")
+  createdAt            DateTime  @default(now())
+  forwardedToCrmAt     DateTime?
+
+  @@index([createdAt])
+  @@index([email])
+  @@map("marketing_enquiries")
+}

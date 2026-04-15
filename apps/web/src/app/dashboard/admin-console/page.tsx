@@ -145,7 +145,7 @@ export default function AdminConsolePage() {
 
   if (!user || user.role !== "ADMIN") {
     return (
-      <div className="p-8 text-center text-gray-500">
+      <div className="p-8 text-center text-gray-700">
         Admin Console restricted to administrators.
       </div>
     );
@@ -192,7 +192,7 @@ export default function AdminConsolePage() {
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Admin Console</h1>
-          <p className="text-sm text-gray-500">Command center for hospital operations</p>
+          <p className="text-sm text-gray-700">Command center for hospital operations</p>
         </div>
         <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
           ADMIN
@@ -341,7 +341,7 @@ export default function AdminConsolePage() {
                 rosterToday.filter((s: any) => s.user?.role === "DOCTOR").length,
                 1
               )}
-              color="bg-blue-500"
+              color="bg-blue-700"
               forceFull
             />
             <ResourceBar
@@ -360,7 +360,7 @@ export default function AdminConsolePage() {
           </div>
 
           <div className="mt-4 border-t pt-3">
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-700">
               Quick Links
             </h3>
             <div className="grid grid-cols-3 gap-2 text-xs">
@@ -379,7 +379,7 @@ export default function AdminConsolePage() {
       </div>
 
       {!loaded && (
-        <p className="text-center text-xs text-gray-400">Loading…</p>
+        <p className="text-center text-xs text-gray-600">Loading…</p>
       )}
     </div>
   );
@@ -437,7 +437,7 @@ function Alert({
         <Icon size={16} />
       </div>
       <div>
-        <p className="text-[11px] text-gray-500">{label}</p>
+        <p className="text-[11px] text-gray-700">{label}</p>
         <p className="text-lg font-bold text-gray-800">{value}</p>
       </div>
     </Link>
@@ -457,7 +457,7 @@ function Snap({
 }) {
   return (
     <div className="rounded-lg bg-gray-50 p-3">
-      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-700">
         <Icon size={12} /> {label}
       </div>
       <p className="mt-1 text-lg font-bold text-gray-800">
@@ -491,7 +491,7 @@ function ApprovalGroup({
         </Link>
       </div>
       {items.length === 0 ? (
-        <p className="px-2 py-1 text-xs text-gray-400">No pending items</p>
+        <p className="px-2 py-1 text-xs text-gray-600">No pending items</p>
       ) : (
         <div className="space-y-1.5">
           {items.map((it) => (
@@ -503,7 +503,7 @@ function ApprovalGroup({
                 <p className="truncate text-xs font-medium text-gray-800">
                   {it.primary}
                 </p>
-                <p className="truncate text-[11px] text-gray-500">
+                <p className="truncate text-[11px] text-gray-700">
                   {it.secondary}
                 </p>
               </div>

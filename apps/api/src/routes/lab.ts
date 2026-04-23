@@ -20,6 +20,7 @@ import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { generateLabReportHTML } from "../services/pdf";
 import { sendNotification } from "../services/notification";
+import { ingestLabResult, fireAndForgetIngest } from "../services/ai/rag-ingest";
 
 const router = Router();
 router.use(authenticate);
@@ -405,6 +406,10 @@ router.post(
           deltaFlag,
         },
       });
+
+      // Index abnormal/delta results into the RAG knowledge base. Normal
+      // values are skipped inside ingestLabResult to avoid index flooding.
+      fireAndForgetIngest("ingestLabResult", () => ingestLabResult(result.id));
 
       // Fire-and-forget notify doctor when delta is significant
       if (deltaFlag && orderContext) {

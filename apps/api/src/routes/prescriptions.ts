@@ -16,6 +16,7 @@ import {
 import { generatePrescriptionPDFBuffer } from "../services/pdf-generator";
 import { onPrescriptionReady } from "../services/notification-triggers";
 import { auditLog } from "../middleware/audit";
+import { ingestPrescription, fireAndForgetIngest } from "../services/ai/rag-ingest";
 
 const router = Router();
 router.use(authenticate);
@@ -212,6 +213,10 @@ router.post(
         warningCount: warnings.length,
         overrideWarnings: Boolean(overrideWarnings),
       }).catch(console.error);
+
+      // Index the prescription into the RAG knowledge base so cohort/chart
+      // searches ("which of my patients are on metformin?") can find it.
+      fireAndForgetIngest("ingestPrescription", () => ingestPrescription(prescription.id));
 
       res.status(201).json({
         success: true,
@@ -484,6 +489,9 @@ router.post(
         },
         include: { items: true },
       });
+
+      // Index copied prescription into RAG
+      fireAndForgetIngest("ingestPrescription(copy)", () => ingestPrescription(created.id));
 
       auditLog(req, "COPY_PRESCRIPTION", "prescription", created.id, {
         copiedFrom: previousPrescriptionId,

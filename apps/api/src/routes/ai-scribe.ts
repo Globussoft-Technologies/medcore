@@ -13,6 +13,7 @@ import { generateSOAPNote } from "../services/ai/sarvam";
 import { checkDrugSafety } from "../services/ai/drug-interactions";
 import { auditLog } from "../middleware/audit";
 import { sendNotification } from "../services/notification";
+import { ingestConsultation, fireAndForgetIngest } from "../services/ai/rag-ingest";
 
 const router = Router();
 router.use(authenticate);
@@ -284,6 +285,7 @@ router.post(
       });
 
       // Write SOAP note to EHR (consultation record)
+      let consultationIdForIngest: string | null = null;
       if (soapFinal) {
         const existingConsultation = await prisma.consultation.findUnique({
           where: { appointmentId: session.appointmentId },
@@ -292,12 +294,13 @@ router.post(
         const notes = `[AI Scribe — Doctor Approved]\n\nSubjective: ${JSON.stringify(soapFinal.subjective)}\n\nObjective: ${JSON.stringify(soapFinal.objective)}\n\nAssessment: ${soapFinal.assessment?.impression}\n\nPlan: ${JSON.stringify(soapFinal.plan)}`;
 
         if (existingConsultation) {
-          await prisma.consultation.update({
+          const updated = await prisma.consultation.update({
             where: { appointmentId: session.appointmentId },
             data: { notes },
           });
+          consultationIdForIngest = updated.id;
         } else {
-          await prisma.consultation.create({
+          const created = await prisma.consultation.create({
             data: {
               appointmentId: session.appointmentId,
               doctorId: session.doctorId,
@@ -305,7 +308,16 @@ router.post(
               findings: soapFinal.objective?.examinationFindings || "",
             },
           });
+          consultationIdForIngest = created.id;
         }
+      }
+
+      // Fire-and-forget: index this consultation into the RAG knowledge base
+      // so the chart-search endpoint can find it later. Non-blocking.
+      if (consultationIdForIngest) {
+        fireAndForgetIngest("ingestConsultation", () =>
+          ingestConsultation(consultationIdForIngest as string)
+        );
       }
 
       // Auto-create draft lab orders from SOAP plan.investigations

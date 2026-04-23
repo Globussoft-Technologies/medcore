@@ -67,6 +67,27 @@ export default function HomeScreen() {
       bg: "#ecfdf5",
       onPress: () => router.push("/(tabs)/prescriptions"),
     },
+    {
+      title: "AI Triage",
+      icon: "medkit" as const,
+      color: "#dc2626",
+      bg: "#fee2e2",
+      onPress: () => router.push("/ai/triage"),
+    },
+    {
+      title: "Lab Explanations",
+      icon: "flask" as const,
+      color: "#0891b2",
+      bg: "#ecfeff",
+      onPress: () => router.push("/ai/lab-explanation"),
+    },
+    {
+      title: "My Medications",
+      icon: "alarm" as const,
+      color: "#d97706",
+      bg: "#fffbeb",
+      onPress: () => router.push("/ai/adherence"),
+    },
   ];
 
   return (
@@ -222,11 +243,12 @@ const styles = StyleSheet.create({
   },
   actionsRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     paddingHorizontal: 14,
     gap: 10,
   },
   actionCard: {
-    flex: 1,
+    width: "31%",
     borderRadius: 12,
     padding: 14,
     alignItems: "center",

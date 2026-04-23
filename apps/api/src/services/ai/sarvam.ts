@@ -84,6 +84,54 @@ function getFnCall(response: OpenAI.Chat.Completions.ChatCompletion) {
   return raw?.type === "function" ? raw : undefined;
 }
 
+// ── generateText ──────────────────────────────────────────────────────────────
+
+/**
+ * Generic text-generation helper used by chart search synthesis and similar
+ * open-ended LLM tasks that don't need function-calling. Returns plain text.
+ * Falls back to an empty string on transport failure so callers can degrade
+ * gracefully (e.g. still return raw chunks when the LLM is offline).
+ */
+export async function generateText(opts: {
+  systemPrompt: string;
+  userPrompt: string;
+  maxTokens?: number;
+  temperature?: number;
+}): Promise<string> {
+  const t0 = Date.now();
+  try {
+    const response = await withRetry(() =>
+      sarvam.chat.completions.create({
+        model: MODEL,
+        max_tokens: opts.maxTokens ?? 1024,
+        temperature: opts.temperature ?? 0.2,
+        messages: [
+          { role: "system", content: opts.systemPrompt },
+          { role: "user", content: opts.userPrompt },
+        ],
+      })
+    );
+    logAICall({
+      feature: "scribe",
+      model: MODEL,
+      promptTokens: response.usage?.prompt_tokens ?? 0,
+      completionTokens: response.usage?.completion_tokens ?? 0,
+      latencyMs: Date.now() - t0,
+    });
+    return response.choices[0]?.message?.content ?? "";
+  } catch (err) {
+    logAICall({
+      feature: "scribe",
+      model: MODEL,
+      promptTokens: 0,
+      completionTokens: 0,
+      latencyMs: Date.now() - t0,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return "";
+  }
+}
+
 // ── runTriageTurn ─────────────────────────────────────────────────────────────
 
 /**

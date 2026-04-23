@@ -3,7 +3,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
-import { Plus, Video, Star, XCircle, Play, Square } from "lucide-react";
+import {
+  Plus,
+  Video,
+  Star,
+  XCircle,
+  Play,
+  Square,
+  UserCheck,
+  UserX,
+} from "lucide-react";
+import { getSocket } from "@/lib/socket";
 
 interface PatientLite {
   id: string;
@@ -222,6 +232,37 @@ export default function TelemedicinePage() {
     }
   }
 
+  async function admitPatient(id: string, admit: boolean) {
+    const reason = admit
+      ? undefined
+      : window.prompt("Reason for denying (optional):") || undefined;
+    try {
+      const res = await api.post<{
+        data: { doctorUrl?: string | null; patientUrl?: string | null };
+      }>(`/telemedicine/${id}/waiting-room/admit`, { admit, reason });
+      if (admit && res.data?.doctorUrl) {
+        window.open(res.data.doctorUrl, "_blank", "noopener");
+      }
+      loadSessions();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Admit failed");
+    }
+  }
+
+  // Listen for patient-waiting notifications
+  useEffect(() => {
+    if (!user?.id) return;
+    if (user.role !== "DOCTOR" && user.role !== "ADMIN") return;
+    const socket = getSocket();
+    if (!socket.connected) socket.connect();
+    socket.emit("join", `telemedicine:doctor:${user.id}`);
+    const handler = () => loadSessions();
+    socket.on("telemedicine:patient-waiting", handler);
+    return () => {
+      socket.off("telemedicine:patient-waiting", handler);
+    };
+  }, [user?.id, user?.role]);
+
   async function submitRating() {
     if (!ratingSession) return;
     try {
@@ -356,6 +397,22 @@ export default function TelemedicinePage() {
                     >
                       <Play size={14} /> Start
                     </button>
+                  )}
+                  {canStartEnd && s.status === "WAITING" && (
+                    <>
+                      <button
+                        onClick={() => admitPatient(s.id, true)}
+                        className="flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
+                      >
+                        <UserCheck size={14} /> Admit
+                      </button>
+                      <button
+                        onClick={() => admitPatient(s.id, false)}
+                        className="flex items-center gap-1 rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
+                      >
+                        <UserX size={14} /> Deny
+                      </button>
+                    </>
                   )}
                   {canStartEnd && s.status === "IN_PROGRESS" && (
                     <button

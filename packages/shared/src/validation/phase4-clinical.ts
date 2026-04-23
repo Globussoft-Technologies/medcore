@@ -139,6 +139,37 @@ export const telemedPrescriptionSchema = z.object({
   advice: z.string().optional(),
 });
 
+// ─── Jitsi deep-integration schemas (Apr 2026) ──────────────
+export const telemedWaitingRoomJoinSchema = z.object({
+  deviceInfo: z
+    .object({
+      userAgent: z.string().optional(),
+      camera: z.boolean().optional(),
+      mic: z.boolean().optional(),
+    })
+    .optional(),
+});
+
+export const telemedWaitingRoomAdmitSchema = z.object({
+  admit: z.boolean(),
+  reason: z.string().max(500).optional(),
+});
+
+export const telemedPrecheckSchema = z.object({
+  camera: z.boolean(),
+  mic: z.boolean(),
+  bandwidthKbps: z.number().int().nonnegative().optional(),
+  userAgent: z.string().max(500).optional(),
+});
+
+export const telemedRecordingStartSchema = z.object({
+  consent: z.boolean(),
+});
+
+export const telemedRecordingStopSchema = z.object({
+  recordingUrl: z.string().url().optional(),
+});
+
 export type CreateTelemedicineInput = z.infer<typeof createTelemedicineSchema>;
 export type UpdateTelemedicineStatusInput = z.infer<
   typeof updateTelemedicineStatusSchema
@@ -162,6 +193,11 @@ export type MassCasualtyInput = z.infer<typeof massCasualtySchema>;
 export type TelemedTechIssuesInput = z.infer<typeof telemedTechIssuesSchema>;
 export type TelemedFollowUpInput = z.infer<typeof telemedFollowUpSchema>;
 export type TelemedPrescriptionInput = z.infer<typeof telemedPrescriptionSchema>;
+export type TelemedWaitingRoomJoinInput = z.infer<typeof telemedWaitingRoomJoinSchema>;
+export type TelemedWaitingRoomAdmitInput = z.infer<typeof telemedWaitingRoomAdmitSchema>;
+export type TelemedPrecheckInput = z.infer<typeof telemedPrecheckSchema>;
+export type TelemedRecordingStartInput = z.infer<typeof telemedRecordingStartSchema>;
+export type TelemedRecordingStopInput = z.infer<typeof telemedRecordingStopSchema>;
 
 // ─── Surgery: Anesthesia record (Apr 2026) ───────────
 export const ANESTHESIA_TYPES = [

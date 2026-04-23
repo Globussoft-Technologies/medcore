@@ -9,10 +9,71 @@ import {
   telemedTechIssuesSchema,
   telemedFollowUpSchema,
   telemedPrescriptionSchema,
+  telemedWaitingRoomJoinSchema,
+  telemedWaitingRoomAdmitSchema,
+  telemedPrecheckSchema,
+  telemedRecordingStartSchema,
+  telemedRecordingStopSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { signedJitsiRoomUrl } from "../services/jitsi";
+
+/**
+ * Helper — decode/encode the "consult state envelope" we stash in
+ * `preConsultQuestions` until the dedicated columns land in schema.prisma
+ * (see apps/api/src/services/.prisma-models-jitsi.md). Shape:
+ *   {
+ *     waitingRoomState: "IDLE" | "PATIENT_WAITING" | "ADMITTED" | "DENIED",
+ *     admittedAt?: ISO,
+ *     deniedAt?: ISO,
+ *     denyReason?: string,
+ *     precheck?: { passed: boolean, camera: boolean, mic: boolean, at: ISO, bandwidthKbps?, userAgent? },
+ *     recording?: { startedAt?: ISO, stoppedAt?: ISO, url?: string, consent?: boolean },
+ *     jitsiRoom?: string,
+ *     // Consumers may also write `questions` from the legacy pre-consult UI
+ *     questions?: unknown,
+ *   }
+ */
+interface ConsultStateEnvelope {
+  waitingRoomState?: "IDLE" | "PATIENT_WAITING" | "ADMITTED" | "DENIED";
+  admittedAt?: string;
+  deniedAt?: string;
+  denyReason?: string;
+  precheck?: {
+    passed: boolean;
+    camera: boolean;
+    mic: boolean;
+    at: string;
+    bandwidthKbps?: number;
+    userAgent?: string;
+  };
+  recording?: {
+    startedAt?: string;
+    stoppedAt?: string;
+    url?: string;
+    consent?: boolean;
+  };
+  jitsiRoom?: string;
+  questions?: unknown;
+}
+
+function readConsultState(raw: string | null | undefined): ConsultStateEnvelope {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") return parsed as ConsultStateEnvelope;
+  } catch {
+    // legacy value — plain string questions
+    return { questions: raw };
+  }
+  return {};
+}
+
+function writeConsultState(state: ConsultStateEnvelope): string {
+  return JSON.stringify(state);
+}
 
 const router = Router();
 router.use(authenticate);
@@ -614,6 +675,452 @@ router.post(
       res.status(201).json({
         success: true,
         data: { session, prescriptionId: rxId, items, advice: req.body.advice },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── Jitsi deep integration (Apr 2026) ──────────────────
+
+/**
+ * POST /api/v1/telemedicine/:id/waiting-room/join
+ * Patient (or their authenticated user) marks themselves as waiting.
+ * Emits `telemedicine:patient-waiting` over Socket.IO so the doctor's
+ * dashboard can show an admit prompt in real time.
+ */
+router.post(
+  "/:id/waiting-room/join",
+  authorize(Role.PATIENT, Role.DOCTOR, Role.ADMIN),
+  validate(telemedWaitingRoomJoinSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const existing = await prisma.telemedicineSession.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Session not found" });
+        return;
+      }
+
+      // Patients may only join waiting for their own session.
+      if (req.user!.role === Role.PATIENT) {
+        const patient = await prisma.patient.findUnique({
+          where: { userId: req.user!.userId },
+        });
+        if (!patient || patient.id !== existing.patientId) {
+          res.status(403).json({
+            success: false,
+            data: null,
+            error: "Cannot join another patient's session",
+          });
+          return;
+        }
+      }
+
+      const state = readConsultState(existing.preConsultQuestions);
+      state.waitingRoomState = "PATIENT_WAITING";
+
+      const now = new Date();
+      const session = await prisma.telemedicineSession.update({
+        where: { id: req.params.id },
+        data: {
+          patientJoinedAt: existing.patientJoinedAt ?? now,
+          status: existing.status === "SCHEDULED" ? "WAITING" : existing.status,
+          preConsultQuestions: writeConsultState(state),
+        },
+      });
+
+      // Socket.IO — notify the doctor
+      const io = req.app.get("io");
+      if (io) {
+        io.to(`telemedicine:doctor:${existing.doctorId}`).emit(
+          "telemedicine:patient-waiting",
+          {
+            sessionId: session.id,
+            sessionNumber: session.sessionNumber,
+            patientId: session.patientId,
+            joinedAt: session.patientJoinedAt,
+            deviceInfo: req.body.deviceInfo ?? null,
+          }
+        );
+        io.to(`telemedicine:${session.id}`).emit(
+          "telemedicine:patient-waiting",
+          { sessionId: session.id }
+        );
+      }
+
+      auditLog(req, "TELEMED_WAITING_ROOM_JOIN", "telemedicineSession", session.id, {
+        sessionNumber: session.sessionNumber,
+      }).catch(console.error);
+
+      res.status(200).json({ success: true, data: session, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * POST /api/v1/telemedicine/:id/waiting-room/admit
+ * Doctor admits (or denies) the patient. On admit, a signed Jitsi URL is
+ * minted for both parties and pushed via Socket.IO.
+ */
+router.post(
+  "/:id/waiting-room/admit",
+  authorize(Role.ADMIN, Role.DOCTOR),
+  validate(telemedWaitingRoomAdmitSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const existing = await prisma.telemedicineSession.findUnique({
+        where: { id: req.params.id },
+        include: {
+          patient: { include: { user: { select: { id: true, name: true, email: true } } } },
+          doctor: { include: { user: { select: { id: true, name: true, email: true } } } },
+        },
+      });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Session not found" });
+        return;
+      }
+
+      const admit: boolean = req.body.admit;
+      const state = readConsultState(existing.preConsultQuestions);
+      const now = new Date();
+      const nowIso = now.toISOString();
+
+      let doctorUrl: string | null = null;
+      let patientUrl: string | null = null;
+      let updatedMeetingUrl = existing.meetingUrl;
+
+      if (admit) {
+        state.waitingRoomState = "ADMITTED";
+        state.admittedAt = nowIso;
+
+        const doctorSigned = signedJitsiRoomUrl(
+          existing.id,
+          {
+            id: existing.doctor.userId,
+            name: existing.doctor.user.name,
+            email: existing.doctor.user.email ?? undefined,
+          },
+          "moderator"
+        );
+        const patientSigned = signedJitsiRoomUrl(
+          existing.id,
+          {
+            id: existing.patient.userId,
+            name: existing.patient.user.name,
+            email: existing.patient.user.email ?? undefined,
+          },
+          "participant",
+          doctorSigned.room
+        );
+
+        doctorUrl = doctorSigned.url;
+        patientUrl = patientSigned.url;
+        updatedMeetingUrl = doctorSigned.url;
+        state.jitsiRoom = doctorSigned.room;
+      } else {
+        state.waitingRoomState = "DENIED";
+        state.deniedAt = nowIso;
+        state.denyReason = req.body.reason ?? undefined;
+      }
+
+      const session = await prisma.telemedicineSession.update({
+        where: { id: req.params.id },
+        data: {
+          preConsultQuestions: writeConsultState(state),
+          meetingUrl: updatedMeetingUrl,
+          status: admit && existing.status === "WAITING" ? "IN_PROGRESS" : existing.status,
+          startedAt: admit ? existing.startedAt ?? now : existing.startedAt,
+        },
+      });
+
+      const io = req.app.get("io");
+      if (io) {
+        io.to(`telemedicine:${session.id}`).emit("telemedicine:admitted", {
+          sessionId: session.id,
+          admitted: admit,
+          reason: admit ? null : req.body.reason ?? null,
+          room: state.jitsiRoom ?? null,
+        });
+        // Push per-user URLs so patient's page can auto-redirect
+        if (admit) {
+          io.to(`user:${existing.patient.userId}`).emit("telemedicine:admitted", {
+            sessionId: session.id,
+            admitted: true,
+            url: patientUrl,
+          });
+          io.to(`user:${existing.doctor.userId}`).emit("telemedicine:admitted", {
+            sessionId: session.id,
+            admitted: true,
+            url: doctorUrl,
+          });
+        }
+      }
+
+      auditLog(
+        req,
+        admit ? "TELEMED_ADMIT" : "TELEMED_DENY",
+        "telemedicineSession",
+        session.id,
+        { sessionNumber: session.sessionNumber, reason: req.body.reason ?? null }
+      ).catch(console.error);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          session,
+          waitingRoomState: state.waitingRoomState,
+          doctorUrl,
+          patientUrl,
+          room: state.jitsiRoom ?? null,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * POST /api/v1/telemedicine/:id/recording/start
+ * Moderator (doctor/admin) flags the session as recording. The actual media
+ * capture is performed by Jitsi Videobridge + Jibri — this endpoint only
+ * records metadata and enforces that the patient has consented.
+ */
+router.post(
+  "/:id/recording/start",
+  authorize(Role.ADMIN, Role.DOCTOR),
+  validate(telemedRecordingStartSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const existing = await prisma.telemedicineSession.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Session not found" });
+        return;
+      }
+      if (!req.body.consent) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Recording requires explicit consent (consent=true)",
+        });
+        return;
+      }
+
+      const state = readConsultState(existing.preConsultQuestions);
+      state.recording = {
+        ...(state.recording ?? {}),
+        consent: true,
+        startedAt: new Date().toISOString(),
+      };
+
+      const session = await prisma.telemedicineSession.update({
+        where: { id: req.params.id },
+        data: {
+          recordingConsent: true,
+          preConsultQuestions: writeConsultState(state),
+        },
+      });
+
+      const io = req.app.get("io");
+      if (io) {
+        io.to(`telemedicine:${session.id}`).emit("telemedicine:recording", {
+          sessionId: session.id,
+          action: "START",
+        });
+      }
+
+      auditLog(req, "TELEMED_RECORDING_START", "telemedicineSession", session.id, {
+        sessionNumber: session.sessionNumber,
+      }).catch(console.error);
+
+      res.status(200).json({ success: true, data: session, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * POST /api/v1/telemedicine/:id/recording/stop
+ * Moderator stops. If Jibri webhook provides the final URL, store it.
+ */
+router.post(
+  "/:id/recording/stop",
+  authorize(Role.ADMIN, Role.DOCTOR),
+  validate(telemedRecordingStopSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const existing = await prisma.telemedicineSession.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Session not found" });
+        return;
+      }
+
+      const state = readConsultState(existing.preConsultQuestions);
+      state.recording = {
+        ...(state.recording ?? {}),
+        stoppedAt: new Date().toISOString(),
+        url: req.body.recordingUrl ?? state.recording?.url,
+      };
+
+      const session = await prisma.telemedicineSession.update({
+        where: { id: req.params.id },
+        data: {
+          preConsultQuestions: writeConsultState(state),
+          recordingUrl: req.body.recordingUrl ?? existing.recordingUrl,
+        },
+      });
+
+      const io = req.app.get("io");
+      if (io) {
+        io.to(`telemedicine:${session.id}`).emit("telemedicine:recording", {
+          sessionId: session.id,
+          action: "STOP",
+          url: session.recordingUrl,
+        });
+      }
+
+      auditLog(req, "TELEMED_RECORDING_STOP", "telemedicineSession", session.id, {
+        sessionNumber: session.sessionNumber,
+        recordingUrl: session.recordingUrl,
+      }).catch(console.error);
+
+      res.status(200).json({ success: true, data: session, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * POST /api/v1/telemedicine/:id/precheck
+ * Patient reports that camera + mic self-tests completed.
+ */
+router.post(
+  "/:id/precheck",
+  authorize(Role.PATIENT, Role.DOCTOR, Role.ADMIN),
+  validate(telemedPrecheckSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const existing = await prisma.telemedicineSession.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Session not found" });
+        return;
+      }
+
+      // Patients may only precheck their own session.
+      if (req.user!.role === Role.PATIENT) {
+        const patient = await prisma.patient.findUnique({
+          where: { userId: req.user!.userId },
+        });
+        if (!patient || patient.id !== existing.patientId) {
+          res.status(403).json({
+            success: false,
+            data: null,
+            error: "Cannot pre-check another patient's session",
+          });
+          return;
+        }
+      }
+
+      const passed = req.body.camera === true && req.body.mic === true;
+      const state = readConsultState(existing.preConsultQuestions);
+      state.precheck = {
+        passed,
+        camera: req.body.camera,
+        mic: req.body.mic,
+        at: new Date().toISOString(),
+        bandwidthKbps: req.body.bandwidthKbps,
+        userAgent: req.body.userAgent,
+      };
+
+      const session = await prisma.telemedicineSession.update({
+        where: { id: req.params.id },
+        data: {
+          preConsultQuestions: writeConsultState(state),
+        },
+      });
+
+      auditLog(req, "TELEMED_PRECHECK", "telemedicineSession", session.id, {
+        passed,
+        camera: req.body.camera,
+        mic: req.body.mic,
+      }).catch(console.error);
+
+      res.status(200).json({
+        success: true,
+        data: { session, precheckPassed: passed, precheck: state.precheck },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * GET /api/v1/telemedicine/:id/chat
+ * Returns the in-call chat transcript. Alias of /messages that returns the
+ * full envelope (`transcript` + `sessionNumber`) so the UI can export it.
+ */
+router.get(
+  "/:id/chat",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const session = await prisma.telemedicineSession.findUnique({
+        where: { id: req.params.id },
+        select: {
+          id: true,
+          sessionNumber: true,
+          sessionMessages: true,
+          patientId: true,
+          doctorId: true,
+        },
+      });
+      if (!session) {
+        res.status(404).json({ success: false, data: null, error: "Session not found" });
+        return;
+      }
+
+      // Patients may only view transcripts for their own session.
+      if (req.user!.role === Role.PATIENT) {
+        const patient = await prisma.patient.findUnique({
+          where: { userId: req.user!.userId },
+        });
+        if (!patient || patient.id !== session.patientId) {
+          res.status(403).json({
+            success: false,
+            data: null,
+            error: "Cannot view another patient's transcript",
+          });
+          return;
+        }
+      }
+
+      const transcript = Array.isArray(session.sessionMessages)
+        ? (session.sessionMessages as unknown as Array<Record<string, unknown>>)
+        : [];
+      res.json({
+        success: true,
+        data: {
+          sessionId: session.id,
+          sessionNumber: session.sessionNumber,
+          transcript,
+          messageCount: transcript.length,
+        },
         error: null,
       });
     } catch (err) {

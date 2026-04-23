@@ -75,6 +75,10 @@ import { aiERTriageRouter } from "./routes/ai-er-triage";
 import { aiPharmacyRouter } from "./routes/ai-pharmacy";
 import { aiAdherenceRouter } from "./routes/ai-adherence";
 import { aiKnowledgeRouter } from "./routes/ai-knowledge";
+import { aiChartSearchRouter } from "./routes/ai-chart-search";
+import { fhirRouter } from "./routes/fhir";
+import { abdmRouter } from "./routes/abdm";
+import { insuranceClaimsRouter } from "./routes/insurance-claims";
 import { errorHandler } from "./middleware/error";
 import { rateLimit } from "./middleware/rate-limit";
 import { sanitize } from "./middleware/sanitize";
@@ -185,6 +189,10 @@ export function buildApp() {
   app.use("/api/v1/ai/pharmacy", aiPharmacyRouter);
   app.use("/api/v1/ai/adherence", aiAdherenceRouter);
   app.use("/api/v1/ai/knowledge", aiKnowledgeRouter);
+  app.use("/api/v1/ai/chart-search", aiChartSearchRouter);
+  app.use("/api/v1/fhir", fhirRouter);
+  app.use("/api/v1/abdm", abdmRouter);
+  app.use("/api/v1/claims", insuranceClaimsRouter);
   app.use("/api/v1", patientExtrasRouter);
 
   // Health check

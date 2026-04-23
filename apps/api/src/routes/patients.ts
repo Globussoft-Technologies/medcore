@@ -14,7 +14,6 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
-import { computeVitalsFlags } from "../services/vitals-analysis";
 
 const router = Router();
 

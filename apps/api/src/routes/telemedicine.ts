@@ -616,7 +616,7 @@ router.post(
         },
       });
 
-      auditLog(req, "TELEMED_PRESCRIPTION_CREATED", "telemedicineSession", session.id, {
+      auditLog(req, "TELEMED_PRESCRIPTION_CREATE", "telemedicineSession", session.id, {
         prescriptionId: rxId,
         itemCount: items.length,
       }).catch(console.error);

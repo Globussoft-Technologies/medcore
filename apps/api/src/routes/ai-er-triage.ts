@@ -6,6 +6,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { validateUuidParams } from "../middleware/validate-params";
 import { assessERPatient } from "../services/ai/er-triage";
 
 const router = Router();
@@ -70,6 +71,8 @@ router.post(
   "/:caseId/assess",
   authenticate,
   authorize(Role.DOCTOR, Role.ADMIN),
+  // security(2026-04-23-med): F-ER-4 — reject non-UUID :caseId up front.
+  validateUuidParams(["caseId"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { caseId } = req.params;

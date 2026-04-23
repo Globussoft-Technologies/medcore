@@ -24,6 +24,7 @@ import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import { rateLimit } from "../middleware/rate-limit";
 import { auditLog } from "../middleware/audit";
 import {
   verifyAbha,
@@ -246,11 +247,26 @@ abdmRouter.post(
 // All remaining endpoints require auth.
 abdmRouter.use(authenticate);
 
+// security(2026-04-23-med): F-ABDM-2 — abha verify/link are
+// authentication-adjacent (they resolve an external identity against the ABDM
+// gateway). Tight 10/min/IP cap to blunt credential-stuffing / enumeration
+// against the ABDM sandbox. Delink is less abuse-prone but we keep 20/min for
+// consistency with the authenticated-write posture.
+const abhaVerifyLinkLimit =
+  process.env.NODE_ENV === "test"
+    ? (_: any, __: any, n: any) => n()
+    : rateLimit(10, 60_000);
+const abhaDelinkLimit =
+  process.env.NODE_ENV === "test"
+    ? (_: any, __: any, n: any) => n()
+    : rateLimit(20, 60_000);
+
 // ── POST /abha/verify ─────────────────────────────────────────────────────
 
 abdmRouter.post(
   "/abha/verify",
   authorize(Role.DOCTOR, Role.ADMIN, Role.RECEPTION),
+  abhaVerifyLinkLimit,
   validate(verifyAbhaSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -272,6 +288,7 @@ abdmRouter.post(
 abdmRouter.post(
   "/abha/link",
   authorize(Role.DOCTOR, Role.ADMIN, Role.RECEPTION),
+  abhaVerifyLinkLimit,
   validate(linkAbhaSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -292,6 +309,7 @@ abdmRouter.post(
 abdmRouter.post(
   "/abha/delink",
   authorize(Role.DOCTOR, Role.ADMIN),
+  abhaDelinkLimit,
   validate(delinkAbhaSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {

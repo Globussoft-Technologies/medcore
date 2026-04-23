@@ -74,7 +74,7 @@ router.post(
         include: { user: { select: { id: true, name: true, role: true } } },
       });
 
-      auditLog(req, "LEAVE_REQUEST", "leaveRequest", leave.id, {
+      auditLog(req, "LEAVE_REQUEST_CREATE", "leaveRequest", leave.id, {
         type,
         fromDate,
         toDate,

@@ -7,6 +7,7 @@ import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
+import { rateLimit } from "../middleware/rate-limit";
 import { generateReferralLetter, generateDischargeSummary } from "../services/ai/letter-generator";
 
 /**
@@ -29,6 +30,11 @@ function safeAudit(
 export const aiLettersRouter = Router();
 
 aiLettersRouter.use(authenticate);
+// security(2026-04-23-med): F-LET-* — letter generation is Sarvam-backed (one
+// LLM call per request). Cap to 20/min/IP so one caller can't burn budget.
+if (process.env.NODE_ENV !== "test") {
+  aiLettersRouter.use(rateLimit(20, 60_000));
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

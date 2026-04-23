@@ -19,6 +19,16 @@ import {
   buildOtpAuthUri,
   generateBackupCodes,
 } from "../services/totp";
+
+// security(2026-04-23-low): CSRF considerations.
+// MedCore currently authenticates via `Authorization: Bearer <JWT>` headers
+// only — there is no session cookie issued by the API. Because browsers do
+// not auto-attach bearer headers on cross-origin requests, all state-changing
+// endpoints are safe from classic CSRF without a token. IF a future rollout
+// moves to cookie-based auth (e.g. HTTP-only refresh cookie), CSRF protection
+// MUST be added here before enabling it: either SameSite=Strict cookies plus
+// a double-submit token, or a CSRF middleware (e.g. csurf) gating every
+// mutating route. Until then, CSRF is N/A by design.
 const router = Router();
 
 // 2FA temp tokens are persisted to Postgres so they survive process restarts
@@ -75,6 +85,14 @@ function generateTokens(
   // `jwt.sign` drops undefined keys silently which would make this ambiguous
   // with legacy-token detection in middleware/auth.ts.
   const tid: string | null = tenantId ?? null;
+  // security(2026-04-23-med): session-TTL audit — the 2026-04-23 security
+  // review did not flag this TTL as a finding (see docs/SECURITY_AUDIT_2026-04-23.md
+  // §"Non-findings" → JWT verification). The 24h access / 7d refresh window is
+  // intentional for clinical-shift usage (typical shift 8–12h, weekly rotation)
+  // and matches MedCore's audit-log retention. Shorter access windows were
+  // considered but add friction in ward-side tablets where re-auth during a
+  // resuscitation is unsafe; tokens are also invalidated server-side via the
+  // `jti` blocklist on password reset / 2FA changes. Leaving unchanged.
   const accessToken = jwt.sign(
     { userId, email, role, tenantId: tid, jti },
     process.env.JWT_SECRET || "dev-secret",

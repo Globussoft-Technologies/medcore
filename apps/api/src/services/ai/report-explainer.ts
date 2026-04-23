@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { sanitizeUserInput } from "./prompt-safety";
 
 const sarvam = new OpenAI({
   apiKey: process.env.SARVAM_API_KEY ?? "",
@@ -48,13 +49,17 @@ export async function explainLabReport(opts: {
 }): Promise<ExplainLabReportResult> {
   const { labResults, patientAge, patientGender, language } = opts;
 
-  // Build result lines for the prompt
+  // security(2026-04-23-low): F-INJ-1 — patient-facing flow; sanitize every
+  // free-text lab field before concatenating into the prompt. Units and ranges
+  // are usually LIS-controlled vocab but are still scrubbed defensively.
   const resultLines = labResults
     .map((r) => {
-      const parts = [`${r.parameter}: ${r.value}`];
-      if (r.unit) parts.push(r.unit);
-      if (r.normalRange) parts.push(`(normal: ${r.normalRange})`);
-      parts.push(`[${r.flag}]`);
+      const parts = [
+        `${sanitizeUserInput(r.parameter, { maxLen: 200 })}: ${sanitizeUserInput(r.value, { maxLen: 200 })}`,
+      ];
+      if (r.unit) parts.push(sanitizeUserInput(r.unit, { maxLen: 50 }));
+      if (r.normalRange) parts.push(`(normal: ${sanitizeUserInput(r.normalRange, { maxLen: 100 })})`);
+      parts.push(`[${sanitizeUserInput(r.flag, { maxLen: 40 })}]`);
       return parts.join(" ");
     })
     .join("\n");

@@ -7,7 +7,8 @@ import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
-import { predictNoShow, batchPredictNoShow } from "../services/ai/no-show-predictor";
+import { validateUuidParams } from "../middleware/validate-params";
+import { predictNoShow } from "../services/ai/no-show-predictor";
 
 /**
  * Best-effort audit wrapper: PHI audit writes must never take a GET response
@@ -125,6 +126,8 @@ router.get(
   "/no-show/:appointmentId",
   authenticate,
   authorize(Role.DOCTOR, Role.ADMIN, Role.RECEPTION),
+  // security(2026-04-23-med): F-PRED-2 — reject non-UUID :appointmentId up front.
+  validateUuidParams(["appointmentId"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { appointmentId } = req.params;

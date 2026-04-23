@@ -146,7 +146,7 @@ router.post(
         include: { installmentRecords: true },
       });
 
-      auditLog(req, "CREATE_PAYMENT_PLAN", "payment_plan", plan.id, {
+      auditLog(req, "PAYMENT_PLAN_CREATE", "payment_plan", plan.id, {
         planNumber,
         invoiceId,
         installments,

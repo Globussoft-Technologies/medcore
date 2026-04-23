@@ -95,6 +95,17 @@ export interface AllergyIntoleranceSearchParams extends CommonParams {
   patient?: string;
 }
 
+/**
+ * Union of every FHIR search-param shape accepted by this module. Useful
+ * for generic helpers (audit redaction, logging) that need to accept any
+ * of the four without falling back to `object`.
+ */
+export type SearchParams =
+  | PatientSearchParams
+  | EncounterSearchParams
+  | MedicationRequestSearchParams
+  | AllergyIntoleranceSearchParams;
+
 // ─── Parameter parsers ──────────────────────────────────────────────────────
 
 /** Parse and clamp `_count` / `_offset`. Invalid values raise FhirSearchError. */

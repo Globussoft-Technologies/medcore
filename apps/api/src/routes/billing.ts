@@ -255,7 +255,7 @@ router.post(
 
       // Fire-and-forget notification
       onBillGenerated(invoice).catch(console.error);
-      auditLog(req, "CREATE_INVOICE", "invoice", invoice.id, { invoiceNumber, patientId, totalAmount }).catch(console.error);
+      auditLog(req, "INVOICE_CREATE", "invoice", invoice.id, { invoiceNumber, patientId, totalAmount }).catch(console.error);
 
       res.status(201).json({ success: true, data: invoice, error: null });
     } catch (err) {

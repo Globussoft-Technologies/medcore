@@ -4,7 +4,7 @@
 import { it, expect, beforeAll, vi } from "vitest";
 import request from "supertest";
 import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
-import { createPatientFixture, createDoctorFixture, createDoctorWithToken } from "../factories";
+import { createPatientFixture, createDoctorWithToken } from "../factories";
 
 // Mock the Claude AI service so tests run without a real API key
 vi.mock("../../services/ai/sarvam", () => ({

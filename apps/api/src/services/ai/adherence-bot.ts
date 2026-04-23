@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { sanitizeUserInput } from "./prompt-safety";
 
 const sarvam = new OpenAI({
   apiKey: process.env.SARVAM_API_KEY ?? "",
@@ -18,14 +19,22 @@ export async function generateReminderMessage(opts: {
 }): Promise<string> {
   const { patientName, medications, language, reminderType } = opts;
 
+  // security(2026-04-23-low): F-INJ-1 — patient-facing reminder flow; sanitize
+  // every string that originates from patient or prescription free-text before
+  // concatenation into the Sarvam prompt. Names/dosages/frequencies are
+  // conservatively capped at 200 chars to keep prompt budget predictable.
+  const safeName = sanitizeUserInput(patientName, { maxLen: 100 });
   const medList = medications
-    .map((m) => `${m.name} (${m.dosage}, ${m.frequency})`)
+    .map(
+      (m) =>
+        `${sanitizeUserInput(m.name, { maxLen: 100 })} (${sanitizeUserInput(m.dosage, { maxLen: 100 })}, ${sanitizeUserInput(m.frequency, { maxLen: 100 })})`
+    )
     .join(", ");
 
   const userMessage =
     language === "hi"
-      ? `Patient name: ${patientName}\nReminder time: ${reminderType}\nMedications: ${medList}\nLanguage: Hindi`
-      : `Patient name: ${patientName}\nReminder time: ${reminderType}\nMedications: ${medList}\nLanguage: English`;
+      ? `Patient name: ${safeName}\nReminder time: ${reminderType}\nMedications: ${medList}\nLanguage: Hindi`
+      : `Patient name: ${safeName}\nReminder time: ${reminderType}\nMedications: ${medList}\nLanguage: English`;
 
   try {
     const response = await sarvam.chat.completions.create({

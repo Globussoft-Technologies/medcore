@@ -17,6 +17,7 @@ import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import { validateUuidParams } from "../middleware/validate-params";
 import { auditLog } from "../middleware/audit";
 import { uploadFile } from "../services/storage";
 import { getAdapter } from "../services/insurance-claims/registry";
@@ -96,6 +97,26 @@ const uploadDocSchema = z.object({
 
 const cancelSchema = z.object({
   reason: z.string().min(1),
+});
+
+// security(2026-04-23-med): F-CLM-1 — validate GET /claims query params so
+// malformed status / tpa values produce a clean 400 rather than being
+// forwarded to Prisma where they'd surface as a generic 500.
+const NORMALISED_STATUSES = [
+  "SUBMITTED",
+  "IN_REVIEW",
+  "APPROVED",
+  "SETTLED",
+  "DENIED",
+  "CANCELLED",
+] as const satisfies readonly NormalisedClaimStatus[];
+
+const listClaimsQuerySchema = z.object({
+  status: z.enum(NORMALISED_STATUSES).optional(),
+  tpa: z.enum(TPA_PROVIDERS).optional(),
+  from: z.string().datetime({ offset: true }).optional().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
+  to: z.string().datetime({ offset: true }).optional().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
+  patientId: z.string().uuid().optional(),
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -285,10 +306,19 @@ router.post(
 // authenticated role, including PATIENT. Only billing-facing roles may list.
 router.get("/", authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { status, tpa, from, to, patientId } = req.query as Record<
-      string,
-      string | undefined
-    >;
+    // security(2026-04-23-med): F-CLM-1 — validate query shape before building
+    // the Prisma filter. Malformed values now produce a 400 instead of a 500
+    // from Prisma at the driver layer.
+    const parsed = listClaimsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({
+        success: false,
+        data: null,
+        error: parsed.error.issues[0]?.message ?? "Invalid query",
+      });
+      return;
+    }
+    const { status, tpa, from, to, patientId } = parsed.data;
     const q: ClaimsQuery = {};
     if (status) q.status = status as NormalisedClaimStatus;
     if (tpa) q.tpa = tpa as TpaProvider;
@@ -324,7 +354,10 @@ router.get("/", authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR), async (req: 
  * Optionally refreshes from the TPA when `?sync=1` is passed.
  */
 // security(2026-04-23): role guard added — same rationale as GET /.
-router.get("/:id", authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR), async (req: Request, res: Response, next: NextFunction) => {
+router.get("/:id", authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR),
+  // security(2026-04-23-med): F-CLM-3 — reject non-UUID :id up front.
+  validateUuidParams(["id"]),
+  async (req: Request, res: Response, next: NextFunction) => {
   try {
     const row = await getClaim(req.params.id);
     if (!row) {
@@ -399,6 +432,8 @@ router.get("/:id", authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR), async (re
 router.post(
   "/:id/documents",
   authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR),
+  // security(2026-04-23-med): F-CLM-3 — reject non-UUID :id up front.
+  validateUuidParams(["id"]),
   validate(uploadDocSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -472,7 +507,7 @@ router.post(
         createdBy: req.user!.userId,
       });
 
-      auditLog(req, "UPLOAD_CLAIM_DOCUMENT", "insurance_claim", row.id, {
+      auditLog(req, "CLAIM_DOCUMENT_UPLOAD", "insurance_claim", row.id, {
         type: body.type,
         providerDocId: result.data.providerDocId,
         sizeBytes: buffer.length,
@@ -491,6 +526,8 @@ router.post(
 router.post(
   "/:id/cancel",
   authorize(Role.ADMIN, Role.RECEPTION),
+  // security(2026-04-23-med): F-CLM-3 — reject non-UUID :id up front.
+  validateUuidParams(["id"]),
   validate(cancelSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {

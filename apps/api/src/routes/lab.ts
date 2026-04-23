@@ -293,7 +293,7 @@ router.post(
         })();
       }
 
-      auditLog(req, "CREATE_LAB_ORDER", "lab_order", order.id, {
+      auditLog(req, "LAB_ORDER_CREATE", "lab_order", order.id, {
         orderNumber,
         testCount: testIds.length,
         priority: normalizedPriority,
@@ -334,7 +334,7 @@ router.patch(
         });
       }
 
-      auditLog(req, "UPDATE_LAB_ORDER_STATUS", "lab_order", order.id, {
+      auditLog(req, "LAB_ORDER_STATUS_UPDATE", "lab_order", order.id, {
         status,
       }).catch(console.error);
 
@@ -1136,7 +1136,7 @@ router.post(
         },
         include: { test: { select: { code: true, name: true } } },
       });
-      auditLog(req, "CREATE_LAB_QC", "lab_qc_entry", entry.id, {
+      auditLog(req, "LAB_QC_CREATE", "lab_qc_entry", entry.id, {
         testId: entry.testId,
         qcLevel: entry.qcLevel,
         withinRange: entry.withinRange,

@@ -211,7 +211,7 @@ router.post(
 
       // Fire-and-forget notification
       onAppointmentBooked(appointment as any).catch(console.error);
-      auditLog(req, "WALK_IN", "appointment", appointment.id, { patientId, doctorId }).catch(console.error);
+      auditLog(req, "WALK_IN_REGISTER", "appointment", appointment.id, { patientId, doctorId }).catch(console.error);
 
       res.status(201).json({ success: true, data: appointment, error: null });
     } catch (err) {
@@ -385,7 +385,7 @@ router.patch(
         }
       }
 
-      auditLog(req, "UPDATE_APPOINTMENT_STATUS", "appointment", req.params.id, { status: req.body.status }).catch(console.error);
+      auditLog(req, "APPOINTMENT_STATUS_UPDATE", "appointment", req.params.id, { status: req.body.status }).catch(console.error);
 
       res.json({ success: true, data: appointment, error: null });
     } catch (err) {
@@ -1324,7 +1324,7 @@ router.patch(
         });
       }
 
-      auditLog(req, "MARK_LWBS", "appointment", appointment.id, { reason }).catch(
+      auditLog(req, "APPOINTMENT_LWBS_MARK", "appointment", appointment.id, { reason }).catch(
         console.error
       );
 
@@ -1614,7 +1614,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "MARK_LWBS", "appointment", updated.id, {
+      auditLog(req, "APPOINTMENT_LWBS_MARK", "appointment", updated.id, {
         reason: req.body.reason,
       }).catch(console.error);
 

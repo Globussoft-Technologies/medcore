@@ -7,6 +7,7 @@ import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
+import { rateLimit } from "../middleware/rate-limit";
 import { explainLabReport } from "../services/ai/report-explainer";
 import { sendNotification } from "../services/notification";
 import { NotificationType } from "@medcore/shared";
@@ -25,6 +26,13 @@ function safeAudit(
 
 const router = Router();
 
+// security(2026-04-23-med): F-REX-2 — /explain triggers Sarvam-backed LLM work
+// on every request. Cap to 20/min/IP so one clinician token can't burn budget.
+const explainRateLimit =
+  process.env.NODE_ENV === "test"
+    ? (_: any, __: any, n: any) => n()
+    : rateLimit(20, 60_000);
+
 // POST /api/v1/ai/reports/explain
 // security(2026-04-23): added role guard — endpoint triggers LLM work + reveals
 // other patients' lab data by labOrderId without an ownership check, so keep
@@ -33,6 +41,7 @@ router.post(
   "/explain",
   authenticate,
   authorize(Role.DOCTOR, Role.ADMIN),
+  explainRateLimit,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { labOrderId, language = "en" } = req.body as {

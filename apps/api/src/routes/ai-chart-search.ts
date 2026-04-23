@@ -2,10 +2,17 @@ import { Router, Request, Response, NextFunction } from "express";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
+import { rateLimit } from "../middleware/rate-limit";
 import { searchPatientChart, searchCohort } from "../services/ai/chart-search";
 
 const router = Router();
 router.use(authenticate);
+// security(2026-04-23-med): F-CS-2 — chart-search hits FTS + rerank + Sarvam
+// synthesize on every call. Cap to 30/min/IP so a compromised clinician
+// token cannot burn Sarvam budget (global limit is 600/min, way too loose).
+if (process.env.NODE_ENV !== "test") {
+  router.use(rateLimit(30, 60_000));
+}
 
 // ── POST /api/v1/ai/chart-search/patient/:patientId ───────────────────────────
 // Doctor (or admin) natural-language search over a single patient's chart.

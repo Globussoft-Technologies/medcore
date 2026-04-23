@@ -209,7 +209,7 @@ router.post(
         return created;
       });
 
-      auditLog(req, "ADMIT_PATIENT", "admission", admission.id, {
+      auditLog(req, "PATIENT_ADMIT", "admission", admission.id, {
         admissionNumber,
         patientId,
         doctorId,
@@ -425,7 +425,7 @@ router.patch(
         return updated;
       });
 
-      auditLog(req, "DISCHARGE_PATIENT", "admission", admission.id, {
+      auditLog(req, "PATIENT_DISCHARGE", "admission", admission.id, {
         admissionNumber: admission.admissionNumber,
       }).catch(console.error);
 
@@ -509,7 +509,7 @@ router.patch(
         });
       });
 
-      auditLog(req, "TRANSFER_BED", "admission", admission.id, {
+      auditLog(req, "BED_TRANSFER", "admission", admission.id, {
         fromBedId: oldBedId,
         toBedId: newBed.id,
         reason: req.body.reason,

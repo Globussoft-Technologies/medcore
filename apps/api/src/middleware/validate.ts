@@ -10,7 +10,7 @@ import { ZodSchema } from "zod";
  * @param schema Zod schema to validate the request body against.
  */
 export function validate(schema: ZodSchema) {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return (req: Request, _res: Response, next: NextFunction) => {
     try {
       req.body = schema.parse(req.body);
       next();

@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import type { SOAPNote, SpecialtySuggestion, SymptomCapture, TranscriptEntry } from "@medcore/shared";
 import { PROMPTS } from "./prompts";
 import { retrieveContext } from "./rag";
+import { sanitizeUserInput } from "./prompt-safety";
 
 // Sarvam AI — India-region servers, DPDP-compliant
 const sarvam = new OpenAI({
@@ -213,7 +214,15 @@ export async function runTriageTurn(
   messages: { role: "user" | "assistant"; content: string }[],
   language: string
 ): Promise<{ reply: string; isEmergency: boolean; emergencyReason?: string }> {
-  const lastUserMsg = messages.at(-1)?.content ?? "";
+  // security(2026-04-23-low): F-INJ-1 — sanitize every user-role message so
+  // injection markers (e.g. "ignore previous instructions") are neutralised
+  // before they hit the model. Assistant messages come from our own prior
+  // responses and are left as-is. Latest user turn is also sanitized for RAG
+  // retrieval so the vector query can't be steered either.
+  const sanitizedMessages = messages.map((m) =>
+    m.role === "user" ? { ...m, content: sanitizeUserInput(m.content) } : m
+  );
+  const lastUserMsg = sanitizedMessages.at(-1)?.content ?? "";
   const ragContext = await retrieveContext(lastUserMsg, 3, ["ICD10", "MEDICINE"]).catch(() => "");
 
   const baseSystemPrompt =
@@ -249,7 +258,7 @@ export async function runTriageTurn(
           },
         ],
         tool_choice: "auto",
-        messages: [{ role: "system", content: systemPrompt }, ...messages],
+        messages: [{ role: "system", content: systemPrompt }, ...sanitizedMessages],
       })
     );
   } catch (err) {

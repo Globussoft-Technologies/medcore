@@ -2,6 +2,8 @@ import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "@medcore/db";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { auditLog } from "../middleware/audit";
+import { validateUuidParams } from "../middleware/validate-params";
 import { indexChunk, seedFromExistingData } from "../services/ai/rag";
 
 const router = Router();
@@ -50,6 +52,15 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
     }
 
     await indexChunk({ documentType, title, content, tags, language, sourceId });
+    // security(2026-04-23-med): F-KB-2 — audit KB mutations. The KB feeds FTS
+    // + RAG and is visible to every doctor; admin writes must be traceable.
+    await auditLog(req, "KB_CREATE", "KnowledgeChunk", sourceId, {
+      documentType,
+      title,
+      language: language ?? null,
+      tagCount: Array.isArray(tags) ? tags.length : 0,
+      contentLength: content.length,
+    });
     res.status(201).json({ success: true, data: null, error: null });
   } catch (err) {
     next(err);
@@ -57,27 +68,39 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // DELETE /api/v1/ai/knowledge/:id — soft delete (set active = false)
-router.delete("/:id", async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { id } = req.params;
-    const chunk = await prisma.knowledgeChunk.findUnique({ where: { id }, select: { id: true } });
+router.delete(
+  "/:id",
+  // security(2026-04-23-med): F-KB-3 — reject non-UUID :id up front.
+  validateUuidParams(["id"]),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const chunk = await prisma.knowledgeChunk.findUnique({ where: { id }, select: { id: true } });
 
-    if (!chunk) {
-      res.status(404).json({ success: false, data: null, error: "Knowledge chunk not found" });
-      return;
+      if (!chunk) {
+        res.status(404).json({ success: false, data: null, error: "Knowledge chunk not found" });
+        return;
+      }
+
+      await prisma.knowledgeChunk.update({ where: { id }, data: { active: false } });
+      // security(2026-04-23-med): F-KB-2 — audit soft-delete.
+      await auditLog(req, "KB_DELETE", "KnowledgeChunk", id, {});
+      res.json({ success: true, data: null, error: null });
+    } catch (err) {
+      next(err);
     }
-
-    await prisma.knowledgeChunk.update({ where: { id }, data: { active: false } });
-    res.json({ success: true, data: null, error: null });
-  } catch (err) {
-    next(err);
   }
-});
+);
 
 // POST /api/v1/ai/knowledge/seed — seed knowledge base from existing DB data
 router.post("/seed", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const counts = await seedFromExistingData();
+    // security(2026-04-23-med): F-KB-2 — audit bulk seed. `counts` is a
+    // structured object (per documentType insert counts) so it's safe to log.
+    await auditLog(req, "KB_SEED", "KnowledgeChunk", undefined, {
+      counts: counts as unknown as Record<string, unknown>,
+    });
     res.json({ success: true, data: counts, error: null });
   } catch (err) {
     next(err);

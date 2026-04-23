@@ -214,7 +214,7 @@ router.post(
 
       // Fire-and-forget notification
       onPrescriptionReady(prescription as any).catch(console.error);
-      auditLog(req, "CREATE_PRESCRIPTION", "prescription", prescription.id, {
+      auditLog(req, "PRESCRIPTION_CREATE", "prescription", prescription.id, {
         appointmentId,
         patientId,
         diagnosis,

@@ -1,7 +1,7 @@
 // Integration tests for the AI Adherence router (/api/v1/ai/adherence).
 // Pure DB-backed — no external AI calls.
 // Skipped unless DATABASE_URL_TEST is set.
-import { it, expect, beforeAll, vi } from "vitest";
+import { it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
 import {

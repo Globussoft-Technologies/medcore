@@ -9,7 +9,6 @@ import {
   createShiftSchema,
   bulkShiftSchema,
   updateShiftSchema,
-  updateShiftStatusSchema,
   checkOutShiftSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";

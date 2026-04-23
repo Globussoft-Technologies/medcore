@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { sanitizeUserInput } from "./prompt-safety";
 
 // Sarvam AI client
 const sarvam = new OpenAI({
@@ -32,23 +33,43 @@ export async function generateReferralLetter(opts: {
   urgency: "ROUTINE" | "URGENT" | "EMERGENCY";
   date: string;
 }): Promise<string> {
+  // security(2026-04-23-low): F-INJ-1 — referral letter free-text fields
+  // (clinical summary, history, medications, names) are sanitized before
+  // concatenation. Letters are clinician-facing but still benefit from
+  // hardening because a malicious earlier note could steer the letter text.
+  const safeFromDoctor = sanitizeUserInput(opts.fromDoctorName, { maxLen: 100 });
+  const safeFromHospital = sanitizeUserInput(opts.fromHospital, { maxLen: 150 });
+  const safeToSpecialty = sanitizeUserInput(opts.toSpecialty, { maxLen: 100 });
+  const safeToDoctorName = opts.toDoctorName
+    ? sanitizeUserInput(opts.toDoctorName, { maxLen: 100 })
+    : undefined;
+  const safePatientName = sanitizeUserInput(opts.patientName, { maxLen: 100 });
+  const safePatientGender = opts.patientGender
+    ? sanitizeUserInput(opts.patientGender, { maxLen: 20 })
+    : "";
+  const safeClinicalSummary = sanitizeUserInput(opts.clinicalSummary, { maxLen: 3000 });
+  const safeRelevantHistory = sanitizeUserInput(opts.relevantHistory, { maxLen: 3000 });
+  const safeDate = sanitizeUserInput(opts.date, { maxLen: 40 });
+
   const medicationList =
     opts.currentMedications.length > 0
-      ? opts.currentMedications.map((m) => `  - ${m}`).join("\n")
+      ? opts.currentMedications
+          .map((m) => `  - ${sanitizeUserInput(m, { maxLen: 200 })}`)
+          .join("\n")
       : "  - None";
 
-  const toDoctorLine = opts.toDoctorName
-    ? `Dr. ${opts.toDoctorName} / ${opts.toSpecialty}`
-    : `${opts.toSpecialty} Specialist`;
+  const toDoctorLine = safeToDoctorName
+    ? `Dr. ${safeToDoctorName} / ${safeToSpecialty}`
+    : `${safeToSpecialty} Specialist`;
 
   const userPrompt = `Generate a referral letter with the following information:
 
-DATE: ${opts.date}
-FROM: Dr. ${opts.fromDoctorName}, ${opts.fromHospital}
+DATE: ${safeDate}
+FROM: Dr. ${safeFromDoctor}, ${safeFromHospital}
 TO: ${toDoctorLine}
-PATIENT: ${opts.patientName}${opts.patientAge ? `, Age ${opts.patientAge}` : ""}${opts.patientGender ? `, ${opts.patientGender}` : ""}
-CLINICAL SUMMARY: ${opts.clinicalSummary}
-RELEVANT HISTORY: ${opts.relevantHistory}
+PATIENT: ${safePatientName}${opts.patientAge ? `, Age ${opts.patientAge}` : ""}${safePatientGender ? `, ${safePatientGender}` : ""}
+CLINICAL SUMMARY: ${safeClinicalSummary}
+RELEVANT HISTORY: ${safeRelevantHistory}
 CURRENT MEDICATIONS:
 ${medicationList}
 URGENCY: ${opts.urgency}
@@ -98,30 +119,45 @@ export async function generateDischargeSummary(opts: {
   doctorName: string;
   hospital: string;
 }): Promise<string> {
+  // security(2026-04-23-low): F-INJ-1 — sanitize every free-text field before
+  // concatenating into the discharge-summary prompt.
+  const safeHospital = sanitizeUserInput(opts.hospital, { maxLen: 150 });
+  const safeDoctorName = sanitizeUserInput(opts.doctorName, { maxLen: 100 });
+  const safePatientName = sanitizeUserInput(opts.patientName, { maxLen: 100 });
+  const safeAdmissionDate = sanitizeUserInput(opts.admissionDate, { maxLen: 40 });
+  const safeDischargeDate = sanitizeUserInput(opts.dischargeDate, { maxLen: 40 });
+  const safeAdmittingDx = sanitizeUserInput(opts.admittingDiagnosis, { maxLen: 1000 });
+  const safeDischargeDx = sanitizeUserInput(opts.dischargeDiagnosis, { maxLen: 1000 });
+  const safeFollowUp = sanitizeUserInput(opts.followUpInstructions, { maxLen: 3000 });
+
   const procedureList =
     opts.proceduresPerformed.length > 0
-      ? opts.proceduresPerformed.map((p) => `  - ${p}`).join("\n")
+      ? opts.proceduresPerformed
+          .map((p) => `  - ${sanitizeUserInput(p, { maxLen: 300 })}`)
+          .join("\n")
       : "  - None";
 
   const medicationList =
     opts.medicationsOnDischarge.length > 0
-      ? opts.medicationsOnDischarge.map((m) => `  - ${m}`).join("\n")
+      ? opts.medicationsOnDischarge
+          .map((m) => `  - ${sanitizeUserInput(m, { maxLen: 200 })}`)
+          .join("\n")
       : "  - None";
 
   const userPrompt = `Generate a discharge summary with the following information:
 
-HOSPITAL: ${opts.hospital}
-ATTENDING PHYSICIAN: Dr. ${opts.doctorName}
-PATIENT: ${opts.patientName}${opts.patientAge ? `, Age ${opts.patientAge}` : ""}
-ADMISSION DATE: ${opts.admissionDate}
-DISCHARGE DATE: ${opts.dischargeDate}
-ADMITTING DIAGNOSIS: ${opts.admittingDiagnosis}
-DISCHARGE DIAGNOSIS: ${opts.dischargeDiagnosis}
+HOSPITAL: ${safeHospital}
+ATTENDING PHYSICIAN: Dr. ${safeDoctorName}
+PATIENT: ${safePatientName}${opts.patientAge ? `, Age ${opts.patientAge}` : ""}
+ADMISSION DATE: ${safeAdmissionDate}
+DISCHARGE DATE: ${safeDischargeDate}
+ADMITTING DIAGNOSIS: ${safeAdmittingDx}
+DISCHARGE DIAGNOSIS: ${safeDischargeDx}
 PROCEDURES PERFORMED:
 ${procedureList}
 DISCHARGE MEDICATIONS:
 ${medicationList}
-FOLLOW-UP INSTRUCTIONS: ${opts.followUpInstructions}
+FOLLOW-UP INSTRUCTIONS: ${safeFollowUp}
 
 Structure the summary with these sections:
 1. Admission Date

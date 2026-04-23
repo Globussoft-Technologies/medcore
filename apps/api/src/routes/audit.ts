@@ -4,6 +4,17 @@ import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 
 const router = Router();
+
+// security(2026-04-23-low): audit-log responses contain PHI references and
+// user identifiers; prevent caching by intermediate proxies/browsers and
+// disable MIME-sniffing on JSON/CSV exports.
+router.use((_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  next();
+});
+
 router.use(authenticate);
 router.use(authorize(Role.ADMIN));
 

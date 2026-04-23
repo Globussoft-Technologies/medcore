@@ -72,14 +72,6 @@ async function computeAvailableSlots(doctorId: string, date: Date): Promise<Slot
   return slots;
 }
 
-async function getNextToken(doctorId: string, date: Date): Promise<number> {
-  const last = await prisma.appointment.findFirst({
-    where: { doctorId, date },
-    orderBy: { tokenNumber: "desc" },
-  });
-  return (last?.tokenNumber ?? 0) + 1;
-}
-
 // POST /api/v1/coordinated-visits — create a visit + back-to-back appointments
 router.post(
   "/",

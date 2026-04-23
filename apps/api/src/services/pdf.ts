@@ -31,11 +31,6 @@ function formatDateTime(d: Date | string | null | undefined): string {
   return dt.toLocaleString("en-IN");
 }
 
-async function getConfig(key: string): Promise<string | null> {
-  const row = await prisma.systemConfig.findUnique({ where: { key } });
-  return row?.value ?? null;
-}
-
 interface HospitalInfo {
   name: string;
   address: string;

@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
+import { validateUuidParams } from "../middleware/validate-params";
 import {
   forecastInventory,
   forecastSingleItem,
@@ -90,6 +91,9 @@ aiPharmacyRouter.get(
 // Single item forecast with 90-day movement history
 aiPharmacyRouter.get(
   "/forecast/:inventoryItemId",
+  // security(2026-04-23-med): F-PH-2 — reject non-UUID :inventoryItemId up
+  // front so prisma.findUnique doesn't have to handle malformed ids.
+  validateUuidParams(["inventoryItemId"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { inventoryItemId } = req.params;

@@ -18,6 +18,8 @@ import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
+import { rateLimit } from "../middleware/rate-limit";
+import { validateUuidParams } from "../middleware/validate-params";
 import {
   patientToFhir,
   doctorToFhir,
@@ -48,11 +50,31 @@ import {
   type EncounterSearchParams,
   type MedicationRequestSearchParams,
   type AllergyIntoleranceSearchParams,
+  type SearchParams,
   type SearchContext,
 } from "../services/fhir/search";
 
 const router = Router();
+
+// security(2026-04-23-low): PHI responses must not be cached by intermediate
+// proxies or browsers, and FHIR clients must not MIME-sniff JSON payloads.
+// Apply headers at the router layer so every endpoint inherits them without
+// touching app.ts.
+router.use((_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  next();
+});
+
 router.use(authenticate);
+
+// security(2026-04-23-med): F-FHIR-2 — Bundle ingest is a heavy, multi-write
+// path. Cap to 10/min/IP so a compromised admin token can't flood the DB.
+const bundleRateLimit =
+  process.env.NODE_ENV === "test"
+    ? (_: any, __: any, n: any) => n()
+    : rateLimit(10, 60_000);
 
 const FHIR_CONTENT_TYPE = "application/fhir+json";
 
@@ -94,6 +116,8 @@ async function canReadPatient(req: Request, patientId: string): Promise<boolean>
 router.get(
   "/Patient/:id",
   authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION, Role.PATIENT),
+  // security(2026-04-23-med): F-FHIR-1 — reject non-UUID :id up front.
+  validateUuidParams(["id"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
@@ -132,6 +156,8 @@ router.get(
 router.get(
   "/Patient/:id/\\$everything",
   authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION, Role.PATIENT),
+  // security(2026-04-23-med): F-FHIR-1 — reject non-UUID :id up front.
+  validateUuidParams(["id"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
@@ -229,6 +255,8 @@ router.get(
 router.get(
   "/Encounter/:id",
   authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PATIENT),
+  // security(2026-04-23-med): F-FHIR-1 — reject non-UUID :id up front.
+  validateUuidParams(["id"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
@@ -263,6 +291,7 @@ router.post(
   // Ingesting a FHIR bundle rewrites clinical state across multiple tables and
   // bypasses the normal per-endpoint business rules — restricted to ADMIN.
   authorize(Role.ADMIN),
+  bundleRateLimit,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const bundle = req.body as FhirBundle;
@@ -324,6 +353,8 @@ router.post(
 router.get(
   "/Patient/:id/\\$export",
   authorize(Role.ADMIN, Role.DOCTOR),
+  // security(2026-04-23-med): F-FHIR-1 — reject non-UUID :id up front.
+  validateUuidParams(["id"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
@@ -410,7 +441,7 @@ async function handleSearchError(
  * themselves be PHI (ABHA IDs, MRNs, etc.) and must not land in audit_logs.
  */
 function redactedSearchParams(
-  q: object
+  q: SearchParams
 ): Record<string, { hasValue: boolean }> {
   const out: Record<string, { hasValue: boolean }> = {};
   for (const [k, v] of Object.entries(q)) {

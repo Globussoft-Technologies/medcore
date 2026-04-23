@@ -360,11 +360,19 @@ describe("tenantScopedPrisma auto-injection", () => {
     expect((calls[1].args as any).where.tenantId).toBe("B");
   });
 
-  it("TENANT_SCOPED_MODELS contains exactly the 20 documented models", () => {
-    expect(TENANT_SCOPED_MODELS.size).toBe(20);
+  it("TENANT_SCOPED_MODELS contains all 57 documented models (20 foundation + 37 extended)", () => {
+    expect(TENANT_SCOPED_MODELS.size).toBe(57);
+    // Foundation models (20, from 20260423000004_tenant_foundation):
     expect(TENANT_SCOPED_MODELS.has("Patient")).toBe(true);
     expect(TENANT_SCOPED_MODELS.has("Notification")).toBe(true);
     expect(TENANT_SCOPED_MODELS.has("EmergencyCase")).toBe(true);
+    // Extended models (37, from 20260423000005_tenant_scope_extended):
+    expect(TENANT_SCOPED_MODELS.has("PatientAllergy")).toBe(true);
+    expect(TENANT_SCOPED_MODELS.has("AIScribeSession")).toBe(true);
+    expect(TENANT_SCOPED_MODELS.has("AITriageSession")).toBe(true);
+    expect(TENANT_SCOPED_MODELS.has("ChatMessage")).toBe(true);
+    expect(TENANT_SCOPED_MODELS.has("Holiday")).toBe(true);
+    // Non-scoped catalogs stay out:
     expect(TENANT_SCOPED_MODELS.has("Icd10Code")).toBe(false);
   });
 });

@@ -16,6 +16,7 @@
 //     "chart-search-rerank" plus `batchIndex`, `batchSize`, `chunkCount`.
 
 import { generateStructured, logAICall } from "./sarvam";
+import { sanitizeUserInput } from "./prompt-safety";
 
 const MODEL = "sarvam-105b";
 
@@ -229,15 +230,21 @@ async function scoreBatch(
     "0 = completely irrelevant. Use the full 0-10 range. Reply ONLY by calling " +
     "the score_chunks tool with one entry per chunk (index starting at 0).";
 
+  // security(2026-04-23-low): F-INJ-1 — chunk text is ingested EHR content
+  // and therefore partly user-authored. Sanitize both title + content and the
+  // query so an adversarial note can't steer the relevance scorer into
+  // outputting arbitrary JSON (tool-calling bounds us further, but layered
+  // defence is cheap here).
+  const safeQuery = sanitizeUserInput(query, { maxLen: 500 });
   const chunkBlocks = batch
     .map((c, i) => {
-      const title = truncate(c.title ?? "", 200);
-      const content = truncate(c.content ?? "", 600);
+      const title = truncate(sanitizeUserInput(c.title ?? "", { maxLen: 400 }), 200);
+      const content = truncate(sanitizeUserInput(c.content ?? "", { maxLen: 1200 }), 600);
       return `[${i}] ${title}\n${content}`;
     })
     .join("\n\n---\n\n");
 
-  const userPrompt = `Query: ${query}\n\nChunks:\n${chunkBlocks}\n\nScore every chunk 0-10.`;
+  const userPrompt = `Query: ${safeQuery}\n\nChunks:\n${chunkBlocks}\n\nScore every chunk 0-10.`;
 
   const parameters = {
     type: "object",

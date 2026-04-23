@@ -147,7 +147,7 @@ router.post(
         include: { administrations: { orderBy: { scheduledAt: "asc" } } },
       });
 
-      auditLog(req, "CREATE_MEDICATION_ORDER", "medicationOrder", order.id, {
+      auditLog(req, "MEDICATION_ORDER_CREATE", "medicationOrder", order.id, {
         admissionId,
         medicineName,
         dosage,
@@ -206,7 +206,7 @@ router.patch(
         data,
       });
 
-      auditLog(req, "UPDATE_MEDICATION_ORDER", "medicationOrder", order.id, data).catch(console.error);
+      auditLog(req, "MEDICATION_ORDER_UPDATE", "medicationOrder", order.id, data).catch(console.error);
       res.json({ success: true, data: order, error: null });
     } catch (err) {
       next(err);

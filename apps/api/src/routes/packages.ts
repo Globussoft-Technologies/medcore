@@ -223,7 +223,7 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const pkg = await prisma.healthPackage.create({ data: req.body });
-      auditLog(req, "CREATE_PACKAGE", "health_package", pkg.id, req.body).catch(console.error);
+      auditLog(req, "PACKAGE_CREATE", "health_package", pkg.id, req.body).catch(console.error);
       res.status(201).json({ success: true, data: pkg, error: null });
     } catch (err) {
       next(err);
@@ -242,7 +242,7 @@ router.patch(
         where: { id: req.params.id },
         data: req.body,
       });
-      auditLog(req, "UPDATE_PACKAGE", "health_package", pkg.id, req.body).catch(console.error);
+      auditLog(req, "PACKAGE_UPDATE", "health_package", pkg.id, req.body).catch(console.error);
       res.json({ success: true, data: pkg, error: null });
     } catch (err) {
       next(err);
@@ -260,7 +260,7 @@ router.delete(
         where: { id: req.params.id },
         data: { isActive: false },
       });
-      auditLog(req, "DELETE_PACKAGE", "health_package", pkg.id).catch(console.error);
+      auditLog(req, "PACKAGE_DELETE", "health_package", pkg.id).catch(console.error);
       res.json({ success: true, data: pkg, error: null });
     } catch (err) {
       next(err);

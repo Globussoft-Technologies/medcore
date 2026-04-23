@@ -5,8 +5,9 @@ import { Router, Request, Response, NextFunction } from "express";
 // `prisma` so every existing call site keeps working without edits.
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
-import { authenticate } from "../middleware/auth";
+import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
+import { validateUuidParams } from "../middleware/validate-params";
 
 /**
  * Best-effort audit wrapper: PHI audit writes must never take a GET response
@@ -104,6 +105,11 @@ function derivedFromFrequency(frequency: string): string[] {
 
 router.post(
   "/enroll",
+  // security(2026-04-23-med): F-ADH-1 — enroll writes an adherence schedule
+  // row linking a prescription to a patient. Previously any authenticated
+  // role could POST arbitrary prescriptionIds; restrict to clinical staff who
+  // already have prescribe / dispense privileges.
+  authorize(Role.DOCTOR, Role.ADMIN, Role.NURSE, Role.PHARMACIST),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { prescriptionId, reminderTimes } = req.body as {
@@ -180,6 +186,9 @@ router.post(
 
 router.get(
   "/:patientId",
+  // security(2026-04-23-med): F-ADH-4 — reject non-UUID :patientId up front
+  // so a malformed path doesn't reach prisma.findUnique (which returns P2023).
+  validateUuidParams(["patientId"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { patientId } = req.params;
@@ -228,6 +237,8 @@ router.get(
 
 router.delete(
   "/:scheduleId",
+  // security(2026-04-23-med): F-ADH-4 — reject non-UUID :scheduleId up front.
+  validateUuidParams(["scheduleId"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { scheduleId } = req.params;
@@ -281,6 +292,8 @@ router.delete(
 
 router.post(
   "/:scheduleId/doses",
+  // security(2026-04-23-med): F-ADH-4 — reject non-UUID :scheduleId up front.
+  validateUuidParams(["scheduleId"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { scheduleId } = req.params;
@@ -383,6 +396,8 @@ router.post(
 
 router.get(
   "/:scheduleId/doses",
+  // security(2026-04-23-med): F-ADH-4 — reject non-UUID :scheduleId up front.
+  validateUuidParams(["scheduleId"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { scheduleId } = req.params;

@@ -14,7 +14,6 @@ import {
   ALLOWED_MIMES,
 } from "../services/file-magic";
 import {
-  signParts,
   verifySignature,
   DEFAULT_TTL_SECONDS,
 } from "../services/signed-url";

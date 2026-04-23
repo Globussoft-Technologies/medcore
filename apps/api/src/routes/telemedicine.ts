@@ -20,61 +20,6 @@ import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { signedJitsiRoomUrl } from "../services/jitsi";
 
-/**
- * Helper — decode/encode the "consult state envelope" we stash in
- * `preConsultQuestions` until the dedicated columns land in schema.prisma
- * (see apps/api/src/services/.prisma-models-jitsi.md). Shape:
- *   {
- *     waitingRoomState: "IDLE" | "PATIENT_WAITING" | "ADMITTED" | "DENIED",
- *     admittedAt?: ISO,
- *     deniedAt?: ISO,
- *     denyReason?: string,
- *     precheck?: { passed: boolean, camera: boolean, mic: boolean, at: ISO, bandwidthKbps?, userAgent? },
- *     recording?: { startedAt?: ISO, stoppedAt?: ISO, url?: string, consent?: boolean },
- *     jitsiRoom?: string,
- *     // Consumers may also write `questions` from the legacy pre-consult UI
- *     questions?: unknown,
- *   }
- */
-interface ConsultStateEnvelope {
-  waitingRoomState?: "IDLE" | "PATIENT_WAITING" | "ADMITTED" | "DENIED";
-  admittedAt?: string;
-  deniedAt?: string;
-  denyReason?: string;
-  precheck?: {
-    passed: boolean;
-    camera: boolean;
-    mic: boolean;
-    at: string;
-    bandwidthKbps?: number;
-    userAgent?: string;
-  };
-  recording?: {
-    startedAt?: string;
-    stoppedAt?: string;
-    url?: string;
-    consent?: boolean;
-  };
-  jitsiRoom?: string;
-  questions?: unknown;
-}
-
-function readConsultState(raw: string | null | undefined): ConsultStateEnvelope {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") return parsed as ConsultStateEnvelope;
-  } catch {
-    // legacy value — plain string questions
-    return { questions: raw };
-  }
-  return {};
-}
-
-function writeConsultState(state: ConsultStateEnvelope): string {
-  return JSON.stringify(state);
-}
-
 const router = Router();
 router.use(authenticate);
 
@@ -720,17 +665,15 @@ router.post(
         }
       }
 
-      const state = readConsultState(existing.preConsultQuestions);
-      state.waitingRoomState = "PATIENT_WAITING";
-
       const now = new Date();
       const session = await prisma.telemedicineSession.update({
         where: { id: req.params.id },
         data: {
           patientJoinedAt: existing.patientJoinedAt ?? now,
           status: existing.status === "SCHEDULED" ? "WAITING" : existing.status,
-          preConsultQuestions: writeConsultState(state),
-        },
+          // TODO(cast): remove after prisma generate
+          waitingRoomState: "PATIENT_WAITING",
+        } as any,
       });
 
       // Socket.IO — notify the doctor
@@ -787,17 +730,23 @@ router.post(
       }
 
       const admit: boolean = req.body.admit;
-      const state = readConsultState(existing.preConsultQuestions);
       const now = new Date();
-      const nowIso = now.toISOString();
 
       let doctorUrl: string | null = null;
       let patientUrl: string | null = null;
       let updatedMeetingUrl = existing.meetingUrl;
+      let waitingRoomState: "ADMITTED" | "DENIED";
+      let jitsiRoom: string | null = null;
+
+      // TODO(cast): remove after prisma generate
+      const updateData: Record<string, unknown> = {
+        meetingUrl: updatedMeetingUrl,
+        status: admit && existing.status === "WAITING" ? "IN_PROGRESS" : existing.status,
+        startedAt: admit ? existing.startedAt ?? now : existing.startedAt,
+      };
 
       if (admit) {
-        state.waitingRoomState = "ADMITTED";
-        state.admittedAt = nowIso;
+        waitingRoomState = "ADMITTED";
 
         const doctorSigned = signedJitsiRoomUrl(
           existing.id,
@@ -822,21 +771,24 @@ router.post(
         doctorUrl = doctorSigned.url;
         patientUrl = patientSigned.url;
         updatedMeetingUrl = doctorSigned.url;
-        state.jitsiRoom = doctorSigned.room;
+        jitsiRoom = doctorSigned.room;
+
+        updateData.meetingUrl = updatedMeetingUrl;
+        // TODO(cast): remove after prisma generate
+        updateData.waitingRoomState = "ADMITTED";
+        updateData.admittedAt = now;
+        updateData.jitsiRoom = jitsiRoom;
       } else {
-        state.waitingRoomState = "DENIED";
-        state.deniedAt = nowIso;
-        state.denyReason = req.body.reason ?? undefined;
+        waitingRoomState = "DENIED";
+        // TODO(cast): remove after prisma generate
+        updateData.waitingRoomState = "DENIED";
+        updateData.deniedAt = now;
+        updateData.denyReason = req.body.reason ?? null;
       }
 
       const session = await prisma.telemedicineSession.update({
         where: { id: req.params.id },
-        data: {
-          preConsultQuestions: writeConsultState(state),
-          meetingUrl: updatedMeetingUrl,
-          status: admit && existing.status === "WAITING" ? "IN_PROGRESS" : existing.status,
-          startedAt: admit ? existing.startedAt ?? now : existing.startedAt,
-        },
+        data: updateData as any,
       });
 
       const io = req.app.get("io");
@@ -845,7 +797,7 @@ router.post(
           sessionId: session.id,
           admitted: admit,
           reason: admit ? null : req.body.reason ?? null,
-          room: state.jitsiRoom ?? null,
+          room: jitsiRoom,
         });
         // Push per-user URLs so patient's page can auto-redirect
         if (admit) {
@@ -874,10 +826,10 @@ router.post(
         success: true,
         data: {
           session,
-          waitingRoomState: state.waitingRoomState,
+          waitingRoomState,
           doctorUrl,
           patientUrl,
-          room: state.jitsiRoom ?? null,
+          room: jitsiRoom,
         },
         error: null,
       });
@@ -915,19 +867,13 @@ router.post(
         return;
       }
 
-      const state = readConsultState(existing.preConsultQuestions);
-      state.recording = {
-        ...(state.recording ?? {}),
-        consent: true,
-        startedAt: new Date().toISOString(),
-      };
-
       const session = await prisma.telemedicineSession.update({
         where: { id: req.params.id },
         data: {
           recordingConsent: true,
-          preConsultQuestions: writeConsultState(state),
-        },
+          // TODO(cast): remove after prisma generate
+          recordingStartedAt: new Date(),
+        } as any,
       });
 
       const io = req.app.get("io");
@@ -967,19 +913,13 @@ router.post(
         return;
       }
 
-      const state = readConsultState(existing.preConsultQuestions);
-      state.recording = {
-        ...(state.recording ?? {}),
-        stoppedAt: new Date().toISOString(),
-        url: req.body.recordingUrl ?? state.recording?.url,
-      };
-
       const session = await prisma.telemedicineSession.update({
         where: { id: req.params.id },
         data: {
-          preConsultQuestions: writeConsultState(state),
           recordingUrl: req.body.recordingUrl ?? existing.recordingUrl,
-        },
+          // TODO(cast): remove after prisma generate
+          recordingStoppedAt: new Date(),
+        } as any,
       });
 
       const io = req.app.get("io");
@@ -1037,12 +977,10 @@ router.post(
       }
 
       const passed = req.body.camera === true && req.body.mic === true;
-      const state = readConsultState(existing.preConsultQuestions);
-      state.precheck = {
-        passed,
+      const precheckAt = new Date();
+      const precheckDetails = {
         camera: req.body.camera,
         mic: req.body.mic,
-        at: new Date().toISOString(),
         bandwidthKbps: req.body.bandwidthKbps,
         userAgent: req.body.userAgent,
       };
@@ -1050,8 +988,11 @@ router.post(
       const session = await prisma.telemedicineSession.update({
         where: { id: req.params.id },
         data: {
-          preConsultQuestions: writeConsultState(state),
-        },
+          // TODO(cast): remove after prisma generate
+          precheckPassed: passed,
+          precheckAt,
+          precheckDetails,
+        } as any,
       });
 
       auditLog(req, "TELEMED_PRECHECK", "telemedicineSession", session.id, {
@@ -1062,7 +1003,18 @@ router.post(
 
       res.status(200).json({
         success: true,
-        data: { session, precheckPassed: passed, precheck: state.precheck },
+        data: {
+          session,
+          precheckPassed: passed,
+          precheck: {
+            passed,
+            camera: req.body.camera,
+            mic: req.body.mic,
+            at: precheckAt.toISOString(),
+            bandwidthKbps: req.body.bandwidthKbps,
+            userAgent: req.body.userAgent,
+          },
+        },
         error: null,
       });
     } catch (err) {

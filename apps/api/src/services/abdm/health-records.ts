@@ -17,15 +17,17 @@
  *      `pushHealthInformation()`.
  *
  * ── Stub vs Real ──────────────────────────────────────────────────────────
- * The FHIR bundle builders are real (valid R4 shape, India profiles). The
- * encryption of the HI payload (ABDM requires ECDH + AES-GCM with the HIU's
- * public key) is STUBBED — we ship the bundle as base64 JSON with a
- * placeholder key-material object. Production deploy must replace
- * `encryptBundle()` with an ECDH implementation using `node:crypto`.
+ * The FHIR bundle builders are real (valid R4 shape, India profiles). HI
+ * payload encryption is also real now: `encryptBundle()` delegates to
+ * `encryptBundleForHiu()` in `./crypto.ts`, which performs X25519 ECDH +
+ * HKDF-SHA256 + AES-256-GCM per the ABDM HI-Push v0.5 spec. The HIU must
+ * supply its ephemeral X25519 public key and a 32-byte base64 nonce on the
+ * `health-information/request` callback.
  */
 
 import { prisma } from "@medcore/db";
 import { abdmRequest, ABDMError } from "./client";
+import { encryptBundleForHiu, generateNonceBase64, type AbdmEncryptedEnvelope } from "./crypto";
 
 // ── FHIR R4 types (minimal) ───────────────────────────────────────────────
 
@@ -261,43 +263,43 @@ export async function linkCareContext(args: {
 // ── Push health information ───────────────────────────────────────────────
 
 /**
- * ⚠ STUB: real ABDM requires ECDH (X25519) + AES-GCM encryption of the
- * bundle against the HIU's transient public key. The actual crypto is
- * not wired — this helper just base64-encodes the JSON so the HTTP wiring
- * can be tested end-to-end in the sandbox.
+ * Encrypt the FHIR bundle for the HIU using X25519 ECDH + HKDF-SHA256 +
+ * AES-256-GCM per the ABDM HI-Push v0.5 spec. Returns the envelope shape
+ * ready to go into the push payload.
  */
 function encryptBundle(
   bundle: FhirBundle,
-  _hiuPublicKeyPem: string
-): { encryptedContent: string; keyMaterial: { cryptoAlg: string; curve: string; dhPublicKey: { expiry: string; parameters: string; keyValue: string }; nonce: string } } {
-  const content = Buffer.from(JSON.stringify(bundle)).toString("base64");
-  return {
-    encryptedContent: content,
-    keyMaterial: {
-      cryptoAlg: "ECDH",
-      curve: "Curve25519",
-      dhPublicKey: {
-        expiry: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-        parameters: "Curve25519/32byte random key",
-        keyValue: "STUB_REPLACE_IN_PROD",
-      },
-      nonce: "STUB_REPLACE_IN_PROD",
-    },
-  };
+  hiuPublicKey: string,
+  hiuNonce: string
+): AbdmEncryptedEnvelope {
+  if (!hiuPublicKey) {
+    throw new ABDMError("HIU did not supply an ephemeral public key", 400);
+  }
+  if (!hiuNonce) {
+    throw new ABDMError("HIU did not supply a nonce", 400);
+  }
+  return encryptBundleForHiu({
+    bundle,
+    hiuPublicKey,
+    hiuNonce,
+  });
 }
 
 /**
  * Push an FHIR bundle to the HIU's `dataPushUrl` (provided in the
  * `health-information/request` callback). Marked idempotent by caller.
+ *
+ * `hiuNonce` is the 32-byte base64 nonce given by the HIU on the request.
  */
 export async function pushHealthInformation(args: {
   dataPushUrl: string;
   bundle: FhirBundle;
-  hiuPublicKey: string;     // PEM — supplied by HIU on request
-  transactionId: string;    // supplied by HIU
+  hiuPublicKey: string;       // base64 raw X25519 pub or PEM — from HIU request
+  hiuNonce: string;           // 32-byte base64 nonce — from HIU request
+  transactionId: string;      // supplied by HIU
   careContextRef: string;
 }): Promise<void> {
-  const encrypted = encryptBundle(args.bundle, args.hiuPublicKey);
+  const encrypted = encryptBundle(args.bundle, args.hiuPublicKey, args.hiuNonce);
 
   await abdmRequest<void>({
     method: "POST",
@@ -309,7 +311,7 @@ export async function pushHealthInformation(args: {
       transactionId: args.transactionId,
       entries: [
         {
-          content: encrypted.encryptedContent,
+          content: encrypted.encryptedData,
           media: "application/fhir+json",
           checksum: "",
           careContextReference: args.careContextRef,
@@ -342,6 +344,8 @@ export async function handleHealthInformationRequest(payload: {
   transactionId: string;
   dataPushUrl: string;
   hiuPublicKey: string;
+  /** 32-byte base64 nonce supplied by the HIU in the request. */
+  hiuNonce: string;
   hiTypes: CareContextType[];
   dateRange: { from: string; to: string };
 }): Promise<{ queued: true }> {
@@ -358,8 +362,11 @@ export async function handleHealthInformationRequest(payload: {
       ts: new Date().toISOString(),
     })
   );
-  if (!payload.dataPushUrl || !payload.hiuPublicKey) {
-    throw new ABDMError("HIU did not supply dataPushUrl / public key", 400);
+  if (!payload.dataPushUrl || !payload.hiuPublicKey || !payload.hiuNonce) {
+    throw new ABDMError("HIU did not supply dataPushUrl / public key / nonce", 400);
   }
   return { queued: true };
 }
+
+/** Re-export for convenience so callers can generate nonces when needed. */
+export { generateNonceBase64 };

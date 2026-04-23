@@ -2,10 +2,9 @@
 //
 // Mounts at `/api/v1/claims`.
 //
-// Persistence: the task brief forbade modifying `schema.prisma`, so this route
-// delegates to an in-process store (`services/insurance-claims/store.ts`).
-// Once the migration in `.prisma-models.md` ships, swap the store calls for
-// `prisma.insuranceClaim.*` — the shapes already match.
+// Persistence: delegates to `services/insurance-claims/store.ts`, which is now
+// a thin wrapper over Prisma (`InsuranceClaim`, `ClaimDocument`,
+// `ClaimStatusEvent`). Store functions are async — all calls here await them.
 
 import { Router, Request, Response, NextFunction } from "express";
 import express from "express";
@@ -32,6 +31,7 @@ import {
   addEvent,
   getEvents,
   ClaimsQuery,
+  InsuranceClaimRow,
 } from "../services/insurance-claims/store";
 
 const router = Router();
@@ -178,7 +178,7 @@ router.post(
 
       // Write the draft row first so we have a stable internalClaimId for
       // adapter idempotency.
-      const row = createClaim({
+      const row = await createClaim({
         billId: body.billId,
         patientId: body.patientId,
         tpaProvider: body.tpaProvider,
@@ -248,12 +248,12 @@ router.post(
         return;
       }
 
-      const updated = updateClaim(row.id, {
+      const updated = (await updateClaim(row.id, {
         providerClaimRef: result.data.providerRef,
         status: result.data.status,
         lastSyncedAt: new Date().toISOString(),
-      })!;
-      addEvent({
+      }))!;
+      await addEvent({
         claimId: row.id,
         status: result.data.status,
         note: `Submitted to ${body.tpaProvider}`,
@@ -290,7 +290,7 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
     if (patientId) q.patientId = patientId;
     if (from) q.from = new Date(from);
     if (to) q.to = new Date(to);
-    const rows = listClaims(q);
+    const rows = await listClaims(q);
     res.json({ success: true, data: rows, error: null });
   } catch (err) {
     next(err);
@@ -303,7 +303,7 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
  */
 router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const row = getClaim(req.params.id);
+    const row = await getClaim(req.params.id);
     if (!row) {
       notFound(res);
       return;
@@ -313,7 +313,7 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
       const adapter = getAdapter(row.tpaProvider);
       const result = await adapter.getClaimStatus(row.providerClaimRef);
       if (result.ok) {
-        const patch: Parameters<typeof updateClaim>[1] = {
+        const patch: Partial<InsuranceClaimRow> = {
           status: result.data.status,
           amountApproved: result.data.amountApproved ?? row.amountApproved,
           deniedReason: result.data.deniedReason ?? row.deniedReason,
@@ -323,15 +323,15 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
           patch.approvedAt = new Date().toISOString();
         if (result.data.status === "SETTLED" && !row.settledAt)
           patch.settledAt = new Date().toISOString();
-        updateClaim(row.id, patch);
+        await updateClaim(row.id, patch);
         // Append any provider events we haven't seen yet.
         const seen = new Set(
-          getEvents(row.id).map((e) => e.status + "|" + e.timestamp)
+          (await getEvents(row.id)).map((e) => e.status + "|" + e.timestamp)
         );
         for (const ev of result.data.timeline) {
           const k = ev.status + "|" + ev.timestamp;
           if (!seen.has(k)) {
-            addEvent({
+            await addEvent({
               claimId: row.id,
               status: ev.status,
               note: ev.note ?? null,
@@ -344,13 +344,17 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
       }
     }
 
-    const fresh = getClaim(req.params.id)!;
+    const fresh = (await getClaim(req.params.id))!;
+    const [docs, timeline] = await Promise.all([
+      getDocuments(fresh.id),
+      getEvents(fresh.id),
+    ]);
     res.json({
       success: true,
       data: {
         ...fresh,
-        documents: getDocuments(fresh.id),
-        timeline: getEvents(fresh.id),
+        documents: docs,
+        timeline,
       },
       error: null,
     });
@@ -371,7 +375,7 @@ router.post(
   validate(uploadDocSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const row = getClaim(req.params.id);
+      const row = await getClaim(req.params.id);
       if (!row) {
         notFound(res);
         return;
@@ -423,7 +427,7 @@ router.post(
         return;
       }
 
-      const doc = addDocument({
+      const doc = await addDocument({
         claimId: row.id,
         type: body.type as ClaimDocumentType,
         fileKey: storage.key,
@@ -433,7 +437,7 @@ router.post(
         providerDocId: result.data.providerDocId,
         uploadedBy: req.user!.userId,
       });
-      addEvent({
+      await addEvent({
         claimId: row.id,
         status: row.status,
         note: `Document uploaded: ${body.type} (${body.filename})`,
@@ -463,7 +467,7 @@ router.post(
   validate(cancelSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const row = getClaim(req.params.id);
+      const row = await getClaim(req.params.id);
       if (!row) {
         notFound(res);
         return;
@@ -471,11 +475,11 @@ router.post(
       const { reason } = req.body as z.infer<typeof cancelSchema>;
       if (!row.providerClaimRef) {
         // Never actually left our side — cancel locally only.
-        const updated = updateClaim(row.id, {
+        const updated = (await updateClaim(row.id, {
           status: "CANCELLED",
           cancelledAt: new Date().toISOString(),
-        })!;
-        addEvent({
+        }))!;
+        await addEvent({
           claimId: row.id,
           status: "CANCELLED",
           note: `Cancelled before TPA submission: ${reason}`,
@@ -498,11 +502,11 @@ router.post(
         return;
       }
 
-      const updated = updateClaim(row.id, {
+      const updated = (await updateClaim(row.id, {
         status: "CANCELLED",
         cancelledAt: result.data.cancelledAt,
-      })!;
-      addEvent({
+      }))!;
+      await addEvent({
         claimId: row.id,
         status: "CANCELLED",
         note: `Cancelled via TPA: ${reason}`,

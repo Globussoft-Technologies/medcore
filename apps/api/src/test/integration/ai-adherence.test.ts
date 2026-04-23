@@ -278,4 +278,168 @@ describeIfDB("AI Adherence API (integration)", () => {
     );
     expect(res.status).toBe(401);
   });
+
+  // ─── POST /:scheduleId/doses + GET /:scheduleId/doses ─────────────────
+
+  it("lets the owning patient mark a dose as taken", async () => {
+    const prisma = await getPrisma();
+    const jwt = (await import("jsonwebtoken")).default;
+
+    const patient = await createPatientFixture();
+    const { doctor, token: doctorToken } = await createDoctorWithToken();
+    const appt = await createAppointmentFixture({ patientId: patient.id, doctorId: doctor.id });
+    const prescription = await createPrescriptionFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      appointmentId: appt.id,
+    });
+
+    const enrollRes = await request(app)
+      .post("/api/v1/ai/adherence/enroll")
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ prescriptionId: prescription.id });
+    const scheduleId = enrollRes.body.data.id;
+    const medName = enrollRes.body.data.medications[0].name;
+
+    const patientUser = await prisma.user.findUnique({ where: { id: patient.userId } });
+    const patientToken = jwt.sign(
+      { userId: patientUser!.id, email: patientUser!.email, role: "PATIENT" },
+      process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
+      { expiresIn: "1h" }
+    );
+
+    const scheduledAt = new Date();
+    scheduledAt.setHours(8, 0, 0, 0);
+
+    const res = await request(app)
+      .post(`/api/v1/ai/adherence/${scheduleId}/doses`)
+      .set("Authorization", `Bearer ${patientToken}`)
+      .send({
+        medicationName: medName,
+        scheduledAt: scheduledAt.toISOString(),
+        takenAt: new Date().toISOString(),
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.id).toBeTruthy();
+    expect(res.body.data.status).toBe("TAKEN");
+    expect(res.body.data.takenAt).toBeTruthy();
+
+    // Row persisted in DB
+    const row = await (prisma as any).adherenceDoseLog.findUnique({
+      where: { id: res.body.data.id },
+    });
+    expect(row).toBeTruthy();
+    expect(row.scheduleId).toBe(scheduleId);
+    expect(row.patientId).toBe(patient.id);
+    expect(row.skipped).toBe(false);
+  });
+
+  it("forbids a different PATIENT from marking a dose on another's schedule (403)", async () => {
+    const prisma = await getPrisma();
+    const jwt = (await import("jsonwebtoken")).default;
+
+    const owner = await createPatientFixture();
+    const intruder = await createPatientFixture();
+    const { doctor, token: doctorToken } = await createDoctorWithToken();
+    const appt = await createAppointmentFixture({ patientId: owner.id, doctorId: doctor.id });
+    const prescription = await createPrescriptionFixture({
+      patientId: owner.id,
+      doctorId: doctor.id,
+      appointmentId: appt.id,
+    });
+
+    const enrollRes = await request(app)
+      .post("/api/v1/ai/adherence/enroll")
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ prescriptionId: prescription.id });
+    const scheduleId = enrollRes.body.data.id;
+    const medName = enrollRes.body.data.medications[0].name;
+
+    const intruderUser = await prisma.user.findUnique({ where: { id: intruder.userId } });
+    const intruderToken = jwt.sign(
+      { userId: intruderUser!.id, email: intruderUser!.email, role: "PATIENT" },
+      process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
+      { expiresIn: "1h" }
+    );
+
+    const res = await request(app)
+      .post(`/api/v1/ai/adherence/${scheduleId}/doses`)
+      .set("Authorization", `Bearer ${intruderToken}`)
+      .send({
+        medicationName: medName,
+        scheduledAt: new Date().toISOString(),
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/own/i);
+  });
+
+  it("GET /doses returns logs sorted by scheduledAt descending", async () => {
+    const patient = await createPatientFixture();
+    const { doctor, token: doctorToken } = await createDoctorWithToken();
+    const appt = await createAppointmentFixture({ patientId: patient.id, doctorId: doctor.id });
+    const prescription = await createPrescriptionFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      appointmentId: appt.id,
+    });
+
+    const enrollRes = await request(app)
+      .post("/api/v1/ai/adherence/enroll")
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ prescriptionId: prescription.id });
+    const scheduleId = enrollRes.body.data.id;
+    const medName = enrollRes.body.data.medications[0].name;
+
+    // Seed three logs at different scheduledAt times
+    const now = Date.now();
+    const times = [
+      new Date(now - 3 * 60 * 60 * 1000).toISOString(), // oldest
+      new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+      new Date(now - 1 * 60 * 60 * 1000).toISOString(), // newest
+    ];
+    for (const t of times) {
+      const postRes = await request(app)
+        .post(`/api/v1/ai/adherence/${scheduleId}/doses`)
+        .set("Authorization", `Bearer ${doctorToken}`)
+        .send({
+          medicationName: medName,
+          scheduledAt: t,
+          takenAt: t,
+        });
+      expect(postRes.status).toBe(201);
+    }
+
+    const listRes = await request(app)
+      .get(`/api/v1/ai/adherence/${scheduleId}/doses`)
+      .set("Authorization", `Bearer ${doctorToken}`);
+
+    expect(listRes.status).toBe(200);
+    expect(Array.isArray(listRes.body.data)).toBe(true);
+    expect(listRes.body.data.length).toBe(3);
+    const returnedTimes = listRes.body.data.map((r: any) =>
+      new Date(r.scheduledAt).toISOString()
+    );
+    // newest first
+    expect(returnedTimes[0]).toBe(times[2]);
+    expect(returnedTimes[1]).toBe(times[1]);
+    expect(returnedTimes[2]).toBe(times[0]);
+  });
+
+  it("returns 404 when marking a dose against an unknown schedule", async () => {
+    const { token: doctorToken } = await createDoctorWithToken();
+
+    const res = await request(app)
+      .post(`/api/v1/ai/adherence/00000000-0000-0000-0000-000000000000/doses`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({
+        medicationName: "Paracetamol",
+        scheduledAt: new Date().toISOString(),
+      });
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/not found/i);
+  });
 });

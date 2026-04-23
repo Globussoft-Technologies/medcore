@@ -658,6 +658,10 @@ model Patient {
   feedingLogs          FeedingLog[]
   aiTriageSessions     AITriageSession[]
   aiScribeSessions     AIScribeSession[]
+  abhaLinks            AbhaLink[]
+  consentArtefacts     ConsentArtefact[]
+  careContexts         CareContext[]
+  insuranceClaimsV2    InsuranceClaim2[]
 
   @@index([mrNumber])
   @@map("patients")
@@ -881,6 +885,7 @@ model Invoice {
   items             InvoiceItem[]
   payments          Payment[]
   insuranceClaims   InsuranceClaim[]
+  insuranceClaimsV2 InsuranceClaim2[]
   paymentPlans      PaymentPlan[]
   discountApprovals DiscountApproval[]
   creditNotes     CreditNote[]
@@ -1869,6 +1874,23 @@ model TelemedicineSession {
   patientJoinedAt     DateTime? // waiting room
   // Chat during session (Apr 2026)
   sessionMessages     Json? // Array<{id,sender,text,sentAt}>
+  // ─── Waiting room / admit flow (Apr 2026) ────────────
+  /// "IDLE" | "PATIENT_WAITING" | "ADMITTED" | "DENIED"
+  waitingRoomState    String?            @default("IDLE")
+  admittedAt          DateTime?
+  deniedAt            DateTime?
+  denyReason          String?
+  // ─── Pre-check (camera / mic self-test) ──────────────
+  precheckPassed      Boolean            @default(false)
+  precheckAt          DateTime?
+  precheckDetails     Json? // { camera, mic, bandwidthKbps?, userAgent? }
+  // ─── Recording metadata (Jibri) ──────────────────────
+  recordingStartedAt  DateTime?
+  recordingStoppedAt  DateTime?
+  /// Room name used for this session (matches Jitsi room slug).
+  jitsiRoom           String?
+  // ─── Screen-share audit ──────────────────────────────
+  screenShareEvents   Json? // Array<{ action: 'START'|'STOP', by: userId, at: ISO }>
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
@@ -2923,6 +2945,7 @@ model PreAuthRequest {
   notes                String?
 
   patient Patient @relation(fields: [patientId], references: [id])
+  insuranceClaims InsuranceClaim2[]
 
   @@index([patientId])
   @@index([status])
@@ -3383,4 +3406,206 @@ model LabReportExplanation {
   @@index([patientId])
   @@index([status])
   @@map("lab_report_explanations")
+}
+
+// ─── ABDM: ABHA LINKING / CONSENT / CARE CONTEXTS ───────
+
+enum AbhaLinkStatus {
+  PENDING
+  VERIFIED
+  LINKED
+  REVOKED
+  FAILED
+}
+
+enum ConsentStatus {
+  REQUESTED
+  GRANTED
+  DENIED
+  REVOKED
+  EXPIRED
+}
+
+enum CareContextType {
+  OPConsultation
+  DischargeSummary
+  DiagnosticReport
+}
+
+model AbhaLink {
+  id            String         @id @default(uuid())
+  patientId     String
+  abhaAddress   String
+  abhaNumber    String?
+  status        AbhaLinkStatus @default(PENDING)
+  requestId     String?        @unique
+  linkedAt      DateTime?
+  revokedAt     DateTime?
+  failureReason String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@index([abhaAddress])
+  @@index([status])
+  @@map("abha_links")
+}
+
+model ConsentArtefact {
+  id         String        @id @default(uuid())
+  patientId  String
+  hiuId      String
+  purpose    String
+  status     ConsentStatus @default(REQUESTED)
+  artefact   Json
+  expiresAt  DateTime
+  grantedAt  DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("consent_artefacts")
+}
+
+model CareContext {
+  id             String          @id @default(uuid())
+  patientId      String
+  abhaAddress    String
+  careContextRef String          @unique
+  type           CareContextType
+  lastPushedAt   DateTime?
+  createdAt      DateTime        @default(now())
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@index([abhaAddress])
+  @@map("care_contexts")
+}
+
+// ─── INSURANCE TPA CLAIMS (v2) ──────────────────────────
+
+enum TpaProvider {
+  MEDI_ASSIST
+  PARAMOUNT
+  VIDAL
+  FHPL
+  ICICI_LOMBARD
+  STAR_HEALTH
+  MOCK
+}
+
+enum NormalisedClaimStatus {
+  SUBMITTED
+  IN_REVIEW
+  QUERY_RAISED
+  APPROVED
+  PARTIALLY_APPROVED
+  DENIED
+  SETTLED
+  CANCELLED
+}
+
+/// Richer TPA-aware claim model. Coexists with the legacy `InsuranceClaim`
+/// (table `insurance_claims`); this one maps to `insurance_claims_v2`.
+model InsuranceClaim2 {
+  id               String                @id @default(uuid())
+  billId           String
+  patientId        String
+  tpaProvider      TpaProvider
+  providerClaimRef String?               @unique
+  insurerName      String
+  policyNumber     String
+  memberId         String?
+  preAuthRequestId String?
+  diagnosis        String
+  icd10Codes       Json?
+  procedureName    String?
+  admissionDate    DateTime?             @db.Date
+  dischargeDate    DateTime?             @db.Date
+  amountClaimed    Float
+  amountApproved   Float?
+  status           NormalisedClaimStatus @default(SUBMITTED)
+  deniedReason     String?
+  notes            String?
+  submittedAt      DateTime              @default(now())
+  approvedAt       DateTime?
+  settledAt        DateTime?
+  cancelledAt      DateTime?
+  lastSyncedAt     DateTime?
+  createdBy        String
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  invoice        Invoice            @relation(fields: [billId], references: [id])
+  patient        Patient            @relation(fields: [patientId], references: [id])
+  preAuthRequest PreAuthRequest?    @relation(fields: [preAuthRequestId], references: [id])
+  documents      ClaimDocument[]
+  events         ClaimStatusEvent[]
+
+  @@index([billId])
+  @@index([patientId])
+  @@index([tpaProvider, status])
+  @@index([providerClaimRef])
+  @@map("insurance_claims_v2")
+}
+
+model ClaimDocument {
+  id            String   @id @default(uuid())
+  claimId       String
+  type          String
+  fileKey       String
+  filename      String
+  contentType   String
+  sizeBytes     Int
+  providerDocId String?
+  uploadedBy    String
+  uploadedAt    DateTime @default(now())
+
+  claim InsuranceClaim2 @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId])
+  @@map("claim_documents")
+}
+
+model ClaimStatusEvent {
+  id        String                @id @default(uuid())
+  claimId   String
+  status    NormalisedClaimStatus
+  timestamp DateTime              @default(now())
+  note      String?
+  source    String                @default("API")
+  createdBy String?
+
+  claim InsuranceClaim2 @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId, timestamp])
+  @@map("claim_status_events")
+}
+
+// ─── RAG INGEST LOG ─────────────────────────────────────
+
+model IngestLog {
+  id           String   @id @default(uuid())
+  sourceType   String
+  sourceId     String
+  patientId    String?
+  doctorId     String?
+  chunkCount   Int      @default(0)
+  status       String
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  @@index([sourceType, sourceId])
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([status])
+  @@map("ingest_logs")
 }

@@ -1,14 +1,23 @@
-// Temporary in-process store for claims, documents, and status events.
+// Prisma-backed store for insurance claims, documents, and status events.
 //
-// The task brief forbids editing `packages/db/prisma/schema.prisma` so we
-// can't persist to Postgres yet. Once the models in `.prisma-models.md` are
-// migrated, swap every reference here for the corresponding `prisma.*` call;
-// the field names line up 1:1 on purpose.
+// This module was previously a Map-based in-process store (see git history)
+// while `packages/db/prisma/schema.prisma` was missing the relevant models.
+// The schema merge adding `InsuranceClaim`, `ClaimDocument`, `ClaimStatusEvent`
+// plus the `TpaProvider` / `NormalisedClaimStatus` enums is landing in parallel
+// to this commit, so we cast via `(prisma as any)` in a few spots to keep this
+// file compilable before `npx prisma generate` has been re-run. Each cast is
+// flagged with `TODO(cast): remove once prisma client is regenerated`.
 //
-// The store is process-local — fine for tests and the single-node dev server,
-// unsuitable for prod (everyone shipping to prod must run the migration first).
+// Exported *Row shapes use ISO strings for dates/JSON-array icd10Codes so
+// existing callers (see `routes/insurance-claims.ts`) don't have to change.
+// Prisma returns `Date` objects and stores `icd10Codes` as JSON — we convert
+// at the persistence boundary.
+//
+// Test-only hooks (`forceStatus`, `resetMockState`) that used to live here or
+// in the mock adapter are now in `./test-helpers.ts`. They are gated to
+// `NODE_ENV === "test"` so they cannot be misused in production code paths.
 
-import crypto from "crypto";
+import { prisma } from "@medcore/db";
 import {
   TpaProvider,
   NormalisedClaimStatus,
@@ -68,51 +77,6 @@ export interface ClaimStatusEventRow {
   createdBy: string | null;
 }
 
-const claims = new Map<string, InsuranceClaimRow>();
-const documents = new Map<string, ClaimDocumentRow[]>(); // claimId → rows
-const events = new Map<string, ClaimStatusEventRow[]>(); // claimId → rows
-
-export function resetStore(): void {
-  claims.clear();
-  documents.clear();
-  events.clear();
-}
-
-function uuid(): string {
-  return crypto.randomUUID();
-}
-
-// ── Claims ──────────────────────────────────────────────────────────────────
-
-export function createClaim(
-  row: Omit<InsuranceClaimRow, "id" | "createdAt" | "updatedAt">
-): InsuranceClaimRow {
-  const now = new Date().toISOString();
-  const full: InsuranceClaimRow = { ...row, id: uuid(), createdAt: now, updatedAt: now };
-  claims.set(full.id, full);
-  return full;
-}
-
-export function getClaim(id: string): InsuranceClaimRow | undefined {
-  return claims.get(id);
-}
-
-export function updateClaim(
-  id: string,
-  patch: Partial<InsuranceClaimRow>
-): InsuranceClaimRow | undefined {
-  const existing = claims.get(id);
-  if (!existing) return undefined;
-  const updated: InsuranceClaimRow = {
-    ...existing,
-    ...patch,
-    id: existing.id,
-    updatedAt: new Date().toISOString(),
-  };
-  claims.set(id, updated);
-  return updated;
-}
-
 export interface ClaimsQuery {
   status?: NormalisedClaimStatus;
   tpa?: TpaProvider;
@@ -121,59 +85,382 @@ export interface ClaimsQuery {
   patientId?: string;
 }
 
-export function listClaims(q: ClaimsQuery = {}): InsuranceClaimRow[] {
-  const all = Array.from(claims.values());
-  return all
-    .filter((c) => !q.status || c.status === q.status)
-    .filter((c) => !q.tpa || c.tpaProvider === q.tpa)
-    .filter((c) => !q.patientId || c.patientId === q.patientId)
-    .filter((c) => !q.from || new Date(c.submittedAt) >= q.from)
-    .filter((c) => !q.to || new Date(c.submittedAt) <= q.to)
-    .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+// ── Mapping helpers ─────────────────────────────────────────────────────────
+
+function toISO(d: Date | null | undefined): string | null {
+  if (!d) return null;
+  return d instanceof Date ? d.toISOString() : new Date(d).toISOString();
+}
+
+/** Prisma stores `icd10Codes` as `Json?`; normalise to `string[]`. */
+function toStringArray(value: unknown): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.filter((v) => typeof v === "string");
+  return [];
+}
+
+function mapClaim(row: any): InsuranceClaimRow {
+  return {
+    id: row.id,
+    billId: row.billId,
+    patientId: row.patientId,
+    tpaProvider: row.tpaProvider as TpaProvider,
+    providerClaimRef: row.providerClaimRef ?? null,
+    insurerName: row.insurerName,
+    policyNumber: row.policyNumber,
+    memberId: row.memberId ?? null,
+    preAuthRequestId: row.preAuthRequestId ?? null,
+    diagnosis: row.diagnosis,
+    icd10Codes: toStringArray(row.icd10Codes),
+    procedureName: row.procedureName ?? null,
+    admissionDate: toISO(row.admissionDate),
+    dischargeDate: toISO(row.dischargeDate),
+    amountClaimed: Number(row.amountClaimed),
+    amountApproved:
+      row.amountApproved === null || row.amountApproved === undefined
+        ? null
+        : Number(row.amountApproved),
+    status: row.status as NormalisedClaimStatus,
+    deniedReason: row.deniedReason ?? null,
+    notes: row.notes ?? null,
+    submittedAt: toISO(row.submittedAt) ?? new Date().toISOString(),
+    approvedAt: toISO(row.approvedAt),
+    settledAt: toISO(row.settledAt),
+    cancelledAt: toISO(row.cancelledAt),
+    lastSyncedAt: toISO(row.lastSyncedAt),
+    createdBy: row.createdBy,
+    createdAt: toISO(row.createdAt) ?? new Date().toISOString(),
+    updatedAt: toISO(row.updatedAt) ?? new Date().toISOString(),
+  };
+}
+
+function mapDocument(row: any): ClaimDocumentRow {
+  return {
+    id: row.id,
+    claimId: row.claimId,
+    type: row.type as ClaimDocumentType,
+    fileKey: row.fileKey,
+    filename: row.filename,
+    contentType: row.contentType,
+    sizeBytes: row.sizeBytes,
+    providerDocId: row.providerDocId ?? null,
+    uploadedBy: row.uploadedBy,
+    uploadedAt: toISO(row.uploadedAt) ?? new Date().toISOString(),
+  };
+}
+
+function mapEvent(row: any): ClaimStatusEventRow {
+  return {
+    id: row.id,
+    claimId: row.claimId,
+    status: row.status as NormalisedClaimStatus,
+    timestamp: toISO(row.timestamp) ?? new Date().toISOString(),
+    note: row.note ?? null,
+    source: (row.source ?? "API") as "API" | "WEBHOOK" | "MANUAL",
+    createdBy: row.createdBy ?? null,
+  };
+}
+
+// ── Reset (used by tests) ───────────────────────────────────────────────────
+
+/**
+ * Wipe every claim + its dependents. Only usable in the test harness — guards
+ * against accidental calls in dev/prod where it would nuke real data.
+ * Documents and events cascade via the FK definitions but we still delete
+ * explicitly so the call works even if the relation metadata is missing.
+ */
+export async function resetStore(): Promise<void> {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("resetStore() is only callable when NODE_ENV === 'test'");
+  }
+  // TODO(cast): remove once prisma client is regenerated with the new models.
+  const p: any = prisma;
+  if (!p.claimStatusEvent || !p.claimDocument || !p.insuranceClaim2) {
+    // Schema hasn't been merged yet — no-op so tests that depend on this can
+    // still boot and then skip via the beforeAll guard in the suite.
+    return;
+  }
+  await p.claimStatusEvent.deleteMany({});
+  await p.claimDocument.deleteMany({});
+  await p.insuranceClaim2.deleteMany({});
+}
+
+// ── Claims ──────────────────────────────────────────────────────────────────
+
+export async function createClaim(
+  row: Omit<InsuranceClaimRow, "id" | "createdAt" | "updatedAt">
+): Promise<InsuranceClaimRow> {
+  // TODO(cast): remove once prisma client is regenerated.
+  const created = await (prisma as any).insuranceClaim2.create({
+    data: {
+      billId: row.billId,
+      patientId: row.patientId,
+      tpaProvider: row.tpaProvider,
+      providerClaimRef: row.providerClaimRef,
+      insurerName: row.insurerName,
+      policyNumber: row.policyNumber,
+      memberId: row.memberId,
+      preAuthRequestId: row.preAuthRequestId,
+      diagnosis: row.diagnosis,
+      icd10Codes: row.icd10Codes ?? [],
+      procedureName: row.procedureName,
+      admissionDate: row.admissionDate ? new Date(row.admissionDate) : null,
+      dischargeDate: row.dischargeDate ? new Date(row.dischargeDate) : null,
+      amountClaimed: row.amountClaimed,
+      amountApproved: row.amountApproved,
+      status: row.status,
+      deniedReason: row.deniedReason,
+      notes: row.notes,
+      submittedAt: row.submittedAt ? new Date(row.submittedAt) : new Date(),
+      approvedAt: row.approvedAt ? new Date(row.approvedAt) : null,
+      settledAt: row.settledAt ? new Date(row.settledAt) : null,
+      cancelledAt: row.cancelledAt ? new Date(row.cancelledAt) : null,
+      lastSyncedAt: row.lastSyncedAt ? new Date(row.lastSyncedAt) : null,
+      createdBy: row.createdBy,
+    },
+  });
+  return mapClaim(created);
+}
+
+export async function getClaim(id: string): Promise<InsuranceClaimRow | undefined> {
+  // TODO(cast): remove once prisma client is regenerated.
+  const row = await (prisma as any).insuranceClaim2.findUnique({ where: { id } });
+  return row ? mapClaim(row) : undefined;
+}
+
+/** Alias matching the task-brief operation name. */
+export const findById = getClaim;
+
+/** Find a claim by the underlying Invoice/Bill id (many-to-one). */
+export async function findByBill(
+  billId: string
+): Promise<InsuranceClaimRow[]> {
+  // TODO(cast): remove once prisma client is regenerated.
+  const rows = await (prisma as any).insuranceClaim2.findMany({
+    where: { billId },
+    orderBy: { submittedAt: "desc" },
+  });
+  return rows.map(mapClaim);
+}
+
+export async function updateClaim(
+  id: string,
+  patch: Partial<InsuranceClaimRow>
+): Promise<InsuranceClaimRow | undefined> {
+  // TODO(cast): remove once prisma client is regenerated.
+  const p: any = prisma;
+  const existing = await p.insuranceClaim2.findUnique({ where: { id } });
+  if (!existing) return undefined;
+
+  const data: Record<string, unknown> = {};
+  if (patch.billId !== undefined) data.billId = patch.billId;
+  if (patch.patientId !== undefined) data.patientId = patch.patientId;
+  if (patch.tpaProvider !== undefined) data.tpaProvider = patch.tpaProvider;
+  if (patch.providerClaimRef !== undefined)
+    data.providerClaimRef = patch.providerClaimRef;
+  if (patch.insurerName !== undefined) data.insurerName = patch.insurerName;
+  if (patch.policyNumber !== undefined) data.policyNumber = patch.policyNumber;
+  if (patch.memberId !== undefined) data.memberId = patch.memberId;
+  if (patch.preAuthRequestId !== undefined)
+    data.preAuthRequestId = patch.preAuthRequestId;
+  if (patch.diagnosis !== undefined) data.diagnosis = patch.diagnosis;
+  if (patch.icd10Codes !== undefined) data.icd10Codes = patch.icd10Codes;
+  if (patch.procedureName !== undefined) data.procedureName = patch.procedureName;
+  if (patch.admissionDate !== undefined)
+    data.admissionDate = patch.admissionDate ? new Date(patch.admissionDate) : null;
+  if (patch.dischargeDate !== undefined)
+    data.dischargeDate = patch.dischargeDate ? new Date(patch.dischargeDate) : null;
+  if (patch.amountClaimed !== undefined) data.amountClaimed = patch.amountClaimed;
+  if (patch.amountApproved !== undefined) data.amountApproved = patch.amountApproved;
+  if (patch.status !== undefined) data.status = patch.status;
+  if (patch.deniedReason !== undefined) data.deniedReason = patch.deniedReason;
+  if (patch.notes !== undefined) data.notes = patch.notes;
+  if (patch.submittedAt !== undefined)
+    data.submittedAt = patch.submittedAt ? new Date(patch.submittedAt) : null;
+  if (patch.approvedAt !== undefined)
+    data.approvedAt = patch.approvedAt ? new Date(patch.approvedAt) : null;
+  if (patch.settledAt !== undefined)
+    data.settledAt = patch.settledAt ? new Date(patch.settledAt) : null;
+  if (patch.cancelledAt !== undefined)
+    data.cancelledAt = patch.cancelledAt ? new Date(patch.cancelledAt) : null;
+  if (patch.lastSyncedAt !== undefined)
+    data.lastSyncedAt = patch.lastSyncedAt ? new Date(patch.lastSyncedAt) : null;
+  if (patch.createdBy !== undefined) data.createdBy = patch.createdBy;
+
+  const updated = await p.insuranceClaim2.update({ where: { id }, data });
+  return mapClaim(updated);
+}
+
+export async function listClaims(
+  q: ClaimsQuery = {}
+): Promise<InsuranceClaimRow[]> {
+  const where: Record<string, unknown> = {};
+  if (q.status) where.status = q.status;
+  if (q.tpa) where.tpaProvider = q.tpa;
+  if (q.patientId) where.patientId = q.patientId;
+  if (q.from || q.to) {
+    const submittedAt: Record<string, Date> = {};
+    if (q.from) submittedAt.gte = q.from;
+    if (q.to) submittedAt.lte = q.to;
+    where.submittedAt = submittedAt;
+  }
+  // TODO(cast): remove once prisma client is regenerated.
+  const rows = await (prisma as any).insuranceClaim2.findMany({
+    where,
+    orderBy: { submittedAt: "desc" },
+  });
+  return rows.map(mapClaim);
+}
+
+/** Alias matching the task-brief operation name. */
+export const list = listClaims;
+
+/**
+ * Atomically flip a claim's status AND record a `ClaimStatusEvent` row. Used
+ * by the new transactional callers (`updateStatus`, `cancelClaim`). Callers
+ * that still want two independent writes can use `updateClaim` +
+ * `addEvent` — kept for backwards compat with the existing route.
+ */
+export interface UpdateStatusInput {
+  status: NormalisedClaimStatus;
+  amountApproved?: number | null;
+  deniedReason?: string | null;
+  lastSyncedAt?: string | null;
+  approvedAt?: string | null;
+  settledAt?: string | null;
+  cancelledAt?: string | null;
+  note?: string | null;
+  source?: "API" | "WEBHOOK" | "MANUAL";
+  createdBy?: string | null;
+  eventTimestamp?: string;
+}
+
+export async function updateStatus(
+  id: string,
+  input: UpdateStatusInput
+): Promise<InsuranceClaimRow | undefined> {
+  // TODO(cast): remove once prisma client is regenerated.
+  const p: any = prisma;
+  return p.$transaction(async (tx: any) => {
+    const existing = await tx.insuranceClaim2.findUnique({ where: { id } });
+    if (!existing) return undefined;
+
+    const data: Record<string, unknown> = { status: input.status };
+    if (input.amountApproved !== undefined)
+      data.amountApproved = input.amountApproved;
+    if (input.deniedReason !== undefined) data.deniedReason = input.deniedReason;
+    if (input.lastSyncedAt !== undefined)
+      data.lastSyncedAt = input.lastSyncedAt
+        ? new Date(input.lastSyncedAt)
+        : null;
+    if (input.approvedAt !== undefined)
+      data.approvedAt = input.approvedAt ? new Date(input.approvedAt) : null;
+    if (input.settledAt !== undefined)
+      data.settledAt = input.settledAt ? new Date(input.settledAt) : null;
+    if (input.cancelledAt !== undefined)
+      data.cancelledAt = input.cancelledAt ? new Date(input.cancelledAt) : null;
+
+    const updated = await tx.insuranceClaim2.update({ where: { id }, data });
+    await tx.claimStatusEvent.create({
+      data: {
+        claimId: id,
+        status: input.status,
+        note: input.note ?? null,
+        source: input.source ?? "API",
+        createdBy: input.createdBy ?? null,
+        timestamp: input.eventTimestamp
+          ? new Date(input.eventTimestamp)
+          : new Date(),
+      },
+    });
+    return mapClaim(updated);
+  });
+}
+
+/**
+ * Transactional cancel — marks a claim as CANCELLED and writes the event row.
+ */
+export async function cancelClaim(
+  id: string,
+  reason: string,
+  opts: {
+    source?: "API" | "WEBHOOK" | "MANUAL";
+    createdBy?: string | null;
+    cancelledAt?: string;
+  } = {}
+): Promise<InsuranceClaimRow | undefined> {
+  const ts = opts.cancelledAt ?? new Date().toISOString();
+  return updateStatus(id, {
+    status: "CANCELLED",
+    cancelledAt: ts,
+    note: reason,
+    source: opts.source ?? "MANUAL",
+    createdBy: opts.createdBy ?? null,
+    eventTimestamp: ts,
+  });
 }
 
 // ── Documents ───────────────────────────────────────────────────────────────
 
-export function addDocument(
+export async function addDocument(
   row: Omit<ClaimDocumentRow, "id" | "uploadedAt">
-): ClaimDocumentRow {
-  const full: ClaimDocumentRow = {
-    ...row,
-    id: uuid(),
-    uploadedAt: new Date().toISOString(),
-  };
-  const list = documents.get(row.claimId) ?? [];
-  list.push(full);
-  documents.set(row.claimId, list);
-  return full;
+): Promise<ClaimDocumentRow> {
+  // TODO(cast): remove once prisma client is regenerated.
+  const created = await (prisma as any).claimDocument.create({
+    data: {
+      claimId: row.claimId,
+      type: row.type,
+      fileKey: row.fileKey,
+      filename: row.filename,
+      contentType: row.contentType,
+      sizeBytes: row.sizeBytes,
+      providerDocId: row.providerDocId,
+      uploadedBy: row.uploadedBy,
+    },
+  });
+  return mapDocument(created);
 }
 
-export function getDocuments(claimId: string): ClaimDocumentRow[] {
-  return [...(documents.get(claimId) ?? [])];
+export async function getDocuments(
+  claimId: string
+): Promise<ClaimDocumentRow[]> {
+  // TODO(cast): remove once prisma client is regenerated.
+  const rows = await (prisma as any).claimDocument.findMany({
+    where: { claimId },
+    orderBy: { uploadedAt: "asc" },
+  });
+  return rows.map(mapDocument);
 }
+
+/** Alias matching the task-brief operation name. */
+export const listDocuments = getDocuments;
 
 // ── Events ──────────────────────────────────────────────────────────────────
 
-export function addEvent(
+export async function addEvent(
   row: Omit<ClaimStatusEventRow, "id" | "timestamp"> & { timestamp?: string }
-): ClaimStatusEventRow {
-  const full: ClaimStatusEventRow = {
-    id: uuid(),
-    timestamp: row.timestamp ?? new Date().toISOString(),
-    claimId: row.claimId,
-    status: row.status,
-    note: row.note ?? null,
-    source: row.source,
-    createdBy: row.createdBy ?? null,
-  };
-  const list = events.get(row.claimId) ?? [];
-  list.push(full);
-  events.set(row.claimId, list);
-  return full;
+): Promise<ClaimStatusEventRow> {
+  // TODO(cast): remove once prisma client is regenerated.
+  const created = await (prisma as any).claimStatusEvent.create({
+    data: {
+      claimId: row.claimId,
+      status: row.status,
+      note: row.note ?? null,
+      source: row.source,
+      createdBy: row.createdBy ?? null,
+      timestamp: row.timestamp ? new Date(row.timestamp) : new Date(),
+    },
+  });
+  return mapEvent(created);
 }
 
-export function getEvents(claimId: string): ClaimStatusEventRow[] {
-  return [...(events.get(claimId) ?? [])].sort((a, b) =>
-    a.timestamp.localeCompare(b.timestamp)
-  );
+export async function getEvents(
+  claimId: string
+): Promise<ClaimStatusEventRow[]> {
+  // TODO(cast): remove once prisma client is regenerated.
+  const rows = await (prisma as any).claimStatusEvent.findMany({
+    where: { claimId },
+    orderBy: { timestamp: "asc" },
+  });
+  return rows.map(mapEvent);
 }

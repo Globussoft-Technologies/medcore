@@ -4,12 +4,14 @@
  * All endpoints (except the callback webhook) require authenticate + authorize.
  * Every successful action is recorded in audit_logs via `auditLog()`.
  *
- * The webhook `POST /gateway/callback` is intentionally unauthenticated —
- * ABDM signs the request with an RSA signature in `x-hip-id` / `x-cm-id`
- * headers. A real deployment must verify the signature against the ABDM
- * public JWKS (`${ABDM_BASE_URL}/gateway/v0.5/certs`) before accepting the
- * payload. Signature verification is left as a TODO comment below — without
- * sandbox credentials we cannot integration-test it.
+ * The webhook `POST /gateway/callback` is intentionally unauthenticated at
+ * the app level — ABDM instead signs the request with an RS256 JWT in the
+ * `Authorization: Bearer <jwt>` header. The `verifyAbdmSignature` middleware
+ * below verifies against the ABDM public JWKS
+ * (`${ABDM_BASE_URL}/gateway/v0.5/certs`). Verification failures return 401
+ * and write a dedicated audit entry. Sandbox traffic that isn't signed can
+ * be allowed through by setting `ABDM_SKIP_VERIFY=true` or when
+ * `NODE_ENV !== "production"` — both log a warning.
  */
 
 import { Router, Request, Response, NextFunction } from "express";
@@ -38,6 +40,7 @@ import {
   handleHealthInformationRequest,
 } from "../services/abdm/health-records";
 import { ABDMError } from "../services/abdm/client";
+import { verifyGatewaySignature } from "../services/abdm/jwks";
 
 export const abdmRouter = Router();
 
@@ -125,18 +128,75 @@ const callbackSchema = z.object({
 
 // ── Auth gate for everything except /gateway/callback ─────────────────────
 
+/**
+ * Gateway signature verification middleware.
+ *
+ * ABDM signs every outbound callback with an RS256 JWT. We verify against
+ * the public JWKS at `${ABDM_BASE_URL}/gateway/v0.5/certs`. On failure we
+ * write a dedicated audit entry and return 401 without invoking the handler.
+ *
+ * Two development escape hatches (used in sandbox only, never in prod):
+ *   • `NODE_ENV !== "production"` — failure is logged + audited but the
+ *     request is allowed through.
+ *   • `ABDM_SKIP_VERIFY=true` — same behaviour, explicit override.
+ */
+async function verifyAbdmSignature(req: Request, res: Response, next: NextFunction) {
+  const isProd = process.env.NODE_ENV === "production";
+  const skip = process.env.ABDM_SKIP_VERIFY === "true";
+  const rawBody = req.body !== undefined ? Buffer.from(JSON.stringify(req.body)) : undefined;
+
+  let result;
+  try {
+    result = await verifyGatewaySignature(req.headers.authorization, rawBody);
+  } catch (err) {
+    result = { valid: false as const, reason: (err as Error).message };
+  }
+
+  if (result.valid) {
+    next();
+    return;
+  }
+
+  // Failure path — always write an audit log so ops can spot unsigned traffic.
+  await auditLog(
+    req,
+    "ABDM_GATEWAY_SIGNATURE_INVALID",
+    "GatewayCallback",
+    undefined,
+    {
+      reason: result.reason,
+      hasAuthHeader: Boolean(req.headers.authorization),
+      skippedForDev: !isProd || skip,
+    }
+  ).catch(() => {
+    /* best-effort — never fail the request due to audit write */
+  });
+
+  if (!isProd || skip) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        event: "abdm_gateway_signature_skipped",
+        reason: result.reason,
+        ts: new Date().toISOString(),
+      })
+    );
+    next();
+    return;
+  }
+
+  res
+    .status(401)
+    .json({ success: false, data: null, error: `Gateway signature invalid: ${result.reason}` });
+}
+
 // Callback webhook mounted FIRST, before the authenticate middleware,
 // so gateway callbacks (unauthenticated, signed) can reach it.
 abdmRouter.post(
   "/gateway/callback",
+  verifyAbdmSignature,
   validate(callbackSchema),
   async (req: Request, res: Response, next: NextFunction) => {
-    // TODO: verify ABDM signature against JWKS at
-    //   `${process.env.ABDM_BASE_URL}/gateway/v0.5/certs`
-    //   using the `x-hip-id` / `x-cm-id` request headers.
-    // Without sandbox credentials this is not integration-testable, so it
-    // is intentionally left as a stub. Do NOT ship to production without it.
-
     try {
       const body = req.body as any;
 
@@ -165,6 +225,7 @@ abdmRouter.post(
           transactionId: body.hiRequest.transactionId ?? body.requestId,
           dataPushUrl: body.hiRequest.dataPushUrl,
           hiuPublicKey: body.hiRequest.keyMaterial?.dhPublicKey?.keyValue ?? "",
+          hiuNonce: body.hiRequest.keyMaterial?.nonce ?? "",
           hiTypes: body.hiRequest.hiTypes ?? [],
           dateRange: body.hiRequest.dateRange ?? { from: "", to: "" },
         });

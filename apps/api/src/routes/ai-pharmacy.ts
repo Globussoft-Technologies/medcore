@@ -3,6 +3,7 @@ import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import {
   forecastInventory,
+  forecastSingleItem,
   getAIInsights,
   type ItemForecast,
 } from "../services/ai/pharmacy-forecast";
@@ -73,8 +74,7 @@ aiPharmacyRouter.get(
     try {
       const { inventoryItemId } = req.params;
 
-      const forecasts = await forecastInventory(30);
-      const item = forecasts.find((f) => f.inventoryItemId === inventoryItemId);
+      const item = await forecastSingleItem(inventoryItemId, 30);
 
       if (!item) {
         res.status(404).json({

@@ -2,9 +2,55 @@ import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "@medcore/db";
 import { Role } from "@medcore/shared";
 import { authenticate } from "../middleware/auth";
+import { auditLog } from "../middleware/audit";
 
 const router = Router();
 router.use(authenticate);
+
+// ── Ownership helper ────────────────────────────────────────────────────────
+
+/**
+ * Enforces that the caller is allowed to act on dose logs for a given
+ * schedule. Patients may only touch their own; ADMIN and DOCTOR may touch any.
+ *
+ * Returns `{ schedule, patient }` on success, or an `error` containing the
+ * HTTP status + message that the handler should return verbatim.
+ */
+type AuthorizeResult =
+  | { ok: true; schedule: NonNullable<Awaited<ReturnType<typeof prisma.adherenceSchedule.findUnique>>> }
+  | { ok: false; status: number; message: string };
+
+async function authorizeScheduleAccess(
+  req: Request,
+  scheduleId: string
+): Promise<AuthorizeResult> {
+  const schedule = await prisma.adherenceSchedule.findUnique({
+    where: { id: scheduleId },
+  });
+  if (!schedule) {
+    return { ok: false, status: 404, message: "Schedule not found" };
+  }
+
+  const patient = await prisma.patient.findUnique({
+    where: { id: schedule.patientId },
+    select: { userId: true },
+  });
+
+  const user = req.user!;
+  const isOwner = patient?.userId === user.userId;
+  const isPrivileged =
+    user.role === Role.ADMIN || user.role === Role.DOCTOR;
+
+  if (!isOwner && !isPrivileged) {
+    return {
+      ok: false,
+      status: 403,
+      message: "Forbidden: you can only access your own schedule",
+    };
+  }
+
+  return { ok: true, schedule };
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -172,6 +218,157 @@ router.delete(
       });
 
       res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ── POST /api/v1/ai/adherence/:scheduleId/doses ─────────────────────────────
+//
+// Body: { medicationName, scheduledAt, takenAt?, skipped?, note? }
+// Writes a single dose-log row. The patient who owns the schedule (or an
+// ADMIN / DOCTOR) may call this. Emits an audit event on success.
+
+router.post(
+  "/:scheduleId/doses",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { scheduleId } = req.params;
+      const { medicationName, scheduledAt, takenAt, skipped, note } =
+        (req.body ?? {}) as {
+          medicationName?: string;
+          scheduledAt?: string;
+          takenAt?: string | null;
+          skipped?: boolean;
+          note?: string;
+        };
+
+      if (!medicationName || typeof medicationName !== "string") {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "medicationName is required",
+        });
+        return;
+      }
+
+      if (!scheduledAt || Number.isNaN(Date.parse(scheduledAt))) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "scheduledAt must be a valid ISO date-time",
+        });
+        return;
+      }
+
+      if (takenAt && Number.isNaN(Date.parse(takenAt))) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "takenAt must be a valid ISO date-time",
+        });
+        return;
+      }
+
+      const authResult = await authorizeScheduleAccess(req, scheduleId);
+      if (!authResult.ok) {
+        res.status(authResult.status).json({
+          success: false,
+          data: null,
+          error: authResult.message,
+        });
+        return;
+      }
+      const { schedule } = authResult;
+
+      const isSkipped = !!skipped;
+      const takenAtDate = takenAt ? new Date(takenAt) : isSkipped ? null : new Date();
+
+      // TODO(cast): remove after prisma generate
+      const created = await (prisma as any).adherenceDoseLog.create({
+        data: {
+          scheduleId: schedule.id,
+          patientId: schedule.patientId,
+          medicationName,
+          scheduledAt: new Date(scheduledAt),
+          takenAt: takenAtDate,
+          skipped: isSkipped,
+          note: typeof note === "string" && note.length > 0 ? note : null,
+        },
+      });
+
+      await auditLog(
+        req,
+        isSkipped ? "ADHERENCE_DOSE_SKIPPED" : "ADHERENCE_DOSE_TAKEN",
+        "AdherenceDoseLog",
+        created.id,
+        {
+          scheduleId: schedule.id,
+          patientId: schedule.patientId,
+          medicationName,
+          scheduledAt,
+        }
+      );
+
+      const status = isSkipped ? "SKIPPED" : "TAKEN";
+      res.status(201).json({
+        success: true,
+        data: {
+          id: created.id,
+          scheduledAt: created.scheduledAt,
+          takenAt: created.takenAt,
+          status,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ── GET /api/v1/ai/adherence/:scheduleId/doses ──────────────────────────────
+//
+// Query: ?from=ISO&to=ISO
+// Defaults to the last 30 days ending now. Sorted scheduledAt DESC.
+
+router.get(
+  "/:scheduleId/doses",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { scheduleId } = req.params;
+      const { from, to } = req.query as { from?: string; to?: string };
+
+      const authResult = await authorizeScheduleAccess(req, scheduleId);
+      if (!authResult.ok) {
+        res.status(authResult.status).json({
+          success: false,
+          data: null,
+          error: authResult.message,
+        });
+        return;
+      }
+
+      const now = new Date();
+      const defaultFrom = new Date(now);
+      defaultFrom.setDate(defaultFrom.getDate() - 30);
+
+      const fromDate =
+        from && !Number.isNaN(Date.parse(from)) ? new Date(from) : defaultFrom;
+      const toDate =
+        to && !Number.isNaN(Date.parse(to)) ? new Date(to) : now;
+
+      // TODO(cast): remove after prisma generate
+      const logs = await (prisma as any).adherenceDoseLog.findMany({
+        where: {
+          scheduleId,
+          scheduledAt: { gte: fromDate, lte: toDate },
+        },
+        orderBy: { scheduledAt: "desc" },
+      });
+
+      res.json({ success: true, data: logs, error: null });
     } catch (err) {
       next(err);
     }

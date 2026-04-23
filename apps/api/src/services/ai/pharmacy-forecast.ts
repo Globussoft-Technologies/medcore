@@ -189,8 +189,6 @@ export async function forecastInventory(daysAhead = 30): Promise<ItemForecast[]>
   const forecasts: ItemForecast[] = [];
 
   for (const item of items) {
-    const currentStock = item.quantity;
-
     const movements = await prisma.stockMovement.findMany({
       where: {
         inventoryItemId: item.id,
@@ -203,78 +201,122 @@ export async function forecastInventory(daysAhead = 30): Promise<ItemForecast[]>
       select: { createdAt: true, quantity: true, type: true },
     });
 
-    // Build a daily series covering the full history window
-    const series = buildDailySeries(movements, HISTORY_DAYS, now);
-    const totalOut = series.reduce((s, v) => s + v, 0);
-    const avgDailyConsumption = totalOut / HISTORY_DAYS;
-
-    // Skip items with no stock and no consumption
-    if (currentStock <= 0 && totalOut === 0) continue;
-
-    // Fit + forecast 90 days ahead (covers 7/30/60/90 slices)
-    const horizon = Math.max(90, daysAhead);
-    const { result: fit, method } = forecastSeries(series, horizon, true, false);
-    const fc = fit!.forecast;
-
-    const sum7 = clampNonNeg(
-      sumForecast({ ...fit!, forecast: fc.slice(0, 7) }).yhat
-    );
-    const sum30 = clampNonNeg(
-      sumForecast({ ...fit!, forecast: fc.slice(0, 30) }).yhat
-    );
-    const sum60 = clampNonNeg(
-      sumForecast({ ...fit!, forecast: fc.slice(0, 60) }).yhat
-    );
-    const sum90 = clampNonNeg(
-      sumForecast({ ...fit!, forecast: fc.slice(0, 90) }).yhat
-    );
-    const upper30Raw = sumForecast({ ...fit!, forecast: fc.slice(0, 30) }).upper;
-    const sum30Upper = clampNonNeg(upper30Raw);
-
-    // Days of stock left — uses the *average* forecasted daily demand
-    const avgForecastDaily = horizon > 0 ? sum90 / 90 : avgDailyConsumption;
-    const daysOfStockLeft =
-      avgForecastDaily > 0 ? currentStock / avgForecastDaily : Infinity;
-
-    const reorderRecommended = daysOfStockLeft < 14;
-
-    const suggestedReorderQty = Math.max(0, sum30 - currentStock);
-
-    let urgency: "OK" | "LOW" | "CRITICAL";
-    if (daysOfStockLeft < 7) urgency = "CRITICAL";
-    else if (daysOfStockLeft < 14) urgency = "LOW";
-    else urgency = "OK";
-
-    // Stockout flag: forecasted demand over 30 days + safety buffer beats stock
-    const safetyBufferQty = clampNonNeg(avgForecastDaily * SAFETY_BUFFER_DAYS);
-    const stockoutRisk = sum30 + safetyBufferQty > currentStock;
-
-    // Dead stock flag: forecast effectively zero but inventory is high
-    const deadStock =
-      sum90 <= Math.max(1, Math.round(avgDailyConsumption)) && currentStock >= 50;
-
-    forecasts.push({
-      inventoryItemId: item.id,
-      medicineName: item.medicine.name,
-      currentStock,
-      avgDailyConsumption: parseFloat(avgDailyConsumption.toFixed(2)),
-      predictedConsumption7d: sum7,
-      predictedConsumption30d: sum30,
-      predictedConsumption60d: sum60,
-      predictedConsumption90d: sum90,
-      predictedConsumption30dUpper: sum30Upper,
-      daysOfStockLeft:
-        daysOfStockLeft === Infinity ? 9999 : parseFloat(daysOfStockLeft.toFixed(1)),
-      reorderRecommended,
-      suggestedReorderQty,
-      urgency,
-      stockoutRisk,
-      deadStock,
-      method,
-    });
+    const forecast = buildItemForecast(item, movements, daysAhead, now);
+    if (forecast) forecasts.push(forecast);
   }
 
   return forecasts;
+}
+
+/**
+ * Build an {@link ItemForecast} for a single inventory item.  Extracted so
+ * both the batch {@link forecastInventory} loop and the single-item route
+ * (`GET /pharmacy/forecast/:inventoryItemId`) can share the Holt-Winters
+ * pipeline without scanning the whole catalog.
+ */
+function buildItemForecast(
+  item: { id: string; quantity: number; medicine: { name: string } },
+  movements: Array<{ createdAt: Date | string; quantity: number; type: StockMovementType }>,
+  daysAhead: number,
+  now: Date
+): ItemForecast | null {
+  const currentStock = item.quantity;
+
+  const series = buildDailySeries(movements, HISTORY_DAYS, now);
+  const totalOut = series.reduce((s, v) => s + v, 0);
+  const avgDailyConsumption = totalOut / HISTORY_DAYS;
+
+  // Skip items with no stock and no consumption
+  if (currentStock <= 0 && totalOut === 0) return null;
+
+  const horizon = Math.max(90, daysAhead);
+  const { result: fit, method } = forecastSeries(series, horizon, true, false);
+  const fc = fit!.forecast;
+
+  const sum7 = clampNonNeg(sumForecast({ ...fit!, forecast: fc.slice(0, 7) }).yhat);
+  const sum30 = clampNonNeg(sumForecast({ ...fit!, forecast: fc.slice(0, 30) }).yhat);
+  const sum60 = clampNonNeg(sumForecast({ ...fit!, forecast: fc.slice(0, 60) }).yhat);
+  const sum90 = clampNonNeg(sumForecast({ ...fit!, forecast: fc.slice(0, 90) }).yhat);
+  const upper30Raw = sumForecast({ ...fit!, forecast: fc.slice(0, 30) }).upper;
+  const sum30Upper = clampNonNeg(upper30Raw);
+
+  const avgForecastDaily = horizon > 0 ? sum90 / 90 : avgDailyConsumption;
+  const daysOfStockLeft =
+    avgForecastDaily > 0 ? currentStock / avgForecastDaily : Infinity;
+
+  const reorderRecommended = daysOfStockLeft < 14;
+  const suggestedReorderQty = Math.max(0, sum30 - currentStock);
+
+  let urgency: "OK" | "LOW" | "CRITICAL";
+  if (daysOfStockLeft < 7) urgency = "CRITICAL";
+  else if (daysOfStockLeft < 14) urgency = "LOW";
+  else urgency = "OK";
+
+  const safetyBufferQty = clampNonNeg(avgForecastDaily * SAFETY_BUFFER_DAYS);
+  const stockoutRisk = sum30 + safetyBufferQty > currentStock;
+
+  const deadStock =
+    sum90 <= Math.max(1, Math.round(avgDailyConsumption)) && currentStock >= 50;
+
+  return {
+    inventoryItemId: item.id,
+    medicineName: item.medicine.name,
+    currentStock,
+    avgDailyConsumption: parseFloat(avgDailyConsumption.toFixed(2)),
+    predictedConsumption7d: sum7,
+    predictedConsumption30d: sum30,
+    predictedConsumption60d: sum60,
+    predictedConsumption90d: sum90,
+    predictedConsumption30dUpper: sum30Upper,
+    daysOfStockLeft:
+      daysOfStockLeft === Infinity ? 9999 : parseFloat(daysOfStockLeft.toFixed(1)),
+    reorderRecommended,
+    suggestedReorderQty,
+    urgency,
+    stockoutRisk,
+    deadStock,
+    method,
+  };
+}
+
+/**
+ * Forecast demand for a single inventory item without running the full
+ * catalog scan.  Returns `null` when the item does not exist or has neither
+ * stock nor consumption history (same skip rule as {@link forecastInventory}).
+ *
+ * @param inventoryItemId The id of the inventory item to forecast.
+ * @param daysAhead Forecast horizon (same semantics as {@link forecastInventory}).
+ */
+export async function forecastSingleItem(
+  inventoryItemId: string,
+  daysAhead = 30
+): Promise<ItemForecast | null> {
+  const now = new Date();
+  const historyStart = new Date(now);
+  historyStart.setDate(historyStart.getDate() - HISTORY_DAYS);
+
+  const item = await prisma.inventoryItem.findUnique({
+    where: { id: inventoryItemId },
+    include: {
+      medicine: { select: { name: true } },
+    },
+  });
+
+  if (!item) return null;
+
+  const movements = await prisma.stockMovement.findMany({
+    where: {
+      inventoryItemId: item.id,
+      createdAt: { gte: historyStart },
+      OR: [
+        { quantity: { lt: 0 } },
+        { type: { in: OUTFLOW_TYPES } },
+      ],
+    },
+    select: { createdAt: true, quantity: true, type: true },
+  });
+
+  return buildItemForecast(item, movements, daysAhead, now);
 }
 
 /**

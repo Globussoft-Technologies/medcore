@@ -220,7 +220,7 @@ describe("ingestPrescription", () => {
 
 // ── ingestEhrDocument ─────────────────────────────────────────────────────────
 describe("ingestEhrDocument", () => {
-  it("returns ocrStubbed=true for binary files", async () => {
+  it("skips indexing when extracted text is empty (missing file)", async () => {
     mockPrisma.patientDocument.findUnique.mockResolvedValueOnce({
       id: "d1",
       patientId: "pat1",
@@ -233,13 +233,47 @@ describe("ingestEhrDocument", () => {
     });
 
     const r = await ingestEhrDocument("d1");
-    expect(r.ocrStubbed).toBe(true);
-    // Should still produce at least one chunk (the header + placeholder)
-    expect(r.chunks).toBeGreaterThan(0);
-    const arg = mockIndexChunk.mock.calls[0][0] as any;
-    expect(arg.documentType).toBe("EHR_DOCUMENT");
-    expect(arg.tags).toContain("patient:pat1");
-    expect(arg.tags).toContain("doctype:LAB_REPORT");
+    // File doesn't exist -> extraction fails -> below MIN_USEFUL_TEXT_LEN.
+    expect(r.ocrSkipped).toBe(true);
+    expect(r.chunks).toBe(0);
+    expect(mockIndexChunk).not.toHaveBeenCalled();
+  });
+
+  it("indexes .txt documents with ocr provenance tags", async () => {
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    const os = await import("os");
+    const tmpFile = path.join(os.tmpdir(), `medcore-ingest-${Date.now()}.txt`);
+    const body =
+      "Patient presents with fever 101F, persistent dry cough for 3 days. " +
+      "BP 120/80, PR 88. Plan: rest, hydration, paracetamol 500mg TDS.";
+    await fs.writeFile(tmpFile, body, "utf8");
+
+    try {
+      mockPrisma.patientDocument.findUnique.mockResolvedValueOnce({
+        id: "d2",
+        patientId: "pat1",
+        type: "DISCHARGE_SUMMARY",
+        title: "Discharge Notes",
+        filePath: tmpFile,
+        mimeType: "text/plain",
+        notes: null,
+        createdAt: new Date("2026-04-01"),
+      });
+
+      const r = await ingestEhrDocument("d2");
+      expect(r.ocrSkipped).toBe(false);
+      expect(r.chunks).toBeGreaterThan(0);
+      expect(r.method).toBe("passthrough");
+      const arg = mockIndexChunk.mock.calls[0][0] as any;
+      expect(arg.documentType).toBe("EHR_DOCUMENT");
+      expect(arg.tags).toContain("patient:pat1");
+      expect(arg.tags).toContain("doctype:DISCHARGE_SUMMARY");
+      expect(arg.tags).toContain("ocr:passthrough");
+      expect(arg.tags.some((t: string) => t.startsWith("confidence:"))).toBe(true);
+    } finally {
+      await fs.unlink(tmpFile).catch(() => {});
+    }
   });
 });
 

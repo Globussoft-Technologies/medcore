@@ -1,8 +1,12 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { authenticate } from "../middleware/auth";
+import { Role } from "@medcore/shared";
+import { authenticate, authorize } from "../middleware/auth";
 
 const router = Router();
 router.use(authenticate);
+// Audio transcription is a clinician-only feature — patients must not be able
+// to spend the Sarvam ASR quota by POSTing audio to this endpoint.
+router.use(authorize(Role.DOCTOR, Role.ADMIN, Role.NURSE));
 
 // POST /api/v1/ai/transcribe
 // Body: { audioBase64: string, language?: string }

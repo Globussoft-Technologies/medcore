@@ -295,3 +295,71 @@ export async function enrollAdherence(payload: {
 export async function unenrollAdherence(scheduleId: string): Promise<void> {
   await aiRequest(`/ai/adherence/${scheduleId}`, { method: "DELETE" });
 }
+
+// ── Adherence dose log ────────────────────────────────────────────────────
+
+export interface MarkDoseBody {
+  medicationName: string;
+  scheduledAt: string; // ISO
+  takenAt?: string | null; // ISO; null when skipped
+  skipped?: boolean;
+  note?: string;
+}
+
+export interface DoseLogEntry {
+  id: string;
+  scheduleId: string;
+  patientId: string;
+  medicationName: string;
+  scheduledAt: string;
+  takenAt: string | null;
+  skipped: boolean;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface MarkDoseResponse {
+  id: string;
+  scheduledAt: string;
+  takenAt: string | null;
+  status: "TAKEN" | "SKIPPED";
+}
+
+/**
+ * POST /api/v1/ai/adherence/:scheduleId/doses
+ * Records a single dose event (taken or skipped). Only the patient who owns
+ * the schedule (or an ADMIN / DOCTOR) may call this.
+ */
+export async function markDoseTaken(
+  scheduleId: string,
+  body: MarkDoseBody
+): Promise<MarkDoseResponse> {
+  const res = await aiRequest<{ success: boolean; data: MarkDoseResponse; error: string | null }>(
+    `/ai/adherence/${scheduleId}/doses`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    }
+  );
+  return res.data;
+}
+
+/**
+ * GET /api/v1/ai/adherence/:scheduleId/doses?from=&to=
+ * Returns dose log rows for a schedule. Server defaults to the last 30 days.
+ * Caller passes a narrower window (e.g. last 7 days) for the mobile UI hydrate.
+ */
+export async function fetchDoseLog(
+  scheduleId: string,
+  fromIso?: string,
+  toIso?: string
+): Promise<DoseLogEntry[]> {
+  const qs = new URLSearchParams();
+  if (fromIso) qs.set("from", fromIso);
+  if (toIso) qs.set("to", toIso);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  const res = await aiRequest<{ success: boolean; data: DoseLogEntry[]; error: string | null }>(
+    `/ai/adherence/${scheduleId}/doses${suffix}`
+  );
+  return res.data ?? [];
+}

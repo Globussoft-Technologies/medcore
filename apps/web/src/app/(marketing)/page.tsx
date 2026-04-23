@@ -11,6 +11,12 @@ import {
   HeartPulse,
   ArrowRight,
   CheckCircle2,
+  Brain,
+  Shield,
+  FileJson,
+  Languages,
+  TrendingUp,
+  Sparkles,
 } from "lucide-react";
 import { Container } from "./_components/Container";
 import { FeatureCard } from "./_components/FeatureCard";
@@ -19,7 +25,7 @@ import { CTASection } from "./_components/CTASection";
 export const metadata = {
   title: "MedCore — Hospital management built for Indian hospitals",
   description:
-    "Run your hospital, not spreadsheets. OPD queue, billing with GST, pharmacy, lab, HR and a patient mobile app — in one platform.",
+    "Run your hospital, not spreadsheets. AI triage, ambient scribe, ABDM-ready, FHIR R4 export, TPA claims, pharmacy and a patient app — all in one platform.",
 };
 
 const logos = ["Asha Hospital", "Sunrise Clinic", "Greenleaf Care", "Medicity", "Lotus Health", "Nova Med"];
@@ -61,7 +67,8 @@ export default function HomePage() {
             </h1>
             <p className="mx-auto mt-6 max-w-2xl text-lg text-gray-600 dark:text-gray-400 md:text-xl">
               MedCore runs your OPD queue, admissions, billing, pharmacy, lab,
-              HR and the patient mobile app — all from one login.
+              HR and a patient mobile app — with AI triage, ambient scribe,
+              ABDM/ABHA, FHIR R4 and TPA claims baked in.
             </p>
             <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link
@@ -147,6 +154,57 @@ export default function HomePage() {
             <FeatureCard icon={Users} title="HR" description="Shift roster, leaves, payroll, pay slips, certifications, 7 role levels." href="/features#hr" />
             <FeatureCard icon={Building2} title="Engagement" description="WhatsApp + SMS + email + push, feedback, NPS, complaints with SLA." href="/features#engagement" />
             <FeatureCard icon={Smartphone} title="Mobile" description="Patient app with live queue and lab reports, doctor-lite app for rounds." href="/features#mobile" />
+            <FeatureCard icon={Brain} title="AI + Automation" description="AI triage, ambient SOAP scribe, drug-safety checks, chart search, no-show predictions." href="/features#ai" />
+            <FeatureCard icon={Shield} title="Compliance & Interop" description="ABDM / ABHA linking, FHIR R4 export, DLT-compliant SMS, audit trail, multi-tenant ready." href="/features#compliance" />
+          </div>
+        </Container>
+      </section>
+
+      {/* AI + INTEROP BANNER */}
+      <section className="py-20">
+        <Container>
+          <div className="mx-auto max-w-2xl text-center">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-300">
+              <Sparkles className="h-3.5 w-3.5" /> New this quarter
+            </div>
+            <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl dark:text-white">
+              Clinical AI, built for Indian data
+            </h2>
+            <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">
+              Sarvam AI with in-country inference, 10 Indian languages, and data that never leaves India.
+            </p>
+          </div>
+          <div className="mt-12 grid gap-6 md:grid-cols-3">
+            <FeatureCard
+              icon={Stethoscope}
+              title="AI Triage + Ambient Scribe"
+              description="Symptom triage in the patient's language, plus an ambient scribe that writes SOAP notes during the consult."
+            />
+            <FeatureCard
+              icon={Brain}
+              title="Ambient chart search"
+              description="Ask natural-language questions over a patient's chart or your whole panel — answers cite the source."
+            />
+            <FeatureCard
+              icon={TrendingUp}
+              title="ML-driven predictions"
+              description="No-show scoring, pharmacy demand forecast, ER triage severity, adherence nudges — all running on your data."
+            />
+            <FeatureCard
+              icon={Shield}
+              title="ABDM-ready, ABHA linking"
+              description="Link Ayushman Bharat Health Accounts, request consents, push care contexts to the national stack."
+            />
+            <FeatureCard
+              icon={FileJson}
+              title="FHIR R4 export"
+              description="Export any patient as FHIR R4 Patient, $everything bundle, or an ABDM push bundle — spec-compliant."
+            />
+            <FeatureCard
+              icon={Languages}
+              title="Indian data residency"
+              description="Sarvam AI inference inside India, transcription in 10 languages, audit-logged egress."
+            />
           </div>
         </Container>
       </section>

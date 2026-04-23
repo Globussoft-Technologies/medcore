@@ -121,6 +121,42 @@ const sections: Section[] = [
     ],
     shot: { src: "/screenshots/03-dashboard-admin.png", alt: "Mobile-ready dashboard" },
   },
+  {
+    id: "ai",
+    title: "AI + Automation",
+    tagline: "Clinical AI that meets Indian doctors where they work.",
+    bullets: [
+      "AI triage chatbot in 10 Indian languages (Sarvam AI)",
+      "Ambient SOAP scribe from doctor-patient conversation",
+      "Drug interaction + contraindication safety checks",
+      "Ambient chart search with cited sources",
+      "No-show risk scoring per appointment",
+      "ER triage severity classifier",
+      "Pharmacy demand forecast",
+      "Patient-friendly lab report explainer",
+      "Medication adherence reminders with ML-tuned timing",
+      "AI-drafted discharge + referral letters",
+    ],
+    shot: { src: "/screenshots/17-prescriptions.png", alt: "AI scribe" },
+  },
+  {
+    id: "compliance",
+    title: "Compliance & Interoperability",
+    tagline: "ABDM-ready, FHIR-native, audit-logged end to end.",
+    bullets: [
+      "ABDM / ABHA linking with sandbox + production gateway",
+      "Consent request, revoke and care-context push",
+      "FHIR R4 Patient + $everything bundles",
+      "ABDM transaction bundle export for HIU push",
+      "Insurance TPA claims with 6 adapters + mock",
+      "DLT-compliant SMS templates",
+      "Full audit trail on every patient data read",
+      "Indian data residency — Sarvam inference in-country",
+      "Razorpay webhook HMAC verification",
+      "Multi-tenant ready with role-based access",
+    ],
+    shot: { src: "/screenshots/37-billing.png", alt: "Compliance" },
+  },
 ];
 
 export default function FeaturesPage() {

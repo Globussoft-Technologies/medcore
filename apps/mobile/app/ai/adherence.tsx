@@ -10,22 +10,56 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "expo-router";
 import { useAuth } from "../../lib/auth";
 import {
   fetchAdherenceSchedules,
+  fetchDoseLog,
+  markDoseTaken,
   type AdherenceSchedule,
   type AdherenceMedication,
 } from "../../lib/ai";
 
-type DoseKey = string; // `${scheduleId}__${medName}__${time}`
+type DoseKey = string; // `${YYYY-MM-DD}__${scheduleId}__${medName}__${HH:mm}`
+
+function dateKey(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
 
 function todayKeyFor(
   scheduleId: string,
   medName: string,
   time: string
 ): DoseKey {
-  const d = new Date().toISOString().slice(0, 10);
-  return `${d}__${scheduleId}__${medName}__${time}`;
+  return `${dateKey(new Date())}__${scheduleId}__${medName}__${time}`;
+}
+
+/**
+ * Combine today's YYYY-MM-DD with a HH:mm reminder time into an ISO date-time
+ * string the server can accept as `scheduledAt`.
+ */
+function scheduledAtIsoFor(time: string): string {
+  const [hh, mm] = time.split(":");
+  const d = new Date();
+  d.setHours(Number(hh) || 0, Number(mm) || 0, 0, 0);
+  return d.toISOString();
+}
+
+/**
+ * Build the client-state key for an existing server dose-log row. Uses the
+ * row's `scheduledAt` (UTC day + HH:mm) so a server-side TAKEN row and a
+ * locally-toggled chip collide on the same key.
+ */
+function keyFromLog(
+  scheduleId: string,
+  medName: string,
+  scheduledAt: string
+): DoseKey {
+  const d = new Date(scheduledAt);
+  const day = dateKey(d);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${day}__${scheduleId}__${medName}__${hh}:${mm}`;
 }
 
 export default function AdherenceScreen() {
@@ -66,9 +100,76 @@ export default function AdherenceScreen() {
     void load();
   }, [load]);
 
-  const markDose = (scheduleId: string, med: AdherenceMedication, time: string) => {
+  /**
+   * Fetches the last 7 days of dose logs across all active schedules and
+   * hydrates `takenDoses` so chips persist across reloads / app launches.
+   */
+  const hydrateFromServer = useCallback(
+    async (list: AdherenceSchedule[]) => {
+      if (!list.length) return;
+      const now = new Date();
+      const from = new Date(now);
+      from.setDate(from.getDate() - 7);
+      try {
+        const results = await Promise.all(
+          list.map((s) =>
+            fetchDoseLog(s.id, from.toISOString(), now.toISOString()).catch(() => [])
+          )
+        );
+        const next: Record<DoseKey, boolean> = {};
+        results.forEach((logs, idx) => {
+          const schedule = list[idx];
+          for (const log of logs) {
+            if (log.skipped) continue;
+            next[keyFromLog(schedule.id, log.medicationName, log.scheduledAt)] = true;
+          }
+        });
+        setTakenDoses((prev) => ({ ...prev, ...next }));
+      } catch {
+        // Hydration is best-effort; ignore errors.
+      }
+    },
+    []
+  );
+
+  // Re-hydrate every time the screen gains focus so a dose logged from
+  // another device (or pushed by the backend scheduler) is reflected.
+  useFocusEffect(
+    useCallback(() => {
+      if (schedules.length) void hydrateFromServer(schedules);
+    }, [schedules, hydrateFromServer])
+  );
+
+  const markDose = async (
+    scheduleId: string,
+    med: AdherenceMedication,
+    time: string
+  ) => {
     const key = todayKeyFor(scheduleId, med.name, time);
-    setTakenDoses((prev) => ({ ...prev, [key]: !prev[key] }));
+    const wasTaken = !!takenDoses[key];
+    // Optimistic toggle
+    setTakenDoses((prev) => ({ ...prev, [key]: !wasTaken }));
+
+    // Only persist the "mark as taken" transition to the server. Toggling
+    // back to untaken is a local-only undo — the server has no "delete dose"
+    // endpoint yet, and appending another row would double-count.
+    if (wasTaken) return;
+
+    try {
+      const scheduledAt = scheduledAtIsoFor(time);
+      await markDoseTaken(scheduleId, {
+        medicationName: med.name,
+        scheduledAt,
+        takenAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      // Revert on failure
+      setTakenDoses((prev) => ({ ...prev, [key]: wasTaken }));
+      Alert.alert(
+        "Could not record dose",
+        err?.message || "Please check your connection and try again."
+      );
+    }
   };
 
   const renderItem = ({ item: schedule }: { item: AdherenceSchedule }) => {

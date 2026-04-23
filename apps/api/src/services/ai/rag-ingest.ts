@@ -15,6 +15,7 @@
 
 import { prisma } from "@medcore/db";
 import { indexChunk } from "./rag";
+import { extractText, type OcrMethod } from "./ocr";
 
 // ── Chunk metadata helpers ────────────────────────────────────────────────────
 
@@ -225,31 +226,55 @@ export async function ingestPrescription(prescriptionId: string): Promise<{ chun
 
 // ── ingestEhrDocument ─────────────────────────────────────────────────────────
 
+/** Minimum number of characters an extraction must yield to be worth indexing.
+ *  Lower than this is typically OCR noise (random glyphs on a blank page) or
+ *  a scanned PDF with no text layer — better to flag it than pollute search. */
+const MIN_USEFUL_TEXT_LEN = 50;
+
 /**
  * Ingest an uploaded patient document (lab report PDF, discharge summary,
- * imaging report). Runs OCR/text extraction, then chunks + indexes.
+ * imaging report). Reads the file from disk, detects the true format via
+ * magic bytes, and runs the appropriate extractor:
+ *   - plain text  -> passthrough
+ *   - PDF         -> pdf-parse text layer (pages w/o text flagged)
+ *   - PNG/JPEG    -> tesseract.js OCR (eng+hin)
  *
- * OCR is currently STUBBED. Production deployment must wire one of:
- *   - `tesseract.js` (OSS; add as devDep then call `recognize(file.path)`)
- *   - Google Cloud Vision (`@google-cloud/vision`) — India region supported
- *   - AWS Textract (if in AWS)
- *
- * For now we read `.txt` files directly and return an empty string for any
- * binary format, so ingest still succeeds (no hard failure) but the chunk
- * content is a placeholder until OCR is wired.
+ * Returns `ocrSkipped: true` and creates no chunks when extraction produces
+ * fewer than MIN_USEFUL_TEXT_LEN characters (scanner noise, image-only PDFs
+ * without a text layer, OCR failure). The document row still exists — a
+ * later rasterised-OCR pass can re-ingest it.
  */
-export async function ingestEhrDocument(documentId: string): Promise<{ chunks: number; ocrStubbed: boolean }> {
+export async function ingestEhrDocument(
+  documentId: string
+): Promise<{ chunks: number; ocrSkipped: boolean; method?: OcrMethod; confidence?: number }> {
   const doc = await prisma.patientDocument.findUnique({
     where: { id: documentId },
   });
-  if (!doc) return { chunks: 0, ocrStubbed: false };
+  if (!doc) return { chunks: 0, ocrSkipped: false };
 
   const extracted = await extractTextFromDocument(doc.filePath, doc.mimeType ?? null);
-  const ocrStubbed = extracted.ocrStubbed;
   const text = extracted.text.trim();
 
+  // Bail out when extraction is essentially empty — no point indexing a chunk
+  // that is just the document header with no body content.
+  if (text.length < MIN_USEFUL_TEXT_LEN) {
+    return {
+      chunks: 0,
+      ocrSkipped: true,
+      method: extracted.method,
+      confidence: extracted.confidence,
+    };
+  }
+
   const header = `Document: ${doc.title} (${doc.type}).${doc.notes ? " Notes: " + doc.notes + "." : ""}`;
-  const body = text.length > 0 ? text : "[Document content not extracted — OCR pipeline pending]";
+  const body = text;
+
+  // Tags carry OCR provenance so chart-search callers can filter out
+  // low-confidence OCR hits or debug extraction failures after the fact.
+  const ocrTags: string[] = [`ocr:${extracted.method}`];
+  if (typeof extracted.confidence === "number") {
+    ocrTags.push(`confidence:${extracted.confidence.toFixed(2)}`);
+  }
 
   const pieces = splitIntoChunks(`${header}\n\n${body}`);
   let count = 0;
@@ -264,31 +289,45 @@ export async function ingestEhrDocument(documentId: string): Promise<{ chunks: n
         dateTag(doc.createdAt) ?? "",
         `doctype:${doc.type}`,
         "source:patient-document",
+        ...ocrTags,
       ].filter(Boolean) as string[],
     });
     count++;
   }
-  return { chunks: count, ocrStubbed };
+  return {
+    chunks: count,
+    ocrSkipped: false,
+    method: extracted.method,
+    confidence: extracted.confidence,
+  };
 }
 
 /**
- * STUB: plain-text extraction from an uploaded file. Reads `.txt` files
- * directly. Returns `ocrStubbed: true` for anything that would need real OCR.
- * Replace this function's binary branch with a Tesseract/Vision call.
+ * Read the uploaded document off disk and route through the OCR pipeline in
+ * `./ocr.ts`. Both tesseract.js and pdf-parse are dynamically imported inside
+ * that module, so this function stays safe even if one of the deps failed to
+ * install in the current environment — you simply get an empty-text result.
  */
 async function extractTextFromDocument(
   filePath: string,
   mimeType: string | null
-): Promise<{ text: string; ocrStubbed: boolean }> {
+): Promise<{ text: string; method: OcrMethod; confidence?: number }> {
   const fs = await import("fs/promises");
   try {
+    // Fast path: .txt files skip magic-byte detection and buffer copy.
     if (mimeType?.startsWith("text/") || filePath.endsWith(".txt")) {
-      const buf = await fs.readFile(filePath, "utf8");
-      return { text: buf, ocrStubbed: false };
+      const text = await fs.readFile(filePath, "utf8");
+      return { text, method: "passthrough", confidence: 1.0 };
     }
-    return { text: "", ocrStubbed: true };
-  } catch {
-    return { text: "", ocrStubbed: true };
+    const buf = await fs.readFile(filePath);
+    const result = await extractText(buf, mimeType);
+    return { text: result.text, method: result.method, confidence: result.confidence };
+  } catch (err) {
+    console.error(
+      `[rag-ingest] extractTextFromDocument(${filePath}) failed:`,
+      err instanceof Error ? err.message : err
+    );
+    return { text: "", method: "passthrough" };
   }
 }
 

@@ -453,6 +453,20 @@ const en: Dict = {
   "dashboard.home.section.nurseMeds": "Nurse Medications",
   "dashboard.home.section.reception": "Reception Highlights",
   "dashboard.home.section.quickActions": "Quick Actions",
+
+  // New AI + Compliance nav labels
+  "dashboard.nav.chartSearch": "Chart Search",
+  "dashboard.nav.aiAnalytics": "AI Analytics",
+  "dashboard.nav.predictions": "No-Show Predictions",
+  "dashboard.nav.erTriage": "ER Triage",
+  "dashboard.nav.pharmacyForecast": "Pharmacy Forecast",
+  "dashboard.nav.letters": "AI Letters",
+  "dashboard.nav.labExplainer": "Lab Explainer",
+  "dashboard.nav.adherence": "Adherence",
+  "dashboard.nav.medReminders": "Medication Reminders",
+  "dashboard.nav.abdm": "ABDM / ABHA",
+  "dashboard.nav.fhirExport": "FHIR Export",
+  "dashboard.nav.insuranceClaims": "Insurance Claims",
 };
 
 const hi: Dict = {
@@ -901,6 +915,20 @@ const hi: Dict = {
   "dashboard.home.section.nurseMeds": "नर्स दवाएँ",
   "dashboard.home.section.reception": "रिसेप्शन मुख्य बातें",
   "dashboard.home.section.quickActions": "त्वरित क्रियाएँ",
+
+  // New AI + Compliance nav labels
+  "dashboard.nav.chartSearch": "चार्ट खोज",
+  "dashboard.nav.aiAnalytics": "AI विश्लेषण",
+  "dashboard.nav.predictions": "गैर-हाज़िरी पूर्वानुमान",
+  "dashboard.nav.erTriage": "ईआर ट्रायएज",
+  "dashboard.nav.pharmacyForecast": "फार्मेसी पूर्वानुमान",
+  "dashboard.nav.letters": "AI पत्र",
+  "dashboard.nav.labExplainer": "लैब व्याख्याकार",
+  "dashboard.nav.adherence": "पालन",
+  "dashboard.nav.medReminders": "दवा अनुस्मारक",
+  "dashboard.nav.abdm": "ABDM / ABHA",
+  "dashboard.nav.fhirExport": "FHIR निर्यात",
+  "dashboard.nav.insuranceClaims": "बीमा दावे",
 };
 
 const translations: Record<Lang, Dict> = { en, hi };

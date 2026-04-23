@@ -2,8 +2,16 @@
 // dev environment. All responses are derived from a stable hash of the input
 // so the same submission always yields the same providerRef / timestamps.
 //
-// The module also exposes `__mockState` helpers that tests use to seed
-// specific scenarios (e.g. force a claim into DENIED or QUERY_RAISED).
+// IMPORTANT: the `store` Map inside this file models the *TPA side* of the
+// world — it is simulated state that lives with the mock adapter, NOT our
+// own persistence. Our persistence is Prisma, accessed through
+// `../store.ts`. The route handler is what bridges the two (submit → write
+// row via store; sync → call adapter.getClaimStatus → write events via store).
+//
+// `forceStatus` and `resetMockState` used to be exported from here directly.
+// They are now exposed only via the `__mockInternals` escape hatch below,
+// which `../test-helpers.ts` wraps with a `NODE_ENV==='test'` guard so
+// production code cannot accidentally call them.
 
 import crypto from "crypto";
 import {
@@ -31,7 +39,6 @@ interface StoredClaim {
   documents: Array<{ providerDocId: string; docType: ClaimDocumentType; uploadedAt: string }>;
 }
 
-// Exposed for tests. Reset between suites via `resetMockState()`.
 const store = new Map<string, StoredClaim>();
 
 function hashRef(internalId: string): string {
@@ -46,26 +53,34 @@ function hashRef(internalId: string): string {
   );
 }
 
-export function resetMockState(): void {
-  store.clear();
-}
+/**
+ * Escape hatch for the test-only helpers in `../test-helpers.ts`. Do NOT
+ * import this directly from tests or production code — go through
+ * `test-helpers.ts` so the `NODE_ENV === "test"` guard is enforced.
+ *
+ * @internal
+ */
+export const __mockInternals = {
+  reset(): void {
+    store.clear();
+  },
 
-/** Force a particular claim into a specific status — used to exercise branches in tests. */
-export function forceStatus(
-  providerRef: string,
-  status: NormalisedClaimStatus,
-  opts: { amountApproved?: number; deniedReason?: string; note?: string } = {}
-): boolean {
-  const claim = store.get(providerRef);
-  if (!claim) return false;
-  const ts = new Date().toISOString();
-  claim.status = status;
-  if (opts.amountApproved !== undefined) claim.amountApproved = opts.amountApproved;
-  if (opts.deniedReason !== undefined) claim.deniedReason = opts.deniedReason;
-  claim.lastUpdated = ts;
-  claim.timeline.push({ status, timestamp: ts, note: opts.note });
-  return true;
-}
+  forceStatus(
+    providerRef: string,
+    status: NormalisedClaimStatus,
+    opts: { amountApproved?: number; deniedReason?: string; note?: string } = {}
+  ): boolean {
+    const claim = store.get(providerRef);
+    if (!claim) return false;
+    const ts = new Date().toISOString();
+    claim.status = status;
+    if (opts.amountApproved !== undefined) claim.amountApproved = opts.amountApproved;
+    if (opts.deniedReason !== undefined) claim.deniedReason = opts.deniedReason;
+    claim.lastUpdated = ts;
+    claim.timeline.push({ status, timestamp: ts, note: opts.note });
+    return true;
+  },
+};
 
 export const mockAdapter: ClaimsAdapter = {
   provider: "MOCK",

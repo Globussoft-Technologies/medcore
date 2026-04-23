@@ -6,14 +6,15 @@ import request from "supertest";
 import { describeIfDB, resetDB, getAuthToken } from "../setup";
 
 let app: any;
-let patientToken: string;
+// Transcribe is clinician-only, so the default "happy path" token is a doctor.
+let doctorToken: string;
 let originalFetch: typeof fetch;
 let originalSarvamKey: string | undefined;
 
 describeIfDB("AI Transcribe API (integration)", () => {
   beforeAll(async () => {
     await resetDB();
-    patientToken = await getAuthToken("PATIENT");
+    doctorToken = await getAuthToken("DOCTOR");
     const mod = await import("../../app");
     app = mod.app;
 
@@ -50,7 +51,7 @@ describeIfDB("AI Transcribe API (integration)", () => {
 
     const res = await request(app)
       .post("/api/v1/ai/transcribe")
-      .set("Authorization", `Bearer ${patientToken}`)
+      .set("Authorization", `Bearer ${doctorToken}`)
       .send({ audioBase64, language: "en-IN" });
 
     expect(res.status).toBe(200);
@@ -70,7 +71,7 @@ describeIfDB("AI Transcribe API (integration)", () => {
 
     const res = await request(app)
       .post("/api/v1/ai/transcribe")
-      .set("Authorization", `Bearer ${patientToken}`)
+      .set("Authorization", `Bearer ${doctorToken}`)
       .send({ audioBase64 });
 
     expect(res.status).toBe(200);
@@ -88,7 +89,7 @@ describeIfDB("AI Transcribe API (integration)", () => {
 
     const res = await request(app)
       .post("/api/v1/ai/transcribe")
-      .set("Authorization", `Bearer ${patientToken}`)
+      .set("Authorization", `Bearer ${doctorToken}`)
       .send({ audioBase64, language: "hi-IN" });
 
     expect(res.status).toBe(200);
@@ -109,7 +110,7 @@ describeIfDB("AI Transcribe API (integration)", () => {
   it("returns 400 when audioBase64 is missing", async () => {
     const res = await request(app)
       .post("/api/v1/ai/transcribe")
-      .set("Authorization", `Bearer ${patientToken}`)
+      .set("Authorization", `Bearer ${doctorToken}`)
       .send({ language: "en-IN" });
 
     expect(res.status).toBe(400);
@@ -119,7 +120,7 @@ describeIfDB("AI Transcribe API (integration)", () => {
   it("returns 400 when audioBase64 is not a string", async () => {
     const res = await request(app)
       .post("/api/v1/ai/transcribe")
-      .set("Authorization", `Bearer ${patientToken}`)
+      .set("Authorization", `Bearer ${doctorToken}`)
       .send({ audioBase64: 12345 });
 
     expect(res.status).toBe(400);
@@ -134,7 +135,7 @@ describeIfDB("AI Transcribe API (integration)", () => {
     try {
       const res = await request(app)
         .post("/api/v1/ai/transcribe")
-        .set("Authorization", `Bearer ${patientToken}`)
+        .set("Authorization", `Bearer ${doctorToken}`)
         .send({ audioBase64: Buffer.from("x").toString("base64") });
 
       expect(res.status).toBe(500);
@@ -155,7 +156,7 @@ describeIfDB("AI Transcribe API (integration)", () => {
 
     const res = await request(app)
       .post("/api/v1/ai/transcribe")
-      .set("Authorization", `Bearer ${patientToken}`)
+      .set("Authorization", `Bearer ${doctorToken}`)
       .send({ audioBase64: Buffer.from("x").toString("base64") });
 
     expect(res.status).toBe(502);
@@ -173,21 +174,34 @@ describeIfDB("AI Transcribe API (integration)", () => {
 
     const res = await request(app)
       .post("/api/v1/ai/transcribe")
-      .set("Authorization", `Bearer ${patientToken}`)
+      .set("Authorization", `Bearer ${doctorToken}`)
       .send({ audioBase64: Buffer.from("x").toString("base64") });
 
     expect(res.status).toBe(502);
     expect(res.body.error).toMatch(/Sarvam ASR error: 503/);
   });
 
-  it("allows any authenticated role (no authorize middleware)", async () => {
-    const doctorToken = await getAuthToken("DOCTOR");
+  it("allows DOCTOR, ADMIN, and NURSE roles", async () => {
+    for (const role of ["DOCTOR", "ADMIN", "NURSE"] as const) {
+      const token = await getAuthToken(role);
+      const res = await request(app)
+        .post("/api/v1/ai/transcribe")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ audioBase64: Buffer.from("x").toString("base64") });
 
-    const res = await request(app)
-      .post("/api/v1/ai/transcribe")
-      .set("Authorization", `Bearer ${doctorToken}`)
-      .send({ audioBase64: Buffer.from("x").toString("base64") });
+      expect(res.status, `role ${role} should be allowed`).toBe(200);
+    }
+  });
 
-    expect(res.status).toBe(200);
+  it("forbids PATIENT and RECEPTION roles with 403", async () => {
+    for (const role of ["PATIENT", "RECEPTION"] as const) {
+      const token = await getAuthToken(role);
+      const res = await request(app)
+        .post("/api/v1/ai/transcribe")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ audioBase64: Buffer.from("x").toString("base64") });
+
+      expect(res.status, `role ${role} should be forbidden`).toBe(403);
+    }
   });
 });

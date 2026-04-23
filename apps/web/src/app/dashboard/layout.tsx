@@ -78,6 +78,17 @@ import {
   Clock,
   Bot,
   Mic,
+  Brain,
+  Sparkles,
+  FileJson,
+  Workflow,
+  Globe,
+  ShieldCheck,
+  Radio,
+  Languages,
+  FlaskRound,
+  Bell as BellIcon,
+  HeartPulse,
 } from "lucide-react";
 import clsx from "clsx";
 import { SearchPalette } from "./_components/search-palette";
@@ -186,6 +197,17 @@ const navByRole: Record<
     { href: "/dashboard/visitors", label: "Visitors", icon: UserCheck },
     { href: "/dashboard/ai-booking", label: "AI Booking", icon: Bot },
     { href: "/dashboard/scribe", label: "AI Scribe", icon: Mic },
+    { href: "/dashboard/ai/chart-search", label: "Chart Search", icon: Brain },
+    { href: "/dashboard/ai-analytics", label: "AI Analytics", icon: Sparkles },
+    { href: "/dashboard/predictions", label: "No-Show Predictions", icon: TrendingUp },
+    { href: "/dashboard/er-triage", label: "ER Triage", icon: Siren },
+    { href: "/dashboard/pharmacy-forecast", label: "Pharmacy Forecast", icon: FlaskRound },
+    { href: "/dashboard/letters", label: "AI Letters", icon: FileText },
+    { href: "/dashboard/lab-explainer", label: "Lab Explainer", icon: Languages },
+    { href: "/dashboard/adherence", label: "Adherence", icon: BellIcon },
+    { href: "/dashboard/abdm", label: "ABDM / ABHA", icon: ShieldCheck },
+    { href: "/dashboard/fhir-export", label: "FHIR Export", icon: FileJson },
+    { href: "/dashboard/insurance-claims", label: "Insurance Claims", icon: Workflow },
   ],
   DOCTOR: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -212,6 +234,12 @@ const navByRole: Record<
     { href: "/dashboard/my-leaves", label: "My Leaves", icon: PlaneTakeoff },
     { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
     { href: "/dashboard/scribe", label: "AI Scribe", icon: Mic },
+    { href: "/dashboard/ai/chart-search", label: "Chart Search", icon: Brain },
+    { href: "/dashboard/predictions", label: "No-Show Predictions", icon: TrendingUp },
+    { href: "/dashboard/er-triage", label: "ER Triage", icon: Siren },
+    { href: "/dashboard/lab-explainer", label: "Lab Explainer", icon: Languages },
+    { href: "/dashboard/letters", label: "AI Letters", icon: FileText },
+    { href: "/dashboard/abdm", label: "ABDM / ABHA", icon: ShieldCheck },
   ],
   RECEPTION: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -243,6 +271,9 @@ const navByRole: Record<
     { href: "/dashboard/my-leaves", label: "My Leaves", icon: PlaneTakeoff },
     { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
     { href: "/dashboard/ai-booking", label: "AI Booking", icon: Bot },
+    { href: "/dashboard/predictions", label: "No-Show Predictions", icon: TrendingUp },
+    { href: "/dashboard/insurance-claims", label: "Insurance Claims", icon: Workflow },
+    { href: "/dashboard/abdm", label: "ABDM / ABHA", icon: ShieldCheck },
   ],
   NURSE: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -276,6 +307,8 @@ const navByRole: Record<
     { href: "/dashboard/billing", label: "Bills", icon: CreditCard },
     { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
     { href: "/dashboard/ai-booking", label: "AI Booking", icon: Bot },
+    { href: "/dashboard/adherence", label: "Medication Reminders", icon: BellIcon },
+    { href: "/dashboard/lab-explainer", label: "Lab Explainer", icon: Languages },
   ],
 };
 
@@ -505,6 +538,18 @@ export default function DashboardLayout({
     Settings: "common.settings",
     Work: "dashboard.nav.workstation",
     Meds: "dashboard.nav.medication",
+    "Chart Search": "dashboard.nav.chartSearch",
+    "AI Analytics": "dashboard.nav.aiAnalytics",
+    "No-Show Predictions": "dashboard.nav.predictions",
+    "ER Triage": "dashboard.nav.erTriage",
+    "Pharmacy Forecast": "dashboard.nav.pharmacyForecast",
+    "AI Letters": "dashboard.nav.letters",
+    "Lab Explainer": "dashboard.nav.labExplainer",
+    Adherence: "dashboard.nav.adherence",
+    "Medication Reminders": "dashboard.nav.medReminders",
+    "ABDM / ABHA": "dashboard.nav.abdm",
+    "FHIR Export": "dashboard.nav.fhirExport",
+    "Insurance Claims": "dashboard.nav.insuranceClaims",
   };
   const tNav = (label: string) =>
     NAV_LABEL_TO_KEY[label] ? t(NAV_LABEL_TO_KEY[label], label) : label;

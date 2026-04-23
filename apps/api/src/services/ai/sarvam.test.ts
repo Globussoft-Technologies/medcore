@@ -132,19 +132,16 @@ describe("runTriageTurn", () => {
     expect(createMock).toHaveBeenCalledTimes(2);
   }, 20_000);
 
-  it("does NOT retry on non-retryable errors (e.g. 400)", async () => {
-    // BUG NOTE: withRetry currently wraps ALL errors (retryable or not) into
-    // AIServiceUnavailableError after the loop. That means a single 400 will
-    // still surface as "service unavailable" to the caller. It does at least
-    // short-circuit the retry loop, so the LLM is only invoked once.
+  it("does NOT retry on non-retryable errors (e.g. 400) and re-throws the original error", async () => {
     const err: any = new Error("bad request");
     err.status = 400;
     createMock.mockRejectedValueOnce(err);
-    const res = await runTriageTurn(
-      [{ role: "user", content: "hi" }],
-      "en"
-    );
-    expect(res.reply).toMatch(/temporarily unavailable/i);
+    // The original error should bubble up untouched — runTriageTurn re-throws
+    // anything that isn't an AIServiceUnavailableError, so the caller sees
+    // the real status/message instead of a wrapped 503.
+    await expect(
+      runTriageTurn([{ role: "user", content: "hi" }], "en")
+    ).rejects.toBe(err);
     expect(createMock).toHaveBeenCalledTimes(1);
   });
 });

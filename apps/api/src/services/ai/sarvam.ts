@@ -62,18 +62,25 @@ function isRetryableError(err: unknown): boolean {
 
 async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   const MAX_ATTEMPTS = 3; // 1 initial + 2 retries
-  let lastError: unknown;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
       return await fn();
     } catch (err) {
-      lastError = err;
-      if (!isRetryableError(err) || attempt === MAX_ATTEMPTS - 1) {
-        break;
+      const retryable = isRetryableError(err);
+      if (!retryable) {
+        // Non-retryable (e.g. 400 Bad Request, 401 Unauthorized, validation
+        // errors): surface the ORIGINAL error with its status code intact so
+        // downstream error handlers can map it correctly.
+        throw err;
+      }
+      if (attempt === MAX_ATTEMPTS - 1) {
+        // Retries exhausted on a genuinely retryable error — degrade to 503.
+        throw new AIServiceUnavailableError();
       }
       await new Promise<void>((resolve) => setTimeout(resolve, 1000));
     }
   }
+  // Unreachable — loop either returns or throws. Kept for TS exhaustiveness.
   throw new AIServiceUnavailableError();
 }
 

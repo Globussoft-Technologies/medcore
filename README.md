@@ -7,11 +7,11 @@
 A full-stack, monorepo HIS covering the patient journey from appointment to discharge — clinical, operational, financial, HR, and engagement workflows in one typed codebase.
 
 [![Live Demo](https://img.shields.io/badge/live_demo-medcore.globusdemos.com-2563eb?style=for-the-badge)](https://medcore.globusdemos.com)
-[![Tests](https://img.shields.io/badge/tests-1415_passing-16a34a?style=for-the-badge)](#testing)
+[![Tests](https://img.shields.io/badge/tests-2000_passing-16a34a?style=for-the-badge)](#testing)
 [![E2E](https://img.shields.io/badge/playwright_e2e-29_passing-0ea5e9?style=for-the-badge)](#testing)
 [![a11y](https://img.shields.io/badge/axe--core-12_passing-7c3aed?style=for-the-badge)](#accessibility)
-[![Routers](https://img.shields.io/badge/api_routers-57-f59e0b?style=for-the-badge)](#architecture)
-[![Models](https://img.shields.io/badge/prisma_models-126-0891b2?style=for-the-badge)](#architecture)
+[![Routers](https://img.shields.io/badge/api_routers-63-f59e0b?style=for-the-badge)](#architecture)
+[![Models](https://img.shields.io/badge/prisma_models-136-0891b2?style=for-the-badge)](#architecture)
 [![License](https://img.shields.io/badge/license-Proprietary-dc2626?style=for-the-badge)](LICENSE)
 
 [Live Demo](https://medcore.globusdemos.com) · [Features](#feature-catalog) · [Architecture](#architecture) · [Testing](#testing) · [Deployment](#deployment) · [Commercial](#commercial-licensing)
@@ -32,12 +32,12 @@ The project is under active development. A live demo instance runs at **[medcore
 
 | | |
 |---|---|
-| **Tests passing** | 1,415 across 6 layers (unit, contract, smoke, web, integration, permissions) |
+| **Tests passing** | ~2,000 across 6 layers (unit, contract, smoke, web, integration, permissions) plus mobile |
 | **E2E** | 29 Playwright specs against the live demo URL |
 | **Accessibility** | 12 axe-core tests, WCAG 2.1 AA, per-page contrast budgets |
-| **API routers with integration coverage** | 57 |
-| **Prisma models** | ~126 |
-| **Prisma migrations (production)** | 5, all applied via `migrate deploy` |
+| **API routers** | 63 (12 AI, plus ABDM, FHIR, insurance claims, chart-search) |
+| **Prisma models** | 136 |
+| **Prisma migrations (production)** | 9, all applied via `migrate deploy` |
 | **CI workflows** | 4 (typecheck, API, web, Playwright E2E) |
 | **Demo URL** | https://medcore.globusdemos.com |
 
@@ -60,6 +60,29 @@ All AI features run on **[Sarvam AI](https://sarvam.ai)** (`sarvam-105b`), an In
 - **Pharmacy Inventory Forecasting** (`/dashboard/pharmacy-forecast`) — forecasts stock requirements for the next 30/60/90 days based on dispensing history, with AI-generated procurement insights.
 - **AI Analytics** (`/dashboard/ai-analytics`) — tabbed dashboard showing triage session volume and conversion rates, scribe session counts, sign-off rates, average edit counts, and doctor-edit heatmaps.
 - **Knowledge Base (RAG)** — PostgreSQL full-text search (`to_tsvector` / `plainto_tsquery`) over a `KnowledgeChunk` table seeded from ICD-10 codes, medicine catalogue, and clinical protocols. Retrieved context is injected into every LLM prompt to ground responses in hospital-specific data without requiring pgvector.
+
+> Deeper architecture, observability, retry, and HITL details live in [`docs/AI_ARCHITECTURE.md`](docs/AI_ARCHITECTURE.md).
+
+### Compliance & Interoperability
+
+- **ABDM / ABHA Gateway** (`/api/v1/abdm`) — ABHA address and 14-digit ABHA number verification, link / delink to MedCore patient records, consent-artefact creation (ABDM §5 CM flow), and CareContext discovery for Health Information Providers. Validates ABHA address format (`handle@domain`) and 14-digit ABHA numbers against the NN-NNNN-NNNN-NNNN pattern. Every gateway call is audit-logged.
+- **FHIR R4 export** (`/api/v1/fhir`) — read-only export of `Patient`, `Encounter`, and `Patient/:id/$everything` bundles. Responses use `application/fhir+json` content type per FHIR R4 §3.1.6. Errors surface as `OperationOutcome` resources. Role-gated so that only clinicians and the patient themselves can read. Every resource read is audit-logged (`FHIR_PATIENT_READ`, `FHIR_PATIENT_EVERYTHING`, etc.).
+- **Insurance / TPA Claims** (`/api/v1/claims`) — pre-authorisation lifecycle, claim submission, document attachments, and status-event timeline. Works alongside the existing `/api/v1/preauth` workflow; status events are persisted for audit and SLA tracking.
+- **Jitsi deep integration** — the existing `/api/v1/telemedicine` router now supports a waiting-room lifecycle (`PATIENT_WAITING` → `ADMITTED` / `DENIED`), with dedicated join/admit endpoints and realtime state propagation.
+- **Consent & retention** — `ConsentArtefact` model captures patient consent scope, purpose, and expiry. An `audio-retention` scheduler enforces consultation-audio retention windows.
+
+### Intelligence Layer
+
+A cross-cutting AI substrate that every feature above plugs into. The pieces:
+
+- **Sarvam AI** (`sarvam-105b`, India region, DPDP-compliant) — single LLM vendor for every feature. ASR uses `saaras:v3`. All calls flow through `apps/api/src/services/ai/sarvam.ts`.
+- **RAG + Postgres FTS** — `KnowledgeChunk` table with `to_tsvector` / `plainto_tsquery`. No pgvector required. Seeded from ICD-10, medicine catalogue, and clinical protocols; enriched by the ingest pipeline (below).
+- **Fire-and-forget ingest pipeline** (`services/ai/rag-ingest.ts`) — SOAP notes, lab results, prescriptions, and uploaded patient documents are chunked (~800 chars, paragraph-aware) and upserted into `KnowledgeChunk` from the originating route handler. `tesseract.js` handles OCR for image uploads; `pdf-parse` handles text extraction from PDFs. Ingest failures never break the request path.
+- **ML no-show predictor** (`services/ai/no-show-predictor.ts` + `services/ai/ml/logistic-regression.ts`) — 7-feature logistic-regression model over historical appointment data. Nightly batch prediction populates `/dashboard/predictions`.
+- **Holt-Winters pharmacy forecast** (`services/ai/ml/holt-winters.ts`) — triple-exponential-smoothing time-series forecast of medicine demand with seasonality. Drives 30/60/90-day procurement insights on `/dashboard/pharmacy-forecast`.
+- **Ambient chart search** (`/api/v1/ai/chart-search`) — free-text search over a patient's own ingested chart (notes, labs, prescriptions, uploaded docs) with LLM-synthesised answer. Currently ranked purely by Postgres FTS — see Known Follow-ups for the rerank roadmap.
+- **Observability, retry, HITL** — every LLM call goes through `logAICall` (JSON logs with feature, tokens, latency) and `withRetry` (3 attempts, exponential back-off, degrades to `AIServiceUnavailableError` + HTTP 503 on exhaustion). Patient-facing AI output (lab explanations, adherence reminders) goes through a doctor-approval queue before reaching the patient.
+- **Eval harness** — Vitest + gold-standard fixtures under `apps/api/src/test/ai-eval/`. Runs locally and gates regressions on triage red-flag recall, SOAP note accuracy, and drug-safety alerts.
 
 ### Clinical
 
@@ -109,6 +132,7 @@ All AI features run on **[Sarvam AI](https://sarvam.ai)** (`sarvam-105b`), an In
 ### Mobile (React Native + Expo SDK 53)
 
 - **Patient app** — appointments, live queue over Socket.IO, prescription viewer, billing tab with native Razorpay checkout or WebView fallback, push notifications via `expo-notifications`.
+- **Patient AI screens** — AI triage chat, medication adherence tracker, and plain-language lab explanations on the mobile tab bar (`apps/mobile/app/ai/`), calling the same API endpoints as the web dashboard.
 - **Doctor-lite app** — workspace, patients, prescriptions.
 - 401 refresh interceptor, env-driven API URL via `expo-constants`, EAS build profiles for dev/preview/production.
 
@@ -138,12 +162,14 @@ Server-side PDFs via pdfkit for prescriptions (with embedded PNG QR), invoices (
 |---|---|
 | **Runtime** | Node.js 20, TypeScript |
 | **API** | Express 4, Zod validation, Socket.IO server |
-| **Database** | PostgreSQL 16, Prisma 6 (migrations, ~126 models) |
+| **Database** | PostgreSQL 16, Prisma 6 (migrations, 136 models) |
 | **Web** | Next.js 15 (App Router), React 19, Tailwind CSS v4, Zustand, `socket.io-client` |
-| **Mobile** | React Native, Expo SDK 53, `expo-router`, `expo-notifications`, `expo-constants` |
+| **Mobile** | React Native, Expo SDK 53, `expo-router`, `expo-notifications`, `expo-constants`; patient AI screens (triage, lab explainer, adherence) |
 | **Auth** | JWT with refresh rotation, bcrypt, TOTP 2FA (pure Node `crypto`) |
 | **Payments** | Razorpay SDK, raw-body HMAC-SHA256 webhook verification |
 | **AI / LLM** | Sarvam AI `sarvam-105b` (OpenAI-compatible, India region), Sarvam ASR `saaras:v3` |
+| **Document ingest** | `tesseract.js` (OCR for image uploads), `pdf-parse` (text extraction from PDFs) |
+| **Interop** | FHIR R4 export, ABDM / ABHA gateway client, Insurance / TPA claim workflow |
 | **PDF / QR** | `pdfkit`, `qrcode`, `jsqr` (verification) |
 | **Testing** | Jest, Supertest, Playwright, `axe-core`, Vitest (LLM eval harness) |
 | **Monorepo** | Turborepo, npm workspaces |
@@ -165,13 +191,13 @@ medcore/
 │   └── db/            Prisma schema, client, seeds, migrations
 ├── e2e/              Playwright specs (run against live URL)
 ├── scripts/          deploy.sh, backup, health-check, migration helpers
-└── docs/             PRD, architecture notes, 68 Playwright screenshots
+└── docs/             PRD, ARCHITECTURE, DEPLOYMENT, MIGRATIONS, AI_ARCHITECTURE, TEST_PLAN, 68 Playwright screenshots
 ```
 
 ### Key decisions
 
 - **End-to-end type safety.** The same Zod schemas validate API requests and generate TypeScript types consumed by the web and mobile apps.
-- **Prisma-first data modeling.** Production uses `prisma migrate deploy` — no more `db push`. Four migrations applied to prod: initial, auth persistence tables, PHARMACIST/LAB_TECH roles, razorpay + push-token drift.
+- **Prisma-first data modeling.** Production uses `prisma migrate deploy` — never `db push`. The current migration history covers initial schema, auth persistence tables, PHARMACIST/LAB_TECH roles, Razorpay + push-token drift, marketing enquiry, AI feature tables, triage consent fields, AI-feature model expansion, and the ABDM / insurance / Jitsi / RAG compliance layer. Full policy, hand-crafting rules, and the `.prisma-models*.md` proposal pattern live in [`docs/MIGRATIONS.md`](docs/MIGRATIONS.md).
 - **Socket.IO for realtime.** Live OPD queue, ER board, chat, admissions.
 - **Fail-closed payments.** Razorpay signature mismatch returns 400 in production; webhooks use raw-body verification and idempotency on `Payment.transactionId`.
 - **Row-level file ACLs** with HMAC-signed URLs and magic-byte sniffing.
@@ -187,12 +213,14 @@ MedCore layers its tests so each tier tests a different boundary:
 
 | Layer | Count | What it covers |
 |---|---:|---|
-| **Unit** | 350 | Helpers, validators, utilities, notification channel adapters, red-flag detection (41 cases) |
-| **Contract** | 121 | Zod request/response schemas between API and web |
+| **Unit** | ~550 | Helpers, validators, utilities, notification channel adapters, red-flag detection (51 cases), ML primitives (Holt-Winters, logistic regression), ABDM client, FHIR resource builders, consent service |
+| **Contract** | ~140 | Zod request/response schemas between API and web |
 | **Smoke** | 30 | Fast sanity pass across critical routes |
-| **Web** | 151 | React component and page-level tests |
-| **Integration** | 763 | Full HTTP through Express + Prisma against a real Postgres. Includes concurrency, realtime delivery, permissions matrix (178 assertions), auth edges, 2FA, notification channel shapes, Razorpay webhook, AI triage (16), AI scribe (15) |
-| **Total** | **1,415** | |
+| **Web** | ~420 | React component and page-level tests, including the new AI dashboard pages |
+| **Integration** | ~900 | Full HTTP through Express + Prisma against a real Postgres. Includes concurrency, realtime delivery, permissions matrix, auth edges, 2FA, notification channel shapes, Razorpay webhook, AI triage / scribe / chart-search / letters / predictions / report-explainer / adherence / er-triage / pharmacy / knowledge / transcribe, insurance claims, and telemedicine-deep (waiting room) |
+| **Mobile** | 30 | React Native render / logic tests across the patient AI screens |
+| **AI eval** | Vitest harness | Gold-standard fixtures under `apps/api/src/test/ai-eval/`; gates regressions on triage red-flag recall and SOAP accuracy |
+| **Total** | **~2,000** | |
 
 In addition:
 
@@ -386,14 +414,14 @@ Daily gzipped `pg_dump` with 30-day retention. Restore rehearsal has been verifi
 
 This is an honest list. Nothing below is hidden in a marketing footnote.
 
-- HIPAA / ABDM compliance has **not** been third-party audited. The codebase implements relevant controls (audit log, signed URLs, encryption at rest via Postgres) but the certifications are not in place.
-- ABHA/ABDM health ID linking is roadmap (GAP-T13).
-- HL7 / FHIR export is planned, not built.
-- Multi-tenant / multi-branch is roadmap.
+- HIPAA / ABDM compliance has **not** been third-party audited. The codebase implements relevant controls (audit log, signed URLs, encryption at rest via Postgres, consent artefacts, FHIR-native error envelopes) but the certifications are not in place.
+- ~~ABHA/ABDM health ID linking is roadmap (GAP-T13).~~ **Shipped** — verify / link / delink / consent / CareContext endpoints at `/api/v1/abdm`.
+- ~~HL7 / FHIR export is planned, not built.~~ **FHIR R4 shipped** at `/api/v1/fhir` (Patient, Encounter, `$everything`). HL7 v2 legacy export (for older lab analyzers and LIS gateways) is still not built.
+- Multi-tenant / multi-branch is roadmap. Scaffolding (`middleware/tenant.ts`, `tenantAsyncStorage`) is in place; the full migration plan lives in `.prisma-models-tenant.md` and has **not** been applied — no `Tenant` table yet.
 - The mobile doctor-lite app is intentionally a subset of the web workspace.
-- Jitsi tele-consult deep integration (screen share, waiting room) is deferred (GAP-S14).
-- Insurance billing claims API integration is deferred (§7-8).
-- AI ambient chart search (§7-7) depends on the RAG layer being seeded with clinical data first.
+- ~~Jitsi tele-consult deep integration (screen share, waiting room) is deferred (GAP-S14).~~ **Waiting room shipped** (`PATIENT_WAITING` → `ADMITTED` / `DENIED`). Screen share and in-call recording remain deferred.
+- ~~Insurance billing claims API integration is deferred (§7-8).~~ **Scaffold shipped** at `/api/v1/claims` (pre-auth lifecycle, document attachments, status-event timeline). Direct payer-specific connectors (Star, HDFC Ergo, etc.) are still partner-gated.
+- **AI ambient chart search** is live at `/api/v1/ai/chart-search` but currently ranks purely on Postgres FTS `ts_rank`. A cross-encoder / LLM rerank layer on top of the top-K FTS hits would materially improve precision for long patient histories — not yet built.
 
 ---
 

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
-    inventoryItem: { findMany: vi.fn() },
+    inventoryItem: { findMany: vi.fn(), findUnique: vi.fn() },
     stockMovement: { findMany: vi.fn() },
   } as any,
 }));
@@ -24,6 +24,7 @@ vi.mock("@prisma/client", () => ({
 
 import {
   forecastInventory,
+  forecastSingleItem,
   buildDailySeries,
   forecastSeries,
 } from "./pharmacy-forecast";
@@ -31,6 +32,7 @@ import {
 beforeEach(() => {
   vi.clearAllMocks();
   prismaMock.inventoryItem.findMany.mockReset();
+  prismaMock.inventoryItem.findUnique.mockReset();
   prismaMock.stockMovement.findMany.mockReset();
 });
 
@@ -166,5 +168,46 @@ describe("forecastInventory", () => {
 
     const out = await forecastInventory(30);
     expect(out[0].method).toBe("fallback-mean");
+  });
+});
+
+describe("forecastSingleItem", () => {
+  it("returns a populated forecast for a known item without scanning the catalog", async () => {
+    prismaMock.inventoryItem.findUnique.mockResolvedValueOnce({
+      id: "it-single",
+      quantity: 50,
+      medicine: { name: "SingleDrug" },
+    });
+    // Simulate ~2 units/day of dispensing over the last 180 days
+    const movements: any[] = [];
+    const now = new Date();
+    for (let d = 0; d < 180; d++) {
+      const when = new Date(now);
+      when.setDate(when.getDate() - d);
+      movements.push({ createdAt: when, quantity: 2, type: "DISPENSED" });
+    }
+    prismaMock.stockMovement.findMany.mockResolvedValueOnce(movements);
+
+    const out = await forecastSingleItem("it-single", 30);
+
+    expect(out).not.toBeNull();
+    expect(out!.inventoryItemId).toBe("it-single");
+    expect(out!.medicineName).toBe("SingleDrug");
+    expect(out!.currentStock).toBe(50);
+    expect(out!.predictedConsumption7d).toBeGreaterThan(0);
+    expect(out!.predictedConsumption30d).toBeGreaterThan(out!.predictedConsumption7d);
+    // The single-item path must NOT fall back to the catalog-scan path
+    expect(prismaMock.inventoryItem.findMany).not.toHaveBeenCalled();
+    expect(prismaMock.inventoryItem.findUnique).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns null for an unknown inventoryItemId", async () => {
+    prismaMock.inventoryItem.findUnique.mockResolvedValueOnce(null);
+
+    const out = await forecastSingleItem("does-not-exist", 30);
+
+    expect(out).toBeNull();
+    // No movement query should have been issued for a missing item
+    expect(prismaMock.stockMovement.findMany).not.toHaveBeenCalled();
   });
 });

@@ -52,9 +52,7 @@ describeIfDB("Telemedicine — Jitsi deep integration (integration)", () => {
       where: { id: session.id },
     });
     expect(row?.status === "WAITING" || row?.status === "SCHEDULED").toBe(true);
-    // Envelope should mark PATIENT_WAITING
-    const env = JSON.parse(row?.preConsultQuestions ?? "{}");
-    expect(env.waitingRoomState).toBe("PATIENT_WAITING");
+    expect((row as any)?.waitingRoomState).toBe("PATIENT_WAITING");
   });
 
   it("doctor admits waiting patient — returns signed URLs and flips to IN_PROGRESS", async () => {

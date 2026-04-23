@@ -9,7 +9,7 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { checkRedFlags, buildEmergencyResponse } from "../services/ai/red-flag";
-import { runTriageTurn, extractSymptomSummary } from "../services/ai/claude";
+import { runTriageTurn, extractSymptomSummary } from "../services/ai/sarvam";
 import { auditLog } from "../middleware/audit";
 
 const router = Router();
@@ -21,7 +21,7 @@ router.post(
   validate(startTriageSessionSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { language, inputMode, patientId, isForDependent, dependentRelationship } = req.body;
+      const { language, inputMode, patientId, isForDependent, dependentRelationship, consentGiven, bookingFor, dependentPatientId } = req.body;
 
       // Resolve patientId from JWT if patient role and not explicitly provided
       let resolvedPatientId = patientId;
@@ -48,6 +48,8 @@ router.post(
           messages: initialMessages as any,
           modelVersion: "claude-sonnet-4-6",
           symptoms: isForDependent ? { isForDependent, dependentRelationship } : undefined,
+          bookingFor: bookingFor ?? "SELF",
+          dependentPatientId: dependentPatientId ?? null,
         },
       });
 
@@ -167,9 +169,16 @@ router.post(
 
       // 4. Count user turns — if 5+ turns, extract summary and suggest doctors
       const userTurnCount = existingMessages.filter((m) => m.role === "user").length + 1;
+      const skipCount = existingMessages.filter((m) => m.role === "user" && m.content === "[SKIPPED]").length
+        + (message === "[SKIPPED]" ? 1 : 0);
       const updatedMessages = [
         ...(session.messages as any[]),
-        { role: "user", content: message, timestamp: new Date().toISOString() },
+        {
+          role: "user",
+          content: message,
+          timestamp: new Date().toISOString(),
+          ...(message === "[SKIPPED]" ? { displayAs: "Skipped" } : {}),
+        },
         { role: "assistant", content: reply, timestamp: new Date().toISOString() },
       ];
 
@@ -182,7 +191,22 @@ router.post(
           const summary = await extractSymptomSummary(
             claudeMessages.concat([{ role: "assistant", content: reply }])
           );
-          suggestedSpecialties = summary.specialties as any;
+          // Reduce confidence by 0.1 per skip, floor at 0.1
+          if (skipCount > 0) {
+            summary.confidence = Math.max(0.1, summary.confidence - 0.1 * skipCount);
+          }
+          if (summary.confidence < 0.5) {
+            const gpEntry = {
+              specialty: "General Physician",
+              subSpecialty: null,
+              confidence: 0.9,
+              reasoning: "Confidence in specialty match is low — a General Physician can assess and refer appropriately.",
+              isGPFallback: true,
+            };
+            suggestedSpecialties = [gpEntry, ...(summary.specialties || [])] as any;
+          } else {
+            suggestedSpecialties = summary.specialties as any;
+          }
           confidence = summary.confidence;
           symptoms = summary as any;
         } catch {
@@ -257,8 +281,14 @@ router.get(
             doctorId: d.id,
             name: d.user.name,
             specialty: d.specialization,
+            subSpecialty: d.subSpecialty || null,
             qualification: d.qualification,
             photoUrl: d.user.photoUrl,
+            experienceYears: d.experienceYears ?? null,
+            languages: d.languages ?? [],
+            rating: d.averageRating ? Number(d.averageRating) : null,
+            consultationFee: d.consultationFee ? Number(d.consultationFee) : null,
+            consultationMode: "in-person",          // default; extend later
             reasoning: specialty?.reasoning || `Specialist in ${d.specialization}`,
             confidence: specialty?.confidence || 0.7,
           };
@@ -349,7 +379,15 @@ router.post(
           tokenNumber,
           type: "SCHEDULED",
           status: "BOOKED",
-          notes: `[AI Triage] ${session.chiefComplaint || "Symptom-based booking"}`,
+          notes: [
+            `[AI Triage Booking]`,
+            `Chief Complaint: ${preVisitSummary.chiefComplaint}`,
+            preVisitSummary.hpi ? `HPI: ${preVisitSummary.hpi}` : null,
+            preVisitSummary.redFlagsNoted.length ? `Red Flags: ${preVisitSummary.redFlagsNoted.join(", ")}` : `Red Flags: None`,
+            `Confidence: ${preVisitSummary.confidence != null ? Math.round((preVisitSummary.confidence as number) * 100) + "%" : "N/A"}`,
+            `Language: ${preVisitSummary.language}`,
+            preVisitSummary.transcriptSummary,
+          ].filter(Boolean).join("\n"),
         },
       });
 
@@ -368,6 +406,96 @@ router.post(
       res.status(201).json({
         success: true,
         data: { appointment, preVisitSummary },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/ai/triage/:sessionId/handoff — human handoff to receptionist
+router.post(
+  "/:sessionId/handoff",
+  authenticate,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { sessionId } = req.params;
+
+      // 1. Find the triage session
+      const session = await prisma.aITriageSession.findUnique({ where: { id: sessionId } });
+      if (!session) {
+        res.status(404).json({ success: false, data: null, error: "Session not found" });
+        return;
+      }
+
+      // 2. Find an available RECEPTION or ADMIN user
+      const receptionist = await prisma.user.findFirst({
+        where: {
+          role: { in: [Role.RECEPTION, Role.ADMIN] },
+          isActive: true,
+        },
+        select: { id: true, name: true },
+      });
+      if (!receptionist) {
+        res.status(503).json({ success: false, data: null, error: "No receptionists available at this time" });
+        return;
+      }
+
+      // 3. Create a ChatRoom directly via Prisma
+      const patientUserId = req.user?.userId;
+      const roomParticipants: { userId: string }[] = [{ userId: receptionist.id }];
+      if (patientUserId) roomParticipants.push({ userId: patientUserId });
+
+      const chatRoom = await prisma.chatRoom.create({
+        data: {
+          name: `AI Triage Handoff — Session ${sessionId.slice(0, 8)}`,
+          isGroup: false,
+          isChannel: false,
+          createdBy: receptionist.id,
+          participants: {
+            create: roomParticipants.map((p) => ({ userId: p.userId })),
+          },
+        },
+      });
+
+      // 4. Create the initial handoff message
+      const transcriptSummary = [
+        "[AI Triage Handoff]",
+        `Patient: ${session.chiefComplaint || "Not specified"}`,
+        `Confidence: ${session.confidence != null ? Math.round((session.confidence as number) * 100) + "%" : "N/A"}`,
+        `Session: ${sessionId}`,
+        "",
+        "Please assist this patient directly.",
+      ].join("\n");
+
+      await prisma.chatMessage.create({
+        data: {
+          roomId: chatRoom.id,
+          senderId: receptionist.id,
+          content: transcriptSummary,
+          type: "TEXT",
+        },
+      });
+
+      // 5. Update session status and store handoff room id
+      await prisma.aITriageSession.update({
+        where: { id: sessionId },
+        data: {
+          status: "COMPLETED",
+          handoffChatRoomId: chatRoom.id,
+        },
+      });
+
+      await auditLog(req, "AI_TRIAGE_HANDOFF", "AITriageSession", sessionId, { chatRoomId: chatRoom.id, receptionistId: receptionist.id });
+
+      // 6. Return chatRoomId and receptionist info
+      res.json({
+        success: true,
+        data: {
+          chatRoomId: chatRoom.id,
+          receptionist: { id: receptionist.id, name: receptionist.name },
+        },
         error: null,
       });
     } catch (err) {

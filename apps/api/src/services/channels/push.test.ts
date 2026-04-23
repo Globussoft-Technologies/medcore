@@ -19,7 +19,7 @@ describe("sendPush", () => {
   it("returns stub success when env vars are missing", async () => {
     delete process.env.PUSH_API_KEY;
     delete process.env.PUSH_API_URL;
-    const res = await sendPush("u1", "t", "b");
+    const res = await sendPush(["ExponentPushToken[xxxxxx]"], "t", "b");
     expect(res.ok).toBe(true);
     expect(res.messageId).toMatch(/^stub-/);
   });
@@ -34,7 +34,7 @@ describe("sendPush", () => {
           status: 200,
         })
       );
-    const res = await sendPush("u1", "T", "B");
+    const res = await sendPush(["ExponentPushToken[xxxxxx]"], "T", "B");
     expect(fetchSpy).toHaveBeenCalled();
     const [, init] = fetchSpy.mock.calls[0];
     const headers = (init as RequestInit).headers as Record<string, string>;
@@ -49,7 +49,7 @@ describe("sendPush", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response("", { status: 403 })
     );
-    const res = await sendPush("u1", "t", "b");
+    const res = await sendPush(["ExponentPushToken[xxxxxx]"], "t", "b");
     expect(res.ok).toBe(false);
     expect(res.error).toContain("HTTP 403");
   });

@@ -9,13 +9,17 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.90.0",
+    "@aws-sdk/client-s3": "^3.1034.0",
+    "@aws-sdk/s3-request-presigner": "^3.1034.0",
     "@medcore/db": "*",
     "@medcore/shared": "*",
+    "@sentry/node": "^10.49.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
+    "expo-server-sdk": "^6.1.0",
     "express": "^4.21.0",
     "jsonwebtoken": "^9.0.2",
+    "openai": "^6.34.0",
     "pdfkit": "^0.18.0",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.0",

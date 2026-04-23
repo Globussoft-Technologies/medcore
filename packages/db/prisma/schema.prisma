@@ -528,7 +528,13 @@ model Doctor {
   userId         String  @unique
   specialization String?
   qualification  String?
-  signatureUrl   String?
+  signatureUrl     String?
+  consultationFee  Decimal? @db.Decimal(10, 2)
+  experienceYears  Int?
+  languages        String[]
+  averageRating    Decimal? @db.Decimal(3, 2)
+  subSpecialty     String?
+  bio              String?
 
   user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   schedules            DoctorSchedule[]
@@ -3262,6 +3268,11 @@ model AITriageSession {
   preVisitSummary      Json?
   appointmentId        String?        @unique
   modelVersion         String?
+  consentGiven         Boolean?
+  consentAt            DateTime?
+  bookingFor           String?        // "SELF" | "CHILD" | "PARENT" | "SIBLING" | "OTHER"
+  dependentPatientId   String?
+  handoffChatRoomId    String?
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
@@ -3312,4 +3323,64 @@ model AIScribeSession {
   @@index([status])
   @@index([createdAt])
   @@map("ai_scribe_sessions")
+}
+
+// ─── AI KNOWLEDGE BASE (RAG) ─────────────────────────────
+
+model KnowledgeChunk {
+  id           String   @id @default(uuid())
+  documentType String   // "ICD10" | "MEDICINE" | "GUIDELINE" | "PROTOCOL" | "FORMULARY"
+  title        String
+  content      String   @db.Text
+  sourceId     String?  // optional reference to Icd10Code.id, Medicine.id, etc.
+  tags         String[] // for keyword filtering
+  language     String   @default("en")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([documentType])
+  @@index([active])
+  @@map("knowledge_chunks")
+}
+
+// ─── MEDICATION ADHERENCE SCHEDULES ─────────────────────
+
+model AdherenceSchedule {
+  id              String   @id @default(uuid())
+  patientId       String
+  prescriptionId  String   @unique
+  medications     Json     // [{ name, dosage, frequency, duration, reminderTimes: string[] }]
+  startDate       DateTime @db.Date
+  endDate         DateTime @db.Date
+  active          Boolean  @default(true)
+  remindersSent   Int      @default(0)
+  lastReminderAt  DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([patientId])
+  @@index([active])
+  @@map("adherence_schedules")
+}
+
+// ─── LAB REPORT AI EXPLANATIONS ─────────────────────────
+
+model LabReportExplanation {
+  id             String   @id @default(uuid())
+  labOrderId     String   @unique
+  patientId      String
+  explanation    String   @db.Text
+  flaggedValues  Json     @default("[]") // [{ parameter, value, flag, plainLanguage }]
+  language       String   @default("en")
+  status         String   @default("PENDING_REVIEW") // PENDING_REVIEW | APPROVED | SENT
+  approvedBy     String?
+  approvedAt     DateTime?
+  sentAt         DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([patientId])
+  @@index([status])
+  @@map("lab_report_explanations")
 }

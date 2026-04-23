@@ -1,41 +1,48 @@
-// Push channel adapter (Firebase Cloud Messaging HTTP v1 pattern).
+// Push channel adapter — Expo Push Service (handles FCM + APNs routing).
 //
-// Env vars:
-//   PUSH_API_URL  — FCM endpoint
-//   PUSH_API_KEY  — server key / OAuth bearer token
+// Expo push tokens (ExponentPushToken[xxx]) are stored in User.pushTokens
+// by the mobile app on first launch. No separate FCM/APNs credentials needed
+// for basic delivery; Expo's gateway routes to both platforms automatically.
+//
+// Env vars (optional):
+//   EXPO_ACCESS_TOKEN — Expo account token for enhanced throughput (recommended in prod)
 
+import { Expo } from "expo-server-sdk";
 import type { ChannelResult } from "./whatsapp";
 
+const expo = new Expo({
+  accessToken: process.env.EXPO_ACCESS_TOKEN || undefined,
+});
+
 export async function sendPush(
-  userId: string,
+  pushTokens: string[],
   title: string,
   body: string
 ): Promise<ChannelResult> {
-  const apiKey = process.env.PUSH_API_KEY;
-  const apiUrl = process.env.PUSH_API_URL;
+  const validTokens = pushTokens.filter((t) => Expo.isExpoPushToken(t as any));
 
-  if (!apiKey || !apiUrl) {
-    console.log(`[Push stub] userId=${userId} title=${title} body=${body}`);
-    return { ok: true, messageId: "stub-" + Date.now() };
+  if (validTokens.length === 0) {
+    console.log(`[Push stub] no valid Expo tokens — title="${title}"`);
+    return { ok: true, messageId: "no-tokens" };
   }
 
+  const messages = validTokens.map((to) => ({
+    to: to as any,
+    sound: "default" as const,
+    title,
+    body,
+  }));
+
   try {
-    const res = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        message: {
-          topic: `user_${userId}`,
-          notification: { title, body },
-        },
-      }),
-    });
-    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
-    const data = (await res.json().catch(() => ({}))) as { name?: string };
-    return { ok: true, messageId: data.name };
+    const chunks = expo.chunkPushNotifications(messages);
+    const ids: string[] = [];
+    for (const chunk of chunks) {
+      const tickets = await expo.sendPushNotificationsAsync(chunk);
+      for (const ticket of tickets) {
+        if (ticket.status === "ok") ids.push(ticket.id);
+      }
+    }
+    return { ok: true, messageId: ids.join(",") || "sent" };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

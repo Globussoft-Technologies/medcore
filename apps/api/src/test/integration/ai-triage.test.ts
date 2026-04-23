@@ -7,7 +7,7 @@ import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
 import { createPatientFixture, createDoctorFixture, createDoctorWithToken } from "../factories";
 
 // Mock the Claude AI service so tests run without a real API key
-vi.mock("../../services/ai/claude", () => ({
+vi.mock("../../services/ai/sarvam", () => ({
   runTriageTurn: vi.fn().mockResolvedValue({
     reply: "Can you tell me more about your symptoms — how long have you had this?",
     isEmergency: false,
@@ -100,7 +100,7 @@ describeIfDB("AI Triage API (integration)", () => {
   // ─── Sending messages ─────────────────────────────────────────────────
 
   it("processes a non-emergency message via Claude", async () => {
-    const { runTriageTurn } = await import("../../services/ai/claude");
+    const { runTriageTurn } = await import("../../services/ai/sarvam");
 
     const start = await request(app)
       .post("/api/v1/ai/triage/start")
@@ -122,7 +122,7 @@ describeIfDB("AI Triage API (integration)", () => {
   });
 
   it("detects emergency via red-flag layer (no LLM call needed)", async () => {
-    const { runTriageTurn } = await import("../../services/ai/claude");
+    const { runTriageTurn } = await import("../../services/ai/sarvam");
     vi.mocked(runTriageTurn).mockClear();
 
     const start = await request(app)
@@ -179,7 +179,7 @@ describeIfDB("AI Triage API (integration)", () => {
   // ─── Symptom extraction after 4+ turns ───────────────────────────────
 
   it("triggers symptom extraction and specialty suggestions after 4 turns", async () => {
-    const { extractSymptomSummary } = await import("../../services/ai/claude");
+    const { extractSymptomSummary } = await import("../../services/ai/sarvam");
     vi.mocked(extractSymptomSummary).mockClear();
 
     const start = await request(app)

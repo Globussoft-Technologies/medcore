@@ -49,8 +49,14 @@ async function sendOnce(
       return sendSMS(user.phone, message);
     case NotificationChannel.EMAIL:
       return sendEmail(user.email, title, message);
-    case NotificationChannel.PUSH:
-      return sendPush(user.id, title, message);
+    case NotificationChannel.PUSH: {
+      const pushUser = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: { pushToken: true },
+      });
+      const tokens = pushUser?.pushToken ? [pushUser.pushToken] : [];
+      return sendPush(tokens, title, message);
+    }
     default:
       return { ok: false, error: "unknown channel" };
   }

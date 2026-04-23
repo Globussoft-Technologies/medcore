@@ -1,6 +1,11 @@
 import { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
 
+/**
+ * Central Express error-handling middleware. Maps `ZodError` to HTTP 400 with
+ * structured field-level messages; all other errors become HTTP 500.
+ * In production the original error message is hidden from the response.
+ */
 export function errorHandler(
   err: Error,
   _req: Request,

@@ -1,3 +1,15 @@
+import * as Sentry from "@sentry/node";
+
+// Sentry must be initialised before any other imports so it can instrument
+// frameworks and capture errors that happen during startup.
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || "development",
+    tracesSampleRate: 0.2,
+  });
+}
+
 import express from "express";
 import cors from "cors";
 import fs from "fs";
@@ -55,9 +67,18 @@ import { scheduledReportsRouter } from "./routes/scheduled-reports";
 import { patientExtrasRouter } from "./routes/patient-extras";
 import { aiTriageRouter } from "./routes/ai-triage";
 import { aiScribeRouter } from "./routes/ai-scribe";
+import { aiTranscribeRouter } from "./routes/ai-transcribe";
+import { aiReportExplainerRouter } from "./routes/ai-report-explainer";
+import { aiPredictionsRouter } from "./routes/ai-predictions";
+import { aiLettersRouter } from "./routes/ai-letters";
+import { aiERTriageRouter } from "./routes/ai-er-triage";
+import { aiPharmacyRouter } from "./routes/ai-pharmacy";
+import { aiAdherenceRouter } from "./routes/ai-adherence";
+import { aiKnowledgeRouter } from "./routes/ai-knowledge";
 import { errorHandler } from "./middleware/error";
 import { rateLimit } from "./middleware/rate-limit";
 import { sanitize } from "./middleware/sanitize";
+import { startRetentionScheduler } from "./services/retention-scheduler";
 
 export function buildApp() {
   const app = express();
@@ -156,12 +177,25 @@ export function buildApp() {
   app.use("/api/v1/marketing", marketingRouter);
   app.use("/api/v1/ai/triage", aiTriageRouter);
   app.use("/api/v1/ai/scribe", aiScribeRouter);
+  app.use("/api/v1/ai/transcribe", aiTranscribeRouter);
+  app.use("/api/v1/ai/reports", aiReportExplainerRouter);
+  app.use("/api/v1/ai/predictions", aiPredictionsRouter);
+  app.use("/api/v1/ai/letters", aiLettersRouter);
+  app.use("/api/v1/ai/er-triage", aiERTriageRouter);
+  app.use("/api/v1/ai/pharmacy", aiPharmacyRouter);
+  app.use("/api/v1/ai/adherence", aiAdherenceRouter);
+  app.use("/api/v1/ai/knowledge", aiKnowledgeRouter);
   app.use("/api/v1", patientExtrasRouter);
 
   // Health check
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
+
+  // Sentry error handler must come before the custom error handler
+  if (process.env.SENTRY_DSN) {
+    Sentry.setupExpressErrorHandler(app);
+  }
 
   // Error handler
   app.use(errorHandler);
@@ -190,3 +224,8 @@ const built = buildApp();
 export const app = built.app;
 export const httpServer = built.httpServer;
 export const io = built.io;
+
+// Start background scheduler for audio retention cleanup (runs daily)
+if (process.env.NODE_ENV !== "test") {
+  startRetentionScheduler();
+}

@@ -10,8 +10,8 @@ A full-stack, monorepo HIS covering the patient journey from appointment to disc
 [![Tests](https://img.shields.io/badge/tests-1415_passing-16a34a?style=for-the-badge)](#testing)
 [![E2E](https://img.shields.io/badge/playwright_e2e-29_passing-0ea5e9?style=for-the-badge)](#testing)
 [![a11y](https://img.shields.io/badge/axe--core-12_passing-7c3aed?style=for-the-badge)](#accessibility)
-[![Routers](https://img.shields.io/badge/api_routers-47-f59e0b?style=for-the-badge)](#architecture)
-[![Models](https://img.shields.io/badge/prisma_models-112-0891b2?style=for-the-badge)](#architecture)
+[![Routers](https://img.shields.io/badge/api_routers-57-f59e0b?style=for-the-badge)](#architecture)
+[![Models](https://img.shields.io/badge/prisma_models-126-0891b2?style=for-the-badge)](#architecture)
 [![License](https://img.shields.io/badge/license-Proprietary-dc2626?style=for-the-badge)](LICENSE)
 
 [Live Demo](https://medcore.globusdemos.com) · [Features](#feature-catalog) · [Architecture](#architecture) · [Testing](#testing) · [Deployment](#deployment) · [Commercial](#commercial-licensing)
@@ -35,8 +35,8 @@ The project is under active development. A live demo instance runs at **[medcore
 | **Tests passing** | 1,415 across 6 layers (unit, contract, smoke, web, integration, permissions) |
 | **E2E** | 29 Playwright specs against the live demo URL |
 | **Accessibility** | 12 axe-core tests, WCAG 2.1 AA, per-page contrast budgets |
-| **API routers with integration coverage** | 47 |
-| **Prisma models** | ~112 |
+| **API routers with integration coverage** | 57 |
+| **Prisma models** | ~126 |
 | **Prisma migrations (production)** | 5, all applied via `migrate deploy` |
 | **CI workflows** | 4 (typecheck, API, web, Playwright E2E) |
 | **Demo URL** | https://medcore.globusdemos.com |
@@ -47,9 +47,19 @@ The project is under active development. A live demo instance runs at **[medcore
 
 ### AI Features
 
-- **AI Triage Chatbot** (`/dashboard/ai-booking`) — multi-turn symptom collection chat supporting English and Hindi. Deterministic red-flag detection (cardiac, stroke, respiratory, bleeding, suicidal ideation, obstetric, neonatal, Hindi phrases) fires before the LLM, triggering an immediate emergency screen with call-112 instructions. After 4+ exchanges Claude assesses the complaint, recommends specialties and matching doctors, and lets the patient book an appointment without leaving the chat.
-- **AI Scribe** (`/dashboard/scribe`) — ambient speech-to-text during consultation. Transcripts stream to the API every 5 final utterances; once 3+ entries accumulate, Claude generates a structured SOAP draft (Subjective / Objective / Assessment / Plan) with ICD-10 code suggestions and confidence scores. The doctor edits any field inline, then signs off — at which point the note is written directly to the EHR consultation record.
-- **Drug Safety Check** — runs automatically inside the Scribe transcript endpoint every time a new SOAP draft is produced. Two-layer architecture: a fast deterministic layer checks ~15 curated high-risk pairs (warfarin + NSAIDs/azithromycin/metronidazole, SSRI + MAOI, sildenafil + nitrates, clopidogrel + omeprazole, methotrexate + NSAIDs, etc.), allergy cross-reactivity families (penicillin, sulfa, NSAIDs, codeine), and condition contraindications (asthma + beta-blockers, CKD + NSAIDs/metformin, pregnancy + warfarin/NSAIDs/tetracyclines). The LLM layer then catches anything not in the curated list. Alerts are severity-coded CONTRAINDICATED → SEVERE → MODERATE → MILD. A `DrugAlertBanner` in the Scribe UI blocks sign-off on CONTRAINDICATED alerts until the doctor explicitly acknowledges clinical responsibility.
+All AI features run on **[Sarvam AI](https://sarvam.ai)** (`sarvam-105b`), an Indian LLM provider, ensuring data residency within India for DPDP Act compliance. Speech-to-text uses Sarvam ASR (`saaras:v3`). The AI layer is observable (every LLM call logged with latency, tokens, and truncated prompt), retry-resilient (`withRetry` with exponential back-off), and tested via a Vitest eval harness with gold-standard fixtures.
+
+- **AI Triage Chatbot** (`/dashboard/ai-booking`) — multi-turn symptom collection supporting English and Hindi. Deterministic red-flag detection (cardiac, stroke, respiratory, bleeding, suicidal ideation, obstetric, neonatal, Hindi phrases) fires before the LLM, triggering an immediate emergency screen with call-112 instructions. After 4+ exchanges the LLM assesses the complaint, recommends specialties and matching doctors, and lets the patient book directly. Supports booking on behalf of a dependent (child, elderly parent). Patients can skip AI triage and go straight to manual booking. Live-agent handoff creates a chat room with the on-call doctor.
+- **AI Scribe** (`/dashboard/scribe`) — ambient speech-to-text during consultation via Sarvam ASR or Web Speech API. Transcripts stream to the API every 5 final utterances; once 3+ entries accumulate, the LLM generates a structured SOAP draft (Subjective / Objective / Assessment / Plan) with ICD-10 code suggestions, CPT codes, and per-section confidence scores. Doctors can review by section (Accept / Edit / Reject) using voice commands ("accept subjective", "edit plan", etc.). On sign-off the note is written to the EHR consultation record, and draft lab orders and referrals are auto-created from the SOAP plan.
+- **Drug Safety Check** — runs automatically inside the Scribe transcript endpoint on every SOAP draft. Two-layer architecture: fast deterministic layer checks ~15 curated high-risk pairs (warfarin + NSAIDs, SSRI + MAOI, sildenafil + nitrates, etc.), allergy cross-reactivity families, condition contraindications, paediatric contraindications, and renal/hepatic dosing flags. The LLM catches anything outside the curated list. Alerts are severity-coded CONTRAINDICATED → SEVERE → MODERATE → MILD with generic alternatives suggested. A `DrugAlertBanner` in the Scribe UI blocks sign-off on CONTRAINDICATED alerts until the doctor explicitly acknowledges.
+- **Medication Adherence Bot** (`/dashboard/adherence`) — enroll a patient's prescription into a reminder schedule. A 15-minute background scheduler checks for due medications and sends AI-personalised WhatsApp/SMS reminders in the patient's preferred language.
+- **AI Lab Report Explainer** (`/dashboard/lab-explainer`) — generates a plain-language explanation of lab results for the patient, flagging abnormal values. Explanations are held in a HITL approval queue; a doctor reviews and approves before the explanation is sent to the patient.
+- **AI Letter Generator** (`/dashboard/letters`) — one-click generation of referral letters and discharge summaries from structured clinical data. Letters are editable and printable directly from the browser.
+- **No-Show Prediction** (`/dashboard/predictions`) — rule-based model (7 features: historical no-show rate, lead time, day of week, hour of appointment, new-patient flag, recent no-show flag, appointment type) predicts per-appointment risk. Batch predictions run nightly; the dashboard shows high-risk appointments for proactive follow-up.
+- **ER Triage Assist** (`/dashboard/er-triage`) — MEWS scoring (respiratory rate, O₂ sat, heart rate, systolic BP, temperature, consciousness) plus AI-suggested ESI triage level with clinical rationale.
+- **Pharmacy Inventory Forecasting** (`/dashboard/pharmacy-forecast`) — forecasts stock requirements for the next 30/60/90 days based on dispensing history, with AI-generated procurement insights.
+- **AI Analytics** (`/dashboard/ai-analytics`) — tabbed dashboard showing triage session volume and conversion rates, scribe session counts, sign-off rates, average edit counts, and doctor-edit heatmaps.
+- **Knowledge Base (RAG)** — PostgreSQL full-text search (`to_tsvector` / `plainto_tsquery`) over a `KnowledgeChunk` table seeded from ICD-10 codes, medicine catalogue, and clinical protocols. Retrieved context is injected into every LLM prompt to ground responses in hospital-specific data without requiring pgvector.
 
 ### Clinical
 
@@ -128,13 +138,14 @@ Server-side PDFs via pdfkit for prescriptions (with embedded PNG QR), invoices (
 |---|---|
 | **Runtime** | Node.js 20, TypeScript |
 | **API** | Express 4, Zod validation, Socket.IO server |
-| **Database** | PostgreSQL 16, Prisma 6 (migrations, ~110 models) |
+| **Database** | PostgreSQL 16, Prisma 6 (migrations, ~126 models) |
 | **Web** | Next.js 15 (App Router), React 19, Tailwind CSS v4, Zustand, `socket.io-client` |
 | **Mobile** | React Native, Expo SDK 53, `expo-router`, `expo-notifications`, `expo-constants` |
 | **Auth** | JWT with refresh rotation, bcrypt, TOTP 2FA (pure Node `crypto`) |
 | **Payments** | Razorpay SDK, raw-body HMAC-SHA256 webhook verification |
+| **AI / LLM** | Sarvam AI `sarvam-105b` (OpenAI-compatible, India region), Sarvam ASR `saaras:v3` |
 | **PDF / QR** | `pdfkit`, `qrcode`, `jsqr` (verification) |
-| **Testing** | Jest, Supertest, Playwright, `axe-core` |
+| **Testing** | Jest, Supertest, Playwright, `axe-core`, Vitest (LLM eval harness) |
 | **Monorepo** | Turborepo, npm workspaces |
 | **Ops** | PM2, systemd, nginx, Let's Encrypt, Docker (Postgres), `pg_dump` backups |
 | **CI** | GitHub Actions (typecheck, API tests with Postgres service, web tests, Playwright E2E) |
@@ -164,6 +175,9 @@ medcore/
 - **Socket.IO for realtime.** Live OPD queue, ER board, chat, admissions.
 - **Fail-closed payments.** Razorpay signature mismatch returns 400 in production; webhooks use raw-body verification and idempotency on `Payment.transactionId`.
 - **Row-level file ACLs** with HMAC-signed URLs and magic-byte sniffing.
+- **Sarvam AI for DPDP compliance.** All LLM calls route to Sarvam AI's India-region endpoint (`api.sarvam.ai`), satisfying the Digital Personal Data Protection Act's data-residency requirement. The `SARVAM_API_KEY` env var replaces any previous cloud LLM key.
+- **RAG without pgvector.** The knowledge layer uses PostgreSQL full-text search (`to_tsvector`/`plainto_tsquery`) over a `KnowledgeChunk` table, avoiding the need for a Postgres extension and keeping the deployment footprint unchanged.
+- **Human-in-the-loop for clinical output.** Lab explanations require doctor approval before reaching the patient. Scribe SOAP notes require explicit doctor sign-off. Drug CONTRAINDICATED alerts block sign-off until acknowledged.
 
 ---
 
@@ -279,6 +293,8 @@ docker run -d --name medcore-postgres \
 # Configure environment
 echo 'DATABASE_URL="postgresql://medcore:medcore_dev@localhost:5433/medcore?schema=public"' > .env
 cp apps/api/.env.example apps/api/.env
+# Add your Sarvam AI key (required for all AI features)
+echo 'SARVAM_API_KEY=your_key_here' >> apps/api/.env
 
 # Apply migrations (do not use db push)
 npx prisma generate --schema packages/db/prisma/schema.prisma
@@ -371,9 +387,13 @@ Daily gzipped `pg_dump` with 30-day retention. Restore rehearsal has been verifi
 This is an honest list. Nothing below is hidden in a marketing footnote.
 
 - HIPAA / ABDM compliance has **not** been third-party audited. The codebase implements relevant controls (audit log, signed URLs, encryption at rest via Postgres) but the certifications are not in place.
+- ABHA/ABDM health ID linking is roadmap (GAP-T13).
 - HL7 / FHIR export is planned, not built.
 - Multi-tenant / multi-branch is roadmap.
 - The mobile doctor-lite app is intentionally a subset of the web workspace.
+- Jitsi tele-consult deep integration (screen share, waiting room) is deferred (GAP-S14).
+- Insurance billing claims API integration is deferred (§7-8).
+- AI ambient chart search (§7-7) depends on the RAG layer being seeded with clinical data first.
 
 ---
 

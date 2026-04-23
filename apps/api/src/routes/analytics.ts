@@ -1778,6 +1778,203 @@ router.get(
   }
 );
 
+// ─── GET /analytics/ai/triage ──────────────────────────
+
+router.get(
+  "/ai/triage",
+  authenticate,
+  authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { from, to } = parseRange(req);
+
+      const sessions = await prisma.aITriageSession.findMany({
+        where: { createdAt: { gte: from, lte: to } },
+      });
+
+      const totalSessions = sessions.length;
+      const completedSessions = sessions.filter((s) => s.status === "COMPLETED").length;
+      const completionRate =
+        totalSessions > 0 ? +(completedSessions / totalSessions).toFixed(4) : 0;
+
+      const emergencyDetected = sessions.filter(
+        (s) => s.status === "EMERGENCY_DETECTED" || s.redFlagDetected
+      ).length;
+
+      const bookingConversions = sessions.filter((s) => s.appointmentId != null).length;
+      const conversionRate =
+        totalSessions > 0 ? +(bookingConversions / totalSessions).toFixed(4) : 0;
+
+      // avgTurnsToRecommendation: count of user-role messages per session
+      let totalUserTurns = 0;
+      let sessionCount = 0;
+      const chiefComplaintCounts = new Map<string, number>();
+      const specialtyCounts = new Map<string, number>();
+      const languageCounts = new Map<string, number>();
+      const statusCounts = new Map<string, number>();
+      let totalConfidence = 0;
+      let confidenceCount = 0;
+
+      for (const s of sessions) {
+        // Messages is a JSON array of { role, content } objects
+        const msgs = Array.isArray(s.messages) ? (s.messages as Array<{ role: string }>) : [];
+        const userTurns = msgs.filter((m) => m.role === "user").length;
+        totalUserTurns += userTurns;
+        sessionCount++;
+
+        // Chief complaint
+        const cc = (s.chiefComplaint || "").trim();
+        if (cc) chiefComplaintCounts.set(cc, (chiefComplaintCounts.get(cc) || 0) + 1);
+
+        // Suggested specialties — flatten JSON array
+        if (s.suggestedSpecialties) {
+          const specs = Array.isArray(s.suggestedSpecialties)
+            ? (s.suggestedSpecialties as string[])
+            : [];
+          for (const sp of specs) {
+            if (sp && typeof sp === "string") {
+              specialtyCounts.set(sp, (specialtyCounts.get(sp) || 0) + 1);
+            }
+          }
+        }
+
+        // Language
+        const lang = (s.language || "en").toLowerCase();
+        languageCounts.set(lang, (languageCounts.get(lang) || 0) + 1);
+
+        // Status
+        const st = s.status as string;
+        statusCounts.set(st, (statusCounts.get(st) || 0) + 1);
+
+        // Confidence
+        if (typeof s.confidence === "number") {
+          totalConfidence += s.confidence;
+          confidenceCount++;
+        }
+      }
+
+      const avgTurnsToRecommendation =
+        sessionCount > 0 ? +(totalUserTurns / sessionCount).toFixed(2) : 0;
+      const avgConfidence =
+        confidenceCount > 0 ? +(totalConfidence / confidenceCount).toFixed(4) : 0;
+
+      const topChiefComplaints = Array.from(chiefComplaintCounts.entries())
+        .map(([complaint, count]) => ({ complaint, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 10);
+
+      const specialtyDistribution = Array.from(specialtyCounts.entries())
+        .map(([specialty, count]) => ({ specialty, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 10);
+
+      const languageBreakdown = Array.from(languageCounts.entries())
+        .map(([language, count]) => ({ language, count }))
+        .sort((a, b) => b.count - a.count);
+
+      const statusBreakdown = Array.from(statusCounts.entries())
+        .map(([status, count]) => ({ status, count }))
+        .sort((a, b) => b.count - a.count);
+
+      res.json({
+        success: true,
+        data: {
+          totalSessions,
+          completedSessions,
+          completionRate,
+          emergencyDetected,
+          bookingConversions,
+          conversionRate,
+          avgTurnsToRecommendation,
+          avgConfidence,
+          topChiefComplaints,
+          specialtyDistribution,
+          languageBreakdown,
+          statusBreakdown,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── GET /analytics/ai/scribe ───────────────────────────
+
+router.get(
+  "/ai/scribe",
+  authenticate,
+  authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { from, to } = parseRange(req);
+
+      const sessions = await prisma.aIScribeSession.findMany({
+        where: { createdAt: { gte: from, lte: to } },
+      });
+
+      const totalSessions = sessions.length;
+      const completedSessions = sessions.filter((s) => s.status === "COMPLETED").length;
+      const consentWithdrawnSessions = sessions.filter(
+        (s) => s.status === "CONSENT_WITHDRAWN"
+      ).length;
+
+      // avgDoctorEditRate: average of doctorEdits array length across completed sessions
+      const completed = sessions.filter((s) => s.status === "COMPLETED");
+      let totalEdits = 0;
+      for (const s of completed) {
+        const edits = Array.isArray(s.doctorEdits) ? (s.doctorEdits as unknown[]) : [];
+        totalEdits += edits.length;
+      }
+      const avgDoctorEditRate =
+        completed.length > 0 ? +(totalEdits / completed.length).toFixed(2) : 0;
+
+      // drugAlertRate: sessions where rxDraft has alerts field (non-empty array) / total
+      let sessionsWithDrugAlerts = 0;
+      let totalDrugAlerts = 0;
+      for (const s of sessions) {
+        if (!s.rxDraft) continue;
+        const rx = s.rxDraft as Record<string, unknown>;
+        const alerts = Array.isArray(rx.alerts) ? (rx.alerts as unknown[]) : [];
+        if (alerts.length > 0) {
+          sessionsWithDrugAlerts++;
+          totalDrugAlerts += alerts.length;
+        }
+      }
+      const drugAlertRate =
+        totalSessions > 0
+          ? +(sessionsWithDrugAlerts / totalSessions).toFixed(4)
+          : 0;
+
+      const statusCounts = new Map<string, number>();
+      for (const s of sessions) {
+        const st = s.status as string;
+        statusCounts.set(st, (statusCounts.get(st) || 0) + 1);
+      }
+      const statusBreakdown = Array.from(statusCounts.entries())
+        .map(([status, count]) => ({ status, count }))
+        .sort((a, b) => b.count - a.count);
+
+      res.json({
+        success: true,
+        data: {
+          totalSessions,
+          completedSessions,
+          consentWithdrawnSessions,
+          avgDoctorEditRate,
+          drugAlertRate,
+          totalDrugAlerts,
+          statusBreakdown,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // ─── LWBS / QUEUE WALKOUTS (Apr 2026) ──────────────────
 // GET /analytics/queue-walkouts?from=&to=
 router.get(

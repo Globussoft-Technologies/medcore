@@ -233,7 +233,7 @@ describe("sendPush — HTTP shape", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(okJson({ name: "projects/p/messages/abc" }));
 
-    const res = await sendPush("user-123", "You have mail", "Body");
+    const res = await sendPush(["ExponentPushToken[xxxxxx]"], "You have mail", "Body");
 
     const [url, init] = fetchSpy.mock.calls[0];
     expect(url).toBe(
@@ -260,7 +260,7 @@ describe("sendPush — HTTP shape", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response("err", { status: 500 })
     );
-    const res = await sendPush("u", "t", "b");
+    const res = await sendPush(["ExponentPushToken[xxxxxx]"], "t", "b");
     expect(res.ok).toBe(false);
     expect(res.error).toBe("HTTP 500");
   });
@@ -269,7 +269,7 @@ describe("sendPush — HTTP shape", () => {
     process.env.PUSH_API_URL = "https://fcm.googleapis.com/v1/projects/p/messages:send";
     process.env.PUSH_API_KEY = "k";
     vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("DNS fail"));
-    const res = await sendPush("u", "t", "b");
+    const res = await sendPush(["ExponentPushToken[xxxxxx]"], "t", "b");
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/DNS fail/);
   });
@@ -277,7 +277,7 @@ describe("sendPush — HTTP shape", () => {
   it("stub path: no env vars set → ok:true with stub messageId", async () => {
     delete process.env.PUSH_API_URL;
     delete process.env.PUSH_API_KEY;
-    const res = await sendPush("u", "t", "b");
+    const res = await sendPush(["ExponentPushToken[xxxxxx]"], "t", "b");
     expect(res.ok).toBe(true);
     expect(res.messageId).toMatch(/^stub-/);
   });

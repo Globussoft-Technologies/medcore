@@ -14,6 +14,7 @@ import {
   verifySignature,
   DEFAULT_TTL_SECONDS,
 } from "../services/signed-url";
+import { uploadFile, getSignedDownloadUrl, isS3Enabled } from "../services/storage";
 
 const router = Router();
 
@@ -188,33 +189,27 @@ router.post(
       const uuid = crypto.randomUUID();
       const safeName = sanitizeFilename(filename);
       const storedName = `${uuid}-${safeName}`;
-      const fullPath = path.join(UPLOAD_DIR, storedName);
-      fs.writeFileSync(fullPath, buffer);
 
-      const relativePath = `uploads/ehr/${storedName}`;
+      const stored = await uploadFile(buffer, storedName, sniffed || "application/octet-stream");
+      const signedUrl = await getSignedDownloadUrl(stored.key);
 
       auditLog(req, "UPLOAD_FILE", "file", storedName, {
         patientId,
         type,
         size: buffer.length,
         sniffedMime: sniffed,
+        storageProvider: isS3Enabled() ? "s3" : "local",
       }).catch(console.error);
-
-      // Optional: short-lived signed URL referencing the stored filename so
-      // the caller can immediately render/download the file. The legacy
-      // filename endpoint enforces it when ?expires&sig are present.
-      const sig = signParts(`file:${storedName}`);
 
       res.status(201).json({
         success: true,
         data: {
           filename: storedName,
           originalName: filename,
-          filePath: relativePath,
+          filePath: stored.key,
           fileSize: buffer.length,
           mimeType: sniffed,
-          signedUrl: `/api/v1/uploads/${storedName}?expires=${sig.expires}&sig=${sig.sig}`,
-          signedUrlExpires: sig.expires,
+          signedUrl,
         },
         error: null,
       });
@@ -263,16 +258,23 @@ router.get(
         return;
       }
 
-      // Resolve disk path safely.
+      auditLog(req, "DOWNLOAD_FILE", "patient_document", doc.id, {
+        patientId: doc.patientId,
+      }).catch(console.error);
+
+      if (isS3Enabled()) {
+        const url = await getSignedDownloadUrl(doc.filePath, 300);
+        res.redirect(302, url);
+        return;
+      }
+
+      // Local disk fallback
       const stored = path.basename(doc.filePath);
       const fullPath = path.join(UPLOAD_DIR, stored);
       if (!fullPath.startsWith(UPLOAD_DIR) || !fs.existsSync(fullPath)) {
         res.status(404).json({ success: false, data: null, error: "File missing on storage" });
         return;
       }
-      auditLog(req, "DOWNLOAD_FILE", "patient_document", doc.id, {
-        patientId: doc.patientId,
-      }).catch(console.error);
       if (doc.mimeType) res.type(doc.mimeType);
       res.sendFile(fullPath);
     } catch (err) {
@@ -316,14 +318,10 @@ router.get(
         Math.max(parseInt(String(req.query.ttl ?? ""), 10) || DEFAULT_TTL_SECONDS, 30),
         60 * 60 // cap at 1 hour
       );
-      const stored = path.basename(doc.filePath);
-      const sig = signParts(`file:${stored}`, ttl);
+      const url = await getSignedDownloadUrl(doc.filePath, ttl);
       res.json({
         success: true,
-        data: {
-          url: `/api/v1/uploads/${stored}?expires=${sig.expires}&sig=${sig.sig}`,
-          expires: sig.expires,
-        },
+        data: { url, expires: Math.floor(Date.now() / 1000) + ttl },
         error: null,
       });
     } catch (err) {

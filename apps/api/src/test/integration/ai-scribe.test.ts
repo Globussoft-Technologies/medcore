@@ -45,7 +45,7 @@ const MOCK_SOAP = {
   },
 };
 
-vi.mock("../../services/ai/claude", () => ({
+vi.mock("../../services/ai/sarvam", () => ({
   runTriageTurn: vi.fn(),
   extractSymptomSummary: vi.fn(),
   generateSOAPNote: vi.fn().mockResolvedValue(MOCK_SOAP),
@@ -171,7 +171,7 @@ describeIfDB("AI Scribe API (integration)", () => {
   // ─── Transcript & SOAP draft ──────────────────────────────────────────
 
   it("appends transcript entries and returns SOAP draft after 3+ entries", async () => {
-    const { generateSOAPNote } = await import("../../services/ai/claude");
+    const { generateSOAPNote } = await import("../../services/ai/sarvam");
     vi.mocked(generateSOAPNote).mockClear();
 
     const patient = await createPatientFixture();
@@ -203,7 +203,7 @@ describeIfDB("AI Scribe API (integration)", () => {
   });
 
   it("does not call Claude when fewer than 3 transcript entries", async () => {
-    const { generateSOAPNote } = await import("../../services/ai/claude");
+    const { generateSOAPNote } = await import("../../services/ai/sarvam");
     vi.mocked(generateSOAPNote).mockClear();
 
     const patient = await createPatientFixture();

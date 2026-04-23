@@ -5,12 +5,14 @@ import {
   startScribeSessionSchema,
   addTranscriptChunkSchema,
   scribeSignOffSchema,
+  NotificationType,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
-import { generateSOAPNote } from "../services/ai/claude";
+import { generateSOAPNote } from "../services/ai/sarvam";
 import { checkDrugSafety } from "../services/ai/drug-interactions";
 import { auditLog } from "../middleware/audit";
+import { sendNotification } from "../services/notification";
 
 const router = Router();
 router.use(authenticate);
@@ -67,7 +69,7 @@ router.post(
           appointmentId,
           doctorId: appointment.doctorId,
           patientId: appointment.patientId,
-          consentObtained: true,
+          consentObtained: req.body.consentObtained,
           consentAt: new Date(),
           audioRetainUntil: retainUntil,
           modelVersion: "claude-sonnet-4-6",
@@ -252,13 +254,30 @@ router.post(
         return;
       }
 
+      // Compute diff between AI draft and doctor's final version
+      let computedEdits: { section: string; field: string; from: unknown; to: unknown }[] = [];
+      if (session.soapDraft && soapFinal) {
+        const draft = session.soapDraft as Record<string, any>;
+        const final = soapFinal as Record<string, any>;
+        for (const section of ["subjective", "objective", "assessment", "plan"] as const) {
+          if (!draft[section] || !final[section]) continue;
+          for (const field of Object.keys(final[section])) {
+            const fromVal = draft[section]?.[field];
+            const toVal = final[section]?.[field];
+            if (JSON.stringify(fromVal) !== JSON.stringify(toVal)) {
+              computedEdits.push({ section, field, from: fromVal ?? null, to: toVal });
+            }
+          }
+        }
+      }
+
       const finalSession = await prisma.aIScribeSession.update({
         where: { id: sessionId },
         data: {
           status: "COMPLETED",
           soapFinal: soapFinal as any,
           icd10Codes: icd10Codes as any,
-          doctorEdits: doctorEdits as any,
+          doctorEdits: computedEdits as any,
           signedOffAt: new Date(),
           signedOffBy: req.user!.userId,
         },
@@ -289,9 +308,145 @@ router.post(
         }
       }
 
+      // Auto-create draft lab orders from SOAP plan.investigations
+      const investigations: string[] = (soapFinal as any)?.plan?.investigations ?? [];
+      let draftLabOrdersCount = 0;
+      if (investigations.length > 0) {
+        for (const testName of investigations) {
+          try {
+            // Check if a draft order for this test already exists for this patient/doctor
+            const existingOrder = await prisma.labOrder.findFirst({
+              where: {
+                patientId: session.patientId,
+                doctorId: session.doctorId,
+                notes: `[AI Scribe Draft] ${testName}`,
+                status: "ORDERED",
+              },
+            });
+            if (!existingOrder) {
+              const orderNumber = `SCRIBE-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+              await prisma.labOrder.create({
+                data: {
+                  orderNumber,
+                  patientId: session.patientId,
+                  doctorId: session.doctorId,
+                  status: "ORDERED",
+                  notes: `[AI Scribe Draft] ${testName}`,
+                  orderedAt: new Date(),
+                },
+              });
+              draftLabOrdersCount++;
+            }
+          } catch {
+            // Non-fatal — continue
+          }
+        }
+      }
+
+      // Auto-create draft referrals from SOAP plan.referrals
+      const referrals: string[] = (soapFinal as any)?.plan?.referrals ?? [];
+      let draftReferralsCount = 0;
+      if (referrals.length > 0) {
+        for (const referralText of referrals) {
+          try {
+            // Parse specialty from referral text, e.g. "Refer to Cardiologist" → "Cardiologist"
+            const specialty = referralText.replace(/refer\s+(to|for)\s+/i, "").trim();
+            const referralNumber = `SCRIBE-REF-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+            await prisma.referral.create({
+              data: {
+                referralNumber,
+                patientId: session.patientId,
+                fromDoctorId: session.doctorId,
+                specialty,
+                reason: `[AI Scribe Draft] ${referralText}`,
+                status: "PENDING",
+              },
+            });
+            draftReferralsCount++;
+          } catch {
+            // Non-fatal — continue
+          }
+        }
+      }
+
+      // Notify patient with a plain-language visit summary (non-fatal)
+      try {
+        const patientRecord = await prisma.patient.findUnique({
+          where: { id: session.patientId },
+          select: { userId: true },
+        });
+        if (patientRecord?.userId && soapFinal) {
+          const impression = (soapFinal as any)?.assessment?.impression || "your consultation";
+          const followUp = (soapFinal as any)?.plan?.followUpTimeline || "";
+          const instructions = (soapFinal as any)?.plan?.patientInstructions || "";
+          const summaryMsg = [
+            `Your consultation has been completed.`,
+            impression ? `Diagnosis: ${impression}.` : "",
+            followUp ? `Follow-up: ${followUp}.` : "",
+            instructions ? `Instructions: ${instructions}` : "",
+          ].filter(Boolean).join(" ");
+
+          await sendNotification({
+            userId: patientRecord.userId,
+            type: NotificationType.PRESCRIPTION_READY,
+            title: "Your Visit Summary is Ready",
+            message: summaryMsg,
+            data: { scribeSessionId: sessionId },
+          });
+        }
+      } catch (notifyErr) {
+        console.error("[AI Scribe] Patient notification failed (non-fatal):", notifyErr);
+      }
+
       await auditLog(req, "AI_SCRIBE_SIGNED_OFF", "AIScribeSession", sessionId, { rxApproved, editCount: doctorEdits?.length || 0 });
 
-      res.json({ success: true, data: { session: finalSession }, error: null });
+      res.json({
+        success: true,
+        data: {
+          session: finalSession,
+          draftLabOrders: draftLabOrdersCount,
+          draftReferrals: draftReferralsCount,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/ai/scribe/:sessionId/drafts — get draft lab orders and referrals for this session
+router.get(
+  "/:sessionId/drafts",
+  authorize(Role.DOCTOR, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { sessionId } = req.params;
+
+      const session = await prisma.aIScribeSession.findUnique({ where: { id: sessionId } });
+      if (!session) {
+        res.status(404).json({ success: false, data: null, error: "Session not found" });
+        return;
+      }
+
+      const [labOrders, referrals] = await Promise.all([
+        prisma.labOrder.findMany({
+          where: {
+            patientId: session.patientId,
+            doctorId: session.doctorId,
+            notes: { startsWith: "[AI Scribe Draft]" },
+          },
+        }),
+        prisma.referral.findMany({
+          where: {
+            patientId: session.patientId,
+            fromDoctorId: session.doctorId,
+            reason: { startsWith: "[AI Scribe Draft]" },
+          },
+        }),
+      ]);
+
+      res.json({ success: true, data: { labOrders, referrals }, error: null });
     } catch (err) {
       next(err);
     }
@@ -308,7 +463,7 @@ router.delete(
         data: {
           status: "CONSENT_WITHDRAWN",
           transcript: [] as any,
-          soapDraft: null,
+          soapDraft: undefined,
         },
       });
 

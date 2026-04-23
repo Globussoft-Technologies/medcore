@@ -22,3 +22,6 @@ test-results/
 diag_*.py
 run_*.py
 verify_cron*.py
+PRD.md
+MedCore_AI_Features_PRD.md
+AI_GAP_ANALYSIS.md

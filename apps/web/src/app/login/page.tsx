@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
@@ -60,12 +60,18 @@ function messageForAuthError(
   return fallback ?? t("login.error.generic");
 }
 
-// Force dynamic rendering — useSearchParams() cannot be statically prerendered
-// without a Suspense boundary, and the login page needs ?redirect=<path> from
-// the URL on first paint (Issue #33 session-expiry flow).
-export const dynamic = "force-dynamic";
-
+// Top-level wrapper: useSearchParams() must be inside a Suspense boundary
+// or prerender fails. Issue #33 requires reading ?redirect=<path> on first
+// paint, so we wrap the actual page body.
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen" />}>
+      <LoginPageInner />
+    </Suspense>
+  );
+}
+
+function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = safeRedirectTarget(searchParams.get("redirect"));

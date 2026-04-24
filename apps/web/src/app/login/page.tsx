@@ -60,6 +60,11 @@ function messageForAuthError(
   return fallback ?? t("login.error.generic");
 }
 
+// Force dynamic rendering — useSearchParams() cannot be statically prerendered
+// without a Suspense boundary, and the login page needs ?redirect=<path> from
+// the URL on first paint (Issue #33 session-expiry flow).
+export const dynamic = "force-dynamic";
+
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();

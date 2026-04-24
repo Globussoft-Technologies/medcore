@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 import {
   Activity,
   ArrowRight,
@@ -43,20 +44,22 @@ export default function NurseWorkstationPage() {
     if (!user || user.role !== "NURSE") return;
     (async () => {
       const today = new Date().toISOString().split("T")[0];
-      const [meds, rounds, erCases, checkedIn, assignedAdm] = await Promise.all([
+      // Fetch assigned admissions first so we can hydrate "My Recent Rounds"
+      // per admission (the nurse-rounds API requires admissionId — see
+      // GET /api/v1/nurse-rounds in apps/api/src/routes/nurse-rounds.ts).
+      // Issue #30: the previous `/nurse-rounds?mine=true` query returned 400.
+      const [meds, erCases, checkedIn, assignedAdm] = await Promise.all([
         safe<any>(`/medication/administrations/due?window=30`, { data: [] }),
-        safe<any>(`/nurse-rounds?mine=true&limit=10`, { data: [] }),
         safe<any>(`/emergency/cases/active`, { data: [] }),
         safe<any>(`/appointments?status=CHECKED_IN&date=${today}&limit=50`, {
           data: [],
         }),
-        safe<any>(`/admissions?status=ADMITTED&assignedToMe=true&limit=50`, {
+        safe<any>(`/admissions?status=ADMITTED&limit=50`, {
           data: [],
         }),
       ]);
 
       setMedsDue((meds.data || []).slice(0, 10));
-      setRecentRounds((rounds.data || []).slice(0, 5));
       setErTriage(
         (erCases.data || [])
           .filter(
@@ -65,7 +68,38 @@ export default function NurseWorkstationPage() {
           .slice(0, 5)
       );
       setVitalsToRecord((checkedIn.data || []).slice(0, 10));
-      setMyPatients((assignedAdm.data || []).slice(0, 10));
+      const admissions = (assignedAdm.data || []).slice(0, 10);
+      setMyPatients(admissions);
+
+      // Fetch rounds per currently-visible admission (top 5 only to keep
+      // request volume bounded). Each returns the per-admission round list;
+      // we flatten, sort by performedAt, and keep the most recent 5 entries.
+      const roundsByAdmission = await Promise.all(
+        admissions.slice(0, 5).map((a: any) =>
+          safe<any>(
+            `/nurse-rounds?admissionId=${encodeURIComponent(a.id)}`,
+            { data: [] }
+          ).then((r) =>
+            (r.data || []).map((round: any) => ({
+              ...round,
+              admission: a,
+            }))
+          )
+        )
+      );
+      const allRounds = roundsByAdmission.flat();
+      // Only show rounds this nurse performed (server-side filter would be
+      // nicer, but the endpoint only supports admissionId at the moment).
+      const mineOnly = allRounds.filter(
+        (r: any) => r.nurseId === user.id || r.nurse?.id === user.id
+      );
+      mineOnly.sort(
+        (a: any, b: any) =>
+          new Date(b.performedAt || b.createdAt).getTime() -
+          new Date(a.performedAt || a.createdAt).getTime()
+      );
+      setRecentRounds(mineOnly.slice(0, 5));
+
       setLoaded(true);
     })();
   }, [user]);
@@ -191,7 +225,9 @@ export default function NurseWorkstationPage() {
               {myPatients.map((a: any) => (
                 <Link
                   key={a.id}
-                  href={`/dashboard/ipd/${a.id}`}
+                  // Route to the admission detail page — the old `/ipd/:id`
+                  // target never existed and 404'd (GitHub issue #29).
+                  href={`/dashboard/admissions/${a.id}`}
                   className="flex items-center gap-3 rounded-lg border border-gray-100 p-2.5 hover:border-primary/40"
                 >
                   <div className="rounded-lg bg-indigo-100 p-1.5 text-indigo-700">
@@ -240,7 +276,7 @@ export default function NurseWorkstationPage() {
                     {a.patient?.user?.name || "—"}
                   </span>
                   <span className="text-[11px] text-gray-500">
-                    Dr. {a.doctor?.user?.name || "—"}
+                    {a.doctor?.user?.name ? formatDoctorName(a.doctor.user.name) : "—"}
                   </span>
                 </Link>
               ))}

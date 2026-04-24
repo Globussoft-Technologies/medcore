@@ -108,6 +108,23 @@ describeIfDB("Referrals API (integration)", () => {
     expect(res.status).toBe(400);
   });
 
+  // ─── Issue #10: empty reason rejected server-side ───────────────────
+  it("rejects empty reason (400, issue #10)", async () => {
+    const patient = await createPatientFixture();
+    const fromDoctor = await createDoctorFixture();
+    const toDoctor = await createDoctorFixture();
+    const res = await request(app)
+      .post("/api/v1/referrals")
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({
+        patientId: patient.id,
+        fromDoctorId: fromDoctor.id,
+        toDoctorId: toDoctor.id,
+        reason: "",
+      });
+    expect(res.status).toBe(400);
+  });
+
   it("inbox requires doctorId query param (400)", async () => {
     const res = await request(app)
       .get("/api/v1/referrals/inbox")

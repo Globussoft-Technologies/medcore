@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
@@ -202,7 +203,7 @@ export default function TokenDisplayPage() {
                         isActive ? "text-white" : "text-slate-400"
                       }`}
                     >
-                      Dr. {doc.doctorName}
+                      {formatDoctorName(doc.doctorName)}
                     </h2>
                     {doc.specialization && (
                       <p className="mt-1 text-sm text-slate-500">

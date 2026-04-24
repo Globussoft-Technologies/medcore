@@ -70,10 +70,28 @@ export default function ReportsPage() {
   const loadReport = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get<{ data: DailyReport }>(
+      // The API returns { byMode, payments, ... } — normalize to the shape
+      // this component expects. Also defensively default every collection so
+      // render never crashes on `.map`/`.length` / `Object.values`.
+      const res = await api.get<{ data: Record<string, unknown> }>(
         `/billing/reports/daily?date=${date}`
       );
-      setReport(res.data);
+      const raw = (res?.data ?? {}) as Record<string, unknown>;
+      const modeBreakdown =
+        (raw.paymentModeBreakdown as Record<string, number> | undefined) ??
+        (raw.byMode as Record<string, number> | undefined) ??
+        {};
+      const recents =
+        (raw.recentPayments as DailyReport["recentPayments"] | undefined) ??
+        (raw.payments as DailyReport["recentPayments"] | undefined) ??
+        [];
+      setReport({
+        totalCollection: Number(raw.totalCollection ?? 0),
+        transactionCount: Number(raw.transactionCount ?? 0),
+        pendingInvoices: Number(raw.pendingInvoices ?? 0),
+        paymentModeBreakdown: modeBreakdown ?? {},
+        recentPayments: Array.isArray(recents) ? recents : [],
+      });
     } catch {
       setReport({
         totalCollection: 0,
@@ -95,7 +113,7 @@ export default function ReportsPage() {
       const res = await api.get<{ data: ReportRun[] }>(
         `/analytics/report-runs?${qs.toString()}`
       );
-      setRuns(res.data || []);
+      setRuns(Array.isArray(res?.data) ? res.data : []);
     } catch {
       setRuns([]);
     }
@@ -112,9 +130,10 @@ export default function ReportsPage() {
 
   if (user && user.role !== "ADMIN" && user.role !== "RECEPTION") return null;
 
-  const maxModeAmount = report
-    ? Math.max(...Object.values(report.paymentModeBreakdown), 1)
-    : 1;
+  const modeBreakdown = report?.paymentModeBreakdown ?? {};
+  const modeValues = Object.values(modeBreakdown);
+  const maxModeAmount =
+    modeValues.length > 0 ? Math.max(...modeValues, 1) : 1;
 
   return (
     <div>
@@ -287,7 +306,7 @@ export default function ReportsPage() {
                 <div>
                   <p className="text-sm text-gray-500">Total Collection</p>
                   <p className="text-xl font-bold">
-                    Rs. {report.totalCollection.toFixed(2)}
+                    Rs. {Number(report.totalCollection ?? 0).toFixed(2)}
                   </p>
                 </div>
               </div>
@@ -340,30 +359,31 @@ export default function ReportsPage() {
           {/* Payment Mode Breakdown */}
           <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
             <h2 className="mb-4 font-semibold">Payment Mode Breakdown</h2>
-            {Object.keys(report.paymentModeBreakdown).length === 0 ? (
+            {Object.keys(modeBreakdown).length === 0 ? (
               <p className="text-sm text-gray-400">No payments recorded</p>
             ) : (
               <div className="space-y-3">
-                {Object.entries(report.paymentModeBreakdown).map(
-                  ([mode, amount]) => (
+                {Object.entries(modeBreakdown).map(([mode, amount]) => {
+                  const amt = Number(amount ?? 0);
+                  return (
                     <div key={mode}>
                       <div className="mb-1 flex items-center justify-between text-sm">
                         <span className="font-medium">{mode}</span>
                         <span className="text-gray-600">
-                          Rs. {amount.toFixed(2)}
+                          Rs. {amt.toFixed(2)}
                         </span>
                       </div>
                       <div className="h-3 w-full overflow-hidden rounded-full bg-gray-100">
                         <div
                           className={`h-full rounded-full transition-all ${MODE_COLORS[mode] || "bg-gray-400"}`}
                           style={{
-                            width: `${(amount / maxModeAmount) * 100}%`,
+                            width: `${(amt / maxModeAmount) * 100}%`,
                           }}
                         />
                       </div>
                     </div>
-                  )
-                )}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -373,7 +393,7 @@ export default function ReportsPage() {
             <div className="border-b px-6 py-4">
               <h2 className="font-semibold">Recent Payments</h2>
             </div>
-            {report.recentPayments.length === 0 ? (
+            {(report.recentPayments ?? []).length === 0 ? (
               <div className="p-8 text-center text-gray-400">
                 No payments for this date
               </div>
@@ -388,13 +408,15 @@ export default function ReportsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {report.recentPayments.map((p) => (
+                  {(report.recentPayments ?? []).map((p: any) => (
                     <tr key={p.id} className="border-b last:border-0">
                       <td className="px-4 py-3 font-medium">
-                        {p.patient?.user?.name || "---"}
+                        {p?.patient?.user?.name ||
+                          p?.invoice?.patient?.user?.name ||
+                          "---"}
                       </td>
                       <td className="px-4 py-3 text-sm font-medium">
-                        Rs. {p.amount.toFixed(2)}
+                        Rs. {Number(p?.amount ?? 0).toFixed(2)}
                       </td>
                       <td className="px-4 py-3">
                         <span

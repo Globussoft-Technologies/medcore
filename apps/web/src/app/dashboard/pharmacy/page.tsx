@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import { Plus, Package, Search } from "lucide-react";
 
 interface InventoryItem {
@@ -88,6 +89,7 @@ const MOVEMENT_COLORS: Record<string, string> = {
 
 export default function PharmacyPage() {
   const { user } = useAuthStore();
+  const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>("inventory");
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [movements, setMovements] = useState<Movement[]>([]);
@@ -154,7 +156,7 @@ export default function PharmacyPage() {
   }
 
   async function orderFromSupplier(itemId: string) {
-    if (!confirm("Create draft PO from best supplier for this medicine?")) return;
+    if (!(await confirm({ title: "Create draft PO from best supplier for this medicine?" }))) return;
     setOrderingId(itemId);
     try {
       const res = await api.post<{

@@ -44,14 +44,27 @@ router.post(
     try {
       const { language, inputMode, patientId, isForDependent, dependentRelationship, consentGiven, bookingFor, dependentPatientId } = req.body;
 
-      // Resolve patientId from JWT if patient role and not explicitly provided
+      // Resolve patientId from JWT if patient role and not explicitly provided.
+      // If the logged-in PATIENT user has no linked Patient row (e.g. their
+      // profile was never completed), return a clear 400 rather than letting
+      // the session proceed with a null patientId — the patient would hit a
+      // confusing failure at the /book step (issue #22).
       let resolvedPatientId = patientId;
       if (!resolvedPatientId && req.user?.role === Role.PATIENT) {
         const patient = await prisma.patient.findFirst({
           where: { userId: req.user.userId },
           select: { id: true },
         });
-        resolvedPatientId = patient?.id;
+        if (!patient) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error:
+              "Please complete your patient profile before using AI-assisted booking.",
+          });
+          return;
+        }
+        resolvedPatientId = patient.id;
       }
 
       const greeting =

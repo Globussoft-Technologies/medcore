@@ -172,4 +172,45 @@ describeIfDB("Leaves API (integration)", () => {
       .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(404);
   });
+
+  // Regression: issue #19 / #32 — the nurse-facing leave form previously
+  // accepted a reversed range (To earlier than From) and the backend
+  // silently persisted it. Now the Zod schema refines this and the
+  // error is keyed to the `toDate` field so the UI can render it inline.
+  it("rejects reversed date range with a toDate field-level error (issue #19)", async () => {
+    const today = new Date();
+    const tomorrow = new Date(Date.now() + 86_400_000);
+    const res = await request(app)
+      .post("/api/v1/leaves")
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        type: "CASUAL",
+        // Swapped: fromDate is LATER than toDate.
+        fromDate: tomorrow.toISOString().slice(0, 10),
+        toDate: today.toISOString().slice(0, 10),
+        reason: "Reversed range should fail",
+      });
+    expect(res.status).toBe(400);
+    expect(Array.isArray(res.body.details)).toBe(true);
+    const toDateIssue = res.body.details.find(
+      (d: { field: string }) => d.field === "toDate"
+    );
+    expect(toDateIssue).toBeTruthy();
+    expect(String(toDateIssue.message).toLowerCase()).toMatch(/on or after/);
+  });
+
+  it("accepts a single-day range (fromDate === toDate) as valid", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const res = await request(app)
+      .post("/api/v1/leaves")
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        type: "CASUAL",
+        fromDate: today,
+        toDate: today,
+        reason: "One-day leave",
+      });
+    expect([200, 201]).toContain(res.status);
+    expect(res.body.data?.totalDays).toBe(1);
+  });
 });

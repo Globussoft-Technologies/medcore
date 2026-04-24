@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
+import { formatPatientAge } from "@/lib/format";
 import { Search, Plus, Users } from "lucide-react";
 import { DataTable, Column } from "@/components/DataTable";
 
@@ -13,6 +15,7 @@ interface PatientRecord {
   mrNumber: string;
   gender: string;
   age: number | null;
+  dateOfBirth?: string | null;
   bloodGroup: string | null;
   user: { id: string; name: string; email: string; phone: string };
   // Flattened fields for sort/filter/CSV:
@@ -104,7 +107,7 @@ export default function PatientsPage() {
       });
       loadPatients();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to register patient");
+      toast.error(err instanceof Error ? err.message : "Failed to register patient");
     }
   }
 
@@ -139,7 +142,15 @@ export default function PatientsPage() {
       hideMobile: false,
       render: (p) => p.user?.phone,
     },
-    { key: "age", label: t("dashboard.patients.col.age"), sortable: true, hideMobile: true },
+    {
+      key: "age",
+      label: t("dashboard.patients.col.age"),
+      sortable: true,
+      hideMobile: true,
+      // Never render "0" for a legacy row with missing DOB — fall back to "—".
+      // Issue #13: pediatric infants (DOB < 1y) still correctly render "0".
+      render: (p) => formatPatientAge(p),
+    },
     { key: "gender", label: t("dashboard.patients.col.gender"), sortable: true, filterable: true, hideMobile: true },
     {
       key: "bloodGroup",

@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Wrench, Plus, Search, AlertTriangle } from "lucide-react";
 
@@ -71,6 +73,7 @@ type Tab = "all" | "assigned" | "idle" | "maintenance" | "warranty";
 
 export default function AssetsPage() {
   const { user } = useAuthStore();
+  const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>("all");
   const [assets, setAssets] = useState<Asset[]>([]);
   const [search, setSearch] = useState("");
@@ -124,13 +127,13 @@ export default function AssetsPage() {
   }
 
   async function returnAsset(id: string) {
-    if (!confirm("Return this asset?")) return;
+    if (!(await confirm({ title: "Return this asset?" }))) return;
     try {
       await api.post(`/assets/${id}/return`, {});
       load();
       setSelectedAsset(null);
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     }
   }
 
@@ -510,7 +513,7 @@ function AddAssetModal({
       });
       onSaved();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     } finally {
       setSaving(false);
     }
@@ -691,7 +694,7 @@ function AssignModal({
       });
       onSaved();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     } finally {
       setSaving(false);
     }
@@ -777,7 +780,7 @@ function MaintenanceModal({
       });
       onSaved();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     } finally {
       setSaving(false);
     }

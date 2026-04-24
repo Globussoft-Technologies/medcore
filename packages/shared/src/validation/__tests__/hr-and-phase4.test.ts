@@ -73,24 +73,74 @@ describe("createLeaveRequestSchema", () => {
 });
 
 describe("createTelemedicineSchema", () => {
+  const FUTURE = new Date(Date.now() + 3600_000).toISOString();
+  const PAST = new Date("2020-01-01T00:00:00Z").toISOString();
+
   it("accepts a valid telemedicine appointment", () => {
     expect(
       createTelemedicineSchema.safeParse({
         patientId: UUID,
         doctorId: UUID,
-        scheduledAt: new Date().toISOString(),
+        scheduledAt: FUTURE,
       }).success
     ).toBe(true);
   });
-  it("rejects negative fee", () => {
+  it("rejects negative fee (issue #18)", () => {
+    const r = createTelemedicineSchema.safeParse({
+      patientId: UUID,
+      doctorId: UUID,
+      scheduledAt: FUTURE,
+      fee: -10,
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.some((i) => i.path[0] === "fee")).toBe(true);
+    }
+  });
+  it("rejects negative fee -500 (issue #18)", () => {
     expect(
       createTelemedicineSchema.safeParse({
         patientId: UUID,
         doctorId: UUID,
-        scheduledAt: new Date().toISOString(),
-        fee: -10,
+        scheduledAt: FUTURE,
+        fee: -500,
       }).success
     ).toBe(false);
+  });
+  it("rejects past scheduledAt (issue #18)", () => {
+    const r = createTelemedicineSchema.safeParse({
+      patientId: UUID,
+      doctorId: UUID,
+      scheduledAt: PAST,
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(
+        r.error.issues.some(
+          (i) =>
+            i.path[0] === "scheduledAt" && /future/i.test(i.message)
+        )
+      ).toBe(true);
+    }
+  });
+  it("rejects malformed scheduledAt 'not-a-date'", () => {
+    expect(
+      createTelemedicineSchema.safeParse({
+        patientId: UUID,
+        doctorId: UUID,
+        scheduledAt: "not-a-date",
+      }).success
+    ).toBe(false);
+  });
+  it("accepts fee = 0", () => {
+    expect(
+      createTelemedicineSchema.safeParse({
+        patientId: UUID,
+        doctorId: UUID,
+        scheduledAt: FUTURE,
+        fee: 0,
+      }).success
+    ).toBe(true);
   });
 });
 

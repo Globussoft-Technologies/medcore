@@ -98,14 +98,34 @@ export default function AdmissionsPage() {
     user?.role === "RECEPTION" ||
     user?.role === "DOCTOR";
 
+  // Issue #16: pre-load bed availability so the "Admit Patient" button can be
+  // disabled with an explanatory tooltip when no beds are free, instead of
+  // opening a modal with an empty dropdown.
+  const availableBedCount = wards.reduce(
+    (sum, w) => sum + (w.beds || []).filter((b) => b.status === "AVAILABLE").length,
+    0
+  );
+  const hasBedCensus = wards.length > 0;
+  const bedsUnavailable = hasBedCensus && availableBedCount === 0;
+
   useEffect(() => {
     loadAdmissions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
+  // Always pre-fetch wards for the availability badge on the Admit button
+  // (Issue #16). Doctors/other roles still only fetch wards once per page load.
+  useEffect(() => {
+    if (canAdmit) {
+      loadWards();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canAdmit]);
+
   useEffect(() => {
     if (showModal) {
       loadDoctors();
+      // refresh wards each time the modal opens so bed status is up to date
       loadWards();
     }
   }, [showModal]);
@@ -307,10 +327,35 @@ export default function AdmissionsPage() {
         </div>
         {canAdmit && (
           <button
-            onClick={() => setShowModal(true)}
-            className="flex min-h-[44px] items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+            onClick={() => {
+              if (bedsUnavailable) {
+                toast.warning(
+                  "No beds available. Please free a bed first."
+                );
+                return;
+              }
+              setShowModal(true);
+            }}
+            disabled={bedsUnavailable}
+            title={
+              bedsUnavailable
+                ? "No beds available. Please free a bed first."
+                : undefined
+            }
+            aria-disabled={bedsUnavailable}
+            className={
+              "flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white " +
+              (bedsUnavailable
+                ? "cursor-not-allowed bg-gray-400"
+                : "bg-primary hover:bg-primary-dark")
+            }
           >
             <Plus size={16} /> Admit Patient
+            {bedsUnavailable && (
+              <span className="ml-1 rounded bg-white/20 px-1 text-xs">
+                no beds
+              </span>
+            )}
           </button>
         )}
       </div>
@@ -351,7 +396,20 @@ export default function AdmissionsPage() {
               : "Records will appear here when available.",
           action:
             canAdmit && tab === "admitted"
-              ? { label: "Admit Patient", onClick: () => setShowModal(true) }
+              ? {
+                  label: bedsUnavailable
+                    ? "No beds available"
+                    : "Admit Patient",
+                  onClick: () => {
+                    if (bedsUnavailable) {
+                      toast.warning(
+                        "No beds available. Please free a bed first."
+                      );
+                      return;
+                    }
+                    setShowModal(true);
+                  },
+                }
               : undefined,
         }}
       />
@@ -444,26 +502,41 @@ export default function AdmissionsPage() {
                 <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Available Bed
                 </label>
-                <select
-                  aria-label="Available Bed"
-                  required
-                  value={form.bedId}
-                  onChange={(e) => setForm({ ...form, bedId: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-                >
-                  <option value="">Select Bed</option>
-                  {wards.map((w) => (
-                    <optgroup key={w.id} label={w.name}>
-                      {(w.beds || [])
-                        .filter((b) => b.status === "AVAILABLE")
-                        .map((b) => (
-                          <option key={b.id} value={b.id}>
-                            {w.name} / Bed {b.bedNumber}
-                          </option>
-                        ))}
-                    </optgroup>
-                  ))}
-                </select>
+                {bedsUnavailable ? (
+                  // Issue #16: fallback empty-state inside the modal with a
+                  // link to the ward management page.
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200">
+                    No beds available. Free a bed from the{" "}
+                    <Link
+                      href="/dashboard/wards"
+                      className="font-medium underline hover:text-amber-900"
+                    >
+                      ward management page
+                    </Link>{" "}
+                    before admitting a patient.
+                  </div>
+                ) : (
+                  <select
+                    aria-label="Available Bed"
+                    required
+                    value={form.bedId}
+                    onChange={(e) => setForm({ ...form, bedId: e.target.value })}
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                  >
+                    <option value="">Select Bed</option>
+                    {wards.map((w) => (
+                      <optgroup key={w.id} label={w.name}>
+                        {(w.beds || [])
+                          .filter((b) => b.status === "AVAILABLE")
+                          .map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {w.name} / Bed {b.bedNumber}
+                            </option>
+                          ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                )}
               </div>
 
               <div>

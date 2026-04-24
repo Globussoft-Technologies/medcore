@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import {
   Users,
@@ -892,7 +893,7 @@ export default function AnalyticsPage() {
         a.remove();
         URL.revokeObjectURL(url);
       })
-      .catch(() => alert("Failed to export"));
+      .catch(() => toast.error("Failed to export"));
   }
 
   if (user && user.role !== "ADMIN" && user.role !== "RECEPTION") return null;

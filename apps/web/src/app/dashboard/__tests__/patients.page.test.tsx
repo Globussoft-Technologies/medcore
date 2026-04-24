@@ -141,4 +141,59 @@ describe("PatientsPage", () => {
       ).toBeInTheDocument()
     );
   });
+
+  it("renders '—' (NOT '0') in the age column for legacy rows with age=0 and no DOB", async () => {
+    // Issue #13 regression: a legacy patient row with age=0 AND dateOfBirth=null
+    // previously rendered "0" in the Age column. The fix routes the column
+    // through formatPatientAge() which returns the "—" placeholder in this case.
+    const legacyRow = {
+      id: "p-legacy",
+      mrNumber: "MR-LEGACY",
+      gender: "MALE",
+      age: 0,
+      dateOfBirth: null,
+      bloodGroup: null,
+      user: { id: "u-legacy", name: "Zero Age Person", email: "z@x.com", phone: "9000000099" },
+    };
+    apiMock.get.mockResolvedValue({ data: [legacyRow], meta: { total: 1 } });
+    render(<PatientsPage />);
+    await waitFor(() => {
+      // DataTable renders the row twice (desktop + mobile views), so use getAllByText.
+      expect(screen.getAllByText("Zero Age Person").length).toBeGreaterThan(0);
+    });
+    // Take the desktop <tr> containing the name and assert the age cell.
+    const desktopRow = screen.getAllByText("Zero Age Person")[0].closest("tr");
+    expect(desktopRow).toBeTruthy();
+    // Must show the placeholder, never a bare "0" in the age cell.
+    expect(desktopRow!.textContent).toMatch(/—/);
+    // MR-LEGACY + "—" + "MALE" — no literal digit "0" should appear in the row.
+    expect(desktopRow!.textContent).not.toMatch(/\b0\b/);
+  });
+
+  it("renders a real DOB-derived age when dateOfBirth is present", async () => {
+    // DOB wins over stored `age` when both are set — this verifies the helper
+    // is not falling through to the stale integer column.
+    const fiftyYearsAgo = new Date();
+    fiftyYearsAgo.setFullYear(fiftyYearsAgo.getFullYear() - 50);
+    const adult = {
+      id: "p-adult",
+      mrNumber: "MR-A",
+      gender: "FEMALE",
+      age: 99, // stale — DOB wins
+      dateOfBirth: fiftyYearsAgo.toISOString(),
+      bloodGroup: "O+",
+      user: { id: "u-a", name: "DOB Wins Person", email: "a@x.com", phone: "9000000010" },
+    };
+    apiMock.get.mockResolvedValue({ data: [adult], meta: { total: 1 } });
+    render(<PatientsPage />);
+    await waitFor(() => {
+      expect(screen.getAllByText("DOB Wins Person").length).toBeGreaterThan(0);
+    });
+    const desktopRow = screen.getAllByText("DOB Wins Person")[0].closest("tr");
+    expect(desktopRow).toBeTruthy();
+    // 50 should be rendered, not stale 99. (No \b because text concatenates
+    // with neighbouring phone digits in testing-library's textContent.)
+    expect(desktopRow!.textContent).toContain("50");
+    expect(desktopRow!.textContent).not.toContain("99");
+  });
 });

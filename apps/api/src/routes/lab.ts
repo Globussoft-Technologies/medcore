@@ -346,9 +346,12 @@ router.patch(
 );
 
 // POST /api/v1/lab/results — record a result
+// Only lab technicians and admins may enter results. Doctors/nurses used to be
+// allowed here, but that violates separation of duties (the ordering doctor
+// must not be the one entering the value they ordered). See GitHub issue #14.
 router.post(
   "/results",
-  authorize(Role.ADMIN, Role.DOCTOR, Role.LAB_TECH, Role.NURSE),
+  authorize(Role.LAB_TECH, Role.ADMIN),
   validate(recordLabResultSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -655,7 +658,8 @@ router.patch(
 
 router.post(
   "/results/batch",
-  authorize(Role.ADMIN, Role.DOCTOR, Role.LAB_TECH, Role.NURSE),
+  // Same RBAC as POST /results (see issue #14). Lab techs and admins only.
+  authorize(Role.LAB_TECH, Role.ADMIN),
   validate(batchResultSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {

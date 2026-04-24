@@ -442,4 +442,115 @@ describeIfDB("AI Adherence API (integration)", () => {
     expect(res.status).toBe(404);
     expect(res.body.error).toMatch(/not found/i);
   });
+
+  // ─── GET /mine (Issue #24) ────────────────────────────────────────────
+  //
+  // Patients should not need to know their own internal patientId. The /mine
+  // endpoint resolves the caller's Patient row from the JWT userId and
+  // returns its active schedules. Non-patient roles get 403.
+
+  it("GET /mine returns the patient's own active schedules", async () => {
+    const prisma = await getPrisma();
+    const jwt = (await import("jsonwebtoken")).default;
+
+    const patient = await createPatientFixture();
+    const { doctor, token: doctorToken } = await createDoctorWithToken();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    const prescription = await createPrescriptionFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      appointmentId: appt.id,
+    });
+
+    await request(app)
+      .post("/api/v1/ai/adherence/enroll")
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ prescriptionId: prescription.id });
+
+    const patientUser = await prisma.user.findUnique({
+      where: { id: patient.userId },
+    });
+    const patientToken = jwt.sign(
+      { userId: patientUser!.id, email: patientUser!.email, role: "PATIENT" },
+      process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
+      { expiresIn: "1h" }
+    );
+
+    const res = await request(app)
+      .get("/api/v1/ai/adherence/mine")
+      .set("Authorization", `Bearer ${patientToken}`);
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data.length).toBe(1);
+    expect(res.body.data[0].patientId).toBe(patient.id);
+    expect(res.body.data[0].active).toBe(true);
+  });
+
+  it("GET /mine returns an empty array when the patient has no schedules", async () => {
+    const prisma = await getPrisma();
+    const jwt = (await import("jsonwebtoken")).default;
+
+    const patient = await createPatientFixture();
+    const patientUser = await prisma.user.findUnique({
+      where: { id: patient.userId },
+    });
+    const patientToken = jwt.sign(
+      { userId: patientUser!.id, email: patientUser!.email, role: "PATIENT" },
+      process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
+      { expiresIn: "1h" }
+    );
+
+    const res = await request(app)
+      .get("/api/v1/ai/adherence/mine")
+      .set("Authorization", `Bearer ${patientToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual([]);
+  });
+
+  it("GET /mine rejects DOCTOR / ADMIN / NURSE / RECEPTION with 403", async () => {
+    const { token: doctorToken } = await createDoctorWithToken();
+
+    const res = await request(app)
+      .get("/api/v1/ai/adherence/mine")
+      .set("Authorization", `Bearer ${doctorToken}`);
+
+    expect(res.status).toBe(403);
+  });
+
+  it("GET /mine returns 404 when the authenticated user has no Patient row", async () => {
+    const jwt = (await import("jsonwebtoken")).default;
+    const prisma = await getPrisma();
+    // Craft a PATIENT-role user with no Patient record — pathological but
+    // possible (e.g. a self-registration that failed half-way).
+    const orphan = await prisma.user.create({
+      data: {
+        email: `orphan_${Date.now()}@test.local`,
+        name: "Orphan Patient",
+        phone: "9000000099",
+        passwordHash: "x",
+        role: "PATIENT",
+      },
+    });
+    const orphanToken = jwt.sign(
+      { userId: orphan.id, email: orphan.email, role: "PATIENT" },
+      process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
+      { expiresIn: "1h" }
+    );
+
+    const res = await request(app)
+      .get("/api/v1/ai/adherence/mine")
+      .set("Authorization", `Bearer ${orphanToken}`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /mine requires authentication", async () => {
+    const res = await request(app).get("/api/v1/ai/adherence/mine");
+    expect(res.status).toBe(401);
+  });
 });

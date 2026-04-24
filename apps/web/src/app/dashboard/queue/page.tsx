@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { usePrompt } from "@/lib/use-dialog";
 import { getSocket } from "@/lib/socket";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
@@ -43,6 +45,7 @@ interface DoctorQueue {
 export default function QueuePage() {
   const user = useAuthStore((s) => s.user);
   const { t } = useTranslation();
+  const promptUser = usePrompt();
   const canTransfer = user?.role === "ADMIN" || user?.role === "RECEPTION";
   const [display, setDisplay] = useState<QueueDoctor[]>([]);
   const [selectedDoctor, setSelectedDoctor] = useState<string | null>(null);
@@ -59,7 +62,7 @@ export default function QueuePage() {
 
   async function handleTransfer() {
     if (!transferTarget || !transferDoctorId || !transferReason.trim()) {
-      alert("Please select a doctor and enter a reason.");
+      toast.error("Please select a doctor and enter a reason.");
       return;
     }
     setTransferring(true);
@@ -74,7 +77,7 @@ export default function QueuePage() {
       loadDisplay();
       if (selectedDoctor) loadDoctorQueue(selectedDoctor);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Transfer failed");
+      toast.error(err instanceof Error ? err.message : "Transfer failed");
     }
     setTransferring(false);
   }
@@ -267,9 +270,12 @@ export default function QueuePage() {
                           </button>
                           <button
                             onClick={async () => {
-                              const reason = prompt(
-                                "LWBS reason (e.g., Long wait, Emergency, Patient left):"
-                              );
+                              const reason = await promptUser({
+                                title: "Left Without Being Seen",
+                                label: "LWBS reason",
+                                placeholder: "e.g., Long wait, Emergency, Patient left",
+                                required: true,
+                              });
                               if (!reason) return;
                               try {
                                 await api.patch(
@@ -279,10 +285,7 @@ export default function QueuePage() {
                                 loadDisplay();
                                 if (selectedDoctor) loadDoctorQueue(selectedDoctor);
                               } catch (err) {
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                // Keep native alert as this is inside a prompt workflow
-                                // eslint-disable-next-line no-alert
-                                alert(
+                                toast.error(
                                   err instanceof Error ? err.message : "Failed"
                                 );
                               }

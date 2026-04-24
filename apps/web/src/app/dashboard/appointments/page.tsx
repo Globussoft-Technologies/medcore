@@ -5,6 +5,8 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 import { SkeletonTable } from "@/components/Skeleton";
 import { EmptyState } from "@/components/EmptyState";
 import { Calendar } from "lucide-react";
@@ -242,6 +244,7 @@ function HBarChart({
 export default function AppointmentsPage() {
   const { user } = useAuthStore();
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const isPatient = user?.role === "PATIENT";
 
   // View toggle
@@ -273,6 +276,14 @@ export default function AppointmentsPage() {
   const [isRecurring, setIsRecurring] = useState(false);
   const [recFrequency, setRecFrequency] = useState<"DAILY" | "WEEKLY" | "MONTHLY">("WEEKLY");
   const [recOccurrences, setRecOccurrences] = useState(4);
+
+  // Patient-ID prompt modal (replaces window.prompt so it's testable)
+  const [patientIdPrompt, setPatientIdPrompt] = useState<{
+    open: boolean;
+    slotStartTime: string;
+  }>({ open: false, slotStartTime: "" });
+  const [patientIdInput, setPatientIdInput] = useState("");
+  const [bookingInFlight, setBookingInFlight] = useState(false);
 
   // Reschedule modal
   const [reschedTarget, setReschedTarget] = useState<Appointment | null>(null);
@@ -388,9 +399,22 @@ export default function AppointmentsPage() {
     if (view === "stats") loadStats();
   }, [view, loadStats]);
 
+  // Auto-open the booking form when the dashboard quick-action links here
+  // with ?book=1 (issue #7). Only receptionists/admins can book so don't
+  // force the modal for patients — they use /dashboard/ai-booking.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (isPatient) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("book") === "1") {
+      setShowBooking(true);
+      setView("list");
+    }
+  }, [isPatient]);
+
   // ─── Actions ──────────────────────
 
-  async function bookAppointment(slotStartTime: string) {
+  function bookAppointment(slotStartTime: string) {
     // Validate slot is not in the past
     try {
       const slotDate = new Date(`${selectedDate}T${slotStartTime}`);
@@ -405,12 +429,20 @@ export default function AppointmentsPage() {
       toast.error("Please select a doctor first");
       return;
     }
-    const patientId = prompt("Enter Patient ID:");
-    if (!patientId || !patientId.trim()) {
+    // Open in-page modal (replaces window.prompt so it's testable by
+    // browser automation that cannot interact with native dialogs).
+    setPatientIdInput("");
+    setPatientIdPrompt({ open: true, slotStartTime });
+  }
+
+  async function confirmPatientIdAndBook() {
+    const patientId = patientIdInput.trim();
+    if (!patientId) {
       toast.error("Patient ID is required to book an appointment");
       return;
     }
-
+    const slotStartTime = patientIdPrompt.slotStartTime;
+    setBookingInFlight(true);
     try {
       if (isRecurring) {
         await api.post("/appointments/recurring", {
@@ -431,11 +463,15 @@ export default function AppointmentsPage() {
         });
         toast.success("Appointment booked!");
       }
+      setPatientIdPrompt({ open: false, slotStartTime: "" });
+      setPatientIdInput("");
       setShowBooking(false);
       setIsRecurring(false);
       loadAppointments();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Booking failed");
+    } finally {
+      setBookingInFlight(false);
     }
   }
 
@@ -592,11 +628,12 @@ export default function AppointmentsPage() {
       }
       const s = res.data.slot;
       if (
-        !confirm(
-          `Next available: Dr. ${s.doctorName}${
+        !(await confirm({
+          title: "Proceed to book?",
+          message: `Next available: ${formatDoctorName(s.doctorName)}${
             s.specialization ? ` (${s.specialization})` : ""
-          } on ${s.date} at ${s.startTime}. Proceed to book?`
-        )
+          } on ${s.date} at ${s.startTime}.`,
+        }))
       )
         return;
       // Pre-fill the booking form
@@ -795,6 +832,72 @@ export default function AppointmentsPage() {
         </div>
       )}
 
+      {/* Patient-ID prompt modal — replaces window.prompt() so it's
+          reachable by Playwright / browser automation / the Claude
+          cloud browser, none of which can interact with native dialogs. */}
+      {patientIdPrompt.open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="patient-id-prompt-title"
+          data-testid="patient-id-prompt"
+        >
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h3
+              id="patient-id-prompt-title"
+              className="text-lg font-semibold text-gray-800"
+            >
+              Enter Patient ID
+            </h3>
+            <p className="mt-1 text-sm text-gray-500">
+              Paste the Patient ID (MRN or UUID) for this booking.
+            </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void confirmPatientIdAndBook();
+              }}
+              className="mt-4 space-y-4"
+            >
+              <input
+                autoFocus
+                type="text"
+                value={patientIdInput}
+                onChange={(e) => setPatientIdInput(e.target.value)}
+                placeholder="e.g. MR-2026-00123"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                data-testid="patient-id-prompt-input"
+                aria-label="Patient ID"
+                disabled={bookingInFlight}
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPatientIdPrompt({ open: false, slotStartTime: "" });
+                    setPatientIdInput("");
+                  }}
+                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  data-testid="patient-id-prompt-cancel"
+                  disabled={bookingInFlight}
+                >
+                  {t("common.cancel")}
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                  data-testid="patient-id-prompt-confirm"
+                  disabled={bookingInFlight || !patientIdInput.trim()}
+                >
+                  {bookingInFlight ? "Booking…" : "Book"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Reschedule modal */}
       {reschedTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -875,7 +978,7 @@ export default function AppointmentsPage() {
                   Token #{selectedEvent.tokenNumber}
                 </h3>
                 <p className="text-sm text-gray-500">
-                  {selectedEvent.patientName} → Dr. {selectedEvent.doctorName}
+                  {selectedEvent.patientName} → {formatDoctorName(selectedEvent.doctorName)}
                 </p>
               </div>
               <button
@@ -1571,7 +1674,7 @@ export default function AppointmentsPage() {
                               <button
                                 key={ev.id}
                                 onClick={() => setSelectedEvent(ev)}
-                                aria-label={`Token ${ev.tokenNumber}: ${ev.patientName} with Dr. ${ev.doctorName} at ${ev.startDateTime.slice(11, 16)} — status ${ev.status.replace(/_/g, " ")}. Open details.`}
+                                aria-label={`Token ${ev.tokenNumber}: ${ev.patientName} with ${formatDoctorName(ev.doctorName)} at ${ev.startDateTime.slice(11, 16)} — status ${ev.status.replace(/_/g, " ")}. Open details.`}
                                 className={`absolute left-1 right-1 overflow-hidden rounded border px-1.5 py-0.5 text-left text-[10px] font-medium text-white shadow-sm ${
                                   STATUS_BLOCK_COLORS[ev.status] ||
                                   "bg-gray-400 border-gray-500"
@@ -1587,7 +1690,7 @@ export default function AppointmentsPage() {
                                   #{ev.tokenNumber} {ev.patientName}
                                 </div>
                                 <div className="truncate opacity-90">
-                                  {ev.startDateTime.slice(11, 16)} · Dr. {ev.doctorName}
+                                  {ev.startDateTime.slice(11, 16)} · {formatDoctorName(ev.doctorName)}
                                 </div>
                               </button>
                             );
@@ -1826,7 +1929,7 @@ function WaitlistModal({
           >
             {doctors.map((d) => (
               <option key={d.id} value={d.id}>
-                Dr. {d.user.name} — {d.specialization}
+                {formatDoctorName(d.user.name)} — {d.specialization}
               </option>
             ))}
           </select>
@@ -2156,7 +2259,7 @@ function GroupAppointmentModal({
           >
             {doctors.map((d) => (
               <option key={d.id} value={d.id}>
-                Dr. {d.user.name} — {d.specialization}
+                {formatDoctorName(d.user.name)} — {d.specialization}
               </option>
             ))}
           </select>
@@ -2292,7 +2395,7 @@ function CoordinatedVisitModal({
                     checked={selectedDocs.includes(d.id)}
                     onChange={() => toggleDoc(d.id)}
                   />
-                  Dr. {d.user.name} — {d.specialization}
+                  {formatDoctorName(d.user.name)} — {d.specialization}
                 </label>
               ))}
             </div>

@@ -219,6 +219,12 @@ router.get(
       let totalWaitMs = 0;
       let waitedSamples = 0;
       const now = Date.now();
+      // Bug #5 fix: cap any single sample at 24h so stale rows that never got
+      // closed (e.g. patient admitted 9 days ago, still WAITING) don't push
+      // the average into the thousands of minutes. Cases older than 24h are
+      // considered outliers / data-quality issues and are excluded from the
+      // "current wait" signal entirely.
+      const MAX_WAIT_MS = 24 * 60 * 60 * 1000;
 
       for (const c of active) {
         if (c.triageLevel) byTriage[c.triageLevel]++;
@@ -226,8 +232,13 @@ router.get(
 
         if (c.status === "WAITING" || c.status === "TRIAGED") {
           waitingCount++;
-          totalWaitMs += now - new Date(c.arrivedAt).getTime();
-          waitedSamples++;
+          const waitMs = now - new Date(c.arrivedAt).getTime();
+          // Only sample cases waiting < 24h — longer is stale data, not a
+          // real live wait-time datapoint.
+          if (waitMs >= 0 && waitMs <= MAX_WAIT_MS) {
+            totalWaitMs += waitMs;
+            waitedSamples++;
+          }
         }
       }
 

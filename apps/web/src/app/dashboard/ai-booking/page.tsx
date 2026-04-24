@@ -152,16 +152,17 @@ export default function AIBookingPage() {
       if (bookingFor !== "SELF" && dependentPatientId.trim()) {
         body.dependentPatientId = dependentPatientId.trim();
       }
-      const res = await api.post<any>(
+      const res = await api.post<{ data: { sessionId: string; message: string } }>(
         "/ai/triage/start",
         body,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      const { sessionId: sid, message } = res.data.data;
+      const { sessionId: sid, message } = res.data;
       setSessionId(sid);
       setMessages([{ role: "assistant", content: message, timestamp: new Date().toISOString() }]);
-    } catch {
-      toast.error("Failed to start AI assistant");
+    } catch (err: any) {
+      const msg = err?.payload?.error || err?.message || "Failed to start AI assistant";
+      toast.error(msg);
     } finally {
       setStarting(false);
     }
@@ -210,10 +211,11 @@ export default function AIBookingPage() {
   const fetchDoctorSuggestions = async () => {
     if (!sessionId) return;
     try {
-      const res = await api.get<any>(`/ai/triage/${sessionId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setDoctorSuggestions(res.data.data.doctorSuggestions || []);
+      const res = await api.get<{ data: { doctorSuggestions?: DoctorSuggestion[] } }>(
+        `/ai/triage/${sessionId}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setDoctorSuggestions(res.data.doctorSuggestions || []);
     } catch {
       toast.error("Failed to fetch doctor suggestions");
     }
@@ -245,7 +247,7 @@ export default function AIBookingPage() {
         { message: rawText },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      const data = res.data.data;
+      const data = res.data;
 
       if (data.isEmergency) {
         setIsEmergency(true);
@@ -267,14 +269,14 @@ export default function AIBookingPage() {
           const sessionRes = await api.get<any>(`/ai/triage/${sessionId}`, {
             headers: { Authorization: `Bearer ${token}` },
           });
-          const symptoms = sessionRes.data.data.session?.symptoms;
+          const symptoms = sessionRes.data.session?.symptoms;
           setSummaryFields({
             chiefComplaint: symptoms?.chiefComplaint || symptoms?.chief_complaint || "",
             onset: symptoms?.onset || "",
             duration: symptoms?.duration || "",
             severity: typeof symptoms?.severity === "number" ? symptoms.severity : undefined,
           });
-          setDoctorSuggestions(sessionRes.data.data.doctorSuggestions || []);
+          setDoctorSuggestions(sessionRes.data.doctorSuggestions || []);
         } catch {
           // Fallback: just show empty summary
           setSummaryFields({ chiefComplaint: "" });
@@ -299,7 +301,7 @@ export default function AIBookingPage() {
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      const { receptionist } = res.data.data;
+      const { receptionist } = res.data;
       setHandedOff(true);
       toast.success(`Connecting you with ${receptionist.name}...`);
       setMessages((prev) => [
@@ -319,10 +321,11 @@ export default function AIBookingPage() {
 
   const fetchSlots = async (doctorId: string, date: string) => {
     try {
-      const res = await api.get<any>(`/doctors/${doctorId}/slots?date=${date}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setSlots(res.data.data.slots || []);
+      const res = await api.get<{ data: { slots?: Slot[] } }>(
+        `/doctors/${doctorId}/slots?date=${date}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setSlots(res.data.slots || []);
     } catch {
       toast.error("Failed to fetch slots");
     }
@@ -349,13 +352,20 @@ export default function AIBookingPage() {
     if (!sessionId || !selectedDoctor || !selectedSlot || !selectedDate) return;
     setLoading(true);
     try {
-      const patient = await api.get<any>("/patients?limit=1", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const patientId = patient.data.data.patients?.[0]?.id;
-      if (!patientId) { toast.error("Patient record not found"); return; }
+      // Resolve the logged-in user's patient record via /auth/me. The /patients
+      // list endpoint is RBAC-restricted to ADMIN/DOCTOR/RECEPTION/NURSE so the
+      // old lookup always 403'd for PATIENT role (issue #22).
+      const me = await api.get<{ data: { role: string; patient?: { id: string } | null } }>(
+        "/auth/me",
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const patientId = me.data?.patient?.id;
+      if (!patientId) {
+        toast.error("Please complete your patient profile before booking");
+        return;
+      }
 
-      const res = await api.post<any>(
+      const res = await api.post<{ data: { appointment: any } }>(
         `/ai/triage/${sessionId}/book`,
         {
           doctorId: selectedDoctor.doctorId,
@@ -366,12 +376,13 @@ export default function AIBookingPage() {
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setBookedAppointment(res.data.data.appointment);
+      setBookedAppointment(res.data.appointment);
       setBookingDone(true);
       setStep("done");
       toast.success("Appointment booked successfully!");
     } catch (err: any) {
-      toast.error(err?.response?.data?.error || "Booking failed");
+      const msg = err?.payload?.error || err?.message || "Booking failed";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }

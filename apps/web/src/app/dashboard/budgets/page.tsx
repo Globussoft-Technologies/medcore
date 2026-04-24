@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TrendingUp, TrendingDown, Plus } from "lucide-react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 
 interface BudgetRow {
@@ -96,7 +97,7 @@ export default function BudgetsPage() {
       setFormNotes("");
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
   }
 

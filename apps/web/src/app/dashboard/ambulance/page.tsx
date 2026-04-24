@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import {
   Ambulance as AmbulanceIcon,
@@ -69,6 +71,7 @@ type Tab = "active" | "all";
 
 export default function AmbulancePage() {
   const { user } = useAuthStore();
+  const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>("active");
   const [ambulances, setAmbulances] = useState<Ambulance[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
@@ -109,7 +112,7 @@ export default function AmbulancePage() {
       await api.patch(`/ambulance/trips/${trip.id}/${action}`, body);
       load();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     }
   }
 
@@ -310,8 +313,8 @@ export default function AmbulancePage() {
                       </button>
                     )}
                     <button
-                      onClick={() => {
-                        if (confirm("Cancel this trip?")) tripAction(t, "cancel");
+                      onClick={async () => {
+                        if (await confirm({ title: "Cancel this trip?", danger: true })) tripAction(t, "cancel");
                       }}
                       className="flex items-center gap-1 rounded bg-gray-600 px-3 py-1 text-xs text-white"
                     >
@@ -438,7 +441,7 @@ function AddAmbulanceModal({
       });
       onSaved();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     } finally {
       setSaving(false);
     }
@@ -557,7 +560,7 @@ function DispatchModal({
 
   async function save() {
     if (!form.ambulanceId) {
-      alert("Select an ambulance");
+      toast.error("Select an ambulance");
       return;
     }
     setSaving(true);
@@ -573,7 +576,7 @@ function DispatchModal({
       });
       onSaved();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     } finally {
       setSaving(false);
     }

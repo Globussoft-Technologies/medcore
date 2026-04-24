@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import { ShoppingCart, Plus, X, Trash2 } from "lucide-react";
 
 interface Supplier {
@@ -43,6 +45,7 @@ const TABS = ["DRAFT", "PENDING", "APPROVED", "RECEIVED", "ALL"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function PurchaseOrdersPage() {
+  const confirm = useConfirm();
   const [orders, setOrders] = useState<PORecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("ALL");
@@ -65,18 +68,24 @@ export default function PurchaseOrdersPage() {
   }
 
   async function actOn(id: string, action: "submit" | "approve" | "receive" | "cancel") {
-    const confirmMsg = {
+    const titles: Record<string, string> = {
       submit: "Submit this PO for approval?",
       approve: "Approve this PO?",
-      receive: "Mark as received? This will update inventory.",
+      receive: "Mark as received?",
       cancel: "Cancel this PO?",
-    }[action];
-    if (!confirm(confirmMsg)) return;
+    };
+    const messages: Record<string, string | undefined> = {
+      submit: undefined,
+      approve: undefined,
+      receive: "This will update inventory.",
+      cancel: undefined,
+    };
+    if (!(await confirm({ title: titles[action], message: messages[action], danger: action === "cancel" }))) return;
     try {
       await api.post(`/purchase-orders/${id}/${action}`, {});
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Action failed");
+      toast.error(err instanceof Error ? err.message : "Action failed");
     }
   }
 

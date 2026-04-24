@@ -137,4 +137,45 @@ describe("AdmissionsPage", () => {
       ).toBeInTheDocument()
     );
   });
+
+  // ─── Issue #16: disable "Admit Patient" when no beds available ─────
+  it("disables Admit Patient button when no beds are available", async () => {
+    const occupiedWard = {
+      id: "w1",
+      name: "General",
+      beds: [
+        { id: "b1", bedNumber: "B-101", status: "OCCUPIED", ward: { id: "w1", name: "General" } },
+      ],
+    };
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/wards")) return Promise.resolve({ data: [occupiedWard] });
+      return Promise.resolve({ data: [] });
+    });
+    render(<AdmissionsPage />);
+    await waitFor(() => {
+      const btn = screen.getByRole("button", { name: /admit patient/i });
+      expect(btn).toBeDisabled();
+    });
+    const btn = screen.getByRole("button", { name: /admit patient/i });
+    expect(btn.getAttribute("title")).toMatch(/no beds available/i);
+  });
+
+  it("keeps Admit Patient enabled when at least one bed is available", async () => {
+    const openWard = {
+      id: "w1",
+      name: "General",
+      beds: [
+        { id: "b1", bedNumber: "B-101", status: "AVAILABLE", ward: { id: "w1", name: "General" } },
+      ],
+    };
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/wards")) return Promise.resolve({ data: [openWard] });
+      return Promise.resolve({ data: [] });
+    });
+    render(<AdmissionsPage />);
+    await waitFor(() => {
+      const btn = screen.getByRole("button", { name: /admit patient/i });
+      expect(btn).not.toBeDisabled();
+    });
+  });
 });

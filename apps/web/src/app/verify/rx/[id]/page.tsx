@@ -5,6 +5,7 @@
 // future SSR-friendly i18n refactor.
 
 import { CheckCircle2, ShieldAlert, Printer } from "lucide-react";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -195,7 +196,7 @@ export default async function VerifyPrescriptionPage({
               Verified Prescription
             </h2>
             <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-              Issued by Dr. {data.doctorName} on {data.dateIssued}
+              Issued by {formatDoctorName(data.doctorName)} on {data.dateIssued}
             </p>
             <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-green-600 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-white shadow-sm">
               <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -229,7 +230,7 @@ export default async function VerifyPrescriptionPage({
               Doctor
             </dt>
             <dd className="text-gray-900 dark:text-gray-100">
-              Dr. {data.doctorName}
+              {formatDoctorName(data.doctorName)}
             </dd>
 
             <dt className="font-medium text-gray-500 dark:text-gray-400">

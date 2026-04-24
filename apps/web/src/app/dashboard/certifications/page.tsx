@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { Award, Plus, AlertTriangle, X } from "lucide-react";
 
 interface Cert {
@@ -123,7 +124,7 @@ export default function CertificationsPage() {
       });
       load();
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
   };
 

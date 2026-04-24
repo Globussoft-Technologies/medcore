@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 import { toast } from "@/lib/toast";
 import { Calendar, CheckCircle, Clock, Loader2, RefreshCw, User } from "lucide-react";
 
@@ -133,7 +134,7 @@ export default function AIFollowupPage() {
                       </span>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
-                      Consultation {c.id.slice(0, 8)} — Dr. {c.doctor?.user?.name ?? "—"}
+                      Consultation {c.id.slice(0, 8)} — {c.doctor?.user?.name ? formatDoctorName(c.doctor.user.name) : "—"}
                     </p>
                   </div>
 

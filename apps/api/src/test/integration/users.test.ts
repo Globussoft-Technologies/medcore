@@ -128,4 +128,54 @@ describeIfDB("Users API (integration)", () => {
     expect(user).toBeTruthy();
     expect(user?.role).toBe("RECEPTION");
   });
+
+  // ─── Issue #4 regression: GET /users returns flat staff rows ──────────
+  //
+  // The dashboard /users page reads `u.name`, `u.email`, `u.createdAt`
+  // directly. Before the fix, no /users endpoint existed — the UI fell
+  // through to /doctors which returns `{ user: { name, email } }` (nested),
+  // so every cell was undefined and the table looked empty.
+  it("GET /users returns flat staff list with name, email, createdAt", async () => {
+    const res = await request(app)
+      .get("/api/v1/users")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data.length).toBeGreaterThan(0);
+
+    // Every returned row MUST have non-empty name, email, and a valid
+    // createdAt — these are the three cells that were blank in Issue #4.
+    for (const u of res.body.data) {
+      expect(typeof u.name).toBe("string");
+      expect(u.name.length).toBeGreaterThan(0);
+      expect(typeof u.email).toBe("string");
+      expect(u.email.length).toBeGreaterThan(0);
+      expect(u.createdAt).toBeTruthy();
+      expect(Number.isNaN(new Date(u.createdAt).getTime())).toBe(false);
+      // Role must be one of the staff roles we filter in the query.
+      expect(["ADMIN", "DOCTOR", "NURSE", "RECEPTION"]).toContain(u.role);
+    }
+
+    // Seeded admin must be present.
+    const admin = res.body.data.find((u: any) => u.role === "ADMIN");
+    expect(admin).toBeTruthy();
+    expect(admin.name).toBeTruthy();
+    expect(admin.email).toBeTruthy();
+  });
+
+  it("GET /users rejects non-admin (403)", async () => {
+    const res = await request(app)
+      .get("/api/v1/users")
+      .set("Authorization", `Bearer ${patientToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("GET /users excludes PATIENT role rows", async () => {
+    const res = await request(app)
+      .get("/api/v1/users")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    const roles = new Set(res.body.data.map((u: any) => u.role));
+    expect(roles.has("PATIENT")).toBe(false);
+  });
 });

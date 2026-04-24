@@ -98,4 +98,33 @@ describe("ReferralsPage", () => {
       expect(urls.some((u) => u.includes("/doctors"))).toBe(true);
     });
   });
+
+  // ─── Issue #10: missing Reason should surface client-side ─────────
+  it("rejects submit when Reason is empty (issue #10)", async () => {
+    apiMock.get.mockResolvedValue({ data: [] });
+    const user = userEvent.setup();
+    render(<ReferralsPage />);
+    await waitFor(() =>
+      screen.getByRole("button", { name: /new referral/i })
+    );
+    await user.click(screen.getByRole("button", { name: /new referral/i }));
+
+    // Click "Create Referral" without filling anything — API must not be
+    // called and the Reason field error should appear inline.
+    const createBtn = await screen.findByRole("button", {
+      name: /^create referral$/i,
+    });
+    await user.click(createBtn);
+
+    await waitFor(() => {
+      expect(apiMock.post).not.toHaveBeenCalledWith(
+        "/referrals",
+        expect.anything()
+      );
+    });
+    // The error text should exist somewhere — may be "Select a patient" or
+    // the Zod "Reason is required" message. At least one should match.
+    const errors = screen.queryAllByText(/reason is required|select a patient/i);
+    expect(errors.length).toBeGreaterThan(0);
+  });
 });

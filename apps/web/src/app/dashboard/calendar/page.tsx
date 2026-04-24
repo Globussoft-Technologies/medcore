@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -92,7 +93,7 @@ export default function UnifiedCalendarPage() {
           date: fmtYmd(d),
           time: a.slotStart || undefined,
           title: a.patient?.user?.name || "Patient",
-          subtitle: `${a.type} · Dr. ${a.doctor?.user?.name || "—"}`,
+          subtitle: `${a.type} · ${a.doctor?.user?.name ? formatDoctorName(a.doctor.user.name) : "—"}`,
           type: "appointment",
           href: `/dashboard/appointments?id=${a.id}`,
           color: "bg-blue-500",
@@ -120,7 +121,7 @@ export default function UnifiedCalendarPage() {
           date: fmtYmd(d),
           time: d.toISOString().substring(11, 16),
           title: `Telemedicine · ${t.patient?.user?.name || ""}`,
-          subtitle: `Dr. ${t.doctor?.user?.name || "—"}`,
+          subtitle: `${t.doctor?.user?.name ? formatDoctorName(t.doctor.user.name) : "—"}`,
           type: "telemedicine",
           href: `/dashboard/telemedicine?id=${t.id}`,
           color: "bg-purple-500",

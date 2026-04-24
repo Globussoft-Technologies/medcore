@@ -47,30 +47,76 @@ export default function AdherencePage() {
   const [enrolling, setEnrolling] = useState(false);
   const [enrollError, setEnrollError] = useState<string | null>(null);
 
-  // Resolve patientId — the auth store exposes `user.id` which is userId;
-  // the API GET route accepts patientId so we call /patients?userId=... first.
+  // Issue #24: patients must not be asked to look up their own patientId.
+  // For PATIENT role we call the new /ai/adherence/mine endpoint which
+  // resolves the patientId server-side from the authed user. For staff
+  // roles (who were never the cause of the bug but still need this page
+  // during triage) we keep the /patients?userId= lookup since staff are
+  // authorized to hit that endpoint.
   const [patientId, setPatientId] = useState<string | null>(null);
+  // `hasPatientProfile` is the single source of truth for the "profile
+  // missing" empty state. For PATIENT: true once /mine returned 200, false
+  // if /mine returned 404, null while still loading. For staff: true once
+  // /patients?userId lookup returned a row, false if it returned empty.
+  const [hasPatientProfile, setHasPatientProfile] =
+    useState<boolean | null>(null);
+
+  const isPatient = user?.role === "PATIENT";
 
   useEffect(() => {
     if (!user) return;
-    // Fetch this user's patient record
+    if (isPatient) {
+      loadSchedulesMine();
+      return;
+    }
+    // Staff (ADMIN/DOCTOR/NURSE/RECEPTION) path — unchanged.
     api
       .get<{ data: { id: string }[] }>(`/patients?userId=${user.id}&limit=1`)
       .then((res) => {
         const pid = res.data?.[0]?.id ?? null;
         setPatientId(pid);
+        setHasPatientProfile(!!pid);
       })
       .catch(() => {
-        // If not a patient role, patientId stays null; page still shows enroll form
+        setHasPatientProfile(false);
       });
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, isPatient]);
 
   useEffect(() => {
+    if (isPatient) return; // /mine path already handled above
     if (!patientId) return;
-    loadSchedules(patientId);
+    loadSchedulesById(patientId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId]);
 
-  async function loadSchedules(pid: string) {
+  async function loadSchedulesMine() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await api.get<{
+        data: AdherenceSchedule[];
+      }>(`/ai/adherence/mine`);
+      const list = res.data ?? [];
+      setSchedules(list);
+      setHasPatientProfile(true);
+      // Surface the resolved id so the enroll flow can refresh after success.
+      if (list[0]?.patientId) setPatientId(list[0].patientId);
+    } catch (err: any) {
+      // 404 = no Patient row linked. Leave the existing "no patient profile"
+      // empty-state to render instead of a scary red error banner.
+      if (err?.status === 404) {
+        setHasPatientProfile(false);
+        setPatientId(null);
+      } else {
+        setError(err.message ?? "Failed to load schedules");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadSchedulesById(pid: string) {
     setLoading(true);
     setError(null);
     try {
@@ -112,7 +158,13 @@ export default function AdherencePage() {
       setShowEnroll(false);
       setEnrollPrescriptionId("");
       setEnrollReminderTimes([""]);
-      if (patientId) await loadSchedules(patientId);
+      // PATIENT refreshes via /mine (patientId may not be known yet on first
+      // enroll). Staff refreshes via the resolved patientId.
+      if (isPatient) {
+        await loadSchedulesMine();
+      } else if (patientId) {
+        await loadSchedulesById(patientId);
+      }
     } catch (err: any) {
       setEnrollError(err.message ?? "Failed to enroll");
     } finally {
@@ -235,13 +287,18 @@ export default function AdherencePage() {
         </div>
       )}
 
-      {/* No patient / no schedules */}
-      {!loading && !error && !patientId && (
+      {/* No patient profile at all — the Issue #24 copy. Only rendered when
+          the lookup / /mine endpoint has definitively told us there is no
+          Patient row. */}
+      {!loading && !error && hasPatientProfile === false && (
         <div className="text-center py-12 text-gray-500 text-sm">
           No patient profile found for your account.
         </div>
       )}
-      {!loading && !error && patientId && schedules.length === 0 && (
+      {!loading &&
+        !error &&
+        hasPatientProfile === true &&
+        schedules.length === 0 && (
         <div className="text-center py-12">
           <Pill className="w-10 h-10 text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500 text-sm">No active medication reminders.</p>

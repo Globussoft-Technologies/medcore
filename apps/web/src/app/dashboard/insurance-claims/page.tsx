@@ -13,6 +13,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { usePrompt } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import {
   Receipt,
@@ -376,6 +378,7 @@ function ClaimDrawer({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  const promptUser = usePrompt();
   const [detail, setDetail] = useState<ClaimDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -399,7 +402,11 @@ function ClaimDrawer({
   }, [load]);
 
   async function cancel() {
-    const reason = prompt("Cancellation reason?");
+    const reason = await promptUser({
+      title: "Cancel claim",
+      label: "Cancellation reason",
+      required: true,
+    });
     if (!reason) return;
     setCancelling(true);
     try {
@@ -407,7 +414,7 @@ function ClaimDrawer({
       await load();
       onChanged();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     } finally {
       setCancelling(false);
     }

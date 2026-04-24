@@ -1,3 +1,5 @@
+import { toast } from "@/lib/toast";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
 
 interface FetchOptions extends RequestInit {
@@ -95,6 +97,6 @@ export async function openPrintEndpoint(endpoint: string): Promise<void> {
     }
   } catch (err) {
     if (win) win.close();
-    alert(err instanceof Error ? err.message : "Failed to open document");
+    toast.error(err instanceof Error ? err.message : "Failed to open document");
   }
 }

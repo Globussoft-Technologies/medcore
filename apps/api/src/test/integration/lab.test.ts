@@ -12,12 +12,17 @@ import {
 let app: any;
 let adminToken: string;
 let nurseToken: string;
+let labTechToken: string;
 
 describeIfDB("Lab API (integration)", () => {
   beforeAll(async () => {
     await resetDB();
     adminToken = await getAuthToken("ADMIN");
     nurseToken = await getAuthToken("NURSE");
+    // POST /lab/results is restricted to LAB_TECH + ADMIN (issue #14).
+    // Previously these tests posted as NURSE — that path now 403s, so we
+    // use a dedicated lab-tech token for result creation happy-path tests.
+    labTechToken = await getAuthToken("LAB_TECH");
     const mod = await import("../../app");
     app = mod.app;
   });
@@ -94,7 +99,7 @@ describeIfDB("Lab API (integration)", () => {
     const orderItem = order.items[0];
     const res = await request(app)
       .post("/api/v1/lab/results")
-      .set("Authorization", `Bearer ${nurseToken}`)
+      .set("Authorization", `Bearer ${labTechToken}`)
       .send({
         orderItemId: orderItem.id,
         parameter: "Hemoglobin",
@@ -118,7 +123,7 @@ describeIfDB("Lab API (integration)", () => {
     });
     const res = await request(app)
       .post("/api/v1/lab/results")
-      .set("Authorization", `Bearer ${nurseToken}`)
+      .set("Authorization", `Bearer ${labTechToken}`)
       .send({
         orderItemId: order.items[0].id,
         parameter: "Hemoglobin",
@@ -160,7 +165,7 @@ describeIfDB("Lab API (integration)", () => {
     // First result — baseline
     await request(app)
       .post("/api/v1/lab/results")
-      .set("Authorization", `Bearer ${nurseToken}`)
+      .set("Authorization", `Bearer ${labTechToken}`)
       .send({
         orderItemId: firstOrder.items[0].id,
         parameter: "Creatinine",
@@ -176,7 +181,7 @@ describeIfDB("Lab API (integration)", () => {
     // Second result — >25% change
     const res = await request(app)
       .post("/api/v1/lab/results")
-      .set("Authorization", `Bearer ${nurseToken}`)
+      .set("Authorization", `Bearer ${labTechToken}`)
       .send({
         orderItemId: secondOrder.items[0].id,
         parameter: "Creatinine",

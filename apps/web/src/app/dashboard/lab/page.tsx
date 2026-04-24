@@ -93,6 +93,9 @@ export default function LabPage() {
 
   const canOrder = user?.role === "DOCTOR";
   const canSeeAI = user?.role === "DOCTOR" || user?.role === "ADMIN";
+  // Only lab techs and admins may enter results — doctors view, never enter.
+  // Mirror of the backend `authorize(LAB_TECH, ADMIN)` on POST /lab/results.
+  const canEnterResults = user?.role === "LAB_TECH" || user?.role === "ADMIN";
 
   async function fetchAIInsights(resultId: string) {
     setAiInsights((m) => ({ ...m, [resultId]: { loading: true } }));
@@ -115,6 +118,15 @@ export default function LabPage() {
     else loadTests();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, statOnly]);
+
+  // Auto-open the order form when the doctor workspace quick-action links
+  // here with ?new=1 (companion to issue #11 Write Rx fix).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!canOrder) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("new") === "1") setShowOrderModal(true);
+  }, [canOrder]);
 
   async function loadOrders() {
     setLoading(true);
@@ -330,7 +342,7 @@ export default function LabPage() {
                               Process
                             </button>
                           )}
-                          {o.status === "IN_PROGRESS" && (
+                          {o.status === "IN_PROGRESS" && canEnterResults && (
                             <Link
                               href={`/dashboard/lab/${o.id}`}
                               className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"

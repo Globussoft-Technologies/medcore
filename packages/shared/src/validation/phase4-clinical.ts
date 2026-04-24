@@ -29,12 +29,21 @@ export const EMERGENCY_STATUS = [
 ] as const;
 
 // Telemedicine
+// Issues #18 / #27: reject negative fees AND past scheduledAt timestamps at
+// the shared-schema layer so both the doctor/admin form and the reception
+// variant refuse the same bad input client-side, and the server re-enforces it
+// via `validate(createTelemedicineSchema)`.
 export const createTelemedicineSchema = z.object({
   patientId: z.string().uuid(),
   doctorId: z.string().uuid(),
-  scheduledAt: z.string().datetime(),
+  scheduledAt: z
+    .string()
+    .datetime({ message: "scheduledAt must be an ISO datetime" })
+    .refine((d) => new Date(d).getTime() > Date.now(), {
+      message: "scheduledAt must be a future date",
+    }),
   chiefComplaint: z.string().optional(),
-  fee: z.number().nonnegative().default(500),
+  fee: z.number().min(0, "Fee must be zero or more").default(500),
 });
 
 export const updateTelemedicineStatusSchema = z.object({

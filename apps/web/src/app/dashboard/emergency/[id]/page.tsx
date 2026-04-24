@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 import { toast } from "@/lib/toast";
 import {
   ArrowLeft,
@@ -338,7 +339,7 @@ export default function EmergencyCaseDetailPage() {
           {ecase.attendingDoctor ? (
             <div>
               <p className="text-lg font-semibold">
-                Dr. {ecase.attendingDoctor.user.name}
+                {formatDoctorName(ecase.attendingDoctor.user.name)}
               </p>
               <p className="text-sm text-gray-500">
                 {ecase.attendingDoctor.specialization}

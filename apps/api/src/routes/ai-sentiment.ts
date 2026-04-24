@@ -23,12 +23,20 @@ function safeAudit(
 export const aiSentimentRouter = Router();
 
 aiSentimentRouter.use(authenticate);
-aiSentimentRouter.use(authorize(Role.ADMIN));
+// Issue #28: the reception dashboard also renders the NPS-drivers widget on
+// /dashboard/feedback. Previously this router required ADMIN and the widget
+// fetch failed with 403 (surfacing in logs as a broken endpoint for the
+// reception role). Mirror the authorize list already used by
+// GET /api/v1/feedback/summary which accepts ADMIN + RECEPTION.
+aiSentimentRouter.use(authorize(Role.ADMIN, Role.RECEPTION));
 
 // ─── POST /analyze/:feedbackId ────────────────────────────────────────────
+// Re-analysis writes to the FeedbackSentiment table and should remain
+// admin-only even after the router-level authorize was widened for Issue #28.
 
 aiSentimentRouter.post(
   "/analyze/:feedbackId",
+  authorize(Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const result = await analyzeFeedback(req.params.feedbackId);

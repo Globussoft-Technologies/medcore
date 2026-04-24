@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { api } from "@/lib/api";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 import { SkeletonCard } from "@/components/Skeleton";
 import {
   Calendar,
@@ -314,6 +315,15 @@ export default function DashboardPage() {
     async function load() {
       const today = new Date().toISOString().split("T")[0];
 
+      // Role-gate admin-only analytics / HR / feedback endpoints so roles
+      // that don't render the data never hit them. Previously every non-
+      // PATIENT role fired these, which produced repeated 403s in the
+      // nurse/doctor Network tab. See GitHub issue #31. We ONLY skip calls
+      // client-side — we never widen backend permissions.
+      const role = user?.role;
+      const canSeeAnalytics = role === "ADMIN" || role === "RECEPTION";
+      const canSeeAdminHR = role === "ADMIN";
+
       const [
         appointments,
         patients,
@@ -352,10 +362,16 @@ export default function DashboardPage() {
         safeGet<any>(`/surgery?status=SCHEDULED&from=${today}&to=${today}&limit=1`, { meta: { total: 0 } }),
         safeGet<any>(`/surgery?status=IN_PROGRESS&limit=1`, { meta: { total: 0 } }),
         safeGet<any>(`/shifts/roster?date=${today}`, { data: [] }),
-        safeGet<any>(`/leaves/pending`, { data: [] }),
-        safeGet<any>(`/feedback/summary`, { data: null }),
+        canSeeAdminHR
+          ? safeGet<any>(`/leaves/pending`, { data: [] })
+          : Promise.resolve({ data: [] }),
+        canSeeAnalytics
+          ? safeGet<any>(`/feedback/summary`, { data: null })
+          : Promise.resolve({ data: null }),
         safeGet<any>(`/complaints?status=OPEN&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/analytics/overview?from=${today}&to=${today}`, { data: null }),
+        canSeeAnalytics
+          ? safeGet<any>(`/analytics/overview?from=${today}&to=${today}`, { data: null })
+          : Promise.resolve({ data: null }),
         safeGet<any>(`/medication/administrations/due`, { data: [] }),
         safeGet<any>(`/telemedicine?date=${today}&limit=1`, { meta: { total: 0 } }),
         safeGet<any>(`/ehr/immunizations/schedule?filter=overdue`, { data: [] }),
@@ -419,7 +435,9 @@ export default function DashboardPage() {
       setLoading(false);
     }
     load().catch(() => setLoading(false));
-  }, []);
+    // Depend on user.role so that once the session hydrates, the load() call
+    // re-runs with the correct role-gating for admin-only endpoints (#31).
+  }, [user?.role]);
 
   const role = user?.role;
   const isAdmin = role === "ADMIN";
@@ -810,7 +828,7 @@ export default function DashboardPage() {
               {(isReception || isAdmin) && (
                 <>
                   <QuickAction href="/dashboard/walk-in" icon={Users} label="Walk-in" />
-                  <QuickAction href="/dashboard/appointments" icon={Calendar} label="Book Appt" />
+                  <QuickAction href="/dashboard/appointments?book=1" icon={Calendar} label="Book Appt" />
                   <QuickAction href="/dashboard/billing" icon={CreditCard} label="Bills" />
                   <QuickAction href="/dashboard/visitors" icon={UserCheck} label="Check-in Visitor" />
                   <QuickAction href="/dashboard/emergency" icon={Siren} label="ER Intake" />
@@ -930,12 +948,12 @@ function PatientHome() {
       {/* Quick actions */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <QuickAction
-          href="/dashboard/appointments/book"
+          href="/dashboard/ai-booking"
           icon={Calendar}
           label="Book Appointment"
         />
         <QuickAction
-          href="/dashboard/telemedicine/book"
+          href="/dashboard/ai-booking?mode=telemedicine"
           icon={Video}
           label="Telemedicine"
         />
@@ -961,7 +979,7 @@ function PatientHome() {
             <div className="py-6 text-center">
               <p className="text-sm text-gray-400">No upcoming appointments</p>
               <Link
-                href="/dashboard/appointments/book"
+                href="/dashboard/ai-booking"
                 className="mt-2 inline-block rounded-lg bg-primary px-3 py-1.5 text-xs text-white hover:opacity-90"
               >
                 Book one now
@@ -980,7 +998,7 @@ function PatientHome() {
                 )}
               </p>
               <p className="mt-1 text-sm text-gray-600">
-                Dr. {upcoming.doctor?.user?.name || "—"}
+                {upcoming.doctor?.user?.name ? formatDoctorName(upcoming.doctor.user.name) : "—"}
                 {upcoming.doctor?.specialization
                   ? ` · ${upcoming.doctor.specialization}`
                   : ""}
@@ -1082,7 +1100,7 @@ function PatientHome() {
                       {p.diagnosis}
                     </p>
                     <p className="truncate text-[11px] text-gray-500">
-                      Dr. {p.doctor?.user?.name || "—"} ·{" "}
+                      {p.doctor?.user?.name ? formatDoctorName(p.doctor.user.name) : "—"} ·{" "}
                       {new Date(p.createdAt).toLocaleDateString()}
                     </p>
                   </div>

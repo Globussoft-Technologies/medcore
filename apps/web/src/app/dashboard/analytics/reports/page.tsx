@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import {
   ArrowLeft,
@@ -296,7 +297,7 @@ export default function ReportsPage() {
 
   function saveConfig() {
     if (!configName.trim()) {
-      alert("Please provide a name for the report configuration");
+      toast.error("Please provide a name for the report configuration");
       return;
     }
     const cfg: ReportConfig = {

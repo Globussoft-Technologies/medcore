@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Clock, Plus, Play, History, Trash2, Power, X } from "lucide-react";
 
@@ -43,6 +45,7 @@ const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 export default function ScheduledReportsPage() {
   const { user } = useAuthStore();
   const router = useRouter();
+  const confirm = useConfirm();
 
   const [tab, setTab] = useState<"schedules" | "runs">("schedules");
   const [reports, setReports] = useState<ScheduledReport[]>([]);
@@ -133,19 +136,19 @@ export default function ScheduledReportsPage() {
       setShowForm(false);
       load();
     } catch (e) {
-      alert((e as Error).message || "Failed to create");
+      toast.error((e as Error).message || "Failed to create");
     }
     setSubmitting(false);
   }
 
   async function handleRunNow(id: string) {
-    if (!confirm("Run this report now and email to all recipients?")) return;
+    if (!(await confirm({ title: "Run this report now?", message: "This will email to all recipients." }))) return;
     try {
       await api.post(`/scheduled-reports/${id}/run-now`);
-      alert("Report queued. Check Run History tab for status.");
+      toast.success("Report queued. Check Run History tab for status.");
       load();
     } catch (e) {
-      alert((e as Error).message || "Failed");
+      toast.error((e as Error).message || "Failed");
     }
   }
 
@@ -159,12 +162,12 @@ export default function ScheduledReportsPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this scheduled report?")) return;
+    if (!(await confirm({ title: "Delete this scheduled report?", danger: true }))) return;
     try {
       await api.delete(`/scheduled-reports/${id}`);
       load();
     } catch (e) {
-      alert((e as Error).message || "Failed");
+      toast.error((e as Error).message || "Failed");
     }
   }
 

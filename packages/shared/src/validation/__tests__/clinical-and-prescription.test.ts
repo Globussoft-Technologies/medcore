@@ -36,6 +36,60 @@ describe("createPrescriptionSchema", () => {
       createPrescriptionSchema.safeParse({ ...valid, followUpDate: "next monday" }).success
     ).toBe(false);
   });
+
+  // ─── Issue #9 (negative / zero dosage) ──────────────────────────
+  it("rejects negative dosage -100mg", () => {
+    expect(
+      createPrescriptionSchema.safeParse({
+        ...valid,
+        items: [{ ...item, dosage: "-100mg" }],
+      }).success
+    ).toBe(false);
+  });
+  it("rejects zero dosage 0mg", () => {
+    expect(
+      createPrescriptionSchema.safeParse({
+        ...valid,
+        items: [{ ...item, dosage: "0mg" }],
+      }).success
+    ).toBe(false);
+  });
+  it("rejects plain text dosage 'lots'", () => {
+    expect(
+      createPrescriptionSchema.safeParse({
+        ...valid,
+        items: [{ ...item, dosage: "lots" }],
+      }).success
+    ).toBe(false);
+  });
+  it("accepts decimal dosage 0.25 mg", () => {
+    expect(
+      createPrescriptionSchema.safeParse({
+        ...valid,
+        items: [{ ...item, dosage: "0.25 mg" }],
+      }).success
+    ).toBe(true);
+  });
+  it("accepts unitless positive dosage '1'", () => {
+    expect(
+      createPrescriptionSchema.safeParse({
+        ...valid,
+        items: [{ ...item, dosage: "1" }],
+      }).success
+    ).toBe(true);
+  });
+
+  // ─── Issue #17 (UUID validation on appointmentId / patientId) ─────
+  it("rejects malformed appointmentId 'abc'", () => {
+    expect(
+      createPrescriptionSchema.safeParse({ ...valid, appointmentId: "abc" }).success
+    ).toBe(false);
+  });
+  it("rejects malformed patientId 'xyz'", () => {
+    expect(
+      createPrescriptionSchema.safeParse({ ...valid, patientId: "xyz" }).success
+    ).toBe(false);
+  });
 });
 
 describe("copyPrescriptionSchema", () => {
@@ -118,6 +172,29 @@ describe("createReferralSchema", () => {
         patientId: UUID,
         fromDoctorId: UUID,
         reason: "x",
+      }).success
+    ).toBe(false);
+  });
+  // Issue #10: reason is a required field — confirm empty reason is rejected
+  // even when every other destination field is valid.
+  it("rejects empty reason (issue #10)", () => {
+    const result = createReferralSchema.safeParse({
+      patientId: UUID,
+      fromDoctorId: UUID,
+      toDoctorId: UUID,
+      reason: "",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((i) => i.path[0] === "reason")).toBe(true);
+    }
+  });
+  it("rejects missing reason field entirely", () => {
+    expect(
+      createReferralSchema.safeParse({
+        patientId: UUID,
+        fromDoctorId: UUID,
+        toDoctorId: UUID,
       }).success
     ).toBe(false);
   });

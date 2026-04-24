@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Calculator, Loader2 } from "lucide-react";
 import { api, openPrintEndpoint } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 
 interface Staff {
@@ -118,7 +119,7 @@ export default function PayrollPage() {
       });
       setResults((r) => ({ ...r, [s.id]: res.data }));
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
     setPending((p) => ({ ...p, [s.id]: false }));
   }
@@ -551,5 +552,4 @@ function OvertimePanel({
         )}
       </div>
     </div>
-  );
-}
+  )

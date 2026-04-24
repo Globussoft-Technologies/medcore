@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { formatDoctorName } from "@/lib/format-doctor-name";
+import { createTelemedicineSchema } from "@medcore/shared";
 import Link from "next/link";
 import {
   Plus,
@@ -90,6 +92,8 @@ export default function TelemedicinePage() {
     chiefComplaint: "",
     fee: 500,
   });
+  // Issues #18 / #27: inline validation errors surfaced for fee, date, etc.
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const [ratingSession, setRatingSession] = useState<TelemedicineSession | null>(
     null
@@ -178,27 +182,55 @@ export default function TelemedicinePage() {
 
   async function submitSchedule(e: React.FormEvent) {
     e.preventDefault();
+    const errs: Record<string, string> = {};
     if (!selectedPatient) {
-      alert("Select a patient");
-      return;
+      errs.patient = "Select a patient";
     }
     if (!form.date || !form.time) {
-      alert("Select date and time");
+      errs.scheduledAt = "Select date and time";
+    }
+
+    const feeNum = Number(form.fee);
+    const scheduledAtRaw =
+      form.date && form.time
+        ? new Date(`${form.date}T${form.time}:00`).toISOString()
+        : "";
+
+    // Issues #18 / #27: validate via the shared Zod schema so both the
+    // doctor/admin and reception flows reject negative fees and past dates
+    // with identical semantics.
+    const parsed = createTelemedicineSchema.safeParse({
+      patientId: selectedPatient?.id ?? "",
+      doctorId: form.doctorId,
+      scheduledAt: scheduledAtRaw,
+      chiefComplaint: form.chiefComplaint || undefined,
+      fee: Number.isFinite(feeNum) ? feeNum : 500,
+    });
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        const field = String(issue.path[0] ?? "_");
+        if (!errs[field]) errs[field] = issue.message;
+      }
+    }
+
+    setFormErrors(errs);
+    if (Object.keys(errs).length > 0) {
       return;
     }
-    const scheduledAt = new Date(`${form.date}T${form.time}:00`).toISOString();
+
     try {
       await api.post("/telemedicine", {
-        patientId: selectedPatient.id,
+        patientId: selectedPatient!.id,
         doctorId: form.doctorId,
-        scheduledAt,
+        scheduledAt: scheduledAtRaw,
         chiefComplaint: form.chiefComplaint || undefined,
-        fee: Number(form.fee) || 500,
+        fee: feeNum || 500,
       });
       setShowModal(false);
       setSelectedPatient(null);
       setPatientSearch("");
       setForm({ doctorId: "", date: "", time: "", chiefComplaint: "", fee: 500 });
+      setFormErrors({});
       loadSessions();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Schedule failed");
@@ -354,7 +386,7 @@ export default function TelemedicinePage() {
 
                 <h3 className="text-base font-semibold">{s.patient.user.name}</h3>
                 <p className="text-sm text-gray-500">
-                  Dr. {s.doctor.user.name}
+                  {formatDoctorName(s.doctor.user.name)}
                   {s.doctor.specialization && ` · ${s.doctor.specialization}`}
                 </p>
 
@@ -550,8 +582,12 @@ export default function TelemedicinePage() {
                     type="date"
                     required
                     value={form.date}
+                    min={new Date().toISOString().slice(0, 10)}
                     onChange={(e) => setForm({ ...form, date: e.target.value })}
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className={
+                      "w-full rounded-lg border px-3 py-2 text-sm " +
+                      (formErrors.scheduledAt ? "border-red-500" : "")
+                    }
                   />
                 </div>
                 <div>
@@ -561,9 +597,17 @@ export default function TelemedicinePage() {
                     required
                     value={form.time}
                     onChange={(e) => setForm({ ...form, time: e.target.value })}
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className={
+                      "w-full rounded-lg border px-3 py-2 text-sm " +
+                      (formErrors.scheduledAt ? "border-red-500" : "")
+                    }
                   />
                 </div>
+                {formErrors.scheduledAt && (
+                  <p className="col-span-2 -mt-2 text-xs text-red-600">
+                    {formErrors.scheduledAt}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -582,13 +626,25 @@ export default function TelemedicinePage() {
                 <label className="mb-1 block text-sm font-medium">Fee</label>
                 <input
                   type="number"
+                  min={0}
+                  step="0.01"
                   value={form.fee}
                   onChange={(e) =>
                     setForm({ ...form, fee: Number(e.target.value) })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className={
+                    "w-full rounded-lg border px-3 py-2 text-sm " +
+                    (formErrors.fee ? "border-red-500" : "")
+                  }
                 />
+                {formErrors.fee && (
+                  <p className="mt-1 text-xs text-red-600">{formErrors.fee}</p>
+                )}
               </div>
+
+              {formErrors.patient && (
+                <p className="text-xs text-red-600">{formErrors.patient}</p>
+              )}
             </div>
 
             <div className="mt-5 flex justify-end gap-2">
@@ -616,7 +672,7 @@ export default function TelemedicinePage() {
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
             <h2 className="mb-4 text-lg font-semibold">Rate Your Session</h2>
             <p className="mb-3 text-sm text-gray-600">
-              Session with Dr. {ratingSession.doctor.user.name}
+              Session with {formatDoctorName(ratingSession.doctor.user.name)}
             </p>
             <div className="mb-6 flex justify-center gap-2">
               {[1, 2, 3, 4, 5].map((v) => (

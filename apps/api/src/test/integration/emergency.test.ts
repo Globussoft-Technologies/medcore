@@ -1,7 +1,7 @@
 // Integration tests for emergency router.
 import { it, expect, beforeAll } from "vitest";
 import request from "supertest";
-import { describeIfDB, resetDB, getAuthToken } from "../setup";
+import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
 import {
   createPatientFixture,
   createDoctorFixture,
@@ -145,5 +145,46 @@ describeIfDB("Emergency API (integration)", () => {
   it("rejects unauthenticated access", async () => {
     const res = await request(app).get("/api/v1/emergency/cases");
     expect(res.status).toBe(401);
+  });
+
+  // Regression: issue #5 — before the fix, a single stale WAITING case from
+  // 9 days ago pushed avgWaitMin to ~13371 (9d in minutes). The stat should
+  // never exceed 24h (1440 min) regardless of how stale the underlying rows
+  // are: we either window to <=24h samples or cap outliers.
+  it("stats.avgWaitMin stays ≤ 1440 even with stale WAITING rows (issue #5)", async () => {
+    const prisma = await getPrisma();
+    const patient = await createPatientFixture();
+
+    // Insert a stale case from 9 days ago, still WAITING — the exact shape
+    // that produced the 13371-min reading in production.
+    await prisma.emergencyCase.create({
+      data: {
+        caseNumber: `ER${Date.now()}S1`,
+        patientId: patient.id,
+        chiefComplaint: "Forgotten visit",
+        arrivedAt: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000),
+        status: "WAITING",
+      },
+    });
+    // Also insert a realistic 15-minute wait so there is a valid sample.
+    await prisma.emergencyCase.create({
+      data: {
+        caseNumber: `ER${Date.now()}S2`,
+        patientId: patient.id,
+        chiefComplaint: "Fresh wait",
+        arrivedAt: new Date(Date.now() - 15 * 60 * 1000),
+        status: "WAITING",
+      },
+    });
+
+    const res = await request(app)
+      .get("/api/v1/emergency/stats")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data?.avgWaitMin).toBeDefined();
+    // 24h outlier cap — anything higher means the bug has regressed.
+    expect(res.body.data.avgWaitMin).toBeLessThanOrEqual(1440);
+    // And it should be dominated by the fresh 15-min sample, not the stale one.
+    expect(res.body.data.avgWaitMin).toBeLessThanOrEqual(60);
   });
 });

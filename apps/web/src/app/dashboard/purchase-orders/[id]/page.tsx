@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import { ArrowLeft, Printer, Check, Send, Package, X } from "lucide-react";
 
 interface POItem {
@@ -46,6 +48,7 @@ const STATUS_FLOW = ["DRAFT", "PENDING", "APPROVED", "RECEIVED"];
 export default function PurchaseOrderDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const confirm = useConfirm();
   const [po, setPo] = useState<PORecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
@@ -70,18 +73,23 @@ export default function PurchaseOrderDetailPage() {
 
   async function act(action: "submit" | "approve" | "cancel") {
     if (!po) return;
-    const msgs: Record<string, string> = {
+    const titles: Record<string, string> = {
       submit: "Submit this PO for approval?",
       approve: "Approve this PO?",
-      cancel: "Cancel this PO? This cannot be undone.",
+      cancel: "Cancel this PO?",
     };
-    if (!confirm(msgs[action])) return;
+    const messages: Record<string, string | undefined> = {
+      submit: undefined,
+      approve: undefined,
+      cancel: "This cannot be undone.",
+    };
+    if (!(await confirm({ title: titles[action], message: messages[action], danger: action === "cancel" }))) return;
     setActing(true);
     try {
       await api.post(`/purchase-orders/${po.id}/${action}`, {});
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Action failed");
+      toast.error(err instanceof Error ? err.message : "Action failed");
     }
     setActing(false);
   }
@@ -360,7 +368,7 @@ function ReceiveGrnModal({
       });
       onSaved();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Receipt failed");
+      toast.error(err instanceof Error ? err.message : "Receipt failed");
     }
     setSaving(false);
   }

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { createReferralSchema } from "@medcore/shared";
 import { Plus, ArrowRightLeft } from "lucide-react";
 
 interface Doctor {
@@ -71,6 +72,9 @@ export default function ReferralsPage() {
     reason: "",
     notes: "",
   });
+  // Issue #10: surface field-level validation errors under each input instead
+  // of relying on the server's generic error toast.
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const isAdmin = user?.role === "ADMIN";
   const isDoctor = user?.role === "DOCTOR";
@@ -146,33 +150,48 @@ export default function ReferralsPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    const errs: Record<string, string> = {};
     if (!selectedPatient) {
-      alert("Select a patient");
-      return;
+      errs.patient = "Select a patient";
     }
 
     const fromDoctorId = isDoctor ? myDoctorId : form.fromDoctorId;
     if (!fromDoctorId) {
-      alert(isDoctor ? "Unable to determine your doctor record" : "Select referring doctor");
+      errs.fromDoctorId = isDoctor
+        ? "Unable to determine your doctor record"
+        : "Select referring doctor";
+    }
+
+    const body: Record<string, unknown> = {
+      patientId: selectedPatient?.id ?? "",
+      fromDoctorId: fromDoctorId || "",
+      reason: form.reason,
+      specialty: form.specialty || undefined,
+      notes: form.notes || undefined,
+    };
+    if (mode === "internal") {
+      body.toDoctorId = form.toDoctorId || undefined;
+    } else {
+      body.externalProvider = form.externalProvider || undefined;
+      body.externalContact = form.externalContact || undefined;
+    }
+
+    // Issue #10: client-side Reason validation via the shared Zod schema so
+    // the server's defense-in-depth 400 no longer needs to be the first line
+    // of feedback.
+    const parsed = createReferralSchema.safeParse(body);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        const field = String(issue.path[0] ?? "_");
+        if (!errs[field]) errs[field] = issue.message;
+      }
+    }
+    setFormErrors(errs);
+    if (Object.keys(errs).length > 0) {
       return;
     }
 
     try {
-      const body: Record<string, unknown> = {
-        patientId: selectedPatient.id,
-        fromDoctorId,
-        reason: form.reason,
-        specialty: form.specialty || undefined,
-        notes: form.notes || undefined,
-      };
-
-      if (mode === "internal") {
-        body.toDoctorId = form.toDoctorId || undefined;
-      } else {
-        body.externalProvider = form.externalProvider || undefined;
-        body.externalContact = form.externalContact || undefined;
-      }
-
       await api.post("/referrals", body);
       setShowCreate(false);
       setSelectedPatient(null);
@@ -186,6 +205,7 @@ export default function ReferralsPage() {
         reason: "",
         notes: "",
       });
+      setFormErrors({});
       loadReferrals();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to create referral");
@@ -313,6 +333,9 @@ export default function ReferralsPage() {
 
             <div className="mb-4">
               <label className="mb-1 block text-sm font-medium">Patient</label>
+              {formErrors.patient && !selectedPatient && (
+                <p className="mb-1 text-xs text-red-600">{formErrors.patient}</p>
+              )}
               {selectedPatient ? (
                 <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
                   <div>
@@ -373,8 +396,10 @@ export default function ReferralsPage() {
                   onChange={(e) =>
                     setForm((f) => ({ ...f, fromDoctorId: e.target.value }))
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
-                  required
+                  className={
+                    "w-full rounded-lg border px-3 py-2 text-sm " +
+                    (formErrors.fromDoctorId ? "border-red-500" : "")
+                  }
                 >
                   <option value="">Select doctor</option>
                   {doctors.map((d) => (
@@ -383,6 +408,11 @@ export default function ReferralsPage() {
                     </option>
                   ))}
                 </select>
+                {formErrors.fromDoctorId && (
+                  <p className="mt-1 text-xs text-red-600">
+                    {formErrors.fromDoctorId}
+                  </p>
+                )}
               </div>
             )}
 
@@ -422,8 +452,10 @@ export default function ReferralsPage() {
                   onChange={(e) =>
                     setForm((f) => ({ ...f, toDoctorId: e.target.value }))
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
-                  required
+                  className={
+                    "w-full rounded-lg border px-3 py-2 text-sm " +
+                    (formErrors.toDoctorId ? "border-red-500" : "")
+                  }
                 >
                   <option value="">Select specialist</option>
                   {doctors.map((d) => (
@@ -432,6 +464,9 @@ export default function ReferralsPage() {
                     </option>
                   ))}
                 </select>
+                {formErrors.toDoctorId && (
+                  <p className="mt-1 text-xs text-red-600">{formErrors.toDoctorId}</p>
+                )}
               </div>
             ) : (
               <div className="mb-4 grid grid-cols-2 gap-4">
@@ -478,14 +513,25 @@ export default function ReferralsPage() {
             </div>
 
             <div className="mb-4">
-              <label className="mb-1 block text-sm font-medium">Reason</label>
+              <label className="mb-1 block text-sm font-medium">
+                Reason <span className="text-red-600">*</span>
+              </label>
               <textarea
                 value={form.reason}
                 onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={
+                  "w-full rounded-lg border px-3 py-2 text-sm " +
+                  (formErrors.reason ? "border-red-500" : "")
+                }
                 rows={2}
-                required
+                aria-invalid={!!formErrors.reason}
+                aria-describedby={formErrors.reason ? "referral-reason-error" : undefined}
               />
+              {formErrors.reason && (
+                <p id="referral-reason-error" className="mt-1 text-xs text-red-600">
+                  {formErrors.reason}
+                </p>
+              )}
             </div>
 
             <div className="mb-4">

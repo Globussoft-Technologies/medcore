@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { Plus, AlertTriangle, Baby, Calendar, Activity } from "lucide-react";
 
@@ -149,7 +150,7 @@ export default function AntenatalPage() {
   async function submitCase(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedPatient) {
-      alert("Select a patient");
+      toast.error("Select a patient");
       return;
     }
     try {
@@ -178,7 +179,7 @@ export default function AntenatalPage() {
       loadCases();
       loadDashboard();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to create ANC case");
+      toast.error(err instanceof Error ? err.message : "Failed to create ANC case");
     }
   }
 

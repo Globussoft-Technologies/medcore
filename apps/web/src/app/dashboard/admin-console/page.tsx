@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import {
   Activity,
@@ -51,6 +52,7 @@ export default function AdminConsolePage() {
   const [expiringMeds, setExpiringMeds] = useState(0);
   const [bloodLow, setBloodLow] = useState<any[]>([]);
   const [auditCount, setAuditCount] = useState(0);
+  const [errorCount, setErrorCount] = useState(0);
   const [pendingLeaves, setPendingLeaves] = useState<any[]>([]);
   const [pendingExpenses, setPendingExpenses] = useState<any[]>([]);
   const [pendingPOs, setPendingPOs] = useState<any[]>([]);
@@ -81,6 +83,7 @@ export default function AdminConsolePage() {
         pharmExp,
         bloodSum,
         audit,
+        auditErrors,
         leaves,
         expenses,
         pos,
@@ -100,7 +103,13 @@ export default function AdminConsolePage() {
         safe<any>(`/pharmacy/inventory?lowStock=true&limit=1`, { meta: { total: 0 } }),
         safe<any>(`/pharmacy/inventory?expiring=true&limit=1`, { meta: { total: 0 } }),
         safe<any>(`/bloodbank/inventory/summary`, { data: null }),
+        // Total audit events (used for "Audit Events" card, not errors).
         safe<any>(`/audit?from=${hourAgo}&limit=1`, { meta: { total: 0 } }),
+        // Real errors: login failures and other explicitly-failed actions.
+        // The audit route does not support LIKE-matching; use action= filter.
+        safe<any>(`/audit?from=${hourAgo}&action=LOGIN_FAILED&limit=1`, {
+          meta: { total: 0 },
+        }),
         safe<any>(`/leaves/pending`, { data: [] }),
         safe<any>(`/expenses?status=PENDING&limit=20`, { data: [] }),
         safe<any>(`/purchase-orders?status=PENDING&limit=20`, { data: [] }),
@@ -122,6 +131,7 @@ export default function AdminConsolePage() {
         : [];
       setBloodLow(lowUnits);
       setAuditCount(audit.meta?.total || 0);
+      setErrorCount(auditErrors.meta?.total || 0);
       setPendingLeaves(Array.isArray(leaves.data) ? leaves.data : []);
       setPendingExpenses(Array.isArray(expenses.data) ? expenses.data : []);
       setPendingPOs(Array.isArray(pos.data) ? pos.data : []);
@@ -150,6 +160,8 @@ export default function AdminConsolePage() {
       </div>
     );
   }
+
+  const hourAgoQs = new Date(Date.now() - 3600_000).toISOString();
 
   const bedStats = wards.reduce(
     (acc: any, w: any) => {
@@ -183,7 +195,7 @@ export default function AdminConsolePage() {
         setPendingPOs((xs) => xs.filter((x) => x.id !== id));
       }
     } catch {
-      alert("Approve failed");
+      toast.error("Approve failed");
     }
   }
 
@@ -219,8 +231,9 @@ export default function AdminConsolePage() {
           <Health
             Icon={AlertTriangle}
             label="Errors (1h)"
-            status={String(auditCount)}
-            ok={auditCount < 10}
+            status={String(errorCount)}
+            ok={errorCount < 10}
+            href={`/dashboard/audit?action=LOGIN_FAILED&from=${hourAgoQs}`}
           />
           <Health
             Icon={UserCheck}
@@ -390,18 +403,16 @@ function Health({
   label,
   status,
   ok,
+  href,
 }: {
   Icon: React.ElementType;
   label: string;
   status: string;
   ok: boolean;
+  href?: string;
 }) {
-  return (
-    <div
-      className={`rounded-lg border p-3 ${
-        ok ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"
-      }`}
-    >
+  const body = (
+    <>
       <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-600">
         <Icon size={13} />
         {label}
@@ -413,8 +424,19 @@ function Health({
       >
         {status}
       </p>
-    </div>
+    </>
   );
+  const cls = `rounded-lg border p-3 ${
+    ok ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"
+  }`;
+  if (href) {
+    return (
+      <Link href={href} className={`${cls} block transition hover:shadow-sm`}>
+        {body}
+      </Link>
+    );
+  }
+  return <div className={cls}>{body}</div>;
 }
 
 function Alert({

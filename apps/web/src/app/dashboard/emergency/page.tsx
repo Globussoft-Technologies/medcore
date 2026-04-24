@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 import { useTranslation } from "@/lib/i18n";
 import { getSocket } from "@/lib/socket";
 import { InfoIcon } from "@/components/Tooltip";
@@ -213,15 +215,15 @@ export default function EmergencyPage() {
   async function submitIntake(e: React.FormEvent) {
     e.preventDefault();
     if (!intakeForm.chiefComplaint) {
-      alert("Chief complaint is required");
+      toast.error("Chief complaint is required");
       return;
     }
     if (!intakePatient && !unknownMode) {
-      alert("Select a patient or mark as Unknown");
+      toast.error("Select a patient or mark as Unknown");
       return;
     }
     if (unknownMode && !intakeForm.unknownName) {
-      alert("Enter a name (or John/Jane Doe) for the unknown patient");
+      toast.error("Enter a name (or John/Jane Doe) for the unknown patient");
       return;
     }
 
@@ -250,7 +252,7 @@ export default function EmergencyPage() {
       });
       loadData();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Registration failed");
+      toast.error(err instanceof Error ? err.message : "Registration failed");
     }
   }
 
@@ -280,13 +282,13 @@ export default function EmergencyPage() {
       setSelectedCase(null);
       loadData();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Triage failed");
+      toast.error(err instanceof Error ? err.message : "Triage failed");
     }
   }
 
   async function submitAssign() {
     if (!selectedCase || !assignDoctorId) {
-      alert("Select a doctor");
+      toast.error("Select a doctor");
       return;
     }
     try {
@@ -297,7 +299,7 @@ export default function EmergencyPage() {
       setAssignDoctorId("");
       loadData();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Assign failed");
+      toast.error(err instanceof Error ? err.message : "Assign failed");
     }
   }
 
@@ -313,7 +315,7 @@ export default function EmergencyPage() {
       setCloseForm({ status: "DISCHARGED", disposition: "", outcomeNotes: "" });
       loadData();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Close failed");
+      toast.error(err instanceof Error ? err.message : "Close failed");
     }
   }
 
@@ -485,7 +487,7 @@ export default function EmergencyPage() {
                             </span>
                             {c.attendingDoctor && (
                               <span className="truncate text-gray-500">
-                                Dr. {c.attendingDoctor.user.name}
+                                {formatDoctorName(c.attendingDoctor.user.name)}
                               </span>
                             )}
                           </div>

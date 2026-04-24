@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
-import { FREQUENCY_OPTIONS } from "@medcore/shared";
+import { FREQUENCY_OPTIONS, createPrescriptionSchema } from "@medcore/shared";
 import { toast } from "@/lib/toast";
 import { InfoIcon } from "@/components/Tooltip";
 import { Autocomplete } from "@/components/Autocomplete";
@@ -164,6 +164,14 @@ export default function PrescriptionsPage() {
       .catch(() => {});
   }, []);
 
+  // Auto-open the Rx form when the doctor workspace quick-action links here
+  // with ?new=1 (issue #11).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("new") === "1") setShowForm(true);
+  }, []);
+
   function applyTemplate(tplId: string) {
     const tpl = templates.find((t) => t.id === tplId);
     if (!tpl) return;
@@ -265,15 +273,54 @@ export default function PrescriptionsPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const errs: Record<string, string> = {};
-    if (!form.appointmentId) errs.appointmentId = "Appointment ID is required";
-    if (!form.patientId) errs.patientId = "Select a patient before saving";
-    if (!form.diagnosis) errs.diagnosis = "Diagnosis is required (ICD-10 recommended)";
     const items = medicines.filter((m) => m.medicineName.trim());
-    if (items.length === 0) {
-      errs.medicines = "Add at least one medicine with a name";
-    } else {
-      const bad = items.find((m) => !m.dosage.trim() || !m.frequency.trim());
-      if (bad) errs.medicines = "Each medicine needs a dosage and frequency";
+
+    // Defense-in-depth: share the Zod schema used by the API so client-side
+    // rejects bad UUIDs (Issue #17) and bad dosage shapes (Issue #9) before
+    // the network round-trip.
+    const parsed = createPrescriptionSchema.safeParse({
+      appointmentId: form.appointmentId,
+      patientId: form.patientId,
+      diagnosis: form.diagnosis,
+      items: items.map((m) => ({
+        medicineName: m.medicineName,
+        dosage: m.dosage,
+        frequency: m.frequency,
+        duration: m.duration || "—",
+        instructions: m.instructions || undefined,
+      })),
+      advice: form.advice || undefined,
+      followUpDate: form.followUpDate || undefined,
+    });
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        const first = issue.path[0];
+        if (first === "appointmentId") {
+          errs.appointmentId =
+            issue.message.includes("uuid") ||
+            issue.message.toLowerCase().includes("invalid")
+              ? "Appointment ID must be a valid UUID"
+              : issue.message;
+        } else if (first === "patientId") {
+          errs.patientId =
+            issue.message.includes("uuid") ||
+            issue.message.toLowerCase().includes("invalid")
+              ? "Patient ID must be a valid UUID"
+              : issue.message;
+        } else if (first === "diagnosis") {
+          errs.diagnosis = "Diagnosis is required (ICD-10 recommended)";
+        } else if (first === "items") {
+          // Either top-level "at least one" or a per-row dosage/frequency error.
+          if (!errs.medicines) {
+            errs.medicines =
+              issue.path.length > 1
+                ? `Medicine ${Number(issue.path[1]) + 1}: ${issue.message}`
+                : issue.message;
+          }
+        } else if (first === "followUpDate") {
+          errs.followUpDate = issue.message;
+        }
+      }
     }
     setFormErrors(errs);
     if (Object.keys(errs).length > 0) {

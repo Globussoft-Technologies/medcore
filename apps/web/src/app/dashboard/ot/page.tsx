@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { getSocket } from "@/lib/socket";
 import { Plus, Building, Power, PowerOff, Edit2 } from "lucide-react";
 
@@ -146,7 +147,7 @@ export default function OTPage() {
       setEditing(null);
       loadOts();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Save failed");
+      toast.error(err instanceof Error ? err.message : "Save failed");
     }
   }
 
@@ -155,7 +156,7 @@ export default function OTPage() {
       await api.patch(`/surgery/ots/${ot.id}`, { isActive: !ot.isActive });
       loadOts();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Toggle failed");
+      toast.error(err instanceof Error ? err.message : "Toggle failed");
     }
   }
 

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
 import { useThemeStore } from "@/lib/theme";
 import { useTranslation } from "@/lib/i18n";
+import { DialogProvider } from "@/lib/use-dialog";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { Tooltip } from "@/components/Tooltip";
 import { HelpPanel } from "@/components/HelpPanel";
@@ -308,7 +309,9 @@ const navByRole: Record<
     { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
     { href: "/dashboard/ai-booking", label: "AI Booking", icon: Bot },
     { href: "/dashboard/adherence", label: "Medication Reminders", icon: BellIcon },
-    { href: "/dashboard/lab-explainer", label: "Lab Explainer", icon: Languages },
+    // Lab Explainer is a doctor/admin approval queue — patients receive the
+    // approved explanation via notification, so the sidebar entry used to
+    // render a "Forbidden" toast for them. See GitHub issue #23.
   ],
 };
 
@@ -558,6 +561,7 @@ export default function DashboardLayout({
   const bottomNav = bottomNavByRole[user.role] || bottomNavByRole.PATIENT;
 
   return (
+    <DialogProvider>
     <div className="flex h-screen">
       {/* Mobile drawer overlay */}
       {drawerOpen && (
@@ -769,5 +773,6 @@ export default function DashboardLayout({
         />
       )}
     </div>
+    </DialogProvider>
   );
 }

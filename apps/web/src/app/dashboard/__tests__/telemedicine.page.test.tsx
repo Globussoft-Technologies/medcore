@@ -40,6 +40,7 @@ const sampleSessions = [
 describe("TelemedicinePage", () => {
   beforeEach(() => {
     apiMock.get.mockReset();
+    apiMock.post.mockReset();
     authMock.mockImplementation((selector: any) => {
       const state = { user: { id: "u1", name: "Dr", email: "d@x.com", role: "DOCTOR" } };
       return typeof selector === "function" ? selector(state) : state;
@@ -88,6 +89,54 @@ describe("TelemedicinePage", () => {
     await waitFor(() => {
       const btns = screen.queryAllByRole("button", { name: /schedule|new|create/i });
       expect(btns.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ─── Validation (Issues #18 / #27) ────────────────────────────────
+  it("rejects past date and negative fee before POST (issue #18/27)", async () => {
+    const user = userEvent.setup();
+    apiMock.post.mockResolvedValue({ data: {} });
+    render(<TelemedicinePage />);
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /telemedicine/i })).toBeInTheDocument()
+    );
+    // Open the schedule modal
+    await user.click(screen.getByRole("button", { name: /schedule session/i }));
+    // Modal fields rendered
+    await screen.findByRole("heading", { name: /schedule telemedicine session/i });
+
+    // Fee = -500, Date = 2020-01-01 is in the past
+    const dateInput = document.querySelector(
+      'input[type="date"]'
+    ) as HTMLInputElement;
+    const timeInput = document.querySelector(
+      'input[type="time"]'
+    ) as HTMLInputElement;
+    const feeInput = document.querySelector(
+      'input[type="number"]'
+    ) as HTMLInputElement;
+    expect(dateInput).toBeTruthy();
+    expect(feeInput).toBeTruthy();
+
+    // Direct value assignment because the date input may reject typed input
+    // via userEvent depending on locale.
+    await user.clear(feeInput);
+    await user.type(feeInput, "-500");
+    // fireEvent-like assignment via userEvent
+    dateInput.value = "2020-01-01";
+    dateInput.dispatchEvent(new Event("change", { bubbles: true }));
+    timeInput.value = "10:00";
+    timeInput.dispatchEvent(new Event("change", { bubbles: true }));
+
+    // Click Schedule — form should NOT POST
+    const submitBtn = screen.getByRole("button", { name: /^schedule$/i });
+    await user.click(submitBtn);
+
+    await waitFor(() => {
+      expect(apiMock.post).not.toHaveBeenCalledWith(
+        "/telemedicine",
+        expect.anything()
+      );
     });
   });
 });

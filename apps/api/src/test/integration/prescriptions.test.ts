@@ -202,4 +202,54 @@ describeIfDB("Prescriptions API (integration)", () => {
       .send({ appointmentId: "x", items: [] });
     expect(res.status).toBe(400);
   });
+
+  // ─── Issue #9: negative dosage rejected server-side ─────────────────
+  it("rejects negative dosage '-100mg' (400, issue #9)", async () => {
+    const { doctor, token } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    const res = await request(app)
+      .post("/api/v1/prescriptions")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        diagnosis: "Pain",
+        items: [
+          {
+            medicineName: "Paracetamol",
+            dosage: "-100mg",
+            frequency: "TID",
+            duration: "3d",
+          },
+        ],
+      });
+    expect(res.status).toBe(400);
+  });
+
+  // ─── Issue #17: non-UUID appointmentId rejected ─────────────────────
+  it("rejects non-UUID appointmentId (400, issue #17)", async () => {
+    const { token } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    const res = await request(app)
+      .post("/api/v1/prescriptions")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: "abc",
+        patientId: patient.id,
+        diagnosis: "x",
+        items: [
+          {
+            medicineName: "Paracetamol",
+            dosage: "500mg",
+            frequency: "OD",
+            duration: "1d",
+          },
+        ],
+      });
+    expect(res.status).toBe(400);
+  });
 });

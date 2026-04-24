@@ -16,6 +16,7 @@ import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { useAuthStore } from "@/lib/store";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 import { Video, Mic, MicOff, VideoOff, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 
 interface SessionLite {
@@ -220,7 +221,7 @@ export default function TelemedicineWaitingRoomPage() {
             <option value="">Pick an upcoming session…</option>
             {sessions.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.sessionNumber} — Dr. {s.doctor.user.name} (
+                {s.sessionNumber} — {formatDoctorName(s.doctor.user.name)} (
                 {new Date(s.scheduledAt).toLocaleString()})
               </option>
             ))}
@@ -231,7 +232,7 @@ export default function TelemedicineWaitingRoomPage() {
       {session && (
         <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
           <p className="text-xs text-gray-400">{session.sessionNumber}</p>
-          <h2 className="text-lg font-semibold">Dr. {session.doctor.user.name}</h2>
+          <h2 className="text-lg font-semibold">{formatDoctorName(session.doctor.user.name)}</h2>
           {session.doctor.specialization && (
             <p className="text-sm text-gray-500">{session.doctor.specialization}</p>
           )}

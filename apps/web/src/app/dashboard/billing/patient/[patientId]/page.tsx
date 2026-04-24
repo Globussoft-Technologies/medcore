@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { ArrowLeft, Receipt, Percent } from "lucide-react";
 
 interface PatientInvoice {
@@ -125,7 +126,7 @@ export default function PatientBillingPage() {
     }
 
     if (payments.length === 0) {
-      alert("Nothing to apply");
+      toast.error("Nothing to apply");
       setBulkSubmitting(false);
       return;
     }
@@ -140,7 +141,7 @@ export default function PatientBillingPage() {
       setSelected({});
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Bulk payment failed");
+      toast.error(err instanceof Error ? err.message : "Bulk payment failed");
     }
     setBulkSubmitting(false);
   }
@@ -161,7 +162,7 @@ export default function PatientBillingPage() {
       setSelected({});
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Discount failed");
+      toast.error(err instanceof Error ? err.message : "Discount failed");
     }
     setDiscSubmitting(false);
   }

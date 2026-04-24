@@ -9,6 +9,40 @@ import { LanguageDropdown } from "@/components/LanguageDropdown";
 import { toast } from "@/lib/toast";
 import { Activity, QrCode, Receipt, Smartphone, CheckCircle2 } from "lucide-react";
 
+/**
+ * Map an auth-endpoint error to a user-facing message, branching on the
+ * HTTP status attached by `lib/api.ts`. Previously the login page treated
+ * every non-2xx as "Invalid email or password" which hid the 429 rate-limit
+ * from users (Issue #15).
+ *
+ * Status mapping:
+ *  - 429 → "too many attempts" copy
+ *  - 401 / 403 → invalid credentials
+ *  - other → backend's error text, else the provided fallback
+ */
+function messageForAuthError(
+  err: unknown,
+  t: (key: string, fallback?: string) => string,
+  fallback?: string
+): string {
+  const status =
+    err && typeof err === "object" && "status" in err
+      ? (err as { status?: number }).status
+      : undefined;
+
+  if (status === 429) {
+    return t(
+      "login.error.rateLimited",
+      "Too many login attempts. Please wait a minute and try again."
+    );
+  }
+  if (status === 401 || status === 403) {
+    return t("login.error.invalidCredentials", "Invalid email or password.");
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return fallback ?? t("login.error.generic");
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const { login, verify2FA } = useAuthStore();
@@ -45,7 +79,10 @@ export default function LoginPage() {
       toast.success(t("login.welcome"));
       router.push("/dashboard");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : t("login.error.generic");
+      // Issue #15: distinguish 429 (rate-limit) from 401/403 (bad creds) so
+      // users never see "Invalid email or password" when they're simply
+      // throttled. `lib/api.ts` attaches `.status` to the thrown Error.
+      const msg = messageForAuthError(err, t);
       setError(msg);
       toast.error(msg);
     } finally {
@@ -62,7 +99,10 @@ export default function LoginPage() {
       toast.success(t("login.welcome"));
       router.push("/dashboard");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Invalid 2FA code";
+      // Issue #15: same status-aware handling for the 2FA step. A throttled
+      // verify must not read as "Invalid 2FA code".
+      const fallback = t("login.2fa.error.generic", "Invalid 2FA code");
+      const msg = messageForAuthError(err, t, fallback);
       setError(msg);
       toast.error(msg);
     } finally {

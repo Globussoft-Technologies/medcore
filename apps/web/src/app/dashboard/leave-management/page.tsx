@@ -2,7 +2,10 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api, openPrintEndpoint } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
+import { formatDate } from "@/lib/format";
 import { Check, X, PlaneTakeoff, Printer } from "lucide-react";
 
 interface Leave {
@@ -34,6 +37,7 @@ const LEAVE_TYPES = ["CASUAL", "SICK", "EARNED", "MATERNITY", "PATERNITY", "UNPA
 
 export default function LeaveManagementPage() {
   const { user } = useAuthStore();
+  const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>("PENDING");
   const [leaves, setLeaves] = useState<Leave[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,12 +73,12 @@ export default function LeaveManagementPage() {
   }
 
   async function handleApprove(id: string) {
-    if (!confirm("Approve this leave request?")) return;
+    if (!(await confirm({ title: "Approve this leave request?" }))) return;
     try {
       await api.patch(`/leaves/${id}/approve`, { status: "APPROVED" });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Approve failed");
+      toast.error(err instanceof Error ? err.message : "Approve failed");
     }
   }
 
@@ -89,7 +93,7 @@ export default function LeaveManagementPage() {
       setRejectReason("");
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Reject failed");
+      toast.error(err instanceof Error ? err.message : "Reject failed");
     }
   }
 
@@ -210,8 +214,7 @@ export default function LeaveManagementPage() {
                   </td>
                   <td className="px-4 py-3 text-sm">{l.type}</td>
                   <td className="px-4 py-3 text-sm">
-                    {new Date(l.fromDate).toLocaleDateString()} –{" "}
-                    {new Date(l.toDate).toLocaleDateString()}
+                    {formatDate(l.fromDate)} – {formatDate(l.toDate)}
                   </td>
                   <td className="px-4 py-3 text-sm font-semibold">
                     {l.totalDays}

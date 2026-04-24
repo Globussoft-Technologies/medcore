@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { usePrompt } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import {
   CalendarDays,
@@ -54,6 +56,7 @@ function isSameDay(a: string, b: string): boolean {
 
 export default function MySchedulePage() {
   const { user } = useAuthStore();
+  const promptUser = usePrompt();
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [summary, setSummary] = useState<LeaveSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -104,17 +107,22 @@ export default function MySchedulePage() {
       await api.patch(`/shifts/${shiftId}/check-in`);
       loadData();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Check-in failed");
+      toast.error(err instanceof Error ? err.message : "Check-in failed");
     }
   }
 
   async function handleCheckOut(shiftId: string) {
-    const notes = prompt("Any notes for check-out? (optional)");
+    const notes = await promptUser({
+      title: "Check out",
+      label: "Notes (optional)",
+      multiline: true,
+    });
+    if (notes === null) return;
     try {
       await api.patch(`/shifts/${shiftId}/check-out`, { notes: notes || undefined });
       loadData();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Check-out failed");
+      toast.error(err instanceof Error ? err.message : "Check-out failed");
     }
   }
 
@@ -126,7 +134,7 @@ export default function MySchedulePage() {
       setLeaveForm({ type: "CASUAL", fromDate: "", toDate: "", reason: "" });
       loadData();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Request failed");
+      toast.error(err instanceof Error ? err.message : "Request failed");
     }
   }
 

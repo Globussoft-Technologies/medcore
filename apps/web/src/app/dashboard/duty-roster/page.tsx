@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Plus, Users2, CalendarDays, Trash2 } from "lucide-react";
 
@@ -53,6 +55,7 @@ function todayKey(): string {
 
 export default function DutyRosterPage() {
   const { user } = useAuthStore();
+  const confirm = useConfirm();
   const [date, setDate] = useState<string>(todayKey());
   const [staff, setStaff] = useState<StaffUser[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -138,14 +141,14 @@ export default function DutyRosterPage() {
       setShowAdd(false);
       loadRoster();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Create failed");
+      toast.error(err instanceof Error ? err.message : "Create failed");
     }
   }
 
   async function submitBulk(e: React.FormEvent) {
     e.preventDefault();
     if (bulkForm.userIds.length === 0) {
-      alert("Select at least one staff member");
+      toast.error("Select at least one staff member");
       return;
     }
     const shifts: any[] = [];
@@ -171,24 +174,24 @@ export default function DutyRosterPage() {
       const res = await api.post<{
         data: { created: Shift[]; skipped: unknown[] };
       }>("/shifts/bulk", { shifts });
-      alert(
+      toast.success(
         `Created ${res.data.created.length}, skipped ${res.data.skipped.length}`
       );
       setShowBulk(false);
       setBulkForm((f) => ({ ...f, userIds: [] }));
       loadRoster();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Bulk create failed");
+      toast.error(err instanceof Error ? err.message : "Bulk create failed");
     }
   }
 
   async function deleteShift(id: string) {
-    if (!confirm("Delete this shift?")) return;
+    if (!(await confirm({ title: "Delete this shift?", danger: true }))) return;
     try {
       await api.delete(`/shifts/${id}`);
       loadRoster();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Delete failed");
+      toast.error(err instanceof Error ? err.message : "Delete failed");
     }
   }
 

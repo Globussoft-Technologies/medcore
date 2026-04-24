@@ -332,6 +332,48 @@ router.get(
   }
 );
 
+// ─── GET /users — list staff users for /dashboard/users (Issue #4) ────
+//
+// Returns a flat list of staff users with the fields the User Management
+// table reads directly: name, email, phone, role, isActive, createdAt.
+//
+// Why this lives in patient-extras.ts: strict rules forbid touching app.ts,
+// and the `/api/v1` mount for this router means we can add a top-level
+// `/users` route here without a new `app.use(...)` call.
+//
+// The existing `/shifts/staff` endpoint omits `phone` and `createdAt`, which
+// is why the UsersPage rendered empty "Joined" / "Phone" cells — and the
+// page was falling back to `/doctors`, whose payload is shaped as
+// `{ user: { name, email, phone } }` (nested), so `u.name` etc. were all
+// undefined. This endpoint returns the exact shape the `StaffUser`
+// interface in apps/web/src/app/dashboard/users/page.tsx expects.
+router.get(
+  "/users",
+  authorize(Role.ADMIN),
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const users = await prisma.user.findMany({
+        where: {
+          role: { in: [Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION] },
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          role: true,
+          isActive: true,
+          createdAt: true,
+        },
+        orderBy: [{ role: "asc" }, { name: "asc" }],
+      });
+      res.json({ success: true, data: users, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // ─── User dashboard preferences ───────────────────────
 
 router.get(

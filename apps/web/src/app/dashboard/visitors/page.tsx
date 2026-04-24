@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Camera, Upload, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 
 interface Visitor {
   id: string;
@@ -44,6 +45,7 @@ function elapsedMinutes(checkInAt: string, checkOutAt: string | null): number {
 }
 
 export default function VisitorsPage() {
+  const confirm = useConfirm();
   const [visitors, setVisitors] = useState<Visitor[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [tab, setTab] = useState<"active" | "today">("active");
@@ -211,7 +213,7 @@ export default function VisitorsPage() {
   }
 
   async function checkOut(id: string) {
-    if (!confirm("Check out this visitor?")) return;
+    if (!(await confirm({ title: "Check out this visitor?" }))) return;
     try {
       await api.patch(`/visitors/${id}/checkout`, {});
       load();

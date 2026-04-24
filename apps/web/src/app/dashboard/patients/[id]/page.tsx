@@ -5,7 +5,9 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import {
   ArrowLeft,
   ChevronDown,
@@ -801,7 +803,7 @@ export default function PatientDetailPage() {
                           </span>
                         </div>
                         <p className="mt-0.5 text-sm text-gray-500">
-                          Dr. {visit.doctor?.user?.name || "---"}{" "}
+                          {visit.doctor?.user?.name ? formatDoctorName(visit.doctor.user.name) : "---"}{" "}
                           {visit.doctor?.specialization
                             ? `(${visit.doctor.specialization})`
                             : ""}
@@ -1732,7 +1734,7 @@ function InvoiceList({ invoices }: { invoices: InvoiceLine[] }) {
                 </td>
                 <td className="py-2 text-gray-600">
                   {inv.appointment?.doctor?.user?.name
-                    ? `Dr. ${inv.appointment.doctor.user.name}`
+                    ? formatDoctorName(inv.appointment.doctor.user.name)
                     : "—"}
                 </td>
                 <td className="py-2 text-right font-medium">
@@ -1987,7 +1989,7 @@ function LabResultsTab({ patientId }: { patientId: string }) {
                 <p className="mt-0.5 text-sm text-gray-500">
                   Ordered {new Date(o.orderedAt).toLocaleDateString()}
                   {o.doctor?.user?.name
-                    ? ` · Dr. ${o.doctor.user.name}`
+                    ? ` · ${formatDoctorName(o.doctor.user.name)}`
                     : ""}
                   {totalResults > 0
                     ? ` · ${totalResults} result(s)`
@@ -2397,7 +2399,7 @@ function QuickBookModal({
             >
               {doctors.map((d) => (
                 <option key={d.id} value={d.id}>
-                  Dr. {d.user.name}
+                  {formatDoctorName(d.user.name)}
                   {d.specialization ? ` — ${d.specialization}` : ""}
                 </option>
               ))}
@@ -2455,6 +2457,7 @@ function MedicalRecordsTab({
   patientId: string;
   canEdit: boolean;
 }) {
+  const confirm = useConfirm();
   const [allergies, setAllergies] = useState<Allergy[]>([]);
   const [conditions, setConditions] = useState<Condition[]>([]);
   const [family, setFamily] = useState<FamilyHist[]>([]);
@@ -2494,12 +2497,12 @@ function MedicalRecordsTab({
   }, [load]);
 
   async function del(url: string) {
-    if (!confirm("Delete this record?")) return;
+    if (!(await confirm({ title: "Delete this record?", danger: true }))) return;
     try {
       await api.delete(url);
       load();
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
   }
 
@@ -2836,7 +2839,7 @@ function AllergyForm({
       });
       onSaved();
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
     setSaving(false);
   }
@@ -2936,7 +2939,7 @@ function ConditionForm({
       });
       onSaved();
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
     setSaving(false);
   }
@@ -3044,7 +3047,7 @@ function FamilyForm({
       });
       onSaved();
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
     setSaving(false);
   }
@@ -3137,7 +3140,7 @@ function ImmunizationForm({
       });
       onSaved();
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
     setSaving(false);
   }
@@ -3255,6 +3258,7 @@ function DocumentsTab({
   patientId: string;
   canEdit: boolean;
 }) {
+  const confirm = useConfirm();
   const [docs, setDocs] = useState<PatientDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
@@ -3289,17 +3293,17 @@ function DocumentsTab({
         window.open(origin + url, "_blank");
       }
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
   }
 
   async function del(id: string) {
-    if (!confirm("Delete this document?")) return;
+    if (!(await confirm({ title: "Delete this document?", danger: true }))) return;
     try {
       await api.delete(`/ehr/documents/${id}`);
       load();
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
   }
 
@@ -3421,7 +3425,7 @@ function DocumentUploadForm({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!file) return alert("Please choose a file");
+    if (!file) return toast.error("Please choose a file");
     setSaving(true);
     try {
       const base64 = await new Promise<string>((resolve, reject) => {
@@ -3454,7 +3458,7 @@ function DocumentUploadForm({
       });
       onSaved();
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
     setSaving(false);
   }
@@ -3966,7 +3970,7 @@ function Patient360Tab({
                           {rx.diagnosis}
                         </p>
                         <p className="text-xs text-gray-500">
-                          Dr. {rx.doctor?.user?.name || "—"} ·{" "}
+                          {rx.doctor?.user?.name ? formatDoctorName(rx.doctor.user.name) : "—"} ·{" "}
                           {new Date(rx.createdAt).toLocaleDateString()}
                         </p>
                       </div>
@@ -4262,6 +4266,7 @@ function MergePatientModal({
   patient: PatientDetail;
   onClose: () => void;
 }) {
+  const confirm = useConfirm();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PatientSearchResult[]>([]);
   const [selected, setSelected] = useState<PatientSearchResult | null>(null);
@@ -4291,9 +4296,11 @@ function MergePatientModal({
   async function confirmMerge() {
     if (!selected) return;
     if (
-      !confirm(
-        `Merge "${selected.user.name}" (${selected.mrNumber}) into "${patient.user.name}" (${patient.mrNumber})?\nThis cannot be undone.`
-      )
+      !(await confirm({
+        title: `Merge "${selected.user.name}" (${selected.mrNumber}) into "${patient.user.name}" (${patient.mrNumber})?`,
+        message: "This cannot be undone.",
+        danger: true,
+      }))
     )
       return;
     setMerging(true);
@@ -4538,6 +4545,7 @@ function FamilyLinksSection({
   patientId: string;
   canEdit: boolean;
 }) {
+  const confirm = useConfirm();
   const [data, setData] = useState<FamilyData | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -4557,7 +4565,7 @@ function FamilyLinksSection({
   }, [load]);
 
   async function unlink(relatedId: string) {
-    if (!confirm("Unlink this family member?")) return;
+    if (!(await confirm({ title: "Unlink this family member?", danger: true }))) return;
     try {
       await api.delete(`/patients/${patientId}/link-family/${relatedId}`);
       toast.success("Unlinked");
@@ -4853,6 +4861,7 @@ function AdvanceDirectivesSection({
   patientId: string;
   canEdit: boolean;
 }) {
+  const confirm = useConfirm();
   const [directives, setDirectives] = useState<AdvanceDirective[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -4872,7 +4881,7 @@ function AdvanceDirectivesSection({
   }, [load]);
 
   async function softDelete(id: string) {
-    if (!confirm("Mark this directive inactive?")) return;
+    if (!(await confirm({ title: "Mark this directive inactive?", danger: true }))) return;
     try {
       await api.delete(`/ehr/advance-directives/${id}`);
       toast.success("Directive inactivated");
@@ -5111,7 +5120,7 @@ function PricingTierBadge({
       onUpdated(value);
       setEditing(false);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Update failed");
+      toast.error(err instanceof Error ? err.message : "Update failed");
     }
     setSaving(false);
   }

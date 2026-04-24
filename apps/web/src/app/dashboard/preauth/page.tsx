@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { FileCheck, Plus, X } from "lucide-react";
 
 type Tab = "PENDING" | "APPROVED" | "REJECTED" | "ALL";
@@ -251,7 +252,10 @@ function NewRequestModal({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!patient) return alert("Select a patient");
+    if (!patient) {
+      toast.error("Select a patient");
+      return;
+    }
     setSaving(true);
     try {
       await api.post("/preauth", {
@@ -266,7 +270,7 @@ function NewRequestModal({
       onSaved();
       onClose();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     }
     setSaving(false);
   }
@@ -442,7 +446,7 @@ function UpdateStatusModal({
       onSaved();
       onClose();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     }
     setSaving(false);
   }

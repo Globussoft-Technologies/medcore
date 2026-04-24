@@ -182,6 +182,52 @@ router.post(
   }
 );
 
+// ── GET /api/v1/ai/adherence/mine ───────────────────────────────────────────
+//
+// Issue #24: patients don't know (and shouldn't need to know) their internal
+// patientId. Resolve it server-side from the authenticated user's Patient
+// record, then return the same payload as `/:patientId`. Non-patient roles
+// receive 403 — staff have the `/:patientId` endpoint for lookup by id.
+//
+// MUST be declared BEFORE the `/:patientId` route so Express doesn't treat
+// the literal "mine" as a UUID param and fail uuid validation.
+router.get(
+  "/mine",
+  authorize(Role.PATIENT),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = req.user!;
+      const patient = await prisma.patient.findFirst({
+        where: { userId: user.userId },
+        select: { id: true },
+      });
+      if (!patient) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "No patient profile linked to this account",
+        });
+        return;
+      }
+
+      const schedules = await prisma.adherenceSchedule.findMany({
+        where: { patientId: patient.id, active: true },
+        orderBy: { createdAt: "desc" },
+      });
+
+      safeAudit(req, "AI_ADHERENCE_READ", "AdherenceSchedule", undefined, {
+        patientId: patient.id,
+        resultCount: schedules.length,
+        via: "mine",
+      });
+
+      res.json({ success: true, data: schedules, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // ── GET /api/v1/ai/adherence/:patientId ─────────────────────────────────────
 
 router.get(

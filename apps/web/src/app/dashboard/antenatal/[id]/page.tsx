@@ -6,6 +6,7 @@ import Link from "next/link";
 import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
+import { usePrompt } from "@/lib/use-dialog";
 import {
   ArrowLeft,
   Plus,
@@ -887,6 +888,7 @@ interface Partograph {
 }
 
 function PartographTab({ caseId, canEdit }: { caseId: string; canEdit: boolean }) {
+  const promptUser = usePrompt();
   const [list, setList] = useState<Partograph[]>([]);
   const [active, setActive] = useState<Partograph | null>(null);
   const [loading, setLoading] = useState(true);
@@ -958,7 +960,12 @@ function PartographTab({ caseId, canEdit }: { caseId: string; canEdit: boolean }
 
   async function endPg() {
     if (!active) return;
-    const outcome = prompt("Outcome (e.g., Normal delivery, C-section):");
+    const outcome = await promptUser({
+      title: "End partograph",
+      label: "Outcome",
+      placeholder: "e.g., Normal delivery, C-section",
+      required: true,
+    });
     if (!outcome) return;
     try {
       await api.patch(`/antenatal/partograph/${active.id}/end`, { outcome });

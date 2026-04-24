@@ -25,6 +25,10 @@ const en: Dict = {
   "login.newPatient": "New Patient?",
   "login.register": "Register here",
   "login.error.generic": "Login failed",
+  "login.error.rateLimited":
+    "Too many login attempts. Please wait a minute and try again.",
+  "login.error.invalidCredentials": "Invalid email or password.",
+  "login.2fa.error.generic": "Invalid 2FA code",
   "login.marketing.tagline": "Streamlining hospital operations from reception to prescription",
   "login.marketing.feature1": "OPD queue management with real-time token tracking",
   "login.marketing.feature2": "Digital prescriptions with QR-based verification",
@@ -486,6 +490,10 @@ const hi: Dict = {
   "login.newPatient": "नए मरीज़?",
   "login.register": "यहाँ पंजीकरण करें",
   "login.error.generic": "लॉगिन विफल",
+  "login.error.rateLimited":
+    "बहुत अधिक लॉगिन प्रयास। कृपया एक मिनट प्रतीक्षा करें और पुनः प्रयास करें।",
+  "login.error.invalidCredentials": "अमान्य ईमेल या पासवर्ड।",
+  "login.2fa.error.generic": "अमान्य 2FA कोड",
   "login.marketing.tagline": "रिसेप्शन से प्रिस्क्रिप्शन तक अस्पताल के संचालन को सुव्यवस्थित करना",
   "login.marketing.feature1": "रीयल-टाइम टोकन ट्रैकिंग के साथ ओपीडी कतार प्रबंधन",
   "login.marketing.feature2": "क्यूआर-आधारित सत्यापन के साथ डिजिटल प्रिस्क्रिप्शन",

@@ -6,6 +6,23 @@ import { api } from "@/lib/api";
 
 type Step = "email" | "reset" | "done";
 
+/**
+ * Issue #15: match the login page's status-aware error mapping so that a
+ * throttled /auth/forgot-password or /auth/reset-password does not render
+ * as the backend's raw "Request failed" message.
+ */
+function authErrorMessage(err: unknown, fallback: string): string {
+  const status =
+    err && typeof err === "object" && "status" in err
+      ? (err as { status?: number }).status
+      : undefined;
+  if (status === 429) {
+    return "Too many attempts. Please wait a minute and try again.";
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
+}
+
 export default function ForgotPasswordPage() {
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
@@ -23,7 +40,7 @@ export default function ForgotPasswordPage() {
       await api.post("/auth/forgot-password", { email });
       setStep("reset");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(authErrorMessage(err, "Something went wrong"));
     } finally {
       setLoading(false);
     }
@@ -38,7 +55,7 @@ export default function ForgotPasswordPage() {
       await api.post("/auth/reset-password", { email, code, newPassword });
       setStep("done");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(authErrorMessage(err, "Something went wrong"));
     } finally {
       setLoading(false);
     }

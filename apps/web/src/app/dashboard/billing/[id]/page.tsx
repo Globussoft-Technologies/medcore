@@ -4,7 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api, openPrintEndpoint } from "@/lib/api";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import {
   Printer,
   ArrowLeft,
@@ -69,6 +71,7 @@ function fmtMoney(n: number) {
 export default function InvoiceDetailPage() {
   const params = useParams();
   const id = params.id as string;
+  const confirm = useConfirm();
   const [invoice, setInvoice] = useState<InvoiceDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -172,7 +175,7 @@ export default function InvoiceDetailPage() {
   }
 
   async function removeItem(itemId: string) {
-    if (!confirm("Remove this line item?")) return;
+    if (!(await confirm({ title: "Remove this line item?", danger: true }))) return;
     try {
       await api.delete(`/billing/invoices/${id}/items/${itemId}`);
       loadInvoice();
@@ -470,7 +473,7 @@ export default function InvoiceDetailPage() {
                 Consultation
               </h3>
               <p className="font-medium">
-                Dr. {invoice.appointment.doctor.user.name}
+                {formatDoctorName(invoice.appointment.doctor.user.name)}
               </p>
               <p className="text-sm text-gray-600">
                 {invoice.appointment.doctor.specialization}

@@ -17,6 +17,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import {
   Shield,
@@ -444,6 +446,7 @@ function LinkAbhaTab({ patient }: { patient: PatientOpt | null }) {
 }
 
 function ConsentsTab({ patient }: { patient: PatientOpt | null }) {
+  const confirm = useConfirm();
   const [consents, setConsents] = useState<ConsentRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -523,14 +526,14 @@ function ConsentsTab({ patient }: { patient: PatientOpt | null }) {
   }
 
   async function revoke(id: string) {
-    if (!confirm("Revoke this consent artefact?")) return;
+    if (!(await confirm({ title: "Revoke this consent artefact?", danger: true }))) return;
     try {
       await api.post(`/abdm/consent/${id}/revoke`);
       setConsents((prev) =>
         prev.map((c) => (c.id === id ? { ...c, status: "REVOKED" } : c))
       );
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     }
   }
 

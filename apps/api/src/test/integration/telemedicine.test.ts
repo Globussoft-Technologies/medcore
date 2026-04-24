@@ -117,6 +117,37 @@ describeIfDB("Telemedicine API (integration)", () => {
     expect(res.status).toBe(400);
   });
 
+  // ─── Issues #18 / #27 (server defense-in-depth) ─────────────────────
+  it("rejects negative fee (400, issue #18)", async () => {
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    const res = await request(app)
+      .post("/api/v1/telemedicine")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        patientId: patient.id,
+        doctorId: doctor.id,
+        scheduledAt: new Date(Date.now() + 3600_000).toISOString(),
+        fee: -500,
+      });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects past scheduledAt (400, issue #18)", async () => {
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    const res = await request(app)
+      .post("/api/v1/telemedicine")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        patientId: patient.id,
+        doctorId: doctor.id,
+        scheduledAt: "2020-01-01T00:00:00.000Z",
+        fee: 100,
+      });
+    expect(res.status).toBe(400);
+  });
+
   it("cancels a session", async () => {
     const { session } = await setupSession();
     const res = await request(app)

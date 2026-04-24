@@ -1,8 +1,32 @@
 import { z } from "zod";
 
+/**
+ * Dosage must be a positive numeric amount followed by an optional unit
+ * (e.g. "500mg", "10 ml", "2.5 mcg"). Leading minus signs, zero, and
+ * malformed free text are rejected. Any non-digit prefix (other than optional
+ * whitespace) is also rejected — this specifically blocks "-100mg" (Issue #9)
+ * while still accepting common shapes like "1 tab", "0.25 mg", "½" is NOT
+ * accepted — only decimal notation.
+ */
+const DOSAGE_REGEX = /^\s*\d+(?:\.\d+)?\s*[A-Za-z%/µμ]*\s*$/;
+
+export const dosageStringSchema = z
+  .string()
+  .min(1, "Dosage is required")
+  .refine((v) => DOSAGE_REGEX.test(v), {
+    message: "Dosage must be a positive number with an optional unit (e.g. 500mg)",
+  })
+  .refine(
+    (v) => {
+      const num = parseFloat(v);
+      return Number.isFinite(num) && num > 0;
+    },
+    { message: "Dosage must be greater than zero" }
+  );
+
 const prescriptionItemSchema = z.object({
   medicineName: z.string().min(1, "Medicine name is required"),
-  dosage: z.string().min(1, "Dosage is required"),
+  dosage: dosageStringSchema,
   frequency: z.string().min(1, "Frequency is required"),
   duration: z.string().min(1, "Duration is required"),
   instructions: z.string().optional(),

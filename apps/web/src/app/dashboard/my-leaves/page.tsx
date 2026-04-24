@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
+import { formatDate } from "@/lib/format";
 import { PlaneTakeoff, Plus, XCircle } from "lucide-react";
 
 interface Leave {
@@ -42,6 +43,17 @@ export default function MyLeavesPage() {
     toDate: "",
     reason: "",
   });
+  // Field-level error messages, keyed by field name. Populated either by
+  // client-side checks (date-range) or by backend 400 responses (Zod issues).
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  // Recompute the To-date error reactively as the user edits either side of
+  // the range. This is issue #32's real requirement: show guidance next to
+  // the To-date input BEFORE the user hits Submit, instead of a generic alert.
+  const toDateError =
+    form.fromDate && form.toDate && form.toDate < form.fromDate
+      ? "End date must be on or after start date"
+      : fieldErrors.toDate || "";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -63,12 +75,42 @@ export default function MyLeavesPage() {
 
   async function submitLeave(e: React.FormEvent) {
     e.preventDefault();
+    // Client-side gate: show the same field-level message the server would
+    // reject with, instead of submitting and then rendering the 400 as an
+    // alert(). Matches issue #32's UX requirement.
+    if (form.fromDate && form.toDate && form.toDate < form.fromDate) {
+      setFieldErrors({
+        toDate: "End date must be on or after start date",
+      });
+      return;
+    }
+    setFieldErrors({});
     try {
       await api.post("/leaves", form);
       setShowModal(false);
       setForm({ type: "CASUAL", fromDate: "", toDate: "", reason: "" });
+      setFieldErrors({});
       load();
     } catch (err) {
+      // If the server returned Zod field-level issues, surface them next to
+      // the offending input instead of as a generic alert. The API's
+      // errorHandler returns details as [{ field, message }, ...].
+      const payload = (err as { payload?: { details?: unknown } })?.payload;
+      const details = payload && typeof payload === "object"
+        ? (payload as { details?: unknown }).details
+        : undefined;
+      if (Array.isArray(details) && details.length > 0) {
+        const next: Record<string, string> = {};
+        for (const issue of details as Array<{ field?: string; message?: string }>) {
+          if (issue?.field && issue?.message && !next[issue.field]) {
+            next[issue.field] = issue.message;
+          }
+        }
+        if (Object.keys(next).length > 0) {
+          setFieldErrors(next);
+          return;
+        }
+      }
       alert(err instanceof Error ? err.message : "Request failed");
     }
   }
@@ -170,8 +212,7 @@ export default function MyLeavesPage() {
                 <tr key={l.id} className="border-b last:border-0">
                   <td className="px-4 py-3 text-sm font-medium">{l.type}</td>
                   <td className="px-4 py-3 text-sm">
-                    {new Date(l.fromDate).toLocaleDateString()} –{" "}
-                    {new Date(l.toDate).toLocaleDateString()}
+                    {formatDate(l.fromDate)} – {formatDate(l.toDate)}
                   </td>
                   <td className="px-4 py-3 text-sm font-semibold">
                     {l.totalDays}
@@ -243,8 +284,11 @@ export default function MyLeavesPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">From</label>
+                  <label htmlFor="leave-from" className="mb-1 block text-sm font-medium">
+                    From
+                  </label>
                   <input
+                    id="leave-from"
                     type="date"
                     required
                     value={form.fromDate}
@@ -255,21 +299,49 @@ export default function MyLeavesPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">To</label>
+                  <label htmlFor="leave-to" className="mb-1 block text-sm font-medium">
+                    To
+                  </label>
                   <input
+                    id="leave-to"
                     type="date"
                     required
                     value={form.toDate}
-                    onChange={(e) =>
-                      setForm({ ...form, toDate: e.target.value })
-                    }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    min={form.fromDate || undefined}
+                    onChange={(e) => {
+                      setForm({ ...form, toDate: e.target.value });
+                      // Clear any server-side error once the user edits.
+                      if (fieldErrors.toDate) {
+                        setFieldErrors((prev) => {
+                          const next = { ...prev };
+                          delete next.toDate;
+                          return next;
+                        });
+                      }
+                    }}
+                    aria-invalid={toDateError ? true : undefined}
+                    aria-describedby={toDateError ? "toDate-error" : undefined}
+                    className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                      toDateError ? "border-red-500" : ""
+                    }`}
                   />
+                  {toDateError && (
+                    <p
+                      id="toDate-error"
+                      role="alert"
+                      className="mt-1 text-xs text-red-600"
+                    >
+                      {toDateError}
+                    </p>
+                  )}
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">Reason</label>
+                <label htmlFor="leave-reason" className="mb-1 block text-sm font-medium">
+                  Reason
+                </label>
                 <textarea
+                  id="leave-reason"
                   required
                   rows={3}
                   value={form.reason}

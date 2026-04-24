@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 import {
   Activity,
   ArrowRight,
@@ -101,7 +102,7 @@ export default function DoctorWorkspacePage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Workspace</h1>
           <p className="text-sm text-gray-500">
-            Everything you need for today, Dr. {user.name}
+            Everything you need for today, {formatDoctorName(user.name)}
           </p>
         </div>
         <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
@@ -118,13 +119,13 @@ export default function DoctorWorkspacePage() {
           color="bg-primary"
         />
         <ShortcutBtn
-          href="/dashboard/prescriptions/new"
+          href="/dashboard/prescriptions?new=1"
           Icon={Pill}
           label="Write Rx"
           color="bg-green-600"
         />
         <ShortcutBtn
-          href="/dashboard/lab/new"
+          href="/dashboard/lab?new=1"
           Icon={FlaskConical}
           label="Order Labs"
           color="bg-teal-600"

@@ -26,12 +26,14 @@ async function buildTestApp(): Promise<express.Express> {
 let app: express.Express;
 let adminToken: string;
 let doctorToken: string;
+let receptionToken: string;
 
 describeIfDB("AI Sentiment API (integration)", () => {
   beforeAll(async () => {
     await resetDB();
     adminToken = await getAuthToken("ADMIN");
     doctorToken = await getAuthToken("DOCTOR");
+    receptionToken = await getAuthToken("RECEPTION");
     app = await buildTestApp();
   });
 
@@ -103,6 +105,35 @@ describeIfDB("AI Sentiment API (integration)", () => {
     const res = await request(app)
       .get("/api/v1/ai/sentiment/nps-drivers")
       .set("Authorization", `Bearer ${doctorToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  // Issue #28: the reception dashboard renders the NPS-drivers widget. The
+  // router-level authorize was widened so this returns 200 instead of 403.
+  it("allows RECEPTION on GET /nps-drivers", async () => {
+    const { summarizeNpsDrivers } = await import("../../services/ai/sentiment-ai");
+    vi.mocked(summarizeNpsDrivers).mockResolvedValueOnce({
+      windowDays: 30,
+      totalFeedback: 0,
+      positiveThemes: [],
+      negativeThemes: [],
+      actionableInsights: [],
+      generatedAt: new Date().toISOString(),
+    });
+
+    const res = await request(app)
+      .get("/api/v1/ai/sentiment/nps-drivers?days=30")
+      .set("Authorization", `Bearer ${receptionToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.totalFeedback).toBe(0);
+  });
+
+  it("still rejects RECEPTION (403) on POST /analyze/:feedbackId", async () => {
+    // Write-paths remain admin-only even though reads were widened.
+    const res = await request(app)
+      .post("/api/v1/ai/sentiment/analyze/fb-x")
+      .set("Authorization", `Bearer ${receptionToken}`);
     expect(res.status).toBe(403);
   });
 

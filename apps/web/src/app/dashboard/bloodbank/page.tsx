@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import { Droplet, Plus, Search, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 
 const BLOOD_GROUPS = [
@@ -99,6 +100,7 @@ type Tab = "inventory" | "donors" | "donations" | "requests";
 
 export default function BloodBankPage() {
   const { user } = useAuthStore();
+  const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>("inventory");
   const [loading, setLoading] = useState(true);
 
@@ -349,7 +351,7 @@ export default function BloodBankPage() {
                 {canRegisterDonor && (
                   <button
                     onClick={async () => {
-                      if (!confirm("Send donation reminders to all eligible donors?")) return;
+                      if (!(await confirm({ title: "Send donation reminders to all eligible donors?" }))) return;
                       try {
                         const res = await api.post<{
                           data: { count: number };

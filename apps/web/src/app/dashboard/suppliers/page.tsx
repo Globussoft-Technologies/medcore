@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { Truck, Plus, X, Mail, Phone, MapPin, FileText } from "lucide-react";
 
 interface SupplierRecord {
@@ -441,7 +442,7 @@ function SupplierContractPanel({
       onUpdated({ contractStart: start || null, contractEnd: end || null });
       setEdit(false);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Save failed");
+      toast.error(err instanceof Error ? err.message : "Save failed");
     }
     setSaving(false);
   }

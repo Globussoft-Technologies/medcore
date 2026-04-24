@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Megaphone, Send, Mail, MessageSquare, Smartphone, Bell } from "lucide-react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 
 interface Broadcast {
@@ -111,7 +112,7 @@ export default function BroadcastsPage() {
 
   async function send() {
     if (!title || !message || channels.length === 0) {
-      alert("Title, message, and at least one channel required");
+      toast.error("Title, message, and at least one channel required");
       return;
     }
     setSending(true);
@@ -140,7 +141,7 @@ export default function BroadcastsPage() {
       );
       setBroadcasts(bRes.data);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Send failed");
+      toast.error(err instanceof Error ? err.message : "Send failed");
     }
     setSending(false);
   }

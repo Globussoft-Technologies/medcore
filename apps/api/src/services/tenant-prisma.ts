@@ -166,6 +166,9 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   "AbhaLink",
   "CareContext",
   "InsuranceClaim2",
+  // Radiology Report Drafting (PRD §7.2, 2026-04-24)
+  "RadiologyStudy",
+  "RadiologyReport",
 ]);
 
 /** Operations on which we INJECT `tenantId` into `args.data`. */

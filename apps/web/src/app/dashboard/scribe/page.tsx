@@ -779,6 +779,11 @@ export default function ScribePage() {
   const voiceCmdRecognitionRef = useRef<any>(null);
 
   const [useServerASR, setUseServerASR] = useState(false);
+  // Acoustic diarization opt-in. When true, the upload endpoint is asked to
+  // use the configured diarizing provider (AssemblyAI) instead of Sarvam,
+  // and the response `segments[]` carry `speaker` labels that pre-populate
+  // the per-entry dropdown — replacing the alternating heuristic from #S4.
+  const [acousticDiarize, setAcousticDiarize] = useState(false);
   const [mediaRecorderSupported] = useState(
     () => typeof window !== "undefined" && typeof (window as any).MediaRecorder !== "undefined"
   );
@@ -870,9 +875,11 @@ export default function ScribePage() {
     }
   };
 
-  // Shared handler: push a final transcript string into the scribe session
+  // Shared handler: push a final transcript string into the scribe session.
+  // Accepts ATTENDANT as well so diarization-driven flushes can emit family
+  // members' utterances without losing the acoustic label.
   const handleFinalTranscript = useCallback(
-    async (text: string, speaker: "DOCTOR" | "PATIENT") => {
+    async (text: string, speaker: "DOCTOR" | "PATIENT" | "ATTENDANT") => {
       if (!text.trim() || !sessionId) return;
       const newEntry = {
         speaker,
@@ -949,7 +956,16 @@ export default function ScribePage() {
     }
   }, [sessionId, token]);
 
-  // Flush accumulated audio chunks to Sarvam ASR and push transcript
+  // Flush accumulated audio chunks to the server ASR endpoint and push the
+  // resulting transcript into the scribe session.
+  //
+  // GAP-ASR-DIARIZE: when acousticDiarize is on, the endpoint returns
+  // `segments[]` with per-utterance speaker labels (DOCTOR | PATIENT |
+  // ATTENDANT) from AssemblyAI. Each segment becomes its own transcript
+  // entry so the doctor sees the acoustic split in the dropdown. When off
+  // (or when the provider returns a single un-labeled segment), we fall
+  // back to the legacy behaviour: emit one entry tagged with the `speaker`
+  // the doctor currently has selected.
   const flushAudioChunks = useCallback(
     async (speaker: "DOCTOR" | "PATIENT") => {
       if (audioChunksRef.current.length === 0) return;
@@ -963,10 +979,39 @@ export default function ScribePage() {
         );
         const res = await api.post<any>(
           "/ai/transcribe",
-          { audioBase64: base64, language: "en-IN" },
+          {
+            audioBase64: base64,
+            language: "en-IN",
+            // Only pass the provider override when diarization is on; leaving
+            // it off keeps the server's default (ASR_PROVIDER env) in charge.
+            ...(acousticDiarize ? { provider: "assemblyai", diarize: true } : {}),
+          },
           { headers: { Authorization: `Bearer ${token}` } }
         );
-        const transcript: string = res.data.data?.transcript ?? "";
+        const data = res.data.data ?? {};
+        const segments: Array<{ text: string; speaker?: string }> = Array.isArray(
+          data.segments,
+        )
+          ? data.segments
+          : [];
+        // Prefer per-segment emission when diarization actually labelled
+        // speakers (more than just a single un-labeled entry).
+        const hasAcousticLabels = segments.some(
+          (s) => s.speaker === "DOCTOR" || s.speaker === "PATIENT" || s.speaker === "ATTENDANT",
+        );
+        if (acousticDiarize && hasAcousticLabels) {
+          for (const seg of segments) {
+            const segText = (seg.text ?? "").trim();
+            if (!segText) continue;
+            const segSpeaker: "DOCTOR" | "PATIENT" | "ATTENDANT" =
+              seg.speaker === "PATIENT" || seg.speaker === "ATTENDANT"
+                ? seg.speaker
+                : "DOCTOR";
+            await handleFinalTranscript(segText, segSpeaker);
+          }
+          return;
+        }
+        const transcript: string = data.transcript ?? "";
         if (transcript.trim()) {
           await handleFinalTranscript(transcript, speaker);
         }
@@ -974,7 +1019,7 @@ export default function ScribePage() {
         /* silent */
       }
     },
-    [token, handleFinalTranscript]
+    [token, handleFinalTranscript, acousticDiarize]
   );
 
   const startServerASR = useCallback(
@@ -1792,6 +1837,49 @@ export default function ScribePage() {
                       }`}
                     >
                       Sarvam ASR
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* GAP-ASR-DIARIZE: optional acoustic speaker detection. Requires
+                  the server to be configured with ASSEMBLYAI_API_KEY and the
+                  scribe to be using the server-side ASR engine above. */}
+              {mediaRecorderSupported && useServerASR && (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium text-gray-500">
+                      Acoustic speaker detection
+                    </p>
+                    <span
+                      className="text-[10px] text-gray-400 cursor-help"
+                      title="When enabled, MedCore routes audio to AssemblyAI to detect who is speaking (Doctor / Patient / Attendant) from the audio itself, instead of the manual speaker toggle. Requires ASSEMBLYAI_API_KEY on the server. Data leaves the India region — leave off for DPDP-sensitive deployments."
+                    >
+                      (?)
+                    </span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <button
+                      disabled={recording}
+                      onClick={() => setAcousticDiarize(false)}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        !acousticDiarize
+                          ? "bg-blue-600 text-white"
+                          : "border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                      }`}
+                    >
+                      Manual toggle
+                    </button>
+                    <button
+                      disabled={recording}
+                      onClick={() => setAcousticDiarize(true)}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        acousticDiarize
+                          ? "bg-purple-600 text-white"
+                          : "border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                      }`}
+                    >
+                      Acoustic (AssemblyAI)
                     </button>
                   </div>
                 </div>

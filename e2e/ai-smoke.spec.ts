@@ -276,12 +276,17 @@ test.describe("AI smoke (14 newer AI routes)", () => {
     await expect(
       page.getByRole("heading", { name: /insurance claims/i }).first()
     ).toBeVisible({ timeout: 15_000 });
-    // Primary CTA. NOTE: the page does NOT currently have an explicit "AI Draft"
-    // button — see report.
+    // Primary CTA.
     await expect(
       page.getByRole("button", { name: /submit new claim/i }).first()
     ).toBeVisible();
-    // Row from the stub.
+    // AI Draft button — now surfaced via
+    // `data-testid="insurance-claims-ai-draft"`. Previously this was flagged
+    // as missing in the E2E report; the page now wires through
+    // `POST /api/v1/ai/claims/draft/:consultationId`.
+    await expect(page.getByTestId("insurance-claims-ai-draft")).toBeVisible();
+    // Row from the stub (testid on each `<tr>`).
+    await expect(page.getByTestId("claim-row").first()).toBeVisible();
     await expect(page.getByText(/acme health/i).first()).toBeVisible();
   });
 
@@ -337,11 +342,15 @@ test.describe("AI smoke (14 newer AI routes)", () => {
       page.getByRole("heading", { name: /capacity forecast/i }).first()
     ).toBeVisible({ timeout: 15_000 });
 
-    const bedsTab = page.getByRole("button", { name: /^beds$/i }).first();
-    const icuTab = page.getByRole("button", { name: /^icu$/i }).first();
-    const otTab = page
-      .getByRole("button", { name: /operating theatres/i })
-      .first();
+    // Prefer the stable data-testid hooks on the tab buttons. The earlier
+    // text-based `getByRole("button", { name: /^beds$/i })` was fragile
+    // because the ICU/OT tabs render icons + text together, so the
+    // accessible name wasn't a clean match. Now that each tab is a
+    // `role="tab"` with `data-testid="capacity-tab-<key>"`, the lookup is
+    // unambiguous.
+    const bedsTab = page.getByTestId("capacity-tab-beds");
+    const icuTab = page.getByTestId("capacity-tab-icu");
+    const otTab = page.getByTestId("capacity-tab-ot");
     await expect(bedsTab).toBeVisible();
     await expect(icuTab).toBeVisible();
     await expect(otTab).toBeVisible();
@@ -442,8 +451,8 @@ test.describe("AI smoke (14 newer AI routes)", () => {
     await expect(
       page.getByRole("button", { name: /run scan now/i }).first()
     ).toBeVisible();
-    // Empty-state message (stub returned [])
-    await expect(page.getByText(/no matching alerts/i).first()).toBeVisible({
+    // Empty-state container now carries `data-testid="fraud-empty-state"`.
+    await expect(page.getByTestId("fraud-empty-state")).toBeVisible({
       timeout: 10_000,
     });
   });
@@ -484,11 +493,14 @@ test.describe("AI smoke (14 newer AI routes)", () => {
     await expect(
       page.getByRole("button", { name: /run sample audit/i }).first()
     ).toBeVisible();
-    // Row from the stubbed report.
-    await expect(page.getByText(/cons-smo/i).first()).toBeVisible({
+    // Row from the stubbed report — now tagged with `data-testid="docqa-report-row"`.
+    await expect(page.getByTestId("docqa-report-row").first()).toBeVisible({
       timeout: 10_000,
     });
+    await expect(page.getByText(/cons-smo/i).first()).toBeVisible();
     await expect(page.getByText(/87/).first()).toBeVisible();
+    // Detail panel container renders on the right.
+    await expect(page.getByTestId("docqa-detail")).toBeVisible();
   });
 
   // ── 11. /dashboard/feedback ──────────────────────────────────────────────

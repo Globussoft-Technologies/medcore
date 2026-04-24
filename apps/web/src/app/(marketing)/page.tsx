@@ -25,7 +25,7 @@ import { CTASection } from "./_components/CTASection";
 export const metadata = {
   title: "MedCore — Hospital management built for Indian hospitals",
   description:
-    "Run your hospital, not spreadsheets. AI triage, ambient scribe, ABDM-ready, FHIR R4 export, TPA claims, pharmacy and a patient app — all in one platform.",
+    "Run your hospital, not spreadsheets. AI triage, ambient scribe, drug-safety checks, claims auto-draft, ABDM-ready, FHIR R4 export, HL7 v2 inbound, TPA claims, pharmacy, and a patient app — all in one platform.",
 };
 
 const logos = ["Asha Hospital", "Sunrise Clinic", "Greenleaf Care", "Medicity", "Lotus Health", "Nova Med"];
@@ -68,7 +68,8 @@ export default function HomePage() {
             <p className="mx-auto mt-6 max-w-2xl text-lg text-gray-600 dark:text-gray-400 md:text-xl">
               MedCore runs your OPD queue, admissions, billing, pharmacy, lab,
               HR and a patient mobile app — with AI triage, ambient scribe,
-              ABDM/ABHA, FHIR R4 and TPA claims baked in.
+              drug-safety checks, claims auto-drafted from SOAP, ABDM/ABHA,
+              FHIR R4 and HL7 v2 inbound baked in.
             </p>
             <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link
@@ -154,8 +155,8 @@ export default function HomePage() {
             <FeatureCard icon={Users} title="HR" description="Shift roster, leaves, payroll, pay slips, certifications, 7 role levels." href="/features#hr" />
             <FeatureCard icon={Building2} title="Engagement" description="WhatsApp + SMS + email + push, feedback, NPS, complaints with SLA." href="/features#engagement" />
             <FeatureCard icon={Smartphone} title="Mobile" description="Patient app with live queue and lab reports, doctor-lite app for rounds." href="/features#mobile" />
-            <FeatureCard icon={Brain} title="AI + Automation" description="AI triage, ambient SOAP scribe, drug-safety checks, chart search, no-show predictions." href="/features#ai" />
-            <FeatureCard icon={Shield} title="Compliance & Interop" description="ABDM / ABHA linking, FHIR R4 export, DLT-compliant SMS, audit trail, multi-tenant ready." href="/features#compliance" />
+            <FeatureCard icon={Brain} title="AI + Automation" description="AI triage, ambient SOAP scribe with speaker relabel, drug-safety checks, chart search, claims auto-draft, no-show predictions." href="/features#ai" />
+            <FeatureCard icon={Shield} title="Compliance & Interop" description="ABDM / ABHA linking, FHIR R4 export, HL7 v2 inbound, DLT-compliant SMS, audit trail, multi-tenant ready." href="/features#compliance" />
           </div>
         </Container>
       </section>
@@ -178,17 +179,32 @@ export default function HomePage() {
             <FeatureCard
               icon={Stethoscope}
               title="AI Triage + Ambient Scribe"
-              description="Symptom triage in the patient's language, plus an ambient scribe that writes SOAP notes during the consult."
+              description="Symptom triage in the patient's language, plus an ambient scribe that writes SOAP notes during the consult with optional acoustic speaker diarization (AssemblyAI) or manual post-hoc speaker relabel."
             />
             <FeatureCard
               icon={Brain}
               title="Ambient chart search"
-              description="Ask natural-language questions over a patient's chart or your whole panel — answers cite the source."
+              description="Ask natural-language questions over a patient's chart — answers cite the source notes, labs and uploaded documents."
             />
             <FeatureCard
               icon={TrendingUp}
               title="ML-driven predictions"
               description="No-show scoring, pharmacy demand forecast, ER triage severity, adherence nudges — all running on your data."
+            />
+            <FeatureCard
+              icon={Receipt}
+              title="Claims auto-draft from SOAP"
+              description="The scribe's ICD-10 + CPT codes pre-fill a TPA claim draft so reception reviews in 30 seconds instead of re-keying the whole form."
+            />
+            <FeatureCard
+              icon={Sparkles}
+              title="Prompt registry + rollback"
+              description="Every LLM prompt is versioned in the DB. Admins activate a new version or one-shot roll back — every mutation audit-logged."
+            />
+            <FeatureCard
+              icon={Brain}
+              title="AI Radiology drafting"
+              description="Upload an imaging study, AI drafts an impression + findings with per-finding confidence, radiologist approves or amends with HITL workflow."
             />
             <FeatureCard
               icon={Shield}
@@ -197,8 +213,8 @@ export default function HomePage() {
             />
             <FeatureCard
               icon={FileJson}
-              title="FHIR R4 export"
-              description="Export any patient as FHIR R4 Patient, $everything bundle, or an ABDM push bundle — spec-compliant."
+              title="FHIR R4 + HL7 v2"
+              description="FHIR R4 Patient / Encounter / $everything bundles, plus a rate-limited HL7 v2 inbound endpoint for legacy lab analysers."
             />
             <FeatureCard
               icon={Languages}

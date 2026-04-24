@@ -16,7 +16,12 @@ export function logAICall(opts: {
     | "adherence-bot"
     | "er-triage"
     | "pharmacy-forecast"
-    | "model-router";
+    | "model-router"
+    // ASR provider paths — one entry per provider so alerts can be scoped to a
+    // single speech backend (e.g. AssemblyAI outage shouldn't page Sarvam oncall).
+    | "asr-sarvam"
+    | "asr-assemblyai"
+    | "asr-deepgram";
   model: string;
   promptTokens: number;
   completionTokens: number;

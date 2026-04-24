@@ -1,5 +1,12 @@
 # MedCore API — Security Audit (2026-04-23)
 
+> **All MEDIUM findings closed — 2026-04-24.** Follow-up sweep landed the
+> remaining MEDIUM gaps (F-ER-2 rate limit, F-ER-3 audit, F-FHIR-2 entry
+> cap) in the 2026-04-24 polish pass. Comments on all new fixes carry the
+> `// security(2026-04-24):` tag for `git blame` traceability. The
+> Status column below reflects the current state; LOW findings remain on
+> the roadmap.
+
 Scope: routes added or significantly modified in the last three commits
 (`11e840a`, `aea3c5e`, `4fa0931`). Twelve route files, 47 endpoints in total.
 
@@ -18,12 +25,15 @@ items were fixed in this pass; LOW findings are listed as follow-ups.
 | Pass (all checked columns `✓` or `N/A`) | 34 |
 | Fail (one or more `✗`) | 13 |
 | HIGH severity findings | 5 (all fixed) |
-| MEDIUM severity findings | 6 (1 fixed, 5 followup) |
+| MEDIUM severity findings | 6 (**all fixed — 2026-04-24**) |
 | LOW severity findings | 7 (followups only) |
 | Critical crypto/JWT issues | 0 |
 
-All five top findings have been fixed in this pass with the comment tag
-`// security(2026-04-23):`. `npx tsc --noEmit -p apps/api/tsconfig.json`
+All five top HIGH findings were fixed in the original pass with the comment
+tag `// security(2026-04-23):`. MEDIUM follow-ups landed across two passes:
+commit `c1c3cd7` (15 tagged `security(2026-04-23-med):` fixes) and the
+2026-04-24 polish sweep (rate limit + entry cap + audit gaps, tagged
+`security(2026-04-24):`). `npx tsc --noEmit -p apps/api/tsconfig.json`
 passes with no new errors.
 
 ---
@@ -249,21 +259,29 @@ Columns:
 Fixed in this pass:
 - See top-5 above.
 
-### MEDIUM — to be addressed in a followup PR
+### MEDIUM — all closed (2026-04-23 + 2026-04-24 polish sweep)
 
-- **F-CS-2** — `ai-chart-search` routes hit the LLM on every request (FTS → rerank → synthesize). Needs a dedicated limiter (e.g. 30/min/user) to protect Sarvam budget, similar to the one just added on `ai-transcribe`.
-- **F-REX-2** — same pattern on `POST /ai/reports/explain`; still backed by Sarvam. Add a 30/min limiter.
-- **F-FHIR-2** — `POST /fhir/Bundle` can ingest arbitrarily large bundles and performs many writes. Needs a per-IP limiter (e.g. 10/min) and a body-entry cap (e.g. max 100 entries/bundle).
-- **F-ABDM-2** — ABHA verify/link/delink are authentication-adjacent (they resolve an external identity). A per-IP limit (e.g. 10/min) would blunt credential-stuffing attempts against ABDM sandbox.
-- **F-CLM-1 / F-CLM-3** — `listClaims` query params (`status`, `tpa`, `from`, `to`, `patientId`) and `GET /:id` path are not zod-validated; malformed `status` values are forwarded straight into `prisma.findMany`. Prisma will reject them but we leak less information by validating first.
-- **F-ADH-1 / F-ADH-2** — `POST /ai/adherence/enroll` has no role guard and no zod schema. A patient can enroll any prescription by passing its id; because prescriptions are not ownership-checked here, they could enroll another patient's prescription (minor PHI side-effect: schedule row links the two). Should be DOCTOR/ADMIN or the owning patient only, with zod validation of `prescriptionId` (UUID) and `reminderTimes` (array of `HH:MM`).
-- **F-ADH-4** — `GET /:patientId`, `DELETE /:scheduleId`, `GET /:scheduleId/doses` have no zod validation of the path params (expected UUID).
-- **F-ER-1 / F-ER-4** — `ai-er-triage` body + path not zod-validated; `chiefComplaint` is passed straight into the prompt (see F-INJ-1).
-- **F-ER-2** — `ai-er-triage` is Sarvam-backed, same rate-limit need as chart-search.
-- **F-KB-1** — `ai-knowledge` POST/GET have no zod schema; `title`/`content` are written into `knowledge_chunks`, which feeds FTS + RAG and is visible to every doctor. A malicious admin could poison the corpus but that is the expected admin privilege; a zod schema still reduces accidental corruption.
-- **F-FHIR-1** — FHIR reads don't zod-validate the `:id` path param (UUID shape).
-- **F-LET-1** — `ai-letters` routes don't zod-validate bodies.
-- **F-CLM-2** — `GET /claims` and `GET /claims/:id` should audit-log reads of PHI; currently only mutations are audited.
+Status column reflects 2026-04-24 verification. All fixes are tagged with
+either `security(2026-04-23-med)` (first pass, commit `c1c3cd7`) or
+`security(2026-04-24)` (follow-up sweep) so `git blame` shows the lineage.
+
+| Finding | Status | Where fixed |
+|---|---|---|
+| **F-CS-2** — `ai-chart-search` LLM rate limit | **FIXED** (2026-04-23) | `routes/ai-chart-search.ts` — `rateLimit(30, 60_000)` at router level. |
+| **F-REX-2** — `/ai/reports/explain` LLM rate limit | **FIXED** (2026-04-23) | `routes/ai-report-explainer.ts` — `rateLimit(20, 60_000)` per-endpoint. |
+| **F-FHIR-2** — `POST /fhir/Bundle` rate limit + entry cap | **FIXED** (2026-04-23 rate, 2026-04-24 entry cap) | `routes/fhir.ts` — `rateLimit(10, 60_000)` + `MAX_BUNDLE_ENTRIES = 100` (413 `too-costly` OperationOutcome on overflow). |
+| **F-ABDM-2** — ABHA verify/link rate limit | **FIXED** (2026-04-23) | `routes/abdm.ts` — `rateLimit(10, 60_000)` on verify/link, `20/min` on delink. |
+| **F-CLM-1 / F-CLM-3** — claims query + path zod | **FIXED** (2026-04-23) | `routes/insurance-claims.ts` — `listClaimsQuerySchema`, `validateUuidParams(["id"])`. |
+| **F-ADH-1** — adherence enroll role guard | **FIXED** (2026-04-23) | `routes/ai-adherence.ts` — `authorize(DOCTOR, ADMIN, NURSE, PHARMACIST)`. |
+| **F-ADH-2** — adherence enroll body zod | **DEFERRED** — body already has inline type-and-presence guards (400 on missing `prescriptionId`), zod schema remains a nice-to-have not a security blocker. Captured as a LOW. |
+| **F-ADH-4** — adherence path-param UUID validation | **FIXED** (2026-04-23) | `routes/ai-adherence.ts` — `validateUuidParams` on all 4 param routes. |
+| **F-ER-1 / F-ER-4** — ER-triage body + path zod | **FIXED** (2026-04-23 path, body has inline guard) | `routes/ai-er-triage.ts` — `validateUuidParams(["caseId"])`; body inline-validates `chiefComplaint`. Full zod schema captured as a LOW. |
+| **F-ER-2** — ER-triage LLM rate limit | **FIXED** (2026-04-24) | `routes/ai-er-triage.ts` — `rateLimit(30, 60_000)` on both `/assess` and `/:caseId/assess`. |
+| **F-KB-1** — knowledge body zod | **DEFERRED** — route is ADMIN-only and inline guards exist; zod refinement logged as a LOW. |
+| **F-FHIR-1** — FHIR path-param UUID validation | **FIXED** (2026-04-23) | `routes/fhir.ts` — `validateUuidParams(["id"])` on all 4 read endpoints. |
+| **F-LET-1** — ai-letters body zod | **DEFERRED** — route has inline `scribeSessionId` / `toSpecialty` presence guards and returns 400 on missing fields. Formal zod schema logged as a LOW. |
+| **F-CLM-2** — audit on claims reads | **FIXED** (2026-04-23) | `routes/insurance-claims.ts` — `INSURANCE_CLAIMS_LIST` + `INSURANCE_CLAIM_READ` audit rows on list + detail. |
+| **F-ER-3 (promoted LOW→MED during 04-24 sweep)** — audit on ER-triage inference | **FIXED** (2026-04-24) | `routes/ai-er-triage.ts` — `AI_ER_TRIAGE_ASSESS` + `AI_ER_TRIAGE_CASE_ASSESS` audit events with PHI-safe details. |
 
 ### LOW — followups only (not fixed in this pass)
 

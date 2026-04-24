@@ -14,6 +14,30 @@
 
 ---
 
+## 0. The `package-lock.json` drift pattern
+
+This bit us three deploys in a row in April 2026 and is worth knowing before
+you start. The web build depends on `@tailwindcss/oxide`, which ships native
+binaries under `optionalDependencies`. Because of npm/cli#4828, `npm ci` on
+the Linux prod host used to resolve to a different optional set than a
+laptop (Windows / macOS) resolved, which caused either:
+
+- `Cannot find native binding` when the Linux-specific binding was missing, or
+- A modified `package-lock.json` in the working tree after `npm ci`, breaking
+  the "working tree clean" guard in step 0 of `scripts/deploy.sh`.
+
+**Fix (already in place):** `apps/web/package.json` pins
+`@tailwindcss/oxide-linux-x64-gnu` in `optionalDependencies` at the exact
+version resolved in `package-lock.json`. See the comment block at the top of
+`scripts/deploy.sh` (step 2) for the bump recipe if it ever drifts again.
+
+`scripts/deploy.sh` additionally runs `git checkout -- package-lock.json` if
+the post-`npm ci` tree is dirty on prod — last-line defence so the deploy
+doesn't abort on a cosmetic lock-file reshuffle. If that revert ever silences
+a *real* drift, section 0.1 of `DEPLOYMENT.md` walks through how to spot it.
+
+---
+
 ## 1. Pre-deploy checklist (run locally)
 
 Do all of this on your laptop **before** SSHing into prod.
@@ -40,18 +64,33 @@ Do **not** deploy when:
 
 ## 2. Outstanding migrations
 
-The following migrations live in `packages/db/prisma/migrations/` and are
-currently pending on prod (as of 2026-04-23):
+The migration history under `packages/db/prisma/migrations/` currently
+holds 16 migrations (all committed through 2026-04-24):
 
 | Folder | Introduces |
 |---|---|
+| `20260415000000_initial` | Initial schema |
+| `20260415000001_auth_persistence_tables` | DB-backed 2FA temp tokens + password-reset codes |
+| `20260415000002_add_pharmacist_lab_tech_roles` | `PHARMACIST` + `LAB_TECH` roles |
+| `20260415111002_razorpay_webhook_and_push_token` | Razorpay webhook idempotency; Expo push tokens |
+| `20260415120000_marketing_enquiry` | Marketing-site lead capture |
+| `20260422000000_ai_features` | First AI feature tables (scribe, triage) |
+| `20260422000001_triage_consent_fields` | Triage consent audit columns |
 | `20260423000001_ai_features_models` | AI Triage / Scribe / Drug-safety data models |
 | `20260423000002_abdm_insurance_jitsi_rag_models` | ABDM linkage, InsuranceClaim2 (TPA-aware), Jitsi rooms, RAG ingest tables |
 | `20260423000003_adherence_dose_log` | Medication-adherence dose-log + reminder queue |
-| `20260423000004_tenant_scoping` | *(pending — tenant agent finishing; do NOT deploy until merged to `main` and covered by `pre-deploy-check.sh`)* |
+| `20260423000004_tenant_foundation` | `Tenant` table + nullable `tenantId` on 20 foundation tables |
+| `20260423000005_tenant_scope_extended` | Nullable `tenantId` on 37 more tables *(requires `backfill-default-tenant.ts`)* |
+| `20260423000006_prompts` | `Prompt` table for the LLM prompt registry |
+| `20260423000007_prd_ai_features` | 13 PRD AI feature models (claims, capacity, coaching, roster, fraud, doc-QA, etc.) |
+| `20260424000001_admission_unique_and_invoice_gst` | Admission uniqueness constraint + invoice GST columns |
+| `20260424000002_admission_dama_and_tenant_extension` | DAMA status + more tenant-scope columns *(requires `backfill-default-tenant.ts`)* |
 
 `prisma migrate deploy` applies them in lexical (timestamp) order. Never edit
 a migration folder after it has landed on prod — add a forward-only fix.
+Any migration marked *(requires `backfill-default-tenant.ts`)* means you
+must run the backfill helper before flipping those columns to `NOT NULL`
+in a follow-up migration (see step 5 below).
 
 ---
 
@@ -84,6 +123,14 @@ cd /home/empcloud-development/medcore
    ```bash
    npx prisma migrate deploy --schema packages/db/prisma/schema.prisma
    ```
+
+   **After every tenant-scope-extension migration** run
+   `scripts/backfill-default-tenant.ts` (dry-run, then `--apply`) so
+   pre-existing rows get attached to the seed tenant. Precedent:
+   `20260423000005_tenant_scope_extended` and
+   `20260424000002_admission_dama_and_tenant_extension` both required it.
+   The script is idempotent — already-scoped rows are untouched. Command
+   reference in [`DEPLOY_DATA_SCRIPTS.md`](DEPLOY_DATA_SCRIPTS.md).
 6. **Regenerate Prisma client** (schema may have new models/enums):
    ```bash
    npx prisma generate --schema packages/db/prisma/schema.prisma
@@ -101,6 +148,12 @@ cd /home/empcloud-development/medcore
    scripts/verify-deploy.sh
    npx tsx scripts/prod-smoke-test.ts
    ```
+
+   `prod-smoke-test.ts` now hits **20 dashboard pages** (7 original AI +
+   13 Apr 2026 PRD). Green means: `verify-deploy.sh` exits 0, and all 20
+   pages return 200/302/307 (the dashboard redirects unauthenticated hits
+   to `/login`). Any 5xx → capture the summary JSON, head to section 9
+   before rolling back; a single 502 is usually Next.js still warming.
 
 Prefer the wrapper script which chains 2-9 with pre-flight guards:
 
@@ -233,68 +286,16 @@ of truth for "what is actually on the box right now".
 
 ## 8. Environment variables
 
-Canonical template: `apps/api/.env.example` (never commit real values).
-Prod `.env` lives at `/home/empcloud-development/medcore/.env` (chmod 600,
-git-ignored). Mobile is built-time; values baked via EAS.
+The full API / Web / Mobile env-var table (including the HL7 v2 inbound
+network note and the TPA connector matrix) lives in a dedicated doc so
+rotations don't collide with deploy-step edits:
 
-Legend: **SM** = secret-management (vault / sealed), **CM** = config-management
-(plaintext in `.env`, non-sensitive), **R** = required, **r** = recommended,
-**o** = optional (feature falls back to mock / disabled).
+→ [`DEPLOY_ENV_VARS.md`](DEPLOY_ENV_VARS.md)
 
-### API (`/home/empcloud-development/medcore/.env`)
-
-> **HL7 v2 inbound:** `POST /api/v1/hl7v2/inbound` accepts pipe-delimited HL7 v2 messages from legacy lab / HIS systems. Role-gated to **ADMIN** and rate-limited to 60 msg/min/IP; nginx or the host firewall should further restrict the source-IP range to the specific lab partners that need access — the endpoint handles PHI and must not be open to the public internet.
-
-| Var | Class | Level | Notes |
-|---|---|---|---|
-| `DATABASE_URL` | SM | R | Postgres DSN — server refuses to start without. |
-| `JWT_SECRET` | SM | R | Access-token HS256 secret. |
-| `JWT_REFRESH_SECRET` | SM | R | Refresh-token HS256 secret. |
-| `UPLOAD_SIGNING_SECRET` | SM | R | Signed-URL HMAC secret for uploads. |
-| `PORT` | CM | R | 4100 in prod (see `ecosystem.medcore.config.js`). |
-| `NODE_ENV` | CM | R | `production`. |
-| `CORS_ORIGIN` | CM | R | `https://medcore.globusdemos.com`. |
-| `SARVAM_API_KEY` | SM | r | AI features fall back to mock responses if unset. |
-| `RAZORPAY_KEY_ID` | SM | r | Billing runs in mock mode without this pair. |
-| `RAZORPAY_KEY_SECRET` | SM | r | Paired with `RAZORPAY_KEY_ID`. |
-| `RAZORPAY_WEBHOOK_SECRET` | SM | R-if-live | Required if Razorpay is live; webhook rejects everything otherwise. |
-| `WHATSAPP_API_KEY` / `WHATSAPP_API_URL` | SM | o | Mock logs message if unset. |
-| `SMS_API_KEY` / `SMS_API_URL` / `SMS_PROVIDER` / `SMS_SENDER_ID` | SM/CM | o | MSG91 or Twilio-compat. |
-| `EMAIL_API_KEY` / `EMAIL_API_URL` / `EMAIL_FROM` | SM/CM | o | SendGrid. |
-| `EXPO_ACCESS_TOKEN` | SM | o | Push throughput; basic Expo push works without. |
-| `STORAGE_PROVIDER` | CM | o | `s3` activates S3 adapter; unset = local disk. |
-| `AWS_REGION` / `AWS_S3_BUCKET` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_S3_ENDPOINT` | SM/CM | r-if-S3 | Required when `STORAGE_PROVIDER=s3`. |
-| `JITSI_DOMAIN` | CM | r | `meet.jit.si` for dev, self-hosted/JaaS domain for prod. |
-| `JITSI_APP_ID` / `JITSI_APP_SECRET` | SM | r-if-prod-JaaS | Unsigned rooms otherwise. |
-| `TPA_MEDIASSIST_API_KEY` / `..._HOSPITAL_ID` / `..._API_URL` | SM/CM | o | Only set for TPAs your hospital is actually contracted with. |
-| `TPA_PARAMOUNT_API_KEY` / `..._CLIENT_CODE` / `..._API_URL` | SM/CM | o | Same. |
-| `TPA_VIDAL_API_KEY` / `..._PROVIDER_ID` | SM | o | Same. |
-| `TPA_FHPL_API_KEY` / `..._PROVIDER_ID` | SM | o | Same. |
-| `TPA_ICICI_LOMBARD_API_KEY` / `..._AGENT_CODE` | SM | o | Same. |
-| `TPA_STAR_HEALTH_API_KEY` / `..._HOSPITAL_CODE` | SM | o | Same. |
-| `SENTRY_DSN` | SM | r | Error reporting. |
-| `ABDM_CLIENT_ID` / `ABDM_CLIENT_SECRET` | SM | r-if-ABDM-live | ABDM /dashboard/abdm features disabled without. |
-| `ABDM_BASE_URL` / `ABDM_GATEWAY_URL` / `ABDM_CM_ID` / `ABDM_JWKS_URL` | CM | r-if-ABDM-live | Sandbox defaults in `.env.example`. |
-| `ABDM_SKIP_VERIFY` | CM | o | **NEVER** true in prod. Dev-only. |
-
-### Web (baked into Next.js build — change means a rebuild)
-
-| Var | Class | Level | Notes |
-|---|---|---|---|
-| `NEXT_PUBLIC_API_URL` | CM | R | Points browser at API base. `https://medcore.globusdemos.com/api/v1`. |
-| `NEXT_PUBLIC_SENTRY_DSN` | CM | r | Client-side Sentry. |
-| `NEXT_PUBLIC_ABDM_MODE` | CM | o | `production` hides sandbox-only banners on `/dashboard/abdm`. |
-
-### Mobile (EAS build-time, baked into JS bundle)
-
-| Var | Class | Level | Notes |
-|---|---|---|---|
-| `EXPO_PUBLIC_API_URL` | CM | R | Already set per-profile in `apps/mobile/eas.json`. |
-| `EAS_PROJECT_ID` | CM | R | Expo project linkage. |
-| `GOOGLE_SERVICES_JSON` | SM | r-if-push | Path to Firebase config for Android push. |
-
-When rotating an SM value: change it in the vault, redeploy the API
-(`pm2 restart medcore-api` after updating `.env`), and invalidate any signed
+Canonical template: `apps/api/.env.example`. Prod `.env` at
+`/home/empcloud-development/medcore/.env` (chmod 600, git-ignored). When
+rotating an `SM` (secret-management) value: change it in the vault,
+`pm2 restart medcore-api` after updating `.env`, and invalidate any signed
 URLs that used the old signing secret.
 
 ---
@@ -382,3 +383,13 @@ disabled is considered a P2 until corrected.
 
 When in doubt: roll back (section 4), open an incident, investigate with
 fresh eyes. A 10-minute rollback is cheaper than a 2-hour forward-fix.
+
+---
+
+## Appendix — Post-deploy data-correction scripts
+
+Every `fix-*.ts`, `dedup-*.ts`, and `backfill-*.ts` in `scripts/`, with
+their dry-run / apply commands and idempotency notes, lives in a separate
+doc so ops can pin it on a second monitor:
+
+→ [`DEPLOY_DATA_SCRIPTS.md`](DEPLOY_DATA_SCRIPTS.md)

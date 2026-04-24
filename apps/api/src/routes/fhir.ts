@@ -76,6 +76,13 @@ const bundleRateLimit =
     ? (_: any, __: any, n: any) => n()
     : rateLimit(10, 60_000);
 
+// security(2026-04-24): F-FHIR-2 — cap per-bundle entry count. Even with the
+// rate limiter above, a single 50 000-entry transaction bundle can starve the
+// DB for several seconds inside prisma.$transaction. 100 entries covers all
+// realistic ABDM-side bundle shapes we've round-tripped (round-trip.test max
+// observed ~60 entries for a heavy Patient/$everything export).
+const MAX_BUNDLE_ENTRIES = 100;
+
 const FHIR_CONTENT_TYPE = "application/fhir+json";
 
 /** Set the FHIR content type on the response. */
@@ -313,6 +320,24 @@ router.post(
             "error",
             "invalid",
             `Bundle.type must be 'transaction' (got '${bundle.type}'). batch/history/document bundles are not accepted.`
+          )
+        );
+        return;
+      }
+
+      // security(2026-04-24): F-FHIR-2 — reject oversized bundles up front so
+      // the DB transaction below never sees a pathological payload. 413 is the
+      // closest HTTP semantics ("payload too large"); FHIR wraps it in an
+      // OperationOutcome with code=too-costly per §3.1.8.
+      const entryCount = bundle.entry?.length ?? 0;
+      if (entryCount > MAX_BUNDLE_ENTRIES) {
+        sendFhir(
+          res,
+          413,
+          operationOutcome(
+            "error",
+            "too-costly",
+            `Bundle.entry has ${entryCount} entries; maximum is ${MAX_BUNDLE_ENTRIES}. Split into smaller bundles.`
           )
         );
         return;

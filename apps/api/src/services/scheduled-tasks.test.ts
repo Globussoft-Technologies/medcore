@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { sendNotification, prismaMock } = vi.hoisted(() => ({
-  sendNotification: vi.fn(async () => {}),
-  prismaMock: {
+const { sendNotification, prismaMock } = vi.hoisted(() => {
+  const base: any = {
     systemConfig: { findUnique: vi.fn(), upsert: vi.fn(async () => ({})) },
     appointment: { findMany: vi.fn(async () => []) },
     invoice: { findMany: vi.fn(async () => []) },
@@ -19,10 +18,29 @@ const { sendNotification, prismaMock } = vi.hoisted(() => ({
     patientDocument: {
       findMany: vi.fn(async () => []),
     },
-  } as any,
-}));
+    // `tenantScopedPrisma` calls `$extends` at module load. Without this shim
+    // any module that transitively imports `services/tenant-prisma` (e.g.
+    // routes/ai-fraud.ts used by this scheduler) crashes at import time.
+    // Returning the same mock keeps callers using the underlying delegates
+    // directly — the scheduler itself goes through the un-scoped `prisma`
+    // singleton, so no query-level transformation is exercised here.
+    $extends(_config: unknown) {
+      return base;
+    },
+  };
+  return {
+    sendNotification: vi.fn(async () => {}),
+    prismaMock: base,
+  };
+});
 
-vi.mock("./notification", () => ({ sendNotification }));
+vi.mock("./notification", () => ({
+  sendNotification,
+  // `scheduled-tasks.ts` also imports `drainScheduled` for the
+  // `notification_drain_queued` task. Provide a no-op so the tick doesn't
+  // throw a "No export defined" error inside the scheduler.
+  drainScheduled: vi.fn(async () => {}),
+}));
 vi.mock("@medcore/db", () => ({ prisma: prismaMock }));
 
 import {

@@ -240,4 +240,79 @@ describeIfDB("AI ER Triage API (integration)", () => {
     expect(callArgs.patientAge).toBeLessThanOrEqual(45);
     expect(callArgs.patientGender).toBe("FEMALE");
   });
+
+  // ─── security(2026-04-24): F-ER-3 — audit logs on AI inference ────────
+
+  it("emits an AI_ER_TRIAGE_ASSESS audit entry on the ad-hoc assess endpoint", async () => {
+    const prisma = await getPrisma();
+    // Snapshot the audit tail *before* the call so we can scope our assertion.
+    const beforeCount = await prisma.auditLog.count({
+      where: { action: "AI_ER_TRIAGE_ASSESS" },
+    });
+
+    const res = await request(app)
+      .post("/api/v1/ai/er-triage/assess")
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({
+        chiefComplaint: "Severe headache with neck stiffness",
+        vitals: { bp: "150/95", pulse: 100, resp: 20, spO2: 97, temp: 38.2, gcs: 15 },
+        patientAge: 40,
+      });
+
+    expect(res.status).toBe(200);
+
+    // Audit write is fire-and-forget — give the microtask queue a beat to flush.
+    await new Promise((r) => setTimeout(r, 50));
+
+    const afterCount = await prisma.auditLog.count({
+      where: { action: "AI_ER_TRIAGE_ASSESS" },
+    });
+    expect(afterCount).toBeGreaterThan(beforeCount);
+
+    const latest = await prisma.auditLog.findFirst({
+      where: { action: "AI_ER_TRIAGE_ASSESS" },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(latest).toBeTruthy();
+    expect(latest.entity).toBe("EmergencyCase");
+    // The details JSON must carry the triageLevel + mews but NOT raw PHI.
+    const details = latest.details as Record<string, any>;
+    expect(details.triageLevel).toBe(2);
+    expect(details.mews).toBe(4);
+    expect(typeof details.chiefComplaintPreview).toBe("string");
+    // Preview must be truncated (<= 100 chars).
+    expect(details.chiefComplaintPreview.length).toBeLessThanOrEqual(100);
+  });
+
+  it("emits an AI_ER_TRIAGE_CASE_ASSESS audit entry that pins the EmergencyCase id", async () => {
+    const prisma = await getPrisma();
+    const patient = await createPatientFixture({ gender: "MALE" });
+    const ec = await prisma.emergencyCase.create({
+      data: {
+        caseNumber: `EC${Date.now()}_audit`,
+        patientId: patient.id,
+        chiefComplaint: "Fall from height",
+        vitalsBP: "110/70",
+        vitalsPulse: 95,
+        status: "WAITING",
+      },
+    });
+
+    const res = await request(app)
+      .post(`/api/v1/ai/er-triage/${ec.id}/assess`)
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 50));
+
+    const latest = await prisma.auditLog.findFirst({
+      where: { action: "AI_ER_TRIAGE_CASE_ASSESS", entityId: ec.id },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(latest).toBeTruthy();
+    expect(latest.entityId).toBe(ec.id);
+    const details = latest.details as Record<string, any>;
+    expect(details.triageLevel).toBe(2);
+    expect(details.mewsWrittenBack).toBe(true);
+  });
 });

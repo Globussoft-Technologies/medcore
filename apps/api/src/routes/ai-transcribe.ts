@@ -2,6 +2,11 @@ import { Router, Request, Response, NextFunction } from "express";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { rateLimit } from "../middleware/rate-limit";
+import {
+  getASRClient,
+  callWithASRFallback,
+  type ASRProvider,
+} from "../services/ai/asr-providers";
 
 const router = Router();
 router.use(authenticate);
@@ -21,16 +26,28 @@ if (process.env.NODE_ENV !== "test") {
 // through a larger body-parser in the future). 8 MB ≈ 5 min @ 96 kbps webm.
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 
+const SUPPORTED_PROVIDERS: ASRProvider[] = ["sarvam", "assemblyai"];
+
 // POST /api/v1/ai/transcribe
-// Body: { audioBase64: string, language?: string }
-// Accepts a base64-encoded audio blob and forwards it to the Sarvam ASR API.
+// Body: { audioBase64: string, language?: string, provider?: "sarvam"|"assemblyai", diarize?: boolean }
+//
+// Back-compat: legacy callers that just read `data.transcript` keep working
+// because we still populate that field at the top level. New callers can also
+// read `data.segments`, `data.provider`, etc. from the full ASRResult envelope.
 router.post(
   "/",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { audioBase64, language = "en-IN" } = req.body as {
+      const {
+        audioBase64,
+        language = "en-IN",
+        provider: requestedProvider,
+        diarize,
+      } = req.body as {
         audioBase64?: string;
         language?: string;
+        provider?: string;
+        diarize?: boolean;
       };
 
       if (!audioBase64 || typeof audioBase64 !== "string") {
@@ -42,20 +59,23 @@ router.post(
         return;
       }
 
-      const apiKey = process.env.SARVAM_API_KEY;
-      if (!apiKey) {
-        res.status(500).json({
+      // Validate provider override up-front so a bad client gets a clear 400
+      // rather than a 500 from getASRClient.
+      if (
+        requestedProvider !== undefined &&
+        !SUPPORTED_PROVIDERS.includes(requestedProvider as ASRProvider)
+      ) {
+        res.status(400).json({
           success: false,
           data: null,
-          error: "SARVAM_API_KEY is not configured",
+          error: `provider must be one of: ${SUPPORTED_PROVIDERS.join(", ")}`,
         });
         return;
       }
 
-      // Decode base64 → Buffer → Blob for FormData
       const audioBuffer = Buffer.from(audioBase64, "base64");
-      // security(2026-04-23): reject oversized blobs before forwarding to
-      // Sarvam so one client can't pin the worker on a single huge upload.
+      // security(2026-04-23): reject oversized blobs before forwarding so one
+      // client can't pin the worker on a single huge upload.
       if (audioBuffer.length === 0 || audioBuffer.length > MAX_AUDIO_BYTES) {
         res.status(413).json({
           success: false,
@@ -64,50 +84,76 @@ router.post(
         });
         return;
       }
-      const audioBlob = new Blob([audioBuffer], { type: "audio/webm" });
 
-      const formData = new FormData();
-      formData.append("file", audioBlob, "audio.webm");
-      formData.append("model", "saaras:v3");
-      formData.append("language_code", language);
+      // Pick the provider: explicit body override > ASR_PROVIDER env > sarvam.
+      const envProvider = (process.env.ASR_PROVIDER as ASRProvider | undefined) ?? "sarvam";
+      const primary = (requestedProvider as ASRProvider | undefined) ?? envProvider;
 
-      const sarvamRes = await fetch("https://api.sarvam.ai/speech-to-text", {
-        method: "POST",
-        headers: {
-          "api-subscription-key": apiKey,
-        },
-        body: formData,
-      });
+      // When the primary provider is assemblyai, Sarvam is a perfectly good
+      // fallback for the plain transcript (it just won't carry speaker labels).
+      // When primary IS sarvam, there's no one to fall through to, so the
+      // provider array collapses to a single entry and the existing behaviour
+      // is preserved exactly.
+      const providers: ASRProvider[] =
+        primary === "sarvam" ? ["sarvam"] : [primary, "sarvam"];
 
-      if (!sarvamRes.ok) {
-        let errMsg = `Sarvam ASR error: ${sarvamRes.status}`;
-        try {
-          const errBody = (await sarvamRes.json()) as { message?: string; error?: string };
-          errMsg = errBody.message || errBody.error || errMsg;
-        } catch {
-          // body not JSON, keep default
-        }
-        res.status(502).json({ success: false, data: null, error: errMsg });
-        return;
+      try {
+        const result = await callWithASRFallback(
+          audioBuffer,
+          { language, diarize, doctorFirst: true },
+          {
+            providers,
+            feature: `asr-${primary}` as any,
+          }
+        );
+
+        res.json({
+          success: true,
+          data: {
+            // Back-compat: the old shape returned `transcript` + `languageCode`.
+            transcript: result.transcript,
+            languageCode: result.language ?? language,
+            // New fields for diarization-aware callers.
+            segments: result.segments,
+            provider: result.provider,
+            language: result.language ?? language,
+          },
+          error: null,
+        });
+      } catch (err) {
+        // Surface provider errors as 502 to keep parity with the old Sarvam
+        // error path (was also 502 when Sarvam returned non-2xx).
+        const message = err instanceof Error ? err.message : String(err);
+        // Missing API key is misconfiguration (500), everything else is a
+        // transient upstream failure (502).
+        const status =
+          /is not configured|not yet implemented/i.test(message) ? 500 : 502;
+        res.status(status).json({ success: false, data: null, error: message });
       }
-
-      const result = (await sarvamRes.json()) as {
-        transcript?: string;
-        language_code?: string;
-      };
-
-      res.json({
-        success: true,
-        data: {
-          transcript: result.transcript ?? "",
-          languageCode: result.language_code ?? language,
-        },
-        error: null,
-      });
     } catch (err) {
       next(err);
     }
   }
 );
+
+// Expose the supported-provider list for the frontend so the scribe start
+// screen can grey out providers that aren't configured server-side. Read-only,
+// doctor/admin auth already applied above.
+router.get("/providers", (_req: Request, res: Response) => {
+  const envProvider = (process.env.ASR_PROVIDER as ASRProvider | undefined) ?? "sarvam";
+  res.json({
+    success: true,
+    data: {
+      providers: SUPPORTED_PROVIDERS,
+      default: envProvider,
+      assemblyaiConfigured: Boolean(process.env.ASSEMBLYAI_API_KEY),
+    },
+    error: null,
+  });
+});
+
+// Re-export getASRClient so legacy imports that reach into this route module
+// for ad-hoc transcription don't need to care about the file reshuffle.
+export { getASRClient };
 
 export { router as aiTranscribeRouter };

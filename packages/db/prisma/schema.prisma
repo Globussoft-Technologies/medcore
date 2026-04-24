@@ -587,6 +587,8 @@ model Tenant {
   abhaLinks                AbhaLink[]
   careContexts             CareContext[]
   insuranceClaimsV2        InsuranceClaim2[]
+  radiologyStudies         RadiologyStudy[]
+  radiologyReports         RadiologyReport[]
 
   @@map("tenants")
 }
@@ -844,6 +846,7 @@ model Patient {
   medReconciliations   MedReconciliation[]
   milestoneRecords     MilestoneRecord[]
   feedingLogs          FeedingLog[]
+  radiologyStudies     RadiologyStudy[]
   aiTriageSessions     AITriageSession[]
   aiScribeSessions     AIScribeSession[]
   abhaLinks            AbhaLink[]
@@ -1660,10 +1663,11 @@ model LabOrder {
   tenantId        String?
   tenant          Tenant?       @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
-  patient   Patient        @relation(fields: [patientId], references: [id])
-  doctor    Doctor         @relation(fields: [doctorId], references: [id])
-  admission Admission?     @relation(fields: [admissionId], references: [id])
-  items     LabOrderItem[]
+  patient          Patient          @relation(fields: [patientId], references: [id])
+  doctor           Doctor           @relation(fields: [doctorId], references: [id])
+  admission        Admission?       @relation(fields: [admissionId], references: [id])
+  items            LabOrderItem[]
+  radiologyStudies RadiologyStudy[]
 
   @@index([patientId])
   @@index([doctorId])
@@ -4681,4 +4685,81 @@ model ClaimDenialHistory {
   @@index([tpaProvider, icd10Code])
   @@index([tenantId])
   @@map("claim_denial_history")
+}
+
+// ─── Radiology Report Drafting (PRD §7.2) ──────────────────────────────────
+// AI pre-reads imaging, drafts a report with per-finding confidence, and a
+// radiologist approves/amends via HITL. DICOM parsing deferred — images are
+// opaque file keys today. See .prisma-models-radiology.md for the proposal
+// source and deferred sub-features.
+
+enum RadiologyModality {
+  XRAY
+  CT
+  MRI
+  ULTRASOUND
+  MAMMOGRAPHY
+  PET
+}
+
+enum RadiologyReportStatus {
+  DRAFT
+  RADIOLOGIST_REVIEW
+  FINAL
+  AMENDED
+}
+
+model RadiologyStudy {
+  id        String            @id @default(uuid())
+  patientId String
+  orderId   String?
+  modality  RadiologyModality
+  bodyPart  String
+  images    Json
+  studyDate DateTime          @default(now())
+  notes     String?
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  patient Patient   @relation(fields: [patientId], references: [id])
+  order   LabOrder? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  report RadiologyReport?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([patientId])
+  @@index([modality])
+  @@index([studyDate])
+  @@index([tenantId])
+  @@map("radiology_studies")
+}
+
+model RadiologyReport {
+  id              String                @id @default(uuid())
+  studyId         String                @unique
+  aiDraft         String
+  aiFindings      Json
+  aiImpression    String
+  radiologistId   String?
+  finalReport     String?
+  finalImpression String?
+  status          RadiologyReportStatus @default(DRAFT)
+  approvedAt      DateTime?
+  approvedBy      String?
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  study RadiologyStudy @relation(fields: [studyId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([radiologistId])
+  @@index([tenantId])
+  @@map("radiology_reports")
 }

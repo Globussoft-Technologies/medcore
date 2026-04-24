@@ -497,7 +497,12 @@ router.post(
         },
       });
 
-      console.log(`[Password Reset] Code for ${email}: ${code}`);
+      // cleanup(2026-04-24): never print reset codes in production — they'd
+      // land in log aggregators and are effectively a password. Keep the dev
+      // helper so local runs without an email channel still work.
+      if (process.env.NODE_ENV !== "production") {
+        console.warn(`[Password Reset] Code for ${email}: ${code}`);
+      }
 
       res.json({
         success: true,

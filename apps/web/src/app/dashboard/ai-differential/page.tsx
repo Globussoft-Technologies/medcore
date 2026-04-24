@@ -126,6 +126,7 @@ export default function AIDifferentialPage() {
           <label className="text-sm font-medium text-gray-700">Patient</label>
           <div className="mt-1 flex gap-2">
             <input
+              data-testid="differential-patient-input"
               className="flex-1 border rounded-lg px-3 py-2 text-sm"
               placeholder="Search by name or MR number..."
               value={patientSearch}
@@ -214,6 +215,7 @@ export default function AIDifferentialPage() {
         </div>
 
         <button
+          data-testid="differential-submit"
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-60"
           onClick={runAnalysis}
           disabled={loading || !patientId || !chiefComplaint.trim()}

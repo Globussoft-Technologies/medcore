@@ -146,10 +146,13 @@ export default function CapacityForecastPage() {
         </div>
       </div>
 
-      <div className="flex gap-2 border-b border-gray-200">
+      <div className="flex gap-2 border-b border-gray-200" role="tablist">
         {(["beds", "icu", "ot"] as Tab[]).map((t) => (
           <button
             key={t}
+            role="tab"
+            aria-selected={tab === t}
+            data-testid={`capacity-tab-${t}`}
             onClick={() => setTab(t)}
             className={`flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-semibold ${
               tab === t

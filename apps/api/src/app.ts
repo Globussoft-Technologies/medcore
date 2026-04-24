@@ -80,6 +80,7 @@ import { fhirRouter } from "./routes/fhir";
 import { abdmRouter } from "./routes/abdm";
 import { insuranceClaimsRouter } from "./routes/insurance-claims";
 import { hl7v2Router } from "./routes/hl7v2";
+import { aiRadiologyRouter } from "./routes/ai-radiology";
 import { aiAdminRouter } from "./routes/ai-admin";
 import { aiBillExplainerRouter } from "./routes/ai-bill-explainer";
 import { aiPrevisitRouter } from "./routes/ai-previsit";
@@ -222,6 +223,7 @@ export function buildApp() {
   app.use("/api/v1/abdm", abdmRouter);
   app.use("/api/v1/claims", insuranceClaimsRouter);
   app.use("/api/v1/hl7v2", hl7v2Router);
+  app.use("/api/v1/ai/radiology", aiRadiologyRouter);
   app.use("/api/v1/ai/admin", aiAdminRouter);
   app.use("/api/v1/ai/bill-explainer", aiBillExplainerRouter);
   app.use("/api/v1/ai/previsit", aiPrevisitRouter);

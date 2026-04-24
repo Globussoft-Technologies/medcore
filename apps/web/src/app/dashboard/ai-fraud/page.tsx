@@ -173,7 +173,10 @@ export default function AiFraudPage() {
         {loading ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : alerts.length === 0 ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+          <div
+            data-testid="fraud-empty-state"
+            className="p-8 text-center text-gray-500 dark:text-gray-400"
+          >
             <ShieldCheck className="mx-auto mb-2 h-10 w-10 text-green-500" />
             No matching alerts
           </div>
@@ -191,7 +194,11 @@ export default function AiFraudPage() {
             </thead>
             <tbody>
               {alerts.map((a) => (
-                <tr key={a.id} className="border-b border-gray-100 last:border-0 dark:border-gray-700">
+                <tr
+                  key={a.id}
+                  data-testid="fraud-alert-row"
+                  className="border-b border-gray-100 last:border-0 dark:border-gray-700"
+                >
                   <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
                     {new Date(a.detectedAt).toLocaleString()}
                   </td>

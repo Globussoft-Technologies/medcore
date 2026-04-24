@@ -6,10 +6,21 @@ import { Router, Request, Response, NextFunction } from "express";
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { auditLog } from "../middleware/audit";
+import { rateLimit } from "../middleware/rate-limit";
 import { validateUuidParams } from "../middleware/validate-params";
 import { assessERPatient } from "../services/ai/er-triage";
 
 const router = Router();
+
+// security(2026-04-24): F-ER-2 — er-triage is Sarvam-backed (one LLM call per
+// assess), same risk profile as chart-search / report-explainer / letters that
+// were rate-limited in the first MEDIUM pass. Cap to 30/min/IP so one
+// compromised clinician token cannot burn Sarvam budget via assessment spam.
+const erTriageRateLimit =
+  process.env.NODE_ENV === "test"
+    ? (_: any, __: any, n: any) => n()
+    : rateLimit(30, 60_000);
 
 // POST /api/v1/ai/er-triage/assess
 // Assess a patient based on provided vitals and complaint (no existing case required)
@@ -17,6 +28,7 @@ router.post(
   "/assess",
   authenticate,
   authorize(Role.DOCTOR, Role.NURSE, Role.ADMIN),
+  erTriageRateLimit,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const {
@@ -57,6 +69,18 @@ router.post(
         briefHistory,
       });
 
+      // security(2026-04-24): F-ER-3 — audit AI inference so post-incident
+      // reconstruction (and Sarvam-bill spike triage) can identify who hit the
+      // paid path and how often. No PHI in details — complaint truncated.
+      auditLog(req, "AI_ER_TRIAGE_ASSESS", "EmergencyCase", undefined, {
+        chiefComplaintPreview: chiefComplaint.trim().slice(0, 100),
+        patientAge: patientAge ?? null,
+        triageLevel: assessment.suggestedTriageLevel ?? null,
+        mews: assessment.calculatedMEWS ?? null,
+      }).catch((err) =>
+        console.warn(`[audit] AI_ER_TRIAGE_ASSESS failed (non-fatal):`, (err as Error)?.message ?? err)
+      );
+
       res.json({ success: true, data: assessment, error: null });
     } catch (err) {
       next(err);
@@ -73,6 +97,7 @@ router.post(
   authorize(Role.DOCTOR, Role.ADMIN),
   // security(2026-04-23-med): F-ER-4 — reject non-UUID :caseId up front.
   validateUuidParams(["caseId"]),
+  erTriageRateLimit,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { caseId } = req.params;
@@ -135,6 +160,16 @@ router.post(
           // Non-fatal — assessment is still returned even if DB write fails
         });
       }
+
+      // security(2026-04-24): F-ER-3 — audit inference on existing cases so
+      // the MEWS-overwrite write can be traced to a user + request.
+      auditLog(req, "AI_ER_TRIAGE_CASE_ASSESS", "EmergencyCase", caseId, {
+        triageLevel: assessment.suggestedTriageLevel ?? null,
+        mews: assessment.calculatedMEWS ?? null,
+        mewsWrittenBack: assessment.calculatedMEWS !== null,
+      }).catch((err) =>
+        console.warn(`[audit] AI_ER_TRIAGE_CASE_ASSESS failed (non-fatal):`, (err as Error)?.message ?? err)
+      );
 
       res.json({ success: true, data: assessment, error: null });
     } catch (err) {

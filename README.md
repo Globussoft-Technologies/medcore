@@ -7,11 +7,11 @@
 A full-stack, monorepo HIS covering the patient journey from appointment to discharge — clinical, operational, financial, HR, and engagement workflows in one typed codebase.
 
 [![Live Demo](https://img.shields.io/badge/live_demo-medcore.globusdemos.com-2563eb?style=for-the-badge)](https://medcore.globusdemos.com)
-[![Tests](https://img.shields.io/badge/tests-2000_passing-16a34a?style=for-the-badge)](#testing)
+[![Tests](https://img.shields.io/badge/tests-2583_passing-16a34a?style=for-the-badge)](#testing)
 [![E2E](https://img.shields.io/badge/playwright_e2e-29_passing-0ea5e9?style=for-the-badge)](#testing)
 [![a11y](https://img.shields.io/badge/axe--core-12_passing-7c3aed?style=for-the-badge)](#accessibility)
-[![Routers](https://img.shields.io/badge/api_routers-63-f59e0b?style=for-the-badge)](#architecture)
-[![Models](https://img.shields.io/badge/prisma_models-136-0891b2?style=for-the-badge)](#architecture)
+[![Routers](https://img.shields.io/badge/api_routers-78-f59e0b?style=for-the-badge)](#architecture)
+[![Models](https://img.shields.io/badge/prisma_models-151-0891b2?style=for-the-badge)](#architecture)
 [![License](https://img.shields.io/badge/license-Proprietary-dc2626?style=for-the-badge)](LICENSE)
 
 [Live Demo](https://medcore.globusdemos.com) · [Features](#feature-catalog) · [Architecture](#architecture) · [Testing](#testing) · [Deployment](#deployment) · [Commercial](#commercial-licensing)
@@ -32,12 +32,12 @@ The project is under active development. A live demo instance runs at **[medcore
 
 | | |
 |---|---|
-| **Tests passing** | ~2,000 across 6 layers (unit, contract, smoke, web, integration, permissions) plus mobile |
+| **Tests passing** | ~2,583 across 6 layers (unit, contract, smoke, web, integration, permissions) plus mobile |
 | **E2E** | 29 Playwright specs against the live demo URL |
 | **Accessibility** | 12 axe-core tests, WCAG 2.1 AA, per-page contrast budgets |
-| **API routers** | 63 (12 AI, plus ABDM, FHIR, insurance claims, chart-search) |
-| **Prisma models** | ~136 |
-| **Prisma migrations (production)** | 9, all applied via `migrate deploy` |
+| **API routers** | 78 (27+ AI routers plus ABDM, FHIR, HL7 v2 inbound, insurance claims, chart-search) |
+| **Prisma models** | 151 |
+| **Prisma migrations (production)** | 16, all applied via `migrate deploy` |
 | **CI workflows** | 4 (typecheck, API, web, Playwright E2E) |
 | **Demo URL** | https://medcore.globusdemos.com |
 
@@ -60,6 +60,13 @@ All AI features run on **[Sarvam AI](https://sarvam.ai)** (`sarvam-105b`), an In
 - **Pharmacy Inventory Forecasting** (`/dashboard/pharmacy-forecast`) — forecasts stock requirements for the next 30/60/90 days based on dispensing history, with AI-generated procurement insights.
 - **AI Analytics** (`/dashboard/ai-analytics`) — tabbed dashboard showing triage session volume and conversion rates, scribe session counts, sign-off rates, average edit counts, and doctor-edit heatmaps.
 - **Knowledge Base (RAG)** — PostgreSQL full-text search (`to_tsvector` / `plainto_tsquery`) over a `KnowledgeChunk` table seeded from ICD-10 codes, medicine catalogue, and clinical protocols. Retrieved context is injected into every LLM prompt to ground responses in hospital-specific data without requiring pgvector.
+
+### Shipped this sprint (April 2026)
+
+- **Prompt registry with versioning + rollback** (`/api/v1/ai/admin/prompts`) — every LLM prompt (`TRIAGE_SYSTEM`, `SCRIBE_SYSTEM`, `DRUG_SAFETY`, etc.) lives in the `Prompt` table as a row per version. Admins can POST a new (inactive) version, activate it with a one-click API call, and one-shot roll back to the previous active version. `getActivePrompt()` reads through a 60-second in-memory cache so the hot path doesn't hit Postgres on every triage/scribe call, and falls back to the hardcoded `PROMPTS` constant if the DB is unreachable — registry failures degrade gracefully rather than take the triage endpoint down. Every mutation is audit-logged (`PROMPT_VERSION_CREATE`, `..._ACTIVATE`, `..._ROLLBACK`).
+- **Claims auto-draft from SOAP** (`POST /api/v1/ai/claims/draft/:consultationId`) — takes the AI Scribe output (SOAP note + ICD-10 + CPT codes stored on `AIScribeSession`) and the consultation invoice, and emits a pre-filled `InsuranceClaim2` draft. Reception sees them in the `/pending-drafts` queue, reviews for 30 seconds, and fires to the TPA with one click instead of re-keying every field. Includes a denial-risk predictor (`GET /:claimId/denial-risk`) and a machine-replayable auto-fix endpoint (`POST /:claimId/auto-fix`) for predictor-identified issues.
+- **Speaker diarization in Scribe transcripts** (`PATCH /api/v1/ai/scribe/:sessionId/transcript/:index/speaker`) — the live scribe UI assumes alternating speakers (good enough most of the time), but doctors can now relabel any utterance as DOCTOR / PATIENT / ATTENDANT post-hoc. The relabel feeds back into the SOAP regeneration so the generated note attributes symptoms to the right participant.
+- **Extended prod smoke test** — `scripts/prod-smoke-test.ts` now exercises **20 dashboard pages** (7 original AI pages + 13 added in the Apr 2026 PRD batch) on every deploy.
 
 > Deeper architecture, observability, retry, and HITL details live in [`docs/AI_ARCHITECTURE.md`](docs/AI_ARCHITECTURE.md).
 
@@ -162,7 +169,7 @@ Server-side PDFs via pdfkit for prescriptions (with embedded PNG QR), invoices (
 |---|---|
 | **Runtime** | Node.js 20, TypeScript |
 | **API** | Express 4, Zod validation, Socket.IO server |
-| **Database** | PostgreSQL 16, Prisma 6 (migrations, 136 models) |
+| **Database** | PostgreSQL 16, Prisma 6 (migrations, 151 models) |
 | **Web** | Next.js 15 (App Router), React 19, Tailwind CSS v4, Zustand, `socket.io-client` |
 | **Mobile** | React Native, Expo SDK 53, `expo-router`, `expo-notifications`, `expo-constants`; patient AI screens (triage, lab explainer, adherence) |
 | **Auth** | JWT with refresh rotation, bcrypt, TOTP 2FA (pure Node `crypto`) |
@@ -220,7 +227,7 @@ MedCore layers its tests so each tier tests a different boundary:
 | **Integration** | ~900 | Full HTTP through Express + Prisma against a real Postgres. Includes concurrency, realtime delivery, permissions matrix, auth edges, 2FA, notification channel shapes, Razorpay webhook, AI triage / scribe / chart-search / letters / predictions / report-explainer / adherence / er-triage / pharmacy / knowledge / transcribe, insurance claims, and telemedicine-deep (waiting room) |
 | **Mobile** | 30 | React Native render / logic tests across the patient AI screens |
 | **AI eval** | Vitest harness | Gold-standard fixtures under `apps/api/src/test/ai-eval/`; gates regressions on triage red-flag recall and SOAP accuracy |
-| **Total** | **~2,000** | |
+| **Total** | **~2,583** | |
 
 In addition:
 

@@ -360,18 +360,30 @@ describe("tenantScopedPrisma auto-injection", () => {
     expect((calls[1].args as any).where.tenantId).toBe("B");
   });
 
-  it("TENANT_SCOPED_MODELS contains all 57 documented models (20 foundation + 37 extended)", () => {
-    expect(TENANT_SCOPED_MODELS.size).toBe(57);
+  it("TENANT_SCOPED_MODELS covers the foundation + extended + 2026-04-24 expansion", () => {
+    // Soft lower-bound — 127 models as of the 2026-04-24 extension
+    // (20260424000002_admission_dama_and_tenant_extension). Expressed as
+    // `>=` so adding a new scoped model doesn't break this test; accidental
+    // REMOVAL of scope still fails fast.
+    expect(TENANT_SCOPED_MODELS.size).toBeGreaterThanOrEqual(127);
     // Foundation models (20, from 20260423000004_tenant_foundation):
     expect(TENANT_SCOPED_MODELS.has("Patient")).toBe(true);
     expect(TENANT_SCOPED_MODELS.has("Notification")).toBe(true);
     expect(TENANT_SCOPED_MODELS.has("EmergencyCase")).toBe(true);
-    // Extended models (37, from 20260423000005_tenant_scope_extended):
+    // Extended models (from 20260423000005_tenant_scope_extended):
     expect(TENANT_SCOPED_MODELS.has("PatientAllergy")).toBe(true);
     expect(TENANT_SCOPED_MODELS.has("AIScribeSession")).toBe(true);
     expect(TENANT_SCOPED_MODELS.has("AITriageSession")).toBe(true);
     expect(TENANT_SCOPED_MODELS.has("ChatMessage")).toBe(true);
     expect(TENANT_SCOPED_MODELS.has("Holiday")).toBe(true);
+    // Spot-checks for the 2026-04-24 extension (blood bank, fleet, assets,
+    // visitor log, ABDM, v2 insurance claims):
+    expect(TENANT_SCOPED_MODELS.has("BloodUnit")).toBe(true);
+    expect(TENANT_SCOPED_MODELS.has("Ambulance")).toBe(true);
+    expect(TENANT_SCOPED_MODELS.has("Asset")).toBe(true);
+    expect(TENANT_SCOPED_MODELS.has("Visitor")).toBe(true);
+    expect(TENANT_SCOPED_MODELS.has("AbhaLink")).toBe(true);
+    expect(TENANT_SCOPED_MODELS.has("InsuranceClaim2")).toBe(true);
     // Non-scoped catalogs stay out:
     expect(TENANT_SCOPED_MODELS.has("Icd10Code")).toBe(false);
   });

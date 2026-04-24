@@ -120,6 +120,7 @@ export default function AIFollowupPage() {
             return (
               <article
                 key={c.id}
+                data-testid="followup-row"
                 className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5"
               >
                 <div className="flex items-start justify-between gap-3">
@@ -140,6 +141,7 @@ export default function AIFollowupPage() {
 
                   {!suggestion && (
                     <button
+                      data-testid="followup-suggest"
                       onClick={() => suggestFor(c.id)}
                       className="px-3 py-1.5 rounded-lg border text-xs hover:bg-gray-50"
                     >

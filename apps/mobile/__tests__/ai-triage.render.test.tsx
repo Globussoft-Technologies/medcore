@@ -99,4 +99,51 @@ describe("AITriageChatScreen render + send flow", () => {
     // Button is disabled while draft is empty — no API call should fire.
     expect(ai.sendTriageMessage).not.toHaveBeenCalled();
   });
+
+  // Richer interaction: verify the in-flight "Thinking..." indicator is
+  // rendered WHILE sendTriageMessage is pending. Exercises the `sending`
+  // state transition on the composer (button disabled, ListFooterComponent
+  // shows the indicator). This is exactly the kind of mid-flight assertion
+  // the client-wiring pattern can't express — it needs a real mount.
+  it("shows the 'Thinking...' indicator while sendTriageMessage is pending, then clears it", async () => {
+    // Keep sendTriageMessage pending until we resolve it by hand, so we can
+    // observe the in-flight UI state deterministically without racing the
+    // microtask queue.
+    let resolveSend!: (v: { message: string }) => void;
+    ai.sendTriageMessage.mockImplementation(
+      () => new Promise((res) => {
+        resolveSend = res;
+      })
+    );
+
+    const { findByPlaceholderText, getByLabelText, findByText, queryByText } =
+      render(<AITriageChatScreen />);
+
+    // Wait for session start so the composer is editable.
+    await findByText("Hi, how are you feeling?");
+
+    const input = await findByPlaceholderText("Describe your symptoms...");
+    await act(async () => {
+      fireEvent.changeText(input, "cough for 2 days");
+    });
+
+    await act(async () => {
+      fireEvent.press(getByLabelText("Send message"));
+    });
+
+    // While the request is pending the user bubble is already rendered and
+    // the assistant shows "Thinking..." in the list footer.
+    expect(await findByText("cough for 2 days")).toBeTruthy();
+    expect(await findByText("Thinking...")).toBeTruthy();
+
+    // Now resolve the request — the indicator should unmount and the
+    // assistant's reply should render.
+    await act(async () => {
+      resolveSend({ message: "Got it, thanks." });
+    });
+
+    expect(await findByText("Got it, thanks.")).toBeTruthy();
+    expect(queryByText("Thinking...")).toBeNull();
+    expect(ai.sendTriageMessage).toHaveBeenCalledWith("s1", "cough for 2 days");
+  });
 });

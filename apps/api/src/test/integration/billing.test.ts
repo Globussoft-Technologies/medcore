@@ -221,4 +221,76 @@ describeIfDB("Billing API (integration)", () => {
       .send({ invoiceId: "not-uuid", amount: 0 });
     expect(res.status).toBe(400);
   });
+
+  // ─── GET /billing/hospital-profile (Issue #43, source of truth for
+  //    invoice headers) ────────────────────────────────────────────────────
+
+  it("GET /hospital-profile returns the configured hospital identity with all invoice-header fields", async () => {
+    const prisma = await getPrisma();
+    // Seed the rows the endpoint reads — keys it touches are name/address/
+    // phone/email/gstin/registration/tagline/logo_url.
+    const seed = [
+      { key: "hospital_name", value: "Acme Wellness" },
+      { key: "hospital_address", value: "1 Acme Plaza, Bengaluru 560001" },
+      { key: "hospital_phone", value: "+91-80-0000-0000" },
+      { key: "hospital_email", value: "hello@acme.test" },
+      { key: "hospital_gstin", value: "29AAACA1234Z1Z5" },
+      { key: "hospital_registration", value: "REG-ACME-2026" },
+      { key: "hospital_tagline", value: "Care, first" },
+    ];
+    for (const row of seed) {
+      await prisma.systemConfig.upsert({
+        where: { key: row.key },
+        create: row,
+        update: { value: row.value },
+      });
+    }
+
+    const res = await request(app)
+      .get("/api/v1/billing/hospital-profile")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.name).toBe("Acme Wellness");
+    expect(res.body.data.gstin).toBe("29AAACA1234Z1Z5");
+    expect(res.body.data.registration).toBe("REG-ACME-2026");
+    expect(res.body.data.tagline).toBe("Care, first");
+    expect(res.body.data.email).toBe("hello@acme.test");
+  });
+
+  it("GET /hospital-profile falls back to sensible defaults when SystemConfig rows are absent", async () => {
+    const prisma = await getPrisma();
+    // Clear any previously-seeded rows so the defaults kick in.
+    await prisma.systemConfig.deleteMany({
+      where: {
+        key: {
+          in: [
+            "hospital_name",
+            "hospital_address",
+            "hospital_phone",
+            "hospital_email",
+            "hospital_gstin",
+            "hospital_registration",
+            "hospital_tagline",
+            "hospital_logo_url",
+          ],
+        },
+      },
+    });
+
+    const res = await request(app)
+      .get("/api/v1/billing/hospital-profile")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    // Defaults exist so QA envs never show raw placeholders.
+    expect(res.body.data.name).toMatch(/Hospital/i);
+    expect(res.body.data.email).toMatch(/@/);
+    expect(res.body.data.gstin).toMatch(/^[0-9]{2}[A-Z]/);
+  });
+
+  it("GET /hospital-profile still requires authentication (401 without a token)", async () => {
+    const res = await request(app).get("/api/v1/billing/hospital-profile");
+    expect(res.status).toBe(401);
+  });
 });

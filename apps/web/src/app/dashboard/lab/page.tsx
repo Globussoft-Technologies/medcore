@@ -406,6 +406,7 @@ export default function LabPage() {
                                             )}
                                             {canSeeAI && !insight && (
                                               <button
+                                                data-testid="lab-ai-insights-btn"
                                                 onClick={() => fetchAIInsights(r.id)}
                                                 className="text-xs text-indigo-600 hover:underline ml-2"
                                               >

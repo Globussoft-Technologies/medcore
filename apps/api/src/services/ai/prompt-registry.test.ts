@@ -271,6 +271,56 @@ describe("rollbackPromptKey", () => {
 
 // ── listPromptVersions ────────────────────────────────────────────────────────
 
+// ── End-to-end: V1 + V2 rollout and rollback ──────────────────────────────────
+//
+// Exercises the complete flow that the `db:seed-prompts-v2` script + admin API
+// drive in production: seed V1, seed V2 (inactive), activate V2, then roll
+// back. Asserts `getActivePrompt` reflects the rollout at every step and that
+// the cache doesn't serve stale content across transitions.
+
+describe("prompt rollout + rollback E2E (V1 -> V2 -> rollback)", () => {
+  it("seed V1, seed V2 inactive, activate V2, rollback -> V1 served again", async () => {
+    const V1 = "TRIAGE v1 content";
+    const V2 = "TRIAGE v2 content — explicit red-flag ack";
+
+    // Step 1: Seed V1 and make it active (mimics the existing seed-prompts.ts
+    // behaviour at first deploy).
+    const v1 = await createPromptVersion("TRIAGE_SYSTEM", V1, "seeder");
+    expect(v1.version).toBe(1);
+    expect(v1.active).toBe(false); // createPromptVersion never activates
+    await activatePromptVersion(v1.id);
+
+    // Step 2: Seed V2 inactive (mimics seed-prompt-v2-triage.ts). V1 must
+    // remain the served prompt.
+    const v2 = await createPromptVersion("TRIAGE_SYSTEM", V2, "seeder-v2");
+    expect(v2.version).toBe(2);
+    expect(v2.active).toBe(false);
+    expect(await getActivePrompt("TRIAGE_SYSTEM")).toBe(V1);
+
+    // Sanity: both rows exist in the store.
+    const history = await listPromptVersions("TRIAGE_SYSTEM");
+    expect(history.total).toBe(2);
+    expect(history.items.map((r) => r.version)).toEqual([2, 1]);
+
+    // Step 3: Admin activates V2 (POST /prompts/versions/:id/activate).
+    // Registry should immediately serve V2 and V1 should flip inactive.
+    await activatePromptVersion(v2.id);
+    expect(await getActivePrompt("TRIAGE_SYSTEM")).toBe(V2);
+    const v1Row = db.rows.find((r) => r.id === v1.id)!;
+    const v2Row = db.rows.find((r) => r.id === v2.id)!;
+    expect(v1Row.active).toBe(false);
+    expect(v2Row.active).toBe(true);
+
+    // Step 4: Rollback (POST /prompts/:key/rollback). Registry flips back to
+    // V1, V2 goes inactive, cache is invalidated so the next read sees V1.
+    const rolledBack = await rollbackPromptKey("TRIAGE_SYSTEM");
+    expect(rolledBack.version).toBe(1);
+    expect(rolledBack.active).toBe(true);
+    expect(await getActivePrompt("TRIAGE_SYSTEM")).toBe(V1);
+    expect(db.rows.find((r) => r.id === v2.id)!.active).toBe(false);
+  });
+});
+
 describe("listPromptVersions", () => {
   it("returns versions newest-first, paginated", async () => {
     for (let i = 1; i <= 5; i++) {

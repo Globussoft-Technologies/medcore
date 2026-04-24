@@ -121,6 +121,7 @@ export default function AiDocQaPage() {
                   {reports.map((r) => (
                     <tr
                       key={r.consultationId}
+                      data-testid="docqa-report-row"
                       onClick={() => setSelected(r)}
                       className="cursor-pointer border-b border-gray-100 last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/40"
                     >
@@ -145,7 +146,10 @@ export default function AiDocQaPage() {
         </div>
 
         <div className="lg:col-span-1">
-          <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+          <div
+            data-testid="docqa-detail"
+            className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800"
+          >
             <h2 className="mb-3 font-semibold text-gray-900 dark:text-gray-100">
               Report Detail
             </h2>

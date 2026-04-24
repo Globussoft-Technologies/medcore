@@ -25,6 +25,7 @@ import {
   FileText,
   Ban,
   Search,
+  Sparkles,
 } from "lucide-react";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -116,6 +117,7 @@ const STATUS_CLASSES: Record<Status, string> = {
 export default function InsuranceClaimsPage() {
   const router = useRouter();
   const { user, isLoading } = useAuthStore();
+  const promptUser = usePrompt();
 
   const [rows, setRows] = useState<ClaimRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -128,6 +130,7 @@ export default function InsuranceClaimsPage() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
+  const [aiDrafting, setAiDrafting] = useState(false);
 
   useEffect(() => {
     if (!isLoading && user && !["ADMIN", "RECEPTION"].includes(user.role)) {
@@ -165,6 +168,33 @@ export default function InsuranceClaimsPage() {
     load();
   }, [user, load]);
 
+  // ── AI Draft flow ─────────────────────────────────────────────────────────
+  // Reuses the shared PromptDialog (via `usePrompt`) to ask for a
+  // consultationId; on success the claims list refreshes so the newly drafted
+  // claim surfaces without a manual refresh. Mirrors the RBAC on the backend
+  // route (`ADMIN` + `RECEPTION` only — see `apps/api/src/routes/ai-claims.ts`).
+  async function handleAiDraft() {
+    const consultationId = await promptUser({
+      title: "AI Draft claim",
+      label: "Consultation ID",
+      message:
+        "Enter a consultation ID — the AI coder will draft a claim from its SOAP notes, ICD codes and invoice.",
+      placeholder: "e.g. 4b5d6e7f-…",
+      required: true,
+    });
+    if (!consultationId) return;
+    setAiDrafting(true);
+    try {
+      await api.post(`/ai/claims/draft/${consultationId.trim()}`);
+      toast.success("AI draft created");
+      await load();
+    } catch (err) {
+      toast.error((err as Error).message || "AI draft failed");
+    } finally {
+      setAiDrafting(false);
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -194,6 +224,19 @@ export default function InsuranceClaimsPage() {
             className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
           >
             <RefreshCw className="h-4 w-4" /> Refresh
+          </button>
+          <button
+            onClick={handleAiDraft}
+            disabled={aiDrafting}
+            data-testid="insurance-claims-ai-draft"
+            className="flex items-center gap-2 rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-60 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-300 dark:hover:bg-violet-900/40"
+          >
+            {aiDrafting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            AI Draft
           </button>
           <button
             onClick={() => setShowNew(true)}
@@ -300,6 +343,7 @@ export default function InsuranceClaimsPage() {
               {rows.map((r) => (
                 <tr
                   key={r.id}
+                  data-testid="claim-row"
                   onClick={() => setSelectedId(r.id)}
                   className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/30"
                 >

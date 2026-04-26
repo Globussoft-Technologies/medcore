@@ -26,14 +26,16 @@ if (process.env.NODE_ENV !== "test") {
 // through a larger body-parser in the future). 8 MB ≈ 5 min @ 96 kbps webm.
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 
-const SUPPORTED_PROVIDERS: ASRProvider[] = ["sarvam", "assemblyai"];
+const SUPPORTED_PROVIDERS: ASRProvider[] = ["sarvam"];
 
 // POST /api/v1/ai/transcribe
-// Body: { audioBase64: string, language?: string, provider?: "sarvam"|"assemblyai", diarize?: boolean }
+// Body: { audioBase64: string, language?: string, provider?: "sarvam", diarize?: boolean }
 //
 // Back-compat: legacy callers that just read `data.transcript` keep working
 // because we still populate that field at the top level. New callers can also
 // read `data.segments`, `data.provider`, etc. from the full ASRResult envelope.
+// AssemblyAI / Deepgram support was removed on 2026-04-25 due to non-India
+// data residency (PRD §3.8 / §4.8).
 router.post(
   "/",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -85,17 +87,11 @@ router.post(
         return;
       }
 
-      // Pick the provider: explicit body override > ASR_PROVIDER env > sarvam.
-      const envProvider = (process.env.ASR_PROVIDER as ASRProvider | undefined) ?? "sarvam";
-      const primary = (requestedProvider as ASRProvider | undefined) ?? envProvider;
-
-      // When the primary provider is assemblyai, Sarvam is a perfectly good
-      // fallback for the plain transcript (it just won't carry speaker labels).
-      // When primary IS sarvam, there's no one to fall through to, so the
-      // provider array collapses to a single entry and the existing behaviour
-      // is preserved exactly.
-      const providers: ASRProvider[] =
-        primary === "sarvam" ? ["sarvam"] : [primary, "sarvam"];
+      // Sarvam is the only supported provider since the AssemblyAI/Deepgram
+      // removal on 2026-04-25; the body `provider` override + env are kept so
+      // future India-region providers can be plugged in without changing
+      // callers, but right now they all collapse to "sarvam".
+      const providers: ASRProvider[] = ["sarvam"];
 
       try {
         const result = await callWithASRFallback(
@@ -103,7 +99,7 @@ router.post(
           { language, diarize, doctorFirst: true },
           {
             providers,
-            feature: `asr-${primary}` as any,
+            feature: "asr-sarvam",
           }
         );
 
@@ -140,13 +136,11 @@ router.post(
 // screen can grey out providers that aren't configured server-side. Read-only,
 // doctor/admin auth already applied above.
 router.get("/providers", (_req: Request, res: Response) => {
-  const envProvider = (process.env.ASR_PROVIDER as ASRProvider | undefined) ?? "sarvam";
   res.json({
     success: true,
     data: {
       providers: SUPPORTED_PROVIDERS,
-      default: envProvider,
-      assemblyaiConfigured: Boolean(process.env.ASSEMBLYAI_API_KEY),
+      default: "sarvam" as ASRProvider,
     },
     error: null,
   });

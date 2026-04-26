@@ -17,11 +17,9 @@ export function logAICall(opts: {
     | "er-triage"
     | "pharmacy-forecast"
     | "model-router"
-    // ASR provider paths — one entry per provider so alerts can be scoped to a
-    // single speech backend (e.g. AssemblyAI outage shouldn't page Sarvam oncall).
-    | "asr-sarvam"
-    | "asr-assemblyai"
-    | "asr-deepgram";
+    // ASR provider path — currently Sarvam-only (AssemblyAI/Deepgram were
+    // removed on 2026-04-25 due to non-India data residency).
+    | "asr-sarvam";
   model: string;
   promptTokens: number;
   completionTokens: number;

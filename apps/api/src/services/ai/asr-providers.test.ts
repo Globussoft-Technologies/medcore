@@ -2,9 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 //
-// Providers call the network via the global `fetch` — we stub it per test so
-// we can assert request shape and drive response bodies without a real HTTP
-// round-trip.
+// Sarvam is called via the global `fetch` — we stub it per test so we can
+// assert request shape and drive response bodies without a real HTTP round-trip.
 
 const logAICallSpy = vi.fn();
 vi.mock("./sarvam-logging", () => ({
@@ -15,8 +14,6 @@ import {
   getASRClient,
   callWithASRFallback,
   mapSpeakerLabels,
-  type ASRClient,
-  type ASRResult,
 } from "./asr-providers";
 
 // Preserve original env so individual tests can safely mutate process.env.
@@ -24,10 +21,7 @@ const ORIGINAL_ENV = { ...process.env };
 
 beforeEach(() => {
   logAICallSpy.mockReset();
-  // Reset the env vars we care about so tests don't leak into each other.
   delete process.env.ASR_PROVIDER;
-  delete process.env.ASSEMBLYAI_API_KEY;
-  delete process.env.DEEPGRAM_API_KEY;
   process.env.SARVAM_API_KEY = "test-sarvam-key";
 });
 
@@ -44,21 +38,23 @@ describe("getASRClient", () => {
     expect(client.provider).toBe("sarvam");
   });
 
-  it("returns an AssemblyAI client when ASR_PROVIDER=assemblyai", () => {
-    process.env.ASR_PROVIDER = "assemblyai";
+  it("returns the Sarvam client when ASR_PROVIDER=sarvam", () => {
+    process.env.ASR_PROVIDER = "sarvam";
     const client = getASRClient();
-    expect(client.provider).toBe("assemblyai");
+    expect(client.provider).toBe("sarvam");
   });
 
-  it("throws a clear error when ASR_PROVIDER is unknown", () => {
-    expect(() => getASRClient("whispr" as any)).toThrow(/Unknown ASR_PROVIDER/i);
-  });
-
-  it("Deepgram stub throws with the documented re-add instructions", async () => {
-    const client = getASRClient("deepgram");
-    await expect(client.transcribe(Buffer.from([1, 2, 3]), {})).rejects.toThrow(
-      /Deepgram not yet implemented/i
+  it("throws a clear error for legacy AssemblyAI / Deepgram values", () => {
+    expect(() => getASRClient("assemblyai" as any)).toThrow(
+      /Only "sarvam" is supported/i,
     );
+    expect(() => getASRClient("deepgram" as any)).toThrow(
+      /Only "sarvam" is supported/i,
+    );
+  });
+
+  it("throws for any other unknown ASR_PROVIDER", () => {
+    expect(() => getASRClient("whispr" as any)).toThrow(/Only "sarvam" is supported/i);
   });
 });
 
@@ -69,8 +65,8 @@ describe("SarvamASRClient.transcribe", () => {
     const fetchMock = vi.fn(async () =>
       new Response(
         JSON.stringify({ transcript: "Hello doctor", language_code: "en-IN" }),
-        { status: 200, headers: { "content-type": "application/json" } }
-      )
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -85,10 +81,10 @@ describe("SarvamASRClient.transcribe", () => {
     expect(result.language).toBe("en-IN");
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.sarvam.ai/speech-to-text",
-      expect.objectContaining({ method: "POST" })
+      expect.objectContaining({ method: "POST" }),
     );
     expect(
-      logAICallSpy.mock.calls.some((c) => c[0]?.feature === "asr-sarvam" && !c[0]?.error)
+      logAICallSpy.mock.calls.some((c) => c[0]?.feature === "asr-sarvam" && !c[0]?.error),
     ).toBe(true);
   });
 
@@ -96,179 +92,39 @@ describe("SarvamASRClient.transcribe", () => {
     delete process.env.SARVAM_API_KEY;
     const client = getASRClient("sarvam");
     await expect(client.transcribe(Buffer.from([1]), {})).rejects.toThrow(
-      /SARVAM_API_KEY is not configured/
-    );
-  });
-});
-
-// ── AssemblyAI client ─────────────────────────────────────────────────────────
-
-describe("AssemblyAIASRClient.transcribe", () => {
-  it("rejects when ASSEMBLYAI_API_KEY is missing", async () => {
-    const client = getASRClient("assemblyai");
-    await expect(client.transcribe(Buffer.from([1]), {})).rejects.toThrow(
-      /ASSEMBLYAI_API_KEY is not configured/
+      /SARVAM_API_KEY is not configured/,
     );
   });
 
-  it("returns multi-speaker segments mapped to DOCTOR/PATIENT/ATTENDANT", async () => {
-    process.env.ASSEMBLYAI_API_KEY = "test-aai-key";
-
-    // Sequence: upload → create transcript → poll (completed on first poll).
-    const fetchSeq: Array<() => Response> = [
-      () =>
-        new Response(JSON.stringify({ upload_url: "https://cdn.assemblyai.com/u/abc" }), {
+  it("returns an empty segments array when the transcript is empty", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ transcript: "", language_code: "en-IN" }), {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
-      () =>
-        new Response(JSON.stringify({ id: "tr-123", status: "queued" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      () =>
-        new Response(
-          JSON.stringify({
-            id: "tr-123",
-            status: "completed",
-            text: "Hello how are you I have a fever my son is with me",
-            language_code: "en",
-            utterances: [
-              { text: "Hello how are you", start: 0, end: 1500, speaker: "A", confidence: 0.95 },
-              { text: "I have a fever", start: 1600, end: 3200, speaker: "B", confidence: 0.92 },
-              { text: "my son is with me", start: 3300, end: 4800, speaker: "C", confidence: 0.9 },
-            ],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } }
-        ),
-    ];
-    let callIdx = 0;
-    const fetchMock = vi.fn(async () => {
-      const builder = fetchSeq[callIdx] ?? fetchSeq[fetchSeq.length - 1];
-      callIdx += 1;
-      return builder();
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const client = getASRClient("assemblyai");
-    const result = await client.transcribe(Buffer.from([1, 2, 3]), {
-      language: "en-IN",
-      diarize: true,
-    });
-
-    expect(result.provider).toBe("assemblyai");
-    expect(result.segments).toHaveLength(3);
-    expect(result.segments[0].speaker).toBe("DOCTOR");
-    expect(result.segments[1].speaker).toBe("PATIENT");
-    expect(result.segments[2].speaker).toBe("ATTENDANT");
-    expect(result.segments[0].startMs).toBe(0);
-    expect(result.segments[0].endMs).toBe(1500);
-    // First fetch should be the upload call with octet-stream content-type.
-    const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
-    const firstCallInit = calls[0][1];
-    expect((firstCallInit.headers as any)["content-type"]).toBe("application/octet-stream");
-    // Second fetch is the transcript request with speaker_labels flag.
-    const secondBody = JSON.parse(calls[1][1].body as string);
-    expect(secondBody.speaker_labels).toBe(true);
-    expect(secondBody.audio_url).toBe("https://cdn.assemblyai.com/u/abc");
-    expect(secondBody.language_code).toBe("en");
-  });
-
-  // ── PRD §4.5.2 medical-vocabulary tuning ────────────────────────────────────
-
-  it("attaches word_boost + boost_param=high by default (PRD §4.5.2)", async () => {
-    process.env.ASSEMBLYAI_API_KEY = "test-aai-key";
-    const fetchSeq: Array<() => Response> = [
-      () =>
-        new Response(JSON.stringify({ upload_url: "https://cdn.assemblyai.com/u/x" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      () =>
-        new Response(
-          JSON.stringify({
-            id: "tr-abc",
-            status: "completed",
-            text: "",
-            utterances: [],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } }
-        ),
-    ];
-    let idx = 0;
-    const fetchMock = vi.fn(async () => fetchSeq[Math.min(idx++, fetchSeq.length - 1)]());
-    vi.stubGlobal("fetch", fetchMock);
-
-    const client = getASRClient("assemblyai");
-    // Default: medicalVocabulary is undefined, which should enable boosting.
-    await client.transcribe(Buffer.from([1, 2, 3]), { language: "en-IN" });
-
-    const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
-    // calls[0] = upload, calls[1] = transcript create
-    const body = JSON.parse(calls[1][1].body as string);
-    expect(Array.isArray(body.word_boost)).toBe(true);
-    expect(body.word_boost.length).toBeGreaterThan(200);
-    expect(body.word_boost).toContain("Amoxicillin");
-    expect(body.boost_param).toBe("high");
-
-    // Log metadata should record the boost size so ops can verify from logs.
-    const aaiLog = logAICallSpy.mock.calls
-      .map((c) => c[0])
-      .find((e) => e.feature === "asr-assemblyai" && !e.error);
-    expect(aaiLog).toBeTruthy();
-    expect(aaiLog.metadata?.boostedWords).toBe(body.word_boost.length);
-    expect(aaiLog.metadata?.boostParam).toBe("high");
-  });
-
-  it("omits word_boost when medicalVocabulary=false (operator kill-switch)", async () => {
-    process.env.ASSEMBLYAI_API_KEY = "test-aai-key";
-    const fetchSeq: Array<() => Response> = [
-      () =>
-        new Response(JSON.stringify({ upload_url: "https://cdn.assemblyai.com/u/x" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      () =>
-        new Response(
-          JSON.stringify({ id: "tr-xyz", status: "completed", text: "", utterances: [] }),
-          { status: 200, headers: { "content-type": "application/json" } }
-        ),
-    ];
-    let idx = 0;
-    const fetchMock = vi.fn(async () => fetchSeq[Math.min(idx++, fetchSeq.length - 1)]());
-    vi.stubGlobal("fetch", fetchMock);
-
-    const client = getASRClient("assemblyai");
-    await client.transcribe(Buffer.from([1, 2, 3]), {
-      language: "en-IN",
-      medicalVocabulary: false,
-    });
-
-    const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
-    const body = JSON.parse(calls[1][1].body as string);
-    expect(body.word_boost).toBeUndefined();
-    expect(body.boost_param).toBeUndefined();
-
-    const aaiLog = logAICallSpy.mock.calls
-      .map((c) => c[0])
-      .find((e) => e.feature === "asr-assemblyai" && !e.error);
-    expect(aaiLog?.metadata?.boostedWords).toBe(0);
-    expect(aaiLog?.metadata?.boostParam).toBeNull();
+      ),
+    );
+    const client = getASRClient("sarvam");
+    const result = await client.transcribe(Buffer.from([1]), { language: "en-IN" });
+    expect(result.transcript).toBe("");
+    expect(result.segments).toEqual([]);
   });
 });
 
-// ── Speaker mapping helper ────────────────────────────────────────────────────
+// ── mapSpeakerLabels ──────────────────────────────────────────────────────────
 
 describe("mapSpeakerLabels", () => {
-  it("maps first-to-speak to DOCTOR across a 3-speaker conversation", () => {
+  it("maps the first three distinct labels to DOCTOR/PATIENT/ATTENDANT", () => {
     const segments = [
-      { speaker: "A", text: "Good morning" },
-      { speaker: "B", text: "Morning doctor" },
-      { speaker: "A", text: "Tell me about your symptoms" },
-      { speaker: "C", text: "He also has a headache" },
-      { speaker: "B", text: "I have fever since two days" },
+      { speaker: "A", text: "hello" },
+      { speaker: "B", text: "hi" },
+      { speaker: "A", text: "again" },
+      { speaker: "C", text: "third" },
+      { speaker: "B", text: "fourth" },
     ];
-    const mapped = mapSpeakerLabels(segments, { doctorFirst: true });
+    const mapped = mapSpeakerLabels(segments);
     expect(mapped.map((s) => s.speaker)).toEqual([
       "DOCTOR",
       "PATIENT",
@@ -293,63 +149,56 @@ describe("mapSpeakerLabels", () => {
 // ── callWithASRFallback ───────────────────────────────────────────────────────
 
 describe("callWithASRFallback", () => {
-  it("tries providers in order and returns first success", async () => {
-    const audio = Buffer.from([1, 2, 3]);
-    const sarvamResult: ASRResult = {
-      transcript: "ok",
-      segments: [{ text: "ok", startMs: 0, endMs: 0 }],
-      provider: "sarvam",
-    };
-
-    // Stub fetch so the sarvam client succeeds on first try.
+  it("returns the Sarvam result when the providers list is just sarvam", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
         new Response(JSON.stringify({ transcript: "ok", language_code: "en-IN" }), {
           status: 200,
           headers: { "content-type": "application/json" },
-        })
-      )
+        }),
+      ),
     );
 
-    const out = await callWithASRFallback(audio, { language: "en-IN" }, {
-      providers: ["sarvam", "assemblyai"],
-      feature: "asr-sarvam",
-    });
+    const out = await callWithASRFallback(
+      Buffer.from([1, 2, 3]),
+      { language: "en-IN" },
+      { providers: ["sarvam"], feature: "asr-sarvam" },
+    );
     expect(out.provider).toBe("sarvam");
-    expect(out.transcript).toBe(sarvamResult.transcript);
-    // No failover event when the first provider succeeds.
+    expect(out.transcript).toBe("ok");
+    // No failover event when the only provider succeeds.
     expect(logAICallSpy.mock.calls.some((c) => c[0]?.failover === true)).toBe(false);
   });
 
-  it("falls through to the next provider on failure and logs failover", async () => {
-    process.env.ASSEMBLYAI_API_KEY = "test-aai-key";
-    process.env.SARVAM_API_KEY = "test-sarvam-key";
-
-    // First provider (assemblyai) — upload fails with 500. Second provider
-    // (sarvam) succeeds.
-    let call = 0;
+  it("re-throws the underlying error when the only provider fails", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => {
-        call += 1;
-        if (call === 1) {
-          return new Response("boom", { status: 500 });
-        }
-        return new Response(
-          JSON.stringify({ transcript: "recovered", language_code: "en-IN" }),
-          { status: 200, headers: { "content-type": "application/json" } }
-        );
-      })
+      vi.fn(async () => new Response("boom", { status: 500 })),
     );
 
-    const out = await callWithASRFallback(Buffer.from([1]), {}, {
-      providers: ["assemblyai", "sarvam"],
-      feature: "asr-assemblyai",
-    });
-    expect(out.provider).toBe("sarvam");
-    const failovers = logAICallSpy.mock.calls.map((c) => c[0]).filter((e) => e.failover === true);
+    await expect(
+      callWithASRFallback(
+        Buffer.from([1]),
+        {},
+        { providers: ["sarvam"], feature: "asr-sarvam" },
+      ),
+    ).rejects.toThrow();
+
+    const failovers = logAICallSpy.mock.calls
+      .map((c) => c[0])
+      .filter((e) => e.failover === true);
     expect(failovers).toHaveLength(1);
-    expect(failovers[0].model).toBe("assemblyai");
+    expect(failovers[0].model).toBe("sarvam");
+  });
+
+  it("rejects an empty providers array", async () => {
+    await expect(
+      callWithASRFallback(
+        Buffer.from([1]),
+        {},
+        { providers: [], feature: "asr-sarvam" },
+      ),
+    ).rejects.toThrow(/providers array must not be empty/i);
   });
 });

@@ -179,7 +179,7 @@ export default function HomePage() {
             <FeatureCard
               icon={Stethoscope}
               title="AI Triage + Ambient Scribe"
-              description="Symptom triage in the patient's language, plus an ambient scribe that writes SOAP notes during the consult with optional acoustic speaker diarization (AssemblyAI) or manual post-hoc speaker relabel."
+              description="Symptom triage in the patient's language, plus an ambient scribe that writes SOAP notes during the consult with manual speaker tagging — all running through India-region Sarvam ASR for DPDP compliance."
             />
             <FeatureCard
               icon={Brain}

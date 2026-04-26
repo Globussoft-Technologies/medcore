@@ -13,7 +13,6 @@ import type { SOAPNote } from "@medcore/shared";
 import {
   TRIAGE_LANGUAGE_CODES,
   LANGUAGE_DISPLAY,
-  ASSEMBLYAI_SUPPORTED_TRIAGE_LANGUAGES,
   toSarvamLanguageCode,
   type TriageLanguageCode,
 } from "@medcore/shared";
@@ -790,11 +789,13 @@ export default function ScribePage() {
   const voiceCmdRecognitionRef = useRef<any>(null);
 
   const [useServerASR, setUseServerASR] = useState(false);
-  // Acoustic diarization opt-in. When true, the upload endpoint is asked to
-  // use the configured diarizing provider (AssemblyAI) instead of Sarvam,
-  // and the response `segments[]` carry `speaker` labels that pre-populate
-  // the per-entry dropdown — replacing the alternating heuristic from #S4.
-  const [acousticDiarize, setAcousticDiarize] = useState(false);
+  // Acoustic diarization is currently disabled product-wide — the only
+  // providers that supported it (AssemblyAI / Deepgram) were removed on
+  // 2026-04-25 due to non-India data residency. The flag is kept as a
+  // hardcoded `false` so the legacy fall-through paths (manual speaker
+  // toggle) keep working; remove this and the related branches when an
+  // India-region diarizing provider is added.
+  const acousticDiarize = false;
   const [mediaRecorderSupported] = useState(
     () => typeof window !== "undefined" && typeof (window as any).MediaRecorder !== "undefined"
   );
@@ -993,9 +994,6 @@ export default function ScribePage() {
           {
             audioBase64: base64,
             language: "en-IN",
-            // Only pass the provider override when diarization is on; leaving
-            // it off keeps the server's default (ASR_PROVIDER env) in charge.
-            ...(acousticDiarize ? { provider: "assemblyai", diarize: true } : {}),
           },
           { headers: { Authorization: `Bearer ${token}` } }
         );
@@ -1848,49 +1846,6 @@ export default function ScribePage() {
                       }`}
                     >
                       Sarvam ASR
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* GAP-ASR-DIARIZE: optional acoustic speaker detection. Requires
-                  the server to be configured with ASSEMBLYAI_API_KEY and the
-                  scribe to be using the server-side ASR engine above. */}
-              {mediaRecorderSupported && useServerASR && (
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-medium text-gray-500">
-                      Acoustic speaker detection
-                    </p>
-                    <span
-                      className="text-[10px] text-gray-400 cursor-help"
-                      title="When enabled, MedCore routes audio to AssemblyAI to detect who is speaking (Doctor / Patient / Attendant) from the audio itself, instead of the manual speaker toggle. Requires ASSEMBLYAI_API_KEY on the server. Data leaves the India region — leave off for DPDP-sensitive deployments."
-                    >
-                      (?)
-                    </span>
-                  </div>
-                  <div className="flex gap-1.5">
-                    <button
-                      disabled={recording}
-                      onClick={() => setAcousticDiarize(false)}
-                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                        !acousticDiarize
-                          ? "bg-blue-600 text-white"
-                          : "border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-                      }`}
-                    >
-                      Manual toggle
-                    </button>
-                    <button
-                      disabled={recording}
-                      onClick={() => setAcousticDiarize(true)}
-                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                        acousticDiarize
-                          ? "bg-purple-600 text-white"
-                          : "border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-                      }`}
-                    >
-                      Acoustic (AssemblyAI)
                     </button>
                   </div>
                 </div>

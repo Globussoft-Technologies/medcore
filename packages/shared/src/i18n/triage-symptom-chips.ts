@@ -246,10 +246,3 @@ export function toSarvamLanguageCode(code: TriageLanguageCode | string): string 
   }
 }
 
-/**
- * Language codes that AssemblyAI covers well enough for clinical transcription.
- * The remaining 6 Phase-2 Indic languages are NOT in this list — the scribe
- * route must fall back to Sarvam for those. This is a hard product constraint
- * noted in the PRD §3.5.1 scope: "AssemblyAI has poor Indic coverage".
- */
-export const ASSEMBLYAI_SUPPORTED_TRIAGE_LANGUAGES: readonly TriageLanguageCode[] = ["en", "hi"];

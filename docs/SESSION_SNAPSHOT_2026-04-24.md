@@ -61,7 +61,7 @@ tables + 2 enums + nullable columns on existing tables.
 | 3.5.4 | SNOMED-CT curated subset (119 concepts, Hindi synonyms) | `SnomedConcept` DB model + `apps/api/src/services/ai/snomed-mapping.ts`; DB/JSON dual path |
 | 3.5.6 | Agent console for call-center handoff | `/api/v1/agent-console/*`; `apps/web/src/app/dashboard/agent-console/` |
 | 3.9 + 4.9 | AI-KPI dashboards + CSV export | `/api/v1/ai/kpis/*`; `apps/web/src/app/dashboard/ai-kpis/`; new `FrontDeskCall` + `MedicationIncident` models + `PatientFeedback.appointmentId` + `AIScribeSession.doctorNps/...` columns |
-| 4.5.2 | Medical-vocabulary ASR tuning (317-word boost list) | `apps/api/src/services/ai/medical-vocabulary.ts`; wired into AssemblyAI `word_boost` |
+| 4.5.2 | Medical-vocabulary ASR tuning | Originally shipped as a 317-word `word_boost` list piped to AssemblyAI. Removed on 2026-04-25 along with AssemblyAI itself (US-region, fails PRD §3.8 / §4.8). Re-introduce when Sarvam exposes a vocabulary hook or when an India-region diarizing provider appears. |
 | 7.2 | Radiology region-overlay UI (DICOM + click-to-highlight) | `apps/web/src/app/dashboard/ai-radiology/page.tsx` with `data-testid` hooks |
 | 7 / DPDP | Patient data export (right-to-portability) | `PatientDataExport` model; `/api/v1/patient-data-export/*`; signed URLs |
 
@@ -84,9 +84,13 @@ tables + 2 enums + nullable columns on existing tables.
 - ABDM DPA vendor API integration — needs real vendor contract.
 - MEPA enrollment — needs external partnership.
 - Sarvam ASR medical-vocabulary tuning — no API hook exposed by Sarvam
-  as of Apr 2026.
-- Deepgram medical-vocab wiring — Deepgram client reverted to stub by a
-  prior agent; re-integration deferred.
+  as of Apr 2026; re-evaluate when Sarvam ships one.
+- Acoustic diarization — was previously available via AssemblyAI; removed
+  on 2026-04-25 because both AssemblyAI and Deepgram process audio
+  outside India, violating PRD §3.8 / §4.8 ("India-region deployment for
+  all PII and PHI"). Scribe falls back to manual speaker tagging. Re-add
+  any candidate provider only after confirming India-region processing
+  AND under a `DEPLOYMENT_REGION` runtime gate.
 - `TenantConfig` first-class table — `SystemConfig` key-prefix scheme
   works; deferred to next schema-churn window.
 

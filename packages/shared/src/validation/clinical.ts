@@ -55,24 +55,28 @@ export const scheduleSurgerySchema = z.object({
       (s) => new Date(s).getTime() >= Date.now() - 5 * 60 * 1000,
       "Scheduled date/time cannot be in the past"
     ),
-  durationMin: z.number().int().min(0).optional(),
+  // Issue #53 (Apr 2026): duration must be strictly positive (a 0-minute
+  // surgery is meaningless); cost must be non-negative (free surgeries are
+  // legal — pro-bono, charity cases — but negative cost is not).
+  durationMin: z.number().int().positive("Duration must be greater than 0").optional(),
   anaesthesiologist: z.string().optional(),
   assistants: z.string().optional(),
   preOpNotes: z.string().optional(),
   diagnosis: z.string().optional(),
-  cost: z.number().min(0).optional(),
+  cost: z.number().nonnegative("Cost cannot be negative").optional(),
 });
 
 export const updateSurgerySchema = z.object({
   procedure: z.string().min(1).optional(),
   scheduledAt: z.string().datetime().optional(),
-  durationMin: z.number().int().min(0).optional(),
+  // Issue #53: same constraints on update path.
+  durationMin: z.number().int().positive("Duration must be greater than 0").optional(),
   anaesthesiologist: z.string().optional(),
   assistants: z.string().optional(),
   preOpNotes: z.string().optional(),
   postOpNotes: z.string().optional(),
   diagnosis: z.string().optional(),
-  cost: z.number().min(0).optional(),
+  cost: z.number().nonnegative("Cost cannot be negative").optional(),
   status: z
     .enum(["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "POSTPONED"])
     .optional(),

@@ -223,4 +223,53 @@ describe("scheduleSurgerySchema", () => {
       }).success
     ).toBe(false);
   });
+  // Issue #53 (Apr 2026)
+  it("rejects negative duration", () => {
+    expect(
+      scheduleSurgerySchema.safeParse({
+        patientId: UUID,
+        surgeonId: UUID,
+        otId: UUID,
+        procedure: "x",
+        scheduledAt: new Date().toISOString(),
+        durationMin: -30,
+      }).success
+    ).toBe(false);
+  });
+  it("rejects zero duration", () => {
+    expect(
+      scheduleSurgerySchema.safeParse({
+        patientId: UUID,
+        surgeonId: UUID,
+        otId: UUID,
+        procedure: "x",
+        scheduledAt: new Date().toISOString(),
+        durationMin: 0,
+      }).success
+    ).toBe(false);
+  });
+  it("rejects negative cost", () => {
+    expect(
+      scheduleSurgerySchema.safeParse({
+        patientId: UUID,
+        surgeonId: UUID,
+        otId: UUID,
+        procedure: "x",
+        scheduledAt: new Date().toISOString(),
+        cost: -1,
+      }).success
+    ).toBe(false);
+  });
+  it("accepts zero cost (pro-bono)", () => {
+    expect(
+      scheduleSurgerySchema.safeParse({
+        patientId: UUID,
+        surgeonId: UUID,
+        otId: UUID,
+        procedure: "x",
+        scheduledAt: new Date().toISOString(),
+        cost: 0,
+      }).success
+    ).toBe(true);
+  });
 });

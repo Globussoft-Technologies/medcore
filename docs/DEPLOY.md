@@ -393,3 +393,73 @@ their dry-run / apply commands and idempotency notes, lives in a separate
 doc so ops can pin it on a second monitor:
 
 → [`DEPLOY_DATA_SCRIPTS.md`](DEPLOY_DATA_SCRIPTS.md)
+
+---
+
+## Appendix — Maintenance / 502 page (Issue #65 follow-up)
+
+When the upstream Next.js process (`medcore-web`, port 3200) is **down**,
+nginx serves its built-in raw `502 Bad Gateway` page — the in-Next React
+error boundaries (`apps/web/src/app/error.tsx`,
+`apps/web/src/app/global-error.tsx`) only catch errors **inside** a
+running Next.js process and cannot help here. We need an nginx-side
+`error_page` directive to render a friendly maintenance page instead.
+
+Add the following to the MedCore site config (typically
+`/etc/nginx/sites-available/medcore.conf`) inside the relevant `server`
+block:
+
+```nginx
+# /etc/nginx/sites-available/medcore.conf — server { ... }
+location = /maintenance.html {
+    root /var/www/medcore-static;   # static, served directly by nginx
+    internal;                        # not directly reachable
+}
+
+# When the upstream (Next.js on :3200 / API on :4100) is unreachable,
+# render the friendly maintenance page instead of nginx's raw 502.
+error_page 502 503 504 = /maintenance.html;
+proxy_intercept_errors on;
+```
+
+`/var/www/medcore-static/maintenance.html` should mirror the brand
+language used by `apps/web/src/app/global-error.tsx` so the user
+experience is consistent regardless of which layer caught the outage.
+A minimal starter:
+
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>MedCore — Maintenance</title>
+  </head>
+  <body style="font-family: system-ui, sans-serif; background:#f9fafb;
+               color:#111827; display:flex; align-items:center;
+               justify-content:center; height:100vh; margin:0; text-align:center;">
+    <div>
+      <h1 style="font-size:1.25rem; margin:0 0 .5rem;">
+        MedCore is currently performing maintenance
+      </h1>
+      <p style="color:#4b5563; max-width:480px; margin:0 auto;">
+        Please try again in a few minutes. If the problem persists,
+        contact your administrator.
+      </p>
+    </div>
+  </body>
+</html>
+```
+
+After editing the nginx config:
+
+```bash
+sudo nginx -t           # validate
+sudo nginx -s reload    # apply, no downtime
+# verify by stopping medcore-web briefly:
+pm2 stop medcore-web && curl -s -o /tmp/page.html -w "%{http_code}\n" https://prod-host/dashboard
+pm2 start medcore-web
+```
+
+This change is **not** deployable from `scripts/deploy.sh` (we don't
+manage nginx config from the app repo). Schedule it with the ops owner.

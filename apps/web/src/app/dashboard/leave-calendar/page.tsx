@@ -67,13 +67,23 @@ export default function LeaveCalendarPage() {
       try {
         const from = fmtISODate(startOfMonth(anchor));
         const to = fmtISODate(endOfMonth(anchor));
-        const res = await api.get<{ data: Leave[] }>(
-          `/leaves?status=APPROVED&from=${from}&to=${to}`
-        );
-        // filter to ones overlapping the month
+        // Issue #69 — pull APPROVED + PENDING in parallel so pending requests
+        // (e.g. Anita Pawar's 5/4–5/6) are visible on the grid with a
+        // distinct hatched style. Rejected/cancelled stay hidden.
+        const [approvedRes, pendingRes] = await Promise.all([
+          api.get<{ data: Leave[] }>(
+            `/leaves?status=APPROVED&from=${from}&to=${to}`
+          ),
+          api
+            .get<{ data: Leave[] }>(
+              `/leaves?status=PENDING&from=${from}&to=${to}`
+            )
+            .catch(() => ({ data: [] as Leave[] })),
+        ]);
+        const merged = [...approvedRes.data, ...pendingRes.data];
         const start = startOfMonth(anchor).getTime();
         const end = endOfMonth(anchor).getTime();
-        const filtered = res.data.filter((l) => {
+        const filtered = merged.filter((l) => {
           const f = new Date(l.fromDate).getTime();
           const t = new Date(l.toDate).getTime();
           return t >= start && f <= end;
@@ -163,6 +173,11 @@ export default function LeaveCalendarPage() {
             <span className="text-gray-700">{k}</span>
           </div>
         ))}
+        {/* Issue #69 — pending swatch */}
+        <div className="flex items-center gap-2 text-xs">
+          <span className="h-3 w-3 rounded border border-dashed border-gray-500 bg-gray-300 opacity-60" />
+          <span className="text-gray-700">PENDING (awaiting approval)</span>
+        </div>
       </div>
 
       <div className="rounded-xl bg-white p-4 shadow-sm">
@@ -206,17 +221,31 @@ export default function LeaveCalendarPage() {
                       )}
                     </div>
                     <div className="space-y-0.5 px-1 pt-1">
-                      {dayLeaves.slice(0, 3).map((l) => (
-                        <div
-                          key={l.id}
-                          className={`truncate rounded px-1 py-0.5 text-[10px] font-medium text-white ${
-                            TYPE_COLORS[l.type] || "bg-gray-500"
-                          }`}
-                          title={`${l.user?.name || "User"} · ${l.type}`}
-                        >
-                          {l.user?.name || "User"}
-                        </div>
-                      ))}
+                      {dayLeaves.slice(0, 3).map((l) => {
+                        // Issue #69 — pending leaves render at reduced opacity
+                        // with a dashed border + striped hatch so admins can
+                        // see them and act, but they're clearly not approved.
+                        const isPending = l.status === "PENDING";
+                        return (
+                          <div
+                            key={l.id}
+                            className={`truncate rounded px-1 py-0.5 text-[10px] font-medium text-white ${
+                              TYPE_COLORS[l.type] || "bg-gray-500"
+                            } ${
+                              isPending
+                                ? "opacity-60 border border-dashed border-white/70 bg-stripe-overlay"
+                                : ""
+                            }`}
+                            title={`${l.user?.name || "User"} · ${l.type}${
+                              isPending ? " · PENDING" : ""
+                            }`}
+                            data-status={l.status}
+                          >
+                            {isPending ? "* " : ""}
+                            {l.user?.name || "User"}
+                          </div>
+                        );
+                      })}
                       {dayLeaves.length > 3 && (
                         <div className="px-1 text-[10px] text-gray-500">
                           +{dayLeaves.length - 3} more

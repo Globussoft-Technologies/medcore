@@ -24,20 +24,27 @@ const TYPE_COLORS: Record<string, string> = {
   RESTRICTED: "bg-yellow-100 text-yellow-800",
 };
 
-// Common Indian holiday templates
+// Common Indian holiday templates (Issue #72 — corrected 2026 calendar:
+// Holi 4-Mar, Eid al-Fitr 21-Mar, Diwali 8-Nov, plus the missing festivals).
 const HOLIDAY_TEMPLATE: Array<{
   date: string;
   name: string;
   type: string;
 }> = [
   { date: "01-26", name: "Republic Day", type: "PUBLIC" },
-  { date: "03-08", name: "Holi", type: "OPTIONAL" },
+  { date: "03-04", name: "Holi", type: "PUBLIC" },
+  { date: "03-21", name: "Eid al-Fitr", type: "PUBLIC" },
+  { date: "03-26", name: "Ram Navami", type: "OPTIONAL" },
+  { date: "03-31", name: "Mahavir Jayanti", type: "OPTIONAL" },
+  { date: "04-03", name: "Good Friday", type: "PUBLIC" },
   { date: "04-14", name: "Dr. Ambedkar Jayanti", type: "PUBLIC" },
-  { date: "05-01", name: "Labour Day", type: "PUBLIC" },
+  { date: "05-01", name: "Buddha Purnima", type: "OPTIONAL" },
+  { date: "05-27", name: "Eid al-Adha", type: "PUBLIC" },
   { date: "08-15", name: "Independence Day", type: "PUBLIC" },
+  { date: "09-04", name: "Janmashtami", type: "OPTIONAL" },
   { date: "10-02", name: "Gandhi Jayanti", type: "PUBLIC" },
-  { date: "10-24", name: "Dussehra", type: "OPTIONAL" },
-  { date: "11-12", name: "Diwali", type: "PUBLIC" },
+  { date: "10-20", name: "Dussehra", type: "PUBLIC" },
+  { date: "11-08", name: "Diwali", type: "PUBLIC" },
   { date: "12-25", name: "Christmas", type: "PUBLIC" },
 ];
 

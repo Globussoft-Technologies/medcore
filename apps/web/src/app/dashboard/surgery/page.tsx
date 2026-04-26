@@ -202,6 +202,22 @@ export default function SurgeryPage() {
       toast.error("Scheduled date/time cannot be in the past");
       return;
     }
+    // Issue #53: pre-submit numeric guards (mirror the zod schema so we fail
+    // fast rather than round-tripping a 400 from the API).
+    if (form.durationMin) {
+      const dur = parseInt(form.durationMin, 10);
+      if (!Number.isFinite(dur) || dur <= 0) {
+        toast.error("Duration must be greater than 0");
+        return;
+      }
+    }
+    if (form.cost) {
+      const c = parseFloat(form.cost);
+      if (!Number.isFinite(c) || c < 0) {
+        toast.error("Cost cannot be negative");
+        return;
+      }
+    }
     try {
       await api.post("/surgery", {
         patientId: selectedPatient.id,
@@ -564,7 +580,11 @@ export default function SurgeryPage() {
                 </label>
                 <input
                   type="number"
-                  min="0"
+                  // Issue #53: duration must be strictly positive (matches
+                  // the zod .positive() guard on scheduleSurgerySchema).
+                  min={1}
+                  step={1}
+                  data-testid="schedule-surgery-duration"
                   value={form.durationMin}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, durationMin: e.target.value }))
@@ -578,8 +598,11 @@ export default function SurgeryPage() {
                 </label>
                 <input
                   type="number"
-                  min="0"
+                  // Issue #53: cost is non-negative (0 allowed for pro-bono /
+                  // charity cases). Mirrors zod .nonnegative() at the API.
+                  min={0}
                   step="0.01"
+                  data-testid="schedule-surgery-cost"
                   value={form.cost}
                   onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value }))}
                   className="w-full rounded-lg border px-3 py-2 text-sm"

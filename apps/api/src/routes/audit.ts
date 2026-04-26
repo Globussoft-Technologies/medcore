@@ -38,7 +38,17 @@ function buildAuditWhere(req: Request): Record<string, unknown> {
   const where: Record<string, unknown> = {};
 
   if (userId) where.userId = userId;
-  if (entity) where.entity = entity;
+  // Issue #79: entity casing is inconsistent across writers — patient creates
+  // log "patient" lowercase, HL7 writes "Patient" titlecase, etc. The
+  // dropdown used to send the title-cased value verbatim and got 0 hits
+  // against the lowercase rows. We now match case-insensitively so the
+  // dropdown's canonical value finds historical data regardless of writer.
+  if (entity) {
+    where.entity = {
+      equals: String(entity),
+      mode: "insensitive",
+    } as unknown;
+  }
   if (action) where.action = action;
   if (ipContains) {
     where.ipAddress = { contains: String(ipContains) } as unknown;
@@ -204,7 +214,10 @@ router.get(
         return;
       }
 
-      // No term — same as default list
+      // No term — same as default list. Issue #79: previously returned raw
+      // `logs` without joining the User table, which is what made the User
+      // column blank for clients that hit the /search endpoint with empty
+      // query (e.g. accidentally clearing the search after typing).
       const [logs, total] = await Promise.all([
         prisma.auditLog.findMany({
           where: where as any,
@@ -215,9 +228,33 @@ router.get(
         prisma.auditLog.count({ where: where as any }),
       ]);
 
+      const userIds = Array.from(
+        new Set(logs.map((l) => l.userId).filter((v): v is string => !!v))
+      );
+      const users = userIds.length
+        ? await prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, name: true, email: true },
+          })
+        : [];
+      const userMap = new Map(users.map((u) => [u.id, u]));
+
+      const data = logs.map((l) => ({
+        id: l.id,
+        timestamp: l.createdAt.toISOString(),
+        userId: l.userId,
+        userName: l.userId ? userMap.get(l.userId)?.name ?? "Unknown" : "—",
+        userEmail: l.userId ? userMap.get(l.userId)?.email ?? "" : "",
+        action: l.action,
+        entity: l.entity,
+        entityId: l.entityId,
+        ipAddress: l.ipAddress,
+        details: l.details,
+      }));
+
       res.json({
         success: true,
-        data: logs,
+        data,
         error: null,
         meta: {
           page: pageNum,

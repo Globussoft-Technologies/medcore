@@ -19,6 +19,12 @@ interface BudgetsResp {
   year: number;
   month: number;
   rows: BudgetRow[];
+  // Issue #76 (Apr 2026): server now returns the FULL month spend (including
+  // categories without a budget set) plus a budgeted-only variance so the
+  // KPI doesn't silently hide uncategorised spend.
+  totalBudget?: number;
+  totalSpent?: number;
+  totalVarianceBudgetedOnly?: number;
   uncategorizedActual: Array<{ category: string; actual: number }>;
 }
 
@@ -109,9 +115,21 @@ export default function BudgetsPage() {
     ...rows.flatMap((r) => [r.budget, r.actual])
   );
 
-  const totalBudget = rows.reduce((s, r) => s + r.budget, 0);
-  const totalActual = rows.reduce((s, r) => s + r.actual, 0);
-  const totalVariance = totalActual - totalBudget;
+  // Issue #76: prefer server-side totals (which include uncategorised spend)
+  // and fall back to the local roll-up for older API builds.
+  const totalBudget =
+    data?.totalBudget ?? rows.reduce((s, r) => s + r.budget, 0);
+  const totalBudgetedActual = rows.reduce((s, r) => s + r.actual, 0);
+  const totalActual = data?.totalSpent ?? totalBudgetedActual;
+  // Variance is reported against budgeted-only spend so a missing budget
+  // doesn't artificially inflate the overrun. The KPI copy below makes that
+  // distinction explicit.
+  const totalVariance =
+    data?.totalVarianceBudgetedOnly ?? totalBudgetedActual - totalBudget;
+  const uncategorisedTotal = (data?.uncategorizedActual || []).reduce(
+    (s, u) => s + u.actual,
+    0
+  );
 
   return (
     <div>
@@ -141,9 +159,20 @@ export default function BudgetsPage() {
         </div>
         <div className="rounded-xl bg-white p-5 shadow-sm">
           <p className="text-xs text-gray-500">Total Spent</p>
-          <p className="text-2xl font-bold text-blue-600">
+          <p
+            className="text-2xl font-bold text-blue-600"
+            data-testid="kpi-total-spent"
+          >
             {fmtMoney(totalActual)}
           </p>
+          {/* Issue #76: surface uncategorised spend in the KPI subtitle so
+              users know why Total Spent ≠ sum(budgeted actual). */}
+          {uncategorisedTotal > 0 && (
+            <p className="mt-1 text-xs text-gray-500">
+              Includes {fmtMoney(uncategorisedTotal)} in categories without a
+              budget set
+            </p>
+          )}
         </div>
         <div className="rounded-xl bg-white p-5 shadow-sm">
           <p className="text-xs text-gray-500">Variance</p>
@@ -151,6 +180,7 @@ export default function BudgetsPage() {
             className={`flex items-center gap-2 text-2xl font-bold ${
               totalVariance > 0 ? "text-red-600" : "text-green-600"
             }`}
+            data-testid="kpi-variance"
           >
             {totalVariance > 0 ? (
               <TrendingUp size={20} />
@@ -158,6 +188,11 @@ export default function BudgetsPage() {
               <TrendingDown size={20} />
             )}
             {fmtMoney(Math.abs(totalVariance))}
+          </p>
+          {/* Issue #76: clarify that Variance compares against budgeted-only
+              spend — Total Spent above is the full picture. */}
+          <p className="mt-1 text-xs text-gray-500">
+            Variance vs budgeted only — see Total Spent for full picture.
           </p>
         </div>
       </div>

@@ -238,7 +238,15 @@ export default function AssetsPage() {
             </thead>
             <tbody>
               {displayList.map((a) => {
-                const active = a.assignments?.find((as) => !as.returnedAt);
+                // Issue #59 (Apr 2026): a RETIRED asset can't have a live
+                // assignee — the API closes any active assignment when it
+                // transitions to RETIRED, but until that data has flowed
+                // back we also hide the column at the UI level so a stale
+                // open-assignment row never leaks the previous owner.
+                const active =
+                  a.status === "RETIRED"
+                    ? undefined
+                    : a.assignments?.find((as) => !as.returnedAt);
                 return (
                   <tr
                     key={a.id}
@@ -391,12 +399,15 @@ export default function AssetsPage() {
                     {new Date(as.assignedAt).toLocaleDateString()}
                     {as.returnedAt
                       ? ` → ${new Date(as.returnedAt).toLocaleDateString()}`
-                      : " (current)"}
+                      : selectedAsset.status === "RETIRED"
+                        ? " (closed on retire)"
+                        : " (current)"}
                   </div>
                   {as.location && <div>@ {as.location}</div>}
                 </div>
               ))}
               {canManage &&
+                selectedAsset.status !== "RETIRED" &&
                 selectedAsset.assignments?.some((as) => !as.returnedAt) && (
                   <button
                     onClick={() => returnAsset(selectedAsset.id)}

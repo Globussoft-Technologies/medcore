@@ -7,6 +7,11 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 
+// Issue #75 — message bodies in the history table can be paragraphs of
+// content. We truncate to ~80 chars in the cell and let the user toggle
+// the full text with an "Expand" link. Keeps row heights uniform.
+const MESSAGE_PREVIEW_LIMIT = 80;
+
 interface Broadcast {
   id: string;
   title: string;
@@ -76,6 +81,7 @@ export default function BroadcastsPage() {
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
@@ -385,41 +391,86 @@ export default function BroadcastsPage() {
             No broadcasts sent yet.
           </div>
         ) : (
-          <table className="w-full">
-            <thead>
-              <tr className="border-b text-left text-xs text-gray-500">
-                <th className="px-4 py-3">Sent</th>
-                <th className="px-4 py-3">Title</th>
-                <th className="px-4 py-3">Audience</th>
-                <th className="px-4 py-3">Delivered</th>
-                <th className="px-4 py-3">Failed</th>
-              </tr>
-            </thead>
-            <tbody>
-              {broadcasts.map((b) => (
-                <tr key={b.id} className="border-b last:border-0 text-sm">
-                  <td className="px-4 py-3 text-xs text-gray-500">
-                    {new Date(b.createdAt).toLocaleString("en-IN")}
-                  </td>
-                  <td className="px-4 py-3">
-                    <p className="font-medium">{b.title}</p>
-                    <p className="truncate text-xs text-gray-500">
-                      {b.message}
-                    </p>
-                  </td>
-                  <td className="px-4 py-3 text-xs">
-                    {parseAudience(b.audience)}
-                  </td>
-                  <td className="px-4 py-3 text-xs font-semibold text-green-600">
-                    {b.sentCount}
-                  </td>
-                  <td className="px-4 py-3 text-xs font-semibold text-red-600">
-                    {b.failedCount}
-                  </td>
+          // Issue #75 — wrap in overflow-x-auto so narrow viewports get a
+          // local scrollbar instead of the whole page going wide. Each
+          // column also has a max-width to keep total width bounded.
+          <div className="overflow-x-auto" data-testid="broadcast-history">
+            <table className="w-full table-fixed">
+              <thead>
+                <tr className="border-b text-left text-xs text-gray-500">
+                  <th className="w-40 px-4 py-3">Sent</th>
+                  <th className="px-4 py-3">Title / Message</th>
+                  <th className="w-40 px-4 py-3">Audience</th>
+                  <th className="w-24 px-4 py-3">Delivered</th>
+                  <th className="w-24 px-4 py-3">Failed</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {broadcasts.map((b) => {
+                  const isExpanded = expandedIds.has(b.id);
+                  const needsTruncation =
+                    b.message.length > MESSAGE_PREVIEW_LIMIT;
+                  const displayMessage =
+                    needsTruncation && !isExpanded
+                      ? b.message.slice(0, MESSAGE_PREVIEW_LIMIT) + "…"
+                      : b.message;
+                  // Issue #75 — only style "Failed" red when there are
+                  // actually failures. Zero-failed should be neutral.
+                  const failed = b.failedCount;
+                  const failedClass =
+                    failed > 0
+                      ? "font-semibold text-red-600"
+                      : "font-medium text-gray-500";
+                  return (
+                    <tr key={b.id} className="border-b last:border-0 text-sm align-top">
+                      <td className="px-4 py-3 text-xs text-gray-500">
+                        {new Date(b.createdAt).toLocaleString("en-IN")}
+                      </td>
+                      <td className="max-w-md px-4 py-3">
+                        <p className="truncate font-medium">{b.title}</p>
+                        <p
+                          className="text-xs text-gray-500 break-words"
+                          title={b.message}
+                          data-testid={`broadcast-message-${b.id}`}
+                        >
+                          {displayMessage}
+                          {needsTruncation && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setExpandedIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(b.id)) next.delete(b.id);
+                                  else next.add(b.id);
+                                  return next;
+                                });
+                              }}
+                              className="ml-1 text-primary underline-offset-2 hover:underline"
+                              data-testid={`broadcast-toggle-${b.id}`}
+                            >
+                              {isExpanded ? "Less" : "More"}
+                            </button>
+                          )}
+                        </p>
+                      </td>
+                      <td className="truncate px-4 py-3 text-xs">
+                        {parseAudience(b.audience)}
+                      </td>
+                      <td className="px-4 py-3 text-xs font-semibold text-green-600">
+                        {b.sentCount}
+                      </td>
+                      <td
+                        className={`px-4 py-3 text-xs ${failedClass}`}
+                        data-testid={`broadcast-failed-${b.id}`}
+                      >
+                        {failed}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

@@ -329,18 +329,26 @@ async function main() {
   console.log(`  Created ${lbCount} leave balance rows`);
 
   // ─── Holidays ─────────────────────────────────
+  // Issue #72 — corrected 2026 Indian public/festival calendar. Previously
+  // Holi/Diwali/Eid were on the wrong dates and several festivals were
+  // missing entirely. Source: gov.in/holidays-calendar (verified Apr 2026).
   console.log("Creating holidays...");
   const holidays = [
     { month: 1, day: 26, name: "Republic Day" },
-    { month: 3, day: 29, name: "Holi" },
-    { month: 5, day: 1, name: "Labour Day" },
-    { month: 8, day: 15, name: "Independence Day" },
-    { month: 10, day: 2, name: "Gandhi Jayanti" },
-    { month: 10, day: 23, name: "Diwali" },
-    { month: 11, day: 14, name: "Children's Day" },
-    { month: 12, day: 25, name: "Christmas" },
-    { month: 6, day: 15, name: "Eid al-Fitr (est)" },
+    { month: 3, day: 4, name: "Holi" },
+    { month: 3, day: 21, name: "Eid al-Fitr" },
+    { month: 3, day: 26, name: "Ram Navami" },
+    { month: 3, day: 31, name: "Mahavir Jayanti" },
+    { month: 4, day: 3, name: "Good Friday" },
     { month: 4, day: 14, name: "Ambedkar Jayanti" },
+    { month: 5, day: 1, name: "Buddha Purnima" },
+    { month: 5, day: 27, name: "Eid al-Adha" },
+    { month: 8, day: 15, name: "Independence Day" },
+    { month: 9, day: 4, name: "Janmashtami" },
+    { month: 10, day: 2, name: "Gandhi Jayanti" },
+    { month: 10, day: 20, name: "Dussehra" },
+    { month: 11, day: 8, name: "Diwali" },
+    { month: 12, day: 25, name: "Christmas" },
   ];
   let hCount = 0;
   for (const h of holidays) {
@@ -624,18 +632,49 @@ async function main() {
   console.log("  Created 50 notifications");
 
   // ─── Broadcasts ───────────────────────────────
-  for (let i = 0; i < 3; i++) {
+  // Issue #75: previous seed picked sentCount and failedCount independently
+  // which produced implausible combinations (e.g. failed > delivered, or
+  // failed/delivered totals that didn't tie to a real recipient count).
+  // Now we derive them from a recipient count so:
+  //   - delivered + failed <= recipients (the rest = pending/queued)
+  //   - failedCount is at most ~10% of recipients (typical real-world rate)
+  const broadcastSeeds: Array<{
+    title: string;
+    message: string;
+    audience: { roles: string[] };
+  }> = [
+    {
+      title: "System Announcement #1",
+      message: "Scheduled maintenance this Sunday 2-4 AM.",
+      audience: { roles: ["ADMIN", "DOCTOR"] },
+    },
+    {
+      title: "System Announcement #2",
+      message: "New COVID vaccination camp this weekend.",
+      audience: { roles: ["ADMIN", "DOCTOR", "NURSE"] },
+    },
+    {
+      title: "System Announcement #3",
+      message: "Updated visiting hours: 10 AM - 12 PM and 4 PM - 7 PM.",
+      audience: { roles: ["NURSE", "RECEPTION"] },
+    },
+  ];
+  for (const seed of broadcastSeeds) {
+    const recipients = randomInt(20, 60);
+    // Realistic failure rate: 0-10% of recipients
+    const failedCount = Math.min(
+      recipients,
+      Math.floor(recipients * (Math.random() * 0.1))
+    );
+    // Delivered = recipients - failed (assume rest delivered for past sends)
+    const sentCount = recipients - failedCount;
     await prisma.notificationBroadcast.create({
       data: {
-        title: `System Announcement #${i + 1}`,
-        message: randomItem([
-          "Scheduled maintenance this Sunday 2-4 AM.",
-          "New COVID vaccination camp this weekend.",
-          "Updated visiting hours: 10 AM - 12 PM and 4 PM - 7 PM.",
-        ]),
-        audience: JSON.stringify({ roles: ["ADMIN", "DOCTOR"] }),
-        sentCount: randomInt(10, 50),
-        failedCount: randomInt(0, 3),
+        title: seed.title,
+        message: seed.message,
+        audience: JSON.stringify(seed.audience),
+        sentCount,
+        failedCount,
         createdBy: adminUser?.id || "",
       },
     });

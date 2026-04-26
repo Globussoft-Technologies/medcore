@@ -20,12 +20,6 @@ interface Cert {
   user?: { id: string; name: string; role: string };
 }
 
-interface StaffUser {
-  id: string;
-  name: string;
-  role: string;
-}
-
 const CERT_TYPES = ["MEDICAL_LICENSE", "NURSING_CERT", "BLS", "ACLS", "TRAINING", "OTHER"];
 
 function daysUntil(dateStr: string | null): number | null {
@@ -47,7 +41,6 @@ function statusColor(cert: Cert) {
 
 export default function CertificationsPage() {
   const [certs, setCerts] = useState<Cert[]>([]);
-  const [users, setUsers] = useState<StaffUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [filter, setFilter] = useState<"all" | "expiring" | "expired">("all");
@@ -67,29 +60,20 @@ export default function CertificationsPage() {
     try {
       const res = await api.get<{ data: Cert[] }>("/hr-ops/certifications");
       setCerts(res.data || []);
-    } catch {
+    } catch (e) {
+      // Issue #61 — surface a real error instead of falsifying empty state.
+      // The picker (/chat/users) supplies staff lookup itself.
       setCerts([]);
+      toast.error(
+        (e as Error)?.message || "Failed to load certifications"
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const loadUsers = async () => {
-    try {
-      const res = await api.get<{ data: StaffUser[] }>("/doctors");
-      // doctors endpoint returns doctors; fall back, also try users
-    } catch {}
-    try {
-      const r = await api.get<{ data: any }>("/auth/users?role=DOCTOR,NURSE,ADMIN");
-      setUsers((r.data?.items as StaffUser[]) || (r.data as StaffUser[]) || []);
-    } catch {
-      setUsers([]);
-    }
-  };
-
   useEffect(() => {
     load();
-    loadUsers();
   }, []);
 
   const filtered = certs.filter((c) => {

@@ -118,10 +118,21 @@ export default function ExpensesPage() {
     setLoading(false);
   }
 
+  // Issue #64: route delete through the in-DOM confirm dialog (already
+  // wired via useConfirm()) and surface a stable data-testid so e2e /
+  // browser-automation can interact without triggering native dialogs.
   async function handleDelete(id: string) {
-    if (!(await confirm({ title: "Delete this expense?", danger: true }))) return;
+    const ok = await confirm({
+      title: "Delete this expense?",
+      message: "This will remove the expense permanently. This cannot be undone.",
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api.delete(`/expenses/${id}`);
+      toast.success("Expense deleted");
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Delete failed");
@@ -281,6 +292,7 @@ export default function ExpensesPage() {
                       <button
                         onClick={() => handleDelete(e.id)}
                         className="text-xs text-red-500 hover:text-red-700"
+                        data-testid={`expense-delete-${e.id}`}
                       >
                         Delete
                       </button>
@@ -326,6 +338,13 @@ function AddExpenseModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // Issue #64: stop future-dated expenses at the form layer. Backend zod
+    // also enforces this, but checking here gives an instant error and a
+    // testid hook for browser automation.
+    if (form.date > today()) {
+      setError("Expense date cannot be in the future");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -393,8 +412,10 @@ function AddExpenseModal({
                 required
                 type="date"
                 value={form.date}
+                max={today()}
                 onChange={(e) => setForm({ ...form, date: e.target.value })}
                 className="w-full rounded-lg border px-3 py-2 text-sm"
+                data-testid="expense-date"
               />
             </div>
           </div>
@@ -424,7 +445,10 @@ function AddExpenseModal({
             />
           </div>
           {error && (
-            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+            <div
+              className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600"
+              data-testid="expense-form-error"
+            >
               {error}
             </div>
           )}

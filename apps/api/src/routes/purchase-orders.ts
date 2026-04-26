@@ -87,9 +87,34 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
       medicine: i.medicineId ? medMap.get(i.medicineId) : null,
     }));
 
+    // Issue #63: Indian GST is split into CGST + SGST for intra-state
+    //   suppliers and IGST for inter-state. The first 2 digits of a GSTIN are
+    //   the state code (eg "27" = Maharashtra). We compare hospital state to
+    //   supplier state and emit a `gstBreakdown` field so the FE can render
+    //   either two equal halves or a single IGST line.
+    const cfg = await prisma.systemConfig.findUnique({
+      where: { key: "hospital_gstin" },
+    });
+    const hospitalGstin = cfg?.value || "";
+    const hospitalState = hospitalGstin.slice(0, 2);
+    const supplierState = (po.supplier.gstNumber || "").slice(0, 2);
+    const interState =
+      hospitalState.length === 2 &&
+      supplierState.length === 2 &&
+      hospitalState !== supplierState;
+    const tax = po.taxAmount || 0;
+    const gstBreakdown = interState
+      ? { type: "IGST" as const, igst: +tax.toFixed(2), cgst: 0, sgst: 0 }
+      : {
+          type: "CGST_SGST" as const,
+          igst: 0,
+          cgst: +(tax / 2).toFixed(2),
+          sgst: +(tax / 2).toFixed(2),
+        };
+
     res.json({
       success: true,
-      data: { ...po, items: itemsWithMedicine },
+      data: { ...po, items: itemsWithMedicine, gstBreakdown },
       error: null,
     });
   } catch (err) {
@@ -294,9 +319,14 @@ router.post(
         return;
       }
 
+      // Issue #63: orderedAt is only meaningful once the PO is actually
+      // placed. The schema defaults orderedAt to now() at row creation, so
+      // DRAFTs carry a misleading timestamp until they're submitted. We
+      // refresh it here so DRAFT → PENDING ("PLACED") becomes the system of
+      // record for when the PO was put on the wire.
       const updated = await prisma.purchaseOrder.update({
         where: { id: po.id },
-        data: { status: "PENDING" },
+        data: { status: "PENDING", orderedAt: new Date() },
         include: { supplier: true, items: true },
       });
 

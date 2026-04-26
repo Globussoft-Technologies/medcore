@@ -406,9 +406,25 @@ interface DonutChartProps {
   centerText?: string;
   size?: number;
   onSegmentClick?: (label: string, value: number) => void;
+  // Issue #78: label-side value formatter. Defaults to the raw count, but the
+  // revenue donuts pass `formatCurrency` so the legend renders rupees and the
+  // tooltip renders both rupees and percentage instead of a misleading
+  // "(count)".
+  formatValue?: (value: number) => string;
+  // When true, segment legends + tooltips use percentages instead of raw
+  // values. Used by the revenue donuts where the absolute value is already
+  // surfaced in the centre.
+  showPercent?: boolean;
 }
 
-function DonutChart({ segments, centerText, size = 180, onSegmentClick }: DonutChartProps) {
+function DonutChart({
+  segments,
+  centerText,
+  size = 180,
+  onSegmentClick,
+  formatValue,
+  showPercent,
+}: DonutChartProps) {
   const total = segments.reduce((s, seg) => s + seg.value, 0);
   const radius = size / 2 - 10;
   const strokeW = 28;
@@ -450,7 +466,11 @@ function DonutChart({ segments, centerText, size = 180, onSegmentClick }: DonutC
                 style={onSegmentClick ? { cursor: "pointer" } : undefined}
                 onClick={onSegmentClick ? () => onSegmentClick(seg.label, seg.value) : undefined}
               >
-                <title>{`${seg.label}: ${seg.value} (${((fraction * 100) | 0)}%)`}</title>
+                <title>
+                  {`${seg.label}: ${
+                    formatValue ? formatValue(seg.value) : seg.value
+                  } (${((fraction * 100) | 0)}%)`}
+                </title>
               </circle>
             );
             accOffset += dash;
@@ -471,17 +491,31 @@ function DonutChart({ segments, centerText, size = 180, onSegmentClick }: DonutC
         )}
       </svg>
       <div className="mt-3 flex flex-wrap justify-center gap-x-3 gap-y-1">
-        {segments.map((seg) => (
-          <div key={seg.label} className="flex items-center gap-1.5 text-xs">
-            <span
-              className="inline-block h-3 w-3 rounded-sm"
-              style={{ backgroundColor: seg.color }}
-            />
-            <span className="text-gray-700">
-              {seg.label} ({seg.value})
-            </span>
-          </div>
-        ))}
+        {segments.map((seg) => {
+          // Issue #78: revenue donuts were showing raw numbers as "(count)"
+          // — meaningless for currency. We now respect either an explicit
+          // formatter (e.g. INR formatting) or a percent-mode flag.
+          let display: string;
+          if (showPercent) {
+            const pct = total > 0 ? Math.round((seg.value / total) * 100) : 0;
+            display = `${pct}%`;
+          } else if (formatValue) {
+            display = formatValue(seg.value);
+          } else {
+            display = String(seg.value);
+          }
+          return (
+            <div key={seg.label} className="flex items-center gap-1.5 text-xs">
+              <span
+                className="inline-block h-3 w-3 rounded-sm"
+                style={{ backgroundColor: seg.color }}
+              />
+              <span className="text-gray-700">
+                {seg.label} ({display})
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -756,7 +790,29 @@ export default function AnalyticsPage() {
 
   const loadAll = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams({ from, to });
+    // Issue #78: previously `from`/`to` were captured in component state at
+    // mount (defaultFrom() = today-30d, today() = today), so a tab left open
+    // for 8 days kept fetching the original window — the Appointment Trends
+    // chart looked stale because it really WAS stale by 8 days. We now
+    // recompute the active preset's range on every refresh so the dates
+    // float forward with wall-clock time. Custom ranges are passed through
+    // unchanged.
+    let effectiveFrom = from;
+    let effectiveTo = to;
+    if (preset !== "custom") {
+      const fresh = presetRange(preset);
+      if (fresh) {
+        effectiveFrom = fresh.from;
+        effectiveTo = fresh.to;
+        if (fresh.from !== from || fresh.to !== to) {
+          setFrom(fresh.from);
+          setTo(fresh.to);
+          setPendingFrom(fresh.from);
+          setPendingTo(fresh.to);
+        }
+      }
+    }
+    const params = new URLSearchParams({ from: effectiveFrom, to: effectiveTo });
     const qs = params.toString();
 
     try {
@@ -842,7 +898,7 @@ export default function AnalyticsPage() {
     } finally {
       setLoading(false);
     }
-  }, [from, to, compareMode]);
+  }, [from, to, compareMode, preset]);
 
   useEffect(() => {
     loadAll();
@@ -1244,6 +1300,10 @@ export default function AnalyticsPage() {
           {loading ? (
             <Loader />
           ) : revenueBreakdown ? (
+            // Issue #78: revenue donut now formats segment values as
+            // currency in the legend (was rendering raw rupee numbers as
+            // "(count)" — misleading because the same component is used for
+            // count-based donuts elsewhere).
             <DonutChart
               segments={Object.entries(revenueBreakdown.byType).map(([k, v], i) => ({
                 label: k === "WALK_IN" ? "Walk-in" : "Scheduled",
@@ -1253,6 +1313,7 @@ export default function AnalyticsPage() {
               centerText={formatCurrency(
                 Object.values(revenueBreakdown.byType).reduce((a, b) => a + b, 0)
               )}
+              formatValue={formatCurrency}
             />
           ) : (
             <EmptyState />

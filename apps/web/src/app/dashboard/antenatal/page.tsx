@@ -6,6 +6,12 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { Plus, AlertTriangle, Baby, Calendar, Activity } from "lucide-react";
+// Issue #57 (Apr 2026): blood-group select uses the canonical 8 ABO+Rh
+// tokens shared with the blood-bank module so cross-match warnings work.
+import {
+  ALL_BLOOD_GROUPS,
+  prettyBloodGroup,
+} from "@medcore/shared";
 
 interface AncVisit {
   id: string;
@@ -147,10 +153,36 @@ export default function AntenatalPage() {
     }
   }
 
+  // Issue #57: HTML date input `max` for the LMP field — local YYYY-MM-DD
+  // form, computed once per render so a stale string can't slip through.
+  const todayIso = (() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  })();
+
   async function submitCase(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedPatient) {
       toast.error("Select a patient");
+      return;
+    }
+    // Issue #57: client-side parity with the zod refine — block future LMPs
+    // before the API rejects them.
+    if (form.lmpDate && form.lmpDate > todayIso) {
+      toast.error("Last Menstrual Period date cannot be in the future");
+      return;
+    }
+    const gravidaN = parseInt(form.gravida, 10);
+    const parityN = parseInt(form.parity, 10);
+    if (!Number.isFinite(gravidaN) || gravidaN < 1) {
+      toast.error("Gravida must be at least 1");
+      return;
+    }
+    if (!Number.isFinite(parityN) || parityN < 0) {
+      toast.error("Parity cannot be negative");
       return;
     }
     try {
@@ -465,6 +497,9 @@ export default function AntenatalPage() {
                   <input
                     type="date"
                     required
+                    // Issue #57: LMP must be in the past — set max to today.
+                    max={todayIso}
+                    data-testid="anc-lmp-date"
                     value={form.lmpDate}
                     onChange={(e) => setForm({ ...form, lmpDate: e.target.value })}
                     className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -477,7 +512,11 @@ export default function AntenatalPage() {
                   <label className="mb-1 block text-sm font-medium">Gravida</label>
                   <input
                     type="number"
+                    // Issue #57: gravida is a positive int (min 1 — case row
+                    // implies an active pregnancy). Step=1 disables decimals.
                     min={1}
+                    step={1}
+                    data-testid="anc-gravida"
                     value={form.gravida}
                     onChange={(e) => setForm({ ...form, gravida: e.target.value })}
                     className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -487,7 +526,11 @@ export default function AntenatalPage() {
                   <label className="mb-1 block text-sm font-medium">Parity</label>
                   <input
                     type="number"
+                    // Issue #57: parity is a non-negative int (a primigravida
+                    // has parity 0).
                     min={0}
+                    step={1}
+                    data-testid="anc-parity"
                     value={form.parity}
                     onChange={(e) => setForm({ ...form, parity: e.target.value })}
                     className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -495,12 +538,23 @@ export default function AntenatalPage() {
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium">Blood Group</label>
-                  <input
-                    placeholder="e.g. O+"
+                  {/* Issue #57: replace free-text input with the canonical
+                      ABO+Rh select so the value joins the blood-bank tables. */}
+                  <select
+                    data-testid="anc-blood-group"
                     value={form.bloodGroup}
-                    onChange={(e) => setForm({ ...form, bloodGroup: e.target.value })}
+                    onChange={(e) =>
+                      setForm({ ...form, bloodGroup: e.target.value })
+                    }
                     className="w-full rounded-lg border px-3 py-2 text-sm"
-                  />
+                  >
+                    <option value="">Unknown</option>
+                    {ALL_BLOOD_GROUPS.map((g) => (
+                      <option key={g} value={g}>
+                        {prettyBloodGroup(g)}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

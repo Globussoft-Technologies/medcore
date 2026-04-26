@@ -98,6 +98,11 @@ export default function ERTriagePage() {
   const [loading, setLoading] = useState(false);
   const [assessment, setAssessment] = useState<ERTriageAssessment | null>(null);
   const [reasoningOpen, setReasoningOpen] = useState(false);
+  // Issue #81: previously a backend 500/503 surfaced as a fire-and-forget
+  // toast that disappeared in 4 seconds. We also show a persistent banner
+  // with a Retry button so the doctor can re-run the assessment without
+  // re-entering vitals.
+  const [assessError, setAssessError] = useState<string | null>(null);
 
   const [form, setForm] = useState<FormState>({
     chiefComplaint: "",
@@ -122,6 +127,7 @@ export default function ERTriagePage() {
 
     setLoading(true);
     setAssessment(null);
+    setAssessError(null);
 
     try {
       const vitals: Record<string, string | number> = {};
@@ -146,9 +152,25 @@ export default function ERTriagePage() {
       );
 
       setAssessment(res.data);
+      setAssessError(null);
       setReasoningOpen(false);
     } catch (err: any) {
-      toast.error(err?.message || "Assessment failed. Please try again.");
+      // Issue #81: surface the backend's friendly error string (the route now
+      // returns 503 with a human message when Sarvam is unreachable). Keep
+      // the toast for accessibility (announced to screen readers) AND show a
+      // persistent banner so the doctor can hit Retry without re-entering
+      // vitals. Auth failures get a clearer message than the raw
+      // "Unauthorized" string the API used to bleed straight into the toast.
+      let msg = err?.message || "Assessment failed. Please try again.";
+      if (err?.status === 401) {
+        msg = "Your session has expired. Please sign in again.";
+      } else if (err?.status === 403) {
+        msg = "You don't have permission to run an ER triage assessment.";
+      } else if (err?.payload?.error) {
+        msg = String(err.payload.error);
+      }
+      setAssessError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -294,6 +316,32 @@ export default function ERTriagePage() {
           </div>
         </div>
 
+        {/* Issue #81: persistent error banner with Retry. Stays visible until
+            the user retries successfully or fixes the underlying issue. */}
+        {assessError && (
+          <div
+            data-testid="er-triage-error-banner"
+            role="alert"
+            className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="font-medium">Couldn&apos;t complete the assessment</p>
+                <p className="mt-0.5 text-xs">{assessError}</p>
+              </div>
+              <button
+                type="button"
+                data-testid="er-triage-retry"
+                onClick={handleAssess}
+                disabled={loading || !form.chiefComplaint.trim()}
+                className="rounded-lg border border-red-300 bg-white px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
         <button
           onClick={handleAssess}
           disabled={loading || !form.chiefComplaint.trim()}

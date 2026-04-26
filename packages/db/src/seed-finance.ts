@@ -1,4 +1,5 @@
 import { PrismaClient, PurchaseOrderStatus, ExpenseCategory } from "@prisma/client";
+import { GSTIN_REGEX } from "@medcore/shared";
 
 const prisma = new PrismaClient();
 
@@ -159,6 +160,18 @@ async function main() {
   console.log(`  Health packages: ${PACKAGES.length}`);
 
   // ── Suppliers ─────────────────────────────────────
+  // Issue #63: assert every seed GSTIN matches the canonical 15-char format
+  //   *before* writing to the DB. Previously this was hand-typed with no
+  //   compile- or run-time check, so a typo in any of the 4 rows would silently
+  //   poison purchase-order GST detection downstream.
+  for (const s of SUPPLIERS) {
+    if (!GSTIN_REGEX.test(s.gstNumber)) {
+      throw new Error(
+        `Seed GSTIN for supplier "${s.name}" is malformed: "${s.gstNumber}" — must match ${GSTIN_REGEX.source}`,
+      );
+    }
+  }
+
   const supplierIds: string[] = [];
   for (const s of SUPPLIERS) {
     const sup = await prisma.supplier.upsert({

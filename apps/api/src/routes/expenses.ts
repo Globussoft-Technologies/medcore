@@ -386,12 +386,36 @@ router.get(
             ? +(((actualByCat[b.category] || 0) / b.amount) * 100).toFixed(1)
             : 0,
       }));
+      // Issue #76 (Apr 2026): the dashboard "Total Spent" KPI was previously
+      // derived client-side as sum(rows.actual), which silently dropped any
+      // category whose budget hadn't been set yet (e.g. ₹85k of Equipment
+      // spending was invisible because no Equipment budget existed). Return
+      // the full month's actual on the server so the KPI reflects ALL
+      // approved expenses regardless of budget existence. Variance still
+      // uses the budgeted-only roll-up — see /budgets/summary copy.
+      const totalSpent = +Object.values(actualByCat)
+        .reduce((s, v) => s + v, 0)
+        .toFixed(2);
+      const totalBudget = +budgets
+        .reduce((s, b) => s + b.amount, 0)
+        .toFixed(2);
+      const totalBudgetedActual = +rows
+        .reduce((s, r) => s + r.actual, 0)
+        .toFixed(2);
+      const totalVarianceBudgetedOnly = +(totalBudgetedActual - totalBudget).toFixed(2);
       res.json({
         success: true,
         data: {
           year,
           month,
           rows,
+          // Full-picture totals (option 1 from issue #76).
+          totalBudget,
+          totalSpent,
+          // Variance uses budgeted-only spend so a missing budget doesn't
+          // poison the over/under signal. The frontend annotates this so
+          // users know the two totals differ by uncategorized amounts.
+          totalVarianceBudgetedOnly,
           uncategorizedActual: Object.entries(actualByCat)
             .filter(([c]) => !budgets.some((b) => b.category === c))
             .map(([category, actual]) => ({ category, actual })),

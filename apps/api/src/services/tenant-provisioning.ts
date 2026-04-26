@@ -172,17 +172,27 @@ const DEFAULT_TEMPLATES: TemplateSeed[] = [
   },
 ];
 
-// ─── Default public holidays (common Indian calendar). ─────────────
-// MM-DD format; year is filled in at seed time.
+// ─── Default public holidays (Indian 2026 calendar). ─────────────
+// Issue #72 — corrected dates for Holi (Mar 4), Eid al-Fitr (Mar 21),
+// Diwali (Nov 8) and added missing Ram Navami / Mahavir Jayanti / Good
+// Friday / Buddha Purnima / Eid al-Adha / Janmashtami. MM-DD format;
+// year is filled in at seed time. Festival dates are 2026-specific —
+// callers seeding for non-2026 years should override.
 const HOLIDAY_TEMPLATE: Array<{ date: string; name: string; type: string }> = [
   { date: "01-26", name: "Republic Day", type: "PUBLIC" },
-  { date: "03-08", name: "Holi", type: "OPTIONAL" },
+  { date: "03-04", name: "Holi", type: "PUBLIC" },
+  { date: "03-21", name: "Eid al-Fitr", type: "PUBLIC" },
+  { date: "03-26", name: "Ram Navami", type: "OPTIONAL" },
+  { date: "03-31", name: "Mahavir Jayanti", type: "OPTIONAL" },
+  { date: "04-03", name: "Good Friday", type: "PUBLIC" },
   { date: "04-14", name: "Dr. Ambedkar Jayanti", type: "PUBLIC" },
-  { date: "05-01", name: "Labour Day", type: "PUBLIC" },
+  { date: "05-01", name: "Buddha Purnima", type: "OPTIONAL" },
+  { date: "05-27", name: "Eid al-Adha", type: "PUBLIC" },
   { date: "08-15", name: "Independence Day", type: "PUBLIC" },
+  { date: "09-04", name: "Janmashtami", type: "OPTIONAL" },
   { date: "10-02", name: "Gandhi Jayanti", type: "PUBLIC" },
-  { date: "10-24", name: "Dussehra", type: "OPTIONAL" },
-  { date: "11-12", name: "Diwali", type: "PUBLIC" },
+  { date: "10-20", name: "Dussehra", type: "PUBLIC" },
+  { date: "11-08", name: "Diwali", type: "PUBLIC" },
   { date: "12-25", name: "Christmas", type: "PUBLIC" },
 ];
 

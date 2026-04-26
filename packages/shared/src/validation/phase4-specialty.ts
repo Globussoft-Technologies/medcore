@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ALL_BLOOD_GROUPS } from "../abo-compatibility";
 
 export const ANC_VISIT_TYPES = [
   "FIRST_VISIT",
@@ -17,13 +18,43 @@ export const DELIVERY_TYPES = [
 
 // ─── ANTENATAL CARE ─────────────────────────────────
 
+// Issue #57 (Apr 2026): tighten ANC create-form validation.
+// • LMP must be on or before today (a future LMP is biologically impossible
+//   and produced absurd EDD calculations).
+// • Gravida and parity must be int + nonnegative (negative pregnancies aren't
+//   a thing). Note we previously required gravida ≥ 1; we keep that since a
+//   case row only exists when the patient is currently pregnant.
+// • Blood group is restricted to the 8 canonical ABO+Rh tokens (A_POS, A_NEG,
+//   B_POS, B_NEG, AB_POS, AB_NEG, O_POS, O_NEG) so it joins the same lookup
+//   tables the blood-bank cross-match uses.
+const lmpDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "lmpDate must be YYYY-MM-DD")
+  .refine((s) => {
+    const lmp = new Date(`${s}T00:00:00.000Z`);
+    if (Number.isNaN(lmp.getTime())) return false;
+    const now = new Date();
+    // compare on UTC date only — the user is in some local TZ and the picker
+    // submits a YYYY-MM-DD; we accept "today" anywhere on Earth.
+    const todayUtcEnd = Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      23,
+      59,
+      59,
+      999
+    );
+    return lmp.getTime() <= todayUtcEnd;
+  }, "Last Menstrual Period date cannot be in the future");
+
 export const createAncCaseSchema = z.object({
   patientId: z.string().uuid(),
   doctorId: z.string().uuid(),
-  lmpDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "lmpDate must be YYYY-MM-DD"),
-  gravida: z.number().int().min(1).default(1),
-  parity: z.number().int().min(0).default(0),
-  bloodGroup: z.string().optional(),
+  lmpDate: lmpDateSchema,
+  gravida: z.number().int().nonnegative("Gravida cannot be negative").min(1).default(1),
+  parity: z.number().int().nonnegative("Parity cannot be negative").default(0),
+  bloodGroup: z.enum(ALL_BLOOD_GROUPS as unknown as [string, ...string[]]).optional(),
   isHighRisk: z.boolean().default(false),
   riskFactors: z.string().optional(),
 });
@@ -31,9 +62,9 @@ export const createAncCaseSchema = z.object({
 export const updateAncCaseSchema = z.object({
   isHighRisk: z.boolean().optional(),
   riskFactors: z.string().optional(),
-  bloodGroup: z.string().optional(),
-  gravida: z.number().int().min(1).optional(),
-  parity: z.number().int().min(0).optional(),
+  bloodGroup: z.enum(ALL_BLOOD_GROUPS as unknown as [string, ...string[]]).optional(),
+  gravida: z.number().int().nonnegative("Gravida cannot be negative").min(1).optional(),
+  parity: z.number().int().nonnegative("Parity cannot be negative").optional(),
 });
 
 export const createAncVisitSchema = z.object({

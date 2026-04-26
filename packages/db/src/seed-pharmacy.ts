@@ -236,9 +236,28 @@ async function main() {
   console.log(`  Lab tests: ${LAB_TESTS.length}`);
 
   // ── Seed Inventory for first 20 medicines ──────────
+  // Issue #50: every InventoryItem with quantity > 0 must have a corresponding
+  //   StockMovement of type PURCHASE so the "Movements" tab in
+  //   apps/web/.../pharmacy/page.tsx isn't blank when stock is on hand. The
+  //   schema enum doesn't have a literal RECEIVED — PURCHASE is the equivalent
+  //   intake type (see schema.prisma StockMovementType). performedBy must be a
+  //   real User row; we fall back to the system admin from seed.ts.
   const first20 = MEDICINES.slice(0, 20);
   let inventoryCount = 0;
+  let movementCount = 0;
   const now = new Date();
+
+  // Resolve a user id for stock movement audit trail. Prefer admin, but fall
+  // back to any user so this seed works even if seed.ts hasn't yet been run.
+  const adminUser =
+    (await prisma.user.findUnique({
+      where: { email: "admin@medcore.local" },
+    })) ?? (await prisma.user.findFirst());
+  if (!adminUser) {
+    console.warn(
+      "  No user found for StockMovement.performedBy — skipping movement seed.",
+    );
+  }
 
   for (let i = 0; i < first20.length; i++) {
     const med = first20[i];
@@ -253,8 +272,8 @@ async function main() {
     const expiryDate = addMonths(now, monthsToExpiry);
     const batchNumber = randomBatchNumber(i);
 
-    await prisma.inventoryItem
-      .upsert({
+    try {
+      const inv = await prisma.inventoryItem.upsert({
         where: {
           medicineId_batchNumber: { medicineId: medId, batchNumber },
         },
@@ -277,15 +296,36 @@ async function main() {
           reorderLevel: 20,
           location: `Rack-${String.fromCharCode(65 + (i % 5))}-${(i % 10) + 1}`,
         },
-      })
-      .then(() => {
-        inventoryCount++;
-      })
-      .catch((e) => {
-        console.error(`  Failed inventory for ${med.name}:`, e.message);
       });
+      inventoryCount++;
+
+      // Issue #50: ensure an audit-trail PURCHASE row exists per inventory
+      // item. Idempotent — only create if none yet for this item.
+      if (adminUser) {
+        const existing = await prisma.stockMovement.findFirst({
+          where: { inventoryItemId: inv.id, type: "PURCHASE" },
+          select: { id: true },
+        });
+        if (!existing) {
+          await prisma.stockMovement.create({
+            data: {
+              inventoryItemId: inv.id,
+              type: "PURCHASE",
+              quantity, // positive = stock in
+              reason: "Initial stock receipt (seed)",
+              performedBy: adminUser.id,
+              referenceId: null,
+            },
+          });
+          movementCount++;
+        }
+      }
+    } catch (e) {
+      console.error(`  Failed inventory for ${med.name}:`, (e as Error).message);
+    }
   }
   console.log(`  Inventory items: ${inventoryCount}`);
+  console.log(`  Stock movements: ${movementCount}`);
 
   console.log("Pharmacy & lab seed complete.");
 }

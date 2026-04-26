@@ -346,6 +346,18 @@ export default function DashboardLayout({
     loadSession();
   }, [loadSession]);
 
+  // Issue #70: previously every sidebar <Link> ran `onClick={() => setDrawerOpen(false)}`.
+  // On the first click the synchronous setState scheduled a re-render of the
+  // <aside> while the browser was still committing the Link's navigation —
+  // the result was that the active class flipped (because the parent's
+  // pathname watcher saw it as the next pathname) but the navigation was
+  // dropped, requiring a second click. We now close the drawer reactively in
+  // response to the pathname actually changing, so the click handler doesn't
+  // race with the router push at all.
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [pathname]);
+
   // Issue #33: on direct URL navigation the auth store hydrates asynchronously.
   // Once `isLoading` clears and there is still no user, bounce to /login but
   // (a) preserve the originally-requested path as ?redirect=<path> so the
@@ -672,7 +684,9 @@ export default function DashboardLayout({
               <Link
                 key={href}
                 href={href}
-                onClick={() => setDrawerOpen(false)}
+                // Issue #70: drawer close is now handled by the pathname-effect
+                // above so we don't race a setState against the Link's
+                // built-in navigation (which used to require a second click).
                 aria-current={isActive ? "page" : undefined}
                 title={tip}
                 className={clsx(

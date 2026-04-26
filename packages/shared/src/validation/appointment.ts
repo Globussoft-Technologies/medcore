@@ -26,9 +26,31 @@ export const updateAppointmentStatusSchema = z.object({
   ]),
 });
 
+// Issue #77 — the Schedule Management page submits `dayOfWeek` as a label
+// ("MONDAY" .. "SUNDAY") for clarity, while the underlying Prisma column is
+// an `Int` (0=Sun..6=Sat). Accept both forms here and normalise downstream.
+const DAY_NAME_TO_INDEX: Record<string, number> = {
+  SUNDAY: 0,
+  MONDAY: 1,
+  TUESDAY: 2,
+  WEDNESDAY: 3,
+  THURSDAY: 4,
+  FRIDAY: 5,
+  SATURDAY: 6,
+};
+
 export const doctorScheduleSchema = z.object({
-  doctorId: z.string().uuid(),
-  dayOfWeek: z.number().int().min(0).max(6),
+  doctorId: z.string().uuid().optional(),
+  dayOfWeek: z.union([
+    z.number().int().min(0).max(6),
+    z
+      .string()
+      .transform((s) => DAY_NAME_TO_INDEX[s.toUpperCase()])
+      .refine((n) => typeof n === "number" && n >= 0 && n <= 6, {
+        message:
+          "dayOfWeek must be 0-6 or a day name (SUNDAY..SATURDAY)",
+      }),
+  ]),
   startTime: z.string().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM"),
   endTime: z.string().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM"),
   slotDurationMinutes: z.number().int().min(5).max(120).default(15),

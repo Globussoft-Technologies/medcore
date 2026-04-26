@@ -160,4 +160,73 @@ describeIfDB("Doctors API (integration)", () => {
     expect([200, 201]).toContain(res.status);
     expect(res.body.data?.endTime).toBe("14:00");
   });
+
+  // Issue #56 / #77 — the Schedule Management page hits these endpoints; if
+  // they 404 the grid silently shows "No slots". Cover GET schedule,
+  // GET overrides, ADMIN authorize on POST schedule, and Sunday support.
+  it("GET /:id/schedule returns rows shaped for the page (Issue #56)", async () => {
+    const doctor = await createDoctorFixture();
+    await request(app)
+      .post(`/api/v1/doctors/${doctor.id}/schedule`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        doctorId: doctor.id,
+        dayOfWeek: 1,
+        startTime: "09:00",
+        endTime: "13:00",
+        slotDurationMinutes: 15,
+      });
+    const res = await request(app)
+      .get(`/api/v1/doctors/${doctor.id}/schedule`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data[0]).toMatchObject({
+      dayOfWeek: "MONDAY",
+      startTime: "09:00",
+      endTime: "13:00",
+      slotDuration: 15,
+    });
+  });
+
+  it("GET /:id/overrides returns array (Issue #56)", async () => {
+    const doctor = await createDoctorFixture();
+    const res = await request(app)
+      .get(`/api/v1/doctors/${doctor.id}/overrides`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  it("POST /:id/schedule authorizes ADMIN (Issue #77)", async () => {
+    const doctor = await createDoctorFixture();
+    const res = await request(app)
+      .post(`/api/v1/doctors/${doctor.id}/schedule`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        doctorId: doctor.id,
+        dayOfWeek: 0, // Sunday — explicitly allowed (Issue #77)
+        startTime: "10:00",
+        endTime: "14:00",
+        slotDurationMinutes: 15,
+      });
+    expect([200, 201]).toContain(res.status);
+    expect(res.status).not.toBe(401);
+    expect(res.status).not.toBe(403);
+  });
+
+  it("POST /:id/schedule accepts day-name strings (Issue #77)", async () => {
+    const doctor = await createDoctorFixture();
+    const res = await request(app)
+      .post(`/api/v1/doctors/${doctor.id}/schedule`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        doctorId: doctor.id,
+        dayOfWeek: "SUNDAY",
+        startTime: "11:00",
+        endTime: "15:00",
+        slotDurationMinutes: 30,
+      });
+    expect([200, 201]).toContain(res.status);
+  });
 });

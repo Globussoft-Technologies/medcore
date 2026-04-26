@@ -13,6 +13,7 @@ const { prismaMock } = vi.hoisted(() => ({
     invoice: { findUnique: vi.fn() },
     user: { findUnique: vi.fn() },
     staffShift: { findMany: vi.fn(async () => []) },
+    overtimeRecord: { findMany: vi.fn(async () => []) },
     patient: { findUnique: vi.fn() },
     vitals: {
       findMany: vi.fn(async () => []),
@@ -266,13 +267,18 @@ describe("generatePaySlipHTML", () => {
       { status: "PRESENT" },
       { status: "LEAVE" },
     ]);
-    const html = await generatePaySlipHTML("u1", "2024-05");
+    const html = await generatePaySlipHTML("u1", "2024-05", {
+      basicSalary: 30000,
+      // Match the legacy HRA + DA + Medical + Transport bundle (combined into a
+      // single allowances number after the payroll-service consolidation).
+      allowances: 17850,
+    });
     expect(html).toContain("Salary Slip");
-    // Basic 30000, HRA 12000, DA 3000, Med 1250, Trans 1600 → Gross 47850
-    // PF = 0.12 * 30000 = 3600 ; ESI = 0.0075 * 47850 = 359 ; Net = 47850 - 3959 = 43891
-    // Gross 47850, PF 3600 + ESI 359 = 3959; Net = 43891
-    expect(html).toContain("43891.00");
-    expect(html).toMatch(/Forty Three Thousand/i);
+    // Issue #74: ESI is now correctly skipped when gross > ₹21,000 ceiling.
+    // Basic 30000 + Allowances 17850 → Gross 47850
+    // PF = 0.12 * 30000 = 3600 ; ESI = 0 (above ceiling) ; Net = 47850 - 3600 = 44250
+    expect(html).toContain("44250.00");
+    expect(html).toMatch(/Forty Four Thousand/i);
   });
 });
 

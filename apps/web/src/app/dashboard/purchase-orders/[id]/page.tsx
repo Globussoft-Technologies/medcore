@@ -41,6 +41,14 @@ interface PORecord {
     address?: string | null;
   };
   items: POItem[];
+  // Issue #63: backend computes GST split based on hospital vs supplier state
+  // codes (first 2 digits of GSTIN).
+  gstBreakdown?: {
+    type: "CGST_SGST" | "IGST";
+    cgst: number;
+    sgst: number;
+    igst: number;
+  };
 }
 
 const STATUS_FLOW = ["DRAFT", "PENDING", "APPROVED", "RECEIVED"];
@@ -245,22 +253,44 @@ export default function PurchaseOrderDetailPage() {
 
           <div>
             <h3 className="mb-2 text-sm font-semibold text-gray-700">Timeline</h3>
-            <div className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Ordered</span>
-                <span>{new Date(po.orderedAt).toLocaleDateString("en-IN")}</span>
-              </div>
-              {po.expectedAt && (
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Expected</span>
-                  <span>{new Date(po.expectedAt).toLocaleDateString("en-IN")}</span>
-                </div>
-              )}
-              {po.receivedAt && (
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Received</span>
-                  <span>{new Date(po.receivedAt).toLocaleDateString("en-IN")}</span>
-                </div>
+            <div className="space-y-1 text-sm" data-testid="po-timeline">
+              {/* Issue #63: Ordered/Expected dates are PLACED-transition data —
+                  they only become meaningful once the PO leaves DRAFT. Showing
+                  them on a DRAFT misled buyers into thinking the order had
+                  already been placed. */}
+              {po.status === "DRAFT" ? (
+                <p
+                  className="text-xs italic text-gray-500"
+                  data-testid="po-timeline-draft-note"
+                >
+                  Ordered & Expected dates are recorded when this PO is
+                  submitted for approval.
+                </p>
+              ) : (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Ordered</span>
+                    <span data-testid="po-ordered-at">
+                      {new Date(po.orderedAt).toLocaleDateString("en-IN")}
+                    </span>
+                  </div>
+                  {po.expectedAt && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Expected</span>
+                      <span data-testid="po-expected-at">
+                        {new Date(po.expectedAt).toLocaleDateString("en-IN")}
+                      </span>
+                    </div>
+                  )}
+                  {po.receivedAt && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Received</span>
+                      <span>
+                        {new Date(po.receivedAt).toLocaleDateString("en-IN")}
+                      </span>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -299,15 +329,41 @@ export default function PurchaseOrderDetailPage() {
           </table>
         </div>
 
-        <div className="ml-auto max-w-xs space-y-1 text-sm">
+        <div
+          className="ml-auto max-w-xs space-y-1 text-sm"
+          data-testid="po-totals"
+        >
           <div className="flex justify-between">
             <span className="text-gray-500">Subtotal</span>
             <span>Rs. {po.subtotal.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">Tax</span>
-            <span>Rs. {po.taxAmount.toFixed(2)}</span>
-          </div>
+          {/* Issue #63: split tax into CGST+SGST (intra-state) or IGST
+              (inter-state) per Indian GST rules. Falls back to a single Tax
+              line if backend didn't return a breakdown (older payload). */}
+          {po.gstBreakdown ? (
+            po.gstBreakdown.type === "CGST_SGST" ? (
+              <>
+                <div className="flex justify-between" data-testid="po-cgst">
+                  <span className="text-gray-500">CGST</span>
+                  <span>Rs. {po.gstBreakdown.cgst.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between" data-testid="po-sgst">
+                  <span className="text-gray-500">SGST</span>
+                  <span>Rs. {po.gstBreakdown.sgst.toFixed(2)}</span>
+                </div>
+              </>
+            ) : (
+              <div className="flex justify-between" data-testid="po-igst">
+                <span className="text-gray-500">IGST</span>
+                <span>Rs. {po.gstBreakdown.igst.toFixed(2)}</span>
+              </div>
+            )
+          ) : (
+            <div className="flex justify-between">
+              <span className="text-gray-500">Tax</span>
+              <span>Rs. {po.taxAmount.toFixed(2)}</span>
+            </div>
+          )}
           <div className="flex justify-between border-t pt-1 text-base font-bold">
             <span>Total</span>
             <span>Rs. {po.totalAmount.toFixed(2)}</span>

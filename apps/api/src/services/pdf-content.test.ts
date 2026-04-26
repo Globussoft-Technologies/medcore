@@ -26,6 +26,7 @@ const { prismaMock } = vi.hoisted(() => ({
     invoice: { findUnique: vi.fn() },
     user: { findUnique: vi.fn() },
     staffShift: { findMany: vi.fn(async () => []) },
+    overtimeRecord: { findMany: vi.fn(async () => []) },
     patient: { findUnique: vi.fn() },
     vitals: {
       findMany: vi.fn(async () => []),
@@ -320,14 +321,18 @@ describe("generatePaySlipHTML — content quality", () => {
     prismaMock.staffShift.findMany.mockResolvedValueOnce([
       { status: "PRESENT" }, { status: "PRESENT" }, { status: "LEAVE" },
     ]);
-    const html = await generatePaySlipHTML("u1", "2024-05");
+    const html = await generatePaySlipHTML("u1", "2024-05", {
+      basicSalary: 30000,
+      allowances: 17850,
+    });
     expectWellFormedHtml(html);
     expect(html).toContain("Salary Slip");
     expect(html).toContain("Alice Nightingale");
     expect(html).toContain("30000.00"); // basic
     expect(html).toContain("47850.00"); // gross
-    expect(html).toContain("43891.00"); // net
-    expect(html).toMatch(/Forty Three Thousand/i);
+    // Issue #74: ESI = 0 above ₹21,000 ceiling → Net = 47850 - 3600 PF = 44250.
+    expect(html).toContain("44250.00"); // net
+    expect(html).toMatch(/Forty Four Thousand/i);
     // Provident Fund and ESI lines
     expect(html).toContain("Provident Fund");
     expect(html).toContain("ESI");

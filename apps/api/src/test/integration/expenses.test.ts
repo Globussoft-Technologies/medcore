@@ -91,6 +91,37 @@ describeIfDB("Expenses API (integration)", () => {
     expect(res.status).toBe(400);
   });
 
+  // Issue #64: future-dated expenses must be rejected at the API level so
+  // even direct POSTs (bypassing the form) can't poison month-end totals.
+  it("rejects future-dated expense (400)", async () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const yyyyMmDd = tomorrow.toISOString().slice(0, 10);
+    const res = await request(app)
+      .post("/api/v1/expenses")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        category: "OTHER",
+        amount: 100,
+        description: "Tomorrow's lunch",
+        date: yyyyMmDd,
+      });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects far-future-dated expense (the original 01/01/2030 bug)", async () => {
+    const res = await request(app)
+      .post("/api/v1/expenses")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        category: "OTHER",
+        amount: 999,
+        description: "Way in the future",
+        date: "2030-01-01",
+      });
+    expect(res.status).toBe(400);
+  });
+
   it("approves a pending expense (side-effect: APPROVED + approvedBy)", async () => {
     const create = await request(app)
       .post("/api/v1/expenses")

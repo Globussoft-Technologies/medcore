@@ -29,6 +29,70 @@ router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
   }
 });
 
+// GET /api/v1/doctors/:id/schedule — list weekly schedule slots
+//
+// Issue #56 / #77 — the Schedule Management page calls this endpoint to render
+// the per-day grid; previously only POST existed, so the GET 404'd silently
+// and the grid stayed empty. We expose a thin read-only wrapper around
+// `DoctorSchedule` that also normalises the wire shape to what the page
+// expects (slotDuration, dayOfWeek as a label so the existing UI grid keys
+// match without a Number→Name mapping in the page).
+router.get(
+  "/:id/schedule",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION, Role.NURSE),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rows = await prisma.doctorSchedule.findMany({
+        where: { doctorId: req.params.id },
+        orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
+      });
+
+      const DAY_NAMES = [
+        "SUNDAY",
+        "MONDAY",
+        "TUESDAY",
+        "WEDNESDAY",
+        "THURSDAY",
+        "FRIDAY",
+        "SATURDAY",
+      ];
+
+      const data = rows.map((r) => ({
+        id: r.id,
+        doctorId: r.doctorId,
+        dayOfWeek: DAY_NAMES[r.dayOfWeek] ?? String(r.dayOfWeek),
+        dayOfWeekIndex: r.dayOfWeek,
+        startTime: r.startTime,
+        endTime: r.endTime,
+        slotDuration: r.slotDurationMinutes,
+        slotDurationMinutes: r.slotDurationMinutes,
+        bufferMinutes: r.bufferMinutes,
+      }));
+
+      res.json({ success: true, data, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/doctors/:id/overrides — list schedule overrides
+router.get(
+  "/:id/overrides",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION, Role.NURSE),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rows = await prisma.scheduleOverride.findMany({
+        where: { doctorId: req.params.id },
+        orderBy: { date: "desc" },
+      });
+      res.json({ success: true, data: rows, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // GET /api/v1/doctors/:id/slots?date=YYYY-MM-DD — get available slots
 router.get(
   "/:id/slots",

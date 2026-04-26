@@ -61,6 +61,24 @@ describeIfDB("HR-Ops API — DEEP (integration)", () => {
     expect(del.status).toBe(200);
   });
 
+  // Issue #73 — duplicate holidays on the same date must be rejected at the
+  // application layer (the schema's @@unique([date, name]) is too lax).
+  it("holiday duplicate on same date returns 409 (Issue #73)", async () => {
+    const first = await request(app)
+      .post("/api/v1/hr-ops/holidays")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ date: "2026-11-08", name: "Diwali" });
+    expect(first.status).toBe(201);
+
+    // Different name, same date — must 409.
+    const second = await request(app)
+      .post("/api/v1/hr-ops/holidays")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ date: "2026-11-08", name: "Lakshmi Puja" });
+    expect(second.status).toBe(409);
+    expect(String(second.body.error || "")).toMatch(/already exists/i);
+  });
+
   it("attendance summary for self (non-admin) scoped to caller", async () => {
     const res = await request(app)
       .get("/api/v1/hr-ops/attendance")

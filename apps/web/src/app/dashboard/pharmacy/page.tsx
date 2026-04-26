@@ -597,11 +597,25 @@ function ReturnModal({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    // Issue #51: enforce on-hand cap client side too — `<input max>` only
+    // surfaces a browser-native validation message and is bypassable by
+    // typing/pasting a larger value. We toast and bail before POSTing.
+    const qty = parseInt(quantity, 10);
+    if (!Number.isFinite(qty) || qty < 1) {
+      toast.error("Quantity must be a positive whole number");
+      return;
+    }
+    if (qty > item.quantity) {
+      toast.error(
+        `Cannot return more than on-hand stock (${item.quantity}). Adjust the quantity and try again.`,
+      );
+      return;
+    }
     setSaving(true);
     try {
       await api.post("/pharmacy/returns", {
         inventoryItemId: item.id,
-        quantity: parseInt(quantity, 10),
+        quantity: qty,
         reason,
         refundAmount: parseFloat(refundAmount || "0"),
       });
@@ -623,34 +637,71 @@ function ReturnModal({
           Return {item.medicine.name} ({item.batchNumber})
         </h2>
         <div className="space-y-3 text-sm">
-          <input
-            type="number"
-            min={1}
-            max={item.quantity * 2}
-            placeholder="Quantity"
-            value={quantity}
-            onChange={(e) => setQuantity(e.target.value)}
-            className="w-full rounded border px-3 py-2"
-            required
-          />
-          <select
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            className="w-full rounded border px-3 py-2"
-          >
-            <option value="PATIENT_RETURNED">Patient Returned</option>
-            <option value="WRONG_ITEM">Wrong Item</option>
-            <option value="EXPIRED">Expired</option>
-            <option value="DAMAGED">Damaged</option>
-          </select>
-          <input
-            type="number"
-            step="0.01"
-            placeholder="Refund Amount (optional)"
-            value={refundAmount}
-            onChange={(e) => setRefundAmount(e.target.value)}
-            className="w-full rounded border px-3 py-2"
-          />
+          {/* Issue #51: Return quantity must never exceed on-hand stock — was
+              previously capped at 2x by mistake which let users return more
+              than they had. */}
+          <div>
+            <label
+              htmlFor="pharmacy-return-qty"
+              className="mb-1 block text-xs font-medium text-slate-700"
+              data-testid="label-pharmacy-return-qty"
+            >
+              Quantity to Return
+            </label>
+            <input
+              id="pharmacy-return-qty"
+              type="number"
+              min={1}
+              max={item.quantity}
+              placeholder={`Quantity (max ${item.quantity})`}
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              className="w-full rounded border px-3 py-2"
+              data-testid="pharmacy-return-qty"
+              required
+            />
+            <p className="mt-1 text-xs text-gray-500" data-testid="pharmacy-return-onhand">
+              On hand: {item.quantity}
+            </p>
+          </div>
+          <div>
+            <label
+              htmlFor="pharmacy-return-reason"
+              className="mb-1 block text-xs font-medium text-slate-700"
+              data-testid="label-pharmacy-return-reason"
+            >
+              Reason for Return
+            </label>
+            <select
+              id="pharmacy-return-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="w-full rounded border px-3 py-2"
+            >
+              <option value="PATIENT_RETURNED">Patient Returned</option>
+              <option value="WRONG_ITEM">Wrong Item</option>
+              <option value="EXPIRED">Expired</option>
+              <option value="DAMAGED">Damaged</option>
+            </select>
+          </div>
+          <div>
+            <label
+              htmlFor="pharmacy-return-refund"
+              className="mb-1 block text-xs font-medium text-slate-700"
+              data-testid="label-pharmacy-return-refund"
+            >
+              Refund Amount
+            </label>
+            <input
+              id="pharmacy-return-refund"
+              type="number"
+              step="0.01"
+              placeholder="Refund Amount (optional)"
+              value={refundAmount}
+              onChange={(e) => setRefundAmount(e.target.value)}
+              className="w-full rounded border px-3 py-2"
+            />
+          </div>
         </div>
         <div className="mt-4 flex justify-end gap-2">
           <button

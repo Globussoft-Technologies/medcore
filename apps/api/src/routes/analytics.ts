@@ -96,7 +96,7 @@ async function computeOverviewSnapshot(from: Date, to: Date) {
     payments,
     pendingBills,
     currentlyAdmitted,
-    consultations,
+    consultDurations,
     // Issue #48 (2026-04-24): Today-Snapshot needs admissions/discharges/surgeries/erCases
     // in the same window. Previously these keys were missing so the admin-console
     // always rendered 0 regardless of real activity.
@@ -123,9 +123,20 @@ async function computeOverviewSnapshot(from: Date, to: Date) {
       where: { paymentStatus: { in: ["PENDING", "PARTIAL"] } },
     }),
     prisma.admission.count({ where: { status: "ADMITTED" } }),
-    prisma.consultation.findMany({
-      where: { createdAt: { gte: from, lte: to } },
-      select: { createdAt: true, updatedAt: true },
+    // Issue #78: avg consultation time was previously derived from the
+    // Consultation row's createdAt/updatedAt, which gives a wildly inflated
+    // figure (240+ hours) any time a doctor reopens a draft hours later — the
+    // updatedAt bumps but the patient is long gone. Use the Appointment's
+    // consultationStartedAt / consultationEndedAt timestamps instead — those
+    // are the canonical "consult started" / "consult ended" beacons emitted
+    // when the doctor presses the in-room start/stop controls.
+    prisma.appointment.findMany({
+      where: {
+        date: { gte: from, lte: to },
+        consultationStartedAt: { not: null },
+        consultationEndedAt: { not: null },
+      },
+      select: { consultationStartedAt: true, consultationEndedAt: true },
     }),
     prisma.admission.count({ where: { admittedAt: { gte: from, lte: to } } }),
     prisma.admission.count({
@@ -163,13 +174,36 @@ async function computeOverviewSnapshot(from: Date, to: Date) {
     revenueByMode[p.mode] = (revenueByMode[p.mode] || 0) + p.amount;
   });
 
-  let avgConsultationTime = 0;
-  if (consultations.length > 0) {
-    const totalMs = consultations.reduce(
-      (sum, c) => sum + (new Date(c.updatedAt).getTime() - new Date(c.createdAt).getTime()),
-      0
-    );
-    avgConsultationTime = Math.round(totalMs / consultations.length / 60000);
+  // Issue #78 — Avg consult math.
+  //
+  // Old behaviour: sum(updatedAt - createdAt) / count from Consultation rows.
+  // That produced 14,431 minutes (240 hrs) on prod because draft consults
+  // get re-edited days later and the updatedAt bump dominates the average.
+  //
+  // New behaviour: only count Appointments whose consult was actually
+  // started AND ended (we already filtered for both fields above), and cap
+  // each duration at a sensible upper bound so a single forgotten "stop"
+  // can't blow up the average. We also skip non-positive durations
+  // defensively. If after filtering there is nothing left to average, return
+  // null — the UI distinguishes "no data" from "0 minutes".
+  const MAX_CONSULT_MINUTES = 240; // 4 hours — anything longer is a stuck timer
+  let avgConsultationTime: number | null = 0;
+  const validDurationsMin = consultDurations
+    .map((c) => {
+      if (!c.consultationStartedAt || !c.consultationEndedAt) return null;
+      const ms =
+        new Date(c.consultationEndedAt).getTime() -
+        new Date(c.consultationStartedAt).getTime();
+      if (!Number.isFinite(ms) || ms <= 0) return null;
+      return Math.min(ms / 60000, MAX_CONSULT_MINUTES);
+    })
+    .filter((v): v is number => v !== null);
+
+  if (validDurationsMin.length === 0) {
+    avgConsultationTime = null;
+  } else {
+    const totalMin = validDurationsMin.reduce((s, v) => s + v, 0);
+    avgConsultationTime = Math.round(totalMin / validDurationsMin.length);
   }
 
   return {
@@ -492,33 +526,42 @@ router.get("/doctors", async (req: Request, res: Response, next: NextFunction) =
     const doctors = await prisma.doctor.findMany({
       include: {
         user: { select: { name: true } },
+        // Issue #78 — pull the appointment's consultationStartedAt/EndedAt
+        // directly. We previously joined to Consultation and used its
+        // createdAt/updatedAt which is wrong for the same reason described in
+        // computeOverviewSnapshot above (drafts re-edited later inflate it).
         appointments: {
           where: { date: { gte: from, lte: to } },
           include: {
-            consultation: { select: { createdAt: true, updatedAt: true } },
             invoice: { include: { payments: true } },
           },
         },
       },
     });
 
+    const MAX_CONSULT_MINUTES_DOC = 240; // align with overview cap
     const data = doctors.map((doc) => {
       const appts = doc.appointments;
       const appointmentCount = appts.length;
       const completedCount = appts.filter((a) => a.status === "COMPLETED").length;
       const patientIds = new Set(appts.map((a) => a.patientId));
 
-      const consultationDurations = appts
-        .map((a) => a.consultation)
-        .filter((c): c is NonNullable<typeof c> => !!c)
-        .map((c) => new Date(c.updatedAt).getTime() - new Date(c.createdAt).getTime());
+      const validDurationsMin = appts
+        .map((a) => {
+          if (!a.consultationStartedAt || !a.consultationEndedAt) return null;
+          const ms =
+            new Date(a.consultationEndedAt).getTime() -
+            new Date(a.consultationStartedAt).getTime();
+          if (!Number.isFinite(ms) || ms <= 0) return null;
+          return Math.min(ms / 60000, MAX_CONSULT_MINUTES_DOC);
+        })
+        .filter((v): v is number => v !== null);
 
       const avgDurationMin =
-        consultationDurations.length > 0
+        validDurationsMin.length > 0
           ? Math.round(
-              consultationDurations.reduce((sum, d) => sum + d, 0) /
-                consultationDurations.length /
-                60000
+              validDurationsMin.reduce((sum, d) => sum + d, 0) /
+                validDurationsMin.length
             )
           : 0;
 

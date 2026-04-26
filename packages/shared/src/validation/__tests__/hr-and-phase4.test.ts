@@ -190,6 +190,10 @@ describe("triageSchema", () => {
 });
 
 describe("createAncCaseSchema", () => {
+  // For "today", build a YYYY-MM-DD without TZ surprises.
+  function ymd(d: Date): string {
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  }
   it("accepts a valid ANC case", () => {
     expect(
       createAncCaseSchema.safeParse({
@@ -207,6 +211,67 @@ describe("createAncCaseSchema", () => {
         lmpDate: "Jan 1",
       }).success
     ).toBe(false);
+  });
+  // Issue #57 (Apr 2026)
+  it("rejects future lmpDate", () => {
+    const future = new Date();
+    future.setUTCDate(future.getUTCDate() + 30);
+    expect(
+      createAncCaseSchema.safeParse({
+        patientId: UUID,
+        doctorId: UUID,
+        lmpDate: ymd(future),
+      }).success
+    ).toBe(false);
+  });
+  it("accepts today's lmpDate", () => {
+    expect(
+      createAncCaseSchema.safeParse({
+        patientId: UUID,
+        doctorId: UUID,
+        lmpDate: ymd(new Date()),
+      }).success
+    ).toBe(true);
+  });
+  it("rejects negative gravida", () => {
+    expect(
+      createAncCaseSchema.safeParse({
+        patientId: UUID,
+        doctorId: UUID,
+        lmpDate: "2026-01-01",
+        gravida: -1,
+      }).success
+    ).toBe(false);
+  });
+  it("rejects negative parity", () => {
+    expect(
+      createAncCaseSchema.safeParse({
+        patientId: UUID,
+        doctorId: UUID,
+        lmpDate: "2026-01-01",
+        parity: -2,
+      }).success
+    ).toBe(false);
+  });
+  it("rejects free-text bloodGroup", () => {
+    expect(
+      createAncCaseSchema.safeParse({
+        patientId: UUID,
+        doctorId: UUID,
+        lmpDate: "2026-01-01",
+        bloodGroup: "O+",
+      }).success
+    ).toBe(false);
+  });
+  it("accepts canonical ABO+Rh tokens", () => {
+    expect(
+      createAncCaseSchema.safeParse({
+        patientId: UUID,
+        doctorId: UUID,
+        lmpDate: "2026-01-01",
+        bloodGroup: "O_POS",
+      }).success
+    ).toBe(true);
   });
 });
 

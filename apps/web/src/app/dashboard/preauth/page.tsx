@@ -338,58 +338,118 @@ function NewRequestModal({
             )}
           </div>
 
-          <input
-            placeholder="Insurance Provider"
-            value={form.insuranceProvider}
-            onChange={(e) =>
-              setForm({ ...form, insuranceProvider: e.target.value })
-            }
-            className="w-full rounded border px-3 py-2"
-            required
-          />
-          <input
-            placeholder="Policy Number"
-            value={form.policyNumber}
-            onChange={(e) =>
-              setForm({ ...form, policyNumber: e.target.value })
-            }
-            className="w-full rounded border px-3 py-2"
-            required
-          />
-          <input
-            placeholder="Procedure Name"
-            value={form.procedureName}
-            onChange={(e) =>
-              setForm({ ...form, procedureName: e.target.value })
-            }
-            className="w-full rounded border px-3 py-2"
-            required
-          />
-          <input
-            placeholder="Estimated Cost"
-            type="number"
-            step="0.01"
-            value={form.estimatedCost}
-            onChange={(e) =>
-              setForm({ ...form, estimatedCost: e.target.value })
-            }
-            className="w-full rounded border px-3 py-2"
-            required
-          />
-          <textarea
-            placeholder="Diagnosis"
-            value={form.diagnosis}
-            onChange={(e) => setForm({ ...form, diagnosis: e.target.value })}
-            className="w-full rounded border px-3 py-2"
-            rows={2}
-          />
-          <textarea
-            placeholder="Notes"
-            value={form.notes}
-            onChange={(e) => setForm({ ...form, notes: e.target.value })}
-            className="w-full rounded border px-3 py-2"
-            rows={2}
-          />
+          <div>
+            <label
+              htmlFor="preauth-insurance-provider"
+              className="mb-1 block text-xs font-medium text-slate-700"
+              data-testid="label-preauth-insurance-provider"
+            >
+              Insurance Provider
+            </label>
+            <input
+              id="preauth-insurance-provider"
+              placeholder="Insurance Provider"
+              value={form.insuranceProvider}
+              onChange={(e) =>
+                setForm({ ...form, insuranceProvider: e.target.value })
+              }
+              className="w-full rounded border px-3 py-2"
+              required
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="preauth-policy-number"
+              className="mb-1 block text-xs font-medium text-slate-700"
+              data-testid="label-preauth-policy-number"
+            >
+              Policy Number
+            </label>
+            <input
+              id="preauth-policy-number"
+              placeholder="Policy Number"
+              value={form.policyNumber}
+              onChange={(e) =>
+                setForm({ ...form, policyNumber: e.target.value })
+              }
+              className="w-full rounded border px-3 py-2"
+              required
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="preauth-procedure-name"
+              className="mb-1 block text-xs font-medium text-slate-700"
+              data-testid="label-preauth-procedure-name"
+            >
+              Procedure Name
+            </label>
+            <input
+              id="preauth-procedure-name"
+              placeholder="Procedure Name"
+              value={form.procedureName}
+              onChange={(e) =>
+                setForm({ ...form, procedureName: e.target.value })
+              }
+              className="w-full rounded border px-3 py-2"
+              required
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="preauth-estimated-cost"
+              className="mb-1 block text-xs font-medium text-slate-700"
+              data-testid="label-preauth-estimated-cost"
+            >
+              Estimated Cost (₹)
+            </label>
+            <input
+              id="preauth-estimated-cost"
+              placeholder="Estimated Cost"
+              type="number"
+              step="0.01"
+              value={form.estimatedCost}
+              onChange={(e) =>
+                setForm({ ...form, estimatedCost: e.target.value })
+              }
+              className="w-full rounded border px-3 py-2"
+              required
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="preauth-diagnosis"
+              className="mb-1 block text-xs font-medium text-slate-700"
+              data-testid="label-preauth-diagnosis"
+            >
+              Diagnosis
+            </label>
+            <textarea
+              id="preauth-diagnosis"
+              placeholder="Diagnosis"
+              value={form.diagnosis}
+              onChange={(e) => setForm({ ...form, diagnosis: e.target.value })}
+              className="w-full rounded border px-3 py-2"
+              rows={2}
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="preauth-notes"
+              className="mb-1 block text-xs font-medium text-slate-700"
+              data-testid="label-preauth-notes"
+            >
+              Notes
+            </label>
+            <textarea
+              id="preauth-notes"
+              placeholder="Notes"
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              className="w-full rounded border px-3 py-2"
+              rows={2}
+            />
+          </div>
         </div>
 
         <div className="mt-4 flex justify-end gap-2">

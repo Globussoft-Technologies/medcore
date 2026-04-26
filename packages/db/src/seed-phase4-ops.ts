@@ -233,15 +233,57 @@ async function main() {
   const assets = [];
   for (let i = 0; i < assetSpecs.length; i++) {
     const spec = assetSpecs[i];
+    // Issue #59 (Apr 2026): an asset's "is it actually in service" status
+    // should follow its location. The Emergency-room defibrillator is
+    // permanently deployed (always plugged in, ready) — seeding it as IDLE
+    // misled the asset dashboard into thinking it was a spare. Likewise the
+    // Cardiology ECG, the ICU suction, the CSSD autoclave, and Radiology's
+    // X-Ray + Ultrasound are all permanently deployed in their bays.
+    const inServiceLocations = new Set([
+      "Emergency",
+      "ICU",
+      "Cardiology",
+      "Radiology-1",
+      "Radiology-2",
+      "CSSD",
+    ]);
+    const isInService =
+      spec.category === "Medical Equipment" &&
+      typeof spec.location === "string" &&
+      inServiceLocations.has(spec.location);
+    // Issue #59: department should reflect physical location for clinical
+    // gear so the per-department asset roll-up isn't all "Clinical".
+    const department =
+      spec.category === "IT"
+        ? "IT"
+        : spec.category === "Furniture"
+          ? "Wards"
+          : spec.location === "Emergency"
+            ? "Emergency"
+            : spec.location === "ICU"
+              ? "ICU"
+              : spec.location === "Cardiology"
+                ? "Cardiology"
+                : spec.location?.startsWith("Radiology")
+                  ? "Radiology"
+                  : spec.location === "CSSD"
+                    ? "CSSD"
+                    : "Clinical";
     const a = await prisma.asset.upsert({
       where: { assetTag: spec.assetTag },
-      update: {},
+      update: {
+        // Idempotent re-seed: keep status/department in sync if the rules
+        // above change. We do NOT clobber a manually-changed status (we only
+        // upgrade IDLE→IN_USE for our deployed-by-default rule).
+        ...(isInService ? { status: "IN_USE" as AssetStatus } : {}),
+        department,
+      },
       create: {
         ...spec,
         purchaseDate: daysFromNow(-(400 + i * 10)),
         warrantyExpiry: daysFromNow(i < 3 ? 20 : 365 + i * 10),
-        status: "IDLE" as AssetStatus,
-        department: spec.category === "IT" ? "IT" : spec.category === "Furniture" ? "Wards" : "Clinical",
+        status: (isInService ? "IN_USE" : "IDLE") as AssetStatus,
+        department,
       },
     });
     assets.push(a);

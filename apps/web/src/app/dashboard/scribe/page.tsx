@@ -747,6 +747,11 @@ export default function ScribePage() {
   const urlPatientId = searchParams?.get("patientId") ?? null;
   const [autoStartedFromUrl, setAutoStartedFromUrl] = useState(false);
   const [appointments, setAppointments] = useState<any[]>([]);
+  // Issue #62: surface appointments-API failures with a banner + retry button
+  // instead of the previous silent-degrade. `apptLoadError` carries the human
+  // message; `apptRetryNonce` increments to re-trigger the fetch effect.
+  const [apptLoadError, setApptLoadError] = useState<string | null>(null);
+  const [apptRetryNonce, setApptRetryNonce] = useState(0);
   const [selectedAppointment, setSelectedAppointment] = useState<any>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
@@ -807,7 +812,12 @@ export default function ScribePage() {
   const audioChunksRef = useRef<Blob[]>([]);
   const asrIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Fetch today's appointments for this doctor
+  // Fetch today's appointments for this doctor.
+  // Issue #62: previously we swallowed errors silently — when the appointments
+  // API was down (502/timeout) the picker showed "No appointments today" and
+  // the doctor had no way to know whether the queue was actually empty or the
+  // backend was sick. We now surface failures via `apptLoadError` (rendered
+  // as a banner with a Retry button) instead of degrading silently.
   useEffect(() => {
     const fetchAppts = async () => {
       try {
@@ -818,6 +828,7 @@ export default function ScribePage() {
         );
         const list = res.data.data?.appointments || [];
         setAppointments(list);
+        setApptLoadError(null);
 
         // GAP-S14: if URL params point at a specific appointment/patient,
         // auto-open the consent modal so the doctor can start scribe with one
@@ -834,12 +845,18 @@ export default function ScribePage() {
             setAutoStartedFromUrl(true);
           }
         }
-      } catch {
-        // silent
+      } catch (err: any) {
+        // Issue #62: do NOT silently degrade — clear stale list and store the
+        // error so the UI can render a banner with Retry.
+        setAppointments([]);
+        const msg =
+          (err && typeof err.message === "string" && err.message) ||
+          "Couldn't load today's appointments";
+        setApptLoadError(msg);
       }
     };
     fetchAppts();
-  }, [token, urlAppointmentId, urlPatientId, autoStartedFromUrl, sessionId]);
+  }, [token, urlAppointmentId, urlPatientId, autoStartedFromUrl, sessionId, apptRetryNonce]);
 
   // Poll for SOAP updates while recording
   useEffect(() => {
@@ -1743,9 +1760,38 @@ export default function ScribePage() {
             <p className="font-semibold text-sm text-gray-700 mb-3 flex items-center gap-2">
               <UserCheck className="w-4 h-4 text-blue-600" /> Today&apos;s Patients
             </p>
-            {appointments.length === 0 ? (
+            {/* Issue #62: visible error banner + Retry when the appointments
+                API fails. data-testid hooks are present so browser-automation
+                tests can target the banner and the retry button without
+                relying on text content. */}
+            {apptLoadError && (
+              <div
+                data-testid="scribe-appts-error-banner"
+                className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+                role="alert"
+              >
+                <p className="flex items-start gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                  <span>
+                    Couldn&apos;t load today&apos;s appointments. {apptLoadError}
+                  </span>
+                </p>
+                <button
+                  type="button"
+                  data-testid="scribe-appts-retry"
+                  onClick={() => {
+                    setApptLoadError(null);
+                    setApptRetryNonce((n) => n + 1);
+                  }}
+                  className="mt-2 w-full rounded-lg border border-red-300 bg-white px-2 py-1 font-medium text-red-700 hover:bg-red-100"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            {appointments.length === 0 && !apptLoadError ? (
               <p className="text-xs text-gray-400 text-center py-4">No appointments today</p>
-            ) : (
+            ) : appointments.length === 0 ? null : (
               <div className="space-y-1.5">
                 {appointments.map((appt) => (
                   <button

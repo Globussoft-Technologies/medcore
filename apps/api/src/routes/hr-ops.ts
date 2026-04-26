@@ -17,6 +17,7 @@ import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { generatePaySlipHTML } from "../services/pdf";
+import { computePayroll } from "../services/payroll";
 
 const router = Router();
 router.use(authenticate);
@@ -49,9 +50,27 @@ router.post(
   validate(createHolidaySchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Issue #73 — application-level dedup on (date, tenant). The schema
+      // has @@unique([date, name]) which still allows two different names
+      // on the same calendar day (e.g. "Diwali" + "Lakshmi Puja"). Per
+      // policy a single date should hold at most one holiday per tenant,
+      // so we check before insert and return 409 with a clear message.
+      const date = parseDate(req.body.date);
+      const existing = await prisma.holiday.findFirst({
+        where: { date },
+      });
+      if (existing) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `A holiday already exists on ${req.body.date}: "${existing.name}". Delete it first to replace.`,
+        });
+        return;
+      }
+
       const h = await prisma.holiday.create({
         data: {
-          date: parseDate(req.body.date),
+          date,
           name: req.body.name,
           type: req.body.type || "PUBLIC",
           description: req.body.description,
@@ -142,25 +161,19 @@ router.post(
       const shifts = await prisma.staffShift.findMany({
         where: { userId, date: { gte: start, lte: end } },
       });
-      const worked = shifts.filter((s) => s.status === "PRESENT" || s.status === "LATE").length;
-      const scheduled = shifts.length;
-      const absentPenalty =
-        scheduled > 0 ? (shifts.filter((s) => s.status === "ABSENT").length / scheduled) * basicSalary : 0;
-
-      // Overtime: count NIGHT + ON_CALL shifts worked (simplified heuristic)
-      const overtimeShifts = shifts.filter(
-        (s) => (s.type === "NIGHT" || s.type === "ON_CALL") && (s.status === "PRESENT" || s.status === "LATE")
-      ).length;
-      const overtimePay = overtimeShifts * (overtimeRate || 0) * 8; // 8-hour default
-
-      // Include approved overtime records
       const approvedOvertime = await prisma.overtimeRecord.findMany({
         where: { userId, approved: true, date: { gte: start, lte: end } },
       });
-      const approvedOvertimePay = approvedOvertime.reduce((sum, r) => sum + (r.amount || 0), 0);
 
-      const gross = basicSalary + (allowances || 0) + overtimePay + approvedOvertimePay;
-      const net = +(gross - (deductions || 0) - absentPenalty).toFixed(2);
+      // Single source of truth — same math the salary slip uses.
+      const calc = computePayroll({
+        basicSalary,
+        allowances,
+        deductions,
+        overtimeRate,
+        shifts,
+        approvedOvertime,
+      });
 
       res.json({
         success: true,
@@ -168,17 +181,9 @@ router.post(
           userId,
           year,
           month,
-          basicSalary,
-          allowances: allowances || 0,
-          deductions: deductions || 0,
-          absentPenalty: +absentPenalty.toFixed(2),
-          overtimeShifts,
-          overtimePay: +overtimePay.toFixed(2),
-          approvedOvertimePay: +approvedOvertimePay.toFixed(2),
-          workedDays: worked,
-          scheduledDays: scheduled,
-          gross: +gross.toFixed(2),
-          net,
+          ...calc,
+          // Back-compat aliases used by the dashboard table:
+          deductions: calc.otherDeductions,
         },
         error: null,
       });
@@ -558,7 +563,20 @@ router.get(
           .json({ success: false, data: null, error: "month must be YYYY-MM" });
         return;
       }
-      const html = await generatePaySlipHTML(req.params.userId, month);
+      // Optional overrides — keep slip math in sync with the payroll
+      // dashboard, which posts the same inputs to /hr-ops/payroll.
+      const num = (v: unknown): number | undefined => {
+        if (v === undefined || v === null || v === "") return undefined;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : undefined;
+      };
+      const overrides = {
+        basicSalary: num(req.query.basicSalary),
+        allowances: num(req.query.allowances),
+        deductions: num(req.query.deductions),
+        overtimeRate: num(req.query.overtimeRate),
+      };
+      const html = await generatePaySlipHTML(req.params.userId, month, overrides);
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);
     } catch (err) {

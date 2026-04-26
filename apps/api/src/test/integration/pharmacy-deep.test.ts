@@ -409,6 +409,31 @@ describeIfDB("Pharmacy API — DEEP (integration)", () => {
     expect(res.status).toBe(404);
   });
 
+  // Issue #51: returning more than on-hand stock previously succeeded with
+  // refund inflation. The backend now caps quantity at item.quantity.
+  it("pharmacy return rejects quantity above on-hand stock", async () => {
+    const med = await createMedicineFixture();
+    const inv = await createInventoryFixture({
+      medicineId: med.id,
+      overrides: { quantity: 5 },
+    });
+    const res = await request(app)
+      .post("/api/v1/pharmacy/returns")
+      .set("Authorization", `Bearer ${pharmacistToken}`)
+      .send({
+        inventoryItemId: inv.id,
+        quantity: 10,
+        reason: "PATIENT_RETURNED",
+        refundAmount: 50,
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/exceeds on-hand stock/i);
+    // Inventory must remain untouched on failure.
+    const prisma = await getPrisma();
+    const item = await prisma.inventoryItem.findUnique({ where: { id: inv.id } });
+    expect(item!.quantity).toBe(5);
+  });
+
   it("stock transfer updates location", async () => {
     const med = await createMedicineFixture();
     const inv = await createInventoryFixture({

@@ -257,6 +257,7 @@ export default function PayrollPage() {
                   <th className="px-3 py-3">OT Rate</th>
                   <th className="px-3 py-3">Deductions</th>
                   <th className="px-3 py-3">Overtime</th>
+                  <th className="px-3 py-3">Days Worked</th>
                   <th className="px-3 py-3">Penalty</th>
                   <th className="px-3 py-3">Net Pay</th>
                   <th className="px-3 py-3">Actions</th>
@@ -337,6 +338,12 @@ export default function PayrollPage() {
                           "-"
                         )}
                       </td>
+                      <td
+                        className="px-3 py-3 text-xs"
+                        data-testid={`days-worked-${s.id}`}
+                      >
+                        {r ? `${r.workedDays} / ${r.scheduledDays || "—"}` : "-"}
+                      </td>
                       <td className="px-3 py-3 text-xs text-orange-600">
                         {r ? fmtMoney(r.absentPenalty) : "-"}
                       </td>
@@ -366,13 +373,21 @@ export default function PayrollPage() {
                             Calculate
                           </button>
                           <button
-                            onClick={() =>
+                            onClick={() => {
+                              const params = new URLSearchParams({
+                                month,
+                                basicSalary: cfg?.basicSalary || "0",
+                                allowances: cfg?.allowances || "0",
+                                deductions: cfg?.deductions || "0",
+                                overtimeRate: cfg?.overtimeRate || "0",
+                              });
                               openPrintEndpoint(
-                                `/hr-ops/payroll/${s.id}/slip?month=${month}`
-                              )
-                            }
+                                `/hr-ops/payroll/${s.id}/slip?${params.toString()}`
+                              );
+                            }}
                             className="flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-gray-50"
                             title="Print pay slip"
+                            data-testid={`slip-${s.id}`}
                           >
                             <Download size={12} /> Slip
                           </button>

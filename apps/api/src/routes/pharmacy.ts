@@ -490,6 +490,56 @@ router.post(
   }
 );
 
+// GET /api/v1/pharmacy/movements?limit=100&type=
+// Issue #50: Pharmacy → Movements tab in apps/web/.../pharmacy/page.tsx hits
+//   `/pharmacy/movements` but only `/pharmacy/reports/movements` (admin-only)
+//   existed previously, so all roles got an empty list. This adds a
+//   non-admin-readable list capped at 500 rows for the inline tab view.
+router.get(
+  "/movements",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const limit = Math.min(parseInt((req.query.limit as string) || "100"), 500);
+      const { type } = req.query as Record<string, string | undefined>;
+      const where: Record<string, unknown> = {};
+      if (type) where.type = type;
+
+      const movements = await prisma.stockMovement.findMany({
+        where,
+        include: {
+          inventoryItem: {
+            select: {
+              batchNumber: true,
+              medicine: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+      });
+
+      // Massage payload to match the FE Movement interface (notes alias).
+      const data = movements.map((m) => ({
+        id: m.id,
+        type: m.type,
+        quantity: m.quantity,
+        createdAt: m.createdAt,
+        notes: m.reason,
+        inventory: m.inventoryItem
+          ? {
+              batchNumber: m.inventoryItem.batchNumber,
+              medicine: { name: m.inventoryItem.medicine.name },
+            }
+          : null,
+      }));
+
+      res.json({ success: true, data, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // GET /api/v1/pharmacy/reports/stock-value
 router.get(
   "/reports/stock-value",
@@ -870,6 +920,19 @@ router.post(
         res
           .status(404)
           .json({ success: false, data: null, error: "Inventory item not found" });
+        return;
+      }
+
+      // Issue #51: cap return quantity at on-hand stock. Without this, the
+      // backend trusted whatever quantity the form posted (zod only checked it
+      // was a positive int) — pharmacists could "return" 2x what they had on
+      // shelf, inflating refunds. Frontend max attribute also enforces this.
+      if (quantity > item.quantity) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `Return quantity (${quantity}) exceeds on-hand stock (${item.quantity})`,
+        });
         return;
       }
 

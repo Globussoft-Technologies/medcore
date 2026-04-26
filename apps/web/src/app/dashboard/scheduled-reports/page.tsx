@@ -171,9 +171,21 @@ export default function ScheduledReportsPage() {
     }
   }
 
+  // Issue #80 — "Next Run" was rendered with the browser's local timezone but
+  // labelled as IST, so users on UTC/server-time saw a 5h30m skew. Force the
+  // formatter to Asia/Kolkata so the displayed time always matches the IST
+  // schedule the cron job actually fires on.
   function formatNextRun(iso?: string | null) {
     if (!iso) return "—";
-    return new Date(iso).toLocaleString("en-IN");
+    return new Date(iso).toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
   }
 
   return (
@@ -444,7 +456,16 @@ export default function ScheduledReportsPage() {
                   {runs.map((r) => (
                     <tr key={r.id} className="border-b last:border-0">
                       <td className="px-4 py-3 text-sm text-gray-600">
-                        {new Date(r.generatedAt).toLocaleString("en-IN")}
+                        {/* Issue #80 — render generated time in IST too */}
+                        {new Date(r.generatedAt).toLocaleString("en-IN", {
+                          timeZone: "Asia/Kolkata",
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          hour12: true,
+                        })}
                       </td>
                       <td className="px-4 py-3 text-sm">
                         {r.scheduledReport?.name ?? "—"}

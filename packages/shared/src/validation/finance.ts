@@ -22,13 +22,33 @@ export const purchasePackageSchema = z.object({
 });
 
 // ─── Suppliers ─────────────────────────────────────────
+// Issue #63: canonical GSTIN format — 15 chars, structured per India's CBIC
+// notification: 2-digit state code, 5-letter PAN body, 4-digit PAN seq, 1-letter
+// PAN check, 1 entity number (1-9 or A-Z), literal "Z", 1 alnum checksum.
+// Centralised here so the supplier seed, supplier UI, and tests all share one
+// source of truth — previously each call site re-rolled its own regex with
+// drift potential.
+export const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+
+export function isValidGstin(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return GSTIN_REGEX.test(value);
+}
+
 export const createSupplierSchema = z.object({
   name: z.string().min(1, "Name is required"),
   contactPerson: z.string().optional(),
   phone: z.string().optional(),
   email: z.string().email().optional().or(z.literal("")),
   address: z.string().optional(),
-  gstNumber: z.string().optional(),
+  // Allow empty string for "not provided"; otherwise enforce canonical format.
+  gstNumber: z
+    .string()
+    .optional()
+    .refine(
+      (v) => v === undefined || v === "" || GSTIN_REGEX.test(v),
+      "GSTIN must match 2-digit state, 5-letter PAN, 4-digit seq, PAN check letter, entity number, Z, and a final alphanumeric (15 chars total).",
+    ),
   paymentTerms: z.string().optional(),
   contractStart: z.string().optional(),
   contractEnd: z.string().optional(),
@@ -91,11 +111,25 @@ export const expenseCategoryEnum = z.enum([
   "OTHER",
 ]);
 
+// Issue #64: expenses must reflect work that has already happened — future-
+// dated rows could be used to game month-end totals or pre-book reimbursements
+// the books haven't accrued yet. We compare against the user's local "today"
+// at the YYYY-MM-DD level (timezone-agnostic string compare) so a clerk in
+// IST can record an expense up to 23:59 of the same calendar day.
+function isNotFutureDate(yyyyMmDd: string): boolean {
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  return yyyyMmDd <= todayStr;
+}
+
 export const createExpenseSchema = z.object({
   category: expenseCategoryEnum,
   amount: z.number().positive("Amount must be positive"),
   description: z.string().min(1, "Description is required"),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format")
+    .refine(isNotFutureDate, "Expense date cannot be in the future"),
   paidTo: z.string().optional(),
   referenceNo: z.string().optional(),
   attachmentPath: z.string().optional(),

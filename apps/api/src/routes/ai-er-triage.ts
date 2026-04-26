@@ -61,13 +61,35 @@ router.post(
         return;
       }
 
-      const assessment = await assessERPatient({
-        chiefComplaint: chiefComplaint.trim(),
-        vitals: vitals ?? {},
-        patientAge,
-        patientGender,
-        briefHistory,
-      });
+      // Issue #81: previously a Sarvam outage / missing API key surfaced as
+      // an opaque HTTP 500 with the auth middleware's "Unauthorized" body
+      // bleeding into the toast (because the front-end retried and mid-flight
+      // the token expired) — both bad UX. We now catch errors from
+      // assessERPatient explicitly and return a 503 with a human-readable
+      // error string the front-end can show in a toast + Retry. The MEWS
+      // score is still useful even without AI, so we DO NOT fall back to a
+      // mock-AI assessment — that hides outages from clinicians.
+      let assessment;
+      try {
+        assessment = await assessERPatient({
+          chiefComplaint: chiefComplaint.trim(),
+          vitals: vitals ?? {},
+          patientAge,
+          patientGender,
+          briefHistory,
+        });
+      } catch (aiErr) {
+        const msg =
+          (aiErr as Error)?.message ?? "AI triage assistant is currently unavailable";
+        console.warn(`[ai-er-triage] assessERPatient failed:`, msg);
+        res.status(503).json({
+          success: false,
+          data: null,
+          error:
+            "AI triage assistant is temporarily unavailable. Please try again, or proceed with manual triage.",
+        });
+        return;
+      }
 
       // security(2026-04-24): F-ER-3 — audit AI inference so post-incident
       // reconstruction (and Sarvam-bill spike triage) can identify who hit the

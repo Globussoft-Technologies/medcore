@@ -244,20 +244,39 @@ router.patch(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { purchaseDate, warrantyExpiry, amcExpiryDate, ...rest } = req.body;
-      const asset = await prisma.asset.update({
-        where: { id: req.params.id },
-        data: {
-          ...rest,
-          ...(purchaseDate !== undefined
-            ? { purchaseDate: purchaseDate ? new Date(purchaseDate) : null }
-            : {}),
-          ...(warrantyExpiry !== undefined
-            ? { warrantyExpiry: warrantyExpiry ? new Date(warrantyExpiry) : null }
-            : {}),
-          ...(amcExpiryDate !== undefined
-            ? { amcExpiryDate: amcExpiryDate ? new Date(amcExpiryDate) : null }
-            : {}),
-        },
+
+      // Issue #59 (Apr 2026): when an asset transitions to RETIRED, any
+      // active assignment must be closed. Previously the assignment row
+      // stayed open with returnedAt=null so the asset list still rendered
+      // the (now meaningless) "Assigned to: Dr. Foo" column for retired
+      // gear. Wrap the update in a tx so the closure is atomic with the
+      // status change.
+      const asset = await prisma.$transaction(async (tx) => {
+        const updated = await tx.asset.update({
+          where: { id: req.params.id },
+          data: {
+            ...rest,
+            ...(purchaseDate !== undefined
+              ? { purchaseDate: purchaseDate ? new Date(purchaseDate) : null }
+              : {}),
+            ...(warrantyExpiry !== undefined
+              ? { warrantyExpiry: warrantyExpiry ? new Date(warrantyExpiry) : null }
+              : {}),
+            ...(amcExpiryDate !== undefined
+              ? { amcExpiryDate: amcExpiryDate ? new Date(amcExpiryDate) : null }
+              : {}),
+          },
+        });
+        if (rest.status === "RETIRED") {
+          await tx.assetAssignment.updateMany({
+            where: { assetId: updated.id, returnedAt: null },
+            data: {
+              returnedAt: new Date(),
+              notes: "Auto-closed: asset retired",
+            },
+          });
+        }
+        return updated;
       });
 
       auditLog(req, "ASSET_UPDATE", "asset", asset.id, req.body).catch(
@@ -568,15 +587,27 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { method, disposalValue, notes } = req.body;
-      const asset = await prisma.asset.update({
-        where: { id: req.params.id },
-        data: {
-          status: "RETIRED",
-          disposedAt: new Date(),
-          disposalMethod: method,
-          disposalValue: disposalValue,
-          disposalNotes: notes,
-        },
+      // Issue #59: disposing == retiring. Close any active assignment in the
+      // same tx so the asset doesn't keep its old assignee on the dashboard.
+      const asset = await prisma.$transaction(async (tx) => {
+        const a = await tx.asset.update({
+          where: { id: req.params.id },
+          data: {
+            status: "RETIRED",
+            disposedAt: new Date(),
+            disposalMethod: method,
+            disposalValue: disposalValue,
+            disposalNotes: notes,
+          },
+        });
+        await tx.assetAssignment.updateMany({
+          where: { assetId: a.id, returnedAt: null },
+          data: {
+            returnedAt: new Date(),
+            notes: "Auto-closed: asset disposed",
+          },
+        });
+        return a;
       });
       auditLog(req, "ASSET_DISPOSE", "asset", asset.id, { method, disposalValue }).catch(
         console.error

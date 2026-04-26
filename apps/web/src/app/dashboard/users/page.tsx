@@ -6,6 +6,7 @@ import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { PasswordInput } from "@/components/PasswordInput";
 import { Plus, Shield, ShieldAlert, Printer } from "lucide-react";
+import { extractFieldErrors, type FieldErrorMap } from "@/lib/field-errors";
 
 interface StaffUser {
   id: string;
@@ -31,7 +32,30 @@ export default function UsersPage() {
     role: "DOCTOR",
   });
   const [formError, setFormError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({});
   const [submitting, setSubmitting] = useState(false);
+
+  // Issue #67: client-side validation BEFORE the request so users get
+  // immediate, field-level feedback for the cases the backend silently
+  // rejects (weak passwords, non-numeric phone numbers).
+  function validateClient(): FieldErrorMap {
+    const errs: FieldErrorMap = {};
+    if (!form.name.trim()) errs.name = "Full name is required";
+    if (!form.email.trim()) errs.email = "Email is required";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
+      errs.email = "Enter a valid email address";
+    // Phone: 10–15 digits, optional leading +
+    if (!form.phone.trim()) errs.phone = "Phone number is required";
+    else if (!/^\+?\d{10,15}$/.test(form.phone.trim()))
+      errs.phone = "Phone must be 10–15 digits (optional + prefix)";
+    // Password: min 8, at least one letter and one digit
+    if (!form.password) errs.password = "Password is required";
+    else if (form.password.length < 8)
+      errs.password = "Password must be at least 8 characters";
+    else if (!/[A-Za-z]/.test(form.password) || !/\d/.test(form.password))
+      errs.password = "Password must contain at least one letter and one digit";
+    return errs;
+  }
 
   useEffect(() => {
     if (user && user.role !== "ADMIN") {
@@ -61,6 +85,12 @@ export default function UsersPage() {
   async function handleCreateUser(e: React.FormEvent) {
     e.preventDefault();
     setFormError("");
+    const localErrs = validateClient();
+    if (Object.keys(localErrs).length > 0) {
+      setFieldErrors(localErrs);
+      return;
+    }
+    setFieldErrors({});
     setSubmitting(true);
 
     try {
@@ -75,7 +105,17 @@ export default function UsersPage() {
       setForm({ name: "", email: "", phone: "", password: "", role: "DOCTOR" });
       loadUsers();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to create user");
+      // Issue #67: surface zod-style backend errors per-field instead of
+      // showing a generic "Validation failed" toast.
+      const fields = extractFieldErrors(err);
+      if (fields) {
+        setFieldErrors(fields);
+        setFormError("");
+      } else {
+        setFormError(
+          err instanceof Error ? err.message : "Failed to create user"
+        );
+      }
     } finally {
       setSubmitting(false);
     }
@@ -119,46 +159,146 @@ export default function UsersPage() {
             </div>
           )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <input
-              required
-              placeholder="Full Name"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="rounded-lg border px-3 py-2 text-sm"
-            />
-            <input
-              required
-              type="email"
-              placeholder="Email"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              className="rounded-lg border px-3 py-2 text-sm"
-            />
-            <input
-              required
-              placeholder="Phone Number"
-              value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              className="rounded-lg border px-3 py-2 text-sm"
-            />
-            <PasswordInput
-              required
-              placeholder="Password"
-              minLength={6}
-              autoComplete="new-password"
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              className="rounded-lg border px-3 py-2 text-sm"
-            />
-            <select
-              value={form.role}
-              onChange={(e) => setForm({ ...form, role: e.target.value })}
-              className="rounded-lg border px-3 py-2 text-sm"
-            >
-              <option value="DOCTOR">Doctor</option>
-              <option value="RECEPTION">Reception</option>
-              <option value="NURSE">Nurse</option>
-            </select>
+            <div>
+              <label
+                htmlFor="staff-name"
+                className="mb-1 block text-xs font-medium text-slate-700"
+                data-testid="label-staff-name"
+              >
+                Full Name
+              </label>
+              <input
+                id="staff-name"
+                required
+                placeholder="Full Name"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+                data-testid="staff-name-input"
+                aria-invalid={fieldErrors.name ? true : undefined}
+              />
+              {fieldErrors.name && (
+                <p
+                  className="mt-1 text-xs text-danger"
+                  data-testid="error-name"
+                >
+                  {fieldErrors.name}
+                </p>
+              )}
+            </div>
+            <div>
+              <label
+                htmlFor="staff-email"
+                className="mb-1 block text-xs font-medium text-slate-700"
+                data-testid="label-staff-email"
+              >
+                Email
+              </label>
+              <input
+                id="staff-email"
+                required
+                type="email"
+                placeholder="Email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+                data-testid="staff-email-input"
+                aria-invalid={fieldErrors.email ? true : undefined}
+              />
+              {fieldErrors.email && (
+                <p
+                  className="mt-1 text-xs text-danger"
+                  data-testid="error-email"
+                >
+                  {fieldErrors.email}
+                </p>
+              )}
+            </div>
+            <div>
+              <label
+                htmlFor="staff-phone"
+                className="mb-1 block text-xs font-medium text-slate-700"
+                data-testid="label-staff-phone"
+              >
+                Phone Number
+              </label>
+              <input
+                id="staff-phone"
+                required
+                inputMode="tel"
+                pattern="^\+?\d{10,15}$"
+                placeholder="10-15 digits, e.g. 9876543210"
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+                data-testid="staff-phone-input"
+                aria-invalid={fieldErrors.phone ? true : undefined}
+              />
+              {fieldErrors.phone && (
+                <p
+                  className="mt-1 text-xs text-danger"
+                  data-testid="error-phone"
+                >
+                  {fieldErrors.phone}
+                </p>
+              )}
+            </div>
+            <div>
+              <label
+                htmlFor="staff-password"
+                className="mb-1 block text-xs font-medium text-slate-700"
+                data-testid="label-staff-password"
+              >
+                Password
+              </label>
+              <PasswordInput
+                id="staff-password"
+                required
+                placeholder="Password"
+                minLength={8}
+                autoComplete="new-password"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+                data-testid="staff-password-input"
+                aria-invalid={fieldErrors.password ? true : undefined}
+              />
+              {fieldErrors.password ? (
+                <p
+                  className="mt-1 text-xs text-danger"
+                  data-testid="error-password"
+                >
+                  {fieldErrors.password}
+                </p>
+              ) : (
+                <p
+                  className="mt-1 text-xs text-slate-500"
+                  data-testid="password-hint"
+                >
+                  Min 8 characters, at least one letter and one digit.
+                </p>
+              )}
+            </div>
+            <div>
+              <label
+                htmlFor="staff-role"
+                className="mb-1 block text-xs font-medium text-slate-700"
+                data-testid="label-staff-role"
+              >
+                Role
+              </label>
+              <select
+                id="staff-role"
+                value={form.role}
+                onChange={(e) => setForm({ ...form, role: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+                data-testid="staff-role-input"
+              >
+                <option value="DOCTOR">Doctor</option>
+                <option value="RECEPTION">Reception</option>
+                <option value="NURSE">Nurse</option>
+              </select>
+            </div>
           </div>
           <div className="mt-4 flex gap-2">
             <button

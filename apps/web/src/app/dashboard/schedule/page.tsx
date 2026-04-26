@@ -6,7 +6,17 @@ import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { Plus, X, CalendarOff, Clock } from "lucide-react";
 
-const DAYS = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
+// Issue #77 — Sunday is a valid working day for some specialists
+// (Dental, Casualty, Radiology). Include the full Mon..Sun set.
+const DAYS = [
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+  "SUNDAY",
+];
 const DAY_LABELS: Record<string, string> = {
   MONDAY: "Mon",
   TUESDAY: "Tue",
@@ -14,6 +24,7 @@ const DAY_LABELS: Record<string, string> = {
   THURSDAY: "Thu",
   FRIDAY: "Fri",
   SATURDAY: "Sat",
+  SUNDAY: "Sun",
 };
 
 interface ScheduleSlot {
@@ -463,7 +474,7 @@ export default function SchedulePage() {
       {loading ? (
         <div className="p-8 text-center text-gray-500">Loading...</div>
       ) : (
-        <div className="mb-8 grid grid-cols-6 gap-3">
+        <div className="mb-8 grid grid-cols-7 gap-3">
           {DAYS.map((day) => {
             const slots = getScheduleForDay(day);
             return (

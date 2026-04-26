@@ -37,6 +37,11 @@ interface AuditResponse {
   meta?: { total: number; page: number; totalPages: number };
 }
 
+// Issue #79: entity types now use canonical Capital case across the dropdown.
+// Historical rows in the audit_logs table are mixed-case ("patient" vs
+// "Patient", "scheduled_report" vs "ScheduledReport") because different
+// writers wrote them inconsistently. The backend filter is case-insensitive,
+// so a single canonical label here matches all historical variants.
 const entityTypes = [
   "Appointment",
   "Invoice",
@@ -46,7 +51,11 @@ const entityTypes = [
   "Patient",
   "Admission",
   "Vitals",
-  "scheduled_report",
+  "ScheduledReport",
+  "EmergencyCase",
+  "Bed",
+  "LabOrder",
+  "LabResult",
 ];
 
 const actionColors: Record<string, string> = {
@@ -63,6 +72,22 @@ const actionColors: Record<string, string> = {
 
 function getActionColor(action: string) {
   return actionColors[action] || "bg-gray-100 text-gray-700";
+}
+
+// Issue #79: historical rows write entity in inconsistent casing
+// ("patient", "Patient", "scheduled_report"). Render a canonical
+// Capital-camelcase label for the table cell so the column is uniform.
+function canonicalEntity(raw: string | null | undefined): string {
+  if (!raw) return "";
+  // snake_case → CapitalCamel
+  if (raw.includes("_")) {
+    return raw
+      .split("_")
+      .filter(Boolean)
+      .map((s) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase())
+      .join("");
+  }
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
 export default function AuditPage() {
@@ -385,7 +410,7 @@ export default function AuditPage() {
                           {entry.action.replace(/_/g, " ")}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm">{entry.entity}</td>
+                      <td className="px-4 py-3 text-sm">{canonicalEntity(entry.entity)}</td>
                       <td className="px-4 py-3">
                         {entry.entityId && (
                           <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">

@@ -1,6 +1,7 @@
 import { prisma } from "@medcore/db";
 import { generatePrescriptionQrDataUrl } from "./pdf-generator";
 import { computeLineItemTax } from "@medcore/shared";
+import { computePayroll } from "./payroll";
 
 // ─── Helpers ────────────────────────────────────────────
 
@@ -726,9 +727,27 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
 
 // ─── 5. PAY SLIP ─────────────────────────────────────────
 
+// Default per-role base salaries used when the slip is generated without
+// explicit overrides. MUST match the dashboard's DEFAULT_SALARY map so
+// the salary slip's Net Pay equals the Net Pay shown in the payroll table.
+const DEFAULT_BASIC_BY_ROLE: Record<string, number> = {
+  DOCTOR: 80000,
+  NURSE: 30000,
+  RECEPTION: 20000,
+  ADMIN: 50000,
+};
+
+export interface PaySlipOverrides {
+  basicSalary?: number;
+  allowances?: number;
+  deductions?: number; // ad-hoc / "Other" deductions
+  overtimeRate?: number;
+}
+
 export async function generatePaySlipHTML(
   userId: string,
-  monthYYYYMM: string
+  monthYYYYMM: string,
+  overrides: PaySlipOverrides = {}
 ): Promise<string> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new Error("User not found");
@@ -743,27 +762,25 @@ export async function generatePaySlipHTML(
   const shifts = await prisma.staffShift.findMany({
     where: { userId, date: { gte: start, lte: end } },
   });
-  const presentDays = shifts.filter(
-    (s) => s.status === "PRESENT" || s.status === "LATE"
-  ).length;
-  const leaveDays = shifts.filter((s) => s.status === "LEAVE").length;
-  const absentDays = shifts.filter((s) => s.status === "ABSENT").length;
-  const scheduledDays = shifts.length;
+  const approvedOvertime = await prisma.overtimeRecord.findMany({
+    where: { userId, approved: true, date: { gte: start, lte: end } },
+  });
 
-  // Default earnings/deductions structure (no Payroll model)
-  const basic = 30000;
-  const hra = 12000;
-  const da = 3000;
-  const medical = 1250;
-  const transport = 1600;
-  const grossEarnings = basic + hra + da + medical + transport;
+  const basicSalary =
+    overrides.basicSalary ?? DEFAULT_BASIC_BY_ROLE[user.role] ?? 25000;
+  const allowances = overrides.allowances ?? 0;
+  const deductions = overrides.deductions ?? 0;
+  const overtimeRate = overrides.overtimeRate ?? 0;
 
-  const pf = Math.round(basic * 0.12);
-  const esi = Math.round(grossEarnings * 0.0075);
-  const tax = 0;
-  const otherDed = 0;
-  const totalDed = pf + esi + tax + otherDed;
-  const net = grossEarnings - totalDed;
+  // Single source of truth — same math the dashboard table uses.
+  const calc = computePayroll({
+    basicSalary,
+    allowances,
+    deductions,
+    overtimeRate,
+    shifts,
+    approvedOvertime,
+  });
 
   const monthName = start.toLocaleDateString("en-IN", {
     month: "long",
@@ -784,9 +801,9 @@ export async function generatePaySlipHTML(
     </div>
     <div style="flex:1;">
       <p><strong>Pay Period:</strong> ${escapeHtml(monthName)}</p>
-      <p><strong>Days Worked:</strong> ${presentDays} / ${scheduledDays || "—"}</p>
-      <p><strong>Leave Days:</strong> ${leaveDays}</p>
-      <p><strong>Absent Days:</strong> ${absentDays}</p>
+      <p data-testid="slip-days-worked"><strong>Days Worked:</strong> ${calc.workedDays} / ${calc.scheduledDays || "—"}</p>
+      <p><strong>Leave Days:</strong> ${calc.leaveDays}</p>
+      <p><strong>Absent Days:</strong> ${calc.absentDays}</p>
     </div>
   </div>
 
@@ -794,29 +811,28 @@ export async function generatePaySlipHTML(
     <div style="flex:1;">
       <h3 style="font-size:12px;color:#16a34a;text-transform:uppercase;margin-bottom:4px;">Earnings</h3>
       <table>
-        <tr><td>Basic Salary</td><td style="text-align:right;">₹${basic.toFixed(2)}</td></tr>
-        <tr><td>HRA</td><td style="text-align:right;">₹${hra.toFixed(2)}</td></tr>
-        <tr><td>DA</td><td style="text-align:right;">₹${da.toFixed(2)}</td></tr>
-        <tr><td>Medical Allowance</td><td style="text-align:right;">₹${medical.toFixed(2)}</td></tr>
-        <tr><td>Transport Allowance</td><td style="text-align:right;">₹${transport.toFixed(2)}</td></tr>
-        <tr style="background:#f0fdf4;font-weight:700;"><td>Gross Earnings</td><td style="text-align:right;">₹${grossEarnings.toFixed(2)}</td></tr>
+        <tr><td>Basic Salary</td><td style="text-align:right;">₹${calc.basicSalary.toFixed(2)}</td></tr>
+        <tr><td>Allowances</td><td style="text-align:right;">₹${calc.allowances.toFixed(2)}</td></tr>
+        <tr><td>Overtime (${calc.overtimeShifts} shifts)</td><td style="text-align:right;">₹${calc.overtimePay.toFixed(2)}</td></tr>
+        <tr><td>Approved Overtime</td><td style="text-align:right;">₹${calc.approvedOvertimePay.toFixed(2)}</td></tr>
+        <tr style="background:#f0fdf4;font-weight:700;"><td>Gross Earnings</td><td style="text-align:right;">₹${calc.gross.toFixed(2)}</td></tr>
       </table>
     </div>
     <div style="flex:1;">
       <h3 style="font-size:12px;color:#dc2626;text-transform:uppercase;margin-bottom:4px;">Deductions</h3>
       <table>
-        <tr><td>Provident Fund (PF)</td><td style="text-align:right;">₹${pf.toFixed(2)}</td></tr>
-        <tr><td>ESI</td><td style="text-align:right;">₹${esi.toFixed(2)}</td></tr>
-        <tr><td>Income Tax</td><td style="text-align:right;">₹${tax.toFixed(2)}</td></tr>
-        <tr><td>Other Deductions</td><td style="text-align:right;">₹${otherDed.toFixed(2)}</td></tr>
-        <tr style="background:#fef2f2;font-weight:700;"><td>Total Deductions</td><td style="text-align:right;">₹${totalDed.toFixed(2)}</td></tr>
+        <tr><td>Provident Fund (PF, 12% of basic)</td><td style="text-align:right;">₹${calc.pf.toFixed(2)}</td></tr>
+        <tr><td>ESI ${calc.esiApplicable ? "(0.75% of gross)" : "(N/A — gross > ₹21,000)"}</td><td style="text-align:right;">₹${calc.esi.toFixed(2)}</td></tr>
+        <tr><td>Absent Penalty</td><td style="text-align:right;">₹${calc.absentPenalty.toFixed(2)}</td></tr>
+        <tr><td>Other Deductions</td><td style="text-align:right;">₹${calc.otherDeductions.toFixed(2)}</td></tr>
+        <tr style="background:#fef2f2;font-weight:700;"><td>Total Deductions</td><td style="text-align:right;">₹${calc.totalDeductions.toFixed(2)}</td></tr>
       </table>
     </div>
   </div>
 
-  <div class="box" style="margin-top:18px;background:#eff6ff;border-left-color:#2563eb;font-size:14px;">
-    <strong>Net Pay:</strong> ₹${net.toFixed(2)}<br/>
-    <span style="font-size:12px;color:#475569;">${escapeHtml(numberToWordsIndian(net))}</span>
+  <div class="box" style="margin-top:18px;background:#eff6ff;border-left-color:#2563eb;font-size:14px;" data-testid="slip-net-pay">
+    <strong>Net Pay:</strong> ₹${calc.net.toFixed(2)}<br/>
+    <span style="font-size:12px;color:#475569;">${escapeHtml(numberToWordsIndian(calc.net))}</span>
   </div>
 
   <div class="signblock">

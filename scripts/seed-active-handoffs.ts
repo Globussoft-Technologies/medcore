@@ -97,7 +97,7 @@ async function main() {
     where: { tenantId: tenant.id },
     include: { user: true },
     take: 3,
-    orderBy: { createdAt: "desc" },
+    orderBy: { mrNumber: "desc" },
   });
   if (patients.length < 3) {
     console.error(`${PREFIX} need ≥3 patients; found ${patients.length}.`);

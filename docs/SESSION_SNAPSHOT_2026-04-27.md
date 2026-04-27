@@ -1,4 +1,4 @@
-# MedCore — Session snapshot, 2026-04-27 (refreshed end-of-day)
+# MedCore — Session snapshot, 2026-04-27 (end-of-day refresh)
 
 End-of-day handoff for the next Claude Code session. The `2026-04-24`
 and `2026-04-26` snapshots have been retired during the doc cleanup
@@ -8,30 +8,51 @@ pass; this is the canonical pickup file going forward.
 
 ## TL;DR
 
-- **HEAD:** `8e3586c` — closes 5 data-quality bugs (#166, #167, #170,
-  #171, #172) and retires 3 long-standing seed-script TS errors. Marketing
-  landing page + README refreshed with the latest feature list.
-- **Prod:** medcore.globusdemos.com — last deploy was `92fe51a` (the
-  56-issue sweep batch); the data-quality + docs commits will be deployed
-  on the next cycle. PM2 healthy, `/api/health` 200.
-- **Tests:** apps/api **1,208 / 0** active passing (+1,873 DB-integration
-  skipped); apps/web **608 / 0** + 2 deliberately skipped. Typecheck clean
-  across api / web / shared / **db** (the seed-script errors are gone).
-- **Open issues:** 5 — tracker `#94` + 4 from the sweep (`#168`, `#169`,
-  `#173`, `#174`). The 5 data issues from this morning are all closed.
+- **HEAD:** `aec6ca4` — Sprint 1 PRD-gap closure (§3.9 / §4.5.4 /
+  §4.5.5 / §4.5.6 / §6) plus a follow-up dependency fix.
+- **Prod:** medcore.globusdemos.com on `aec6ca4`. PM2 healthy,
+  `/api/health` 200, rate limits on. 19 migrations applied
+  (most recent: `20260427000001_triage_session_drift`).
+- **Tests:** apps/api **1,281 / 0** active passing (+1,874 DB-integration
+  skipped); apps/web **628 / 0** + 2 deliberately skipped. Typecheck clean
+  across api / web / shared / db.
+- **Open GitHub issues:** 5 unchanged from this morning — tracker `#94`,
+  plus `#168`, `#169`, `#173`, `#174` (priority order in [`../TODO.md`](../TODO.md)).
+- **Demo data:** screenshot-rich; 3 active Agent-Console handoffs seeded
+  for the demo flow.
 
 ---
 
 ## What landed today (2026-04-27)
 
-Three commits, all on `main`:
+Commits on `main`, in order of the day:
 - `92fe51a` — six-agent batch closing #95–#165 (deployed yesterday)
 - `8e3586c` — data-quality batch closing #166, #167, #170 (Critical
   Pediatric crash), #171, #172; plus seed-script TS-error cleanup
-- `<docs>` (next commit, not yet pushed) — marketing landing page +
-  README + this snapshot refresh
+- `43f5e8a` — marketing landing + README + screenshots refreshed
+- `077f2f7` — saved the Chrome-plugin tester prompt at `docs/TESTER_PROMPT.md`
+- `49d842d` — purged 13 remaining native `window.prompt/alert/confirm`
+  calls across 5 dashboard pages
+- `67ddaa7` — docs cleanup: deleted 6 stale docs (−1,882 lines), rewired
+  9 cross-references, ported 11 LOW security follow-ups to TODO.md
+- `965a266` — **Sprint 1 PRD-gap closure** (5 agents in parallel):
+  §4.5.6 voice commands for SOAP review, §4.5.5 vernacular patient
+  summary, §4.5.4 hepatic + pediatric dosing, §6/§3.9 clinical eval
+  harness, §6 OpenTelemetry + Langfuse observability
+- `aec6ca4` — declared `prom-client` as explicit dependency (was
+  transitive; new OTel deps reshuffled the tree and pruned it)
 
 Plus the 4 closed-as-duplicate yesterday: #115, #126, #131, #154.
+
+### Sprint 1 PRD-gap closure (commit 965a266)
+
+5 PRD gaps closed by 5 parallel agents:
+
+- **§4.5.6 voice commands for SOAP review** — `apps/web/src/app/dashboard/scribe/voice-commands.ts` (new) + scribe/page.tsx wiring. 20 unit tests. Pure `parseVoiceCommand()` with 8 action kinds (accept/reject per section, accept-all, change-dosage, add-note, discard, show-help). Filler-tolerant + loose word order.
+- **§4.5.5 vernacular patient summary** — `services/ai/sarvam.ts:translateText()`; `routes/ai-scribe.ts` reads `Patient.preferredLanguage` and routes the summary body through Sarvam translation for the 7 non-English languages. English-fallback on Sarvam failure so the summary always ships.
+- **§4.5.4 hepatic + pediatric dosing** — `services/ai/drug-interactions.ts` extended with 21 hepatic restrictions (paracetamol tiered, NSAIDs/methotrexate/statins/amiodarone/valproate AVOID, etc.) and 11 pediatric weight-banded rules (paracetamol, ibuprofen, amoxicillin, amoxiclav, azithromycin, cefixime, ondansetron, albendazole age-band, co-trimoxazole). 29 new test cases.
+- **§6 + §3.9 clinical eval harness** — 62 triage cases, 20 SOAP golden pairs, 15 drug-safety cases under `apps/api/src/test/ai-eval/fixtures/`. New runners: `runRedFlagEval`, `runSpecialtyRoutingEval`, `runSoapSimilarityEval`, `runDrugSafetyEval`, `runAllEvalsStructured`. PRD §3.9 1% false-negative rate is now an enforced CI gate (`RUN_AI_EVAL=1`); `last-run.json` written for diffing. New `docs/AI_EVAL.md`.
+- **§6 OpenTelemetry + Langfuse observability** — `services/ai/tracing.ts` (new) with `withSpan` + lazy OTel SDK + Langfuse mirror. Every Sarvam call site wrapped. `aiCostInrTotal` Prometheus counter. JSON logs now carry `traceId`/`spanId` for log↔trace correlation. New §5 in `docs/OBSERVABILITY.md`.
 
 ### Data-quality fixes (commit 8e3586c)
 
@@ -104,18 +125,29 @@ The QA sweep is still running and filing issues. Active queue at EOD:
 | 168 | Medium | Doctors page no filter/search/Add Doctor for admins |
 | 94  | — | Tracker (keep open) |
 
-Priority order for the next session:
-1. **#174 High RBAC bypass** — security regression beyond #98. Audit
-   every dashboard page's role-gate, then probe each `/api/v1/*` route
-   for missing `authorize(...)`.
-2. **#173 Referrals specialty picker** — copy/paste of #97's fix
-   (the ICD-10 EntityPicker for Surgery diagnosis).
-3. **#168 Doctors page admin actions** — adds an Add Doctor flow + search
-   (likely a 1-day task: scaffold the modal, wire to existing POST
-   /api/v1/doctors, add `<EntityPicker>` for the User association).
+Priority order for the next session — **Sprint 2 first, then GitHub issues**:
+
+**A. Sprint 2 PRD-gap closure (~4 dev-days, parallel-friendly)**
+
+The §7 features whose API + service is live but the dashboard never
+landed. See `TODO.md` "Sprint 2" section for the full table; one-line
+summary:
+1. Symptom Diary patient UI — `dashboard/symptom-diary/page.tsx`
+2. Lab Result Intelligence dashboard — `dashboard/lab-intel/page.tsx`
+3. Sentiment Analytics dashboard — `dashboard/sentiment/page.tsx`
+4. Fraud resolution workflow — extend `dashboard/ai-fraud/page.tsx`
+
+Spawn 4 parallel agents; the files don't overlap.
+
+**B. Open GitHub issues (after Sprint 2)**
+
+1. **#174 High RBAC bypass** — audit every dashboard page's role-gate,
+   then probe each `/api/v1/*` route for missing `authorize(...)`.
+2. **#173 Referrals specialty picker** — copy/paste of #97's ICD-10
+   EntityPicker pattern.
+3. **#168 Doctors page admin actions** — Add Doctor modal + search.
 4. **#169 Prescriptions list controls** — pagination/filter pattern
-   (the same approach as the recently-shipped Insurance Claims list
-   would work).
+   from the Insurance Claims list.
 
 Open the GitHub issues page first thing — the sweep is configured to
 keep batching new bugs. Rough heuristic: spawn one agent per cluster

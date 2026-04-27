@@ -4,7 +4,37 @@ Next-session priority list. The full per-issue history lives in
 [`docs/SESSION_SNAPSHOT_2026-04-27.md`](docs/SESSION_SNAPSHOT_2026-04-27.md);
 this file is the short, actionable checklist.
 
-> Updated: 2026-04-27 (post 8e3586c data-quality batch)
+> Updated: 2026-04-27 (end-of-day, post `aec6ca4` Sprint 1 deploy)
+
+---
+
+## Sprint 2 — §7 dashboard scaffolds (~4 dev-days, start here)
+
+These are the §7 features whose API + service is already live but the
+web dashboard never landed. Each is a 1-day scaffold reusing existing
+patterns (`<EntityPicker>`, `useReactTable`, the Insurance-Claims list
+template).
+
+| # | Feature | New page | Notes |
+|---|---|---|---|
+| 1 | Symptom Diary patient UI | `apps/web/src/app/dashboard/symptom-diary/page.tsx` | API at `/api/v1/ai/symptom-diary`. Patient logs symptoms, AI surfaces trends. Use the chronic-care plan UI as a reference. |
+| 2 | Lab Result Intelligence dashboard | `apps/web/src/app/dashboard/lab-intel/page.tsx` | API at `/api/v1/ai/lab-intel`. Shows critical values + baseline-deviation trends across the doctor's panel. |
+| 3 | Sentiment Analytics dashboard | `apps/web/src/app/dashboard/sentiment/page.tsx` | API at `/api/v1/ai/sentiment`. NPS-driver chart + per-category sentiment trend. |
+| 4 | Fraud resolution workflow | extend `apps/web/src/app/dashboard/ai-fraud/page.tsx` | Page is read-only today; add status transitions (NEW → INVESTIGATING → RESOLVED/DISMISSED) + a comment thread. |
+
+Recommended: spawn 4 parallel agents (one per feature). They touch
+non-overlapping files so no conflict.
+
+---
+
+## Sprint 1 — flagship PRD gaps (✅ shipped 2026-04-27 in commit `aec6ca4`)
+
+For history. All 5 gaps closed and deployed:
+- §4.5.6 voice commands for SOAP review (`scribe/voice-commands.ts` + 20 tests)
+- §4.5.5 vernacular patient summary (8 languages via Sarvam translate)
+- §4.5.4 hepatic restrictions (21) + pediatric weight-based dosing (11 rules)
+- §6 / §3.9 clinical eval harness (62 triage cases, 20 SOAP, 15 drug-safety; PRD §3.9 1% FN-rate release gate)
+- §6 OpenTelemetry + Langfuse observability (`services/ai/tracing.ts`); per-call cost gauge `medcore_ai_cost_inr_total{feature, model}`
 
 ---
 

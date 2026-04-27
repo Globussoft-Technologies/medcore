@@ -1,4 +1,4 @@
-# MedCore — Session snapshot, 2026-04-27
+# MedCore — Session snapshot, 2026-04-27 (refreshed end-of-day)
 
 End-of-day handoff for the next Claude Code session. Supersedes
 `SESSION_SNAPSHOT_2026-04-26.md` (kept as historical checkpoint).
@@ -7,26 +7,50 @@ End-of-day handoff for the next Claude Code session. Supersedes
 
 ## TL;DR
 
-- **HEAD:** `92fe51a` — closes 56 GitHub issues from the Chrome-extension
-  QA sweep across 6 parallel agents (auth/RBAC, validation, dark mode,
-  KPI/dates, routing/AI, UX polish).
-- **Prod:** medcore.globusdemos.com on `92fe51a`. PM2 healthy. 18
-  migrations applied. `/api/health` 200 with `rateLimitsEnabled: true`.
-- **Tests:** apps/api **1,201 / 0** active passing (+1,871 DB-integration
-  skipped); apps/web **604 / 0** + 2 deliberately skipped (prescription
-  raw-UUID tests stale after #120's EntityPicker swap — TODO write fresh
-  tests against the picker dropdown). Typecheck clean across api / web /
-  shared.
-- **Open issues:** 10 — tracker `#94` + 9 new from the sweep (`#166`–`#174`).
+- **HEAD:** `8e3586c` — closes 5 data-quality bugs (#166, #167, #170,
+  #171, #172) and retires 3 long-standing seed-script TS errors. Marketing
+  landing page + README refreshed with the latest feature list.
+- **Prod:** medcore.globusdemos.com — last deploy was `92fe51a` (the
+  56-issue sweep batch); the data-quality + docs commits will be deployed
+  on the next cycle. PM2 healthy, `/api/health` 200.
+- **Tests:** apps/api **1,208 / 0** active passing (+1,873 DB-integration
+  skipped); apps/web **608 / 0** + 2 deliberately skipped. Typecheck clean
+  across api / web / shared / **db** (the seed-script errors are gone).
+- **Open issues:** 5 — tracker `#94` + 4 from the sweep (`#168`, `#169`,
+  `#173`, `#174`). The 5 data issues from this morning are all closed.
 
 ---
 
 ## What landed today (2026-04-27)
 
-One commit, deployed:
-- `92fe51a` — six-agent batch closing #95–#165
+Three commits, all on `main`:
+- `92fe51a` — six-agent batch closing #95–#165 (deployed yesterday)
+- `8e3586c` — data-quality batch closing #166, #167, #170 (Critical
+  Pediatric crash), #171, #172; plus seed-script TS-error cleanup
+- `<docs>` (next commit, not yet pushed) — marketing landing page +
+  README + this snapshot refresh
 
-Plus the 4 closed-as-duplicate this morning: #115, #126, #131, #154.
+Plus the 4 closed-as-duplicate yesterday: #115, #126, #131, #154.
+
+### Data-quality fixes (commit 8e3586c)
+
+- **#170 Critical Pediatric crash** — root cause was twofold: the
+  `GET /patients/:id` route used a single `findUnique` with a wide
+  `include` that 503'd on any failing relation, and the page spread
+  the response into `Math.max(...)` without coercing to array. Backend
+  now splits into independent queries with `.catch(() => [])` per
+  relation; page coerces every iterated field.
+- **#172 Lab QC empty** — seeded 80 Levey-Jennings entries (8 reference
+  targets × 10 days) so the QC page renders.
+- **#167 age=0 silently** — `superRefine` rejects age=0 unless DOB is
+  provided (newborn path).
+- **#166 email format** — surfaced `data-testid="error-email"` + zod
+  regex on the patient registration form.
+- **#171 Required patient on ANC + Emergency** — picker is `required`,
+  zod refine forces `patientId` (or `unknownName` for trauma).
+- **Seed-script TS errors retired** — `seed-lab-data.ts:256` (type-guard
+  helper) + `seed-realistic.ts:344, :364` (widen-cast). `packages/db`
+  now typechecks clean.
 
 ### Notable groupings closed
 
@@ -75,25 +99,22 @@ The QA sweep is still running and filing issues. Active queue at EOD:
 |---|---|---|
 | 174 | High | RBAC bypassable via direct URL (multiple admin modules) |
 | 173 | Low | Referrals — Specialty is free-text (same as #97) |
-| 172 | Medium | Lab QC page empty despite many completed orders |
-| 171 | Medium | Patient field not required on New ANC + Register Emergency |
-| 170 | Critical | Pediatric — Patient detail crashes "TypeError: r is not iterable" |
 | 169 | Medium | Prescriptions list lacks search/filter/sort/pagination |
 | 168 | Medium | Doctors page no filter/search/Add Doctor for admins |
-| 167 | Medium | Patient registration accepts age=0 silently |
-| 166 | Medium | Patient registration: email format not validated client-side |
 | 94  | — | Tracker (keep open) |
 
-Priority order:
-1. **#170 Critical Pediatric crash** — actual feature breakage
-2. **#174 High RBAC bypass** — security regression beyond #98
-3. **#171 Medium ANC/Emergency required-patient** — clinical workflow
-4. **#172 Lab QC empty** — investigate query
-5. **#166 + #167 Patient registration** — small validation polish
-   (extend the existing patient.ts regex work from #104)
-6. **#173 Referrals specialty picker** — copy/paste of #97's fix
-7. **#168 Doctors page admin actions** — adds an Add Doctor flow + search
-8. **#169 Prescriptions list controls** — pagination/filter pattern
+Priority order for the next session:
+1. **#174 High RBAC bypass** — security regression beyond #98. Audit
+   every dashboard page's role-gate, then probe each `/api/v1/*` route
+   for missing `authorize(...)`.
+2. **#173 Referrals specialty picker** — copy/paste of #97's fix
+   (the ICD-10 EntityPicker for Surgery diagnosis).
+3. **#168 Doctors page admin actions** — adds an Add Doctor flow + search
+   (likely a 1-day task: scaffold the modal, wire to existing POST
+   /api/v1/doctors, add `<EntityPicker>` for the User association).
+4. **#169 Prescriptions list controls** — pagination/filter pattern
+   (the same approach as the recently-shipped Insurance Claims list
+   would work).
 
 Open the GitHub issues page first thing — the sweep is configured to
 keep batching new bugs. Rough heuristic: spawn one agent per cluster

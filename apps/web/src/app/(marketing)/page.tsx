@@ -25,15 +25,15 @@ import { CTASection } from "./_components/CTASection";
 export const metadata = {
   title: "MedCore — Hospital management built for Indian hospitals",
   description:
-    "Run your hospital, not spreadsheets. AI triage, ambient scribe, drug-safety checks, claims auto-draft, ABDM-ready, FHIR R4 export, HL7 v2 inbound, TPA claims, pharmacy, and a patient app — all in one platform.",
+    "Run your hospital, not spreadsheets. AI triage in 8 Indian languages, ambient scribe, AI radiology drafting, AI KPI dashboards, drug-safety checks, claims auto-draft, ABDM-ready, FHIR R4 + HL7 v2, multi-tenant ready, DPDP-compliant data residency — all in one platform.",
 };
 
 const logos = ["Asha Hospital", "Sunrise Clinic", "Greenleaf Care", "Medicity", "Lotus Health", "Nova Med"];
 
 const metrics = [
   { v: "150+", l: "OPD patients/day" },
-  { v: "45", l: "modules" },
-  { v: "1,300+", l: "lab tests" },
+  { v: "55+", l: "modules" },
+  { v: "8", l: "Indian languages" },
   { v: "24/7", l: "uptime" },
 ];
 
@@ -56,7 +56,7 @@ export default function HomePage() {
           <div className="mx-auto max-w-4xl text-center">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-1.5 text-sm font-medium text-blue-700 dark:border-blue-900 dark:bg-blue-950/60 dark:text-blue-300">
               <Activity className="h-4 w-4" />
-              45 modules. One platform.
+              55+ modules. 8 Indian languages. One platform.
             </div>
             <h1 className="text-4xl font-extrabold tracking-tight text-gray-900 sm:text-6xl md:text-7xl dark:text-white">
               Run your hospital.
@@ -67,9 +67,11 @@ export default function HomePage() {
             </h1>
             <p className="mx-auto mt-6 max-w-2xl text-lg text-gray-600 dark:text-gray-400 md:text-xl">
               MedCore runs your OPD queue, admissions, billing, pharmacy, lab,
-              HR and a patient mobile app — with AI triage, ambient scribe,
-              drug-safety checks, claims auto-drafted from SOAP, ABDM/ABHA,
-              FHIR R4 and HL7 v2 inbound baked in.
+              HR and a patient mobile app — with AI triage in 8 Indian
+              languages, ambient SOAP scribe, AI radiology drafting,
+              AI-powered KPI dashboards, drug-safety checks, claims
+              auto-drafted from SOAP, ABDM/ABHA, FHIR R4, HL7 v2 inbound, and
+              full multi-tenant onboarding baked in.
             </p>
             <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link
@@ -149,14 +151,14 @@ export default function HomePage() {
             </p>
           </div>
           <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            <FeatureCard icon={HeartPulse} title="Clinical" description="EHR, prescriptions with QR, lab orders, ANC, pediatric growth, immunization." href="/features#clinical" />
-            <FeatureCard icon={Activity} title="Operations" description="OPD queue, admissions, OT, surgery, emergency, ambulance, blood bank." href="/features#operations" />
-            <FeatureCard icon={Wallet} title="Finance" description="GST invoicing, packages, payment plans, Razorpay, TPA claims, refunds." href="/features#finance" />
-            <FeatureCard icon={Users} title="HR" description="Shift roster, leaves, payroll, pay slips, certifications, 7 role levels." href="/features#hr" />
-            <FeatureCard icon={Building2} title="Engagement" description="WhatsApp + SMS + email + push, feedback, NPS, complaints with SLA." href="/features#engagement" />
-            <FeatureCard icon={Smartphone} title="Mobile" description="Patient app with live queue and lab reports, doctor-lite app for rounds." href="/features#mobile" />
-            <FeatureCard icon={Brain} title="AI + Automation" description="AI triage, ambient SOAP scribe with speaker relabel, drug-safety checks, chart search, claims auto-draft, no-show predictions." href="/features#ai" />
-            <FeatureCard icon={Shield} title="Compliance & Interop" description="ABDM / ABHA linking, FHIR R4 export, HL7 v2 inbound, DLT-compliant SMS, audit trail, multi-tenant ready." href="/features#compliance" />
+            <FeatureCard icon={HeartPulse} title="Clinical" description="EHR, prescriptions with QR, lab orders + Levey-Jennings QC, ANC, pediatric growth, immunization, controlled-substance register." href="/features#clinical" />
+            <FeatureCard icon={Activity} title="Operations" description="OPD queue, admissions, OT, surgery (with auto-cancel of stale cases), emergency, ambulance, blood bank with ABO compatibility." href="/features#operations" />
+            <FeatureCard icon={Wallet} title="Finance" description="GST invoicing (CGST/SGST/IGST split), packages, payment plans, Razorpay, TPA claims, refunds, payroll with FY-2026 ESI ceilings." href="/features#finance" />
+            <FeatureCard icon={Users} title="HR" description="Shift roster, leaves with calendar (incl. pending), payroll, pay slips, certifications, 7 role levels with hardened RBAC." href="/features#hr" />
+            <FeatureCard icon={Building2} title="Engagement" description="WhatsApp + SMS + email + push, feedback, NPS, complaints with auto-assignment after 48h SLA breach." href="/features#engagement" />
+            <FeatureCard icon={Smartphone} title="Mobile" description="Patient app with live queue, lab reports, DPDP data export, multi-language UI; doctor-lite app for rounds." href="/features#mobile" />
+            <FeatureCard icon={Brain} title="AI + Automation" description="AI triage in 8 Indian languages, ambient SOAP scribe, AI radiology drafting, drug-safety checks, chart search, claims auto-draft, no-show predictions, AI-KPI dashboards, agent console." href="/features#ai" />
+            <FeatureCard icon={Shield} title="Compliance & Interop" description="ABDM / ABHA linking, FHIR R4 export, HL7 v2 inbound (ADT/ORM/ORU/MDM/VXU), DLT-compliant SMS, full audit trail with archival, multi-tenant ready, DPDP-compliant data residency." href="/features#compliance" />
           </div>
         </Container>
       </section>
@@ -204,7 +206,22 @@ export default function HomePage() {
             <FeatureCard
               icon={Brain}
               title="AI Radiology drafting"
-              description="Upload an imaging study, AI drafts an impression + findings with per-finding confidence, radiologist approves or amends with HITL workflow."
+              description="Upload an imaging study, AI drafts an impression + findings with per-finding confidence, radiologist approves or amends with HITL workflow. DICOM-ready, with click-to-highlight region overlays."
+            />
+            <FeatureCard
+              icon={Activity}
+              title="AI KPI dashboards"
+              description="PRD-grade KPIs for both AI flagship features: triage routing accuracy, AI-flow CSAT, scribe time-saved, doctor NPS, drug-interaction catches — with CSV export and per-tenant filtering."
+            />
+            <FeatureCard
+              icon={Users}
+              title="Agent console for call centres"
+              description="When a triage chat needs a human, the call-centre agent sees the full transcript, AI-extracted SOAP, top-3 doctor matches and red flags — with a one-click hand-off and audit trail."
+            />
+            <FeatureCard
+              icon={Stethoscope}
+              title="SNOMED-CT specialty mapping"
+              description="Curated 119-concept Indian-OPD subset (with Hindi synonyms in Devanagari + Romanised) anchors triage routing — every recommendation reconciled against the LLM and SNOMED for explainability."
             />
             <FeatureCard
               icon={Shield}
@@ -213,13 +230,18 @@ export default function HomePage() {
             />
             <FeatureCard
               icon={FileJson}
-              title="FHIR R4 + HL7 v2"
-              description="FHIR R4 Patient / Encounter / $everything bundles, plus a rate-limited HL7 v2 inbound endpoint for legacy lab analysers."
+              title="FHIR R4 + HL7 v2 + DPDP export"
+              description="FHIR R4 Patient / Encounter / $everything bundles, HL7 v2 inbound for legacy analysers, plus a DPDP Act 2023 right-to-portability export the patient can self-serve."
+            />
+            <FeatureCard
+              icon={Building2}
+              title="Multi-tenant onboarding"
+              description="Self-serve hospital provisioning: subdomain, admin user, notification templates, leave types, holiday calendar — all created in a single transaction with a checklist UX for the new admin."
             />
             <FeatureCard
               icon={Languages}
               title="Indian data residency"
-              description="Sarvam AI inference inside India, transcription in 10 languages, audit-logged egress."
+              description="Sarvam AI inference inside India, transcription in 8 Indian languages (Hindi, English, Tamil, Telugu, Bengali, Marathi, Kannada, Malayalam), audit-logged egress."
             />
           </div>
         </Container>

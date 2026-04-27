@@ -7,7 +7,7 @@
 A full-stack, monorepo HIS covering the patient journey from appointment to discharge — clinical, operational, financial, HR, and engagement workflows in one typed codebase.
 
 [![Live Demo](https://img.shields.io/badge/live_demo-medcore.globusdemos.com-2563eb?style=for-the-badge)](https://medcore.globusdemos.com)
-[![Tests](https://img.shields.io/badge/tests-1687_passing-16a34a?style=for-the-badge)](#testing)
+[![Tests](https://img.shields.io/badge/tests-1816_passing-16a34a?style=for-the-badge)](#testing)
 [![E2E](https://img.shields.io/badge/playwright_e2e-29_passing-0ea5e9?style=for-the-badge)](#testing)
 [![a11y](https://img.shields.io/badge/axe--core-12_passing-7c3aed?style=for-the-badge)](#accessibility)
 [![Routers](https://img.shields.io/badge/api_routers-78-f59e0b?style=for-the-badge)](#architecture)
@@ -32,12 +32,13 @@ The project is under active development. A live demo instance runs at **[medcore
 
 | | |
 |---|---|
-| **Tests passing** | 1,687 active (1,119 API + 568 Web) across unit / contract / component / integration / RBAC layers; +1,851 DB-integration cases skipped without `DATABASE_URL_TEST` |
+| **Tests passing** | 1,816 active (1,208 API + 608 Web) across unit / contract / component / integration / RBAC layers; +1,873 DB-integration cases skipped without `DATABASE_URL_TEST` |
 | **E2E** | 29 Playwright specs against the live demo URL |
 | **Accessibility** | 30 axe-core tests, WCAG 2.1 AA, per-page contrast budgets |
-| **API routers** | 80+ (incl. AI: triage, scribe, radiology, KPIs, agent-console, sentiment, fraud, doc-QA; plus ABDM, FHIR, HL7 v2 inbound, insurance claims, chart-search, patient-data-export) |
+| **API routers** | 80+ (incl. AI: triage, scribe, radiology, KPIs, agent-console, sentiment, fraud, doc-QA, letters; plus ABDM, FHIR, HL7 v2 inbound, insurance claims, chart-search, patient-data-export) |
 | **Prisma models** | 155+ |
 | **Prisma migrations (production)** | 18, all applied via `migrate deploy` |
+| **Triage languages** | 8 (English, Hindi, Tamil, Telugu, Bengali, Marathi, Kannada, Malayalam) |
 | **CI workflows** | 4 (typecheck, API, web, Playwright E2E) |
 | **Demo URL** | https://medcore.globusdemos.com |
 

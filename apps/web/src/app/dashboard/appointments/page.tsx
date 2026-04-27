@@ -770,7 +770,13 @@ export default function AppointmentsPage() {
       SEND_REMINDER: "send reminder for",
     } as const;
     if (action !== "SEND_REMINDER") {
-      if (!window.confirm(`${labels[action]} ${ids.length} appointment(s)?`)) return;
+      const ok = await confirm({
+        title: `${labels[action].charAt(0).toUpperCase()}${labels[action].slice(1)} ${ids.length} appointment(s)?`,
+        message: "This applies to every appointment you've selected.",
+        confirmLabel: labels[action].charAt(0).toUpperCase() + labels[action].slice(1),
+        danger: action === "CANCEL" || action === "NO_SHOW",
+      });
+      if (!ok) return;
     }
     setBulkBusy(true);
     try {

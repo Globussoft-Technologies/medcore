@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { toast } from "@/lib/toast";
+import { useConfirm, usePrompt } from "@/lib/use-dialog";
 import { createTelemedicineSchema } from "@medcore/shared";
 import Link from "next/link";
 import {
@@ -77,6 +78,8 @@ function joinActive(session: TelemedicineSession): boolean {
 
 export default function TelemedicinePage() {
   const { user } = useAuthStore();
+  const confirm = useConfirm();
+  const promptDialog = usePrompt();
   const [sessions, setSessions] = useState<TelemedicineSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("upcoming");
@@ -248,34 +251,57 @@ export default function TelemedicinePage() {
       await api.patch(`/telemedicine/${id}/start`);
       loadSessions();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Could not start");
+      toast.error(err instanceof Error ? err.message : "Could not start");
     }
   }
 
   async function endSession(id: string) {
-    const notes = window.prompt("Doctor notes (optional):") || undefined;
+    const notes = await promptDialog({
+      title: "End session",
+      label: "Doctor notes (optional):",
+      placeholder: "e.g. Patient stable, follow-up in 1 week",
+      multiline: true,
+      confirmLabel: "End session",
+    });
+    if (notes === null) return; // user cancelled
     try {
-      await api.patch(`/telemedicine/${id}/end`, { doctorNotes: notes });
+      await api.patch(`/telemedicine/${id}/end`, { doctorNotes: notes || undefined });
       loadSessions();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Could not end");
+      toast.error(err instanceof Error ? err.message : "Could not end");
     }
   }
 
   async function cancelSession(id: string) {
-    if (!confirm("Cancel this session?")) return;
+    const ok = await confirm({
+      title: "Cancel this session?",
+      message: "The patient will be notified that the session was cancelled.",
+      confirmLabel: "Cancel session",
+      cancelLabel: "Keep",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api.patch(`/telemedicine/${id}/cancel`);
       loadSessions();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Cancel failed");
+      toast.error(err instanceof Error ? err.message : "Cancel failed");
     }
   }
 
   async function admitPatient(id: string, admit: boolean) {
-    const reason = admit
-      ? undefined
-      : window.prompt("Reason for denying (optional):") || undefined;
+    let reason: string | undefined;
+    if (!admit) {
+      const r = await promptDialog({
+        title: "Deny patient",
+        label: "Reason for denying (optional):",
+        placeholder: "e.g. Wrong appointment, patient already seen",
+        multiline: false,
+        confirmLabel: "Deny",
+      });
+      if (r === null) return; // user cancelled
+      reason = r || undefined;
+    }
     try {
       const res = await api.post<{
         data: { doctorUrl?: string | null; patientUrl?: string | null };
@@ -285,7 +311,7 @@ export default function TelemedicinePage() {
       }
       loadSessions();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Admit failed");
+      toast.error(err instanceof Error ? err.message : "Admit failed");
     }
   }
 
@@ -312,7 +338,7 @@ export default function TelemedicinePage() {
       setRatingSession(null);
       loadSessions();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Rating failed");
+      toast.error(err instanceof Error ? err.message : "Rating failed");
     }
   }
 

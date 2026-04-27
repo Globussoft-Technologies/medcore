@@ -7,7 +7,7 @@ import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { toast } from "@/lib/toast";
-import { useConfirm } from "@/lib/use-dialog";
+import { useConfirm, usePrompt } from "@/lib/use-dialog";
 import { useTranslation } from "@/lib/i18n";
 import { PatientEditModal } from "@/components/PatientEditModal";
 import {
@@ -311,6 +311,7 @@ export default function PatientDetailPage() {
   const params = useParams();
   const id = params.id as string;
   const { user } = useAuthStore();
+  const promptDialog = usePrompt();
   const [patient, setPatient] = useState<PatientDetail | null>(null);
   const [visits, setVisits] = useState<VisitRecord[]>([]);
   const [stats, setStats] = useState<PatientStats | null>(null);
@@ -589,11 +590,15 @@ export default function PatientDetailPage() {
                 <Printer size={13} /> Vitals PDF
               </button>
               <button
-                onClick={() => {
-                  const purpose = window.prompt(
-                    "Purpose of fitness certificate:",
-                    "general employment"
-                  );
+                onClick={async () => {
+                  const purpose = await promptDialog({
+                    title: "Issue fitness certificate",
+                    label: "Purpose of fitness certificate:",
+                    placeholder: "e.g. general employment, school admission, gym membership",
+                    initialValue: "general employment",
+                    required: true,
+                    confirmLabel: "Generate certificate",
+                  });
                   if (purpose) {
                     openPrintEndpoint(
                       `/patients/${patient.id}/fitness-certificate?purpose=${encodeURIComponent(purpose)}`

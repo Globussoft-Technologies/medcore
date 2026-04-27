@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { toast } from "@/lib/toast";
 import { createReferralSchema } from "@medcore/shared";
 import { Plus, ArrowRightLeft } from "lucide-react";
 
@@ -208,7 +209,7 @@ export default function ReferralsPage() {
       setFormErrors({});
       loadReferrals();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to create referral");
+      toast.error(err instanceof Error ? err.message : "Failed to create referral");
     }
   }
 
@@ -221,7 +222,7 @@ export default function ReferralsPage() {
       setSelected(null);
       loadReferrals();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Update failed");
+      toast.error(err instanceof Error ? err.message : "Update failed");
     }
   }
 

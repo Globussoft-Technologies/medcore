@@ -23,6 +23,7 @@ import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { getSocket } from "@/lib/socket";
+import { usePrompt } from "@/lib/use-dialog";
 
 interface HandoffSummary {
   chatRoomId: string;
@@ -127,6 +128,7 @@ export default function AgentConsolePage() {
   const router = useRouter();
   const { user, isLoading } = useAuthStore();
   const { t } = useTranslation();
+  const promptDialog = usePrompt();
 
   const [handoffs, setHandoffs] = useState<HandoffSummary[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
@@ -289,12 +291,20 @@ export default function AgentConsolePage() {
 
   async function resolveHandoff() {
     if (!selectedRoomId) return;
-    const note = window.prompt(
-      t(
+    const note = await promptDialog({
+      title: t("agentConsole.resolveTitle", "Resolve handoff"),
+      label: t(
         "agentConsole.resolveNote",
         "Optional note to close this handoff:",
-      ) || "",
-    );
+      ),
+      placeholder: t(
+        "agentConsole.resolveNotePlaceholder",
+        "e.g. Booked with Dr. Sharma, follow-up in 1 week",
+      ),
+      multiline: true,
+      confirmLabel: t("agentConsole.resolveConfirm", "Mark resolved"),
+    });
+    if (note === null) return; // user cancelled
     try {
       await api.post(`/agent-console/handoffs/${selectedRoomId}/resolve`, {
         note,
@@ -325,12 +335,20 @@ export default function AgentConsolePage() {
       );
       return;
     }
-    const reason = window.prompt(
-      t(
+    const reason = await promptDialog({
+      title: t("agentConsole.escalateTitle", "Escalate to doctor"),
+      label: t(
         "agentConsole.escalateReason",
         "Reason for doctor follow-up (optional):",
-      ) || "",
-    );
+      ),
+      placeholder: t(
+        "agentConsole.escalateReasonPlaceholder",
+        "e.g. Patient reports worsening chest tightness",
+      ),
+      multiline: true,
+      confirmLabel: t("agentConsole.escalateConfirm", "Send to doctor"),
+    });
+    if (reason === null) return; // user cancelled
     try {
       await api.post(`/agent-console/handoffs/${selectedRoomId}/escalate`, {
         doctorId: first.doctorId,

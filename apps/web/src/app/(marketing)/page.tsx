@@ -38,12 +38,15 @@ const metrics = [
 ];
 
 const shots = [
-  { src: "/screenshots/03-dashboard-admin.png", alt: "Admin dashboard" },
-  { src: "/screenshots/10-appointments.png", alt: "Appointments" },
-  { src: "/screenshots/20-admissions.png", alt: "Admissions" },
-  { src: "/screenshots/37-billing.png", alt: "Billing" },
-  { src: "/screenshots/32-lab.png", alt: "Lab" },
-  { src: "/screenshots/17-prescriptions.png", alt: "Prescriptions" },
+  { src: "/screenshots/03-dashboard-admin.png", alt: "Admin dashboard overview" },
+  { src: "/screenshots/41-scribe.png", alt: "Ambient AI SOAP scribe" },
+  { src: "/screenshots/43-ai-kpis.png", alt: "AI KPI dashboard" },
+  { src: "/screenshots/42-ai-radiology.png", alt: "AI radiology drafting (HITL)" },
+  { src: "/screenshots/44-agent-console.png", alt: "Real-time agent console" },
+  { src: "/screenshots/32-lab.png", alt: "Lab orders + Levey-Jennings QC" },
+  { src: "/screenshots/30-bloodbank.png", alt: "Blood bank + ABO compatibility" },
+  { src: "/screenshots/70-payroll.png", alt: "GST-aware payroll" },
+  { src: "/screenshots/38-insurance-claims.png", alt: "Insurance claims auto-draft" },
 ];
 
 export default function HomePage() {

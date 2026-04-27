@@ -399,6 +399,8 @@ async function phaseA(): Promise<PhaseACounts> {
   // ── EXECUTE — wrapped in one transaction for atomicity ──────────────────
   if (MODE === "APPLY") {
     log("Applying Phase A...");
+    const testUserIds = testUsers.map((u) => u.id);
+    const junkPatientIds = junkPatients.map((p) => p.id);
     await prisma.$transaction([
       // A.3 first (only updates, no relational fan-out)
       prisma.ambulanceTrip.updateMany({
@@ -421,14 +423,48 @@ async function phaseA(): Promise<PhaseACounts> {
       prisma.insuranceClaim2.deleteMany({
         where: { id: { in: mockClaims.map((c) => c.id) } },
       }),
-      // A.2 — patients first (cascades from User would also kill these but
-      // some junk patients have no test-user; delete them explicitly).
+      // ── Non-cascading children of User (must clear before user.deleteMany) ─
+      // Many User relations in the schema use the default RESTRICT semantics
+      // rather than ON DELETE CASCADE. We delete the most common culprits
+      // up-front so test-user removal can proceed. These deletes use the
+      // user-id list directly (not a per-row id list) so they're cheap and
+      // self-correcting if a relation already has zero rows.
+      prisma.notification.deleteMany({ where: { userId: { in: testUserIds } } }),
+      prisma.notificationPreference.deleteMany({ where: { userId: { in: testUserIds } } }),
+      prisma.passwordResetCode.deleteMany({ where: { userId: { in: testUserIds } } }),
+      prisma.twoFactorTempToken.deleteMany({ where: { userId: { in: testUserIds } } }),
+      prisma.refreshToken.deleteMany({ where: { userId: { in: testUserIds } } }),
+      prisma.staffShift.deleteMany({ where: { userId: { in: testUserIds } } }),
+      prisma.leaveRequest.deleteMany({ where: { userId: { in: testUserIds } } }),
+      prisma.staffCertification.deleteMany({ where: { userId: { in: testUserIds } } }),
+      prisma.overtimeRecord.deleteMany({ where: { userId: { in: testUserIds } } }),
+      prisma.leaveBalance.deleteMany({ where: { userId: { in: testUserIds } } }),
+      prisma.medicationAdministration.deleteMany({ where: { administeredBy: { in: testUserIds } } }),
+      prisma.nurseRound.deleteMany({ where: { nurseId: { in: testUserIds } } }),
+      prisma.stockMovement.deleteMany({ where: { performedBy: { in: testUserIds } } }),
+      prisma.expense.deleteMany({ where: { paidBy: { in: testUserIds } } }),
+      prisma.chatMessage.deleteMany({ where: { senderId: { in: testUserIds } } }),
+      prisma.chatParticipant.deleteMany({ where: { userId: { in: testUserIds } } }),
+      prisma.assetAssignment.deleteMany({ where: { assignedTo: { in: testUserIds } } }),
+      prisma.assetMaintenance.deleteMany({ where: { performedBy: { in: testUserIds } } }),
+      prisma.controlledSubstanceEntry.deleteMany({ where: { dispensedBy: { in: testUserIds } } }),
+      prisma.labQCEntry.deleteMany({ where: { performedBy: { in: testUserIds } } }),
+      prisma.patientDocument.deleteMany({ where: { uploadedBy: { in: testUserIds } } }),
+      // ── Same defensive pattern for junk patients before A.2 ──────────────
+      prisma.appointment.deleteMany({ where: { patientId: { in: junkPatientIds } } }),
+      prisma.prescription.deleteMany({ where: { patientId: { in: junkPatientIds } } }),
+      prisma.invoice.deleteMany({ where: { patientId: { in: junkPatientIds } } }),
+      prisma.labOrder.deleteMany({ where: { patientId: { in: junkPatientIds } } }),
+      prisma.admission.deleteMany({ where: { patientId: { in: junkPatientIds } } }),
+      prisma.patientFeedback.deleteMany({ where: { patientId: { in: junkPatientIds } } }),
+      prisma.consentArtefact.deleteMany({ where: { patientId: { in: junkPatientIds } } }),
+      // A.2 — patients next (cascades into many of their own relations)
       prisma.patient.deleteMany({
-        where: { id: { in: junkPatients.map((p) => p.id) } },
+        where: { id: { in: junkPatientIds } },
       }),
       // A.1 — users last (cascades through their Doctor / remaining Patient).
       prisma.user.deleteMany({
-        where: { id: { in: testUsers.map((u) => u.id) } },
+        where: { id: { in: testUserIds } },
       }),
     ]);
     log("Phase A applied.");

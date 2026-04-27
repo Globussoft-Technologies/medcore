@@ -22,6 +22,7 @@ This document covers:
 | `medcore_http_request_duration_seconds` | Histogram | `method, path` | Per-request latency. Buckets are tuned for sub-second API traffic with tail visibility up to 10s. |
 | `medcore_ai_calls_total` | Counter | `feature, model, outcome` | One increment per `logAICall()` firing. `outcome` is `success`, `error`, or `failover` (primary LLM provider failed, backup answered). |
 | `medcore_ai_call_duration_seconds` | Histogram | `feature, model` | LLM call latency. Buckets extend to 60s because medical reasoning prompts can run long. |
+| `medcore_ai_cost_inr_total` | Counter | `feature, model` | Running INR cost estimate of LLM calls. Derived from a per-model rate table in `services/ai/tracing.ts`. See §5.3 for spend queries. |
 | `medcore_auth_login_total` | Counter | `outcome` | `success`, `invalid` (bad user/password), or `rate_limited` (hit the auth rate limiter). |
 | `medcore_rate_limits_enabled` | Gauge | — | `1` when rate limiting is active, `0` when the `DISABLE_RATE_LIMITS=true` escape hatch is set. Alert if this stays at 0 outside a maintenance window. |
 | `medcore_prompt_cache_age_seconds` | Gauge | — | Age of the oldest prompt cached in memory by the prompt registry. Sanity check — should stay under the cache TTL (60s). |
@@ -190,7 +191,88 @@ groups:
 
 ---
 
-## 5. Wiring into `apps/api/src/app.ts`
+## 5. AI tracing (OpenTelemetry + Langfuse)
+
+PRD §6 requires "per-request trace including prompt, model, RAG hits,
+latency, cost." MedCore satisfies this with:
+
+- **OpenTelemetry traces** around every LLM call (OTLP/HTTP exporter).
+- A **Langfuse adapter** for prompt/output inspection when debugging
+  hallucinations or regressions.
+- Structured `ai_call` log lines that carry the OTel `trace_id` /
+  `span_id`, so `grep`-the-logs and the trace UI stay correlated.
+- A new Prometheus counter, `medcore_ai_cost_inr_total{feature,model}`,
+  for budgeting and burn-rate alerting.
+
+### 5.1 Env-var matrix
+
+| Variable | Required? | Effect |
+| --- | --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | optional | When set (e.g. `http://otel-collector:4318/v1/traces`), `withSpan` and `recordLLMSpan` export OTel spans via OTLP/HTTP. When unset, both are no-ops — dev/test default. |
+| `OTEL_SERVICE_NAME` | optional | Service-name attribute on every span. Default `medcore-api`. |
+| `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` | optional | When both set, every LLM call is fire-and-forget mirrored to Langfuse with a 100ms timeout. Either missing → adapter disabled, no SDK loaded. |
+| `LANGFUSE_BASEURL` | optional | Self-hosted Langfuse host. Default is Langfuse Cloud. |
+
+The OTel SDK packages (`@opentelemetry/sdk-trace-node`,
+`@opentelemetry/exporter-trace-otlp-http`) and the `langfuse` SDK are
+**lazy-loaded** the first time a span is recorded — when the env vars are
+unset, none of them are pulled into memory.
+
+### 5.2 What you get per call
+
+Every `logAICall()` invocation produces:
+
+1. A structured stdout log line (already in place) now augmented with
+   `traceId` / `spanId`.
+2. A finished OTel span named `ai.<feature>` with attributes:
+   `ai.feature`, `ai.model`, `ai.prompt_tokens`, `ai.completion_tokens`,
+   `ai.latency_ms`, `ai.cost_inr` (and `ai.error` / `ai.tool_used` /
+   `ai.failover` when applicable).
+3. An increment to `medcore_ai_cost_inr_total{feature, model}` derived
+   from a per-model rate table in `services/ai/tracing.ts`
+   (`INR_PER_1K_TOKENS`). **OPS:** update those rates from the actual
+   Sarvam contract.
+4. A best-effort Langfuse `generation` event when the adapter is
+   configured.
+
+Inbound HTTP requests' `traceparent` header is bound to the OTel context
+by middleware mounted in `registerMetrics(app)`, so AI spans appear under
+the request span in your trace UI without any per-route wiring.
+
+### 5.3 Computing spend from the cost gauge
+
+```promql
+# INR / hour, by feature
+sum by (feature) (rate(medcore_ai_cost_inr_total[1h])) * 3600
+
+# Total spend in the last 24h
+sum(increase(medcore_ai_cost_inr_total[24h]))
+
+# Burn rate (alert if > ₹X / hour for 30 min)
+sum(rate(medcore_ai_cost_inr_total[5m])) * 3600 > 500
+```
+
+Because `medcore_ai_cost_inr_total` is a Counter, it survives process
+restarts via Prometheus's standard counter-reset handling.
+
+### 5.4 Debugging a misbehaving prompt via Langfuse
+
+1. Find the offending request in stdout logs by searching for
+   `event":"ai_call"`. Capture the `traceId` from the JSON line.
+2. In the Langfuse UI, search for the same trace ID — every LLM call we
+   make is annotated with the feature name and metadata (failover flag,
+   tool used, latency, estimated cost).
+3. Inspect the prompt template (versioned in `prompt-registry`) and the
+   model output side-by-side. If the prompt has drifted from the SLA
+   baseline, roll back via the registry rather than a code change — see
+   `docs/PROMPT_ROLLOUT.md`.
+4. For OTel-only setups (no Langfuse), use the same `traceId` against
+   your trace backend (Tempo / Jaeger / Honeycomb) — the `ai.<feature>`
+   spans carry every attribute except the prompt body itself.
+
+---
+
+## 6. Wiring into `apps/api/src/app.ts`
 
 The metrics module exports a single `registerMetrics(app)` function. Wire it
 near the top of `buildApp()` — after `app.use(cors(...))` and before the

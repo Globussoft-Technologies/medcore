@@ -29,3 +29,22 @@ export const aiCallDurationSeconds = new client.Histogram({
   buckets: [0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30, 60],
   registers: [registry],
 });
+
+/**
+ * Running INR spend per (feature, model). Incremented on every logAICall()
+ * by an estimate derived from a per-model rate table in services/ai/tracing.ts
+ * (INR_PER_1K_TOKENS). This is a Counter, not a Gauge — Prometheus's `rate()`
+ * gives spend-per-second over any time window for budgeting / alerting.
+ *
+ * NOTE: Uses prom-client's Counter rather than Gauge despite the .total
+ * suffix in the metric name because cumulative spend is a strictly
+ * monotonically-increasing quantity. `rate(...total[1h]) * 3600` yields
+ * hourly INR spend and survives process restarts (Prometheus handles the
+ * counter reset).
+ */
+export const aiCostInrTotal = new client.Counter({
+  name: "medcore_ai_cost_inr_total",
+  help: "Running INR cost estimate of AI/LLM calls, derived from per-model rate table",
+  labelNames: ["feature", "model"] as const,
+  registers: [registry],
+});

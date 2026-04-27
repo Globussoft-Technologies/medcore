@@ -1,13 +1,27 @@
 import { describe, it, expect } from "vitest";
-import { runTriageEval, runSoapEval } from "./eval-runner";
+import {
+  runTriageEval,
+  runSoapEval,
+  runRedFlagEval,
+  runSpecialtyRoutingEval,
+  runSoapSimilarityEval,
+  runDrugSafetyEval,
+  determineReleaseBlock,
+  writeReport,
+  RED_FLAG_FN_THRESHOLD,
+} from "./eval-runner";
 import { TRIAGE_CASES } from "./fixtures/triage-cases";
 
 // The eval harness calls the live Sarvam + OpenAI endpoints. Without a real
 // SARVAM_API_KEY configured we skip — the harness is intended for CI nightly
 // runs + pre-release regression checks, not every `vitest run` on a dev box.
-const HAS_LIVE_LLM =
-  !!(process.env.SARVAM_API_KEY || process.env.OPENAI_API_KEY);
+const HAS_LIVE_LLM = !!(process.env.SARVAM_API_KEY || process.env.OPENAI_API_KEY);
 const describeLive = HAS_LIVE_LLM ? describe : describe.skip;
+
+// CI gating: when RUN_AI_EVAL=1 we additionally hard-fail the suite if the
+// red-flag false-negative rate exceeds PRD §3.9 threshold (1%).
+const ENFORCE_CI_GATE = process.env.RUN_AI_EVAL === "1";
+const describeGated = HAS_LIVE_LLM && ENFORCE_CI_GATE ? describe : describe.skip;
 
 describeLive("AI Eval Harness", () => {
   it(
@@ -95,5 +109,36 @@ describeLive("AI Eval Harness", () => {
       ).toHaveLength(0);
     },
     60_000
+  );
+});
+
+// ─── CI release-gate: only runs when RUN_AI_EVAL=1 (set in CI nightly job) ───
+// Hard-fails the build if PRD §3.9 false-negative threshold is breached.
+describeGated("AI Eval Harness — release gate (PRD §3.9)", () => {
+  it(
+    "red-flag false-negative rate stays below 1%",
+    async () => {
+      const [redFlag, routing, soap, drugSafety] = await Promise.all([
+        runRedFlagEval(),
+        runSpecialtyRoutingEval(),
+        runSoapSimilarityEval(),
+        runDrugSafetyEval(),
+      ]);
+      const gate = determineReleaseBlock({ redFlag, routing, soap, drugSafety });
+      await writeReport({
+        generatedAt: new Date().toISOString(),
+        redFlag,
+        routing,
+        soap,
+        drugSafety,
+        ...gate,
+      });
+      expect(
+        redFlag.falseNegativeRate,
+        `PRD §3.9: red-flag FN rate ${(redFlag.falseNegativeRate * 100).toFixed(2)}% > ${(RED_FLAG_FN_THRESHOLD * 100).toFixed(0)}%. Block reasons:\n${gate.blockReasons.join("\n")}`
+      ).toBeLessThanOrEqual(RED_FLAG_FN_THRESHOLD);
+      expect(gate.releaseBlocked, gate.blockReasons.join(" | ")).toBe(false);
+    },
+    300_000
   );
 });

@@ -13,7 +13,7 @@ import {
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
-import { generateSOAPNote } from "../services/ai/sarvam";
+import { generateSOAPNote, translateText } from "../services/ai/sarvam";
 import { checkDrugSafety } from "../services/ai/drug-interactions";
 import { auditLog } from "../middleware/audit";
 import { sendNotification } from "../services/notification";
@@ -186,6 +186,10 @@ router.post(
           patientContext: {
             allergies: appointment.patient.allergies.map((a: any) => a.allergen),
             chronicConditions: appointment.patient.chronicConditions.map((c: any) => c.condition),
+            // PRD §4.5.5: surface the patient's preferred language so the web
+            // UI can show a "Sending summary in: <language>" badge before the
+            // doctor signs off.
+            preferredLanguage: appointment.patient.preferredLanguage ?? null,
           },
         },
         error: null,
@@ -528,29 +532,40 @@ router.post(
         }
       }
 
-      // Notify patient with a plain-language visit summary (non-fatal)
+      // Notify patient with a plain-language visit summary (non-fatal).
+      // PRD §4.5.5: deliver the summary in Patient.preferredLanguage when set
+      // to a non-English BCP-47 code (hi, ta, te, bn, mr, kn, ml). English /
+      // null / missing keeps the legacy behaviour. Translation failures fall
+      // back to the English body via translateText() so patients still get
+      // the notification.
       try {
         const patientRecord = await prisma.patient.findUnique({
           where: { id: session.patientId },
-          select: { userId: true },
+          select: { userId: true, preferredLanguage: true },
         });
         if (patientRecord?.userId && soapFinal) {
           const impression = (soapFinal as any)?.assessment?.impression || "your consultation";
           const followUp = (soapFinal as any)?.plan?.followUpTimeline || "";
           const instructions = (soapFinal as any)?.plan?.patientInstructions || "";
-          const summaryMsg = [
+          const englishSummary = [
             `Your consultation has been completed.`,
             impression ? `Diagnosis: ${impression}.` : "",
             followUp ? `Follow-up: ${followUp}.` : "",
             instructions ? `Instructions: ${instructions}` : "",
           ].filter(Boolean).join(" ");
 
+          const targetLang = (patientRecord.preferredLanguage || "en").trim();
+          const summaryMsg =
+            targetLang && targetLang !== "en"
+              ? await translateText(englishSummary, targetLang)
+              : englishSummary;
+
           await sendNotification({
             userId: patientRecord.userId,
             type: NotificationType.PRESCRIPTION_READY,
             title: "Your Visit Summary is Ready",
             message: summaryMsg,
-            data: { scribeSessionId: sessionId },
+            data: { scribeSessionId: sessionId, language: targetLang || "en" },
           });
         }
       } catch (notifyErr) {

@@ -6,6 +6,10 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import type { SOAPNote } from "@medcore/shared";
+// PRD §4.5.6 — voice commands for the review screen. The parser is a pure
+// function so it can be unit-tested independent of the Web Speech API and
+// the page component (see ./voice-commands.ts and __tests__/voice-commands.test.tsx).
+import { parseVoiceCommand, type VoiceAction } from "./voice-commands";
 // PRD §3.5.1 Phase 2 — 8-language picker + BCP-47 conversion. The scribe
 // page exposes the selected language as the `language_code` the ASR client
 // forwards to Sarvam, so the doctor can transcribe regional-language
@@ -734,6 +738,15 @@ const INITIAL_SECTION_STATUS: SectionStatusMap = {
   P: "pending",
 };
 
+// Human-readable labels keyed by SectionKey, used by voice-command toasts and
+// the per-section notes panel rendered inside each ReviewCard.
+const SECTION_LABELS: Record<SectionKey, string> = {
+  S: "Subjective",
+  O: "Objective",
+  A: "Assessment",
+  P: "Plan",
+};
+
 // ─── Main component ──────────────────────────────────────
 
 export default function ScribePage() {
@@ -754,6 +767,9 @@ export default function ScribePage() {
   const [apptRetryNonce, setApptRetryNonce] = useState(0);
   const [selectedAppointment, setSelectedAppointment] = useState<any>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  // PRD §4.5.5: surface the patient's preferred language so the doctor can see
+  // what the post-visit summary will be sent in BEFORE they sign off.
+  const [patientPreferredLanguage, setPatientPreferredLanguage] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [soapDraft, setSoapDraft] = useState<SOAPNote | null>(null);
   const [editedSOAP, setEditedSOAP] = useState<SOAPNote | null>(null);
@@ -788,10 +804,20 @@ export default function ScribePage() {
   const [previousLoading, setPreviousLoading] = useState(false);
 
   // ── Voice command state (review mode) ─────────────────
+  // PRD §4.5.6: separate Web Speech recogniser scoped to the review screen,
+  // so it does NOT run during ambient consultation capture. Pure parsing
+  // happens in ./voice-commands.ts.
   const [voiceListening, setVoiceListening] = useState(false);
   const [lastVoiceCommand, setLastVoiceCommand] = useState("");
   const [voiceLegendOpen, setVoiceLegendOpen] = useState(false);
+  // Per-section free-text notes the doctor builds via "add note <text>".
+  const [sectionNotes, setSectionNotes] = useState<Record<SectionKey, string>>({
+    S: "", O: "", A: "", P: "",
+  });
   const voiceCmdRecognitionRef = useRef<any>(null);
+  // Map of medication-row index -> dosage <input> element so a "change dosage"
+  // command can focus the matching row immediately after pre-filling.
+  const dosageInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const [useServerASR, setUseServerASR] = useState(false);
   // Acoustic diarization is currently disabled product-wide — the only
@@ -907,6 +933,9 @@ export default function ScribePage() {
       setSessionId(res.data.data.sessionId);
       setSelectedAppointment(appointment);
       setEditLog([]);
+      setPatientPreferredLanguage(
+        res.data.data?.patientContext?.preferredLanguage ?? null
+      );
       toast.success("Scribe session started");
     } catch (err: any) {
       toast.error(err?.response?.data?.error || "Failed to start scribe");
@@ -1220,12 +1249,121 @@ export default function ScribePage() {
     if (!editedSOAP) return;
     setReviewSoap(JSON.parse(JSON.stringify(editedSOAP)) as SOAPNote);
     setSectionStatus({ ...INITIAL_SECTION_STATUS });
+    setSectionNotes({ S: "", O: "", A: "", P: "" });
     setReviewMode(true);
   };
 
   // ── Exit review mode (back to draft) ──────────────────
   const handleExitReview = () => {
     setReviewMode(false);
+  };
+
+  // ── Voice command dispatcher (PRD §4.5.6) ─────────────
+  // Stable ref so the recogniser callbacks (which capture stale closures)
+  // always invoke the latest dispatcher. Defined below; the ref is set up
+  // here so it survives across re-renders.
+  const voiceDispatchRef = useRef<((heard: string) => void) | null>(null);
+
+  const handleVoiceAction = useCallback((action: VoiceAction, heard: string) => {
+    // Audit trail (client-side). Falls through to console.debug per spec when
+    // there is no analytics endpoint configured.
+    // eslint-disable-next-line no-console
+    console.debug("[scribe.voice]", { heard, action });
+
+    switch (action.kind) {
+      case "accept-section": {
+        setSectionStatus((p) => ({ ...p, [action.section]: "accepted" }));
+        setLastVoiceCommand(`accept ${action.section}`);
+        break;
+      }
+      case "reject-section": {
+        setSectionStatus((p) => ({ ...p, [action.section]: "rejected" }));
+        setLastVoiceCommand(`reject ${action.section}`);
+        break;
+      }
+      case "accept-all": {
+        setSectionStatus({ S: "accepted", O: "accepted", A: "accepted", P: "accepted" });
+        setLastVoiceCommand("accept all");
+        // Defer so status updates flush before triggering sign-off
+        setTimeout(() => { signOffTriggerRef.current?.(); }, 0);
+        break;
+      }
+      case "change-dosage": {
+        // Substring match against medicineName (case-insensitive).
+        const meds = reviewSoap?.plan?.medications ?? editedSOAP?.plan?.medications ?? [];
+        const q = action.medicineQuery.toLowerCase();
+        const idx = meds.findIndex((m) => (m.name || "").toLowerCase().includes(q));
+        if (idx === -1) {
+          toast.info(`No prescription matched "${action.medicineQuery}"`);
+          setLastVoiceCommand(`change dosage of ${action.medicineQuery}`);
+          break;
+        }
+        // Update the dose in both the review draft and the editable SOAP so the
+        // change persists if the doctor exits review mode.
+        setReviewSoap((prev) => {
+          if (!prev?.plan?.medications) return prev;
+          const next = JSON.parse(JSON.stringify(prev)) as SOAPNote;
+          next.plan.medications![idx].dose = action.newDosage;
+          return next;
+        });
+        setEditedSOAP((prev) => {
+          if (!prev?.plan?.medications) return prev;
+          const next = JSON.parse(JSON.stringify(prev)) as SOAPNote;
+          next.plan.medications![idx].dose = action.newDosage;
+          return next;
+        });
+        setSectionStatus((p) => ({ ...p, P: "edited" }));
+        setEditLog((log) => [
+          ...log,
+          { path: `plan.medications[${idx}].dose`, from: meds[idx].dose, to: action.newDosage },
+        ]);
+        setLastVoiceCommand(`change dosage of ${meds[idx].name} to ${action.newDosage}`);
+        // Focus the matching row's dosage <input> on the next tick so the
+        // doctor can immediately tweak the pre-filled value.
+        setTimeout(() => {
+          const el = dosageInputRefs.current[idx];
+          if (el) {
+            el.focus();
+            el.select();
+          }
+        }, 0);
+        toast.success(`Updated ${meds[idx].name} dose → ${action.newDosage}`);
+        break;
+      }
+      case "add-note": {
+        const target: SectionKey = action.section ?? "P"; // default to Plan
+        setSectionNotes((prev) => ({
+          ...prev,
+          [target]: prev[target] ? `${prev[target]}\n${action.text}` : action.text,
+        }));
+        setLastVoiceCommand(`add note (${target}): ${action.text}`);
+        toast.info(`Note added to ${SECTION_LABELS[target]}`);
+        break;
+      }
+      case "discard": {
+        setLastVoiceCommand("discard");
+        handleExitReview();
+        break;
+      }
+      case "show-help": {
+        setVoiceLegendOpen((o) => !o);
+        setLastVoiceCommand("what can I say");
+        break;
+      }
+      case "unknown": {
+        toast.info(`Command not recognised: "${action.raw}"`);
+        setLastVoiceCommand(`(unrecognised) ${action.raw}`);
+        break;
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editedSOAP, reviewSoap]);
+
+  // Keep the dispatcher ref pointed at the latest closure so the
+  // long-lived SpeechRecognition `onresult` handler always sees fresh state.
+  voiceDispatchRef.current = (heard: string) => {
+    const action = parseVoiceCommand(heard);
+    handleVoiceAction(action, heard);
   };
 
   // ── Voice command recognition (review mode only) ──────
@@ -1260,60 +1398,9 @@ export default function ScribePage() {
           transcript += event.results[i][0].transcript;
         }
       }
-      const cmd = transcript.toLowerCase().trim();
-      if (!cmd) return;
-
-      // Section-specific accept
-      if (cmd.includes("accept subjective") || cmd.includes("approve subjective")) {
-        setSectionStatus((p) => ({ ...p, S: "accepted" }));
-        setLastVoiceCommand("accept subjective");
-      } else if (cmd.includes("accept objective") || cmd.includes("approve objective")) {
-        setSectionStatus((p) => ({ ...p, O: "accepted" }));
-        setLastVoiceCommand("accept objective");
-      } else if (cmd.includes("accept assessment") || cmd.includes("approve assessment")) {
-        setSectionStatus((p) => ({ ...p, A: "accepted" }));
-        setLastVoiceCommand("accept assessment");
-      } else if (cmd.includes("accept plan") || cmd.includes("approve plan")) {
-        setSectionStatus((p) => ({ ...p, P: "accepted" }));
-        setLastVoiceCommand("accept plan");
-      }
-      // Section-specific reject
-      else if (cmd.includes("reject subjective")) {
-        setSectionStatus((p) => ({ ...p, S: "rejected" }));
-        setLastVoiceCommand("reject subjective");
-      } else if (cmd.includes("reject objective")) {
-        setSectionStatus((p) => ({ ...p, O: "rejected" }));
-        setLastVoiceCommand("reject objective");
-      } else if (cmd.includes("reject assessment")) {
-        setSectionStatus((p) => ({ ...p, A: "rejected" }));
-        setLastVoiceCommand("reject assessment");
-      } else if (cmd.includes("reject plan")) {
-        setSectionStatus((p) => ({ ...p, P: "rejected" }));
-        setLastVoiceCommand("reject plan");
-      }
-      // Accept all
-      else if (cmd.includes("accept all") || cmd.includes("approve all")) {
-        setSectionStatus({ S: "accepted", O: "accepted", A: "accepted", P: "accepted" });
-        setLastVoiceCommand("accept all");
-      }
-      // Sign off / finalize / submit — use functional ref pattern to access latest canSignOff
-      else if (
-        cmd.includes("sign off") ||
-        cmd.includes("finalize") ||
-        cmd.includes("submit")
-      ) {
-        // canSignOff is derived state; we read it at trigger time via the closure
-        setLastVoiceCommand("sign off");
-        // Defer to next tick so setSectionStatus updates flush first
-        setTimeout(() => {
-          signOffTriggerRef.current?.();
-        }, 0);
-      }
-      // Go back / cancel review
-      else if (cmd.includes("go back") || cmd.includes("cancel review")) {
-        setLastVoiceCommand("go back");
-        handleExitReview();
-      }
+      const heard = transcript.trim();
+      if (!heard) return;
+      voiceDispatchRef.current?.(heard);
     };
 
     recognition.onerror = () => { /* silent */ };
@@ -1465,34 +1552,11 @@ export default function ScribePage() {
         for (let i = event.resultIndex; i < event.results.length; i++) {
           if (event.results[i].isFinal) transcript += event.results[i][0].transcript;
         }
-        const cmd = transcript.toLowerCase().trim();
-        if (!cmd) return;
-
-        if (cmd.includes("accept subjective") || cmd.includes("approve subjective")) {
-          setSectionStatus((p) => ({ ...p, S: "accepted" })); setLastVoiceCommand("accept subjective");
-        } else if (cmd.includes("accept objective") || cmd.includes("approve objective")) {
-          setSectionStatus((p) => ({ ...p, O: "accepted" })); setLastVoiceCommand("accept objective");
-        } else if (cmd.includes("accept assessment") || cmd.includes("approve assessment")) {
-          setSectionStatus((p) => ({ ...p, A: "accepted" })); setLastVoiceCommand("accept assessment");
-        } else if (cmd.includes("accept plan") || cmd.includes("approve plan")) {
-          setSectionStatus((p) => ({ ...p, P: "accepted" })); setLastVoiceCommand("accept plan");
-        } else if (cmd.includes("reject subjective")) {
-          setSectionStatus((p) => ({ ...p, S: "rejected" })); setLastVoiceCommand("reject subjective");
-        } else if (cmd.includes("reject objective")) {
-          setSectionStatus((p) => ({ ...p, O: "rejected" })); setLastVoiceCommand("reject objective");
-        } else if (cmd.includes("reject assessment")) {
-          setSectionStatus((p) => ({ ...p, A: "rejected" })); setLastVoiceCommand("reject assessment");
-        } else if (cmd.includes("reject plan")) {
-          setSectionStatus((p) => ({ ...p, P: "rejected" })); setLastVoiceCommand("reject plan");
-        } else if (cmd.includes("accept all") || cmd.includes("approve all")) {
-          setSectionStatus({ S: "accepted", O: "accepted", A: "accepted", P: "accepted" });
-          setLastVoiceCommand("accept all");
-        } else if (cmd.includes("sign off") || cmd.includes("finalize") || cmd.includes("submit")) {
-          setLastVoiceCommand("sign off");
-          setTimeout(() => { signOffTriggerRef.current?.(); }, 0);
-        } else if (cmd.includes("go back") || cmd.includes("cancel review")) {
-          setLastVoiceCommand("go back"); handleExitReview();
-        }
+        const heard = transcript.trim();
+        if (!heard) return;
+        // Route through the same dispatcher as the auto-started recogniser
+        // so the parse-then-act pipeline is the single source of truth.
+        voiceDispatchRef.current?.(heard);
       };
 
       recognition.onerror = () => { /* silent */ };
@@ -1536,6 +1600,15 @@ export default function ScribePage() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* PRD §4.5.5: tell the doctor which language the auto-generated
+                visit summary will be sent in BEFORE they hit Sign & Save. */}
+            <span
+              data-testid="scribe-summary-language-badge"
+              className="text-xs px-2.5 py-1 rounded-lg border border-blue-200 bg-blue-50 text-blue-700"
+              title="Auto-generated patient visit summary will be sent in this language"
+            >
+              Sending summary in: {(LANGUAGE_DISPLAY as any)[patientPreferredLanguage ?? "en"]?.englishName ?? "English"}
+            </span>
             {signOffDisabledReason && (
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 max-w-xs">
                 {signOffDisabledReason}
@@ -1557,7 +1630,7 @@ export default function ScribePage() {
           </div>
         </div>
 
-        {/* Voice command status bar */}
+        {/* Voice command status bar (PRD §4.5.6) */}
         <div className="flex items-center gap-3 px-6 py-2 bg-gray-50 border-b border-gray-100 flex-shrink-0">
           {voiceListening ? (
             <span className="flex items-center gap-1.5 text-green-600">
@@ -1571,13 +1644,21 @@ export default function ScribePage() {
             </span>
           )}
           {lastVoiceCommand && (
-            <span className="text-xs text-gray-400 italic">Last: {lastVoiceCommand}</span>
+            <span
+              data-testid="review-voice-transcript"
+              className="text-xs text-gray-500 italic max-w-[60%] truncate"
+              title={lastVoiceCommand}
+            >
+              Heard: {lastVoiceCommand}
+            </span>
           )}
           <button
+            data-testid="review-voice-mic"
+            aria-pressed={voiceListening}
             onClick={toggleVoiceListener}
             className="ml-auto text-xs px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100 transition-colors"
           >
-            {voiceListening ? "🎙 Voice Off" : "🎙 Voice On"}
+            {voiceListening ? "Voice Off" : "Voice On"}
           </button>
         </div>
 
@@ -1678,14 +1759,79 @@ export default function ScribePage() {
             until you click &quot;Sign &amp; Save to EHR&quot;.
           </p>
 
-          {/* Collapsible voice commands legend */}
-          <div className="border border-gray-200 rounded-xl overflow-hidden">
+          {/* Voice-driven prescription dosage editor (PRD §4.5.6) — only
+              renders rows when the Plan has any meds. The dosage <input>
+              receives focus when "change dosage of <med> to <new>" pre-fills
+              its value. */}
+          {reviewSoap.plan?.medications && reviewSoap.plan.medications.length > 0 && (
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
+              <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+                <span className="text-xs font-medium text-gray-600 flex items-center gap-2">
+                  <Pill className="w-3.5 h-3.5 text-green-500" /> Prescriptions (voice-editable)
+                </span>
+              </div>
+              <div className="px-4 py-3 space-y-2">
+                {reviewSoap.plan.medications.map((med, i) => (
+                  <div key={i} className="flex items-center gap-3 text-sm">
+                    <span className="font-medium text-gray-800 min-w-[8rem]">{med.name}</span>
+                    <input
+                      type="text"
+                      data-testid={`review-rx-dose-${i}`}
+                      ref={(el) => { dosageInputRefs.current[i] = el; }}
+                      value={med.dose}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setReviewSoap((prev) => {
+                          if (!prev?.plan?.medications) return prev;
+                          const next = JSON.parse(JSON.stringify(prev)) as SOAPNote;
+                          next.plan.medications![i].dose = v;
+                          return next;
+                        });
+                        setSectionStatus((p) => ({ ...p, P: "edited" }));
+                      }}
+                      className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    />
+                    <span className="text-xs text-gray-400">
+                      {med.frequency} · {med.duration}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Per-section voice notes (PRD §4.5.6 "add note <text>") */}
+          {(["S", "O", "A", "P"] as SectionKey[]).some((k) => sectionNotes[k]) && (
+            <div
+              data-testid="review-voice-notes"
+              className="border border-blue-200 bg-blue-50/40 rounded-xl px-4 py-3 space-y-2"
+            >
+              <p className="text-xs font-semibold text-blue-700 flex items-center gap-1.5">
+                <Edit3 className="w-3.5 h-3.5" /> Voice notes (will be merged into the SOAP on sign-off)
+              </p>
+              {(["S", "O", "A", "P"] as SectionKey[]).map((k) =>
+                sectionNotes[k] ? (
+                  <div key={k} className="text-xs">
+                    <span className="font-medium text-blue-800">{SECTION_LABELS[k]}:</span>{" "}
+                    <span className="text-blue-700 whitespace-pre-line">{sectionNotes[k]}</span>
+                  </div>
+                ) : null,
+              )}
+            </div>
+          )}
+
+          {/* Collapsible voice commands legend (PRD §4.5.6 cheat-sheet) */}
+          <div
+            data-testid="review-voice-cheatsheet"
+            className="border border-gray-200 rounded-xl overflow-hidden"
+          >
             <button
               onClick={() => setVoiceLegendOpen((o) => !o)}
               className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors"
             >
               <span className="flex items-center gap-2 text-xs font-medium text-gray-600">
                 <Mic className="w-3.5 h-3.5 text-gray-400" /> Voice commands
+                <span className="text-gray-400">— say &ldquo;what can I say&rdquo; to toggle</span>
               </span>
               {voiceLegendOpen ? (
                 <ChevronUp className="w-3.5 h-3.5 text-gray-400" />
@@ -1705,10 +1851,13 @@ export default function ScribePage() {
                     ["reject assessment", "Reject Assessment (A)"],
                     ["accept plan", "Accept Plan (P)"],
                     ["reject plan", "Reject Plan (P)"],
-                    ["accept all", "Accept all sections"],
-                    ["sign off", "Sign & Save to EHR"],
-                    ["approve all", "Accept all sections"],
-                    ["go back", "Exit review mode"],
+                    ["accept all / approve all", "Accept every section + sign off"],
+                    ["sign off / finalize / submit", "Same as accept all"],
+                    ["change dosage of <med> to <new>", "Edit a prescription's dose"],
+                    ["add note <text>", "Append a note to the Plan"],
+                    ["add note to plan <text>", "Append to a specific section"],
+                    ["discard / cancel", "Exit review without saving"],
+                    ["what can I say", "Toggle this cheat-sheet"],
                   ] as [string, string][]).map(([cmd, desc]) => (
                     <div key={cmd} className="flex items-baseline gap-2">
                       <code className="text-xs bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">

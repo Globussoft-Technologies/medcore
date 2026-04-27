@@ -6,6 +6,7 @@ import { sanitizeUserInput } from "./prompt-safety";
 import { getChatClient } from "./model-router";
 import { getActivePrompt } from "./prompt-registry";
 import { logAICall } from "./sarvam-logging";
+import { withSpan } from "./tracing";
 
 // GAP-P5: the chat client comes from the multi-provider router so flipping
 // `AI_PROVIDER` env var swaps backends fleet-wide without touching call sites.
@@ -120,16 +121,21 @@ export async function generateText(opts: {
 }): Promise<string> {
   const t0 = Date.now();
   try {
-    const response = await withRetry(() =>
-      sarvam.chat.completions.create({
-        model: MODEL,
-        max_tokens: opts.maxTokens ?? 1024,
-        temperature: opts.temperature ?? 0.2,
-        messages: [
-          { role: "system", content: opts.systemPrompt },
-          { role: "user", content: opts.userPrompt },
-        ],
-      })
+    const response = await withSpan(
+      "ai.generateText",
+      { "ai.feature": "scribe", "ai.model": MODEL },
+      () =>
+        withRetry(() =>
+          sarvam.chat.completions.create({
+            model: MODEL,
+            max_tokens: opts.maxTokens ?? 1024,
+            temperature: opts.temperature ?? 0.2,
+            messages: [
+              { role: "system", content: opts.systemPrompt },
+              { role: "user", content: opts.userPrompt },
+            ],
+          })
+        )
     );
     logAICall({
       feature: "scribe",
@@ -149,6 +155,102 @@ export async function generateText(opts: {
       error: err instanceof Error ? err.message : String(err),
     });
     return "";
+  }
+}
+
+// ── translateText ─────────────────────────────────────────────────────────────
+
+/**
+ * BCP-47 → human-readable language name. Used to build a tightly-scoped
+ * translate prompt for {@link translateText}. Only the 8 codes MedCore supports
+ * end-to-end are mapped; unknown codes fall through to "English" so callers
+ * never get an opaque code echoed back to a patient.
+ */
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: "English",
+  hi: "Hindi",
+  ta: "Tamil",
+  te: "Telugu",
+  bn: "Bengali",
+  mr: "Marathi",
+  kn: "Kannada",
+  ml: "Malayalam",
+};
+
+/**
+ * Translate a clinical patient-summary into the patient's preferred language.
+ *
+ * Used by the AI Scribe sign-off path (PRD §4.5.5) to deliver the post-visit
+ * notification body in `Patient.preferredLanguage`. Medication names, dosages
+ * and units are preserved verbatim so the translated text still maps
+ * unambiguously back to what was prescribed.
+ *
+ * Wraps the underlying Sarvam call with {@link withRetry}; on exhausted retries
+ * (or any other transport failure) the helper returns the ORIGINAL English
+ * text and emits a warning so the caller can dispatch the notification rather
+ * than silently dropping it. Patients are better served by an English message
+ * than by no message at all.
+ *
+ * @param text       The English patient-summary body.
+ * @param targetLang BCP-47 code (`hi`, `ta`, `te`, `bn`, `mr`, `kn`, `ml`).
+ *                   `en`, missing or unknown codes are no-ops and return `text`
+ *                   unchanged without making an LLM call.
+ */
+export async function translateText(text: string, targetLang: string): Promise<string> {
+  // Fast-path: nothing to translate, or target language is English / unknown.
+  if (!text || !targetLang || targetLang === "en") return text;
+  const languageName = LANGUAGE_NAMES[targetLang];
+  if (!languageName || languageName === "English") return text;
+
+  const systemPrompt =
+    `Translate the following clinical patient-summary text to ${languageName}. ` +
+    `Preserve medication names, dosages, and units verbatim. ` +
+    `Keep medical terms accurate. ` +
+    `Output ONLY the translated text, no preamble.`;
+
+  const t0 = Date.now();
+  try {
+    const response = await withSpan(
+      "ai.translateText",
+      { "ai.feature": "scribe", "ai.model": MODEL, "ai.target_lang": targetLang },
+      () =>
+        withRetry(() =>
+          sarvam.chat.completions.create({
+            model: MODEL,
+            max_tokens: 1024,
+            temperature: 0.1,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: text },
+            ],
+          })
+        )
+    );
+    logAICall({
+      feature: "scribe",
+      model: MODEL,
+      promptTokens: response.usage?.prompt_tokens ?? 0,
+      completionTokens: response.usage?.completion_tokens ?? 0,
+      latencyMs: Date.now() - t0,
+    });
+    const translated = response.choices[0]?.message?.content?.trim();
+    return translated && translated.length > 0 ? translated : text;
+  } catch (err) {
+    // Fall back to English: the patient still gets the summary, just not in
+    // their preferred language. Better than dropping the notification entirely.
+    logAICall({
+      feature: "scribe",
+      model: MODEL,
+      promptTokens: 0,
+      completionTokens: 0,
+      latencyMs: Date.now() - t0,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    console.warn(
+      `[translateText] Sarvam translate failed for targetLang=${targetLang}; falling back to English. Reason:`,
+      err instanceof Error ? err.message : err
+    );
+    return text;
   }
 }
 
@@ -176,27 +278,32 @@ export async function generateStructured<T>(opts: {
   promptTokens: number;
   completionTokens: number;
 }> {
-  const response = await withRetry(() =>
-    sarvam.chat.completions.create({
-      model: MODEL,
-      max_tokens: opts.maxTokens ?? 1024,
-      temperature: opts.temperature ?? 0,
-      tools: [
-        {
-          type: "function",
-          function: {
-            name: opts.toolName,
-            description: opts.toolDescription,
-            parameters: opts.parameters as any,
-          },
-        },
-      ],
-      tool_choice: { type: "function", function: { name: opts.toolName } },
-      messages: [
-        { role: "system", content: opts.systemPrompt },
-        { role: "user", content: opts.userPrompt },
-      ],
-    })
+  const response = await withSpan(
+    "ai.generateStructured",
+    { "ai.feature": "scribe", "ai.model": MODEL, "ai.tool": opts.toolName },
+    () =>
+      withRetry(() =>
+        sarvam.chat.completions.create({
+          model: MODEL,
+          max_tokens: opts.maxTokens ?? 1024,
+          temperature: opts.temperature ?? 0,
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: opts.toolName,
+                description: opts.toolDescription,
+                parameters: opts.parameters as any,
+              },
+            },
+          ],
+          tool_choice: { type: "function", function: { name: opts.toolName } },
+          messages: [
+            { role: "system", content: opts.systemPrompt },
+            { role: "user", content: opts.userPrompt },
+          ],
+        })
+      )
   );
 
   const toolCall = getFnCall(response);
@@ -248,31 +355,36 @@ export async function runTriageTurn(
   let response: OpenAI.Chat.Completions.ChatCompletion | undefined;
 
   try {
-    response = await withRetry(() =>
-      sarvam.chat.completions.create({
-        model: MODEL,
-        max_tokens: 1024,
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "flag_emergency",
-              description:
-                "Call this tool IMMEDIATELY if the patient describes any emergency/red-flag symptom. Do not continue the conversation — use this tool.",
-              parameters: {
-                type: "object",
-                properties: {
-                  reason: { type: "string", description: "The specific emergency symptom detected" },
-                  urgency: { type: "string", enum: ["CALL_EMERGENCY", "GO_TO_ER_NOW"] },
+    response = await withSpan(
+      "ai.runTriageTurn",
+      { "ai.feature": "triage", "ai.model": MODEL, "ai.language": language },
+      () =>
+        withRetry(() =>
+          sarvam.chat.completions.create({
+            model: MODEL,
+            max_tokens: 1024,
+            tools: [
+              {
+                type: "function",
+                function: {
+                  name: "flag_emergency",
+                  description:
+                    "Call this tool IMMEDIATELY if the patient describes any emergency/red-flag symptom. Do not continue the conversation — use this tool.",
+                  parameters: {
+                    type: "object",
+                    properties: {
+                      reason: { type: "string", description: "The specific emergency symptom detected" },
+                      urgency: { type: "string", enum: ["CALL_EMERGENCY", "GO_TO_ER_NOW"] },
+                    },
+                    required: ["reason", "urgency"],
+                  },
                 },
-                required: ["reason", "urgency"],
               },
-            },
-          },
-        ],
-        tool_choice: "auto",
-        messages: [{ role: "system", content: systemPrompt }, ...sanitizedMessages],
-      })
+            ],
+            tool_choice: "auto",
+            messages: [{ role: "system", content: systemPrompt }, ...sanitizedMessages],
+          })
+        )
     );
   } catch (err) {
     logAICall({
@@ -332,15 +444,19 @@ export async function extractSymptomSummary(
   const triageSystemPrompt = await resolvePrompt("TRIAGE_SYSTEM");
 
   try {
-    response = await withRetry(() =>
-      sarvam.chat.completions.create({
-        model: MODEL,
-        max_tokens: 2048,
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "structured_symptom_summary",
+    response = await withSpan(
+      "ai.extractSymptomSummary",
+      { "ai.feature": "triage", "ai.model": MODEL },
+      () =>
+        withRetry(() =>
+          sarvam.chat.completions.create({
+            model: MODEL,
+            max_tokens: 2048,
+            tools: [
+              {
+                type: "function",
+                function: {
+                  name: "structured_symptom_summary",
               description:
                 "Extract a structured symptom summary and specialty recommendations from the conversation",
               parameters: {
@@ -387,7 +503,8 @@ export async function extractSymptomSummary(
             content: "Now produce a structured summary of the symptoms and recommend the top 3 specialties.",
           },
         ],
-      })
+          })
+        )
     );
   } catch (err) {
     logAICall({
@@ -480,15 +597,19 @@ async function validateSOAPHallucinations(soap: SOAPNote, transcriptText: string
   let verifyResponse: OpenAI.Chat.Completions.ChatCompletion | undefined;
 
   try {
-    verifyResponse = await withRetry(() =>
-      sarvam.chat.completions.create({
-        model: MODEL,
-        max_tokens: 512,
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "verify_items",
+    verifyResponse = await withSpan(
+      "ai.validateSOAPHallucinations",
+      { "ai.feature": "hallucination-check", "ai.model": MODEL },
+      () =>
+        withRetry(() =>
+          sarvam.chat.completions.create({
+            model: MODEL,
+            max_tokens: 512,
+            tools: [
+              {
+                type: "function",
+                function: {
+                  name: "verify_items",
               description:
                 "For each item, report whether it appears verbatim or as a clear paraphrase in the transcript",
               parameters: {
@@ -518,7 +639,8 @@ async function validateSOAPHallucinations(soap: SOAPNote, transcriptText: string
             content: `Transcript:\n${transcriptText}\n\nFor each item below, answer found:true only if it appears verbatim or is a clear paraphrase of what was said in the transcript.\nItems: ${JSON.stringify(itemsToVerify)}`,
           },
         ],
-      })
+          })
+        )
     );
   } catch (err) {
     logAICall({
@@ -623,15 +745,19 @@ Patient Context:
   let response: OpenAI.Chat.Completions.ChatCompletion | undefined;
 
   try {
-    response = await withRetry(() =>
-      sarvam.chat.completions.create({
-        model: MODEL,
-        max_tokens: 4096,
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "generate_soap_note",
+    response = await withSpan(
+      "ai.generateSOAPNote",
+      { "ai.feature": "scribe", "ai.model": MODEL },
+      () =>
+        withRetry(() =>
+          sarvam.chat.completions.create({
+            model: MODEL,
+            max_tokens: 4096,
+            tools: [
+              {
+                type: "function",
+                function: {
+                  name: "generate_soap_note",
               description: "Generate a structured SOAP note from the consultation transcript",
               parameters: {
                 type: "object",
@@ -767,7 +893,8 @@ Patient Context:
             content: `${contextText}${ragContext ? "\n\n" + ragContext + "\n" : ""}\n\nConsultation Transcript:\n${transcriptText}\n\nGenerate the SOAP note. Only include information explicitly stated in the transcript.\n\nSPEAKER-ROLE GUIDANCE (GAP-S4):\n- The Subjective section should be drawn primarily from [PATIENT] speech — symptom narrative, history, what the patient reports.\n- The Objective, Assessment and Plan sections should be drawn primarily from [DOCTOR] speech — exam findings, impressions and treatment decisions.\n- [ATTENDANT] utterances (family members, caregivers) may supplement either section but should never be the sole source for Assessment or Plan.`,
           },
         ],
-      })
+          })
+        )
     );
   } catch (err) {
     logAICall({

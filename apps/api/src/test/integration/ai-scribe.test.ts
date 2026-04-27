@@ -49,7 +49,26 @@ vi.mock("../../services/ai/sarvam", () => ({
   runTriageTurn: vi.fn(),
   extractSymptomSummary: vi.fn(),
   generateSOAPNote: vi.fn().mockResolvedValue(MOCK_SOAP),
+  // PRD §4.5.5: translateText is invoked on sign-off when the patient's
+  // preferredLanguage is non-English. Mocked to return a stable sentinel so
+  // tests can prove the dispatched notification body went through translation.
+  translateText: vi.fn(async (_text: string, lang: string) => `<translated:${lang}>`),
 }));
+
+// notification dispatcher is partially mocked at the integration layer so we
+// can inspect the message body actually delivered by the sign-off handler
+// without needing a real notification backend. importActual is used so the
+// other helpers (sendEmail, retryNotification, channel re-exports) imported
+// by sibling routes loaded via app.ts keep their real implementations.
+vi.mock("../../services/notification", async () => {
+  const actual = await vi.importActual<typeof import("../../services/notification")>(
+    "../../services/notification"
+  );
+  return {
+    ...actual,
+    sendNotification: vi.fn(async () => undefined),
+  };
+});
 
 let app: any;
 
@@ -354,6 +373,114 @@ describeIfDB("AI Scribe API (integration)", () => {
     expect(consultation).toBeTruthy();
     expect(consultation?.notes).toContain("[AI Scribe — Doctor Approved]");
     expect(consultation?.notes).toContain("Viral URTI — doctor approved");
+  });
+
+  // PRD §4.5.5: auto-generated patient-friendly visit summary in the patient's
+  // language of choice. When Patient.preferredLanguage is non-English, the
+  // sign-off handler must run the summary body through translateText() before
+  // dispatching the PRESCRIPTION_READY notification.
+  it("translates the patient visit-summary notification when preferredLanguage is non-English", async () => {
+    const { translateText } = await import("../../services/ai/sarvam");
+    const { sendNotification } = await import("../../services/notification");
+    vi.mocked(translateText).mockClear();
+    vi.mocked(sendNotification).mockClear();
+
+    const patient = await createPatientFixture({ preferredLanguage: "hi" });
+    const { doctor, token: doctorToken } = await createDoctorWithToken();
+    const appt = await createAppointmentFixture({ patientId: patient.id, doctorId: doctor.id });
+
+    const startRes = await request(app)
+      .post("/api/v1/ai/scribe/start")
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ appointmentId: appt.id, consentObtained: true, audioRetentionDays: 7 });
+    const sessionId = startRes.body.data.sessionId;
+
+    // Build a draft so finalize has something to commit.
+    await request(app)
+      .post(`/api/v1/ai/scribe/${sessionId}/transcript`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({
+        entries: [
+          { speaker: "DOCTOR", text: "Describe your symptoms", timestamp: new Date().toISOString() },
+          { speaker: "PATIENT", text: "Cough and fever 5 days", timestamp: new Date().toISOString() },
+          { speaker: "DOCTOR", text: "Any chest pain?", timestamp: new Date().toISOString() },
+        ],
+      });
+
+    const res = await request(app)
+      .post(`/api/v1/ai/scribe/${sessionId}/finalize`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({
+        soapFinal: MOCK_SOAP,
+        icd10Codes: [],
+        rxApproved: true,
+        doctorEdits: [],
+      });
+
+    expect(res.status).toBe(200);
+
+    // translateText must have been invoked exactly once with the Hindi target
+    // and an English summary body containing the SOAP plan instructions.
+    expect(vi.mocked(translateText)).toHaveBeenCalledOnce();
+    const [translatedBody, lang] = vi.mocked(translateText).mock.calls[0];
+    expect(lang).toBe("hi");
+    expect(translatedBody).toContain("Your consultation has been completed.");
+    expect(translatedBody).toContain("Viral upper respiratory tract infection");
+
+    // The dispatched notification body must be the *translated* sentinel,
+    // not the English original — proving the translation path is wired in.
+    const notifyCall = vi.mocked(sendNotification).mock.calls.find(
+      (c) => c[0]?.type === "PRESCRIPTION_READY"
+    );
+    expect(notifyCall).toBeTruthy();
+    expect(notifyCall![0].message).toBe("<translated:hi>");
+    expect(notifyCall![0].title).toBe("Your Visit Summary is Ready");
+    expect((notifyCall![0].data as any)?.language).toBe("hi");
+  });
+
+  it("does NOT call translateText for English-language patients (no regression)", async () => {
+    const { translateText } = await import("../../services/ai/sarvam");
+    const { sendNotification } = await import("../../services/notification");
+    vi.mocked(translateText).mockClear();
+    vi.mocked(sendNotification).mockClear();
+
+    // preferredLanguage left undefined → defaults to English path.
+    const patient = await createPatientFixture();
+    const { doctor, token: doctorToken } = await createDoctorWithToken();
+    const appt = await createAppointmentFixture({ patientId: patient.id, doctorId: doctor.id });
+
+    const startRes = await request(app)
+      .post("/api/v1/ai/scribe/start")
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ appointmentId: appt.id, consentObtained: true, audioRetentionDays: 0 });
+    const sessionId = startRes.body.data.sessionId;
+
+    await request(app)
+      .post(`/api/v1/ai/scribe/${sessionId}/transcript`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({
+        entries: [
+          { speaker: "DOCTOR", text: "What brings you in?", timestamp: new Date().toISOString() },
+          { speaker: "PATIENT", text: "Cough", timestamp: new Date().toISOString() },
+          { speaker: "DOCTOR", text: "How long?", timestamp: new Date().toISOString() },
+        ],
+      });
+
+    const res = await request(app)
+      .post(`/api/v1/ai/scribe/${sessionId}/finalize`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ soapFinal: MOCK_SOAP, icd10Codes: [], rxApproved: true, doctorEdits: [] });
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(translateText)).not.toHaveBeenCalled();
+
+    const notifyCall = vi.mocked(sendNotification).mock.calls.find(
+      (c) => c[0]?.type === "PRESCRIPTION_READY"
+    );
+    expect(notifyCall).toBeTruthy();
+    // English message should contain the impression verbatim, not a sentinel.
+    expect(notifyCall![0].message).toContain("Viral upper respiratory tract infection");
+    expect(notifyCall![0].message).not.toContain("<translated:");
   });
 
   it("rejects sign-off by non-attending doctor", async () => {

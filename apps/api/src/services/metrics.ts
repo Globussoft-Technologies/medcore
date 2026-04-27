@@ -15,16 +15,18 @@ import {
   registry,
   aiCallsTotal,
   aiCallDurationSeconds,
+  aiCostInrTotal,
 } from "./metrics-counters";
 import { logAICall as rawLogAICall } from "./ai/sarvam-logging";
 import { getOldestPromptCacheAgeSeconds } from "./ai/prompt-registry";
+import { extractTraceparentMiddleware } from "./ai/tracing";
 
 // ── Registry ──────────────────────────────────────────────────────────────────
 // Dedicated registry (not the global default) so tests can clear/restart it
 // cleanly without stomping on other services that may use prom-client. Shared
 // with services/metrics-counters.ts which hosts the AI-path counters.
 
-export { registry, aiCallsTotal, aiCallDurationSeconds };
+export { registry, aiCallsTotal, aiCallDurationSeconds, aiCostInrTotal };
 
 // Default process metrics (event loop lag, CPU, memory, handles, etc.). These
 // are tiny, cheap, and invaluable during incidents.
@@ -146,6 +148,11 @@ export function httpMetricsMiddleware() {
  * we only read method/path/status.
  */
 export function registerMetrics(app: Express): void {
+  // Bind any inbound W3C `traceparent` to the OTel context BEFORE the
+  // metrics timer middleware so spans created during the request appear
+  // under the upstream trace. No-op when the OTel exporter is not
+  // configured (dev/test default) — see services/ai/tracing.ts.
+  app.use(extractTraceparentMiddleware());
   app.use(httpMetricsMiddleware());
 
   app.get("/api/metrics", async (_req, res) => {

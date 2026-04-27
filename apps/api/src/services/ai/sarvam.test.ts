@@ -37,6 +37,7 @@ import {
   extractSymptomSummary,
   generateSOAPNote,
   generateText,
+  translateText,
   AIServiceUnavailableError,
 } from "./sarvam";
 
@@ -377,6 +378,86 @@ describe("generateText", () => {
     const out = await generateText({ systemPrompt: "s", userPrompt: "u" });
     expect(out).toBe("");
   }, 20_000);
+});
+
+// ── translateText (PRD §4.5.5) ────────────────────────────────────────────────
+
+describe("translateText", () => {
+  it("returns the translated text from Sarvam and uses a tightly-scoped prompt", async () => {
+    createMock.mockResolvedValueOnce(
+      textResponse("आपका परामर्श पूरा हो गया है।")
+    );
+    const out = await translateText(
+      "Your consultation has been completed.",
+      "hi"
+    );
+    expect(out).toBe("आपका परामर्श पूरा हो गया है।");
+
+    // Exactly one Sarvam call
+    expect(createMock).toHaveBeenCalledTimes(1);
+    const callArgs = createMock.mock.calls[0][0];
+    const sysMsg = callArgs.messages.find((m: any) => m.role === "system");
+    const userMsg = callArgs.messages.find((m: any) => m.role === "user");
+
+    // Prompt asserts: target language name, dose-preservation clause, and the
+    // "ONLY translated text" output instruction must all be in the system msg.
+    expect(sysMsg.content).toContain("Hindi");
+    expect(sysMsg.content).toMatch(/medication names, dosages, and units verbatim/i);
+    expect(sysMsg.content).toMatch(/Output ONLY the translated text/i);
+
+    // The English body is forwarded verbatim as the user message.
+    expect(userMsg.content).toBe("Your consultation has been completed.");
+  });
+
+  it("is a no-op for English (no Sarvam call, returns input unchanged)", async () => {
+    const out = await translateText("hello", "en");
+    expect(out).toBe("hello");
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op for empty text", async () => {
+    const out = await translateText("", "hi");
+    expect(out).toBe("");
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op for unsupported language codes", async () => {
+    const out = await translateText("hello", "fr");
+    expect(out).toBe("hello");
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the original English text on Sarvam failure (does NOT throw)", async () => {
+    const netErr = new Error("ECONNRESET socket");
+    createMock.mockRejectedValue(netErr);
+    const out = await translateText("Take 1 paracetamol after meals.", "ta");
+    expect(out).toBe("Take 1 paracetamol after meals.");
+    // 3 retry attempts (1 + 2 retries) before giving up
+    expect(createMock).toHaveBeenCalledTimes(3);
+  }, 20_000);
+
+  it("falls back to the original English when Sarvam returns empty content", async () => {
+    createMock.mockResolvedValueOnce(textResponse(""));
+    const out = await translateText("Visit summary body", "bn");
+    expect(out).toBe("Visit summary body");
+  });
+
+  it.each([
+    ["hi", "Hindi"],
+    ["ta", "Tamil"],
+    ["te", "Telugu"],
+    ["bn", "Bengali"],
+    ["mr", "Marathi"],
+    ["kn", "Kannada"],
+    ["ml", "Malayalam"],
+  ])("maps BCP-47 code %s → %s in the system prompt", async (code, languageName) => {
+    createMock.mockResolvedValueOnce(textResponse("translated"));
+    await translateText("body", code);
+    const sysMsg = createMock.mock.calls[0][0].messages.find(
+      (m: any) => m.role === "system"
+    );
+    expect(sysMsg.content).toContain(languageName);
+  });
 });
 
 // ── AIServiceUnavailableError ─────────────────────────────────────────────────

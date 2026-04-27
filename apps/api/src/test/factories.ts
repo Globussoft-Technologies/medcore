@@ -59,6 +59,7 @@ export async function createPatientFixture(overrides: Partial<any> = {}) {
       insuranceProvider: overrides.insuranceProvider,
       insurancePolicyNumber: overrides.insurancePolicyNumber,
       noShowCount: overrides.noShowCount ?? 0,
+      preferredLanguage: overrides.preferredLanguage,
     },
     include: { user: true },
   });

@@ -26,6 +26,9 @@ import {
   checkPaediatricContraindications,
   checkRenalDosing,
   checkHepaticContraindications,
+  checkHepaticRisk,
+  checkPediatricDose,
+  inferHepaticImpairment,
   checkDrugSafety,
 } from "./drug-interactions";
 
@@ -192,10 +195,12 @@ describe("checkHepaticContraindications", () => {
     expect(checkHepaticContraindications(["Methotrexate"], null)).toHaveLength(0);
   });
 
-  it("flags methotrexate in mild hepatic impairment", () => {
+  it("flags methotrexate in mild hepatic impairment as CONTRAINDICATED", () => {
     const alerts = checkHepaticContraindications(["Methotrexate"], "mild");
     expect(alerts.length).toBeGreaterThan(0);
-    expect(alerts[0].severity).toBe("SEVERE");
+    // Methotrexate is an absolute contraindication in any active liver
+    // disease (Stockley / Goodman & Gilman), not merely SEVERE.
+    expect(alerts[0].severity).toBe("CONTRAINDICATED");
   });
 
   it("does NOT flag statins in mild but DOES in moderate impairment", () => {
@@ -321,5 +326,251 @@ describe("checkDrugSafety", () => {
     expect(report.genericAlternatives.length).toBe(1);
     expect(report.genericAlternatives[0].brandName).toBe("Calpol");
     expect(report.genericAlternatives[0].generics.length).toBeGreaterThan(0);
+  });
+});
+
+// ── checkHepaticRisk (per-drug structured lookup) ─────────────────────────────
+
+describe("checkHepaticRisk", () => {
+  it("returns null when impairment is NONE", () => {
+    expect(checkHepaticRisk("Paracetamol 500mg", "NONE")).toBeNull();
+  });
+
+  it("returns null for a drug with no hepatic rule", () => {
+    expect(checkHepaticRisk("Vitamin C", "MODERATE")).toBeNull();
+  });
+
+  it("flags paracetamol DOSE_REDUCE with max-dose rationale in cirrhosis (MODERATE)", () => {
+    const r = checkHepaticRisk("Paracetamol 500mg", "MODERATE");
+    expect(r).not.toBeNull();
+    expect(r!.action).toBe("DOSE_REDUCE");
+    expect(r!.rationale).toMatch(/2 g\/day|3 g\/day/i);
+    expect(r!.severity).toBe("MODERATE");
+  });
+
+  it("flags ibuprofen AVOID in moderate hepatic impairment with severity SEVERE", () => {
+    const r = checkHepaticRisk("Ibuprofen 400mg", "MODERATE");
+    expect(r).not.toBeNull();
+    expect(r!.action).toBe("AVOID");
+    expect(r!.severity).toBe("SEVERE");
+    expect(r!.alternatives.length).toBeGreaterThan(0);
+  });
+
+  it("does NOT flag ibuprofen in MILD impairment (rule threshold is moderate)", () => {
+    expect(checkHepaticRisk("Ibuprofen", "MILD")).toBeNull();
+  });
+
+  it("flags valproate as CONTRAINDICATED even in MILD impairment", () => {
+    const r = checkHepaticRisk("Sodium valproate 500mg", "MILD");
+    expect(r).not.toBeNull();
+    expect(r!.severity).toBe("CONTRAINDICATED");
+    expect(r!.action).toBe("AVOID");
+  });
+
+  it("flags amiodarone AVOID in moderate impairment", () => {
+    const r = checkHepaticRisk("Amiodarone 200mg", "MODERATE");
+    expect(r).not.toBeNull();
+    expect(r!.action).toBe("AVOID");
+  });
+
+  it("flags erythromycin AVOID in moderate impairment (cholestatic jaundice)", () => {
+    const r = checkHepaticRisk("Erythromycin 250mg", "MODERATE");
+    expect(r).not.toBeNull();
+    expect(r!.rationale).toMatch(/cholestatic/i);
+  });
+
+  it("flags tramadol DOSE_REDUCE in moderate impairment", () => {
+    const r = checkHepaticRisk("Tramadol 50mg", "MODERATE");
+    expect(r).not.toBeNull();
+    expect(r!.action).toBe("DOSE_REDUCE");
+  });
+
+  it("flags metronidazole only in SEVERE (not moderate)", () => {
+    expect(checkHepaticRisk("Metronidazole 400mg", "MODERATE")).toBeNull();
+    const r = checkHepaticRisk("Metronidazole 400mg", "SEVERE");
+    expect(r).not.toBeNull();
+    expect(r!.action).toBe("DOSE_REDUCE");
+  });
+
+  it("flags ketoconazole CONTRAINDICATED even in MILD impairment (oral azole)", () => {
+    const r = checkHepaticRisk("Ketoconazole 200mg", "MILD");
+    expect(r).not.toBeNull();
+    expect(r!.severity).toBe("CONTRAINDICATED");
+  });
+});
+
+// ── checkPediatricDose (weight-based) ─────────────────────────────────────────
+
+describe("checkPediatricDose", () => {
+  it("returns null for a non-pediatric drug not in the rule set", () => {
+    expect(checkPediatricDose("Vitamin D drops", 400, "OD", 10, 24)).toBeNull();
+  });
+
+  it("returns null on missing/invalid inputs", () => {
+    expect(checkPediatricDose("Paracetamol", 0, "Q6H", 10, 24)).toBeNull();
+    expect(checkPediatricDose("Paracetamol", 100, "Q6H", 0, 24)).toBeNull();
+  });
+
+  it("accepts paracetamol 100mg Q6H for a 6-month-old at ~7 kg as OK (15 mg/kg)", () => {
+    const r = checkPediatricDose("Paracetamol", 100, "Q6H", 7, 6);
+    expect(r).not.toBeNull();
+    expect(r!.status).toBe("OK");
+  });
+
+  it("flags paracetamol 500mg Q6H over-dose for a 6-month-old at 7 kg (~105 mg expected)", () => {
+    const r = checkPediatricDose("Paracetamol", 500, "Q6H", 7, 6);
+    expect(r).not.toBeNull();
+    expect(r!.status).toMatch(/OVER_DOSE_SINGLE|OVER_DAILY_CAP/);
+    expect(r!.severity === "SEVERE" || r!.severity === "MODERATE").toBe(true);
+  });
+
+  it("flags ibuprofen as AGE_OUT_OF_BAND for a 2-month-old infant", () => {
+    const r = checkPediatricDose("Ibuprofen", 50, "Q8H", 5, 2);
+    expect(r).not.toBeNull();
+    expect(r!.status).toBe("AGE_OUT_OF_BAND");
+  });
+
+  it("flags amoxicillin under-dose: 50mg BD for 4-year-old at 16 kg (expected ~400 mg)", () => {
+    const r = checkPediatricDose("Amoxicillin", 50, "BD", 16, 48);
+    expect(r).not.toBeNull();
+    expect(r!.status).toBe("UNDER_DOSE");
+    expect(r!.severity).toBe("MODERATE");
+    expect(r!.rationale).toMatch(/treatment failure|below the expected/i);
+  });
+
+  it("accepts amoxicillin 400mg BD for 4-year-old at 16 kg as OK (25 mg/kg)", () => {
+    const r = checkPediatricDose("Amoxicillin", 400, "BD", 16, 48);
+    expect(r).not.toBeNull();
+    expect(r!.status).toBe("OK");
+  });
+
+  it("flags amoxicillin over-dose: 1500 mg BD for 16 kg child (exceeds 1 g/dose cap)", () => {
+    const r = checkPediatricDose("Amoxicillin", 1500, "BD", 16, 48);
+    expect(r).not.toBeNull();
+    expect(r!.status).toBe("OVER_DOSE_SINGLE");
+    expect(r!.severity).toBe("SEVERE");
+  });
+
+  it("flags ondansetron over-cap: 8 mg for a 30 kg child (absolute ceiling 4 mg/dose)", () => {
+    const r = checkPediatricDose("Ondansetron", 8, "Q8H", 30, 60);
+    expect(r).not.toBeNull();
+    expect(r!.status).toBe("OVER_DOSE_SINGLE");
+    expect(r!.severity).toBe("SEVERE");
+  });
+
+  it("accepts ondansetron 2 mg single dose for a 12 kg toddler (0.15 mg/kg = 1.8 mg)", () => {
+    const r = checkPediatricDose("Ondansetron", 2, "Q8H", 12, 24);
+    expect(r).not.toBeNull();
+    expect(r!.status).toBe("OK");
+  });
+
+  it("flags albendazole 200 mg as UNDER_DOSE for a 4-year-old (fixed 400 mg expected)", () => {
+    const r = checkPediatricDose("Albendazole", 200, "OD", 16, 48);
+    expect(r).not.toBeNull();
+    expect(r!.status).toBe("UNDER_DOSE");
+  });
+
+  it("accepts albendazole 200 mg single dose for an 18-month-old (fixed 200 mg)", () => {
+    const r = checkPediatricDose("Albendazole", 200, "OD", 11, 18);
+    expect(r).not.toBeNull();
+    expect(r!.status).toBe("OK");
+  });
+
+  it("flags azithromycin over the 500 mg/dose cap for a 60 kg adolescent", () => {
+    const r = checkPediatricDose("Azithromycin", 1000, "OD", 60, 12 * 14);
+    expect(r).not.toBeNull();
+    expect(r!.status).toBe("OVER_DOSE_SINGLE");
+    expect(r!.severity).toBe("SEVERE");
+  });
+});
+
+// ── inferHepaticImpairment ────────────────────────────────────────────────────
+
+describe("inferHepaticImpairment", () => {
+  it("returns NONE for empty/no-match conditions", () => {
+    expect(inferHepaticImpairment([])).toBe("NONE");
+    expect(inferHepaticImpairment(["Hypertension", "T2DM"])).toBe("NONE");
+  });
+
+  it("returns MODERATE for plain cirrhosis mention", () => {
+    expect(inferHepaticImpairment(["Cirrhosis"])).toBe("MODERATE");
+  });
+
+  it("returns SEVERE for decompensated cirrhosis", () => {
+    expect(inferHepaticImpairment(["Decompensated cirrhosis"])).toBe("SEVERE");
+  });
+
+  it("returns MILD for compensated cirrhosis / Child-Pugh A", () => {
+    expect(inferHepaticImpairment(["Child-Pugh A cirrhosis"])).toBe("MILD");
+  });
+});
+
+// ── checkDrugSafety integrations: hepatic + pediatric ─────────────────────────
+
+describe("checkDrugSafety — hepatic + pediatric integrations", () => {
+  it("scribe-flagged cirrhotic patient + paracetamol surfaces a hepatic alert", async () => {
+    const report = await checkDrugSafety(
+      [{ name: "Paracetamol 500mg", dose: "500mg", frequency: "QDS", duration: "3d" }],
+      [],
+      [],
+      ["Decompensated cirrhosis"],
+      { age: 55, gender: "M" }
+    );
+    expect(report.hepaticRiskChecks).toBeDefined();
+    expect(report.hepaticRiskChecks!.length).toBeGreaterThan(0);
+    expect(report.hepaticRiskChecks![0].patientImpairment).toBe("SEVERE");
+    expect(report.alerts.some((a) => /hepatic/i.test(a.drug2))).toBe(true);
+  });
+
+  it("scribe-flagged 4-year-old + amoxicillin runs pediatric checks (OK case)", async () => {
+    const report = await checkDrugSafety(
+      [{ name: "Amoxicillin", dose: "400mg", frequency: "BD", duration: "5d" }],
+      [],
+      [],
+      [],
+      { age: 4, weightKg: 16 }
+    );
+    expect(report.pediatricDoseChecks).toBeDefined();
+    const amox = report.pediatricDoseChecks!.find((c) => /amoxicillin/i.test(c.drugName));
+    expect(amox).toBeDefined();
+    expect(amox!.status).toBe("OK");
+  });
+
+  it("scribe-flagged 4-year-old + amoxicillin under-dose surfaces a pediatric alert", async () => {
+    const report = await checkDrugSafety(
+      [{ name: "Amoxicillin", dose: "50mg", frequency: "BD", duration: "5d" }],
+      [],
+      [],
+      [],
+      { age: 4, weightKg: 16 }
+    );
+    expect(report.pediatricDoseChecks).toBeDefined();
+    const amox = report.pediatricDoseChecks!.find((c) => /amoxicillin/i.test(c.drugName));
+    expect(amox).toBeDefined();
+    expect(amox!.status).toBe("UNDER_DOSE");
+    expect(report.alerts.some((a) => /PEDIATRIC/.test(a.drug2))).toBe(true);
+  });
+
+  it("does not run pediatric checks for adult patients", async () => {
+    const report = await checkDrugSafety(
+      [{ name: "Paracetamol", dose: "500mg", frequency: "QDS", duration: "3d" }],
+      [],
+      [],
+      [],
+      { age: 35, weightKg: 70 }
+    );
+    expect(report.pediatricDoseChecks).toBeUndefined();
+  });
+
+  it("explicit hepaticImpairment in patientMeta wins over inference", async () => {
+    const report = await checkDrugSafety(
+      [{ name: "Paracetamol 500mg", dose: "500mg", frequency: "QDS", duration: "3d" }],
+      [],
+      [],
+      [], // no hepatic conditions in chronic list
+      { age: 55, hepaticImpairment: "severe" }
+    );
+    expect(report.hepaticRiskChecks).toBeDefined();
+    expect(report.hepaticRiskChecks![0].patientImpairment).toBe("SEVERE");
   });
 });

@@ -242,19 +242,54 @@ const RENAL_RESTRICTIONS: {
 ];
 
 // ─── Hepatic contraindications ────────────────────────────────────────────────
+// Curated against Stockley's Drug Interactions and Goodman & Gilman's
+// Pharmacologic Basis of Therapeutics for Child-Pugh A (mild) / B (moderate) / C
+// (severe) hepatic impairment.
 
-const HEPATIC_RESTRICTIONS: {
+interface HepaticRule {
   drugPattern: RegExp;
+  drugLabel: string; // canonical generic name(s) for reporting
+  action: "AVOID" | "DOSE_REDUCE" | "MONITOR";
   severity: DrugInteractionAlert["severity"];
   minImpairment: "mild" | "moderate" | "severe";
-  description: string;
-}[] = [
-  { drugPattern: /paracetamol|acetaminophen/i, severity: "MODERATE", minImpairment: "mild", description: "Paracetamol hepatotoxicity risk elevated in hepatic impairment. Max 2 g/day; avoid in severe hepatic disease." },
-  { drugPattern: /methotrexate/i, severity: "SEVERE", minImpairment: "mild", description: "Methotrexate hepatotoxic — contraindicated in pre-existing liver disease." },
-  { drugPattern: /statins|atorvastatin|rosuvastatin|simvastatin|pravastatin/i, severity: "MODERATE", minImpairment: "moderate", description: "Statins: use with caution in moderate hepatic impairment; avoid in severe. Monitor LFTs." },
-  { drugPattern: /fluconazole|itraconazole|ketoconazole/i, severity: "SEVERE", minImpairment: "moderate", description: "Azole antifungals heavily hepatically metabolised — significant toxicity risk in hepatic impairment." },
-  { drugPattern: /carbamazepine|valproate|valproic acid/i, severity: "SEVERE", minImpairment: "mild", description: "Carbamazepine/Valproate are hepatotoxic — contraindicated in active hepatic disease." },
-  { drugPattern: /rifampicin|rifampin/i, severity: "SEVERE", minImpairment: "moderate", description: "Rifampicin: hepatotoxic; avoid in moderate-severe hepatic impairment." },
+  rationale: string; // 1-line clinician-readable
+  alternatives?: string[];
+}
+
+const HEPATIC_RESTRICTIONS: HepaticRule[] = [
+  // Analgesics / antipyretics
+  { drugPattern: /paracetamol|acetaminophen/i, drugLabel: "paracetamol", action: "DOSE_REDUCE", severity: "MODERATE", minImpairment: "mild", rationale: "Paracetamol: max 3 g/day in mild hepatic impairment, max 2 g/day in cirrhosis; avoid in severe acute liver failure.", alternatives: ["topical NSAID (no systemic load)", "physical measures"] },
+  // NSAIDs
+  { drugPattern: /ibuprofen/i, drugLabel: "ibuprofen", action: "AVOID", severity: "SEVERE", minImpairment: "moderate", rationale: "NSAIDs: hepatorenal syndrome risk in cirrhosis; precipitate variceal bleeding via platelet dysfunction.", alternatives: ["paracetamol (dose-reduced)"] },
+  { drugPattern: /diclofenac/i, drugLabel: "diclofenac", action: "AVOID", severity: "SEVERE", minImpairment: "moderate", rationale: "Diclofenac: idiosyncratic hepatotoxicity plus hepatorenal risk in advanced liver disease.", alternatives: ["paracetamol (dose-reduced)"] },
+  { drugPattern: /naproxen/i, drugLabel: "naproxen", action: "AVOID", severity: "SEVERE", minImpairment: "moderate", rationale: "Naproxen: hepatorenal syndrome and GI bleeding risk in cirrhosis.", alternatives: ["paracetamol (dose-reduced)"] },
+  // Cytotoxics / DMARDs
+  { drugPattern: /methotrexate/i, drugLabel: "methotrexate", action: "AVOID", severity: "CONTRAINDICATED", minImpairment: "mild", rationale: "Methotrexate is directly hepatotoxic — contraindicated in any active liver disease; chronic use causes fibrosis.", alternatives: ["sulfasalazine", "leflunomide (with monitoring)"] },
+  // Statins
+  { drugPattern: /atorvastatin/i, drugLabel: "atorvastatin", action: "AVOID", severity: "SEVERE", minImpairment: "moderate", rationale: "Statins: contraindicated in active liver disease or unexplained persistent ALT elevation > 3× ULN.", alternatives: ["lifestyle/diet first", "ezetimibe (lower hepatic load)"] },
+  { drugPattern: /simvastatin|lovastatin/i, drugLabel: "simvastatin", action: "AVOID", severity: "SEVERE", minImpairment: "moderate", rationale: "Simvastatin: extensive CYP3A4 metabolism, raised levels in hepatic impairment increase rhabdomyolysis risk.", alternatives: ["pravastatin (less hepatic load)", "ezetimibe"] },
+  { drugPattern: /rosuvastatin/i, drugLabel: "rosuvastatin", action: "AVOID", severity: "SEVERE", minImpairment: "moderate", rationale: "Rosuvastatin: contraindicated in active liver disease; levels rise markedly in Child-Pugh B/C.", alternatives: ["lifestyle/diet first", "ezetimibe"] },
+  // Antiarrhythmics
+  { drugPattern: /amiodarone/i, drugLabel: "amiodarone", action: "AVOID", severity: "SEVERE", minImpairment: "moderate", rationale: "Amiodarone: hepatotoxic (steatohepatitis, fibrosis, fatal hepatitis); avoid in pre-existing liver disease.", alternatives: ["β-blocker for rate control", "non-pharmacologic management"] },
+  // Anticonvulsants / mood stabilisers
+  { drugPattern: /valproate|valproic acid|sodium valproate|divalproex/i, drugLabel: "valproate", action: "AVOID", severity: "CONTRAINDICATED", minImpairment: "mild", rationale: "Valproate: idiosyncratic fatal hepatotoxicity, contraindicated in any hepatic dysfunction.", alternatives: ["levetiracetam", "lamotrigine"] },
+  { drugPattern: /carbamazepine/i, drugLabel: "carbamazepine", action: "AVOID", severity: "SEVERE", minImpairment: "mild", rationale: "Carbamazepine: hepatotoxic; cholestatic and hepatocellular injury reported in pre-existing liver disease.", alternatives: ["levetiracetam", "lamotrigine"] },
+  // Antitubercular
+  { drugPattern: /isoniazid/i, drugLabel: "isoniazid", action: "DOSE_REDUCE", severity: "SEVERE", minImpairment: "moderate", rationale: "Isoniazid: dose-dependent hepatotoxicity; reduce dose and monitor LFTs every 2 weeks in moderate-severe impairment.", alternatives: ["modified DOTS regimen under specialist care"] },
+  { drugPattern: /rifampicin|rifampin/i, drugLabel: "rifampicin", action: "MONITOR", severity: "SEVERE", minImpairment: "moderate", rationale: "Rifampicin: hepatotoxic, raises bilirubin via OATP inhibition; avoid combination with isoniazid in moderate-severe impairment.", alternatives: ["specialist-led regimen with LFT monitoring"] },
+  // Macrolides
+  { drugPattern: /erythromycin/i, drugLabel: "erythromycin", action: "AVOID", severity: "SEVERE", minImpairment: "moderate", rationale: "Erythromycin estolate: cholestatic jaundice; avoid in cholestatic liver disease.", alternatives: ["azithromycin (lower hepatotoxicity)", "clarithromycin (avoid in severe)"] },
+  // Antifungals (oral azoles)
+  { drugPattern: /ketoconazole/i, drugLabel: "ketoconazole (oral)", action: "AVOID", severity: "CONTRAINDICATED", minImpairment: "mild", rationale: "Oral ketoconazole: contraindicated due to fatal idiosyncratic hepatitis (FDA/EMA black box).", alternatives: ["topical ketoconazole", "fluconazole (with caution)", "terbinafine"] },
+  { drugPattern: /itraconazole/i, drugLabel: "itraconazole", action: "AVOID", severity: "SEVERE", minImpairment: "moderate", rationale: "Oral itraconazole: hepatotoxic, avoid in active liver disease; if essential, use lowest dose with weekly LFTs.", alternatives: ["fluconazole (with caution)", "voriconazole (specialist)"] },
+  { drugPattern: /fluconazole/i, drugLabel: "fluconazole", action: "DOSE_REDUCE", severity: "MODERATE", minImpairment: "moderate", rationale: "Fluconazole: dose-related hepatotoxicity; halve dose and monitor LFTs in moderate impairment.", alternatives: ["topical antifungal where feasible"] },
+  // Antipsychotics
+  { drugPattern: /chlorpromazine/i, drugLabel: "chlorpromazine", action: "AVOID", severity: "SEVERE", minImpairment: "moderate", rationale: "Chlorpromazine: cholestatic hepatitis in 1–2% of users; avoid in pre-existing liver disease.", alternatives: ["haloperidol (dose-reduced)", "risperidone"] },
+  { drugPattern: /haloperidol/i, drugLabel: "haloperidol", action: "DOSE_REDUCE", severity: "MODERATE", minImpairment: "moderate", rationale: "Haloperidol: hepatic clearance reduced; halve initial dose and titrate to effect in moderate-severe impairment.", alternatives: ["lower starting dose with slow titration"] },
+  // Antibiotics / antiprotozoal
+  { drugPattern: /metronidazole/i, drugLabel: "metronidazole", action: "DOSE_REDUCE", severity: "MODERATE", minImpairment: "severe", rationale: "Metronidazole: extensive hepatic metabolism; reduce dose by 50% and extend interval in severe impairment.", alternatives: ["tinidazole (with same caution)"] },
+  // Opioids
+  { drugPattern: /tramadol/i, drugLabel: "tramadol", action: "DOSE_REDUCE", severity: "MODERATE", minImpairment: "moderate", rationale: "Tramadol: extensive CYP3A4/CYP2D6 metabolism; max 50 mg every 12 hours in cirrhosis. Lowered seizure threshold.", alternatives: ["paracetamol (dose-reduced) ± low-dose morphine immediate release"] },
 ];
 
 // Severity ordering for hepatic impairment comparison
@@ -262,6 +297,63 @@ const HEPATIC_SEVERITY_ORDER: Record<"mild" | "moderate" | "severe", number> = {
   mild: 1,
   moderate: 2,
   severe: 3,
+};
+
+// ─── Pediatric weight-based dosing rules ─────────────────────────────────────
+// Curated against the Indian Academy of Pediatrics (IAP) Standard Treatment
+// Guidelines, WHO Pocket Book of Hospital Care for Children, and the BNF for
+// Children. Doses are per-administration unless otherwise noted; `frequency`
+// uses standard prescription notation (Q6H = every 6 hours). `maxDailyMg` is
+// the absolute ceiling regardless of weight (small adult dose cap).
+
+interface PediatricDoseRule {
+  drugPattern: RegExp;
+  drugLabel: string;
+  ageBandMonths?: { min: number; max: number };
+  weightBandKg?: { min: number; max: number };
+  doseMgPerKg: number; // single (per-administration) dose
+  frequency: "OD" | "BD" | "TDS" | "QID" | "Q4H" | "Q6H" | "Q8H" | "Q12H";
+  maxDoseMg?: number; // single-dose ceiling (mg)
+  maxDailyMg: number; // total daily ceiling (mg)
+  durationDaysMax?: number;
+  notes?: string;
+  // Tolerance applied to the per-kg dose when comparing the prescribed dose to
+  // the rule. Default is ±25% — covers normal rounding to commercial strengths.
+  toleranceFraction?: number;
+}
+
+const PEDIATRIC_DOSING: PediatricDoseRule[] = [
+  // Paracetamol — 15 mg/kg Q6H, max 60 mg/kg/day, infants ≥3 mo
+  { drugPattern: /paracetamol|acetaminophen/i, drugLabel: "paracetamol", ageBandMonths: { min: 3, max: 12 * 18 }, doseMgPerKg: 15, frequency: "Q6H", maxDoseMg: 1000, maxDailyMg: 4000, notes: "Max 60 mg/kg/day; not to exceed 4 g/day; minimum age 3 months." },
+  // Ibuprofen — 10 mg/kg Q8H, max 30 mg/kg/day, ≥6 mo (avoid <3 mo handled by PAEDIATRIC_RESTRICTIONS-style age gate below)
+  { drugPattern: /ibuprofen/i, drugLabel: "ibuprofen", ageBandMonths: { min: 6, max: 12 * 18 }, doseMgPerKg: 10, frequency: "Q8H", maxDoseMg: 400, maxDailyMg: 1200, notes: "Avoid <3 months; use with caution 3–6 months; max 30 mg/kg/day." },
+  // Amoxicillin — 25 mg/kg/dose BD or 15 mg/kg/dose TDS, max 1 g/dose
+  { drugPattern: /amoxicillin/i, drugLabel: "amoxicillin", ageBandMonths: { min: 1, max: 12 * 18 }, doseMgPerKg: 25, frequency: "BD", maxDoseMg: 1000, maxDailyMg: 3000, notes: "25 mg/kg BD (or 15 mg/kg TDS); max 1 g/dose. Higher doses for AOM/severe infection up to 45 mg/kg BD." },
+  // Amoxiclav — same band as amoxicillin (by amox component)
+  { drugPattern: /amoxiclav|amoxycillin\s*\+\s*clav|co.amoxiclav|augmentin/i, drugLabel: "amoxiclav", ageBandMonths: { min: 1, max: 12 * 18 }, doseMgPerKg: 25, frequency: "BD", maxDoseMg: 1000, maxDailyMg: 3000, notes: "Dose by amoxicillin component (25 mg/kg BD)." },
+  // Azithromycin — 10 mg/kg OD day 1 then 5 mg/kg OD × 4d, max 500 mg/dose
+  { drugPattern: /azithromycin/i, drugLabel: "azithromycin", ageBandMonths: { min: 6, max: 12 * 18 }, doseMgPerKg: 10, frequency: "OD", maxDoseMg: 500, maxDailyMg: 500, durationDaysMax: 5, notes: "10 mg/kg OD on day 1 (max 500 mg), then 5 mg/kg OD × 4 days." },
+  // Cefixime — 4 mg/kg BD, max 200 mg/dose
+  { drugPattern: /cefixime/i, drugLabel: "cefixime", ageBandMonths: { min: 6, max: 12 * 18 }, doseMgPerKg: 4, frequency: "BD", maxDoseMg: 200, maxDailyMg: 400, notes: "4 mg/kg BD; total daily 8 mg/kg up to 400 mg." },
+  // Ondansetron — 0.15 mg/kg, max 4 mg/dose
+  { drugPattern: /ondansetron/i, drugLabel: "ondansetron", ageBandMonths: { min: 6, max: 12 * 18 }, doseMgPerKg: 0.15, frequency: "Q8H", maxDoseMg: 4, maxDailyMg: 16, notes: "0.15 mg/kg per dose; absolute ceiling 4 mg/dose regardless of weight (QT prolongation)." },
+  // Albendazole — 200 mg <2 y, 400 mg ≥2 y; modelled as fixed-by-age. Use weightBandKg as a no-op gate.
+  { drugPattern: /albendazole/i, drugLabel: "albendazole", ageBandMonths: { min: 12, max: 24 }, doseMgPerKg: 0, frequency: "OD", maxDoseMg: 200, maxDailyMg: 200, durationDaysMax: 1, notes: "Fixed dose: 200 mg single dose for age 12–24 months. Not weight-based." },
+  { drugPattern: /albendazole/i, drugLabel: "albendazole", ageBandMonths: { min: 24, max: 12 * 18 }, doseMgPerKg: 0, frequency: "OD", maxDoseMg: 400, maxDailyMg: 400, durationDaysMax: 1, notes: "Fixed dose: 400 mg single dose for ≥2 years. Not weight-based." },
+  // Co-trimoxazole — 4 mg/kg/dose TMP component BD
+  { drugPattern: /co.trimoxazole|cotrimoxazole|septran|bactrim|sulfamethoxazole.*trimethoprim|trimethoprim.*sulfamethoxazole/i, drugLabel: "co-trimoxazole", ageBandMonths: { min: 2, max: 12 * 18 }, doseMgPerKg: 4, frequency: "BD", maxDoseMg: 160, maxDailyMg: 320, notes: "Dose by trimethoprim component: 4 mg TMP/kg BD (8 mg/kg/day); max 160 mg TMP per dose." },
+];
+
+// Per-administration -> doses-per-day multiplier for total daily dose checks.
+const FREQUENCY_DOSES_PER_DAY: Record<PediatricDoseRule["frequency"], number> = {
+  OD: 1,
+  BD: 2,
+  TDS: 3,
+  QID: 4,
+  Q4H: 6,
+  Q6H: 4,
+  Q8H: 3,
+  Q12H: 2,
 };
 
 // ─── Public deterministic functions ──────────────────────────────────────────
@@ -431,21 +523,303 @@ export function checkHepaticContraindications(
   if (hepaticImpairment === null || hepaticImpairment === undefined) return [];
   const alerts: DrugInteractionAlert[] = [];
   const patientSeverityLevel = HEPATIC_SEVERITY_ORDER[hepaticImpairment];
-  for (const { drugPattern, severity, minImpairment, description } of HEPATIC_RESTRICTIONS) {
-    if (patientSeverityLevel >= HEPATIC_SEVERITY_ORDER[minImpairment]) {
+  for (const rule of HEPATIC_RESTRICTIONS) {
+    if (patientSeverityLevel >= HEPATIC_SEVERITY_ORDER[rule.minImpairment]) {
       for (const med of proposedMeds) {
-        if (drugPattern.test(med)) {
+        if (rule.drugPattern.test(med)) {
           alerts.push({
             drug1: med,
             drug2: `[HEPATIC: ${hepaticImpairment} impairment]`,
-            severity,
-            description,
+            severity: rule.severity,
+            description: rule.rationale,
           });
         }
       }
     }
   }
   return alerts;
+}
+
+// ─── New per-drug hepatic risk lookup ────────────────────────────────────────
+
+/** Structured hepatic-risk result for a single drug. */
+export interface HepaticRiskResult {
+  drugName: string;
+  matchedRule: string; // canonical drug label from rule table
+  action: "AVOID" | "DOSE_REDUCE" | "MONITOR";
+  severity: DrugInteractionAlert["severity"];
+  rationale: string;
+  alternatives: string[];
+  patientImpairment: "MILD" | "MODERATE" | "SEVERE";
+}
+
+/**
+ * Look up the hepatic-impairment safety profile for a single drug. Returns
+ * `null` when there is no matching rule for the drug, or when the patient has
+ * `NONE` impairment, or when the patient's impairment is below the rule's
+ * threshold (e.g. a "moderate"-only rule for a patient with "mild" disease).
+ */
+export function checkHepaticRisk(
+  drugName: string,
+  hepaticImpairment: "NONE" | "MILD" | "MODERATE" | "SEVERE"
+): HepaticRiskResult | null {
+  if (hepaticImpairment === "NONE") return null;
+  const internal = hepaticImpairment.toLowerCase() as "mild" | "moderate" | "severe";
+  const patientLevel = HEPATIC_SEVERITY_ORDER[internal];
+
+  for (const rule of HEPATIC_RESTRICTIONS) {
+    if (!rule.drugPattern.test(drugName)) continue;
+    if (patientLevel < HEPATIC_SEVERITY_ORDER[rule.minImpairment]) continue;
+    return {
+      drugName,
+      matchedRule: rule.drugLabel,
+      action: rule.action,
+      severity: rule.severity,
+      rationale: rule.rationale,
+      alternatives: rule.alternatives ?? [],
+      patientImpairment: hepaticImpairment,
+    };
+  }
+  return null;
+}
+
+// ─── Pediatric weight-based dosing checker ───────────────────────────────────
+
+/** Outcome of a single pediatric dose check. */
+export interface PediatricDoseResult {
+  drugName: string;
+  matchedRule: string; // canonical drug label from rule table
+  weightKg: number;
+  ageMonths: number;
+  prescribedDoseMg: number;
+  prescribedFrequency: string;
+  expectedDoseMg: number; // dose * weight (capped at rule.maxDoseMg)
+  expectedDailyMg: number;
+  prescribedDailyMg: number;
+  status: "OK" | "UNDER_DOSE" | "OVER_DOSE_SINGLE" | "OVER_DAILY_CAP" | "AGE_OUT_OF_BAND";
+  severity: DrugInteractionAlert["severity"];
+  rationale: string;
+  notes?: string;
+}
+
+const FREQUENCY_NORMALISE_MAP: Record<string, PediatricDoseRule["frequency"]> = {
+  OD: "OD", QD: "OD", DAILY: "OD", "ONCE DAILY": "OD",
+  BD: "BD", BID: "BD", "TWICE DAILY": "BD", Q12H: "Q12H",
+  TDS: "TDS", TID: "TDS", "THRICE DAILY": "TDS", Q8H: "Q8H",
+  QID: "QID", QDS: "QID", "FOUR TIMES DAILY": "QID", Q6H: "Q6H",
+  Q4H: "Q4H",
+};
+
+function normaliseFrequency(freq: string): PediatricDoseRule["frequency"] | null {
+  const key = freq.trim().toUpperCase().replace(/\./g, "");
+  return FREQUENCY_NORMALISE_MAP[key] ?? null;
+}
+
+/**
+ * Validate a pediatric prescription against curated weight-based rules.
+ *
+ * Returns `null` when the drug is not in the pediatric rule set, when the
+ * patient's age does not fall in any rule's age band, or when essential inputs
+ * (weightKg, dosageMg) are missing/invalid. A non-null result indicates either
+ * a passing check (`status: "OK"`) or a flag (under-dose, over-dose, daily-cap
+ * breach, or age out of band).
+ */
+export function checkPediatricDose(
+  drugName: string,
+  dosageMg: number,
+  frequency: string,
+  weightKg: number,
+  ageMonths: number
+): PediatricDoseResult | null {
+  if (!drugName || !Number.isFinite(dosageMg) || dosageMg <= 0) return null;
+  if (!Number.isFinite(weightKg) || weightKg <= 0) return null;
+  if (!Number.isFinite(ageMonths) || ageMonths < 0) return null;
+
+  const candidateRules = PEDIATRIC_DOSING.filter((r) => r.drugPattern.test(drugName));
+  if (candidateRules.length === 0) return null;
+
+  // Pick the rule whose age band matches; if none, surface the closest (lowest min)
+  // rule with status AGE_OUT_OF_BAND so the caller can warn.
+  const inBand = candidateRules.find(
+    (r) => !r.ageBandMonths || (ageMonths >= r.ageBandMonths.min && ageMonths < r.ageBandMonths.max)
+  );
+
+  if (!inBand) {
+    const fallback = candidateRules[0];
+    return {
+      drugName,
+      matchedRule: fallback.drugLabel,
+      weightKg,
+      ageMonths,
+      prescribedDoseMg: dosageMg,
+      prescribedFrequency: frequency,
+      expectedDoseMg: 0,
+      expectedDailyMg: 0,
+      prescribedDailyMg: 0,
+      status: "AGE_OUT_OF_BAND",
+      severity: "MODERATE",
+      rationale: `${fallback.drugLabel}: patient age ${ageMonths} months falls outside the validated dosing band (${fallback.ageBandMonths?.min}–${fallback.ageBandMonths?.max} months). Verify with current pediatric formulary before prescribing.`,
+      notes: fallback.notes,
+    };
+  }
+
+  const normalisedFreq = normaliseFrequency(frequency) ?? inBand.frequency;
+  const dosesPerDay = FREQUENCY_DOSES_PER_DAY[normalisedFreq];
+  const tolerance = inBand.toleranceFraction ?? 0.25;
+
+  // Fixed-dose rules (e.g. albendazole) — doseMgPerKg is 0; just compare to maxDoseMg.
+  if (inBand.doseMgPerKg === 0 && inBand.maxDoseMg !== undefined) {
+    const target = inBand.maxDoseMg;
+    if (dosageMg > target * (1 + tolerance)) {
+      return {
+        drugName,
+        matchedRule: inBand.drugLabel,
+        weightKg,
+        ageMonths,
+        prescribedDoseMg: dosageMg,
+        prescribedFrequency: frequency,
+        expectedDoseMg: target,
+        expectedDailyMg: target,
+        prescribedDailyMg: dosageMg * dosesPerDay,
+        status: "OVER_DOSE_SINGLE",
+        severity: "SEVERE",
+        rationale: `${inBand.drugLabel}: prescribed ${dosageMg} mg exceeds the fixed pediatric dose of ${target} mg for this age band (${inBand.notes ?? ""}).`,
+        notes: inBand.notes,
+      };
+    }
+    if (dosageMg < target * (1 - tolerance)) {
+      return {
+        drugName,
+        matchedRule: inBand.drugLabel,
+        weightKg,
+        ageMonths,
+        prescribedDoseMg: dosageMg,
+        prescribedFrequency: frequency,
+        expectedDoseMg: target,
+        expectedDailyMg: target,
+        prescribedDailyMg: dosageMg * dosesPerDay,
+        status: "UNDER_DOSE",
+        severity: "MODERATE",
+        rationale: `${inBand.drugLabel}: prescribed ${dosageMg} mg is below the fixed pediatric dose of ${target} mg for this age band — risk of treatment failure.`,
+        notes: inBand.notes,
+      };
+    }
+    return {
+      drugName,
+      matchedRule: inBand.drugLabel,
+      weightKg,
+      ageMonths,
+      prescribedDoseMg: dosageMg,
+      prescribedFrequency: frequency,
+      expectedDoseMg: target,
+      expectedDailyMg: target,
+      prescribedDailyMg: dosageMg * dosesPerDay,
+      status: "OK",
+      severity: "MILD",
+      rationale: `${inBand.drugLabel}: dose appropriate for age band.`,
+      notes: inBand.notes,
+    };
+  }
+
+  // Weight-based path
+  const expectedSingleDose = Math.min(
+    inBand.doseMgPerKg * weightKg,
+    inBand.maxDoseMg ?? Number.POSITIVE_INFINITY
+  );
+  const expectedDailyDose = Math.min(expectedSingleDose * dosesPerDay, inBand.maxDailyMg);
+  const prescribedDailyDose = dosageMg * dosesPerDay;
+
+  // 1. Single-dose ceiling breach (always SEVERE — exceeds drug-specific cap).
+  if (inBand.maxDoseMg !== undefined && dosageMg > inBand.maxDoseMg * (1 + tolerance)) {
+    return {
+      drugName,
+      matchedRule: inBand.drugLabel,
+      weightKg,
+      ageMonths,
+      prescribedDoseMg: dosageMg,
+      prescribedFrequency: frequency,
+      expectedDoseMg: expectedSingleDose,
+      expectedDailyMg: expectedDailyDose,
+      prescribedDailyMg: prescribedDailyDose,
+      status: "OVER_DOSE_SINGLE",
+      severity: "SEVERE",
+      rationale: `${inBand.drugLabel}: single dose ${dosageMg} mg exceeds the absolute ceiling of ${inBand.maxDoseMg} mg/dose. Toxicity risk.`,
+      notes: inBand.notes,
+    };
+  }
+
+  // 2. Daily-cap breach.
+  if (prescribedDailyDose > inBand.maxDailyMg * (1 + tolerance)) {
+    return {
+      drugName,
+      matchedRule: inBand.drugLabel,
+      weightKg,
+      ageMonths,
+      prescribedDoseMg: dosageMg,
+      prescribedFrequency: frequency,
+      expectedDoseMg: expectedSingleDose,
+      expectedDailyMg: expectedDailyDose,
+      prescribedDailyMg: prescribedDailyDose,
+      status: "OVER_DAILY_CAP",
+      severity: "SEVERE",
+      rationale: `${inBand.drugLabel}: total daily dose ${prescribedDailyDose} mg exceeds the maximum daily ceiling of ${inBand.maxDailyMg} mg.`,
+      notes: inBand.notes,
+    };
+  }
+
+  // 3. Per-kg over-dose (above expected, but inside cap).
+  if (dosageMg > expectedSingleDose * (1 + tolerance)) {
+    return {
+      drugName,
+      matchedRule: inBand.drugLabel,
+      weightKg,
+      ageMonths,
+      prescribedDoseMg: dosageMg,
+      prescribedFrequency: frequency,
+      expectedDoseMg: expectedSingleDose,
+      expectedDailyMg: expectedDailyDose,
+      prescribedDailyMg: prescribedDailyDose,
+      status: "OVER_DOSE_SINGLE",
+      severity: "MODERATE",
+      rationale: `${inBand.drugLabel}: prescribed ${dosageMg} mg/dose exceeds the expected ${inBand.doseMgPerKg} mg/kg for ${weightKg} kg (≈ ${expectedSingleDose.toFixed(0)} mg).`,
+      notes: inBand.notes,
+    };
+  }
+
+  // 4. Under-dose.
+  if (dosageMg < expectedSingleDose * (1 - tolerance)) {
+    return {
+      drugName,
+      matchedRule: inBand.drugLabel,
+      weightKg,
+      ageMonths,
+      prescribedDoseMg: dosageMg,
+      prescribedFrequency: frequency,
+      expectedDoseMg: expectedSingleDose,
+      expectedDailyMg: expectedDailyDose,
+      prescribedDailyMg: prescribedDailyDose,
+      status: "UNDER_DOSE",
+      severity: "MODERATE",
+      rationale: `${inBand.drugLabel}: prescribed ${dosageMg} mg/dose is below the expected ${inBand.doseMgPerKg} mg/kg for ${weightKg} kg (≈ ${expectedSingleDose.toFixed(0)} mg). Risk of treatment failure.`,
+      notes: inBand.notes,
+    };
+  }
+
+  return {
+    drugName,
+    matchedRule: inBand.drugLabel,
+    weightKg,
+    ageMonths,
+    prescribedDoseMg: dosageMg,
+    prescribedFrequency: frequency,
+    expectedDoseMg: expectedSingleDose,
+    expectedDailyMg: expectedDailyDose,
+    prescribedDailyMg: prescribedDailyDose,
+    status: "OK",
+    severity: "MILD",
+    rationale: `${inBand.drugLabel}: dose within expected range for ${weightKg} kg / ${ageMonths} months.`,
+    notes: inBand.notes,
+  };
 }
 
 // ─── Generic alternatives lookup ─────────────────────────────────────────────
@@ -580,6 +954,29 @@ export interface DrugSafetyReport {
   checkedAt: string;
   checkedMeds: string[];
   genericAlternatives: { brandName: string; generics: string[] }[];
+  /** Per-drug pediatric dosing checks (only populated when weight + age provided and patient is < 18 years). */
+  pediatricDoseChecks?: PediatricDoseResult[];
+  /** Per-drug hepatic risk look-ups (only populated when hepaticImpairment is non-NONE/inferred from conditions). */
+  hepaticRiskChecks?: HepaticRiskResult[];
+}
+
+/**
+ * Infer Child-Pugh-style hepatic impairment level from a patient's chronic
+ * conditions list. Conservative — defaults to MODERATE on any liver-disease
+ * keyword unless an explicit "severe"/"decompensated"/"end-stage" qualifier is
+ * present. Returns "NONE" if nothing matches.
+ */
+export function inferHepaticImpairment(
+  chronicConditions: string[]
+): "NONE" | "MILD" | "MODERATE" | "SEVERE" {
+  if (!chronicConditions || chronicConditions.length === 0) return "NONE";
+  const blob = chronicConditions.join(" | ").toLowerCase();
+  if (!/(hepatic|cirrhosis|liver disease|liver failure|hepatitis|chronic liver)/.test(blob)) {
+    return "NONE";
+  }
+  if (/(severe|decompensated|end.?stage|child.?pugh\s*c|fulminant)/.test(blob)) return "SEVERE";
+  if (/(mild|child.?pugh\s*a|compensated)/.test(blob)) return "MILD";
+  return "MODERATE";
 }
 
 /**
@@ -597,6 +994,7 @@ export async function checkDrugSafety(
   chronicConditions: string[],
   patientMeta: {
     age?: number;
+    ageMonths?: number;
     gender?: string;
     weightKg?: number;
     eGFR?: number;
@@ -606,6 +1004,16 @@ export async function checkDrugSafety(
 ): Promise<DrugSafetyReport> {
   const medNames = proposedMeds.map((m) => m.name);
 
+  // Auto-derive hepatic state from chronic conditions when caller didn't pass
+  // an explicit value. Patients with documented cirrhosis / liver disease but
+  // no Child-Pugh class default to MODERATE.
+  const explicitHepatic = patientMeta.hepaticImpairment;
+  let effectiveHepatic: "mild" | "moderate" | "severe" | null = explicitHepatic ?? null;
+  if (!effectiveHepatic) {
+    const inferred = inferHepaticImpairment(chronicConditions);
+    if (inferred !== "NONE") effectiveHepatic = inferred.toLowerCase() as "mild" | "moderate" | "severe";
+  }
+
   // Layer 1 — fast deterministic (always runs, no API key needed)
   const deterministicAlerts = [
     ...checkAllergyContraindications(medNames, allergies),
@@ -613,14 +1021,65 @@ export async function checkDrugSafety(
     ...checkConditionContraindications(medNames, chronicConditions),
     ...checkPaediatricContraindications(medNames, patientMeta.age),
     ...checkRenalDosing(medNames, patientMeta.eGFR),
-    ...checkHepaticContraindications(medNames, patientMeta.hepaticImpairment ?? null),
+    ...checkHepaticContraindications(medNames, effectiveHepatic),
   ];
+
+  // Per-drug hepatic risk lookups (structured results)
+  const hepaticRiskChecks: HepaticRiskResult[] = [];
+  if (effectiveHepatic) {
+    const upper = effectiveHepatic.toUpperCase() as "MILD" | "MODERATE" | "SEVERE";
+    for (const name of medNames) {
+      const r = checkHepaticRisk(name, upper);
+      if (r) hepaticRiskChecks.push(r);
+    }
+  }
+
+  // Per-drug pediatric weight-based dose checks. Only run when patient is
+  // clearly pediatric (< 18 y) AND we have a weight. Translate doctor-supplied
+  // dose strings (e.g. "500mg", "10 ml of 250mg/5ml") to a numeric mg value
+  // using a permissive regex; if we can't, we skip silently.
+  const pediatricDoseChecks: PediatricDoseResult[] = [];
+  const ageYears = patientMeta.age;
+  const ageMonthsResolved =
+    patientMeta.ageMonths ??
+    (typeof ageYears === "number" ? Math.round(ageYears * 12) : undefined);
+  const isPediatric =
+    typeof ageMonthsResolved === "number" && ageMonthsResolved < 12 * 18;
+  if (isPediatric && typeof patientMeta.weightKg === "number" && patientMeta.weightKg > 0) {
+    for (const m of proposedMeds) {
+      const dosageMg = parseDoseToMg(m.dose);
+      if (dosageMg == null) continue;
+      const result = checkPediatricDose(
+        m.name,
+        dosageMg,
+        m.frequency,
+        patientMeta.weightKg,
+        ageMonthsResolved
+      );
+      if (!result) continue;
+      pediatricDoseChecks.push(result);
+      if (result.status !== "OK") {
+        deterministicAlerts.push({
+          drug1: m.name,
+          drug2: `[PEDIATRIC: ${patientMeta.weightKg} kg, ${ageMonthsResolved} mo]`,
+          severity: result.severity,
+          description: result.rationale,
+        });
+      }
+    }
+  }
 
   // Layer 2 — LLM (only if API key is present; non-fatal if it fails)
   let llmAlerts: DrugInteractionAlert[] = [];
   if (process.env.SARVAM_API_KEY && proposedMeds.length > 0) {
     try {
-      const raw = await checkWithAI(proposedMeds, currentMeds, allergies, chronicConditions, patientMeta);
+      const raw = await checkWithAI(
+        proposedMeds,
+        currentMeds,
+        allergies,
+        chronicConditions,
+        { ...patientMeta, hepaticImpairment: effectiveHepatic ?? undefined }
+      );
       // Deduplicate against deterministic results
       const detKeys = new Set(
         deterministicAlerts.map((a) => `${a.drug1}|${a.drug2}`.toLowerCase())
@@ -642,5 +1101,36 @@ export async function checkDrugSafety(
     checkedAt: new Date().toISOString(),
     checkedMeds: medNames,
     genericAlternatives,
+    pediatricDoseChecks: pediatricDoseChecks.length > 0 ? pediatricDoseChecks : undefined,
+    hepaticRiskChecks: hepaticRiskChecks.length > 0 ? hepaticRiskChecks : undefined,
   };
+}
+
+/**
+ * Best-effort parse of a clinical dose string into milligrams. Handles common
+ * patterns: "500mg", "0.5 g", "1 g", "250 mg", "5 ml of 250mg/5ml" (uses the
+ * mg/ml ratio × ml). Returns `null` when no numeric mg dose can be inferred.
+ */
+function parseDoseToMg(doseStr: string): number | null {
+  if (!doseStr) return null;
+  const lower = doseStr.toLowerCase().trim();
+
+  // mg per ml × ml form: "5 ml of 250mg/5ml" or "10 ml (200mg/5ml)"
+  const ratio = lower.match(/(\d+(?:\.\d+)?)\s*mg\s*\/\s*(\d+(?:\.\d+)?)\s*ml/);
+  const mlMatch = lower.match(/(\d+(?:\.\d+)?)\s*ml\b/);
+  if (ratio && mlMatch && !lower.includes("mg") || (ratio && mlMatch && !lower.includes(" mg "))) {
+    const mgPerMl = parseFloat(ratio[1]) / parseFloat(ratio[2]);
+    const ml = parseFloat(mlMatch[1]);
+    if (Number.isFinite(mgPerMl) && Number.isFinite(ml)) return mgPerMl * ml;
+  }
+
+  // Direct mg form: first standalone "<num> mg"
+  const mgMatch = lower.match(/(\d+(?:\.\d+)?)\s*mg(?!\s*\/\s*ml)/);
+  if (mgMatch) return parseFloat(mgMatch[1]);
+
+  // Gram form: "0.5 g", "1g"
+  const gMatch = lower.match(/(\d+(?:\.\d+)?)\s*g\b/);
+  if (gMatch) return parseFloat(gMatch[1]) * 1000;
+
+  return null;
 }

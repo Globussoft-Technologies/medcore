@@ -7,6 +7,7 @@ import { runDailyFraudScan } from "../routes/ai-fraud";
 import { runDailyDocQAScheduledTask } from "../routes/ai-doc-qa";
 import { runDailyNpsDriverRollup } from "../routes/ai-sentiment";
 import { runAuditLogArchival } from "./audit-archival";
+import { autoNoShowElapsedBookedTask } from "./auto-noshow";
 
 // ───────────────────────────────────────────────────────
 // Lightweight setInterval-based scheduler.
@@ -809,6 +810,15 @@ const TASKS: ScheduledTask[] = [
     intervalMinutes: 24 * 60,
     runAtHour: 6,
     run: autoAssignOverdueComplaintsTask,
+  },
+  // Issue #388 — every 30 min, transition past BOOKED appointments
+  // (>30 min beyond their IST start instant) to NO_SHOW so analytics,
+  // FHIR exports, and non-helper render paths see the correct status.
+  // Companion to render-layer fix in commit aa3ab9e.
+  {
+    name: "auto_noshow_elapsed_booked",
+    intervalMinutes: 30,
+    run: autoNoShowElapsedBookedTask,
   },
 ];
 

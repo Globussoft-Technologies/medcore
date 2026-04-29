@@ -222,9 +222,20 @@ function mapAllergySeverityBack(
   criticality: FhirAllergyIntolerance["criticality"],
   reactionSeverity?: "mild" | "moderate" | "severe"
 ): "MILD" | "MODERATE" | "SEVERE" | "LIFE_THREATENING" {
-  if (criticality === "high") return "SEVERE";
-  if (reactionSeverity === "severe") return "SEVERE";
-  if (reactionSeverity === "moderate" || criticality === "low") return "MODERATE";
+  // criticality === "high" is the SEVERE / LIFE_THREATENING bucket. The
+  // forward mapper compresses both to (criticality: "high", reactionSeverity:
+  // "severe") so we can't preserve the LIFE_THREATENING distinction without
+  // a coding extension; collapse to SEVERE on the way back.
+  if (criticality === "high" || reactionSeverity === "severe") return "SEVERE";
+  // The forward mapper emits BOTH MILD and MODERATE as criticality="low" —
+  // only `reactionSeverity` distinguishes them. Prefer reactionSeverity over
+  // criticality for that decision; falling through on criticality="low" alone
+  // would drift MILD → MODERATE on round-trip (issue #415, FHIR cluster B).
+  if (reactionSeverity === "moderate") return "MODERATE";
+  if (reactionSeverity === "mild") return "MILD";
+  // No reactionSeverity from the source bundle. criticality="low" alone is
+  // ambiguous; default to MILD (the more conservative, less-clinical-action
+  // bucket — flipping clinical urgency on incomplete data is the worse error).
   return "MILD";
 }
 
@@ -697,16 +708,31 @@ export async function ingestMedicationRequest(
     action = "create";
   }
 
-  await tx.prescriptionItem.create({
-    data: {
-      prescriptionId: prescription.id,
-      medicineName: medName,
-      dosage: dosageText,
-      frequency,
-      duration,
-      refills: resource.dispenseRequest?.numberOfRepeatsAllowed ?? 0,
-    },
+  // Dedupe by (prescriptionId, medicineName) so re-ingesting the same bundle
+  // doesn't double-write items. Without this the round-trip test
+  // (`ingest is idempotent — row counts unchanged`) failed because every
+  // re-ingest doubled prescriptionItems count (issue #415, FHIR cluster B).
+  const refills = resource.dispenseRequest?.numberOfRepeatsAllowed ?? 0;
+  const existingItem = await tx.prescriptionItem.findFirst({
+    where: { prescriptionId: prescription.id, medicineName: medName },
   });
+  if (existingItem) {
+    await tx.prescriptionItem.update({
+      where: { id: existingItem.id },
+      data: { dosage: dosageText, frequency, duration, refills },
+    });
+  } else {
+    await tx.prescriptionItem.create({
+      data: {
+        prescriptionId: prescription.id,
+        medicineName: medName,
+        dosage: dosageText,
+        frequency,
+        duration,
+        refills,
+      },
+    });
+  }
 
   return {
     id: prescription.id,

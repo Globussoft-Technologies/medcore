@@ -271,12 +271,17 @@ jobs:
         # `bash -lc` loads the user's profile so NVM is on PATH (the deploy
         # script itself sources NVM, but `npm`/`node` need to be reachable
         # before the script even starts).
+        # We invoke the script with an explicit `bash <path>` rather than
+        # `<path>` so the file's executable bit is irrelevant — git on
+        # Windows commits .sh files as 100644 by default, and a fresh clone
+        # of the dev server would otherwise hit "Permission denied" (exit 126)
+        # the first time CI tries to deploy.
         # The script handles git pull, npm ci, prisma generate + migrate
         # deploy, web build, pm2 restart, and a curl-based health check.
         run: |
           ssh -o BatchMode=yes -o ServerAliveInterval=30 \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            'bash -lc "/home/empcloud-development/medcore/scripts/deploy.sh --yes"'
+            'bash -lc "bash /home/empcloud-development/medcore/scripts/deploy.sh --yes"'
 
       - name: Smoke-check public endpoints
         if: success()

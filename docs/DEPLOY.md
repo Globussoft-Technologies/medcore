@@ -15,6 +15,38 @@
 
 ---
 
+## TL;DR — Most deploys now happen automatically
+
+As of commit `68cd765` (2026-04-29), every push to `main` triggers
+`.github/workflows/test.yml` → on green CI, the `deploy` job SSHes into the
+dev server and runs `scripts/deploy.sh --yes`. **You do not need to deploy
+by hand** for normal pushes to `main`. Watch the run at
+https://github.com/Globussoft-Technologies/medcore/actions.
+
+The CI gate runs `test`, `web-tests`, `typecheck`, and `e2e` — any red check
+blocks the deploy. Concurrency group `deploy-medcore-dev` ensures two
+overlapping pushes don't race on `npm ci` or pm2 restart.
+
+After the deploy script returns 0, the runner curls
+`https://medcore.globusdemos.com/api/health` and `/` from outside to confirm
+nginx is forwarding correctly.
+
+**The rest of this document is the manual fallback** — used when:
+
+- CI is itself broken and you need to ship a hotfix (e.g. the workflow file
+  has a syntax error)
+- You're shipping a destructive op (`--seed`, manual migration backfill,
+  data correction script) that the CI workflow intentionally never runs
+- The dev server's CI key has been rotated or revoked
+- You want a tighter feedback loop on a tricky migration and would rather
+  drive each step yourself
+
+To **temporarily disable auto-deploy**, comment out the `if:` line on the
+`deploy` job in `.github/workflows/test.yml` and push the change. Re-enable
+by reverting that commit.
+
+---
+
 ## 0. The `package-lock.json` drift pattern
 
 This bit us three deploys in a row in April 2026 and is worth knowing before
@@ -58,11 +90,17 @@ Do all of this on your laptop **before** SSHing into prod.
 
 Do **not** deploy when:
 
-- The CI pipeline on `main` is red.
+- The CI pipeline on `main` is red. (Auto-deploy already enforces this; the
+  rule applies to manual fallback too.)
 - Any `prisma migrate dev` has been run against the dev DB but the resulting
   migration folder is not committed.
 - There are local modifications to `packages/db/prisma/schema.prisma` that
   have not been materialised as a migration folder.
+
+If auto-deploy is healthy, **prefer pushing to main and watching CI** over
+SSHing in — the workflow runs the same `scripts/deploy.sh --yes` you would
+run by hand, with the same pre-flight guards, plus a public-side smoke
+check that catches nginx/proxy regressions a localhost curl can miss.
 
 ---
 

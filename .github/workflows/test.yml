@@ -271,17 +271,26 @@ jobs:
         # `bash -lc` loads the user's profile so NVM is on PATH (the deploy
         # script itself sources NVM, but `npm`/`node` need to be reachable
         # before the script even starts).
+        #
         # We invoke the script with an explicit `bash <path>` rather than
         # `<path>` so the file's executable bit is irrelevant — git on
         # Windows commits .sh files as 100644 by default, and a fresh clone
-        # of the dev server would otherwise hit "Permission denied" (exit 126)
-        # the first time CI tries to deploy.
+        # of the dev server would otherwise hit "Permission denied" (exit 126).
+        #
+        # We also pre-clean a stale `package-lock.json` before invoking the
+        # script. Background: npm/cli#4828 occasionally leaves the lock file
+        # dirty after `npm ci` resolves @tailwindcss/oxide's optional deps.
+        # The script's step-0 working-tree-clean check then aborts before
+        # it can `git pull` the in-tree workaround. Doing the cleanup here
+        # at the workflow level breaks the chicken-and-egg loop and matches
+        # the proven pattern from the original manual-deploy command.
+        #
         # The script handles git pull, npm ci, prisma generate + migrate
         # deploy, web build, pm2 restart, and a curl-based health check.
         run: |
           ssh -o BatchMode=yes -o ServerAliveInterval=30 \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            'bash -lc "bash /home/empcloud-development/medcore/scripts/deploy.sh --yes"'
+            'bash -lc "cd /home/empcloud-development/medcore && git checkout -- package-lock.json 2>/dev/null; bash scripts/deploy.sh --yes"'
 
       - name: Smoke-check public endpoints
         if: success()

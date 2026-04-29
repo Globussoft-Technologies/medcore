@@ -680,32 +680,53 @@ export async function ingestMedicationRequest(
   const frequency = parts[1] ?? timingText ?? "As needed";
   const duration = parts[2] ?? "As needed";
 
-  // Find or create the Prescription row. Idempotency key = most recent unlinked
-  // appointment for this patient/doctor.
-  const appointment = await tx.appointment.findFirst({
-    where: { patientId, doctorId },
-    orderBy: { date: "desc" },
-  });
-  if (!appointment) {
-    throw new Error(
-      "ingestMedicationRequest: no Appointment found for this patient/doctor pair"
-    );
+  // Forward mapper (resources.ts prescriptionToMedicationRequests) emits
+  // MedicationRequest.id as `${prescription.id}-${item.id ?? idx}` where
+  // prescription.id is a UUID (5 dash-segments). On round-trip we recover the
+  // source prescription.id by taking the first 5 segments back. This restores
+  // idempotency when the original prescription is not attached to the most
+  // recent appointment for the patient/doctor pair (issue #415, ChronicCare).
+  let prescription: { id: string; appointmentId: string } | null = null;
+  if (resource.id) {
+    const segments = resource.id.split("-");
+    if (segments.length >= 5) {
+      const candidatePrescriptionId = segments.slice(0, 5).join("-");
+      prescription = await tx.prescription.findUnique({
+        where: { id: candidatePrescriptionId },
+      });
+    }
   }
 
-  let prescription = await tx.prescription.findUnique({
-    where: { appointmentId: appointment.id },
-  });
   let action: IngestAction = "update";
   if (!prescription) {
-    prescription = await tx.prescription.create({
-      data: {
-        appointmentId: appointment.id,
-        patientId,
-        doctorId,
-        diagnosis: "Imported from FHIR bundle",
-      },
+    // Fallback for non-round-tripped bundles (external systems whose
+    // MedicationRequest.id doesn't carry our prescription-id prefix). Match
+    // the most recent appointment for this patient/doctor pair, reusing an
+    // existing prescription if one is attached, else creating a new one.
+    const appointment = await tx.appointment.findFirst({
+      where: { patientId, doctorId },
+      orderBy: { date: "desc" },
     });
-    action = "create";
+    if (!appointment) {
+      throw new Error(
+        "ingestMedicationRequest: no Appointment found for this patient/doctor pair"
+      );
+    }
+
+    prescription = await tx.prescription.findUnique({
+      where: { appointmentId: appointment.id },
+    });
+    if (!prescription) {
+      prescription = await tx.prescription.create({
+        data: {
+          appointmentId: appointment.id,
+          patientId,
+          doctorId,
+          diagnosis: "Imported from FHIR bundle",
+        },
+      });
+      action = "create";
+    }
   }
 
   // Dedupe by (prescriptionId, medicineName) so re-ingesting the same bundle

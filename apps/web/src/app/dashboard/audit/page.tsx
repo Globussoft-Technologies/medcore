@@ -241,12 +241,12 @@ export default function AuditPage() {
           <div>
             <p className="font-medium">
               Retention: {retention.retentionDays} days ·{" "}
-              {retention.totalEntries.toLocaleString()} entries stored
+              {(retention.totalEntries ?? 0).toLocaleString()} entries stored
               {retention.oldestEntry
                 ? ` · oldest ${new Date(retention.oldestEntry).toLocaleDateString()}`
                 : ""}
             </p>
-            {retention.byYear.length > 0 && (
+            {retention.byYear && retention.byYear.length > 0 && (
               <p className="mt-1 text-xs">
                 By year:{" "}
                 {retention.byYear
@@ -309,7 +309,7 @@ export default function AuditPage() {
             className="w-full rounded-lg border px-3 py-2 text-sm"
           >
             <option value="">All</option>
-            {filterOpts?.actions.map((a) => (
+            {filterOpts?.actions?.map((a) => (
               <option key={a} value={a}>
                 {a}
               </option>
@@ -326,7 +326,7 @@ export default function AuditPage() {
             className="w-full rounded-lg border px-3 py-2 text-sm"
           >
             <option value="">All</option>
-            {filterOpts?.users.map((u) => (
+            {filterOpts?.users?.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.name} ({u.email})
               </option>

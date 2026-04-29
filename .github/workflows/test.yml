@@ -1,5 +1,23 @@
 name: Test
 
+# Test + Deploy pipeline.
+#
+# - `test`, `web-tests`, `typecheck`, `e2e` run on every push and PR.
+# - `deploy` runs ONLY on push to main, after all four gates pass, and SSHes
+#   into the dev server to invoke scripts/deploy.sh --yes (the same script
+#   we used to invoke manually). Auto-deploy is acceptable here because the
+#   target is the dev/demo server, not a hospital production install.
+#
+# Required secrets (Settings → Secrets and variables → Actions):
+#   DEPLOY_SSH_KEY     — private key whose public counterpart is in
+#                        ~/.ssh/authorized_keys on the dev server. Generate a
+#                        new keypair specifically for CI; do not reuse a
+#                        personal key.
+#   DEPLOY_HOST        — IP or DNS of the dev server (e.g. 163.227.174.141).
+#   DEPLOY_USER        — Linux user the deploy runs as (e.g. empcloud-development).
+#   DEPLOY_KNOWN_HOSTS — output of `ssh-keyscan -H <host>` so the runner pins
+#                        the host key (avoids TOFU + MITM).
+
 on:
   push:
     branches: [main, develop]
@@ -208,3 +226,57 @@ jobs:
             api.log
             web.log
           retention-days: 7
+
+  deploy:
+    name: Deploy to dev server
+    runs-on: ubuntu-latest
+    needs: [test, web-tests, typecheck, e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Don't cancel a deploy that's already in progress — let it finish, then
+    # the next one runs. Two deploys racing on the same host can corrupt
+    # node_modules during `npm ci` or leave pm2 in a half-restarted state.
+    concurrency:
+      group: deploy-medcore-dev
+      cancel-in-progress: false
+
+    steps:
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Pin known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Run scripts/deploy.sh on the dev server
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        # `bash -lc` loads the user's profile so NVM is on PATH (the deploy
+        # script itself sources NVM, but `npm`/`node` need to be reachable
+        # before the script even starts).
+        # The script handles git pull, npm ci, prisma generate + migrate
+        # deploy, web build, pm2 restart, and a curl-based health check.
+        run: |
+          ssh -o BatchMode=yes -o ServerAliveInterval=30 \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            'bash -lc "/home/empcloud-development/medcore/scripts/deploy.sh --yes"'
+
+      - name: Smoke-check public endpoints
+        if: success()
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        # deploy.sh already curls localhost:4100 + localhost:3200 on the box.
+        # This is a *public* check — confirms nginx is forwarding correctly
+        # and nothing on the proxy side broke during the restart.
+        run: |
+          set -e
+          for path in /api/health /; do
+            curl -fsS --max-time 10 "https://medcore.globusdemos.com${path}" > /dev/null \
+              && echo "OK ${path}" \
+              || { echo "FAILED ${path}"; exit 1; }
+          done

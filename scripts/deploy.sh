@@ -39,6 +39,13 @@ done
 cd "$MEDCORE_DIR"
 
 echo "=== 0. Pre-flight: working tree clean ==="
+# Workaround for npm/cli#4828: `npm ci` on Linux can leave package-lock.json
+# dirty after resolving @tailwindcss/oxide's optional deps. The pin in
+# apps/web/package.json keeps this rare, but if it does happen we want the
+# next deploy to recover, not abort. Drop the cosmetic dirty state silently;
+# any genuine local edit to package-lock.json on prod is itself a bug we
+# don't want to preserve.
+git checkout -- package-lock.json 2>/dev/null || true
 if ! git diff --quiet || ! git diff --cached --quiet; then
     echo "  ABORT — uncommitted local changes on prod checkout."
     echo "  git status:"

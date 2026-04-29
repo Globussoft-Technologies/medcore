@@ -160,6 +160,7 @@ function ReportsPageBody() {
           <input
             type="date"
             value={date}
+            max={new Date().toISOString().slice(0, 10)}
             onChange={(e) => setDate(e.target.value)}
             className="rounded-lg border px-4 py-2 text-sm"
           />

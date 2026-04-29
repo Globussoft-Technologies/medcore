@@ -14,6 +14,35 @@ import { EmptyState } from "@/components/EmptyState";
 import { FileText } from "lucide-react";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 
+// Issue #398: render the prescription's actual issue date with explicit
+// en-IN locale and Asia/Kolkata TZ, so a server in UTC doesn't shift the
+// displayed date by one calendar day for late-evening prescriptions.
+const RX_DATE_FMT = new Intl.DateTimeFormat("en-IN", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  timeZone: "Asia/Kolkata",
+});
+
+function formatRxIssuedDate(value: string | null | undefined): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return RX_DATE_FMT.format(d);
+}
+
+// Issue #399: a follow-up date in the past is meaningless to the patient
+// (the visit either happened or was missed). Suppress it from the detail
+// pane so the row stops looking actionable. We compare in local time using
+// midnight-of-today as the cutoff so "today" is still shown.
+function isFollowUpPast(value: string): boolean {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return d.getTime() < today.getTime();
+}
+
 // Issue #90: RECEPTION must NOT see prescriptions / clinical diagnoses.
 // PHARMACIST + NURSE keep read access (dispensing + admin); PATIENT keeps
 // own-data view.
@@ -741,8 +770,11 @@ export default function PrescriptionsPage() {
                     <p className="text-sm font-medium">
                       {formatDoctorName(rx.doctor.user.name)}
                     </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {new Date(rx.createdAt).toLocaleDateString("en-IN")}
+                    <p
+                      className="text-xs text-gray-500 dark:text-gray-400"
+                      data-testid={`rx-issued-${rx.id}`}
+                    >
+                      Issued: {formatRxIssuedDate(rx.createdAt)}
                     </p>
                   </div>
                 </div>
@@ -781,10 +813,10 @@ export default function PrescriptionsPage() {
                       <span className="font-medium">Advice:</span> {rx.advice}
                     </p>
                   )}
-                  {rx.followUpDate && (
+                  {rx.followUpDate && !isFollowUpPast(rx.followUpDate) && (
                     <p className="mt-1 text-sm">
                       <span className="font-medium">Follow-up:</span>{" "}
-                      {new Date(rx.followUpDate).toLocaleDateString("en-IN")}
+                      {formatRxIssuedDate(rx.followUpDate)}
                     </p>
                   )}
                   <div className="mt-4 flex flex-wrap gap-2">

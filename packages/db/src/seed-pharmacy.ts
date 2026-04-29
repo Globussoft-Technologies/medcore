@@ -118,7 +118,11 @@ const LAB_TESTS: Array<{
   { code: "CRP", name: "C-Reactive Protein", category: "Biochemistry", price: 350, sampleType: "Serum", normalRange: "<5 mg/L" },
   { code: "VITD", name: "Vitamin D 25-OH", category: "Biochemistry", price: 1500, sampleType: "Serum", normalRange: "30-100 ng/mL" },
   { code: "VITB12", name: "Vitamin B12", category: "Biochemistry", price: 900, sampleType: "Serum", normalRange: "200-900 pg/mL" },
-  { code: "IRON", name: "Iron Studies", category: "Biochemistry", price: 1200, sampleType: "Serum" },
+  // Issue #402: removed duplicate "Iron Studies" row (code IRON). The richer
+  // multi-parameter version with reference ranges lives in
+  // packages/db/src/seed-lab-panels.ts (code IRONST). Both seeds upsert by
+  // `code`, so previously a reseed reliably produced two rows in the catalog
+  // with identical name+category but different codes.
   { code: "URINE", name: "Urine Routine & Microscopy", category: "Clinical Pathology", price: 150, sampleType: "Urine" },
   { code: "STOOL", name: "Stool Routine", category: "Clinical Pathology", price: 150, sampleType: "Stool" },
   { code: "URINCUL", name: "Urine Culture & Sensitivity", category: "Microbiology", price: 600, sampleType: "Urine (midstream)" },

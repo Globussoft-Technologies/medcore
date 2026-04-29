@@ -52,6 +52,10 @@ function vulnerabilityRank(flags: {
 // default so the consultation queue is unaffected.
 router.get(
   "/:doctorId",
+  // Issue #383 (CRITICAL prod RBAC bypass, Apr 29 2026): every authenticated
+  // user — including PATIENT — could read another doctor's full queue
+  // (token #, patient name, status). Restrict to clinical/operational staff.
+  authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR, Role.NURSE),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { date, dedupePatient } = req.query;
@@ -186,6 +190,8 @@ router.get(
 // GET /api/v1/queue — all doctors' current tokens (for display board)
 router.get(
   "/",
+  // Issue #383: see above. Same role set.
+  authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR, Role.NURSE),
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
       const today = new Date();

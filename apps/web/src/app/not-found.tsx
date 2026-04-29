@@ -3,17 +3,30 @@
  *
  * Next.js 15 picks up `app/not-found.tsx` for any unmatched route. The
  * default Next 404 leaves the user with no app shell and no obvious way
- * back, so we render a styled card with two CTAs:
- *   • Back to dashboard  (the most common need for a logged-in user)
- *   • Back to home       (for a logged-out / marketing visitor)
+ * back, so we render a styled card with a context-aware CTA:
+ *   • Logged-in users → "Back to dashboard"
+ *   • Logged-out users → "Sign in"  (issue #407 — we used to send them to
+ *     /dashboard which silently 401-bounced them to /login anyway, but the
+ *     extra hop felt like the page was broken)
  *
- * Server component (no "use client") — Next will statically pre-render
- * this. Both CTAs are plain anchors so they work with JS disabled.
+ * The "Back to home" CTA is always available as a low-key escape hatch.
+ *
+ * Client component (issue #407) — we need to read the auth store to decide
+ * which CTA to show. The page is small enough that the extra JS cost is
+ * irrelevant.
  */
 
+"use client";
+
 import Link from "next/link";
+import { useAuthStore } from "@/lib/store";
 
 export default function NotFound() {
+  const user = useAuthStore((s) => s.user);
+  const isAuthed = Boolean(user);
+  const primaryHref = isAuthed ? "/dashboard" : "/login";
+  const primaryLabel = isAuthed ? "Back to dashboard" : "Sign in";
+
   return (
     <div
       data-testid="not-found-page"
@@ -31,11 +44,11 @@ export default function NotFound() {
         </p>
         <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-center">
           <Link
-            href="/dashboard"
+            href={primaryHref}
             data-testid="not-found-dashboard-link"
             className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
           >
-            Back to dashboard
+            {primaryLabel}
           </Link>
           <Link
             href="/"

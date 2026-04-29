@@ -6,6 +6,10 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import {
+  displayStatusForAppointment,
+  formatAppointmentTime,
+} from "@/lib/appointments";
+import {
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
@@ -116,12 +120,25 @@ export default function UnifiedCalendarPage() {
         // the local-midnight helper so `fmtYmd` doesn't round it down a
         // day in negative-offset timezones.
         const d = parseEventDate(a.date);
+        // Issue #389: route every appointment time through the shared
+        // Asia/Kolkata formatter so the calendar tile and the My
+        // Appointments list always agree for the same row.
+        const apptTime = a.slotStart
+          ? formatAppointmentTime(a.slotStart, a.date)
+          : undefined;
+        // Issue #388: a `BOOKED` appointment whose start has passed should
+        // render as `COMPLETED` (display only).
+        const apptStatus = displayStatusForAppointment({
+          status: a.status,
+          slotStart: a.slotStart,
+          date: a.date,
+        });
         collected.push({
           id: `appt-${a.id}`,
           date: fmtYmd(d),
-          time: a.slotStart || undefined,
+          time: apptTime,
           title: a.patient?.user?.name || "Patient",
-          subtitle: `${a.type} · ${a.doctor?.user?.name ? formatDoctorName(a.doctor.user.name) : "—"}`,
+          subtitle: `${a.type} · ${a.doctor?.user?.name ? formatDoctorName(a.doctor.user.name) : "—"} · ${apptStatus}`,
           type: "appointment",
           href: `/dashboard/appointments?id=${a.id}`,
           color: "bg-blue-500",
@@ -328,9 +345,16 @@ export default function UnifiedCalendarPage() {
                       key={e.id}
                       onClick={() => setSelected(e)}
                       className={`block w-full truncate rounded px-1.5 py-0.5 text-left text-[10px] text-white ${e.color} hover:opacity-90`}
-                      title={e.title}
+                      title={e.time ? `${e.time} — ${e.title}` : e.title}
                     >
-                      {e.time ? `${e.time} ` : ""}
+                      {/* Issue #397: always surface the appointment start
+                          time on the tile, not just the patient/doctor name.
+                          The time is bolded so it's the first thing the user
+                          parses. Falls back to title-only for events that
+                          truly have no time (e.g. all-day ANC visits). */}
+                      {e.time && (
+                        <span className="font-semibold">{e.time} · </span>
+                      )}
                       {e.title}
                     </button>
                   ))}

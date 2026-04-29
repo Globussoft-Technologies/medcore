@@ -19,6 +19,16 @@ const PATIENT_NAME_REGEX = /^[A-Za-zऀ-ॿ\s.\-']{1,100}$/;
 // Issue #103 / #138: 10–15 digit phone with optional leading "+".
 const PATIENT_PHONE_REGEX = /^\+?\d{10,15}$/;
 
+// Issue #382 (CRITICAL prod RBAC bypass, Apr 29 2026): Patients Registry
+// holds PII for every patient in the clinic and must be staff-only. PATIENT
+// role was previously able to load this page directly via URL.
+const PATIENTS_ALLOWED = new Set([
+  "ADMIN",
+  "RECEPTION",
+  "DOCTOR",
+  "NURSE",
+]);
+
 interface PatientRecord {
   id: string;
   mrNumber: string;
@@ -33,13 +43,21 @@ interface PatientRecord {
 }
 
 export default function PatientsPage() {
-  const { user } = useAuthStore();
+  const { user, isLoading: authLoading } = useAuthStore();
   const { t } = useTranslation();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [patients, setPatients] = useState<PatientRecord[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+
+  // Issue #382: redirect non-staff (PATIENT, etc.) away before any data fetch.
+  useEffect(() => {
+    if (!authLoading && user && !PATIENTS_ALLOWED.has(user.role)) {
+      toast.error("Patient registry is staff-only.");
+      router.replace("/dashboard");
+    }
+  }, [authLoading, user, router]);
   // Issue #143: when redirected here from /dashboard/patients/register
   // the URL carries `?register=1` and we open the registration form.
   const [showForm, setShowForm] = useState(searchParams.get("register") === "1");

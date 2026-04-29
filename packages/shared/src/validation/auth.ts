@@ -75,6 +75,12 @@ export const resetPasswordSchema = z.object({
 // - phone: optional E.164-ish: 10–15 digits, optional leading "+".
 // - photoUrl / preferredLanguage / defaultLandingPage: tolerated but
 //   cleaned of stray whitespace.
+//
+// Issues #392, #393 (Apr 2026): when the keys are present on the patch
+// body (the Settings → Profile form always sends both), reject empty
+// strings outright with the field-specific message. `.optional()` still
+// allows the key to be omitted entirely (used by Preferences tab which
+// only sends preferredLanguage / defaultLandingPage).
 export const updateProfileSchema = z
   .object({
     name: z

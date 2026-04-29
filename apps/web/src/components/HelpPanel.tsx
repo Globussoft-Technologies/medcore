@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { usePathname } from "next/navigation";
 import { HelpCircle, X } from "lucide-react";
+import { useAuthStore } from "@/lib/store";
 
 const PAGE_HELP: Record<string, { title: string; bullets: string[] }> = {
   "/dashboard": {
@@ -167,7 +168,11 @@ const PAGE_HELP: Record<string, { title: string; bullets: string[] }> = {
   },
 };
 
-const SHORTCUTS: { keys: string; label: string }[] = [
+// Issue #405: shortcuts panel must reflect what the user can actually do.
+// Previously every role saw the same list — so a PATIENT was told they could
+// "Go to Patients" / "Go to Queue", which 403s for them, and were missing
+// patient-specific entry points (Bills, Prescriptions, Telemedicine).
+const STAFF_SHORTCUTS: { keys: string; label: string }[] = [
   { keys: "Ctrl+K", label: "Open global search" },
   { keys: "?", label: "Show keyboard shortcuts" },
   { keys: "g h", label: "Go to Dashboard" },
@@ -178,9 +183,32 @@ const SHORTCUTS: { keys: string; label: string }[] = [
   { keys: "Esc", label: "Close modal / drawer" },
 ];
 
+const PATIENT_SHORTCUTS: { keys: string; label: string }[] = [
+  { keys: "Ctrl+K", label: "Open global search" },
+  { keys: "?", label: "Show keyboard shortcuts" },
+  { keys: "g h", label: "Go to Dashboard" },
+  { keys: "g a", label: "Go to My Appointments" },
+  { keys: "Esc", label: "Close modal / drawer" },
+];
+
+const PATIENT_QUICK_LINKS: { href: string; label: string }[] = [
+  { href: "/dashboard/ai-booking", label: "Book an appointment" },
+  { href: "/dashboard/appointments", label: "View my appointments" },
+  { href: "/dashboard/prescriptions", label: "View my prescriptions" },
+  { href: "/dashboard/billing", label: "View my bills" },
+  { href: "/dashboard/settings", label: "Change my password" },
+];
+
 export function HelpPanel({ onStartTour }: { onStartTour?: () => void }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname() || "";
+  // Issue #405: role-aware shortcut + page-help filtering. PATIENT users
+  // were previously shown staff-only shortcut entries ("Go to Patients",
+  // "Go to Queue") that 403 server-side, plus PAGE_HELP bullets framed
+  // around staff workflows (e.g. "Search and register patients").
+  const role = useAuthStore((s) => s.user?.role);
+  const isPatient = role === "PATIENT";
+  const shortcuts = isPatient ? PATIENT_SHORTCUTS : STAFF_SHORTCUTS;
 
   const entry =
     PAGE_HELP[pathname] ||
@@ -245,12 +273,33 @@ export function HelpPanel({ onStartTour }: { onStartTour?: () => void }) {
                 </ul>
               </section>
 
+              {isPatient && (
+                <section>
+                  <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                    Quick links
+                  </h3>
+                  <ul className="mt-2 space-y-1 text-sm">
+                    {PATIENT_QUICK_LINKS.map((l) => (
+                      <li key={l.href}>
+                        <a
+                          href={l.href}
+                          onClick={() => setOpen(false)}
+                          className="block rounded-md px-2 py-1.5 text-primary hover:bg-gray-50 hover:underline dark:hover:bg-gray-700"
+                        >
+                          {l.label}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
               <section>
                 <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                   Keyboard shortcuts
                 </h3>
                 <dl className="mt-2 space-y-1 text-sm">
-                  {SHORTCUTS.map((s) => (
+                  {shortcuts.map((s) => (
                     <div
                       key={s.keys}
                       className="flex items-center justify-between"

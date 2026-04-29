@@ -357,7 +357,9 @@ export default function TelemedicinePage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Telemedicine</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Virtual video consultations with patients
+            {user?.role === "PATIENT"
+              ? "Join your scheduled video consultations"
+              : "Virtual video consultations with patients"}
           </p>
         </div>
         {canSchedule && (
@@ -416,10 +418,19 @@ export default function TelemedicinePage() {
                   </span>
                 </div>
 
-                <h3 className="text-base font-semibold">{s.patient.user.name}</h3>
+                <h3 className="text-base font-semibold">
+                  {user?.role === "PATIENT"
+                    ? `${formatDoctorName(s.doctor.user.name)}${
+                        s.doctor.specialization ? ` — ${s.doctor.specialization}` : ""
+                      }`
+                    : s.patient.user.name}
+                </h3>
                 <p className="text-sm text-gray-500 dark:text-gray-300">
-                  {formatDoctorName(s.doctor.user.name)}
-                  {s.doctor.specialization && ` · ${s.doctor.specialization}`}
+                  {user?.role === "PATIENT"
+                    ? s.patient.user.name
+                    : `${formatDoctorName(s.doctor.user.name)}${
+                        s.doctor.specialization ? ` · ${s.doctor.specialization}` : ""
+                      }`}
                 </p>
 
                 <div className="mt-3 text-sm">

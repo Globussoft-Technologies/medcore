@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { useAuthStore } from "@/lib/store";
 import {
   Search,
   User,
@@ -81,6 +82,15 @@ export function SearchPalette({
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+  // Issue #406: the global search placeholder used to read
+  // "Search patients, appointments, invoices, prescriptions..." for every
+  // role — including PATIENT, who has no business searching the patient
+  // roster. Tailor the hint copy to what the role can actually find.
+  const role = useAuthStore((s) => s.user?.role);
+  const placeholder =
+    role === "PATIENT"
+      ? "Search appointments, prescriptions, bills…"
+      : "Search patients, appointments, invoices, prescriptions...";
 
   useEffect(() => {
     if (open) {
@@ -174,7 +184,7 @@ export function SearchPalette({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={onKey}
-            placeholder="Search patients, appointments, invoices, prescriptions..."
+            placeholder={placeholder}
             className="flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400"
           />
           <kbd className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">

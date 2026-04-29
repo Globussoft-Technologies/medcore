@@ -21,21 +21,25 @@ describeIfDB("Queue API (integration)", () => {
     app = mod.app;
   });
 
-  it("lists doctor queue (public — no auth required)", async () => {
+  it("lists doctor queue (staff-only post #383, ADMIN allowed)", async () => {
     const doctor = await createDoctorFixture();
     const patient = await createPatientFixture();
     await createAppointmentFixture({
       patientId: patient.id,
       doctorId: doctor.id,
     });
-    const res = await request(app).get(`/api/v1/queue/${doctor.id}`);
+    const res = await request(app)
+      .get(`/api/v1/queue/${doctor.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.data?.queue?.length).toBeGreaterThan(0);
   });
 
   it("returns currentToken null when nobody in consultation", async () => {
     const doctor = await createDoctorFixture();
-    const res = await request(app).get(`/api/v1/queue/${doctor.id}`);
+    const res = await request(app)
+      .get(`/api/v1/queue/${doctor.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.data?.currentToken).toBeNull();
   });
@@ -56,7 +60,9 @@ describeIfDB("Queue API (integration)", () => {
       doctorId: doctor.id,
       overrides: { tokenNumber: 2 },
     });
-    const res = await request(app).get(`/api/v1/queue/${doctor.id}`);
+    const res = await request(app)
+      .get(`/api/v1/queue/${doctor.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.data.queue[0].tokenNumber).toBe(1);
     expect(res.body.data.queue[1].tokenNumber).toBe(2);
@@ -76,7 +82,9 @@ describeIfDB("Queue API (integration)", () => {
       doctorId: doctor.id,
       overrides: { tokenNumber: 2, priority: "EMERGENCY" },
     });
-    const res = await request(app).get(`/api/v1/queue/${doctor.id}`);
+    const res = await request(app)
+      .get(`/api/v1/queue/${doctor.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.data.queue[0].priority).toBe("EMERGENCY");
   });
@@ -89,7 +97,9 @@ describeIfDB("Queue API (integration)", () => {
       doctorId: doctor.id,
       overrides: { status: "BOOKED" },
     });
-    const res = await request(app).get(`/api/v1/queue/${doctor.id}`);
+    const res = await request(app)
+      .get(`/api/v1/queue/${doctor.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.data.totalInQueue).toBe(1);
   });
@@ -101,19 +111,41 @@ describeIfDB("Queue API (integration)", () => {
       patientId: patient.id,
       doctorId: doctor.id,
     });
-    const res = await request(app).get(`/api/v1/queue/${doctor.id}`);
+    const res = await request(app)
+      .get(`/api/v1/queue/${doctor.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     const item = res.body.data.queue[0];
     expect(item.estimatedWaitMinutes).toBeGreaterThanOrEqual(0);
   });
 
-  it("display board lists all doctors", async () => {
+  it("display board lists all doctors (staff-only post #383)", async () => {
     await createDoctorFixture();
     await createDoctorFixture();
-    const res = await request(app).get("/api/v1/queue");
+    const res = await request(app)
+      .get("/api/v1/queue")
+      .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.data)).toBe(true);
     expect(res.body.data.length).toBeGreaterThanOrEqual(2);
+  });
+
+  // Issue #383 (CRITICAL prod RBAC bypass, Apr 29 2026): the queue exposes
+  // tokens, patient names and statuses for every patient currently waiting
+  // across the clinic. PATIENT role must NOT be able to read it.
+  it("rejects PATIENT role from /queue display board (403, #383)", async () => {
+    const res = await request(app)
+      .get("/api/v1/queue")
+      .set("Authorization", `Bearer ${patientToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects PATIENT role from /queue/:doctorId (403, #383)", async () => {
+    const doctor = await createDoctorFixture();
+    const res = await request(app)
+      .get(`/api/v1/queue/${doctor.id}`)
+      .set("Authorization", `Bearer ${patientToken}`);
+    expect(res.status).toBe(403);
   });
 
   it("notify-position requires auth (401)", async () => {

@@ -373,6 +373,10 @@ export default function BillingPage() {
   ];
 
   const isStaff = user?.role === "ADMIN" || user?.role === "RECEPTION";
+  // Issue #401: when the logged-in user IS the patient, hiding their own
+  // phone number on every invoice row removes redundant noise. Staff
+  // (ADMIN/RECEPTION) still need it for collections.
+  const isPatient = user?.role === "PATIENT";
 
   const enrichedInvoices = useMemo(
     () =>
@@ -496,7 +500,9 @@ export default function BillingPage() {
                       >
                         {r.patient.user.name}
                       </Link>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{r.patient.user.phone}</p>
+                      {!isPatient && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{r.patient.user.phone}</p>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-sm">{fmtMoney(r.totalAmount)}</td>
                     <td className="px-4 py-3 text-sm">{fmtMoney(r.paid)}</td>
@@ -567,7 +573,9 @@ export default function BillingPage() {
                     >
                       {inv.patient.user.name}
                     </Link>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{inv.patient.user.phone}</p>
+                    {!isPatient && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{inv.patient.user.phone}</p>
+                    )}
                   </td>
                   <td className="px-4 py-3 font-medium">{fmtMoney(inv.totalAmount)}</td>
                   <td className="px-4 py-3 text-sm">{fmtMoney(inv.netPaid)}</td>
@@ -578,7 +586,15 @@ export default function BillingPage() {
                   >
                     {fmtMoney(inv.balance)}
                   </td>
-                  <td className={`px-4 py-3 text-sm ${overdueClass(inv.age)}`}>
+                  {/* Issue #400: Age must be computed per-row from the
+                      invoice's createdAt, not a hardcoded constant. The
+                      enrichedInvoices memo above runs daysAgo(inv.createdAt)
+                      for every row. testid lets future tests lock that
+                      uniqueness so this regression cannot reappear silently. */}
+                  <td
+                    data-testid={`bills-age-${inv.id}`}
+                    className={`px-4 py-3 text-sm ${overdueClass(inv.age)}`}
+                  >
                     {inv.age}d
                   </td>
                   <td className="px-4 py-3">

@@ -922,41 +922,57 @@ function PatientHome() {
   const [labs, setLabs] = useState<any[]>([]);
   const [notifs, setNotifs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  // Issue #404: track which cards failed so we can render an em-dash
+  // placeholder instead of a misleading empty state. Previously a single
+  // rejected fetch left the whole grid stuck on skeletons because the
+  // setLoading(false) call was guarded behind a `Promise.all` that, while
+  // each promise had a `.catch`, was still vulnerable to any unhandled
+  // throw inside the body (e.g. `.sort()` on a non-array shape from a
+  // partially-broken endpoint). We now use Promise.allSettled and unpack
+  // each result independently with strict shape checks.
+  const [billsFailed, setBillsFailed] = useState(false);
+  const [rxFailed, setRxFailed] = useState(false);
+  const [labsFailed, setLabsFailed] = useState(false);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       const today = new Date().toISOString().split("T")[0];
-      const [ap, inv, rxRes, labRes, noRes] = await Promise.all([
-        api
-          .get<{ data: any[] }>(
-            `/appointments?mine=true&from=${today}&status=BOOKED,CHECKED_IN&limit=5`
-          )
-          .catch(() => ({ data: [] })),
-        api
-          .get<{ data: any[] }>(
-            `/billing/invoices?mine=true&status=PENDING,PARTIAL&limit=5`
-          )
-          .catch(() => ({ data: [] })),
-        api
-          .get<{ data: any[] }>(`/prescriptions?mine=true&limit=5`)
-          .catch(() => ({ data: [] })),
-        api
-          .get<{ data: any[] }>(`/lab/orders?mine=true&limit=5`)
-          .catch(() => ({ data: [] })),
-        api
-          .get<{ data: any[] }>(`/notifications?unread=true&limit=5`)
-          .catch(() => ({ data: [] })),
+      const settled = await Promise.allSettled([
+        api.get<{ data: any[] }>(
+          `/appointments?mine=true&from=${today}&status=BOOKED,CHECKED_IN&limit=5`
+        ),
+        // /billing/invoices accepts ?mine=true (apps/api/src/routes/billing.ts);
+        // PATIENT role is auto-scoped server-side so this is a no-op the
+        // server tolerates — kept for self-documentation.
+        api.get<{ data: any[] }>(
+          `/billing/invoices?mine=true&status=PENDING,PARTIAL&limit=5`
+        ),
+        // /prescriptions auto-scopes PATIENT to their patientId; ?mine=true
+        // is a hint, not enforced.
+        api.get<{ data: any[] }>(`/prescriptions?mine=true&limit=5`),
+        // /lab/orders ditto — auto-scopes PATIENT inline.
+        api.get<{ data: any[] }>(`/lab/orders?mine=true&limit=5`),
+        api.get<{ data: any[] }>(`/notifications?unread=true&limit=5`),
       ]);
-      const upc = (ap.data || []).sort(
+      const safeArr = (s: PromiseSettledResult<{ data: any[] }>): any[] => {
+        if (s.status !== "fulfilled") return [];
+        const arr = s.value?.data;
+        return Array.isArray(arr) ? arr : [];
+      };
+      const apArr = safeArr(settled[0]);
+      const upc = [...apArr].sort(
         (a: any, b: any) =>
           new Date(a.date).getTime() - new Date(b.date).getTime()
       )[0];
       setUpcoming(upc || null);
-      setBills(inv.data || []);
-      setRx((rxRes.data || []).slice(0, 5));
-      setLabs((labRes.data || []).slice(0, 5));
-      setNotifs((noRes.data || []).slice(0, 5));
+      setBills(safeArr(settled[1]));
+      setBillsFailed(settled[1].status === "rejected");
+      setRx(safeArr(settled[2]).slice(0, 5));
+      setRxFailed(settled[2].status === "rejected");
+      setLabs(safeArr(settled[3]).slice(0, 5));
+      setLabsFailed(settled[3].status === "rejected");
+      setNotifs(safeArr(settled[4]).slice(0, 5));
       setLoading(false);
     })();
   }, []);
@@ -1059,7 +1075,10 @@ function PatientHome() {
           </div>
           {bills.length === 0 ? (
             <p className="py-6 text-center text-sm text-gray-400">
-              No pending bills 🎉
+              {/* Issue #404: when the fetch fails we no longer want a falsely
+                  cheerful "No pending bills" — show the em-dash placeholder
+                  the same way `formatINR(null)` would render. */}
+              {billsFailed ? "—" : "No pending bills"}
             </p>
           ) : (
             <div className="space-y-2">
@@ -1070,7 +1089,8 @@ function PatientHome() {
                 >
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-800">
-                      Rs. {(b.totalAmount || 0).toLocaleString("en-IN")}
+                      {/* Issue #403: canonical ₹ formatter, no more "Rs." */}
+                      {formatINR(b.totalAmount || 0)}
                     </p>
                     <p className="truncate text-[11px] text-gray-500">
                       #{b.invoiceNumber} ·{" "}
@@ -1104,7 +1124,7 @@ function PatientHome() {
           </div>
           {rx.length === 0 ? (
             <p className="py-6 text-center text-sm text-gray-400">
-              No prescriptions yet
+              {rxFailed ? "—" : "No prescriptions yet"}
             </p>
           ) : (
             <div className="space-y-2">
@@ -1161,7 +1181,7 @@ function PatientHome() {
           </div>
           {labs.length === 0 ? (
             <p className="py-6 text-center text-sm text-gray-400">
-              No lab results
+              {labsFailed ? "—" : "No lab results"}
             </p>
           ) : (
             <div className="space-y-2">

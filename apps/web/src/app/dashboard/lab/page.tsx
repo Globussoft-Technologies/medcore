@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
+import { formatINR } from "@/lib/currency";
 import { Plus, FlaskConical } from "lucide-react";
 
 // Issue #90: RECEPTION must NOT see lab orders / results / result-entry form.
@@ -263,7 +264,9 @@ export default function LabPage() {
                         </p>
                       )}
                       {t.price !== undefined && (
-                        <p className="mt-1 text-xs">₹{t.price}</p>
+                        // Issue #403: canonical INR format ("₹1,200.00") via
+                        // shared formatINR — was bare "₹1200" before.
+                        <p className="mt-1 text-xs">{formatINR(t.price)}</p>
                       )}
                     </div>
                   ))}

@@ -1,11 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { useAuthStore } from "@/lib/store";
 import { ArrowLeft, Receipt, Percent } from "lucide-react";
+
+// Issue #385 (CRITICAL prod RBAC bypass, Apr 29 2026): bulk-billing page
+// renders Bulk Payment / Bulk Discount actions and must be staff-only. The
+// linked-from-listing flow already gates by role, but a PATIENT could
+// previously hit this URL directly and trigger admin mutations.
+const BILLING_PATIENT_ALLOWED = new Set(["ADMIN", "RECEPTION"]);
 
 interface PatientInvoice {
   id: string;
@@ -40,6 +47,17 @@ function overdueClass(days: number) {
 export default function PatientBillingPage() {
   const params = useParams();
   const patientId = params.patientId as string;
+  const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+  const isAuthLoading = useAuthStore((s) => s.isLoading);
+
+  // Issue #385: redirect non-staff (PATIENT, etc.) away before fetching.
+  useEffect(() => {
+    if (!isAuthLoading && user && !BILLING_PATIENT_ALLOWED.has(user.role)) {
+      toast.error("Bulk billing is staff-only.");
+      router.replace("/dashboard");
+    }
+  }, [isAuthLoading, user, router]);
 
   const [loading, setLoading] = useState(true);
   const [invoices, setInvoices] = useState<PatientInvoice[]>([]);

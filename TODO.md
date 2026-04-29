@@ -4,7 +4,36 @@ Next-session priority list. The full per-issue history lives in
 [`docs/SESSION_SNAPSHOT_2026-04-27.md`](docs/SESSION_SNAPSHOT_2026-04-27.md);
 this file is the short, actionable checklist.
 
-> Updated: 2026-04-27 (end-of-day, post `aec6ca4` Sprint 1 deploy)
+> Updated: 2026-04-30 (end-of-day, post `848f248` UI hygiene batch)
+
+---
+
+## CI status — what's green and what's not (2026-04-30)
+
+The original #415 cluster (FHIR round-trip / web unhandled errors / DOMMatrix
+polyfill / null-guards / pdfjs) is **closed** as of `848f248` and predecessors.
+End state on `main`:
+
+- ✅ Type check, ✅ Web component tests (108 files / 665 tests), ✅ Deploy to
+  dev server (every push since `937409e` ships cleanly).
+- ❌ **API integration step** — `Run integration tests` (`npm run test:api`)
+  has 25 failing test files surfaced after the unit/contract step went green.
+  See [#415](https://github.com/Globussoft-Technologies/medcore/issues/415#issuecomment-4347064266) for the list and triage.
+
+**Deploy gate stays at `[typecheck]` for now** — restoring
+`[test, web-tests, typecheck, e2e]` would block the dev-server deploy on
+this pre-existing rot. The integration cleanup is its own focused sweep
+(estimated 5-15 hours). Highest-leverage targets:
+
+1. Whole-suite reds (likely shared setup): `ai-triage` (13/13),
+   `ai-radiology` (6/6), `auth-edges`, `auth-2fa`, `realtime`. Diagnose
+   one test in each suite — fix probably cascades.
+2. `permissions-matrix` (10 RBAC mismatches) — fold into #174.
+3. Scattered: `ai-claims`, `ai-letters`, `ai-pharmacy`, `antenatal*`,
+   `audit-phi`, `chat`, `expenses`, `medicines`, `queue`, `users`,
+   `realtime-delivery`, `role-expansion`, `agent-console`,
+   `ai-predictions`, `ai-regressions-2026-04-26`, `ambulance`,
+   `admissions`, `auth`. One-off fixes after the whole-suite reds.
 
 ---
 
@@ -38,18 +67,26 @@ For history. All 5 gaps closed and deployed:
 
 ---
 
-## Open GitHub issues (5)
+## Open GitHub issues — high-priority backlog
 
 | # | Severity | Title | Approach |
 |---|---|---|---|
-| **174** | High | RBAC bypassable via direct URL (multiple admin modules) | Audit every dashboard page's role-gate hook; cross-check against backend `authorize(...)`. Reuse the `apps/api/src/test/integration/rbac-hardening.test.ts` pattern from #89/#98 — one new assertion per route. |
+| **415** | — | CI integration step still red (25 files) | See "CI status" section above; not blocking deploy. |
+| **414** | — | Tracking: 61 open bugs from 2026-04-29 triage | Live punch-list. Replaces #94 / #188 (closed 2026-04-29 as superseded). |
+| **174** | High | RBAC bypassable via direct URL (multiple admin modules) | Audit every dashboard page's role-gate hook; cross-check against backend `authorize(...)`. Reuse the `apps/api/src/test/integration/rbac-hardening.test.ts` pattern from #89/#98 — one new assertion per route. Overlaps with the `permissions-matrix` integration failures in #415. |
 | **173** | Low | Referrals — Specialty is free-text picker | Copy/paste of #97's fix. Replace `<input>` with the existing ICD-10/specialty Autocomplete already used in Surgery + Insurance Claims. |
 | **169** | Medium | Prescriptions list lacks search/filter/sort/pagination | Same approach as the recently-shipped Insurance Claims list — `useReactTable` + server-side `?search=&page=&limit=` already supported by `/api/v1/prescriptions`. |
 | **168** | Medium | Doctors page no filter/search/Add Doctor for admins | 1-day task: scaffold the Add Doctor modal with `<EntityPicker>` for the User association, wire to existing POST `/api/v1/doctors`. Search bar reuses the prescriptions pattern. |
-| **94** | — | Tracking: automated QA sweep 2026-04-26 | Keep open; the Chrome-extension agent posts new bugs here as it finds them. |
 
 Suggested order: **#174 → #173 → #168 → #169**. The RBAC fix is the
 biggest security risk and should land first; the others are UX polish.
+
+### Closed in 2026-04-30 hygiene batch (`848f248`)
+
+#177 (Billing Reports date max), #175 (Lab QC numeric mins), #184
+(Refunds reverse-range), #276 (pre-authorization 404 redirect),
+#307 (Help drawer placeholder URL), plus dup-closes: #210 (→#175),
+#365 (→#222), #237 (→#208).
 
 ---
 

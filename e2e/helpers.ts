@@ -267,3 +267,309 @@ export async function apiPost(
 export function isFullRun(): boolean {
   return process.env.E2E_FULL === "1" || process.env.E2E_FULL === "true";
 }
+
+// ─── Shared assertion helpers ────────────────────────────────────────────
+
+/**
+ * Assert that the page didn't bounce to the universal Access-Denied surface
+ * (`/dashboard/not-authorized`) AND the rendered body doesn't contain a
+ * raw "forbidden" / "403" string. Many specs re-implement these two
+ * assertions inline; consolidating here keeps the negative-RBAC checks
+ * in lockstep across the suite.
+ */
+export async function expectNotForbidden(page: Page): Promise<void> {
+  expect(page.url()).not.toContain("/dashboard/not-authorized");
+  await expect(page.locator("body")).not.toContainText(/forbidden|403/i);
+}
+
+// ─── Network stubbing ────────────────────────────────────────────────────
+
+/**
+ * Register a fulfill-with-static-JSON route. Wraps the boilerplate that
+ * AI specs repeat inline:
+ *
+ *     await page.route(pattern, route => route.fulfill({
+ *       status: 200,
+ *       contentType: "application/json",
+ *       body: JSON.stringify(body),
+ *     }));
+ *
+ * NOTE: Playwright keeps the route registered until the test calls
+ * `page.unroute(pattern)`. Subsequent matching requests will all be
+ * fulfilled with the same body. If a test needs different responses on
+ * later requests, it must `unroute` first and re-register.
+ */
+export async function stubAi(
+  page: Page,
+  urlPattern: string | RegExp,
+  body: unknown,
+  status: number = 200
+): Promise<void> {
+  await page.route(urlPattern, (route) =>
+    route.fulfill({
+      status,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    })
+  );
+}
+
+// ─── Deterministic data seeding ──────────────────────────────────────────
+
+/**
+ * `seedFixture(api, kind)` family: create a deterministic record via the
+ * API and return its IDs. Specs that need a known patient currently scrape
+ * `.first()` from a list, which is fragile when other tests mutate state.
+ *
+ * The `api` argument is a Playwright `APIRequestContext` already
+ * authenticated as ADMIN or RECEPTION (i.e. created with extraHTTPHeaders
+ * containing the bearer token).
+ *
+ * All helpers here rely on the API's own validation — if a payload shape
+ * drifts (e.g. createPatientSchema gains a required field), the helper
+ * throws a clear error referencing the failing endpoint instead of
+ * letting the spec fail later with a confusing "patient not found".
+ */
+
+function rand(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+function indianishName(): string {
+  // Realistic-seed compatible: avoids the "test1/aaa/qwerty" anti-pattern
+  // listed in docs/TESTER_PROMPT.md so screenshots from a seeded test run
+  // can survive marketing review.
+  const firsts = [
+    "Aarav",
+    "Saanvi",
+    "Vihaan",
+    "Diya",
+    "Reyansh",
+    "Priya",
+    "Rahul",
+    "Anaya",
+    "Meera",
+    "Mohammed",
+  ];
+  const lasts = [
+    "Mehta",
+    "Joshi",
+    "Reddy",
+    "Sharma",
+    "Gupta",
+    "Krishnan",
+    "Verma",
+    "Iyer",
+    "Khan",
+    "Patel",
+  ];
+  return `${firsts[Math.floor(Math.random() * firsts.length)]} ${lasts[Math.floor(Math.random() * lasts.length)]}`;
+}
+
+export interface SeedPatientResult {
+  id: string;
+  mrNumber: string;
+  name: string;
+}
+
+export async function seedPatient(
+  api: APIRequestContext,
+  opts: { name?: string } = {}
+): Promise<SeedPatientResult> {
+  const name = opts.name ?? indianishName();
+  const res = await api.post(`${API_BASE}/patients`, {
+    data: {
+      name,
+      age: 30 + Math.floor(Math.random() * 30),
+      gender: "MALE",
+      phone: `+9198${Math.floor(10_000_000 + Math.random() * 89_999_999)}`,
+    },
+  });
+  if (!res.ok()) {
+    throw new Error(
+      `seedPatient failed: ${res.status()} ${(await res.text()).slice(0, 200)}`
+    );
+  }
+  const json = await res.json();
+  const data = json.data ?? json;
+  return {
+    id: data.id,
+    mrNumber: data.mrNumber,
+    name: data.user?.name ?? data.name ?? name,
+  };
+}
+
+export interface SeedAppointmentResult {
+  id: string;
+  scheduledAt: string;
+}
+
+export async function seedAppointment(
+  api: APIRequestContext,
+  opts: { patientId: string; doctorId?: string }
+): Promise<SeedAppointmentResult> {
+  // Resolve a doctorId if the caller didn't pass one. The walk-in endpoint
+  // requires both UUIDs so we pick the first active doctor we can see.
+  let doctorId = opts.doctorId;
+  if (!doctorId) {
+    const res = await api.get(`${API_BASE}/doctors`);
+    if (!res.ok()) {
+      throw new Error(
+        `seedAppointment: cannot list doctors: ${res.status()} ${(await res.text()).slice(0, 200)}`
+      );
+    }
+    const json = await res.json();
+    const list = json.data ?? json;
+    const first = Array.isArray(list) ? list[0] : list?.doctors?.[0];
+    if (!first?.id) {
+      throw new Error("seedAppointment: no doctor available to anchor walk-in");
+    }
+    doctorId = first.id;
+  }
+  const res = await api.post(`${API_BASE}/appointments/walk-in`, {
+    data: {
+      patientId: opts.patientId,
+      doctorId,
+      priority: "NORMAL",
+      notes: "E2E seeded walk-in",
+    },
+  });
+  if (!res.ok()) {
+    throw new Error(
+      `seedAppointment failed: ${res.status()} ${(await res.text()).slice(0, 200)}`
+    );
+  }
+  const json = await res.json();
+  const data = json.data ?? json;
+  return {
+    id: data.id,
+    scheduledAt: data.scheduledAt ?? data.checkInTime ?? new Date().toISOString(),
+  };
+}
+
+export interface SeedAdmissionResult {
+  id: string;
+  bedId: string;
+}
+
+export async function seedAdmission(
+  api: APIRequestContext,
+  opts: { patientId: string; doctorId?: string; bedId?: string }
+): Promise<SeedAdmissionResult> {
+  let doctorId = opts.doctorId;
+  if (!doctorId) {
+    const res = await api.get(`${API_BASE}/doctors`);
+    if (!res.ok()) {
+      throw new Error(
+        `seedAdmission: cannot list doctors: ${res.status()} ${(await res.text()).slice(0, 200)}`
+      );
+    }
+    const json = await res.json();
+    const list = json.data ?? json;
+    const first = Array.isArray(list) ? list[0] : list?.doctors?.[0];
+    if (!first?.id) {
+      throw new Error("seedAdmission: no doctor available to admit under");
+    }
+    doctorId = first.id;
+  }
+  let bedId = opts.bedId;
+  if (!bedId) {
+    // Find any AVAILABLE bed. The endpoint shape varies slightly between
+    // /beds and /wards — try the flat list first.
+    const res = await api.get(`${API_BASE}/beds?status=AVAILABLE`);
+    if (res.ok()) {
+      const json = await res.json();
+      const list = json.data ?? json;
+      const first = Array.isArray(list) ? list[0] : list?.beds?.[0];
+      if (first?.id) bedId = first.id;
+    }
+  }
+  if (!bedId) {
+    throw new Error(
+      "seedAdmission: no bedId provided and no AVAILABLE bed found via /beds"
+    );
+  }
+  const res = await api.post(`${API_BASE}/admissions`, {
+    data: {
+      patientId: opts.patientId,
+      doctorId,
+      bedId,
+      reason: "E2E seeded admission",
+      admissionType: "EMERGENCY",
+    },
+  });
+  if (!res.ok()) {
+    throw new Error(
+      `seedAdmission failed: ${res.status()} ${(await res.text()).slice(0, 200)}`
+    );
+  }
+  const json = await res.json();
+  const data = json.data ?? json;
+  return { id: data.id, bedId: data.bedId ?? bedId };
+}
+
+// ─── Throwaway PATIENT identity for state-leakage-free specs ─────────────
+
+export interface FreshPatientResult {
+  token: string;
+  refresh: string;
+  patientId: string;
+  userId: string;
+  email: string;
+  password: string;
+}
+
+/**
+ * Create a brand-new PATIENT via /auth/register and return the access
+ * token + IDs. Specs that need a clean patient context can't reuse the
+ * static `patient1@medcore.local` because state leaks across tests
+ * (consents, feedback, exports etc. accumulate over the session).
+ *
+ * Email collisions are avoided by suffixing with Date.now()+rand().
+ * The password meets `strongPassword` requirements (mixed case, digits,
+ * symbol, ≥10 chars) so the registration validator accepts it.
+ */
+export async function freshPatientToken(
+  api: APIRequestContext
+): Promise<FreshPatientResult> {
+  const email = `pw-${Date.now()}-${rand()}@medcore.local`;
+  // Strong-password requirement (see packages/shared/src/utils/password.ts):
+  // ≥10 chars, upper+lower+digit+symbol, not in denylist.
+  const password = `Pw!E2e-${rand()}-Aa9`;
+  const res = await api.post(`${API_BASE}/auth/register`, {
+    data: {
+      name: indianishName(),
+      email,
+      phone: `+9198${Math.floor(10_000_000 + Math.random() * 89_999_999)}`,
+      password,
+      role: "PATIENT",
+    },
+  });
+  if (!res.ok()) {
+    throw new Error(
+      `freshPatientToken failed: ${res.status()} ${(await res.text()).slice(0, 200)}`
+    );
+  }
+  const json = await res.json();
+  const data = json.data ?? json;
+  // /auth/register responds with `data.user` (no embedded patient id), so
+  // resolve the patient row via /auth/me using the freshly minted token.
+  const token: string = data.tokens?.accessToken ?? data.accessToken;
+  const refresh: string = data.tokens?.refreshToken ?? data.refreshToken;
+  const userId: string = data.user?.id;
+  // Best-effort patient-id lookup. If the endpoint shape changes, callers
+  // can still use `userId` to find the patient downstream.
+  let patientId = "";
+  try {
+    const me = await api.get(`${API_BASE}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (me.ok()) {
+      const meJson = await me.json();
+      patientId = meJson.data?.patient?.id ?? meJson.data?.patientId ?? "";
+    }
+  } catch {
+    // swallow — patientId is best-effort
+  }
+  return { token, refresh, patientId, userId, email, password };
+}

@@ -5,8 +5,48 @@ import { defineConfig, devices } from "@playwright/test";
  * - Runs against local dev servers by default (web :3000, api :4000).
  * - Override the base URL with E2E_BASE_URL (e.g. production smoke).
  * - Override the API URL with E2E_API_URL.
+ *
+ * Test tiers (Playwright projects):
+ *   - `smoke`      — fast canary (auth + cross-cutting + quick-actions).
+ *                    Run: `npx playwright test --project=smoke`.
+ *   - `regression` — smoke + the seven role flows (doctor / nurse /
+ *                    reception / patient and the future lab-tech /
+ *                    pharmacist when those specs land).
+ *                    Run: `npx playwright test --project=regression`.
+ *   - `full`       — every spec in `e2e/`. This is what `release.yml`
+ *                    runs on the release-validation gate.
+ *                    Run: `npx playwright test --project=full`.
+ *
+ * IMPORTANT: every CI job MUST pass an explicit `--project=` flag.
+ * Running `npx playwright test` with no flag would otherwise execute
+ * all three projects (smoke + regression + full), re-running the smoke
+ * specs three times. release.yml + test.yml are both updated to pin
+ * their project.
+ *
+ * Per-spec invocations (`npx playwright test e2e/rbac-matrix.spec.ts`)
+ * still work because the explicit file path narrows the run before
+ * Playwright applies the project's `testMatch`.
  */
 const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:3000";
+
+const SMOKE_FILES = [
+  "auth.spec.ts",
+  "cross-cutting.spec.ts",
+  "quick-actions.spec.ts",
+];
+
+const REGRESSION_FILES = [
+  ...SMOKE_FILES,
+  "doctor.spec.ts",
+  "nurse.spec.ts",
+  "reception.spec.ts",
+  "patient.spec.ts",
+  // Lab-tech / pharmacist specs land in a follow-up PR; the matcher
+  // tolerates their absence today and picks them up automatically once
+  // they exist.
+  "lab-tech.spec.ts",
+  "pharmacist.spec.ts",
+];
 
 export default defineConfig({
   testDir: "./e2e",
@@ -34,8 +74,20 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "chromium",
+      name: "smoke",
       use: { ...devices["Desktop Chrome"] },
+      testMatch: SMOKE_FILES.map((f) => `**/${f}`),
+    },
+    {
+      name: "regression",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: REGRESSION_FILES.map((f) => `**/${f}`),
+    },
+    {
+      name: "full",
+      use: { ...devices["Desktop Chrome"] },
+      // Everything in e2e/ — this is what release.yml runs.
+      testMatch: "**/*.spec.ts",
     },
   ],
 });

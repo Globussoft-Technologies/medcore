@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { dismissTourIfPresent } from "./helpers";
+import { dismissTourIfPresent, expectNotForbidden } from "./helpers";
 
 // The Medication Reminders page is patient-facing. It calls:
 //   GET  /patients?userId=...  → resolve the patient profile
@@ -24,7 +24,7 @@ test.describe("Adherence (Medication Reminders)", () => {
     ).toBeVisible();
 
     // No crash / forbidden banner.
-    await expect(page.locator("body")).not.toContainText(/forbidden|403/i);
+    await expectNotForbidden(page);
   });
 
   test("enroll form opens and validates missing prescription ID", async ({

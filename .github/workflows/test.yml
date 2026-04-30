@@ -241,7 +241,13 @@ jobs:
           npx wait-on http://localhost:4000/api/health http://localhost:3000/login --timeout 90000
 
       - name: Run Playwright RBAC matrix
-        run: npx playwright test e2e/rbac-matrix.spec.ts
+        # Narrow to the single rbac-matrix spec, AND pin --project=full so
+        # the spec only runs once. (Without --project, the test would
+        # match across every project that includes it via testMatch — for
+        # rbac-matrix that's just `full`, but pinning the project here
+        # documents intent and prevents accidental broadening if the
+        # smoke/regression testMatch lists ever grow.)
+        run: npx playwright test --project=full e2e/rbac-matrix.spec.ts
 
       - name: Upload Playwright report
         if: always()

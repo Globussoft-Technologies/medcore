@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures";
+import { expectNotForbidden } from "./helpers";
 
 test.describe("Patient journeys", () => {
   test("patient can view their upcoming appointments", async ({
@@ -10,7 +11,7 @@ test.describe("Patient journeys", () => {
       page.getByRole("heading", { name: /appointment/i }).first()
     ).toBeVisible({ timeout: 15_000 });
 
-    await expect(page.locator("body")).not.toContainText(/forbidden|403/i);
+    await expectNotForbidden(page);
   });
 
   test("patient can view their prescriptions", async ({ patientPage }) => {
@@ -19,7 +20,7 @@ test.describe("Patient journeys", () => {
     await expect(
       page.getByRole("heading", { name: /prescription/i }).first()
     ).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator("body")).not.toContainText(/forbidden|403/i);
+    await expectNotForbidden(page);
   });
 
   test("patient can view their pending bills", async ({ patientPage }) => {
@@ -28,6 +29,6 @@ test.describe("Patient journeys", () => {
     await expect(
       page.getByRole("heading", { name: /billing|invoice|bill/i }).first()
     ).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator("body")).not.toContainText(/forbidden|403/i);
+    await expectNotForbidden(page);
   });
 });

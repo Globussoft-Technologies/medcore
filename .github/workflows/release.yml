@@ -183,9 +183,13 @@ jobs:
         run: npx wait-on http://localhost:4000/api/health http://localhost:3000/login --timeout 90000
 
       - name: Run full Playwright suite
-        # No spec filter — run every spec in e2e/. Failures here are
-        # release-blocking; fix on main and retrigger this workflow.
-        run: npx playwright test
+        # `--project=full` runs every spec in e2e/. The project flag is
+        # mandatory now that playwright.config.ts defines three tiers
+        # (smoke / regression / full); without it Playwright would run
+        # all three projects and re-execute the smoke specs three
+        # times. Failures here are release-blocking; fix on main and
+        # retrigger this workflow.
+        run: npx playwright test --project=full
 
       - name: Upload Playwright report
         if: always()

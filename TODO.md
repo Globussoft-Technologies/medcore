@@ -52,18 +52,40 @@ cold-start (timeout bumped 120s → 240s in `0422800`). End state on `main`:
 
 ### Deploy gate
 
-Currently `needs: [typecheck]` (the issue #415 workaround). Once the
-240s-timeout E2E run confirms green, restore to either:
-- `[test, web-tests, typecheck]` (conservative — E2E runs but doesn't
-  block deploys, given Next.js dev-server cold-start variability)
-- `[test, web-tests, typecheck, e2e]` (strict, original intent)
+**Restored** to `needs: [test, web-tests, typecheck]` as of the
+2026-04-30 sweep. E2E intentionally NOT in the gate (see follow-up
+below).
 
-### Issues closed during this sweep (22 total)
+### E2E hardening (deferred follow-up)
 
-- #415-cluster fixes: see commit list above
-- Dup consolidations: #94, #188, #210, #237, #365, #212, #225
-- Already-fixed-but-still-open: #80, #85, #175, #176, #177, #178,
-  #182, #184, #191, #208, #224, #253, #274, #276, #302, #307, #356
+Playwright E2E stays in the workflow as a quality signal but is
+**not** in the deploy gate. The gate would block every deploy on
+flake. Real issues to address before re-adding to the gate:
+
+1. **`next dev` cold-start variability** in CI — `wait-on` already
+   bumped to 240s but compile time is unpredictable. Switch the e2e
+   job from `next dev` to `next build && next start` so the page
+   compile happens once during build and tests hit a warm server.
+2. **A11y budget exceeded** on `/dashboard/admin-console` (axe-core
+   violation count > the threshold in e2e/a11y.spec.ts). Real
+   accessibility work — pick this up alongside #174 RBAC sweep.
+3. **Patient credentials drift** — fixed in `c3cd41c` (renamed seed
+   user from `patient@example.com` to `patient1@medcore.local` to
+   match the e2e helper). Watch for similar drift on other roles.
+4. **Test surface** — 21 spec files, ~50+ tests at `workers: 1`,
+   `retries: 0`, `timeout: 120_000`. A single hang can park the job
+   for 30+ min. Consider parallel workers + targeted retries.
+
+### Issues closed during this sweep (39 total)
+
+- **#415-cluster fixes:** see commit list above
+- **Dup consolidations** (7): #94, #188, #210, #237, #365, #212, #225
+- **Already-fixed-but-still-open** (22): #80, #85, #175, #176, #177,
+  #178, #182, #184, #191, #196 (BMI infants), #208, #209 (DPDP redirect),
+  #211 (visitors tile), #224, #253, #254, #274, #276, #302, #307, #356,
+  #418 (vitals 400)
+- **Pushed during sweep + closed** (4): #219, #220, #221, #222
+  (empty-form validation guards)
 
 ---
 

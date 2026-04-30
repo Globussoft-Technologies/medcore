@@ -233,19 +233,14 @@ jobs:
   deploy:
     name: Deploy to dev server
     runs-on: ubuntu-latest
-    # PRAGMATIC: gate only on `typecheck` for now. The `test`, `web-tests`,
-    # and `e2e` jobs have been red on every main commit since 2026-04-24
-    # because of pre-existing test-infra rot (DOMMatrix polyfill missing for
-    # pdfjs-dist on Node 20, undefined-data crashes in three patient-portal
-    # pages, and a real allergy-severity enum drift in the FHIR round-trip
-    # test). Tracked at issue #415. Until that's resolved, gating deploy on
-    # all four would mean we never auto-deploy to the *dev* server — which
-    # defeats the whole point of having a fast-iteration pipeline.
-    #
-    # Type-check still has to pass (it's been reliable + catches the kind
-    # of error that breaks at runtime). When #415 is closed, restore:
-    #   needs: [test, web-tests, typecheck, e2e]
-    needs: [typecheck]
+    # Gate on test + web-tests + typecheck. The 25-file integration rot
+    # tracked under #415 was closed during the 2026-04-30 sweep; those three
+    # jobs are now reliably green on main. Playwright E2E is intentionally
+    # NOT in the gate: `next dev` cold-start variability + a real a11y
+    # budget violation make it flaky as a deploy gate, even though it stays
+    # in the workflow as a quality signal. E2E hardening is tracked as a
+    # follow-up in TODO.md.
+    needs: [test, web-tests, typecheck]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     # Don't cancel a deploy that's already in progress — let it finish, then
     # the next one runs. Two deploys racing on the same host can corrupt

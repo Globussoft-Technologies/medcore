@@ -28,7 +28,14 @@ export const metadata = {
     "Run your hospital, not spreadsheets. AI triage in 8 Indian languages, ambient scribe, AI radiology drafting, AI KPI dashboards, drug-safety checks, claims auto-draft, ABDM-ready, FHIR R4 + HL7 v2, multi-tenant ready, DPDP-compliant data residency — all in one platform.",
 };
 
-const logos = ["Asha Hospital", "Sunrise Clinic", "Greenleaf Care", "Medicity", "Lotus Health", "Nova Med"];
+const logos = [
+  "Asha Hospital",
+  "Sunrise Clinic",
+  "Greenleaf Care",
+  "Medicity",
+  "Lotus Health",
+  "Nova Med",
+];
 
 const metrics = [
   { v: "150+", l: "OPD patients/day" },
@@ -38,15 +45,27 @@ const metrics = [
 ];
 
 const shots = [
-  { src: "/screenshots/03-dashboard-admin.png", alt: "Admin dashboard overview" },
+  {
+    src: "/screenshots/03-dashboard-admin.png",
+    alt: "Admin dashboard overview",
+  },
   { src: "/screenshots/41-scribe.png", alt: "Ambient AI SOAP scribe" },
   { src: "/screenshots/43-ai-kpis.png", alt: "AI KPI dashboard" },
-  { src: "/screenshots/42-ai-radiology.png", alt: "AI radiology drafting (HITL)" },
+  {
+    src: "/screenshots/42-ai-radiology.png",
+    alt: "AI radiology drafting (HITL)",
+  },
   { src: "/screenshots/44-agent-console.png", alt: "Real-time agent console" },
   { src: "/screenshots/32-lab.png", alt: "Lab orders + Levey-Jennings QC" },
-  { src: "/screenshots/30-bloodbank.png", alt: "Blood bank + ABO compatibility" },
+  {
+    src: "/screenshots/30-bloodbank.png",
+    alt: "Blood bank + ABO compatibility",
+  },
   { src: "/screenshots/70-payroll.png", alt: "GST-aware payroll" },
-  { src: "/screenshots/38-insurance-claims.png", alt: "Insurance claims auto-draft" },
+  {
+    src: "/screenshots/38-insurance-claims.png",
+    alt: "Insurance claims auto-draft",
+  },
 ];
 
 export default function HomePage() {
@@ -71,10 +90,10 @@ export default function HomePage() {
             <p className="mx-auto mt-6 max-w-2xl text-lg text-gray-600 dark:text-gray-400 md:text-xl">
               MedCore runs your OPD queue, admissions, billing, pharmacy, lab,
               HR and a patient mobile app — with AI triage in 8 Indian
-              languages, ambient SOAP scribe, AI radiology drafting,
-              AI-powered KPI dashboards, drug-safety checks, claims
-              auto-drafted from SOAP, ABDM/ABHA, FHIR R4, HL7 v2 inbound, and
-              full multi-tenant onboarding baked in.
+              languages, ambient SOAP scribe, AI radiology drafting, AI-powered
+              KPI dashboards, drug-safety checks, claims auto-drafted from SOAP,
+              ABDM/ABHA, FHIR R4, HL7 v2 inbound, and full multi-tenant
+              onboarding baked in.
             </p>
             <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link
@@ -91,10 +110,6 @@ export default function HomePage() {
                 Try the live demo
               </Link>
             </div>
-            <p className="mt-4 text-sm text-gray-500 dark:text-gray-500">
-              Demo login: <code className="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">admin@medcore.local</code> /{" "}
-              <code className="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">admin123</code>
-            </p>
           </div>
         </Container>
       </section>
@@ -107,7 +122,10 @@ export default function HomePage() {
           </p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-x-12 gap-y-4">
             {logos.map((l) => (
-              <span key={l} className="text-xl font-semibold text-gray-400 dark:text-gray-600">
+              <span
+                key={l}
+                className="text-xl font-semibold text-gray-400 dark:text-gray-600"
+              >
                 {l}
               </span>
             ))}
@@ -119,7 +137,9 @@ export default function HomePage() {
       <section className="py-20">
         <Container>
           <div className="mx-auto max-w-2xl text-center">
-            <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl dark:text-white">What you get on day one</h2>
+            <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl dark:text-white">
+              What you get on day one
+            </h2>
             <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">
               Three things your front desk will notice immediately.
             </p>
@@ -148,20 +168,62 @@ export default function HomePage() {
       <section className="bg-gray-50 py-20 dark:bg-gray-900/40">
         <Container>
           <div className="mx-auto max-w-2xl text-center">
-            <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl dark:text-white">Everything in one place</h2>
+            <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl dark:text-white">
+              Everything in one place
+            </h2>
             <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">
               From the moment a patient walks in to payroll at month-end.
             </p>
           </div>
           <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            <FeatureCard icon={HeartPulse} title="Clinical" description="EHR, prescriptions with QR, lab orders + Levey-Jennings QC, ANC, pediatric growth, immunization, controlled-substance register." href="/features#clinical" />
-            <FeatureCard icon={Activity} title="Operations" description="OPD queue, admissions, OT, surgery (with auto-cancel of stale cases), emergency, ambulance, blood bank with ABO compatibility." href="/features#operations" />
-            <FeatureCard icon={Wallet} title="Finance" description="GST invoicing (CGST/SGST/IGST split), packages, payment plans, Razorpay, TPA claims, refunds, payroll with FY-2026 ESI ceilings." href="/features#finance" />
-            <FeatureCard icon={Users} title="HR" description="Shift roster, leaves with calendar (incl. pending), payroll, pay slips, certifications, 7 role levels with hardened RBAC." href="/features#hr" />
-            <FeatureCard icon={Building2} title="Engagement" description="WhatsApp + SMS + email + push, feedback, NPS, complaints with auto-assignment after 48h SLA breach." href="/features#engagement" />
-            <FeatureCard icon={Smartphone} title="Mobile" description="Patient app with live queue, lab reports, DPDP data export, multi-language UI; doctor-lite app for rounds." href="/features#mobile" />
-            <FeatureCard icon={Brain} title="AI + Automation" description="AI triage in 8 Indian languages, ambient SOAP scribe, AI radiology drafting, drug-safety checks, chart search, claims auto-draft, no-show predictions, AI-KPI dashboards, agent console." href="/features#ai" />
-            <FeatureCard icon={Shield} title="Compliance & Interop" description="ABDM / ABHA linking, FHIR R4 export, HL7 v2 inbound (ADT/ORM/ORU/MDM/VXU), DLT-compliant SMS, full audit trail with archival, multi-tenant ready, DPDP-compliant data residency." href="/features#compliance" />
+            <FeatureCard
+              icon={HeartPulse}
+              title="Clinical"
+              description="EHR, prescriptions with QR, lab orders + Levey-Jennings QC, ANC, pediatric growth, immunization, controlled-substance register."
+              href="/features#clinical"
+            />
+            <FeatureCard
+              icon={Activity}
+              title="Operations"
+              description="OPD queue, admissions, OT, surgery (with auto-cancel of stale cases), emergency, ambulance, blood bank with ABO compatibility."
+              href="/features#operations"
+            />
+            <FeatureCard
+              icon={Wallet}
+              title="Finance"
+              description="GST invoicing (CGST/SGST/IGST split), packages, payment plans, Razorpay, TPA claims, refunds, payroll with FY-2026 ESI ceilings."
+              href="/features#finance"
+            />
+            <FeatureCard
+              icon={Users}
+              title="HR"
+              description="Shift roster, leaves with calendar (incl. pending), payroll, pay slips, certifications, 7 role levels with hardened RBAC."
+              href="/features#hr"
+            />
+            <FeatureCard
+              icon={Building2}
+              title="Engagement"
+              description="WhatsApp + SMS + email + push, feedback, NPS, complaints with auto-assignment after 48h SLA breach."
+              href="/features#engagement"
+            />
+            <FeatureCard
+              icon={Smartphone}
+              title="Mobile"
+              description="Patient app with live queue, lab reports, DPDP data export, multi-language UI; doctor-lite app for rounds."
+              href="/features#mobile"
+            />
+            <FeatureCard
+              icon={Brain}
+              title="AI + Automation"
+              description="AI triage in 8 Indian languages, ambient SOAP scribe, AI radiology drafting, drug-safety checks, chart search, claims auto-draft, no-show predictions, AI-KPI dashboards, agent console."
+              href="/features#ai"
+            />
+            <FeatureCard
+              icon={Shield}
+              title="Compliance & Interop"
+              description="ABDM / ABHA linking, FHIR R4 export, HL7 v2 inbound (ADT/ORM/ORU/MDM/VXU), DLT-compliant SMS, full audit trail with archival, multi-tenant ready, DPDP-compliant data residency."
+              href="/features#compliance"
+            />
           </div>
         </Container>
       </section>
@@ -177,7 +239,8 @@ export default function HomePage() {
               Clinical AI, built for Indian data
             </h2>
             <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">
-              Sarvam AI with in-country inference, 10 Indian languages, and data that never leaves India.
+              Sarvam AI with in-country inference, 10 Indian languages, and data
+              that never leaves India.
             </p>
           </div>
           <div className="mt-12 grid gap-6 md:grid-cols-3">
@@ -254,7 +317,9 @@ export default function HomePage() {
       <section className="py-20">
         <Container>
           <div className="mx-auto max-w-2xl text-center">
-            <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl dark:text-white">See it in action</h2>
+            <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl dark:text-white">
+              See it in action
+            </h2>
             <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">
               Real screens from the product — not mockups.
             </p>
@@ -265,7 +330,13 @@ export default function HomePage() {
                 key={s.src}
                 className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition hover:shadow-lg dark:border-gray-800 dark:bg-gray-900"
               >
-                <Image src={s.src} alt={s.alt} width={800} height={500} className="h-auto w-full" />
+                <Image
+                  src={s.src}
+                  alt={s.alt}
+                  width={800}
+                  height={500}
+                  className="h-auto w-full"
+                />
                 <div className="border-t border-gray-100 px-4 py-3 text-sm font-medium text-gray-700 dark:border-gray-800 dark:text-gray-300">
                   {s.alt}
                 </div>
@@ -306,7 +377,9 @@ export default function HomePage() {
                 <figcaption className="mt-6 flex items-center gap-3">
                   <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-500 to-emerald-500" />
                   <div>
-                    <div className="text-sm font-semibold text-gray-900 dark:text-white">{t.n}</div>
+                    <div className="text-sm font-semibold text-gray-900 dark:text-white">
+                      {t.n}
+                    </div>
                     <div className="text-xs text-gray-500">{t.r}</div>
                   </div>
                 </figcaption>
@@ -322,8 +395,12 @@ export default function HomePage() {
           <div className="grid gap-8 rounded-3xl border border-gray-200 bg-white p-10 shadow-sm sm:grid-cols-2 md:grid-cols-4 dark:border-gray-800 dark:bg-gray-900">
             {metrics.map((m) => (
               <div key={m.l} className="text-center">
-                <div className="text-4xl font-extrabold text-blue-600 dark:text-blue-400">{m.v}</div>
-                <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">{m.l}</div>
+                <div className="text-4xl font-extrabold text-blue-600 dark:text-blue-400">
+                  {m.v}
+                </div>
+                <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                  {m.l}
+                </div>
               </div>
             ))}
           </div>

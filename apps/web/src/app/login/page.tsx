@@ -8,7 +8,13 @@ import { useTranslation } from "@/lib/i18n";
 import { LanguageDropdown } from "@/components/LanguageDropdown";
 import { PasswordInput } from "@/components/PasswordInput";
 import { toast } from "@/lib/toast";
-import { Activity, QrCode, Receipt, Smartphone, CheckCircle2 } from "lucide-react";
+import {
+  Activity,
+  QrCode,
+  Receipt,
+  Smartphone,
+  CheckCircle2,
+} from "lucide-react";
 
 /**
  * Issue #33: return the post-login destination. Honours `?redirect=...` if
@@ -40,7 +46,7 @@ function safeRedirectTarget(param: string | null | undefined): string {
 function messageForAuthError(
   err: unknown,
   t: (key: string, fallback?: string) => string,
-  fallback?: string
+  fallback?: string,
 ): string {
   const status =
     err && typeof err === "object" && "status" in err
@@ -50,7 +56,7 @@ function messageForAuthError(
   if (status === 429) {
     return t(
       "login.error.rateLimited",
-      "Too many login attempts. Please wait a minute and try again."
+      "Too many login attempts. Please wait a minute and try again.",
     );
   }
   if (status === 401 || status === 403) {
@@ -85,7 +91,10 @@ function LoginPageInner() {
   // preserved for anyone who does not opt in.
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
+  const [fieldErrors, setFieldErrors] = useState<{
+    email?: string;
+    password?: string;
+  }>({});
   const [loading, setLoading] = useState(false);
   const [twoFAStep, setTwoFAStep] = useState(false);
   const [tempToken, setTempToken] = useState("");
@@ -172,7 +181,10 @@ function LoginPageInner() {
           className="order-1 text-center md:order-none md:text-left"
         >
           <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-primary dark:bg-primary/20">
-            <span className="h-2 w-2 rounded-full bg-primary" aria-hidden="true" />
+            <span
+              className="h-2 w-2 rounded-full bg-primary"
+              aria-hidden="true"
+            />
             Hospital Management System
           </div>
           <h1
@@ -227,14 +239,24 @@ function LoginPageInner() {
             </div>
 
             {twoFAStep ? (
-              <form onSubmit={handle2FA} className="space-y-5" aria-label="2FA form">
+              <form
+                onSubmit={handle2FA}
+                className="space-y-5"
+                aria-label="2FA form"
+              >
                 {error && (
-                  <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-danger dark:bg-red-900/30 dark:text-red-300">
+                  <div
+                    role="alert"
+                    className="rounded-lg bg-red-50 p-3 text-sm text-danger dark:bg-red-900/30 dark:text-red-300"
+                  >
                     {error}
                   </div>
                 )}
                 <div>
-                  <label htmlFor="login-2fa" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">
+                  <label
+                    htmlFor="login-2fa"
+                    className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200"
+                  >
                     {t("login.2fa.title")}
                   </label>
                   <input
@@ -307,11 +329,15 @@ function LoginPageInner() {
                     required
                     className={
                       "w-full rounded-lg border px-4 py-2.5 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:bg-gray-900 dark:text-gray-100 " +
-                      (fieldErrors.email ? "border-red-500" : "border-gray-300 dark:border-gray-700")
+                      (fieldErrors.email
+                        ? "border-red-500"
+                        : "border-gray-300 dark:border-gray-700")
                     }
                     placeholder={t("login.email.placeholder")}
                     aria-invalid={!!fieldErrors.email}
-                    aria-describedby={fieldErrors.email ? "login-email-err" : undefined}
+                    aria-describedby={
+                      fieldErrors.email ? "login-email-err" : undefined
+                    }
                   />
                   {fieldErrors.email && (
                     <p
@@ -339,11 +365,15 @@ function LoginPageInner() {
                     required
                     className={
                       "rounded-lg border px-4 py-2.5 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:bg-gray-900 dark:text-gray-100 " +
-                      (fieldErrors.password ? "border-red-500" : "border-gray-300 dark:border-gray-700")
+                      (fieldErrors.password
+                        ? "border-red-500"
+                        : "border-gray-300 dark:border-gray-700")
                     }
                     placeholder={t("login.password.placeholder")}
                     aria-invalid={!!fieldErrors.password}
-                    aria-describedby={fieldErrors.password ? "login-password-err" : undefined}
+                    aria-describedby={
+                      fieldErrors.password ? "login-password-err" : undefined
+                    }
                   />
                   {fieldErrors.password && (
                     <p
@@ -400,17 +430,6 @@ function LoginPageInner() {
                 {t("login.register")}
               </Link>
             </p>
-
-            <div className="mt-4 rounded-lg bg-gray-50 p-4 text-xs text-gray-500 dark:bg-gray-900 dark:text-gray-400">
-              <p className="flex items-center gap-1.5 font-medium">
-                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-                {t("login.demo.title")}
-              </p>
-              <p>Admin: admin@medcore.local / admin123</p>
-              <p>Doctor: dr.sharma@medcore.local / doctor123</p>
-              <p>Reception: reception@medcore.local / reception123</p>
-              <p>Nurse: nurse@medcore.local / nurse123</p>
-            </div>
           </div>
         </section>
       </div>

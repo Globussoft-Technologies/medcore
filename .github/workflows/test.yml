@@ -190,7 +190,14 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        # `--include=dev` is mandatory in this job because the job-level env
+        # sets NODE_ENV=production (so `next start` boots in production mode
+        # later). Under NODE_ENV=production, npm install skips devDependencies
+        # by default, which left `turbo` (devDep, drives `npm run db:generate`)
+        # uninstalled and the very next step blew up with `sh: 1: turbo: not
+        # found`. Forcing dev installs here keeps build/test tooling on PATH
+        # without changing the runtime env the API and Web processes inherit.
+        run: npm install --include=dev
 
       - name: Install Playwright chromium
         run: npx playwright install --with-deps chromium

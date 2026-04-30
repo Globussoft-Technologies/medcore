@@ -12,26 +12,30 @@ import express from "express";
 import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
 import { createPatientFixture, createDoctorWithToken } from "../factories";
 
-// Mock the service so we don't depend on Sarvam. The route imports these
-// named exports — the mock keeps the signatures identical and persists via
-// the real Prisma when the test DB has the models.
-vi.mock("../../services/ai/radiology-reports", async (importActual) => {
-  const actual = await importActual<typeof import("../../services/ai/radiology-reports")>();
+// Mock Sarvam's generateStructured so we don't make a live LLM call. We mock
+// at the sarvam-module level (not the radiology-reports level) because
+// generateDraftReport calls generateStructured via a same-module import in
+// radiology-reports.ts — vi.mock can only intercept cross-module imports, so
+// mocking generateDraftReport here would be silently bypassed.
+vi.mock("../../services/ai/sarvam", async (importActual) => {
+  const actual = await importActual<typeof import("../../services/ai/sarvam")>();
   return {
     ...actual,
-    // Override the LLM call only; createStudy / createReportDraft /
-    // approveReport / amendReport still use Prisma via the real service.
-    generateDraftReport: vi.fn().mockResolvedValue({
-      impression:
-        "No acute abnormality detected on the provided views. Review with radiologist.",
-      findings: [
-        {
-          description: "Mild degenerative changes at L4-L5",
-          confidence: "medium" as const,
-          suggestedFollowUp: "Clinical correlation",
-        },
-      ],
-      recommendations: ["Compare with prior studies if available"],
+    generateStructured: vi.fn().mockResolvedValue({
+      data: {
+        impression:
+          "No acute abnormality detected on the provided views.",
+        findings: [
+          {
+            description: "Mild degenerative changes at L4-L5",
+            confidence: "medium",
+            suggestedFollowUp: "Clinical correlation",
+          },
+        ],
+        recommendations: ["Compare with prior studies if available"],
+      },
+      promptTokens: 250,
+      completionTokens: 80,
     }),
   };
 });
@@ -148,9 +152,10 @@ describeIfDB("AI Radiology API (integration)", () => {
     expect(Array.isArray(draftRes.body.data.aiFindings)).toBe(true);
     expect(draftRes.body.data.aiFindings.length).toBeGreaterThan(0);
 
-    // Assert the mock was hit
-    const { generateDraftReport } = await import("../../services/ai/radiology-reports");
-    expect(vi.mocked(generateDraftReport)).toHaveBeenCalled();
+    // Assert the Sarvam mock was hit (we mock generateStructured at the
+    // sarvam module level — see top-of-file vi.mock).
+    const { generateStructured } = await import("../../services/ai/sarvam");
+    expect(vi.mocked(generateStructured)).toHaveBeenCalled();
   });
 
   // ── 4: POST /:reportId/approve flips status to FINAL ──────────────────────

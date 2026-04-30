@@ -23,7 +23,7 @@ export async function createUserFixture(overrides: Partial<any> = {}) {
         `u_${Date.now()}_${Math.random().toString(36).slice(2, 8)}@test.local`,
       name: overrides.name || faker.person.fullName(),
       phone: overrides.phone || faker.string.numeric(10),
-      passwordHash: await bcrypt.hash(overrides.password || "password123", 4),
+      passwordHash: await bcrypt.hash(overrides.password || "MedCoreT3st-2026", 4),
       role: overrides.role || "PATIENT",
       isActive: overrides.isActive ?? true,
     },
@@ -103,7 +103,7 @@ export async function createDoctorWithToken(
       email,
       name: overrides.name || `Dr. ${faker.person.fullName()}`,
       phone: overrides.phone || faker.string.numeric(10),
-      passwordHash: await bcrypt.hash("password123", 4),
+      passwordHash: await bcrypt.hash("MedCoreT3st-2026", 4),
       role: "DOCTOR",
     },
   });

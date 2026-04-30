@@ -42,7 +42,7 @@ describeIfDB("Auth API — rememberMe refresh TTL (Issue #1)", () => {
   it("mints a 7-day refresh token when rememberMe is absent", async () => {
     const res = await request(app)
       .post("/api/v1/auth/login")
-      .send({ email: "admin@test.local", password: "password123" });
+      .send({ email: "admin@test.local", password: "MedCoreT3st-2026" });
     expect(res.status).toBe(200);
     const { accessToken, refreshToken } = res.body.data.tokens;
 
@@ -69,7 +69,7 @@ describeIfDB("Auth API — rememberMe refresh TTL (Issue #1)", () => {
       .post("/api/v1/auth/login")
       .send({
         email: "admin@test.local",
-        password: "password123",
+        password: "MedCoreT3st-2026",
         rememberMe: false,
       });
     expect(res.status).toBe(200);
@@ -84,7 +84,7 @@ describeIfDB("Auth API — rememberMe refresh TTL (Issue #1)", () => {
       .post("/api/v1/auth/login")
       .send({
         email: "admin@test.local",
-        password: "password123",
+        password: "MedCoreT3st-2026",
         rememberMe: true,
       });
     expect(res.status).toBe(200);
@@ -114,7 +114,7 @@ describeIfDB("Auth API — rememberMe refresh TTL (Issue #1)", () => {
     // external clients should not crash on a stray string.
     const res = await request(app)
       .post("/api/v1/auth/login")
-      .send({ email: "admin@test.local", password: "password123" });
+      .send({ email: "admin@test.local", password: "MedCoreT3st-2026" });
     expect(res.status).toBe(200);
   });
 });

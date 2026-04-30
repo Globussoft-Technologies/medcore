@@ -54,7 +54,7 @@ export async function resetDB() {
       email: "admin@test.local",
       name: "Test Admin",
       phone: "9999999999",
-      passwordHash: await bcrypt.hash("password123", 4),
+      passwordHash: await bcrypt.hash("MedCoreT3st-2026", 4),
       role: "ADMIN",
     },
   });
@@ -83,7 +83,7 @@ export async function getAuthToken(role: TestRole = "ADMIN"): Promise<string> {
         email,
         name: `Test ${role}`,
         phone: "9000000000",
-        passwordHash: await bcrypt.hash("password123", 4),
+        passwordHash: await bcrypt.hash("MedCoreT3st-2026", 4),
         role: role as any,
       },
     });

@@ -17,7 +17,7 @@ import { describeIfDB, resetDB, getPrisma } from "../setup";
 let app: any;
 
 const EMAIL = "edge-user@test.local";
-const PASSWORD = "password123";
+const PASSWORD = "MedCoreT3st-2026";
 
 async function registerEdgeUser() {
   const res = await request(app).post("/api/v1/auth/register").send({

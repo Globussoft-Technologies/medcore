@@ -2167,11 +2167,16 @@ function BelongingsCard({ admissionId }: { admissionId: string }) {
   }, [admissionId]);
 
   const add = async () => {
-    if (!newName) return;
+    // Issue #222: clicking Add with an empty Name used to silently bail —
+    // user couldn't tell why nothing happened. Surface a real error.
+    if (!newName.trim()) {
+      toast.error("Item name is required.");
+      return;
+    }
     const items = [
       ...(rec?.items || []),
       {
-        name: newName,
+        name: newName.trim(),
         description: newDesc,
         value: newVal ? Number(newVal) : undefined,
         checkedIn: true,

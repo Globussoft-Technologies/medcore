@@ -167,10 +167,6 @@ jobs:
       NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
       E2E_BASE_URL: http://localhost:3000
       E2E_API_URL: http://localhost:4000/api/v1
-      # Short-circuit the SWC native-binary fallback that calls
-      # `yarn config get registry` — yarn 1.22 (the GHA runner default)
-      # chokes on the `packageManager` field and crashes `next dev`.
-      NEXT_DISABLE_SWC_DOWNLOAD: "1"
 
     steps:
       - uses: actions/checkout@v4

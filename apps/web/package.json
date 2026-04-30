@@ -22,7 +22,8 @@
     "zustand": "^5.0.0"
   },
   "optionalDependencies": {
-    "@tailwindcss/oxide-linux-x64-gnu": "4.2.2"
+    "@tailwindcss/oxide-linux-x64-gnu": "4.2.2",
+    "@next/swc-linux-x64-gnu": "15.5.15"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",

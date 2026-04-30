@@ -179,7 +179,9 @@ const MATRIX: MatrixRow[] = [
   {
     method: "GET",
     path: "/api/v1/billing/reports/daily",
-    rolesAllowed: ["ADMIN", "RECEPTION"],
+    // Tightened by issue #90 — RECEPTION must NOT see financial / collection
+    // totals. ADMIN-only.
+    rolesAllowed: ["ADMIN"],
     label: "daily billing report",
   },
 
@@ -224,7 +226,10 @@ const MATRIX: MatrixRow[] = [
   {
     method: "POST",
     path: "/api/v1/lab/results",
-    rolesAllowed: ["ADMIN", "DOCTOR", "NURSE"],
+    // Tightened by issue #14 — separation of duties. LAB_TECH + ADMIN only;
+    // LAB_TECH is absent from ALL_ROLES so for the 5-role matrix this is
+    // ADMIN-only.
+    rolesAllowed: ["ADMIN"],
     body: {},
     label: "post lab result",
   },
@@ -306,7 +311,10 @@ const MATRIX: MatrixRow[] = [
   {
     method: "POST",
     path: "/api/v1/pharmacy/inventory",
-    rolesAllowed: ["ADMIN", "RECEPTION"],
+    // Tightened by issue #98 — direct stock writes are pharmacy-side only;
+    // RECEPTION receives via /purchase-orders. PHARMACIST absent from
+    // ALL_ROLES so for the 5-role matrix this is ADMIN-only.
+    rolesAllowed: ["ADMIN"],
     body: {},
     label: "create pharmacy inventory",
   },
@@ -357,14 +365,18 @@ const MATRIX: MatrixRow[] = [
   {
     method: "POST",
     path: "/api/v1/pharmacy/stock-adjustments",
-    rolesAllowed: ["ADMIN", "RECEPTION"],
+    // Tightened by issue #98 — pharmacy-only write. PHARMACIST absent from
+    // ALL_ROLES → ADMIN-only for the 5-role matrix.
+    rolesAllowed: ["ADMIN"],
     body: {},
     label: "pharmacy stock adjustment",
   },
   {
     method: "POST",
     path: "/api/v1/pharmacy/transfers",
-    rolesAllowed: ["ADMIN", "RECEPTION"],
+    // Tightened by issue #98 — pharmacy-only write. PHARMACIST absent from
+    // ALL_ROLES → ADMIN-only for the 5-role matrix.
+    rolesAllowed: ["ADMIN"],
     body: {},
     label: "pharmacy transfer",
   },
@@ -378,7 +390,9 @@ const MATRIX: MatrixRow[] = [
   {
     method: "GET",
     path: "/api/v1/pharmacy/reports/reorder-suggestions",
-    rolesAllowed: ["ADMIN", "RECEPTION"],
+    // Tightened by issue #98 — exposes stock counts per medicine; pharmacy
+    // roles only. PHARMACIST absent from ALL_ROLES → ADMIN-only.
+    rolesAllowed: ["ADMIN"],
     label: "pharmacy reorder suggestions",
   },
 
@@ -393,8 +407,10 @@ const MATRIX: MatrixRow[] = [
   {
     method: "POST",
     path: "/api/v1/lab/results/batch",
-    // authorize(ADMIN, DOCTOR, LAB_TECH, NURSE)
-    rolesAllowed: ["ADMIN", "DOCTOR", "NURSE"],
+    // Tightened by issue #14 — same RBAC as POST /results. Separation of
+    // duties: LAB_TECH + ADMIN only. LAB_TECH absent from ALL_ROLES →
+    // ADMIN-only for the 5-role matrix.
+    rolesAllowed: ["ADMIN"],
     body: {},
     label: "batch lab results",
   },

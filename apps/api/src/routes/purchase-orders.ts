@@ -303,9 +303,12 @@ router.patch(
 );
 
 // POST /api/v1/purchase-orders/:id/submit — DRAFT → PENDING
+// Issue #262 (Apr 28 2026): RECEPTION must NOT submit POs for approval.
+// Procurement workflow transitions (submit/receive/cancel) are restricted
+// to ADMIN + PHARMACIST (procurement role). Reception is read-only on POs.
 router.post(
   "/:id/submit",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN, Role.PHARMACIST),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const po = await prisma.purchaseOrder.findUnique({ where: { id: req.params.id } });
@@ -379,9 +382,11 @@ router.post(
 );
 
 // POST /api/v1/purchase-orders/:id/receive — APPROVED → RECEIVED
+// Issue #262: receive moves inventory liability — restricted to ADMIN +
+// PHARMACIST. Reception cannot acknowledge goods receipts.
 router.post(
   "/:id/receive",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN, Role.PHARMACIST),
   validate(receivePOSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -561,6 +566,8 @@ router.post(
 );
 
 // POST /api/v1/purchase-orders/:id/cancel
+// Issue #262: cancel is an approval-gate action — ADMIN only (PHARMACIST
+// can submit/receive but not cancel a PO that may already be approved).
 router.post(
   "/:id/cancel",
   authorize(Role.ADMIN),
@@ -613,9 +620,10 @@ async function nextGrnNumber(): Promise<string> {
 }
 
 // POST /api/v1/purchase-orders/:id/grns — create a Goods Receipt Note (partial/full)
+// Issue #262: GRN creation moves inventory — same gate as /receive.
 router.post(
   "/:id/grns",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN, Role.PHARMACIST),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const po = await prisma.purchaseOrder.findUnique({

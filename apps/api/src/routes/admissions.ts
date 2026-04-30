@@ -203,35 +203,72 @@ router.post(
 
       const admissionNumber = await nextAdmissionNumber();
 
-      const admission = await prisma.$transaction(async (tx) => {
-        const created = await tx.admission.create({
-          data: {
-            admissionNumber,
-            patientId,
-            doctorId,
-            bedId,
-            reason,
-            diagnosis,
-            admissionType: admissionType ?? null,
-            referredByDoctor: referredByDoctor ?? null,
-            status: "ADMITTED",
-          },
-          include: {
-            patient: {
-              include: { user: { select: { name: true, phone: true } } },
+      // Issue #421: defensive race-handling. The findFirst pre-check above
+      // closes the common case but two concurrent admission POSTs for the
+      // same patient can both pass it (TOCTOU window). The partial-unique
+      // index `one_active_admission_per_patient` (migration
+      // 20260424000001) is the authoritative DB-level guard, but Prisma
+      // surfaces it as a generic P2002 that bubbles to the global error
+      // handler as a 500. Catch it here and convert to a clean 409 so the
+      // second concurrent caller gets the same already-admitted contract
+      // as the synchronous pre-check path.
+      let admission;
+      try {
+        admission = await prisma.$transaction(async (tx) => {
+          const created = await tx.admission.create({
+            data: {
+              admissionNumber,
+              patientId,
+              doctorId,
+              bedId,
+              reason,
+              diagnosis,
+              admissionType: admissionType ?? null,
+              referredByDoctor: referredByDoctor ?? null,
+              status: "ADMITTED",
             },
-            doctor: {
-              include: { user: { select: { name: true } } },
+            include: {
+              patient: {
+                include: { user: { select: { name: true, phone: true } } },
+              },
+              doctor: {
+                include: { user: { select: { name: true } } },
+              },
+              bed: { include: { ward: true } },
             },
-            bed: { include: { ward: true } },
-          },
+          });
+          await tx.bed.update({
+            where: { id: bedId },
+            data: { status: "OCCUPIED" },
+          });
+          return created;
         });
-        await tx.bed.update({
-          where: { id: bedId },
-          data: { status: "OCCUPIED" },
-        });
-        return created;
-      });
+      } catch (e: unknown) {
+        const code = (e as { code?: string } | null)?.code;
+        if (code === "P2002") {
+          // Partial unique index `one_active_admission_per_patient` fired —
+          // a parallel request beat us to it.
+          const existing = await prisma.admission.findFirst({
+            where: { patientId, status: "ADMITTED" },
+            select: { id: true, admissionNumber: true, bedId: true },
+          });
+          res.status(409).json({
+            success: false,
+            data: null,
+            error:
+              "Patient already has an active admission. Discharge or transfer the existing admission before creating a new one.",
+            existingAdmission: existing
+              ? {
+                  id: existing.id,
+                  admissionNumber: existing.admissionNumber,
+                  bedId: existing.bedId,
+                }
+              : null,
+          });
+          return;
+        }
+        throw e;
+      }
 
       auditLog(req, "PATIENT_ADMIT", "admission", admission.id, {
         admissionNumber,

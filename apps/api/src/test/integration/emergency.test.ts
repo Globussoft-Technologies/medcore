@@ -147,6 +147,72 @@ describeIfDB("Emergency API (integration)", () => {
     expect(res.status).toBe(401);
   });
 
+  // Issue #424 (Apr 2026): the ER intake / close form was a stored XSS sink
+  // because chiefComplaint, outcomeNotes, etc. went straight to the DB and
+  // were rendered later in the chart. Schema-level refinements now reject any
+  // HTML/script-shaped payload with 400 before persistence.
+  it("rejects <script> payload in chiefComplaint with 400 (issue #424)", async () => {
+    const patient = await createPatientFixture();
+    const res = await request(app)
+      .post("/api/v1/emergency/cases")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        patientId: patient.id,
+        chiefComplaint: "<script>alert(1)</script>",
+        arrivalMode: "Walk-in",
+      });
+    expect(res.status).toBe(400);
+    // Error message names the offending field so the form can highlight it.
+    const errBlob = JSON.stringify(res.body);
+    expect(errBlob.toLowerCase()).toContain("chief complaint");
+  });
+
+  it("rejects HTML payload in unknownName with 400 (issue #424)", async () => {
+    const res = await request(app)
+      .post("/api/v1/emergency/cases")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        unknownName: '<img src=x onerror=alert(1)>',
+        chiefComplaint: "Unresponsive",
+        arrivalMode: "Ambulance",
+      });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects <script> payload in close-case outcomeNotes with 400 (issue #424)", async () => {
+    const patient = await createPatientFixture();
+    const createRes = await request(app)
+      .post("/api/v1/emergency/cases")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ patientId: patient.id, chiefComplaint: "Cough" });
+    const caseId = createRes.body.data.id;
+    const res = await request(app)
+      .patch(`/api/v1/emergency/cases/${caseId}/close`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        status: "DISCHARGED",
+        disposition: "Home",
+        outcomeNotes: "<script>alert(1)</script>",
+      });
+    expect(res.status).toBe(400);
+    const errBlob = JSON.stringify(res.body);
+    expect(errBlob.toLowerCase()).toContain("outcome notes");
+  });
+
+  it("accepts plain-text chiefComplaint with normal punctuation (issue #424 negative case)", async () => {
+    const patient = await createPatientFixture();
+    const res = await request(app)
+      .post("/api/v1/emergency/cases")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        patientId: patient.id,
+        chiefComplaint: "Severe chest pain (radiating to left arm) - 2hr",
+        arrivalMode: "Walk-in",
+      });
+    expect([200, 201]).toContain(res.status);
+    expect(res.body.data?.chiefComplaint).toContain("chest pain");
+  });
+
   // Regression: issue #5 — before the fix, a single stale WAITING case from
   // 9 days ago pushed avgWaitMin to ~13371 (9d in minutes). The stat should
   // never exceed 24h (1440 min) regardless of how stale the underlying rows

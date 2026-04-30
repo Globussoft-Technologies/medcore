@@ -125,6 +125,73 @@ describeIfDB("AI Adherence API (integration)", () => {
     expect(res.status).toBe(404);
   });
 
+  // ─── Issue #241: PATIENT self-enrolment ───────────────────────────────
+  // Previously the endpoint rejected PATIENT entirely, so the
+  // "+ Enroll Prescription" flow on /dashboard/adherence always 403'd. The
+  // owning patient must be allowed to enrol; an intruder patient must not.
+
+  it("allows the owning PATIENT to enrol their own prescription (issue #241)", async () => {
+    const prisma = await getPrisma();
+    const jwt = (await import("jsonwebtoken")).default;
+
+    const patient = await createPatientFixture();
+    const { doctor } = await createDoctorWithToken();
+    const appt = await createAppointmentFixture({ patientId: patient.id, doctorId: doctor.id });
+    const prescription = await createPrescriptionFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      appointmentId: appt.id,
+    });
+
+    const patientUser = await prisma.user.findUnique({ where: { id: patient.userId } });
+    const patientToken = jwt.sign(
+      { userId: patientUser!.id, email: patientUser!.email, role: "PATIENT" },
+      process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
+      { expiresIn: "1h" }
+    );
+
+    const res = await request(app)
+      .post("/api/v1/ai/adherence/enroll")
+      .set("Authorization", `Bearer ${patientToken}`)
+      .send({ prescriptionId: prescription.id });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.prescriptionId).toBe(prescription.id);
+    expect(res.body.data.patientId).toBe(patient.id);
+    expect(res.body.data.active).toBe(true);
+  });
+
+  it("forbids a PATIENT from enrolling another patient's prescription (403)", async () => {
+    const prisma = await getPrisma();
+    const jwt = (await import("jsonwebtoken")).default;
+
+    const owner = await createPatientFixture();
+    const intruder = await createPatientFixture();
+    const { doctor } = await createDoctorWithToken();
+    const appt = await createAppointmentFixture({ patientId: owner.id, doctorId: doctor.id });
+    const prescription = await createPrescriptionFixture({
+      patientId: owner.id,
+      doctorId: doctor.id,
+      appointmentId: appt.id,
+    });
+
+    const intruderUser = await prisma.user.findUnique({ where: { id: intruder.userId } });
+    const intruderToken = jwt.sign(
+      { userId: intruderUser!.id, email: intruderUser!.email, role: "PATIENT" },
+      process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
+      { expiresIn: "1h" }
+    );
+
+    const res = await request(app)
+      .post("/api/v1/ai/adherence/enroll")
+      .set("Authorization", `Bearer ${intruderToken}`)
+      .send({ prescriptionId: prescription.id });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/own/i);
+  });
+
   // ─── GET /:patientId ──────────────────────────────────────────────────
 
   it("lists active schedules for a patient", async () => {

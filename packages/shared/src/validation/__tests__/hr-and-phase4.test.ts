@@ -4,6 +4,7 @@ import {
   createTelemedicineSchema,
   createEmergencyCaseSchema,
   triageSchema,
+  updateEmergencyStatusSchema,
 } from "../phase4-clinical";
 import { createAncCaseSchema } from "../phase4-specialty";
 import {
@@ -184,6 +185,76 @@ describe("createEmergencyCaseSchema", () => {
       unknownName: "   ",
     });
     expect(r.success).toBe(false);
+  });
+
+  // Issue #424 (Apr 2026): the ER intake form was a stored XSS sink because
+  // chiefComplaint went straight to the chart. Schema-level refinements now
+  // reject any HTML/script-shaped payload across every free-text leg.
+  it("rejects <script> in chiefComplaint (issue #424)", () => {
+    const r = createEmergencyCaseSchema.safeParse({
+      patientId: UUID,
+      chiefComplaint: "<script>alert(1)</script>",
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const issue = r.error.issues.find((i) =>
+        i.path.includes("chiefComplaint")
+      );
+      expect(issue?.message).toMatch(/aren't allowed/i);
+    }
+  });
+  it("rejects <img onerror> in unknownName (issue #424)", () => {
+    const r = createEmergencyCaseSchema.safeParse({
+      unknownName: "<img src=x onerror=alert(1)>",
+      chiefComplaint: "Unresponsive",
+    });
+    expect(r.success).toBe(false);
+  });
+  it("rejects HTML in arrivalMode (issue #424)", () => {
+    const r = createEmergencyCaseSchema.safeParse({
+      patientId: UUID,
+      chiefComplaint: "Cough",
+      arrivalMode: "<b>Walk-in</b>",
+    });
+    expect(r.success).toBe(false);
+  });
+  it("accepts plain-text chiefComplaint with normal punctuation (issue #424 negative)", () => {
+    const r = createEmergencyCaseSchema.safeParse({
+      patientId: UUID,
+      chiefComplaint: "Severe chest pain (radiating to left arm) - 2hr",
+    });
+    expect(r.success).toBe(true);
+  });
+});
+
+describe("updateEmergencyStatusSchema (issue #424)", () => {
+  it("rejects <script> in outcomeNotes", () => {
+    const r = updateEmergencyStatusSchema.safeParse({
+      status: "DISCHARGED",
+      disposition: "Home",
+      outcomeNotes: "<script>alert(1)</script>",
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const issue = r.error.issues.find((i) => i.path.includes("outcomeNotes"));
+      expect(issue?.message).toMatch(/aren't allowed/i);
+    }
+  });
+  it("rejects HTML in disposition", () => {
+    const r = updateEmergencyStatusSchema.safeParse({
+      status: "DISCHARGED",
+      disposition: "<b>Home</b>",
+      outcomeNotes: "Stable",
+    });
+    expect(r.success).toBe(false);
+  });
+  it("accepts plain-text disposition + outcomeNotes", () => {
+    const r = updateEmergencyStatusSchema.safeParse({
+      status: "DISCHARGED",
+      disposition: "Home — follow up in 48h",
+      outcomeNotes: "Stable, BP 130/80, no further intervention required.",
+    });
+    expect(r.success).toBe(true);
   });
 });
 

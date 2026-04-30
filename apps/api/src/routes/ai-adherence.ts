@@ -119,10 +119,13 @@ function derivedFromFrequency(frequency: string): string[] {
 router.post(
   "/enroll",
   // security(2026-04-23-med): F-ADH-1 — enroll writes an adherence schedule
-  // row linking a prescription to a patient. Previously any authenticated
-  // role could POST arbitrary prescriptionIds; restrict to clinical staff who
+  // row linking a prescription to a patient. Restricted to clinical staff who
   // already have prescribe / dispense privileges.
-  authorize(Role.DOCTOR, Role.ADMIN, Role.NURSE, Role.PHARMACIST),
+  // Issue #241 (2026-04-30): PATIENT may also self-enroll their OWN
+  // prescription (the /dashboard/adherence "+ Enroll Prescription" flow). The
+  // owner check is enforced inline below — a patient cannot enrol someone
+  // else's prescriptionId.
+  authorize(Role.DOCTOR, Role.ADMIN, Role.NURSE, Role.PHARMACIST, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { prescriptionId, reminderTimes } = req.body as {
@@ -146,6 +149,22 @@ router.post(
 
       if (!prescription) {
         res.status(404).json({ success: false, data: null, error: "Prescription not found" });
+        return;
+      }
+
+      // Issue #241: per-row ownership check for PATIENT callers. Staff roles
+      // already passed the authorize() gate above and may enrol on behalf of
+      // any patient.
+      const user = req.user!;
+      if (
+        user.role === Role.PATIENT &&
+        prescription.patient?.user?.id !== user.userId
+      ) {
+        res.status(403).json({
+          success: false,
+          data: null,
+          error: "Forbidden: you can only enrol your own prescription",
+        });
         return;
       }
 

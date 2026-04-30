@@ -171,4 +171,158 @@ describe("useAuthStore", () => {
     expect(useAuthStore.getState().user?.name).toBe("New Name");
     expect(useAuthStore.getState().user?.role).toBe("DOCTOR");
   });
+
+  // ── Issues #422 / #441 — session/role bleed defence ──────────────────
+
+  it("login clears prior auth state BEFORE the request fires (#422/#441)", async () => {
+    // Pre-seed a Patient session in storage AND in-memory — the exact
+    // production state before the bleed bug fired.
+    window.localStorage.setItem("medcore_token", "patient-token");
+    window.localStorage.setItem("medcore_refresh", "patient-refresh");
+    useAuthStore.setState({
+      user: { ...USER, id: "patient-id", role: "PATIENT" } as any,
+      token: "patient-token",
+      isLoading: false,
+    });
+
+    // Capture the state observed when the network call happens — at this
+    // point the prior Patient state must already be wiped.
+    let stateAtCallTime: { token: string | null; userId: string | undefined } | null = null;
+    mockedPost.mockImplementationOnce(async () => {
+      const s = useAuthStore.getState();
+      stateAtCallTime = { token: s.token, userId: s.user?.id };
+      // Also assert localStorage is empty at the time of the request.
+      stateAtCallTime = {
+        token: window.localStorage.getItem("medcore_token"),
+        userId: s.user?.id,
+      };
+      return {
+        success: true,
+        data: {
+          user: { ...USER, id: "doctor-id", role: "DOCTOR" },
+          tokens: { accessToken: "doctor-acc", refreshToken: "doctor-ref" },
+        },
+      };
+    });
+
+    await useAuthStore
+      .getState()
+      .login("dr.sharma@medcore.local", "doctor123");
+
+    expect(stateAtCallTime).not.toBeNull();
+    // Prior token must be wiped from localStorage BEFORE the request runs.
+    expect(stateAtCallTime!.token).toBeNull();
+    // After login, the new Doctor seat is in place.
+    expect(useAuthStore.getState().user?.id).toBe("doctor-id");
+    expect(useAuthStore.getState().user?.role).toBe("DOCTOR");
+    expect(useAuthStore.getState().token).toBe("doctor-acc");
+    expect(window.localStorage.getItem("medcore_token")).toBe("doctor-acc");
+  });
+
+  it("late /me from prior user cannot clobber a new login (#422/#441)", async () => {
+    // Set up a Patient session and KICK OFF refreshUser, but do NOT resolve
+    // the /me promise yet. While the Patient /me probe is in flight, the
+    // user navigates to /login and signs in as Doctor. The late /me must
+    // NOT overwrite the Doctor user.
+    window.localStorage.setItem("medcore_token", "patient-token");
+    useAuthStore.setState({
+      user: { ...USER, id: "patient-id", role: "PATIENT" } as any,
+      token: "patient-token",
+      isLoading: false,
+    });
+
+    // Defer the /me resolution so we can interleave a login.
+    let releaseMe: (v: unknown) => void = () => {};
+    const mePromise = new Promise((r) => {
+      releaseMe = r;
+    });
+    mockedGet.mockReturnValueOnce(mePromise);
+    const refreshP = useAuthStore.getState().refreshUser();
+
+    // Now the user logs in as Doctor.
+    mockedPost.mockResolvedValueOnce({
+      success: true,
+      data: {
+        user: { ...USER, id: "doctor-id", role: "DOCTOR" },
+        tokens: { accessToken: "doctor-acc", refreshToken: "doctor-ref" },
+      },
+    });
+    await useAuthStore
+      .getState()
+      .login("dr.sharma@medcore.local", "doctor123");
+    expect(useAuthStore.getState().user?.id).toBe("doctor-id");
+    expect(useAuthStore.getState().user?.role).toBe("DOCTOR");
+
+    // Release the in-flight Patient /me — it must be discarded.
+    releaseMe({
+      success: true,
+      data: { ...USER, id: "patient-id", role: "PATIENT" },
+    });
+    await refreshP;
+
+    // Doctor seat must still be intact — no Patient bleed.
+    expect(useAuthStore.getState().user?.id).toBe("doctor-id");
+    expect(useAuthStore.getState().user?.role).toBe("DOCTOR");
+    expect(useAuthStore.getState().token).toBe("doctor-acc");
+  });
+
+  it("refreshUser refuses to adopt a different USER-ID via /me (#422/#441)", async () => {
+    window.localStorage.setItem("medcore_token", "doctor-token");
+    useAuthStore.setState({
+      user: { ...USER, id: "doctor-id", role: "DOCTOR" } as any,
+      token: "doctor-token",
+      isLoading: false,
+    });
+    const original = window.location;
+    delete (window as any).location;
+    (window as any).location = {
+      ...original,
+      replace: vi.fn(),
+      pathname: "/dashboard",
+      search: "",
+    };
+    try {
+      // /me returns a totally different user (the bleed scenario).
+      mockedGet.mockResolvedValueOnce({
+        success: true,
+        data: { ...USER, id: "patient-id", role: "PATIENT" },
+      });
+      await useAuthStore.getState().refreshUser();
+      // Must NOT have adopted the patient identity.
+      expect(useAuthStore.getState().user).toBeNull();
+      expect(useAuthStore.getState().token).toBeNull();
+      expect(window.localStorage.getItem("medcore_token")).toBeNull();
+    } finally {
+      (window as any).location = original;
+    }
+  });
+
+  it("logout invalidates an in-flight /me from the previous session (#422/#441)", async () => {
+    window.localStorage.setItem("medcore_token", "patient-token");
+    useAuthStore.setState({
+      user: { ...USER, id: "patient-id", role: "PATIENT" } as any,
+      token: "patient-token",
+      isLoading: false,
+    });
+    let releaseMe: (v: unknown) => void = () => {};
+    const mePromise = new Promise((r) => {
+      releaseMe = r;
+    });
+    mockedGet.mockReturnValueOnce(mePromise);
+    const refreshP = useAuthStore.getState().refreshUser();
+
+    // User logs out before /me returns.
+    useAuthStore.getState().logout();
+    expect(useAuthStore.getState().user).toBeNull();
+
+    // Late /me arrives — must NOT re-seat the user.
+    releaseMe({
+      success: true,
+      data: { ...USER, id: "patient-id", role: "PATIENT" },
+    });
+    await refreshP;
+
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().token).toBeNull();
+  });
 });

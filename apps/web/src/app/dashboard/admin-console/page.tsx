@@ -6,6 +6,12 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
+// Issue #288 (2026-04-30): the Pending-Approvals card swallowed every
+// failure as a generic "Approve failed" toast. We now surface the real
+// API message (and field-level zod errors) so admins can tell a 404
+// "Leave request not found" apart from a 400 "approved Required". See
+// the rewritten `approve()` handler below for the consumer.
+import { topLineError } from "@/lib/field-errors";
 // Issue #109 / #119: route every user-facing date through the central
 // formatDate helper so a `null` / undefined / unparseable value renders as
 // "—" instead of "Invalid Date → Invalid Date".
@@ -300,17 +306,35 @@ export default function AdminConsolePage() {
   async function approve(kind: "leave" | "expense" | "po", id: string) {
     try {
       if (kind === "leave") {
-        await api.patch(`/leaves/${id}`, { status: "APPROVED" });
+        // Issue #288 (2026-04-30): the previous URL was `/leaves/${id}`
+        // — there is no such route on the API; the approve endpoint is
+        // `PATCH /leaves/:id/approve` and it requires `{ status }` per
+        // approveLeaveSchema. Express therefore 404'd every click and
+        // the catch-all toast claimed the approval "failed" with no
+        // detail. Hit the correct route + send the schema-required
+        // payload so the same Anita-Pawar leave that approves from
+        // /dashboard/leave-management also approves from this card.
+        await api.patch(`/leaves/${id}/approve`, { status: "APPROVED" });
         setPendingLeaves((xs) => xs.filter((x) => x.id !== id));
       } else if (kind === "expense") {
-        await api.patch(`/expenses/${id}/approve`, {});
+        // Issue #288: the body was `{}`. approveExpenseSchema requires
+        // `{ approved: boolean }`, so zod rejected with a 400 +
+        // field-level "approved is required" detail that the old
+        // catch-block discarded. Send the explicit approval flag.
+        await api.patch(`/expenses/${id}/approve`, { approved: true });
         setPendingExpenses((xs) => xs.filter((x) => x.id !== id));
       } else if (kind === "po") {
         await api.patch(`/purchase-orders/${id}/approve`, {});
         setPendingPOs((xs) => xs.filter((x) => x.id !== id));
       }
-    } catch {
-      toast.error("Approve failed");
+    } catch (err) {
+      // Issue #288: stop swallowing the error. `topLineError` extracts
+      // the first zod field-level message if the payload carried
+      // `details: [...]`; otherwise it falls back to the API-supplied
+      // `error` string and finally to a generic notice. Admins now see
+      // "Cannot modify leave in status APPROVED" or "approved Required"
+      // instead of the opaque "Approve failed".
+      toast.error(topLineError(err, "Approve failed"));
     }
   }
 

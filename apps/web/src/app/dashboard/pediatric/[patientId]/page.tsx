@@ -527,19 +527,27 @@ function FttBanner({ patientId }: { patientId: string }) {
 
   if (!data || !data.isFTT) return null;
 
+  // Issue #440: production growth-chart crash. Server contract is `reasons`
+  // and `suggestions` are always arrays, but a stale/older API build could
+  // return them as null/undefined and the unguarded `.map` / `.length` then
+  // detonates the whole detail page with "Cannot read properties of
+  // undefined (reading 'map')". Coerce defensively.
+  const reasons = Array.isArray(data.reasons) ? data.reasons : [];
+  const suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
+
   return (
     <div className="mb-6 rounded-xl border-l-4 border-red-500 bg-red-50 p-5">
       <h3 className="font-semibold text-red-800">⚠ Failure to Thrive Detected</h3>
       <ul className="mt-2 list-disc pl-6 text-sm text-red-700">
-        {data.reasons.map((r, i) => (
+        {reasons.map((r, i) => (
           <li key={i}>{r}</li>
         ))}
       </ul>
-      {data.suggestions.length > 0 && (
+      {suggestions.length > 0 && (
         <div className="mt-3">
           <p className="text-xs font-semibold text-red-900">Suggestions</p>
           <ul className="list-disc pl-6 text-xs text-red-800">
-            {data.suggestions.map((s, i) => (
+            {suggestions.map((s, i) => (
               <li key={i}>{s}</li>
             ))}
           </ul>

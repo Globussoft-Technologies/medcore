@@ -449,4 +449,40 @@ describeIfDB("RBAC hardening — issues #89 (DOCTOR leak) + #90 (RECEPTION leak)
       .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
   });
+
+  // ─── Issue #262 — RECEPTION must NOT drive PO workflow ───
+  // Wave-2 (#174) gated GET endpoints. This wave (#262) gates the
+  // state-transition POSTs: submit / receive / cancel. Reception is now
+  // read-only on POs. ADMIN + PHARMACIST own the procurement workflow
+  // (cancel stays ADMIN-only because it kills an approved liability).
+
+  it("issue #262: RECEPTION cannot POST /purchase-orders/:id/submit (403)", async () => {
+    const res = await request(app)
+      .post("/api/v1/purchase-orders/fake-po-id/submit")
+      .set("Authorization", `Bearer ${receptionToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("issue #262: RECEPTION cannot POST /purchase-orders/:id/receive (403)", async () => {
+    const res = await request(app)
+      .post("/api/v1/purchase-orders/fake-po-id/receive")
+      .set("Authorization", `Bearer ${receptionToken}`)
+      .send({});
+    expect(res.status).toBe(403);
+  });
+
+  it("issue #262: RECEPTION cannot POST /purchase-orders/:id/cancel (403)", async () => {
+    const res = await request(app)
+      .post("/api/v1/purchase-orders/fake-po-id/cancel")
+      .set("Authorization", `Bearer ${receptionToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("issue #262: RECEPTION cannot POST /purchase-orders/:id/grns (403)", async () => {
+    const res = await request(app)
+      .post("/api/v1/purchase-orders/fake-po-id/grns")
+      .set("Authorization", `Bearer ${receptionToken}`)
+      .send({ items: [] });
+    expect(res.status).toBe(403);
+  });
 });

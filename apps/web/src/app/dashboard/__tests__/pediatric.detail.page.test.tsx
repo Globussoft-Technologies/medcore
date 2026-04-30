@@ -132,4 +132,47 @@ describe("PediatricDetailPage", () => {
       expect(screen.getAllByText("Tiny Tim").length).toBeGreaterThan(0)
     );
   });
+
+  // Issue #440 (production): the FTT banner used to crash the entire page
+  // with "Cannot read properties of undefined (reading 'map')" when the
+  // /ftt-check endpoint returned `isFTT: true` but `reasons`/`suggestions`
+  // were null/undefined (stale build / partial server response). The page
+  // must render the patient header even when the banner payload is
+  // malformed.
+  it("does not crash when /ftt-check returns isFTT:true with null reasons", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/patients/test-id")
+        return Promise.resolve({ data: samplePatient });
+      if (url.includes("/ftt-check"))
+        return Promise.resolve({
+          data: {
+            isFTT: true,
+            reasons: null,
+            suggestions: null,
+            currentPercentile: null,
+            velocityKgPerMonth: null,
+            expectedVelocityKgPerMonth: null,
+          },
+        });
+      if (url.includes("/milestones"))
+        return Promise.resolve({
+          data: { summary: { total: 0, achieved: 0, expectedNotAchieved: 0 }, diff: [] },
+        });
+      if (url.includes("/feeding"))
+        return Promise.resolve({ data: { logs: [], daily: [] } });
+      if (url.startsWith("/growth/patient/test-id"))
+        return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: [] });
+    });
+    render(<PediatricDetailPage />);
+    await waitFor(() =>
+      expect(screen.getAllByText("Tiny Tim").length).toBeGreaterThan(0)
+    );
+    // The banner heading still renders (the section renders, with empty
+    // reasons/suggestions), proving the unguarded `.map`/`.length` no
+    // longer crashes the tree.
+    await waitFor(() =>
+      expect(screen.getByText(/Failure to Thrive Detected/i)).toBeInTheDocument()
+    );
+  });
 });

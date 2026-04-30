@@ -1,4 +1,25 @@
 import { z } from "zod";
+import { containsHtmlOrScript } from "./security";
+
+// Issue #424 (Apr 2026): the ER Register-New-Case modal accepted raw HTML /
+// `<script>` payloads in chiefComplaint and the close-case outcome notes,
+// which were then rendered later in the chart (stored XSS). The fix is to
+// reject any free-text ER field that contains HTML/script vectors at the
+// shared schema layer so both the web form and any direct API caller hit
+// the same 400. We funnel every free-text field through this small helper
+// (NOT the full sanitizeUserInput, because that also enforces normalize +
+// max length + non-empty — clinical free-text fields have their own length
+// rules, but they all share the "no XSS markup" rule).
+//
+// Note: `.refine()` returns a ZodEffects, which doesn't expose `.min()`/
+// `.max()` chainable string methods, so the helper accepts a `minLen` arg
+// that is applied to the underlying ZodString *before* the refinement.
+const noHtmlOrScript = (field: string, minLen?: number) => {
+  const base = minLen != null ? z.string().min(minLen) : z.string();
+  return base.refine((v) => !containsHtmlOrScript(v), {
+    message: `${field} contains characters that aren't allowed (e.g. < > or HTML tags)`,
+  });
+};
 
 export const TELEMEDICINE_STATUS = [
   "SCHEDULED",
@@ -70,14 +91,25 @@ export const endTelemedicineSchema = z.object({
 // The ER intake form already exposes a 2-tab toggle (Registered /
 // Unknown) so this matches the UI contract; orphan rows are blocked at
 // the API even if a stale client misses the toggle.
+// Issue #424: every free-text field on this payload must reject XSS markup
+// — chiefComplaint is the worst because it's rendered into the chart, but
+// unknownName / unknownGender / arrivalMode are also displayed elsewhere
+// (intake list, audit log, MCI dashboard).
 export const createEmergencyCaseSchema = z
   .object({
     patientId: z.string().uuid().optional(),
-    unknownName: z.string().trim().optional(),
+    unknownName: z
+      .string()
+      .trim()
+      .refine((v) => !containsHtmlOrScript(v), {
+        message:
+          "Unknown patient name contains characters that aren't allowed (e.g. < > or HTML tags)",
+      })
+      .optional(),
     unknownAge: z.number().int().nonnegative().optional(),
-    unknownGender: z.string().optional(),
-    arrivalMode: z.string().optional(),
-    chiefComplaint: z.string().min(1),
+    unknownGender: noHtmlOrScript("Unknown patient gender").optional(),
+    arrivalMode: noHtmlOrScript("Arrival mode").optional(),
+    chiefComplaint: noHtmlOrScript("Chief complaint", 1),
   })
   .superRefine((data, ctx) => {
     const hasPatient = !!data.patientId;
@@ -95,7 +127,9 @@ export const createEmergencyCaseSchema = z
 export const triageSchema = z.object({
   caseId: z.string().uuid(),
   triageLevel: z.enum(TRIAGE_LEVELS),
-  vitalsBP: z.string().optional(),
+  // Issue #424: vitalsBP is the only free-text field on the triage form
+  // (e.g. "130/80"); reject HTML/script payloads.
+  vitalsBP: noHtmlOrScript("Blood pressure").optional(),
   vitalsPulse: z.number().int().optional(),
   vitalsResp: z.number().int().optional(),
   vitalsSpO2: z.number().int().optional(),
@@ -112,51 +146,68 @@ export const assignEmergencyDoctorSchema = z.object({
 // and outcome notes (audit trail + clinical handoff). They were previously
 // optional which let nurses save with empty fields and just a generic
 // "Validation failed" toast on the UI.
+// Issue #424: both `disposition` and `outcomeNotes` were stored XSS sinks —
+// the close modal lets the doctor type free text, then the chart detail page
+// renders both directly. Reject HTML/script payloads at the schema layer.
 export const updateEmergencyStatusSchema = z.object({
   status: z.enum(EMERGENCY_STATUS),
   attendingDoctorId: z.string().uuid().optional(),
   disposition: z
     .string({ required_error: "Disposition is required" })
     .trim()
-    .min(1, "Disposition is required"),
+    .min(1, "Disposition is required")
+    .refine((v) => !containsHtmlOrScript(v), {
+      message:
+        "Disposition contains characters that aren't allowed (e.g. < > or HTML tags)",
+    }),
   outcomeNotes: z
     .string({ required_error: "Outcome notes are required" })
     .trim()
-    .min(1, "Outcome notes are required"),
+    .min(1, "Outcome notes are required")
+    .refine((v) => !containsHtmlOrScript(v), {
+      message:
+        "Outcome notes contain characters that aren't allowed (e.g. < > or HTML tags)",
+    }),
 });
 
+// Issue #424: MLC fields are rendered into the chart and the medico-legal
+// printout — XSS payload there would be highly embarrassing. Reject markup.
 export const mlcDetailsSchema = z.object({
   isMLC: z.boolean(),
-  mlcNumber: z.string().optional(),
-  mlcPoliceStation: z.string().optional(),
-  mlcFIRNumber: z.string().optional(),
-  mlcOfficerName: z.string().optional(),
+  mlcNumber: noHtmlOrScript("MLC number").optional(),
+  mlcPoliceStation: noHtmlOrScript("Police station").optional(),
+  mlcFIRNumber: noHtmlOrScript("FIR number").optional(),
+  mlcOfficerName: noHtmlOrScript("Officer name").optional(),
 });
 
+// Issue #424: ER treatment orders are serialised to JSON and rendered back as
+// a list — every free-text leg of each order needs the same XSS guard.
 export const erTreatmentOrderSchema = z.object({
   orders: z.array(
     z.object({
       type: z.enum(["MEDICATION", "PROCEDURE", "INVESTIGATION", "OTHER"]),
-      name: z.string().min(1),
-      dose: z.string().optional(),
-      route: z.string().optional(),
+      name: noHtmlOrScript("Order name", 1),
+      dose: noHtmlOrScript("Dose").optional(),
+      route: noHtmlOrScript("Route").optional(),
       givenAt: z.string().datetime().optional(),
-      notes: z.string().optional(),
+      notes: noHtmlOrScript("Order notes").optional(),
     })
   ),
 });
 
+// Issue #424: admission reason / diagnosis flow into the IPD chart on convert.
 export const erToAdmissionSchema = z.object({
   doctorId: z.string().uuid(),
   bedId: z.string().uuid(),
-  reason: z.string().min(1),
-  diagnosis: z.string().optional(),
+  reason: noHtmlOrScript("Reason", 1),
+  diagnosis: noHtmlOrScript("Diagnosis").optional(),
 });
 
+// Issue #424: incidentNote becomes the MCI tag rendered on every casualty row.
 export const massCasualtySchema = z.object({
   count: z.number().int().min(1).max(50),
-  incidentNote: z.string().optional(),
-  arrivalMode: z.string().optional().default("MASS_CASUALTY"),
+  incidentNote: noHtmlOrScript("Incident note").optional(),
+  arrivalMode: noHtmlOrScript("Arrival mode").optional().default("MASS_CASUALTY"),
 });
 
 export const telemedTechIssuesSchema = z.object({

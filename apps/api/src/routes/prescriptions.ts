@@ -406,22 +406,44 @@ router.post(
 
 // POST /api/v1/prescriptions/:id/share — record sharing via WhatsApp/Email/SMS
 // RBAC (issue #90): RECEPTION removed.
+// Issue #242 (2026-04-30): PATIENT can also share their OWN prescription
+// (the /dashboard/prescriptions "Share via WhatsApp/Email" buttons). Staff
+// (DOCTOR/ADMIN) may share any; PATIENT is constrained inline below to their
+// own row.
 router.post(
   "/:id/share",
-  authorize(Role.DOCTOR, Role.ADMIN),
+  authorize(Role.DOCTOR, Role.ADMIN, Role.PATIENT),
   validate(sharePrescriptionSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { channel } = req.body as { channel: string };
       const existing = await prisma.prescription.findUnique({
         where: { id: req.params.id },
-        select: { sharedVia: true },
+        select: {
+          sharedVia: true,
+          patient: { select: { userId: true } },
+        },
       });
       if (!existing) {
         res.status(404).json({
           success: false,
           data: null,
           error: "Prescription not found",
+        });
+        return;
+      }
+
+      // Issue #242: owner-or-staff check. PATIENT may only share their own
+      // prescription; staff already cleared the authorize() gate above.
+      const user = req.user!;
+      if (
+        user.role === Role.PATIENT &&
+        existing.patient?.userId !== user.userId
+      ) {
+        res.status(403).json({
+          success: false,
+          data: null,
+          error: "Forbidden: you can only share your own prescription",
         });
         return;
       }

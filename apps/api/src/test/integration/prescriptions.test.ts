@@ -316,4 +316,104 @@ describeIfDB("Prescriptions API (integration)", () => {
       });
     expect(res.status).toBe(400);
   });
+
+  // ─── Issue #242: PATIENT can share their own prescription ───────────
+  // The /:id/share endpoint records WHATSAPP/EMAIL/SMS channels. Previously
+  // it was DOCTOR/ADMIN-only, so the "Share via WhatsApp/Email" buttons on
+  // /dashboard/prescriptions always 403'd for PATIENT.
+
+  it("allows the owning PATIENT to share their own prescription via WhatsApp (issue #242)", async () => {
+    const prisma = await getPrisma();
+    const jwt = (await import("jsonwebtoken")).default;
+
+    const { doctor } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    // Use the API to create the prescription (factory may bypass relations).
+    const adminTok = await getAuthToken("ADMIN");
+    const created = await request(app)
+      .post("/api/v1/prescriptions")
+      .set("Authorization", `Bearer ${adminTok}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        diagnosis: "Viral fever",
+        items: [
+          {
+            medicineName: "Paracetamol 500mg",
+            dosage: "500mg",
+            frequency: "TID",
+            duration: "3d",
+          },
+        ],
+      });
+    expect([200, 201]).toContain(created.status);
+    const prescriptionId = created.body.data.id;
+
+    const patientUser = await prisma.user.findUnique({ where: { id: patient.userId } });
+    const patientToken = jwt.sign(
+      { userId: patientUser!.id, email: patientUser!.email, role: "PATIENT" },
+      process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
+      { expiresIn: "1h" }
+    );
+
+    const res = await request(app)
+      .post(`/api/v1/prescriptions/${prescriptionId}/share`)
+      .set("Authorization", `Bearer ${patientToken}`)
+      .send({ channel: "WHATSAPP" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect((res.body.data.sharedVia ?? "")).toContain("WHATSAPP");
+  });
+
+  it("forbids a PATIENT from sharing another patient's prescription (403, issue #242)", async () => {
+    const prisma = await getPrisma();
+    const jwt = (await import("jsonwebtoken")).default;
+
+    const { doctor } = await createDoctorWithToken();
+    const owner = await createPatientFixture();
+    const intruder = await createPatientFixture();
+    const appt = await createAppointmentFixture({
+      patientId: owner.id,
+      doctorId: doctor.id,
+    });
+    const adminTok = await getAuthToken("ADMIN");
+    const created = await request(app)
+      .post("/api/v1/prescriptions")
+      .set("Authorization", `Bearer ${adminTok}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: owner.id,
+        diagnosis: "URTI",
+        items: [
+          {
+            medicineName: "Cetirizine",
+            dosage: "10mg",
+            frequency: "OD",
+            duration: "5d",
+          },
+        ],
+      });
+    expect([200, 201]).toContain(created.status);
+    const prescriptionId = created.body.data.id;
+
+    const intruderUser = await prisma.user.findUnique({ where: { id: intruder.userId } });
+    const intruderToken = jwt.sign(
+      { userId: intruderUser!.id, email: intruderUser!.email, role: "PATIENT" },
+      process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
+      { expiresIn: "1h" }
+    );
+
+    const res = await request(app)
+      .post(`/api/v1/prescriptions/${prescriptionId}/share`)
+      .set("Authorization", `Bearer ${intruderToken}`)
+      .send({ channel: "EMAIL" });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/own/i);
+  });
 });

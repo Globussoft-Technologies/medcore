@@ -48,7 +48,7 @@ async function createHandoffFixture(): Promise<{
   const start = await request(app)
     .post("/api/v1/ai/triage/start")
     .set("Authorization", `Bearer ${receptionToken}`)
-    .send({ language: "en", inputMode: "text", patientId: patient.id });
+    .send({ consentGiven: true, language: "en", inputMode: "text", patientId: patient.id });
   const sessionId = start.body.data.sessionId;
 
   // Drive 4 turns so symptom summary gets extracted.

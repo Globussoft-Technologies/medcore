@@ -59,7 +59,7 @@ describeIfDB("AI Triage API (integration)", () => {
     const res = await request(app)
       .post("/api/v1/ai/triage/start")
       .set("Authorization", `Bearer ${patientToken}`)
-      .send({ language: "en", inputMode: "text" });
+      .send({ consentGiven: true, language: "en", inputMode: "text" });
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -73,7 +73,7 @@ describeIfDB("AI Triage API (integration)", () => {
     const res = await request(app)
       .post("/api/v1/ai/triage/start")
       .set("Authorization", `Bearer ${patientToken}`)
-      .send({ language: "hi", inputMode: "voice" });
+      .send({ consentGiven: true, language: "hi", inputMode: "voice" });
 
     expect(res.status).toBe(200);
     expect(res.body.data.message).toContain("नमस्ते");
@@ -83,7 +83,7 @@ describeIfDB("AI Triage API (integration)", () => {
   it("requires authentication to start a session", async () => {
     const res = await request(app)
       .post("/api/v1/ai/triage/start")
-      .send({ language: "en", inputMode: "text" });
+      .send({ consentGiven: true, language: "en", inputMode: "text" });
 
     expect(res.status).toBe(401);
   });
@@ -92,7 +92,7 @@ describeIfDB("AI Triage API (integration)", () => {
     const res = await request(app)
       .post("/api/v1/ai/triage/start")
       .set("Authorization", `Bearer ${patientToken}`)
-      .send({ language: "fr", inputMode: "text" });
+      .send({ consentGiven: true, language: "fr", inputMode: "text" });
 
     expect(res.status).toBe(400);
   });
@@ -105,7 +105,7 @@ describeIfDB("AI Triage API (integration)", () => {
     const start = await request(app)
       .post("/api/v1/ai/triage/start")
       .set("Authorization", `Bearer ${patientToken}`)
-      .send({ language: "en", inputMode: "text" });
+      .send({ consentGiven: true, language: "en", inputMode: "text" });
     const sessionId = start.body.data.sessionId;
 
     const res = await request(app)
@@ -128,7 +128,7 @@ describeIfDB("AI Triage API (integration)", () => {
     const start = await request(app)
       .post("/api/v1/ai/triage/start")
       .set("Authorization", `Bearer ${patientToken}`)
-      .send({ language: "en", inputMode: "text" });
+      .send({ consentGiven: true, language: "en", inputMode: "text" });
     const sessionId = start.body.data.sessionId;
 
     const res = await request(app)
@@ -149,7 +149,7 @@ describeIfDB("AI Triage API (integration)", () => {
     const start = await request(app)
       .post("/api/v1/ai/triage/start")
       .set("Authorization", `Bearer ${patientToken}`)
-      .send({ language: "en", inputMode: "text" });
+      .send({ consentGiven: true, language: "en", inputMode: "text" });
     const sessionId = start.body.data.sessionId;
 
     await request(app)
@@ -185,7 +185,7 @@ describeIfDB("AI Triage API (integration)", () => {
     const start = await request(app)
       .post("/api/v1/ai/triage/start")
       .set("Authorization", `Bearer ${patientToken}`)
-      .send({ language: "en", inputMode: "text" });
+      .send({ consentGiven: true, language: "en", inputMode: "text" });
     const sessionId = start.body.data.sessionId;
 
     // Send 4 messages to trigger extraction
@@ -218,7 +218,7 @@ describeIfDB("AI Triage API (integration)", () => {
     const start = await request(app)
       .post("/api/v1/ai/triage/start")
       .set("Authorization", `Bearer ${patientToken}`)
-      .send({ language: "en", inputMode: "text" });
+      .send({ consentGiven: true, language: "en", inputMode: "text" });
     const sessionId = start.body.data.sessionId;
 
     // Send enough messages to get specialty suggestions
@@ -262,7 +262,7 @@ describeIfDB("AI Triage API (integration)", () => {
     const start = await request(app)
       .post("/api/v1/ai/triage/start")
       .set("Authorization", `Bearer ${receptionToken}`)
-      .send({ language: "en", inputMode: "text", patientId: patient.id });
+      .send({ consentGiven: true, language: "en", inputMode: "text", patientId: patient.id });
     const sessionId = start.body.data.sessionId;
 
     const tomorrow = new Date();
@@ -300,7 +300,7 @@ describeIfDB("AI Triage API (integration)", () => {
     const start = await request(app)
       .post("/api/v1/ai/triage/start")
       .set("Authorization", `Bearer ${receptionToken}`)
-      .send({ language: "en", inputMode: "text", patientId: patient.id });
+      .send({ consentGiven: true, language: "en", inputMode: "text", patientId: patient.id });
     const sessionId = start.body.data.sessionId;
 
     // Trigger emergency
@@ -339,11 +339,11 @@ describeIfDB("AI Triage API (integration)", () => {
     const start1 = await request(app)
       .post("/api/v1/ai/triage/start")
       .set("Authorization", `Bearer ${receptionToken}`)
-      .send({ language: "en", inputMode: "text" });
+      .send({ consentGiven: true, language: "en", inputMode: "text" });
     const start2 = await request(app)
       .post("/api/v1/ai/triage/start")
       .set("Authorization", `Bearer ${receptionToken}`)
-      .send({ language: "en", inputMode: "text" });
+      .send({ consentGiven: true, language: "en", inputMode: "text" });
 
     const bookPayload = {
       doctorId: doctor.id,
@@ -371,7 +371,7 @@ describeIfDB("AI Triage API (integration)", () => {
     const start = await request(app)
       .post("/api/v1/ai/triage/start")
       .set("Authorization", `Bearer ${patientToken}`)
-      .send({ language: "en", inputMode: "text" });
+      .send({ consentGiven: true, language: "en", inputMode: "text" });
     const sessionId = start.body.data.sessionId;
 
     const res = await request(app)
@@ -395,7 +395,7 @@ describeIfDB("AI Triage API (integration)", () => {
     const start = await request(app)
       .post("/api/v1/ai/triage/start")
       .set("Authorization", `Bearer ${patientToken}`)
-      .send({ language: "en", inputMode: "text" });
+      .send({ consentGiven: true, language: "en", inputMode: "text" });
 
     const res = await request(app)
       .post(`/api/v1/ai/triage/${start.body.data.sessionId}/book`)

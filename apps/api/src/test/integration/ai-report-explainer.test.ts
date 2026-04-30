@@ -108,7 +108,8 @@ describeIfDB("AI Report Explainer API (integration)", () => {
       .send({ language: "en" });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/labOrderId/);
+    expect(res.body.error).toBe("Validation failed");
+    expect(res.body.details?.[0]?.field).toBe("labOrderId");
   });
 
   it("returns 404 when labOrder does not exist", async () => {

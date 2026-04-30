@@ -157,6 +157,7 @@ describeIfDB("AI Chart Search API (integration)", () => {
       .set("Authorization", `Bearer ${doctorToken}`)
       .send({});
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/query/i);
+    expect(res.body.error).toBe("Validation failed");
+    expect(res.body.details?.[0]?.field).toBe("query");
   });
 });

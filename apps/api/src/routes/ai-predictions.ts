@@ -48,12 +48,7 @@ router.get(
     try {
       const parsedBatch = noShowBatchQuerySchema.safeParse(req.query);
       if (!parsedBatch.success) {
-        res.status(400).json({
-          success: false,
-          data: null,
-          error: parsedBatch.error.issues[0]?.message ?? "Query param 'date' is required in YYYY-MM-DD format",
-        });
-        return;
+        return next(parsedBatch.error);
       }
       const { date } = parsedBatch.data;
 

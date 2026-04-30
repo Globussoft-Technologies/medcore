@@ -170,7 +170,8 @@ describeIfDB("AI Predictions API (integration)", () => {
       .set("Authorization", `Bearer ${adminToken}`);
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/date/i);
+    expect(res.body.error).toBe("Validation failed");
+    expect(res.body.details?.[0]?.field).toBe("date");
   });
 
   it("returns 400 when date is not YYYY-MM-DD", async () => {

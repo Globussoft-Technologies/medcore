@@ -1,12 +1,14 @@
 # MedCore — TODO
 
 Next-session priority list. Full per-issue history lives in
-[`docs/SESSION_SNAPSHOT_2026-04-30.md`](docs/SESSION_SNAPSHOT_2026-04-30.md);
+[`docs/SESSION_SNAPSHOT_2026-04-30.md`](docs/SESSION_SNAPSHOT_2026-04-30.md)
+and the evening continuation in
+[`docs/SESSION_SNAPSHOT_2026-04-30-evening.md`](docs/SESSION_SNAPSHOT_2026-04-30-evening.md);
 this file is the short, actionable checklist.
 
-> Updated: 2026-04-30 evening — end of cap-the-day session.
-> HEAD on `main` = `41f905c` (Sprint 2 dashboards).
-> **Open GitHub issues: 0.** Every QA-sweep item is closed.
+> Updated: 2026-04-30 night — second pickup-and-handoff of the day.
+> HEAD on `main` = `b10f72b` (lab-intel GET endpoints).
+> **Open GitHub issues: 0.** **Auto-deploy: unblocked.**
 
 ---
 
@@ -15,49 +17,68 @@ this file is the short, actionable checklist.
 When you sit down at home, this is the order. Each item is independently
 shippable.
 
-### 1. CI is RED — auto-deploy is blocked (~30 min to triage)
+### 1. RBAC matrix reconciliation (~3-4 hr — substantive, not infra)
 
-Last 2 runs on `main` failed; auto-deploy hasn't shipped Sprint 2 yet.
-Run [`25174112116`](https://github.com/Globussoft-Technologies/medcore/actions)
-(or whichever is latest) on commit `41f905c`. Investigate the two clusters:
+`e2e-rbac` is currently OUT of the deploy gate (reverted in `968b8a3`)
+because 32 of 63 cases fail with real spec-vs-app drift. Three patterns
+in the failures (full breakdown in
+[`SESSION_SNAPSHOT_2026-04-30-evening.md`](docs/SESSION_SNAPSHOT_2026-04-30-evening.md#rbac-matrix--whats-actually-failing)):
 
-- **`E2E (RBAC matrix only)` — failing on every run since it landed**
-  This is the new gating job from `2f1f0ac`. The 63-test RBAC matrix at
-  `e2e/rbac-matrix.spec.ts` runs against `next start` (production bundle)
-  but has never gone green on CI. Most likely cause: seeded fixture rows
-  (e.g. an existing patient/doctor for the role assertions) are missing
-  on the e2e database, or the access-denied page testid lookup is racing
-  the redirect. Read the workflow log + the playwright-rbac-report
-  artifact.
+- **`apiLogin` failures on the "can open /dashboard/account" group** —
+  ADMIN/DOCTOR/NURSE/RECEPTION/PATIENT/LAB_TECH/PHARMACIST all fail.
+  Suggests the e2e DB isn't seeded with the 7 demo accounts at the
+  credentials the spec expects. **START HERE** — one seed fix may
+  unblock ~7 of the 32 failures.
+- **"BLOCKED → not-authorized" mismatches** — LAB_TECH/PHARMACIST/RECEPTION
+  expected to bounce on certain routes but going to `/dashboard` or
+  being allowed. Decide per-route: is the spec stale (RBAC was
+  intentionally loosened?) or is the route guard wrong?
+- **"ALLOWED" failures on the role's own page** — LAB_TECH on
+  `/dashboard/lab`, PHARMACIST on `/dashboard/{prescriptions,
+  controlled-substances, pharmacy}`. These are likely real RBAC bugs —
+  the role is being blocked from its own page.
 
-  **Easy revert** if you want auto-deploy unblocked while you fix:
-  drop `e2e-rbac` from the `deploy.needs:` array in
-  `.github/workflows/test.yml` (one-line revert). The job stays in the
-  workflow as a non-gating signal.
+Cross-reference [`docs/RBAC_AUDIT_2026-04-30.md`](docs/RBAC_AUDIT_2026-04-30.md)
+to know which behaviour is intentional. Land fixes per-role so each
+commit's blast radius stays narrow.
 
-- **`API tests` — failed on commit `42bd62f` only (one-off?)**
-  `42bd62f` was the test-staleness fix that made `web-tests` pass.
-  API tests passed on `2f1f0ac` (the prior commit) but regressed on
-  `42bd62f`. Could be a flaky integration test, since `42bd62f` only
-  touched 2 web test files. Re-run the job from the GitHub UI — if
-  it goes green on retry, it was flake.
+When the matrix is green, re-add `e2e-rbac` to `deploy.needs:` in
+`.github/workflows/test.yml` (~line 278).
 
-### 2. Ship the missing `lab-intel` list endpoints (~1 hr)
+### 2. Step 2 — Migrate Postgres off Docker (deferred from yesterday)
 
-`/dashboard/lab-intel` (commit `41f905c` Sprint 2) was built to consume
-three GET endpoints that don't yet exist:
+User asked for this; deferred until non-CI work was clear. Native
+PostgreSQL 16.13 is already installed and online on the dev server
+(127.0.0.1:5432) — currently empty; the Docker container `medcore-postgres`
+on `:5433` holds the production data. Migration outline:
 
-- `GET /api/v1/ai/lab-intel/aggregates`  (KPI tile counts)
-- `GET /api/v1/ai/lab-intel/critical?from=&to=&severity=`  (DataTable rows)
-- `GET /api/v1/ai/lab-intel/deviations`  (baseline-deviation list)
+1. `pg_dump` from `:5433/medcore` → `dump.sql`
+2. Create `medcore` role + db in native (`:5432`) with same credentials
+3. `psql` restore the dump
+4. Update `/home/empcloud-development/medcore/.env` `DATABASE_URL`: `5433` → `5432`
+5. Update `scripts/deploy.sh` constant `DB_URL`: `5433` → `5432`
+6. PM2 restart, verify `/api/health`
+7. `docker stop medcore-postgres && docker rm medcore-postgres`
+8. Update DEPLOY.md to remove all Docker references
 
-The page degrades gracefully to empty state, so this isn't urgent — but
-the dashboard isn't useful until they land. Existing
-`apps/api/src/routes/ai-lab-intel.ts` has only `GET /:labResultId` and
-`POST /:labResultId/persist`. Add the three list endpoints, mirror the
-`authorize(...)` set used by the page (DOCTOR/ADMIN full, NURSE read).
+Needs the dev-server sudo password for `pg_hba.conf` edits and any
+postgres-superuser flow.
 
-### 3. Broaden e2e-rbac → full Playwright suite (~2 hr, AFTER #1)
+### 3. Remaining LOW security follow-ups (parallel-friendly)
+
+The 5 zod-validation gaps closed in `9dc1913`. Remaining:
+
+- **F-ABDM-1** — `POST /gateway/callback` has no rate limit
+- **F-INJ-1** — extend `services/ai/prompt-safety.ts` sanitiser to
+  `routes/ai-er-triage.ts`, `ai-letters.ts`, `ai-chart-search.ts`,
+  `ai-report-explainer.ts`
+- **AI-inference audit rows** missing on 7 routes:
+  F-ADH-3 (POST /enroll), F-ER-3, F-KB-2, F-LET-2, F-PH-*, F-PRED-1,
+  F-REX-3, F-TX-1
+
+All independent — could be 2-3 parallel agents.
+
+### 4. Broaden e2e-rbac → full Playwright suite (~2 hr, AFTER #1)
 
 Once the RBAC matrix runs green for ~5 pushes, drop the explicit spec
 filter in `.github/workflows/test.yml` (currently `npx playwright test
@@ -69,23 +90,6 @@ you'll need:
   admin-console feature.
 - Bump `playwright.config.ts` for CI: `workers: process.env.CI ? 2 : 1`
   + `retries: process.env.CI ? 1 : 0` to absorb transient flake.
-
-### 4. LOW security follow-ups (from 2026-04-23 audit)
-
-Captured for the next security-hardening sprint. None blocking.
-
-- **F-ABDM-1** — `POST /gateway/callback` has no rate limit.
-- **F-ABDM-3** — `:id` paths on consent endpoints not zod-validated for
-  UUID shape. Add `validateUuidParams(["id"])`.
-- **F-ADH-3** — `POST /enroll` emits no audit event.
-- **F-CS-1** — `ai-chart-search` body has no zod schema.
-- **F-INJ-1** — extend prompt-safety sanitiser to `ai-er-triage.ts`,
-  `ai-letters.ts`, `ai-chart-search.ts`, `ai-report-explainer.ts`.
-- **F-PH-1 / F-PH-2 / F-PRED-2** — pharmacy + predictions query/path
-  params not zod-validated.
-- **F-REX-1** — body not zod-validated on `/explain` and `/approve`.
-- AI-inference audit rows missing on 7 routes (F-ER-3 / F-KB-2 /
-  F-LET-2 / F-PH-* / F-PRED-1 / F-REX-3 / F-TX-1).
 
 ### 5. Deferred housekeeping
 
@@ -110,6 +114,20 @@ Captured for the next security-hardening sprint. None blocking.
 Was previously available via AssemblyAI; removed on 2026-04-25 (PRD §3.8 /
 §4.8 data residency). Re-evaluate when an India-region diarizing provider
 appears, gated behind `DEPLOYMENT_REGION`.
+
+---
+
+## What landed 2026-04-30 evening (second pickup)
+
+Five commits closing the day:
+
+| Commit | What | Why |
+|---|---|---|
+| `fbb8b8a` | `ci(e2e-rbac): install devDependencies despite NODE_ENV=production` | First e2e-rbac infra blocker — `npm install` skipped devDeps under `NODE_ENV=production`, breaking turbo. |
+| `6efbc64` | `ci(e2e-rbac): scope PORT per-process so API and Web don't fight over 4000` | Second blocker — job-level `PORT=4000` made `next start` and Express both bind 4000. Now scoped per-step. |
+| `968b8a3` | `ci(deploy): drop e2e-rbac from gate while spec-vs-app drift is reconciled` | Third "blocker" was real RBAC drift (32/63 cases failing on actual app behaviour). Reverted out of `deploy.needs:` per the existing easy-revert recipe; kept as non-gating signal. |
+| `9dc1913` | `fix(security): zod-validate route params + bodies on 5 endpoints` | Closes F-ABDM-3, F-CS-1, F-PH-1/2, F-PRED-2, F-REX-1 from the LOW-severity audit. |
+| `b10f72b` | `feat(api): ship lab-intel list endpoints (TODO #2)` | `/aggregates`, `/critical?from=&to=&severity=`, `/deviations` — Sprint 2 lab-intel page now has data. |
 
 ---
 
@@ -170,13 +188,15 @@ agents). #413/#410 merged after rebases.
 
 ## CI gate today
 
-`needs: [test, web-tests, typecheck, e2e-rbac]`
+`needs: [test, web-tests, typecheck]`
 
-`e2e-rbac` is the new RBAC matrix spec. **Currently failing on CI** — see
-priority #1 above.
+`e2e-rbac` was removed from the gate in `968b8a3` while the matrix
+spec-vs-app drift is reconciled (priority #1 above). The job still
+runs on every push as a non-gating signal so failures stay visible
+in PRs. **Auto-deploy is unblocked.**
 
-To temporarily unblock auto-deploy while debugging, drop `e2e-rbac` from
-the array. Single-line revert.
+Re-add `e2e-rbac` to `deploy.needs:` (`.github/workflows/test.yml`,
+~line 278) once the matrix runs green for ~5 pushes.
 
 ---
 

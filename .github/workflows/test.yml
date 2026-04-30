@@ -176,7 +176,11 @@ jobs:
       JWT_SECRET: ci-jwt-secret
       JWT_REFRESH_SECRET: ci-jwt-refresh-secret
       NODE_ENV: production
-      PORT: "4000"
+      # NOTE: do NOT set PORT at the job level — it leaks into both the
+      # `Start API` and `Start Web` steps, causing them to fight over the
+      # same port (next start respects $PORT just like Express does, so a
+      # job-level PORT=4000 made next bind 4000 first and then the API died
+      # with EADDRINUSE). PORT is set inline per-process below.
       NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
       E2E_BASE_URL: http://localhost:3000
       E2E_API_URL: http://localhost:4000/api/v1
@@ -214,12 +218,16 @@ jobs:
         run: npm --prefix apps/web run build
 
       - name: Start API
+        env:
+          PORT: "4000"
         run: |
           cd apps/api
           nohup npm run dev > ../../api.log 2>&1 &
           cd ../..
 
       - name: Start Web (next start)
+        env:
+          PORT: "3000"
         run: |
           cd apps/web
           nohup npm start > ../../web.log 2>&1 &

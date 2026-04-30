@@ -203,8 +203,11 @@ jobs:
           cd ../..
 
       - name: Wait for API and Web
+        # 240s, not 120s: `next dev` cold-start in CI was hitting 120s on the
+        # /login page compile (lots of routes pre-compile on first hit). The
+        # API is up in seconds; the timeout is overwhelmingly for Next.
         run: |
-          npx wait-on http://localhost:4000/api/health http://localhost:3000/login --timeout 120000
+          npx wait-on http://localhost:4000/api/health http://localhost:3000/login --timeout 240000
 
       - name: Run Playwright E2E
         run: npm run test:e2e

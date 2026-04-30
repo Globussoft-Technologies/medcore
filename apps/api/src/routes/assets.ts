@@ -24,6 +24,9 @@ router.use(authenticate);
 
 router.get(
   "/maintenance/due",
+  // Issue #174 (Apr 30 2026): assets module is admin/ops-only — clinical roles
+  // do not need fleet/biomedical inventory data.
+  authorize(Role.ADMIN, Role.RECEPTION),
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
       const now = new Date();
@@ -59,6 +62,8 @@ router.get(
 
 router.get(
   "/warranty/expiring",
+  // Issue #174: warranty data is admin/ops only.
+  authorize(Role.ADMIN, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { days = "30" } = req.query as Record<string, string | undefined>;
@@ -126,7 +131,10 @@ router.post(
 // ASSETS
 // ───────────────────────────────────────────────────────
 
-router.get("/", async (req: Request, res: Response, next: NextFunction) => {
+router.get("/", authorize(Role.ADMIN, Role.RECEPTION), async (req: Request, res: Response, next: NextFunction) => {
+  // Issue #174 (Apr 30 2026): asset list exposes serial numbers, purchase
+  // costs, current assignees. Restrict to admin + reception (the two roles
+  // that own assignment + procurement workflows).
   try {
     const {
       search,
@@ -206,7 +214,8 @@ router.post(
   }
 );
 
-router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
+router.get("/:id", authorize(Role.ADMIN, Role.RECEPTION), async (req: Request, res: Response, next: NextFunction) => {
+  // Issue #174: detail view includes assignment history + maintenance log.
   try {
     const asset = await prisma.asset.findUnique({
       where: { id: req.params.id },
@@ -389,6 +398,8 @@ router.post(
 
 router.get(
   "/:id/depreciation",
+  // Issue #174: depreciation = financial data, ADMIN only.
+  authorize(Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const asset = await prisma.asset.findUnique({
@@ -442,6 +453,8 @@ router.get(
 
 router.get(
   "/amc/expiring",
+  // Issue #174: AMC contract data — admin/ops only.
+  authorize(Role.ADMIN, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { days = "60" } = req.query as Record<string, string | undefined>;
@@ -461,6 +474,8 @@ router.get(
 
 router.get(
   "/calibration/due",
+  // Issue #174: ops-only (biomedical engineer / admin).
+  authorize(Role.ADMIN, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { days = "30" } = req.query as Record<string, string | undefined>;
@@ -563,6 +578,8 @@ router.post(
 
 router.get(
   "/:id/transfers",
+  // Issue #174: ops-only.
+  authorize(Role.ADMIN, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const transfers = await prisma.assetTransfer.findMany({
@@ -625,6 +642,8 @@ router.post(
 
 router.get(
   "/:id/qr-payload",
+  // Issue #174: QR payload reveals asset serial + tag.
+  authorize(Role.ADMIN, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const asset = await prisma.asset.findUnique({

@@ -111,8 +111,13 @@ function KpiCard({ testId, title, result }: KpiCardProps) {
   const { t } = useTranslation();
   const meeting = isMeetingTarget(result);
   const arrowUp = result.target_direction === "up";
+  // Issue #191: when sampleSize is 0 the headline number ("0.0%", "0s",
+  // "0.00") looks like a real measurement instead of "no data yet". Surface
+  // the unavailable card with a clear reason rather than rendering 0 + a
+  // bogus on-target arrow.
+  const noSamples = result.sampleSize !== undefined && result.sampleSize === 0;
 
-  if (result.unavailable) {
+  if (result.unavailable || noSamples) {
     return (
       <div
         data-testid={testId}
@@ -130,7 +135,13 @@ function KpiCard({ testId, title, result }: KpiCardProps) {
         </div>
         <p className="text-2xl font-bold text-gray-400 mt-3">—</p>
         <p className="text-xs text-gray-500 mt-2 line-clamp-3">
-          {result.reason}
+          {result.reason ||
+            (noSamples
+              ? t(
+                  "aiKpis.noSamples",
+                  "No data yet — KPI will populate once events accrue."
+                )
+              : null)}
         </p>
       </div>
     );

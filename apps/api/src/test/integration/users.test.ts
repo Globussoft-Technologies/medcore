@@ -24,7 +24,7 @@ describeIfDB("Users API (integration)", () => {
       name: "Rita Reception",
       email: `rita-${Date.now()}@test.local`,
       phone: "9998887777",
-      password: "password123",
+      password: "MedCoreT3st-2026",
       role: "RECEPTION",
     });
     expect([200, 201]).toContain(res.status);
@@ -37,14 +37,14 @@ describeIfDB("Users API (integration)", () => {
       name: "First",
       email,
       phone: "9999999999",
-      password: "password123",
+      password: "MedCoreT3st-2026",
       role: "NURSE",
     });
     const res = await request(app).post("/api/v1/auth/register").send({
       name: "Second",
       email,
       phone: "9999999999",
-      password: "password123",
+      password: "MedCoreT3st-2026",
       role: "NURSE",
     });
     expect(res.status).toBe(409);
@@ -120,7 +120,7 @@ describeIfDB("Users API (integration)", () => {
       name: "Persist Me",
       email,
       phone: "9990001111",
-      password: "password123",
+      password: "MedCoreT3st-2026",
       role: "RECEPTION",
     });
     const prisma = await getPrisma();

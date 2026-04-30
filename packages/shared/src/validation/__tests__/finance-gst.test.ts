@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   categorizeService,
+  computeInvoiceTotals,
   computeLineItemTax,
+  derivePaymentStatus,
   gstRateForCategory,
   hsnSacForCategory,
   GST_RATE_BY_CATEGORY,
@@ -85,6 +87,89 @@ describe("computeLineItemTax", () => {
     // taxAmount rounded = 12.00, half = 6.00 each → cgst + sgst = 12.00.
     expect(+(r.cgst + r.sgst).toFixed(2)).toBe(12);
     expect(r.total).toBe(+(r.taxable + r.cgst + r.sgst).toFixed(2));
+  });
+});
+
+// Regression battery for #202 and #236: a single helper computes the
+// canonical totals for both the invoice page and the PDF generator.
+describe("computeInvoiceTotals", () => {
+  it("recomputes Total when the persisted taxAmount was 0 (#202)", () => {
+    const t = computeInvoiceTotals(
+      [
+        { amount: 500, category: "PROCEDURE" },
+        { amount: 600, category: "PROCEDURE" },
+      ],
+      { subtotal: 1100, taxAmount: 0, totalAmount: 1100 }
+    );
+    expect(t.subtotal).toBe(1100);
+    expect(t.cgstAmount).toBe(99);
+    expect(t.sgstAmount).toBe(99);
+    expect(t.taxAmount).toBe(198);
+    expect(t.totalAmount).toBe(1298);
+    expect(t.totalAmountWasCorrected).toBe(true);
+  });
+
+  it("returns the persisted totals when they already match the line items", () => {
+    const t = computeInvoiceTotals(
+      [{ amount: 1000, category: "SURGERY" }],
+      {
+        subtotal: 1000,
+        taxAmount: 180,
+        cgstAmount: 90,
+        sgstAmount: 90,
+        totalAmount: 1180,
+      }
+    );
+    expect(t.totalAmount).toBe(1180);
+    expect(t.totalAmountWasCorrected).toBe(false);
+  });
+
+  it("respects per-category GST when items mix taxable + exempt", () => {
+    // Consultation is exempt; LAB is 12%.
+    const t = computeInvoiceTotals(
+      [
+        { amount: 500, category: "CONSULTATION" },
+        { amount: 200, category: "LAB" },
+      ],
+      { subtotal: 700, taxAmount: 0, totalAmount: 700 }
+    );
+    expect(t.subtotal).toBe(700);
+    expect(t.taxAmount).toBe(24); // 12% of 200
+    expect(t.totalAmount).toBe(724);
+    expect(t.totalAmountWasCorrected).toBe(true);
+  });
+
+  it("subtracts persisted discountAmount from the recomputed total", () => {
+    const t = computeInvoiceTotals(
+      [{ amount: 1000, category: "SURGERY" }],
+      { subtotal: 1000, taxAmount: 180, discountAmount: 100, totalAmount: 1080 }
+    );
+    expect(t.totalAmount).toBe(1080);
+    expect(t.totalAmountWasCorrected).toBe(false);
+  });
+});
+
+// Regression battery for #235: PAID-with-positive-balance must surface
+// as PARTIAL; CANCELLED / REFUNDED rows pass through verbatim.
+describe("derivePaymentStatus", () => {
+  it("returns PARTIAL when persisted PAID has a positive balance (#235)", () => {
+    expect(derivePaymentStatus("PAID", 590, 500)).toBe("PARTIAL");
+  });
+  it("returns PAID when balance is zero", () => {
+    expect(derivePaymentStatus("PENDING", 590, 590)).toBe("PAID");
+  });
+  it("returns PARTIAL when balance is partial", () => {
+    expect(derivePaymentStatus("PENDING", 1000, 400)).toBe("PARTIAL");
+  });
+  it("returns PENDING when nothing has been paid", () => {
+    expect(derivePaymentStatus("PENDING", 1000, 0)).toBe("PENDING");
+  });
+  it("preserves CANCELLED and REFUNDED verbatim", () => {
+    expect(derivePaymentStatus("CANCELLED", 1000, 0)).toBe("CANCELLED");
+    expect(derivePaymentStatus("REFUNDED", 1000, 1000)).toBe("REFUNDED");
+  });
+  it("treats sub-paisa drift as paid (rounding hygiene)", () => {
+    expect(derivePaymentStatus("PENDING", 590, 589.999)).toBe("PAID");
   });
 });
 

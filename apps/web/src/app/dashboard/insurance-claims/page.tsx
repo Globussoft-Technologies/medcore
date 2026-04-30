@@ -696,8 +696,24 @@ function NewClaimModal({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setSubmitting(true);
     setErr(null);
+    // Issue #302: the EntityPicker components for Bill and Patient don't
+    // participate in HTML5 `required` validation, so the form would happily
+    // POST with an empty billId/patientId. Block client-side and surface a
+    // single readable message before bothering the server.
+    if (!billId) {
+      setErr("Please select a Bill (invoice) before submitting.");
+      return;
+    }
+    if (!patientId) {
+      setErr("Please select a Patient before submitting.");
+      return;
+    }
+    if (!amount || Number.isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+      setErr("Please enter the amount claimed (in INR).");
+      return;
+    }
+    setSubmitting(true);
     try {
       await api.post("/claims", {
         billId,

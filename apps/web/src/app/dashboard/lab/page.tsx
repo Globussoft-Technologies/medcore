@@ -2,13 +2,14 @@
 
 import { useEffect, useState, Fragment } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { formatINR } from "@/lib/currency";
 import { Plus, FlaskConical } from "lucide-react";
+import { extractFieldErrors, type FieldErrorMap } from "@/lib/field-errors";
 
 // Issue #90: RECEPTION must NOT see lab orders / results / result-entry form.
 // Clinical roles + LAB_TECH + PATIENT (own data).
@@ -79,15 +80,19 @@ const FLAG_COLORS: Record<string, string> = {
 export default function LabPage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
+  const pathname = usePathname();
   const { t } = useTranslation();
 
   // Issue #90: redirect RECEPTION away — clinical-data exposure.
+  // Issue #179: target /dashboard/not-authorized so the layout chrome stays.
   useEffect(() => {
     if (!isLoading && user && !LAB_ALLOWED.has(user.role)) {
       toast.error("Lab orders & results are restricted to clinical staff.");
-      router.replace("/dashboard");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/lab")}`,
+      );
     }
-  }, [user, isLoading, router]);
+  }, [user, isLoading, router, pathname]);
   const [tab, setTab] = useState<Tab>("orders");
   const [orders, setOrders] = useState<LabOrder[]>([]);
   const [tests, setTests] = useState<LabTest[]>([]);
@@ -517,6 +522,9 @@ function NewOrderModal({
   const [selectedTests, setSelectedTests] = useState<string[]>([]);
   const [notes, setNotes] = useState("");
   const [priority, setPriority] = useState<"ROUTINE" | "URGENT" | "STAT">("ROUTINE");
+  // Issue #223: surface zod field-level errors instead of a single generic
+  // "Validation failed" toast.
+  const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({});
 
   useEffect(() => {
     api
@@ -553,6 +561,7 @@ function NewOrderModal({
       toast.error("Select at least one test");
       return;
     }
+    setFieldErrors({});
     try {
       await api.post("/lab/orders", {
         patientId: selectedPatient.id,
@@ -563,6 +572,16 @@ function NewOrderModal({
       onSaved();
       onClose();
     } catch (err) {
+      // Issue #223: prefer per-field messages from `error.payload.details[]`
+      // over the generic "Validation failed" fallback. The toast still fires
+      // (with the first message) so the user is alerted, and the inline
+      // hints remain in place under the failing inputs.
+      const fields = extractFieldErrors(err);
+      if (fields) {
+        setFieldErrors(fields);
+        toast.error(Object.values(fields)[0] || "Please fix the highlighted fields");
+        return;
+      }
       toast.error(err instanceof Error ? err.message : "Failed to create order");
     }
   }
@@ -628,10 +647,26 @@ function NewOrderModal({
                 )}
               </>
             )}
+            {fieldErrors.patientId && (
+              <p
+                data-testid="error-lab-patient"
+                className="mt-1 text-xs text-red-600"
+              >
+                {fieldErrors.patientId}
+              </p>
+            )}
           </div>
 
           <div>
             <label className="mb-1 block text-sm font-medium">Tests</label>
+            {fieldErrors.testIds && (
+              <p
+                data-testid="error-lab-tests"
+                className="mb-1 text-xs text-red-600"
+              >
+                {fieldErrors.testIds}
+              </p>
+            )}
             <div className="max-h-64 overflow-y-auto rounded-lg border p-3">
               {Object.keys(grouped).length === 0 ? (
                 <p className="text-sm text-gray-500">Loading tests...</p>
@@ -711,8 +746,18 @@ function NewOrderModal({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                fieldErrors.notes ? "border-red-500 bg-red-50" : ""
+              }`}
             />
+            {fieldErrors.notes && (
+              <p
+                data-testid="error-lab-notes"
+                className="mt-1 text-xs text-red-600"
+              >
+                {fieldErrors.notes}
+              </p>
+            )}
           </div>
         </div>
 

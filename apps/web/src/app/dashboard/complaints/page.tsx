@@ -52,6 +52,9 @@ const TABS: Array<{ key: string; label: string; status?: string }> = [
 ];
 
 const PRIORITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+// Issue #206 (2026-04-30): added Parking + Facilities so reception can
+// log the kinds of complaints that were previously dumped into "Other".
+// Server still validates as a free-form string, so no schema change.
 const CATEGORIES = [
   "Service",
   "Billing",
@@ -59,6 +62,8 @@ const CATEGORIES = [
   "Staff Behavior",
   "Food",
   "Wait Time",
+  "Parking",
+  "Facilities",
   "Other",
 ];
 
@@ -493,7 +498,7 @@ export default function ComplaintsPage() {
               <thead>
                 <tr className="border-b text-left text-sm text-gray-500">
                   <th className="px-4 py-3">Ticket</th>
-                  <th className="px-4 py-3">Name</th>
+                  <th className="px-4 py-3">Patient</th>
                   <th className="px-4 py-3">Category</th>
                   <th className="px-4 py-3">Priority</th>
                   <th className="px-4 py-3">Status</th>
@@ -516,8 +521,32 @@ export default function ComplaintsPage() {
                       <td className="px-4 py-3 font-mono text-xs font-semibold">
                         {c.ticketNumber}
                       </td>
-                      <td className="px-4 py-3 text-sm">
-                        {c.patient?.user.name || c.name || "-"}
+                      {/* Issue #206 (2026-04-30): show patient name as the
+                          primary identifier; if the caller (c.name) is a
+                          different person (e.g. a relative phoning on the
+                          patient's behalf), surface that underneath in
+                          muted text so the desk can see both. Falls back
+                          to caller-only when there is no linked patient. */}
+                      <td
+                        className="px-4 py-3 text-sm"
+                        data-testid="complaint-row-patient"
+                      >
+                        {c.patient?.user.name ? (
+                          <>
+                            <div className="font-medium text-gray-900">
+                              {c.patient.user.name}
+                            </div>
+                            {c.name && c.name !== c.patient.user.name && (
+                              <div className="text-xs text-gray-500">
+                                Caller: {c.name}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-gray-700">
+                            {c.name || "-"}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-sm">{c.category}</td>
                       <td className="px-4 py-3">

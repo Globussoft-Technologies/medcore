@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
+import { Prisma } from "@prisma/client";
 // Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
 // auto-injects tenantId on create and auto-filters on read for the 20
 // tenant-scoped models (see services/tenant-prisma.ts). We alias it to
@@ -753,7 +754,9 @@ router.delete(
         data: {
           status: "CONSENT_WITHDRAWN",
           transcript: [] as any,
-          soapDraft: undefined,
+          // Prisma footgun: `undefined` means "skip this field"; only DbNull
+          // actually writes SQL NULL on a nullable JSON column.
+          soapDraft: Prisma.DbNull,
         },
       });
 

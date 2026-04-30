@@ -16,6 +16,13 @@ interface SendNotificationParams {
   title: string;
   message: string;
   data?: Record<string, unknown>;
+  /**
+   * When true, deliver on every channel regardless of the user's
+   * NotificationPreference rows. Reserved for safety-critical paths
+   * (e.g. CRITICAL lab values, drug-interaction alerts) where we
+   * cannot let a muted channel silence the alert. Defaults to false.
+   */
+  bypassPreferences?: boolean;
 }
 
 const RETRY_DELAY_MS = 5000;
@@ -102,7 +109,7 @@ async function computeScheduledFor(userId: string): Promise<Date | null> {
 }
 
 export async function sendNotification(params: SendNotificationParams): Promise<void> {
-  const { userId, type, title, message, data } = params;
+  const { userId, type, title, message, data, bypassPreferences = false } = params;
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -113,14 +120,32 @@ export async function sendNotification(params: SendNotificationParams): Promise<
     return;
   }
 
-  const preferences = await prisma.notificationPreference.findMany({ where: { userId } });
-  const enabledChannels = new Set<NotificationChannel>();
-  if (preferences.length === 0) {
-    Object.values(NotificationChannel).forEach((ch) => enabledChannels.add(ch));
+  // Compute the channel set. Default behaviour: a channel is enabled unless
+  // the user has an explicit NotificationPreference row with enabled=false
+  // for it. This means:
+  //   - User has no rows at all  →  all 4 channels (preserve legacy default).
+  //   - User saved {EMAIL:false} only  →  PUSH/SMS/WHATSAPP still fire,
+  //     EMAIL is suppressed (issue #180).
+  //   - bypassPreferences=true  →  every channel fires regardless of rows
+  //     (safety-critical path).
+  const allChannels = Object.values(NotificationChannel) as NotificationChannel[];
+  let enabledChannels: NotificationChannel[];
+  if (bypassPreferences) {
+    enabledChannels = allChannels;
   } else {
-    preferences
-      .filter((p) => p.enabled)
-      .forEach((p) => enabledChannels.add(p.channel as NotificationChannel));
+    const preferences = await prisma.notificationPreference.findMany({ where: { userId } });
+    const explicitlyDisabled = new Set<NotificationChannel>(
+      preferences.filter((p) => !p.enabled).map((p) => p.channel as NotificationChannel)
+    );
+    enabledChannels = allChannels.filter((ch) => {
+      if (!explicitlyDisabled.has(ch)) return true;
+      // Structured audit line so ops can verify the gate is working.
+      console.info(
+        "notification_channel_skipped",
+        JSON.stringify({ userId, channel: ch, reason: "pref_off", type })
+      );
+      return false;
+    });
   }
 
   const scheduledFor = await computeScheduledFor(userId);

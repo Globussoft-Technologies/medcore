@@ -184,12 +184,29 @@ function buildTxClient(snapshot: FakeState) {
       },
     },
     prescriptionItem: {
+      findFirst: async (args: any) => {
+        const where = args?.where ?? {};
+        for (const it of snapshot.prescriptionItems.values()) {
+          if (where.prescriptionId && it.prescriptionId !== where.prescriptionId) continue;
+          if (where.medicineName && it.medicineName !== where.medicineName) continue;
+          return it;
+        }
+        return null;
+      },
       create: async (args: any) => {
         maybeFail("prescriptionItem.create");
         const id = args.data.id ?? genId("rxi");
         const row = { id, ...args.data };
         snapshot.prescriptionItems.set(id, row);
         return row;
+      },
+      update: async (args: any) => {
+        maybeFail("prescriptionItem.update");
+        const existing = snapshot.prescriptionItems.get(args.where.id);
+        if (!existing) throw new Error("prescriptionItem not found");
+        const merged = { ...existing, ...args.data };
+        snapshot.prescriptionItems.set(existing.id, merged);
+        return merged;
       },
     },
     patientAllergy: {

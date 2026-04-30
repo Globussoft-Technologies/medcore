@@ -104,7 +104,9 @@ describe("AuditPage", () => {
         return Promise.reject(new Error("no stats"));
       return Promise.resolve({ data: [], meta: { totalPages: 1 } });
     });
-    (globalThis as any).fetch = vi.fn(async () => new Response(new Blob([]), { status: 200 }));
+    // String body, not `new Blob([])`: jsdom's Blob shim has no `stream()`,
+    // and Node 20's undici calls Blob.stream() inside `new Response(blob)`.
+    (globalThis as any).fetch = vi.fn(async () => new Response("", { status: 200 }));
     const user = userEvent.setup();
     render(<AuditPage />);
     await waitFor(() =>

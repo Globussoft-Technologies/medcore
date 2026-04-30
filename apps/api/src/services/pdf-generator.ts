@@ -17,7 +17,11 @@
 import PDFDocument from "pdfkit";
 import QRCode from "qrcode";
 import { prisma } from "@medcore/db";
-import { computeLineItemTax } from "@medcore/shared";
+import {
+  computeInvoiceTotals,
+  computeLineItemTax,
+  derivePaymentStatus,
+} from "@medcore/shared";
 
 // ─── Shared helpers ─────────────────────────────────────────
 
@@ -377,9 +381,23 @@ export async function generateInvoicePDFBuffer(invoiceId: string): Promise<Buffe
 
   const h = await getHospitalInfo();
   const p = inv.patient;
-  const taxable = inv.subtotal - inv.discountAmount - inv.packageDiscount;
+  // Issue #202 / #236: derive the canonical totals from the line items so
+  // the footer Total = Subtotal + GST holds even when the persisted
+  // `invoice.totalAmount` was stored without GST (legacy seed path). We
+  // never echo a stale persisted Total — the PDF is the legal tax invoice
+  // and must reconcile to the line breakdown above it.
+  const totals = computeInvoiceTotals(inv.items, {
+    subtotal: inv.subtotal,
+    taxAmount: inv.taxAmount,
+    cgstAmount: inv.cgstAmount,
+    sgstAmount: inv.sgstAmount,
+    discountAmount: inv.discountAmount,
+    totalAmount: inv.totalAmount,
+  });
+  const taxable = totals.subtotal - inv.discountAmount - inv.packageDiscount;
   const paid = inv.payments.reduce((s, x) => s + x.amount, 0);
-  const balance = inv.totalAmount - paid - inv.advanceApplied;
+  const displayTotal = +(totals.totalAmount - inv.packageDiscount).toFixed(2);
+  const balance = displayTotal - paid - inv.advanceApplied;
 
   const doc = new PDFDocument({ size: "A4", margin: 40 });
   const out = collectPdf(doc);
@@ -395,7 +413,14 @@ export async function generateInvoicePDFBuffer(invoiceId: string): Promise<Buffe
   if (p.user.phone) drawKeyVal(doc, "Phone", p.user.phone, 40, topY + 56);
   drawKeyVal(doc, "Invoice #", inv.invoiceNumber, 310, topY);
   drawKeyVal(doc, "Date", formatDate(inv.createdAt), 310, topY + 28);
-  drawKeyVal(doc, "Status", inv.paymentStatus, 310, topY + 56);
+  // Issue #235: never render a "PAID" status when the balance is non-zero.
+  drawKeyVal(
+    doc,
+    "Status",
+    derivePaymentStatus(inv.paymentStatus, displayTotal, paid + inv.advanceApplied),
+    310,
+    topY + 56
+  );
   doc.y = topY + 90;
 
   // Per-line GST breakdown — computed at render time via the shared
@@ -434,11 +459,11 @@ export async function generateInvoicePDFBuffer(invoiceId: string): Promise<Buffe
     ])
   );
 
-  // Aggregate per-line computed GST for the summary block fallback.
-  const sumLineCgst = linesWithTax.reduce((s, x) => s + x.tax.cgst, 0);
-  const sumLineSgst = linesWithTax.reduce((s, x) => s + x.tax.sgst, 0);
-  const displayCgst = inv.cgstAmount > 0 ? inv.cgstAmount : +sumLineCgst.toFixed(2);
-  const displaySgst = inv.sgstAmount > 0 ? inv.sgstAmount : +sumLineSgst.toFixed(2);
+  // Aggregate GST sourced from the canonical totals helper so the
+  // summary block always reconciles with both the line table above and
+  // the highlighted "Total" row below (#202).
+  const displayCgst = totals.cgstAmount;
+  const displaySgst = totals.sgstAmount;
 
   // Totals (right-aligned narrow table)
   doc.moveDown(0.6);
@@ -456,7 +481,7 @@ export async function generateInvoicePDFBuffer(invoiceId: string): Promise<Buffe
     doc.text(value, totalsX + 130, ty, { width: 105, align: "right" });
     ty += 16;
   };
-  totalLine("Subtotal", "Rs. " + inv.subtotal.toFixed(2));
+  totalLine("Subtotal", "Rs. " + totals.subtotal.toFixed(2));
   if (inv.packageDiscount > 0)
     totalLine("Package Discount", "-Rs. " + inv.packageDiscount.toFixed(2));
   if (inv.discountAmount > 0)
@@ -466,10 +491,11 @@ export async function generateInvoicePDFBuffer(invoiceId: string): Promise<Buffe
   totalLine("SGST", "Rs. " + displaySgst.toFixed(2));
   if (inv.lateFeeAmount > 0)
     totalLine("Late Fee", "Rs. " + inv.lateFeeAmount.toFixed(2));
-  // Highlight Total
+  // Highlight Total — sourced from `computeInvoiceTotals` so it always
+  // equals Subtotal + GST - Discount, never a stale persisted figure.
   doc.rect(totalsX, ty - 2, totalsW, 18).fill("#f1f5f9");
   doc.fillColor("#1e293b");
-  totalLine("Total", "Rs. " + inv.totalAmount.toFixed(2), true);
+  totalLine("Total", "Rs. " + displayTotal.toFixed(2), true);
   if (inv.advanceApplied > 0)
     totalLine("Advance Applied", "-Rs. " + inv.advanceApplied.toFixed(2));
   if (paid > 0) totalLine("Paid", "-Rs. " + paid.toFixed(2));
@@ -482,7 +508,7 @@ export async function generateInvoicePDFBuffer(invoiceId: string): Promise<Buffe
   doc.fillColor("#475569").font("Helvetica-Bold").fontSize(9)
     .text("AMOUNT IN WORDS", 48, doc.y - 24);
   doc.fillColor("#1e293b").font("Helvetica").fontSize(10)
-    .text(numberToWordsIndian(inv.totalAmount), 48, doc.y - 12, { width: 500 });
+    .text(numberToWordsIndian(displayTotal), 48, doc.y - 12, { width: 500 });
   doc.y = doc.y + 12;
 
   if (inv.payments.length > 0) {

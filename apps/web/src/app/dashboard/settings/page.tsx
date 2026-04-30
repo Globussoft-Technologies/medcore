@@ -135,10 +135,20 @@ function ProfileTab() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
-    const res = await api.get<MeResponse>("/auth/me");
-    setName(res.data.name);
-    setPhone(res.data.phone);
-    setPhotoUrl(res.data.photoUrl ?? null);
+    // Issue #415 (Apr 2026, cluster D): if /auth/me errors out (500, network
+    // drop, etc) we still want the Settings shell to render — the user can
+    // switch tabs and the heading/nav must stay mounted. Swallow the load
+    // failure and fall through with empty fields. The page-level wrapper
+    // doesn't need an error UI here; sibling pages (patients, etc) follow
+    // the same `try { ... } catch { /* empty */ }` convention for tab loads.
+    try {
+      const res = await api.get<MeResponse>("/auth/me");
+      setName(res.data.name);
+      setPhone(res.data.phone);
+      setPhotoUrl(res.data.photoUrl ?? null);
+    } catch {
+      // ignore — keep tab rendered with default empty fields
+    }
   }, []);
 
   useEffect(() => {

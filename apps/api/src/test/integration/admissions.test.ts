@@ -141,7 +141,10 @@ describeIfDB("Admissions API (integration)", () => {
         admissionId: admission.id,
         bloodPressureSystolic: 120,
         bloodPressureDiastolic: 80,
+        // Send F + unit explicitly: schema defaults to Celsius and 98.6°C
+        // is rejected as clinically impossible (range 32-43).
         temperature: 98.6,
+        temperatureUnit: "F",
         pulseRate: 72,
         spO2: 98,
       });

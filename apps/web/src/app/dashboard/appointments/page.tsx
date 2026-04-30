@@ -13,6 +13,7 @@ import {
 } from "@/lib/appointments";
 import { SkeletonTable } from "@/components/Skeleton";
 import { EmptyState } from "@/components/EmptyState";
+import { EntityPicker } from "@/components/EntityPicker";
 import { Calendar } from "lucide-react";
 
 // ─── Types ─────────────────────────────────────────
@@ -824,8 +825,11 @@ export default function AppointmentsPage() {
     [calWeekStart]
   );
 
+  // Issue #254: 08–20 was too narrow — clinics with early-morning OPDs or
+  // late evening telemed slots had appointments hidden off the grid. Show
+  // 06:00–22:00 instead; rows outside typical hours stay empty visually.
   const calHours = useMemo(
-    () => Array.from({ length: 13 }, (_, i) => 8 + i), // 08:00..20:00
+    () => Array.from({ length: 17 }, (_, i) => 6 + i), // 06:00..22:00
     []
   );
 
@@ -928,10 +932,10 @@ export default function AppointmentsPage() {
               id="patient-id-prompt-title"
               className="text-lg font-semibold text-gray-800"
             >
-              Enter Patient ID
+              Select Patient
             </h3>
             <p className="mt-1 text-sm text-gray-500">
-              Paste the Patient ID (MRN or UUID) for this booking.
+              Search by name, phone, or MR number.
             </p>
             <form
               onSubmit={(e) => {
@@ -940,16 +944,19 @@ export default function AppointmentsPage() {
               }}
               className="mt-4 space-y-4"
             >
-              <input
-                autoFocus
-                type="text"
+              {/* Issue #204: replaced raw text input ("Paste the Patient ID
+                  MRN or UUID") with the shared EntityPicker. The previous
+                  flow asked reception to paste an MRN/UUID and silently
+                  did nothing on most inputs. */}
+              <EntityPicker
+                endpoint="/patients"
+                labelField="user.name"
+                subtitleField="user.phone"
+                hintField="mrNumber"
                 value={patientIdInput}
-                onChange={(e) => setPatientIdInput(e.target.value)}
-                placeholder="e.g. MR-2026-00123"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                data-testid="patient-id-prompt-input"
-                aria-label="Patient ID"
-                disabled={bookingInFlight}
+                onChange={(id) => setPatientIdInput(id)}
+                searchPlaceholder="Search patient by name, phone, MR..."
+                testIdPrefix="patient-id-prompt"
               />
               <div className="flex justify-end gap-2">
                 <button
@@ -1652,7 +1659,7 @@ export default function AppointmentsPage() {
                       <td className="px-4 py-3 text-sm">{apt.doctor.user.name}</td>
                       <td className="px-4 py-3 text-sm">{apt.date.slice(0, 10)}</td>
                       <td className="px-4 py-3 text-sm">
-                        {displayTime || (apt.slotStart ?? "Walk-in")}
+                        {displayTime || apt.slotStart || "Walk-in"}
                       </td>
                       <td className="px-4 py-3">
                         <span
@@ -1970,31 +1977,31 @@ export default function AppointmentsPage() {
             <>
               {/* Summary cards */}
               <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                <StatCard label="Total" value={stats.totalCount} color="bg-blue-50 text-blue-700" />
+                <StatCard label="Total" value={stats?.totalCount ?? 0} color="bg-blue-50 text-blue-700" />
                 <StatCard
                   label="Completed"
-                  value={stats.completedCount}
+                  value={stats?.completedCount ?? 0}
                   color="bg-green-50 text-green-700"
                 />
                 <StatCard
                   label="Cancelled"
-                  value={stats.cancelledCount}
+                  value={stats?.cancelledCount ?? 0}
                   color="bg-red-50 text-red-700"
                 />
                 <StatCard
                   label="No-Show"
-                  value={stats.noShowCount}
+                  value={stats?.noShowCount ?? 0}
                   color="bg-slate-50 text-slate-700"
                 />
                 <StatCard
                   label="Avg Consult (min)"
-                  value={stats.avgConsultationTimeMin}
+                  value={stats?.avgConsultationTimeMin ?? 0}
                   color="bg-indigo-50 text-indigo-700"
                 />
                 <StatCard
                   label="Peak Hour"
                   value={
-                    stats.peakHour !== null
+                    stats?.peakHour != null
                       ? `${String(stats.peakHour).padStart(2, "0")}:00`
                       : "—"
                   }
@@ -2008,7 +2015,7 @@ export default function AppointmentsPage() {
                   <DonutChart
                     segments={ALL_STATUSES.map((s) => ({
                       label: s.replace(/_/g, " "),
-                      value: stats.byStatus[s] || 0,
+                      value: stats?.byStatus?.[s] ?? 0,
                       color: STATUS_HEX[s],
                     })).filter((s) => s.value > 0)}
                   />

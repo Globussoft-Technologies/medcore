@@ -253,7 +253,11 @@ function toCsv(rows: Record<string, unknown>[], columns: string[]): string {
 
 // ─── GET /analytics/overview ───────────────────────
 
-router.get("/overview", async (req: Request, res: Response, next: NextFunction) => {
+// RBAC: DOCTOR is allowed at the router level for ai-triage analytics
+// endpoints, but /overview surfaces revenue and operational KPIs that
+// DOCTOR shouldn't see. Restrict to ADMIN + RECEPTION here (per the
+// permissions-matrix contract).
+router.get("/overview", authorize(Role.ADMIN, Role.RECEPTION), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { from, to } = parseRange(req);
     const compareMode = req.query.compareMode as

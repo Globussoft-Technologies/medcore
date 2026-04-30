@@ -223,3 +223,60 @@ describe("InvoiceDetailPage — Issue #44 (auto category)", () => {
     expect(categorySelect.value).toBe("OTHER");
   });
 });
+
+describe("InvoiceDetailPage — Issue #223 (per-field validation errors)", () => {
+  beforeEach(() => {
+    apiMock.get.mockReset();
+    apiMock.post.mockReset();
+    toastMock.error.mockReset();
+    seedApi();
+  });
+
+  it("renders zod field-level messages from /billing/payments instead of a single generic toast", async () => {
+    const user = userEvent.setup();
+    render(<InvoiceDetailPage />);
+    await waitFor(() =>
+      expect(screen.getByText("INV-TST-001")).toBeInTheDocument()
+    );
+
+    // Open the Record Payment modal — the button pre-fills the amount with
+    // the outstanding balance, which is fine: we just need the modal open
+    // and the submit to round-trip through the API.
+    await user.click(screen.getByRole("button", { name: /record payment/i }));
+    // Sanity: the modal rendered the amount input
+    expect(screen.getByTestId("payment-amount")).toBeInTheDocument();
+
+    // Mock the server returning the canonical zod-shaped 400 envelope.
+    apiMock.post.mockRejectedValueOnce(
+      Object.assign(new Error("Validation failed"), {
+        status: 400,
+        payload: {
+          error: "Validation failed",
+          details: [
+            { field: "amount", message: "Amount must be greater than 0" },
+            { field: "mode", message: "Mode is required" },
+          ],
+        },
+      })
+    );
+
+    await user.click(screen.getByRole("button", { name: /save payment/i }));
+
+    // Field-level inline error nodes are surfaced under each input.
+    expect(
+      await screen.findByTestId("error-payment-amount")
+    ).toHaveTextContent(/amount must be greater than 0/i);
+    expect(screen.getByTestId("error-payment-mode")).toHaveTextContent(
+      /mode is required/i
+    );
+
+    // The toast surfaces the FIRST field message — not the generic
+    // "Validation failed" fallback the page used to render.
+    expect(toastMock.error).toHaveBeenCalledWith(
+      expect.stringMatching(/amount must be greater than 0/i)
+    );
+    expect(toastMock.error).not.toHaveBeenCalledWith(
+      expect.stringMatching(/^validation failed$/i)
+    );
+  });
+});

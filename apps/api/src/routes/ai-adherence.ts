@@ -90,14 +90,27 @@ function parseDurationDays(duration: string): number {
 }
 
 /**
- * Derive default reminder times from a frequency string.
+ * Derive default reminder times from a frequency string. Handles plain
+ * English ("twice daily") and the standard medical abbreviations
+ * (OD/BD/BID/TID/QID/QDS — these are what doctors actually type into
+ * prescriptions in India).
  */
 function derivedFromFrequency(frequency: string): string[] {
-  const lower = frequency.toLowerCase();
-  if (lower.includes("four times")) return ["07:00", "12:00", "17:00", "21:00"];
-  if (lower.includes("three times")) return ["08:00", "14:00", "20:00"];
-  if (lower.includes("twice")) return ["08:00", "20:00"];
-  if (lower.includes("once")) return ["08:00"];
+  const lower = frequency.toLowerCase().trim();
+  const tokens = new Set(lower.split(/[\s,/.-]+/));
+
+  if (lower.includes("four times") || tokens.has("qid") || tokens.has("qds")) {
+    return ["07:00", "12:00", "17:00", "21:00"];
+  }
+  if (lower.includes("three times") || tokens.has("tid") || tokens.has("tds")) {
+    return ["08:00", "14:00", "20:00"];
+  }
+  if (lower.includes("twice") || tokens.has("bid") || tokens.has("bd")) {
+    return ["08:00", "20:00"];
+  }
+  if (lower.includes("once") || tokens.has("od") || tokens.has("qd")) {
+    return ["08:00"];
+  }
   return ["08:00"];
 }
 

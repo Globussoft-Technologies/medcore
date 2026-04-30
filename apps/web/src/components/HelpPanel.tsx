@@ -330,14 +330,16 @@ export function HelpPanel({ onStartTour }: { onStartTour?: () => void }) {
                     Take the tour
                   </button>
                 )}
-                <a
-                  href="https://docs.medcore.example.com"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block w-full rounded-lg border border-gray-300 px-4 py-2 text-center text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
-                >
-                  Open full documentation
-                </a>
+                {process.env.NEXT_PUBLIC_DOCS_URL && (
+                  <a
+                    href={process.env.NEXT_PUBLIC_DOCS_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block w-full rounded-lg border border-gray-300 px-4 py-2 text-center text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+                  >
+                    Open full documentation
+                  </a>
+                )}
               </section>
             </div>
           </aside>

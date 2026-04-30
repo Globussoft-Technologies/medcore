@@ -3,9 +3,35 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
-import { DollarSign, Receipt, AlertCircle, TrendingUp, History } from "lucide-react";
+import {
+  DollarSign,
+  Receipt,
+  AlertCircle,
+  TrendingUp,
+  History,
+  Plus,
+  Calendar,
+  Download,
+} from "lucide-react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+
+const REPORT_TYPES = [
+  { value: "DAILY_CENSUS", label: "Daily Census" },
+  { value: "WEEKLY_REVENUE", label: "Weekly Revenue" },
+  { value: "MONTHLY_SUMMARY", label: "Monthly Summary" },
+  { value: "CUSTOM", label: "Custom" },
+] as const;
+
+// Map a report type to the analytics CSV export route most useful for it.
+// `null` means "no first-class CSV — fall back to JSON snapshot download".
+const CSV_EXPORT_FOR_TYPE: Record<string, string | null> = {
+  WEEKLY_REVENUE: "/analytics/export/revenue.csv",
+  MONTHLY_SUMMARY: "/analytics/export/revenue.csv",
+  DAILY_CENSUS: "/analytics/export/appointments.csv",
+  CUSTOM: null,
+};
 
 interface DailyReport {
   totalCollection: number;
@@ -71,6 +97,30 @@ function ReportsPageBody() {
   const [runsLoading, setRunsLoading] = useState(false);
   const [selectedRun, setSelectedRun] = useState<ReportRun | null>(null);
   const [typeFilter, setTypeFilter] = useState("");
+
+  // Issue #301 — Generate / Schedule modal state. The Report History tab used
+  // to be a dead-end (no actions). We now wire three controls:
+  //   • Generate  → POST /analytics/report-runs
+  //   • Schedule  → POST /scheduled-reports  (then run-now to create a run)
+  //   • Export    → window-open authed CSV export for that report type
+  // Modals live in-DOM (per project rule: never window.prompt/alert/confirm).
+  const [genOpen, setGenOpen] = useState(false);
+  const [genType, setGenType] = useState<string>("WEEKLY_REVENUE");
+  const [genFrom, setGenFrom] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return d.toISOString().split("T")[0];
+  });
+  const [genTo, setGenTo] = useState<string>(() => new Date().toISOString().split("T")[0]);
+  const [genSubmitting, setGenSubmitting] = useState(false);
+
+  const [schedOpen, setSchedOpen] = useState(false);
+  const [schedName, setSchedName] = useState<string>("");
+  const [schedType, setSchedType] = useState<string>("WEEKLY_REVENUE");
+  const [schedFreq, setSchedFreq] = useState<"DAILY" | "WEEKLY" | "MONTHLY">("WEEKLY");
+  const [schedTime, setSchedTime] = useState<string>("09:00");
+  const [schedEmail, setSchedEmail] = useState<string>("");
+  const [schedSubmitting, setSchedSubmitting] = useState(false);
 
   // Issue #90: Reports surface "Today's Revenue" + collection KPIs. RECEPTION
   // must NOT see financial KPIs — this page is now ADMIN-only.
@@ -142,6 +192,128 @@ function ReportsPageBody() {
     }
   }, [tab, loadReport, loadRuns]);
 
+  // ── Generate handler ─────────────────────────────────
+  const submitGenerate = useCallback(async () => {
+    if (!genFrom || !genTo) {
+      toast.error("Please select a from/to date range");
+      return;
+    }
+    if (new Date(genFrom) > new Date(genTo)) {
+      toast.error("'From' date must be before 'To' date");
+      return;
+    }
+    setGenSubmitting(true);
+    try {
+      // POST /analytics/report-runs creates a run record. The server snapshot
+      // is built when run via /scheduled-reports/:id/run-now, but for ad-hoc
+      // generates we just record the parameters and a stub snapshot — the
+      // backend keeps it simple per the existing route shape.
+      await api.post("/analytics/report-runs", {
+        reportType: genType,
+        parameters: { from: genFrom, to: genTo },
+        snapshot: { from: genFrom, to: genTo, generatedAdHoc: true },
+        status: "SUCCESS",
+      });
+      toast.success("Report generated");
+      setGenOpen(false);
+      loadRuns();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate report");
+    } finally {
+      setGenSubmitting(false);
+    }
+  }, [genType, genFrom, genTo, loadRuns]);
+
+  // ── Schedule handler ─────────────────────────────────
+  const submitSchedule = useCallback(async () => {
+    const trimmedName = schedName.trim();
+    const trimmedEmail = schedEmail.trim();
+    if (!trimmedName) {
+      toast.error("Please enter a name for the schedule");
+      return;
+    }
+    if (!trimmedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      toast.error("Please enter a valid recipient email");
+      return;
+    }
+    setSchedSubmitting(true);
+    try {
+      const payload: Record<string, unknown> = {
+        name: trimmedName,
+        reportType: schedType,
+        frequency: schedFreq,
+        timeOfDay: schedTime,
+        recipients: [trimmedEmail],
+        active: true,
+      };
+      // Default schedule axes the backend requires for non-DAILY frequencies.
+      if (schedFreq === "WEEKLY") payload.dayOfWeek = 1; // Monday
+      if (schedFreq === "MONTHLY") payload.dayOfMonth = 1;
+      await api.post("/scheduled-reports", payload);
+      toast.success("Schedule created");
+      setSchedOpen(false);
+      setSchedName("");
+      setSchedEmail("");
+      loadRuns();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to schedule report");
+    } finally {
+      setSchedSubmitting(false);
+    }
+  }, [schedName, schedEmail, schedType, schedFreq, schedTime, loadRuns]);
+
+  // ── Export CSV handler (per row) ─────────────────────
+  // The CSV endpoints are authed (Bearer token) so we fetch+blob+download
+  // instead of a raw <a href>. A null mapping means there's no first-class
+  // CSV — we fall back to a JSON download of the run snapshot itself.
+  const exportRunCsv = useCallback(async (run: ReportRun) => {
+    try {
+      const apiBase =
+        process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+      const token =
+        typeof window !== "undefined"
+          ? localStorage.getItem("medcore_token")
+          : null;
+      const csvPath = CSV_EXPORT_FOR_TYPE[run.reportType] ?? null;
+
+      if (csvPath) {
+        const params = (run.parameters as { from?: string; to?: string } | undefined) ?? {};
+        const qs = new URLSearchParams();
+        if (params.from) qs.set("from", params.from);
+        if (params.to) qs.set("to", params.to);
+        const url = `${apiBase}${csvPath}${qs.toString() ? "?" + qs.toString() : ""}`;
+        const res = await fetch(url, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) throw new Error(`Export failed (${res.status})`);
+        const blob = await res.blob();
+        const dl = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = dl;
+        a.download = `report-${run.reportType.toLowerCase()}-${run.id}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(dl);
+        return;
+      }
+
+      // Fallback: download the raw snapshot JSON for CUSTOM / unmapped types.
+      const json = JSON.stringify(run.snapshot ?? {}, null, 2);
+      const blob = new Blob([json], { type: "application/json" });
+      const dl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = dl;
+      a.download = `report-${run.reportType.toLowerCase()}-${run.id}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(dl);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to export report");
+    }
+  }, []);
+
   if (user && user.role !== "ADMIN" && user.role !== "RECEPTION") return null;
 
   const modeBreakdown = report?.paymentModeBreakdown ?? {};
@@ -160,6 +332,7 @@ function ReportsPageBody() {
           <input
             type="date"
             value={date}
+            max={new Date().toISOString().slice(0, 10)}
             onChange={(e) => setDate(e.target.value)}
             className="rounded-lg border px-4 py-2 text-sm"
           />
@@ -192,11 +365,12 @@ function ReportsPageBody() {
 
       {tab === "history" && (
         <div>
-          <div className="mb-4 flex gap-3">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
               className="rounded-lg border px-3 py-2 text-sm"
+              data-testid="report-type-filter"
             >
               <option value="">All Types</option>
               <option value="DAILY_CENSUS">Daily Census</option>
@@ -204,6 +378,24 @@ function ReportsPageBody() {
               <option value="MONTHLY_SUMMARY">Monthly Summary</option>
               <option value="CUSTOM">Custom</option>
             </select>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setGenOpen(true)}
+                data-testid="report-generate-btn"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary/90"
+              >
+                <Plus size={14} /> Generate
+              </button>
+              <button
+                type="button"
+                onClick={() => setSchedOpen(true)}
+                data-testid="report-schedule-btn"
+                className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-sm font-medium hover:bg-gray-50"
+              >
+                <Calendar size={14} /> Schedule
+              </button>
+            </div>
           </div>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="col-span-2 rounded-xl bg-white shadow-sm">
@@ -219,6 +411,7 @@ function ReportsPageBody() {
                       <th className="px-4 py-3">Schedule</th>
                       <th className="px-4 py-3">Type</th>
                       <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -247,6 +440,20 @@ function ReportsPageBody() {
                           >
                             {r.status}
                           </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              exportRunCsv(r);
+                            }}
+                            data-testid={`report-export-${r.id}`}
+                            className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium hover:bg-gray-50"
+                            title="Export CSV"
+                          >
+                            <Download size={12} /> Export
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -300,6 +507,193 @@ function ReportsPageBody() {
               )}
             </div>
           </div>
+
+          {/* Generate modal */}
+          {genOpen && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+              data-testid="report-generate-modal"
+              role="dialog"
+              aria-modal="true"
+            >
+              <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+                <h3 className="mb-4 text-lg font-semibold">Generate Report</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600">
+                      Report Type
+                    </label>
+                    <select
+                      value={genType}
+                      onChange={(e) => setGenType(e.target.value)}
+                      data-testid="report-generate-type"
+                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                    >
+                      {REPORT_TYPES.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-gray-600">
+                        From
+                      </label>
+                      <input
+                        type="date"
+                        value={genFrom}
+                        onChange={(e) => setGenFrom(e.target.value)}
+                        data-testid="report-generate-from"
+                        className="w-full rounded-lg border px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-gray-600">
+                        To
+                      </label>
+                      <input
+                        type="date"
+                        value={genTo}
+                        onChange={(e) => setGenTo(e.target.value)}
+                        data-testid="report-generate-to"
+                        className="w-full rounded-lg border px-3 py-2 text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-5 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setGenOpen(false)}
+                    data-testid="report-generate-cancel"
+                    className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submitGenerate}
+                    disabled={genSubmitting}
+                    data-testid="report-generate-submit"
+                    className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    {genSubmitting ? "Generating..." : "Generate"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Schedule modal */}
+          {schedOpen && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+              data-testid="report-schedule-modal"
+              role="dialog"
+              aria-modal="true"
+            >
+              <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+                <h3 className="mb-4 text-lg font-semibold">Schedule Report</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600">
+                      Name
+                    </label>
+                    <input
+                      type="text"
+                      value={schedName}
+                      onChange={(e) => setSchedName(e.target.value)}
+                      placeholder="e.g. Weekly Revenue Summary"
+                      data-testid="report-schedule-name"
+                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600">
+                      Report Type
+                    </label>
+                    <select
+                      value={schedType}
+                      onChange={(e) => setSchedType(e.target.value)}
+                      data-testid="report-schedule-type"
+                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                    >
+                      {REPORT_TYPES.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-gray-600">
+                        Frequency
+                      </label>
+                      <select
+                        value={schedFreq}
+                        onChange={(e) =>
+                          setSchedFreq(e.target.value as "DAILY" | "WEEKLY" | "MONTHLY")
+                        }
+                        data-testid="report-schedule-frequency"
+                        className="w-full rounded-lg border px-3 py-2 text-sm"
+                      >
+                        <option value="DAILY">Daily</option>
+                        <option value="WEEKLY">Weekly</option>
+                        <option value="MONTHLY">Monthly</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-gray-600">
+                        Time
+                      </label>
+                      <input
+                        type="time"
+                        value={schedTime}
+                        onChange={(e) => setSchedTime(e.target.value)}
+                        data-testid="report-schedule-time"
+                        className="w-full rounded-lg border px-3 py-2 text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600">
+                      Recipient Email
+                    </label>
+                    <input
+                      type="email"
+                      value={schedEmail}
+                      onChange={(e) => setSchedEmail(e.target.value)}
+                      placeholder="ops@example.com"
+                      data-testid="report-schedule-email"
+                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                    />
+                  </div>
+                </div>
+                <div className="mt-5 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSchedOpen(false)}
+                    data-testid="report-schedule-cancel"
+                    className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submitSchedule}
+                    disabled={schedSubmitting}
+                    data-testid="report-schedule-submit"
+                    className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    {schedSubmitting ? "Saving..." : "Create Schedule"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

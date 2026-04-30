@@ -213,9 +213,10 @@ describeIfDB("Realtime Socket.IO delivery (E2E)", () => {
 
     const labPromise = waitForEvent<any>(adminClient, "lab:result");
 
+    // Use adminToken: POST /lab/results is LAB_TECH+ADMIN only post-#14.
     const res = await request(app)
       .post("/api/v1/lab/results")
-      .set("Authorization", `Bearer ${nurseToken}`)
+      .set("Authorization", `Bearer ${adminToken}`)
       .send({
         orderItemId: order.items[0].id,
         parameter: "Hemoglobin",

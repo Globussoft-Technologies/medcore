@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
@@ -101,6 +101,7 @@ function StarDisplay({ rating }: { rating: number }) {
 export default function FeedbackPage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
+  const pathname = usePathname();
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [npsDrivers, setNpsDrivers] = useState<NpsDriversSummary | null>(null);
@@ -110,15 +111,18 @@ export default function FeedbackPage() {
   const [loading, setLoading] = useState(true);
 
   // Issue #207: keep patients out of the staff-side analytics dashboard.
+  // Issue #179: target /dashboard/not-authorized so the layout chrome stays.
   useEffect(() => {
     if (!isLoading && user && !FEEDBACK_ANALYTICS_ALLOWED.has(user.role)) {
       toast.error(
         "The feedback analytics dashboard is for staff. Use 'Submit Feedback' instead.",
         5000
       );
-      router.replace("/dashboard");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/feedback")}`,
+      );
     }
-  }, [user, isLoading, router]);
+  }, [user, isLoading, router, pathname]);
 
   useEffect(() => {
     if (user && !FEEDBACK_ANALYTICS_ALLOWED.has(user.role)) return;

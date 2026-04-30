@@ -67,11 +67,14 @@ describeIfDB("Role expansion: PHARMACIST + LAB_TECH (integration)", () => {
       expect(res.status).toBeLessThan(500);
     });
 
-    it("cannot access admin-only reorder suggestions", async () => {
+    it("CAN access reorder suggestions (issue #98 — pharmacy roles only, but PHARMACIST is one)", async () => {
       const res = await request(app)
         .get("/api/v1/pharmacy/reports/reorder-suggestions")
         .set("Authorization", `Bearer ${pharmacistToken}`);
-      expect(res.status).toBe(403);
+      // PHARMACIST is in the route's authorize() set per issue #98, alongside
+      // ADMIN. The original assertion treated this as admin-only — the route
+      // never was. The truly admin-only endpoint is /pharmacy/reports/stock-value.
+      expect(res.status).not.toBe(403);
     });
   });
 
@@ -165,7 +168,7 @@ describeIfDB("Role expansion: PHARMACIST + LAB_TECH (integration)", () => {
       expect(res.status).not.toBe(403);
     });
 
-    it("nurse can still record lab results", async () => {
+    it("nurse CANNOT record lab results post-#14 (separation of duties)", async () => {
       const { doctor } = await createDoctorWithToken();
       const patient = await createPatientFixture();
       const test = await createLabTestFixture();
@@ -184,7 +187,10 @@ describeIfDB("Role expansion: PHARMACIST + LAB_TECH (integration)", () => {
           unit: "g/dL",
           flag: "NORMAL",
         });
-      expect(res.status).not.toBe(403);
+      // Issue #14 (separation of duties): NURSE used to be allowed here, but
+      // the ordering side and the recording side must be different roles.
+      // LAB_TECH + ADMIN only.
+      expect(res.status).toBe(403);
     });
   });
 });

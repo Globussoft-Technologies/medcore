@@ -160,9 +160,12 @@ describeIfDB("Realtime Socket.IO events (integration)", () => {
       doctorId: doctor.id,
       testIds: [test.id],
     });
+    // Use adminToken: POST /lab/results is LAB_TECH+ADMIN only post-#14
+    // (separation of duties — the ordering doctor must not enter their own
+     // results, and we don't seed a LAB_TECH role token here).
     const res = await request(app)
       .post("/api/v1/lab/results")
-      .set("Authorization", `Bearer ${nurseToken}`)
+      .set("Authorization", `Bearer ${adminToken}`)
       .send({
         orderItemId: order.items[0].id,
         parameter: "Hemoglobin",
@@ -195,7 +198,7 @@ describeIfDB("Realtime Socket.IO events (integration)", () => {
     });
     const res = await request(app)
       .post("/api/v1/lab/results")
-      .set("Authorization", `Bearer ${nurseToken}`)
+      .set("Authorization", `Bearer ${adminToken}`)
       .send({
         orderItemId: order.items[0].id,
         parameter: "Hemoglobin",

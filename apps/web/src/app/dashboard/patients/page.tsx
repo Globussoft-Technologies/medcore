@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
@@ -46,6 +46,7 @@ export default function PatientsPage() {
   const { user, isLoading: authLoading } = useAuthStore();
   const { t } = useTranslation();
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const [patients, setPatients] = useState<PatientRecord[]>([]);
   const [search, setSearch] = useState("");
@@ -54,10 +55,15 @@ export default function PatientsPage() {
   // Issue #382: redirect non-staff (PATIENT, etc.) away before any data fetch.
   useEffect(() => {
     if (!authLoading && user && !PATIENTS_ALLOWED.has(user.role)) {
+      // Issue #179: redirect to chrome-wrapped /dashboard/not-authorized so
+      // the user keeps the sidebar and gets a real "Access Denied" page
+      // instead of a generic 404.
       toast.error("Patient registry is staff-only.");
-      router.replace("/dashboard");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/patients")}`,
+      );
     }
-  }, [authLoading, user, router]);
+  }, [authLoading, user, router, pathname]);
   // Issue #143: when redirected here from /dashboard/patients/register
   // the URL carries `?register=1` and we open the registration form.
   const [showForm, setShowForm] = useState(searchParams.get("register") === "1");

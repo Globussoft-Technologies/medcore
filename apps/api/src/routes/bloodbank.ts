@@ -91,7 +91,9 @@ const RBC_COMPATIBILITY: Record<string, string[]> = SHARED_RBC_COMPATIBILITY;
 // DONORS
 // ───────────────────────────────────────────────────────
 
-router.get("/donors", async (req: Request, res: Response, next: NextFunction) => {
+// Issue #174 (Apr 30 2026): blood donor registry exposes name + phone PII.
+// Restrict to clinical staff who actually run the bank.
+router.get("/donors", authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { search, bloodGroup, page = "1", limit = "20" } = req.query as Record<
       string,
@@ -161,6 +163,8 @@ router.post(
 
 router.get(
   "/donors/:id",
+  // Issue #174: donor PII.
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const donor = await prisma.bloodDonor.findUnique({

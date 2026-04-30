@@ -203,14 +203,16 @@ export default function PackagesPage() {
                   <div className="mb-3">
                     <p className="mb-1 text-xs font-medium text-gray-500">Services Included</p>
                     <div className="flex flex-wrap gap-1">
-                      {p.services.split(",").map((s, i) => (
-                        <span
-                          key={i}
-                          className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700"
-                        >
-                          {s.trim()}
-                        </span>
-                      ))}
+                      {(typeof p.services === "string" ? p.services : "")
+                        .split(",")
+                        .map((s, i) => (
+                          <span
+                            key={i}
+                            className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700"
+                          >
+                            {s.trim()}
+                          </span>
+                        ))}
                     </div>
                   </div>
                   <div className="flex items-center justify-between border-t pt-3 text-xs text-gray-500">

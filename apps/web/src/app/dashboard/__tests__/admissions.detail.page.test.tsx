@@ -121,4 +121,100 @@ describe("AdmissionDetailPage", () => {
       expect(screen.getByText(/admission not found/i)).toBeInTheDocument()
     );
   });
+
+  // Issue #416 — Medications tab used to crash the patient chart when the
+  // /medication/orders payload contained null entries (e.g. a stale
+  // serialized cache row) or an order whose `administrations[]` had a
+  // null element. The render-time TypeError bubbled to the page-level
+  // ErrorBoundary and users saw the entire tab go red. We now filter out
+  // non-object entries on both layers and route every date through the
+  // Invalid-Date-safe `formatDateTime` helper.
+  it("renders Medications tab without crashing when payload contains null rows (#416)", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/admissions/test-id")
+        return Promise.resolve({ data: sampleAdmission });
+      if (url.includes("/medication/orders"))
+        return Promise.resolve({
+          data: [
+            null,
+            {
+              id: "ord-1",
+              dosage: "500mg",
+              frequency: "BID",
+              route: "ORAL",
+              startDate: "2026-04-30",
+              isActive: true,
+              medicineName: "Paracetamol",
+              administrations: [
+                null,
+                {
+                  id: "adm-1",
+                  scheduledAt: "not-a-date",
+                  status: "ADMINISTERED",
+                },
+              ],
+            },
+          ],
+        });
+      if (url.includes("/bill"))
+        return Promise.resolve({
+          data: { breakdown: [], days: 0, grandTotal: 0 },
+        });
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getAllByText(/ADM-100/).length).toBeGreaterThan(0)
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /^\s*medications\s*$/i })
+    );
+    // Tab rendered without throwing — the page-level ErrorBoundary
+    // fallback ("Something went wrong rendering this view.") must NOT
+    // appear, and the surviving order row must render its name.
+    await waitFor(() =>
+      expect(screen.getByTestId("medication-orders-list")).toBeInTheDocument()
+    );
+    expect(
+      screen.queryByText(/Something went wrong rendering this view/i)
+    ).toBeNull();
+    expect(
+      screen.getAllByTestId("medication-order-name").map((n) => n.textContent)
+    ).toContain("Paracetamol");
+  });
+
+  // Issue #417 — Nurse Rounds tab used to crash on null entries in the
+  // /nurse-rounds payload. Same mechanism as #416. We now filter the
+  // array and render the empty state when nothing valid remains.
+  it("renders Nurse Rounds tab without crashing when payload is null/empty (#417)", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/admissions/test-id")
+        return Promise.resolve({ data: sampleAdmission });
+      if (url.includes("/nurse-rounds"))
+        return Promise.resolve({ data: [null, null] });
+      if (url.includes("/bill"))
+        return Promise.resolve({
+          data: { breakdown: [], days: 0, grandTotal: 0 },
+        });
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getAllByText(/ADM-100/).length).toBeGreaterThan(0)
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /nurse rounds/i })
+    );
+    // After filtering null entries the visible list is empty — no
+    // `nurse-round-row` testids — and crucially the page-level
+    // ErrorBoundary fallback ("Something went wrong rendering this
+    // view.") must NOT appear.
+    await waitFor(() =>
+      expect(screen.getByTestId("nurse-rounds-list")).toBeInTheDocument()
+    );
+    expect(screen.queryAllByTestId("nurse-round-row")).toHaveLength(0);
+    expect(
+      screen.queryByText(/Something went wrong rendering this view/i)
+    ).toBeNull();
+  });
 });

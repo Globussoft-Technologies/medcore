@@ -239,6 +239,8 @@ export default function LabQCPage() {
               placeholder="Mean value"
               type="number"
               step="any"
+              min="0"
+              required
               value={form.meanValue}
               onChange={(e) => setForm({ ...form, meanValue: e.target.value })}
             />
@@ -247,6 +249,8 @@ export default function LabQCPage() {
               placeholder="Recorded value"
               type="number"
               step="any"
+              min="0"
+              required
               value={form.recordedValue}
               onChange={(e) => setForm({ ...form, recordedValue: e.target.value })}
             />
@@ -255,6 +259,8 @@ export default function LabQCPage() {
               placeholder="CV %"
               type="number"
               step="any"
+              min="0"
+              max="100"
               value={form.cv}
               onChange={(e) => setForm({ ...form, cv: e.target.value })}
             />

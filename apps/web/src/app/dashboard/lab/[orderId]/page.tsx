@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { api, openPrintEndpoint } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
@@ -80,17 +80,21 @@ export default function LabOrderPage({
   const { orderId } = use(params);
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
+  const pathname = usePathname();
   const confirm = useConfirm();
   const [order, setOrder] = useState<LabOrder | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Issue #90: redirect RECEPTION away from lab detail / result-entry form.
+  // Issue #179: target /dashboard/not-authorized so the layout chrome stays.
   useEffect(() => {
     if (!isLoading && user && !LAB_ALLOWED.has(user.role)) {
       toast.error("Lab orders & results are restricted to clinical staff.");
-      router.replace("/dashboard");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || `/dashboard/lab/${orderId}`)}`,
+      );
     }
-  }, [user, isLoading, router]);
+  }, [user, isLoading, router, pathname, orderId]);
 
   useEffect(() => {
     if (user && !LAB_ALLOWED.has(user.role)) return;

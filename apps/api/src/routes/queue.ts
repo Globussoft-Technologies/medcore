@@ -13,6 +13,11 @@ import {
 
 const router = Router();
 
+// Every queue endpoint requires auth. Issue #383 (Apr 2026 RBAC sweep) added
+// per-route authorize() decorators but missed `authenticate`, so calls were
+// 401-ing on req.user being undefined. Apply once at the router level.
+router.use(authenticate);
+
 // Helper: compute vulnerable-group indicators for a patient
 function computeVulnerableFlags(input: {
   age: number | null;

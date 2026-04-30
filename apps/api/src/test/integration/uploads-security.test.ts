@@ -51,14 +51,17 @@ describeIfDB("Uploads security (integration)", () => {
       data: { userId: doctorUser.id, specialization: "OTHER" },
     });
 
-    // Create a patient owned by patientUser.
-    const patient = await prisma.patient.create({
-      data: {
-        userId: patientUser.id,
-        mrNumber: "MR-SEC-1",
-        gender: "MALE" as any,
-      },
-    });
+    // Reuse the patient row auto-created by getAuthToken("PATIENT") in setup.ts;
+    // creating another with the same userId would violate the unique constraint.
+    const patient =
+      (await prisma.patient.findFirst({ where: { userId: patientUser.id } })) ??
+      (await prisma.patient.create({
+        data: {
+          userId: patientUser.id,
+          mrNumber: "MR-SEC-1",
+          gender: "MALE" as any,
+        },
+      }));
     patientId = patient.id;
 
     const mod = await import("../../app");

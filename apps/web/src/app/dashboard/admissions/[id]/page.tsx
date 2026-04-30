@@ -21,6 +21,7 @@ import { toast } from "@/lib/toast";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { extractFieldErrors, topLineError } from "@/lib/field-errors";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { formatDateTime } from "@/lib/format";
 
 interface Admission {
   id: string;
@@ -1271,83 +1272,96 @@ function MedicationsTab({
           No medication orders.
         </div>
       ) : (
-        <div className="space-y-3">
-          {(Array.isArray(orders) ? orders : []).map((o) => (
-            <div key={o.id} className="rounded-xl bg-white p-5 shadow-sm">
-              <div className="flex items-start justify-between">
-                <div>
-                  {/* Issue #197 — `medicine` is an OPTIONAL relation
-                      (medicineId is nullable). The route returns
-                      `medicineName` always; only fall back to the
-                      relation when it's been included. */}
-                  <h4
-                    className="font-semibold"
-                    data-testid="medication-order-name"
-                  >
-                    {o.medicineName ?? o.medicine?.name ?? "—"}
-                  </h4>
-                  {o.medicine?.genericName && (
-                    <p className="text-xs text-gray-500">
-                      {o.medicine.genericName}
-                    </p>
-                  )}
-                  <p className="mt-1 text-sm">
-                    <span className="font-medium">{o.dosage}</span> ·{" "}
-                    {o.frequency} · {o.route}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {o.startDate}
-                    {o.endDate ? ` → ${o.endDate}` : " → ongoing"}
-                  </p>
-                  {o.instructions && (
-                    <p className="mt-1 text-xs italic text-gray-600">
-                      {o.instructions}
-                    </p>
-                  )}
-                </div>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={o.isActive}
-                    onChange={() => toggleActive(o)}
-                  />
-                  Active
-                </label>
-              </div>
-
-              {o.administrations && o.administrations.length > 0 && (
-                <div className="mt-3 border-t pt-3">
-                  <p className="mb-1 text-xs font-semibold text-gray-600">
-                    Recent Administrations
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {o.administrations.slice(0, 8).map((a) => (
-                      <span
-                        key={a.id}
-                        className={`rounded px-2 py-0.5 text-xs ${
-                          a.status === "ADMINISTERED"
-                            ? "bg-green-100 text-green-700"
-                            : a.status === "MISSED"
-                              ? "bg-red-100 text-red-700"
-                              : a.status === "REFUSED"
-                                ? "bg-orange-100 text-orange-700"
-                                : "bg-gray-100 text-gray-700"
-                        }`}
+        <div className="space-y-3" data-testid="medication-orders-list">
+          {/* Issue #416 — defend against (a) `orders` not being an array,
+              (b) individual entries being null/undefined, and (c) the
+              nested `administrations` array containing null entries. Any
+              one of those used to surface as "Cannot read properties of
+              undefined" and was caught by the page-level ErrorBoundary —
+              which is what users report as the tab "crashing". */}
+          {(Array.isArray(orders) ? orders : [])
+            .filter((o): o is MedicationOrder => !!o && typeof o === "object")
+            .map((o) => {
+              const admins = Array.isArray(o.administrations)
+                ? o.administrations.filter(
+                    (a): a is Administration => !!a && typeof a === "object"
+                  )
+                : [];
+              return (
+                <div key={o.id} className="rounded-xl bg-white p-5 shadow-sm">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      {/* Issue #197 — `medicine` is an OPTIONAL relation
+                          (medicineId is nullable). The route returns
+                          `medicineName` always; only fall back to the
+                          relation when it's been included. */}
+                      <h4
+                        className="font-semibold"
+                        data-testid="medication-order-name"
                       >
-                        {new Date(a.scheduledAt).toLocaleString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}{" "}
-                        · {a.status}
-                      </span>
-                    ))}
+                        {o.medicineName ?? o.medicine?.name ?? "—"}
+                      </h4>
+                      {o.medicine?.genericName && (
+                        <p className="text-xs text-gray-500">
+                          {o.medicine.genericName}
+                        </p>
+                      )}
+                      <p className="mt-1 text-sm">
+                        <span className="font-medium">{o.dosage ?? "—"}</span>{" "}
+                        · {o.frequency ?? "—"} · {o.route ?? "—"}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {o.startDate ?? "—"}
+                        {o.endDate ? ` → ${o.endDate}` : " → ongoing"}
+                      </p>
+                      {o.instructions && (
+                        <p className="mt-1 text-xs italic text-gray-600">
+                          {o.instructions}
+                        </p>
+                      )}
+                    </div>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={!!o.isActive}
+                        onChange={() => toggleActive(o)}
+                      />
+                      Active
+                    </label>
                   </div>
+
+                  {admins.length > 0 && (
+                    <div className="mt-3 border-t pt-3">
+                      <p className="mb-1 text-xs font-semibold text-gray-600">
+                        Recent Administrations
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {admins.slice(0, 8).map((a) => (
+                          <span
+                            key={a.id}
+                            className={`rounded px-2 py-0.5 text-xs ${
+                              a.status === "ADMINISTERED"
+                                ? "bg-green-100 text-green-700"
+                                : a.status === "MISSED"
+                                  ? "bg-red-100 text-red-700"
+                                  : a.status === "REFUSED"
+                                    ? "bg-orange-100 text-orange-700"
+                                    : "bg-gray-100 text-gray-700"
+                            }`}
+                          >
+                            {/* Issue #416 — `new Date(...).toLocaleString`
+                                with options throws on Invalid Date in
+                                some V8 builds; route through the safe
+                                formatter which always returns a string. */}
+                            {formatDateTime(a.scheduledAt)} · {a.status ?? "—"}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          ))}
+              );
+            })}
         </div>
       )}
     </div>
@@ -1448,37 +1462,51 @@ function RoundsTab({
           No rounds recorded.
         </div>
       ) : (
-        <div className="space-y-2">
-          {(Array.isArray(rounds) ? rounds : []).map((r) => {
-            // Issue #218 — schema column is `performedAt`; legacy code
-            // used `roundedAt`. Accept either.
-            const when = r.performedAt ?? r.roundedAt;
-            // The /nurse-rounds API selects `nurse: { id, name }` (User
-            // row directly), but older callers expected
-            // `nurse.user.name`. Accept both shapes — the previous code
-            // would throw `Cannot read properties of undefined
-            // (reading 'name')`.
-            const nurseName =
-              (r.nurse as { name?: string } | null | undefined)?.name ??
-              (r.nurse as { user?: { name?: string } } | null | undefined)
-                ?.user?.name ??
-              null;
-            return (
-              <div
-                key={r.id}
-                className="rounded-xl bg-white p-4 shadow-sm"
-                data-testid="nurse-round-row"
-              >
-                <div className="flex items-center justify-between text-xs text-gray-500">
-                  <span>{when ? new Date(when).toLocaleString() : "—"}</span>
-                  {nurseName && <span>By: {nurseName}</span>}
+        <div className="space-y-2" data-testid="nurse-rounds-list">
+          {/* Issue #417 — defend against `rounds` containing null entries
+              (which can happen when the API surface evolves and a stale
+              cache feeds a legacy shape). Previously a single null row
+              would throw "Cannot read properties of null (reading
+              'performedAt')" on first paint and the page-level
+              ErrorBoundary would swallow the entire tab. */}
+          {(Array.isArray(rounds) ? rounds : [])
+            .filter((r): r is NurseRound => !!r && typeof r === "object")
+            .map((r) => {
+              // Issue #218 — schema column is `performedAt`; legacy code
+              // used `roundedAt`. Accept either.
+              const when = r.performedAt ?? r.roundedAt;
+              // The /nurse-rounds API selects `nurse: { id, name }` (User
+              // row directly), but older callers expected
+              // `nurse.user.name`. Accept both shapes — the previous code
+              // would throw `Cannot read properties of undefined
+              // (reading 'name')`.
+              const nurseName =
+                (r.nurse as { name?: string } | null | undefined)?.name ??
+                (r.nurse as { user?: { name?: string } } | null | undefined)
+                  ?.user?.name ??
+                null;
+              // Issue #417 — `formatDateTime` is null/Invalid-Date safe;
+              // the prior `new Date(when).toLocaleString()` returned
+              // "Invalid Date" (string), which is ugly but not a crash —
+              // however when `when` was an object (e.g. nested `{date}`
+              // from a future API change) `new Date(obj)` throws on some
+              // engines. The safe formatter handles every shape.
+              return (
+                <div
+                  key={r.id}
+                  className="rounded-xl bg-white p-4 shadow-sm"
+                  data-testid="nurse-round-row"
+                >
+                  <div className="flex items-center justify-between text-xs text-gray-500">
+                    <span>{when ? formatDateTime(when) : "—"}</span>
+                    {nurseName && <span>By: {nurseName}</span>}
+                  </div>
+                  <p className="mt-2 text-sm whitespace-pre-wrap">
+                    {r.notes ?? "—"}
+                  </p>
                 </div>
-                <p className="mt-2 text-sm whitespace-pre-wrap">
-                  {r.notes ?? "—"}
-                </p>
-              </div>
-            );
-          })}
+              );
+            })}
         </div>
       )}
     </div>
@@ -2167,11 +2195,16 @@ function BelongingsCard({ admissionId }: { admissionId: string }) {
   }, [admissionId]);
 
   const add = async () => {
-    if (!newName) return;
+    // Issue #222: clicking Add with an empty Name used to silently bail —
+    // user couldn't tell why nothing happened. Surface a real error.
+    if (!newName.trim()) {
+      toast.error("Item name is required.");
+      return;
+    }
     const items = [
       ...(rec?.items || []),
       {
-        name: newName,
+        name: newName.trim(),
         description: newDesc,
         value: newVal ? Number(newVal) : undefined,
         checkedIn: true,

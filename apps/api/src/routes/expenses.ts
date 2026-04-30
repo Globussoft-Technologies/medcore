@@ -119,7 +119,10 @@ router.get(
   }
 );
 
-// POST /api/v1/expenses — creates; auto-PENDING if > threshold
+// POST /api/v1/expenses — creates; ADMIN-only per issue #98 RECEPTION
+// over-access lockdown. The handler retains a non-admin auto-PENDING branch
+// for a future expansion to DOCTOR/NURSE creators, but no non-admin role
+// is currently authorized at this endpoint.
 router.post(
   "/",
   authorize(Role.ADMIN),

@@ -379,12 +379,12 @@ describeIfDB("Antenatal API — DEEP (integration)", () => {
     await createCase({
       patientId: patient.id,
       doctorId: doctor.id,
-      lmpDate: "2026-05-01",
+      lmpDate: "2025-05-01",
     });
     const res = await createCase({
       patientId: patient.id,
       doctorId: doctor.id,
-      lmpDate: "2026-06-01",
+      lmpDate: "2025-06-01",
     });
     expect(res.status).toBe(409);
   });
@@ -395,7 +395,7 @@ describeIfDB("Antenatal API — DEEP (integration)", () => {
     const c = await createCase({
       patientId: patient.id,
       doctorId: doctor.id,
-      lmpDate: "2026-06-01",
+      lmpDate: "2025-06-01",
     });
     const res = await request(app)
       .get(`/api/v1/antenatal/cases/${c.body.data.id}/birth-certificate`)
@@ -409,7 +409,7 @@ describeIfDB("Antenatal API — DEEP (integration)", () => {
     const c = await createCase({
       patientId: patient.id,
       doctorId: doctor.id,
-      lmpDate: "2026-07-01",
+      lmpDate: "2025-07-01",
     });
     const res = await request(app)
       .post("/api/v1/antenatal/visits")
@@ -428,7 +428,7 @@ describeIfDB("Antenatal API — DEEP (integration)", () => {
     const c = await createCase({
       patientId: patient.id,
       doctorId: doctor.id,
-      lmpDate: "2026-07-10",
+      lmpDate: "2025-07-10",
     });
     await request(app)
       .post(`/api/v1/antenatal/cases/${c.body.data.id}/ultrasound`)
@@ -451,7 +451,7 @@ describeIfDB("Antenatal API — DEEP (integration)", () => {
     const c = await createCase({
       patientId: patient.id,
       doctorId: doctor.id,
-      lmpDate: "2026-08-01",
+      lmpDate: "2025-08-01",
     });
     const res = await request(app)
       .patch(`/api/v1/antenatal/cases/${c.body.data.id}`)

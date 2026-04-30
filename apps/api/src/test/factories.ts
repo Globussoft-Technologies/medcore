@@ -383,12 +383,23 @@ export async function createBloodUnitFixture(overrides: Partial<any> = {}) {
 
 // ─── HR FACTORIES ───────────────────────────────────────
 
+// Auto-incrementing day offset so callers that don't override `date` get a
+// unique row per call. The schema has a unique key on (userId, date, type),
+// so two back-to-back calls in a test would otherwise hit P2002.
+let shiftFixtureDateOffset = 0;
+
 export async function createShiftFixture(args: {
   userId: string;
   overrides?: Partial<any>;
 }) {
   const prisma = await getPrisma();
-  const date = args.overrides?.date || new Date();
+  let date: Date;
+  if (args.overrides?.date) {
+    date = new Date(args.overrides.date);
+  } else {
+    date = new Date();
+    date.setDate(date.getDate() + shiftFixtureDateOffset++);
+  }
   // normalize to date-only
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);

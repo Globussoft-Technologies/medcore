@@ -301,13 +301,38 @@ describeIfDB("Growth (Pediatric) API (integration)", () => {
   });
 
   // ─── GET /growth/patient/:id/ftt-check ──────────────────────────
-  it("GET /growth/patient/:id/ftt-check flags FTT for low percentile", async () => {
+  it("GET /growth/patient/:id/ftt-check flags FTT on a percentile-band drop", async () => {
     const patient = await createPatientFixture();
-    // Record a very-low-weight 12mo (well below 5th percentile)
+    // The route's percentile estimator is `(measured / median) * 50` capped to
+    // [1,99], and median weight at 12mo per the WHO table in growth.ts is
+    // 9.6kg. Hitting `currentPercentile < 5` requires <0.96kg — impossible.
+    // So we seed two records and trigger the percentile-drop branch instead:
+    //   t-180d: 6mo at median (7.9kg) → ~50th percentile
+    //   today : 12mo at 4.5kg        → ~23rd percentile (drop ~27 points)
+    // That clears the >=25-point drop threshold and flags FTT.
+    const today = new Date();
+    const earlier = new Date(today.getTime() - 180 * 24 * 60 * 60 * 1000);
+    const ymd = (d: Date) => d.toISOString().slice(0, 10);
     await request(app)
       .post("/api/v1/growth")
       .set("Authorization", `Bearer ${nurseToken}`)
-      .send({ patientId: patient.id, ageMonths: 12, weightKg: 5.5, heightCm: 70 });
+      .send({
+        patientId: patient.id,
+        ageMonths: 6,
+        weightKg: 7.9,
+        heightCm: 67,
+        measurementDate: ymd(earlier),
+      });
+    await request(app)
+      .post("/api/v1/growth")
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        patientId: patient.id,
+        ageMonths: 12,
+        weightKg: 4.5,
+        heightCm: 70,
+        measurementDate: ymd(today),
+      });
     const res = await request(app)
       .get(`/api/v1/growth/patient/${patient.id}/ftt-check`)
       .set("Authorization", `Bearer ${doctorToken}`);

@@ -732,14 +732,23 @@ function ReportsPageBody() {
               </div>
             </div>
 
+            {/* Issue #213-C: this card was labelled "Pending Invoices" without
+                a window cue — the dashboard's all-time KPI then disagreed
+                with this today-only count. The window-scoped label
+                ("Pending Invoices Today") makes the difference explicit. */}
             <div className="rounded-xl bg-white p-5 shadow-sm">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-100">
                   <AlertCircle size={20} className="text-amber-600" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Pending Invoices</p>
-                  <p className="text-xl font-bold">{report.pendingInvoices}</p>
+                  <p className="text-sm text-gray-500">Pending Invoices Today</p>
+                  <p
+                    className="text-xl font-bold"
+                    data-testid="reports-pending-invoices-today"
+                  >
+                    {report.pendingInvoices}
+                  </p>
                 </div>
               </div>
             </div>

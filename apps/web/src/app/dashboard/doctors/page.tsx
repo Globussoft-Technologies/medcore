@@ -315,11 +315,16 @@ export default function DoctorsPage() {
       sortable: true,
       filterable: true,
       render: (d) => (
+        // Issue #213-B: cards on this page were not clickable because the
+        // /dashboard/doctors/[id] route did not exist. We keep the Link
+        // wrapper here (unchanged) and now ship a minimal read-only detail
+        // page so navigation actually resolves. `doctor-card-{id}` is the
+        // E2E hook the smoke test uses to assert clickability.
         <Link
           href={`/dashboard/doctors/${d.id}`}
           className="font-medium text-primary hover:underline"
           onClick={(e) => e.stopPropagation()}
-          data-testid={`doctor-row-${d.id}`}
+          data-testid={`doctor-card-${d.id}`}
         >
           {d.user?.name || "—"}
         </Link>

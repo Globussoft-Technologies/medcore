@@ -467,7 +467,12 @@ const en: Dict = {
   "dashboard.home.greeting": "Welcome back",
   "dashboard.home.kpi.todayAppointments": "Today's Appointments",
   "dashboard.home.kpi.totalPatients": "Total Patients",
-  "dashboard.home.kpi.pendingBills": "Pending Bills",
+  // Issue #213-C: relabelled from "Pending Bills" → "Pending Invoices" so
+  // the dashboard tile uses the same term as the Reports / Billing pages
+  // and the underlying DB model (Invoice). The i18n key stays as
+  // `pendingBills` to avoid touching every consumer; only the rendered
+  // label changes.
+  "dashboard.home.kpi.pendingBills": "Pending Invoices",
   "dashboard.home.kpi.inQueue": "In Queue",
   "dashboard.home.kpi.todayRevenue": "Today's Revenue",
   "dashboard.home.kpi.admitted": "Currently Admitted",
@@ -1146,7 +1151,7 @@ const hi: Dict = {
   "dashboard.home.greeting": "वापस स्वागत है",
   "dashboard.home.kpi.todayAppointments": "आज के अपॉइंटमेंट",
   "dashboard.home.kpi.totalPatients": "कुल मरीज़",
-  "dashboard.home.kpi.pendingBills": "लंबित बिल",
+  "dashboard.home.kpi.pendingBills": "लंबित इनवॉइस",
   "dashboard.home.kpi.inQueue": "क़तार में",
   "dashboard.home.kpi.todayRevenue": "आज का राजस्व",
   "dashboard.home.kpi.admitted": "वर्तमान में भर्ती",

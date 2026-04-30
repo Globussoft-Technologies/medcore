@@ -575,12 +575,17 @@ export default function DashboardPage() {
               color={data.erCritical ? "bg-red-600" : "bg-orange-600"}
               href="/dashboard/emergency"
             />
+            {/* Issue #213-C: tile is "Pending Invoices" (matches DB term),
+                links straight to the PENDING tab so the count and the list
+                a click later reconcile. The KPI itself remains all-time
+                pending+partial — Reports labels its today-scoped variant
+                accordingly. */}
             <StatCard
               title={t("dashboard.home.kpi.pendingBills")}
               value={fmt(data.pendingBills)}
               icon={CreditCard}
               color="bg-accent"
-              href="/dashboard/billing"
+              href="/dashboard/billing?status=PENDING"
             />
           </div>
           )}

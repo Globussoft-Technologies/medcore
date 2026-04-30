@@ -8,6 +8,7 @@ import {
   markLwbsSchema,
   waitlistEntrySchema,
   coordinatedVisitSchema,
+  doctorScheduleSchema,
 } from "../appointment";
 
 const UUID = "11111111-1111-1111-1111-111111111111";
@@ -136,6 +137,64 @@ describe("coordinatedVisitSchema", () => {
         name: "x",
         visitDate: "2026-05-01",
         doctorIds: [],
+      }).success
+    ).toBe(false);
+  });
+});
+
+// Issue #213-A: doctor schedule slots — must be intra-day and have a sensible
+// duration. Previously a 20:00→08:00 row was silently accepted and rendered
+// as 12 hours of nonsense 15-min slots.
+describe("doctorScheduleSchema (Issue #213-A)", () => {
+  const base = {
+    dayOfWeek: 1,
+    slotDurationMinutes: 15,
+    bufferMinutes: 0,
+  } as const;
+  it("accepts a normal morning slot 09:00 -> 17:00", () => {
+    expect(
+      doctorScheduleSchema.safeParse({ ...base, startTime: "09:00", endTime: "17:00" }).success
+    ).toBe(true);
+  });
+  it("accepts a short evening slot 20:00 -> 22:00", () => {
+    expect(
+      doctorScheduleSchema.safeParse({ ...base, startTime: "20:00", endTime: "22:00" }).success
+    ).toBe(true);
+  });
+  it("rejects an overnight slot 20:00 -> 08:00", () => {
+    const r = doctorScheduleSchema.safeParse({
+      ...base,
+      startTime: "20:00",
+      endTime: "08:00",
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.some((i) => /same day|night shift/i.test(i.message))).toBe(true);
+    }
+  });
+  it("rejects a zero-length slot 09:00 -> 09:00", () => {
+    expect(
+      doctorScheduleSchema.safeParse({ ...base, startTime: "09:00", endTime: "09:00" }).success
+    ).toBe(false);
+  });
+  it("rejects a slot longer than 8 hours (e.g. 06:00 -> 18:00)", () => {
+    const r = doctorScheduleSchema.safeParse({
+      ...base,
+      startTime: "06:00",
+      endTime: "18:00",
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.some((i) => /too long|max is/i.test(i.message))).toBe(true);
+    }
+  });
+  it("rejects a slot shorter than its slotDuration", () => {
+    expect(
+      doctorScheduleSchema.safeParse({
+        ...base,
+        startTime: "09:00",
+        endTime: "09:10",
+        slotDurationMinutes: 15,
       }).success
     ).toBe(false);
   });

@@ -39,23 +39,80 @@ const DAY_NAME_TO_INDEX: Record<string, number> = {
   SATURDAY: 6,
 };
 
-export const doctorScheduleSchema = z.object({
-  doctorId: z.string().uuid().optional(),
-  dayOfWeek: z.union([
-    z.number().int().min(0).max(6),
-    z
-      .string()
-      .transform((s) => DAY_NAME_TO_INDEX[s.toUpperCase()])
-      .refine((n) => typeof n === "number" && n >= 0 && n <= 6, {
+// Issue #213-A: previously the only ordering check on schedule slots was at
+// slot-generation time, where a `start > end` row silently produced zero
+// slots — but the row itself persisted, polluting the schedule grid with
+// nonsense like "20:00 → 08:00 (15min)". A 12-hour overnight row also makes
+// no sense for an OPD: a 15-min slot at 03:00 AM has no clinical meaning.
+//
+// We reject the slot at write-time on three axes:
+//   1. endTime must be strictly AFTER startTime (no zero-length, no overnight
+//      wrap). Admins who want night-shift coverage create two separate slots:
+//      one before midnight and one after.
+//   2. The slot's duration must fit at least one configured `slotDurationMinutes`
+//      block (so 09:00→09:10 with a 15-min slot duration is rejected, since
+//      it would generate zero bookable slots).
+//   3. The slot's total duration is capped at MAX_SCHEDULE_SLOT_MINUTES (8 h).
+//      OPD shifts longer than that should be split.
+const MAX_SCHEDULE_SLOT_MINUTES = 8 * 60; // 8 hours
+
+function parseHHMM(t: string): number | null {
+  const m = /^(\d{2}):(\d{2})$/.exec(t);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return h * 60 + min;
+}
+
+export const doctorScheduleSchema = z
+  .object({
+    doctorId: z.string().uuid().optional(),
+    dayOfWeek: z.union([
+      z.number().int().min(0).max(6),
+      z
+        .string()
+        .transform((s) => DAY_NAME_TO_INDEX[s.toUpperCase()])
+        .refine((n) => typeof n === "number" && n >= 0 && n <= 6, {
+          message:
+            "dayOfWeek must be 0-6 or a day name (SUNDAY..SATURDAY)",
+        }),
+    ]),
+    startTime: z.string().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM"),
+    endTime: z.string().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM"),
+    slotDurationMinutes: z.number().int().min(5).max(120).default(15),
+    bufferMinutes: z.number().int().min(0).max(60).default(0),
+  })
+  .superRefine((val, ctx) => {
+    const start = parseHHMM(val.startTime);
+    const end = parseHHMM(val.endTime);
+    if (start === null || end === null) return; // earlier regex already errored
+    if (end <= start) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["endTime"],
         message:
-          "dayOfWeek must be 0-6 or a day name (SUNDAY..SATURDAY)",
-      }),
-  ]),
-  startTime: z.string().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM"),
-  endTime: z.string().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM"),
-  slotDurationMinutes: z.number().int().min(5).max(120).default(15),
-  bufferMinutes: z.number().int().min(0).max(60).default(0),
-});
+          "Schedule slots must end on the same day as they start; for night shifts, create separate slots before midnight and after midnight",
+      });
+      return;
+    }
+    const span = end - start;
+    if (span > MAX_SCHEDULE_SLOT_MINUTES) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["endTime"],
+        message: `Schedule slot is too long (${span} min); max is ${MAX_SCHEDULE_SLOT_MINUTES} min — split into multiple slots`,
+      });
+    }
+    const dur = val.slotDurationMinutes ?? 15;
+    if (span < dur) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["endTime"],
+        message: `Slot window (${span} min) is shorter than the configured slot duration (${dur} min)`,
+      });
+    }
+  });
 
 export const scheduleOverrideSchema = z.object({
   doctorId: z.string().uuid(),

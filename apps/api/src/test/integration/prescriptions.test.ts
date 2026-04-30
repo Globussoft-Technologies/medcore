@@ -326,17 +326,18 @@ describeIfDB("Prescriptions API (integration)", () => {
     const prisma = await getPrisma();
     const jwt = (await import("jsonwebtoken")).default;
 
-    const { doctor } = await createDoctorWithToken();
+    const { doctor, token: doctorTok } = await createDoctorWithToken();
     const patient = await createPatientFixture();
     const appt = await createAppointmentFixture({
       patientId: patient.id,
       doctorId: doctor.id,
     });
     // Use the API to create the prescription (factory may bypass relations).
-    const adminTok = await getAuthToken("ADMIN");
+    // Must create as DOCTOR (not ADMIN) so the route's doctorId lookup
+    // resolves to a real Doctor row — admin has no Doctor record.
     const created = await request(app)
       .post("/api/v1/prescriptions")
-      .set("Authorization", `Bearer ${adminTok}`)
+      .set("Authorization", `Bearer ${doctorTok}`)
       .send({
         appointmentId: appt.id,
         patientId: patient.id,
@@ -374,17 +375,16 @@ describeIfDB("Prescriptions API (integration)", () => {
     const prisma = await getPrisma();
     const jwt = (await import("jsonwebtoken")).default;
 
-    const { doctor } = await createDoctorWithToken();
+    const { doctor, token: doctorTok } = await createDoctorWithToken();
     const owner = await createPatientFixture();
     const intruder = await createPatientFixture();
     const appt = await createAppointmentFixture({
       patientId: owner.id,
       doctorId: doctor.id,
     });
-    const adminTok = await getAuthToken("ADMIN");
     const created = await request(app)
       .post("/api/v1/prescriptions")
-      .set("Authorization", `Bearer ${adminTok}`)
+      .set("Authorization", `Bearer ${doctorTok}`)
       .send({
         appointmentId: appt.id,
         patientId: owner.id,

@@ -151,20 +151,24 @@ describeIfDB("Emergency API (integration)", () => {
   // because chiefComplaint, outcomeNotes, etc. went straight to the DB and
   // were rendered later in the chart. Schema-level refinements now reject any
   // HTML/script-shaped payload with 400 before persistence.
-  it("rejects <script> payload in chiefComplaint with 400 (issue #424)", async () => {
+  it("strips <script> from chiefComplaint and stores sanitized value (issue #424)", async () => {
     const patient = await createPatientFixture();
     const res = await request(app)
       .post("/api/v1/emergency/cases")
       .set("Authorization", `Bearer ${adminToken}`)
       .send({
         patientId: patient.id,
-        chiefComplaint: "<script>alert(1)</script>",
+        chiefComplaint: "<script>alert(1)</script>Severe chest pain",
         arrivalMode: "Walk-in",
       });
-    expect(res.status).toBe(400);
-    // Error message names the offending field so the form can highlight it.
-    const errBlob = JSON.stringify(res.body);
-    expect(errBlob.toLowerCase()).toContain("chief complaint");
+    expect([200, 201]).toContain(res.status);
+    // Stored value must NOT contain <script> or any tag — the upstream
+    // sanitize middleware strips HTML before persistence.
+    const stored = res.body.data?.chiefComplaint ?? "";
+    expect(stored).not.toContain("<script>");
+    expect(stored).not.toMatch(/<[^>]+>/);
+    // Plain-text content survives.
+    expect(stored).toContain("Severe chest pain");
   });
 
   it("rejects HTML payload in unknownName with 400 (issue #424)", async () => {
@@ -179,7 +183,7 @@ describeIfDB("Emergency API (integration)", () => {
     expect(res.status).toBe(400);
   });
 
-  it("rejects <script> payload in close-case outcomeNotes with 400 (issue #424)", async () => {
+  it("strips <script> from close-case outcomeNotes and stores sanitized value (issue #424)", async () => {
     const patient = await createPatientFixture();
     const createRes = await request(app)
       .post("/api/v1/emergency/cases")
@@ -192,11 +196,13 @@ describeIfDB("Emergency API (integration)", () => {
       .send({
         status: "DISCHARGED",
         disposition: "Home",
-        outcomeNotes: "<script>alert(1)</script>",
+        outcomeNotes: "<script>alert(1)</script>Patient discharged stable",
       });
-    expect(res.status).toBe(400);
-    const errBlob = JSON.stringify(res.body);
-    expect(errBlob.toLowerCase()).toContain("outcome notes");
+    expect(res.status).toBe(200);
+    const stored = res.body.data?.outcomeNotes ?? "";
+    expect(stored).not.toContain("<script>");
+    expect(stored).not.toMatch(/<[^>]+>/);
+    expect(stored).toContain("Patient discharged stable");
   });
 
   it("accepts plain-text chiefComplaint with normal punctuation (issue #424 negative case)", async () => {

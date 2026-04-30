@@ -182,6 +182,7 @@ describeIfDB("Antenatal API — DEEP (integration)", () => {
       .send({
         ancCaseId: "00000000-0000-0000-0000-000000000000",
         type: "ROUTINE",
+        notes: "follow-up",
       });
     expect(res.status).toBe(404);
   });

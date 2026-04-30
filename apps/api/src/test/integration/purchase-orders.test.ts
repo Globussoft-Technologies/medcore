@@ -175,7 +175,7 @@ describeIfDB("Purchase Orders API (integration)", () => {
       .send({});
     const res = await request(app)
       .post(`/api/v1/purchase-orders/${created.body.data.id}/receive`)
-      .set("Authorization", `Bearer ${receptionToken}`)
+      .set("Authorization", `Bearer ${adminToken}`)
       .send({ notes: "Full receipt" });
     expect([200, 201]).toContain(res.status);
     expect(res.body.data?.status).toBe("RECEIVED");

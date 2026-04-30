@@ -24,6 +24,7 @@ import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import { validateUuidParams } from "../middleware/validate-params";
 import { rateLimit } from "../middleware/rate-limit";
 import { auditLog } from "../middleware/audit";
 import {
@@ -348,6 +349,7 @@ abdmRouter.post(
 abdmRouter.get(
   "/consent/:id",
   authorize(Role.DOCTOR, Role.ADMIN),
+  validateUuidParams(["id"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const row = await getConsent(req.params.id);
@@ -368,6 +370,7 @@ abdmRouter.get(
 abdmRouter.post(
   "/consent/:id/revoke",
   authorize(Role.DOCTOR, Role.ADMIN),
+  validateUuidParams(["id"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       await revokeConsent(req.params.id);
@@ -464,6 +467,7 @@ abdmRouter.get(
 abdmRouter.get(
   "/consents/:id",
   authorize(Role.DOCTOR, Role.ADMIN, Role.RECEPTION),
+  validateUuidParams(["id"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const row = await prisma.consentArtefact.findUnique({

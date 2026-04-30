@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
+import { z } from "zod";
 // Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
 // auto-injects tenantId on create and auto-filters on read for the 20
 // tenant-scoped models (see services/tenant-prisma.ts). We alias it to
@@ -27,6 +28,14 @@ function safeAudit(
   });
 }
 
+// ── Zod schemas ────────────────────────────────────────────────────────────
+
+const noShowBatchQuerySchema = z.object({
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Query param 'date' is required in YYYY-MM-DD format"),
+});
+
 const router = Router();
 
 // GET /api/v1/ai/predictions/no-show/batch?date=YYYY-MM-DD
@@ -37,16 +46,16 @@ router.get(
   authorize(Role.ADMIN, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { date } = req.query;
-
-      if (!date || typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      const parsedBatch = noShowBatchQuerySchema.safeParse(req.query);
+      if (!parsedBatch.success) {
         res.status(400).json({
           success: false,
           data: null,
-          error: "Query param 'date' is required in YYYY-MM-DD format",
+          error: parsedBatch.error.issues[0]?.message ?? "Query param 'date' is required in YYYY-MM-DD format",
         });
         return;
       }
+      const { date } = parsedBatch.data;
 
       const dateObj = new Date(date);
 

@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
+import { z } from "zod";
 // Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
 // auto-injects tenantId on create and auto-filters on read for the 20
 // tenant-scoped models (see services/tenant-prisma.ts). We alias it to
@@ -19,7 +20,62 @@ import {
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import { validateUuidParams } from "../middleware/validate-params";
 import { auditLog } from "../middleware/audit";
+
+// ── Zod query / path-param schemas ────────────────────────────────────────
+
+const inventoryListQuerySchema = z.object({
+  search: z.string().optional(),
+  lowStock: z.enum(["true", "false"]).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+const expiringQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(365).default(30),
+});
+
+const movementsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  type: z.string().optional(),
+});
+
+const reorderSuggestionsQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(365).default(30),
+  leadTime: z.coerce.number().int().min(1).max(90).default(7),
+});
+
+const reportMovementsQuerySchema = z.object({
+  from: z.string().optional(),
+  to: z.string().optional(),
+  type: z.string().optional(),
+});
+
+const narcoticsLedgerQuerySchema = z.object({
+  from: z.string().optional(),
+  to: z.string().optional(),
+});
+
+const valuationQuerySchema = z.object({
+  method: z.enum(["FIFO", "LIFO", "WEIGHTED_AVG"]).default("WEIGHTED_AVG"),
+});
+
+const returnsQuerySchema = z.object({
+  reason: z.string().optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+});
+
+const transfersQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+});
+
+// Shared path-param schema: UUID :id
+const pharmacyIdParams = validateUuidParams(["id"]);
 
 const router = Router();
 router.use(authenticate);
@@ -32,15 +88,14 @@ router.get(
   authorize(Role.ADMIN, Role.PHARMACIST, Role.DOCTOR, Role.NURSE),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const {
-        search,
-        lowStock,
-        page = "1",
-        limit = "50",
-      } = req.query as Record<string, string | undefined>;
-      const skip =
-        (parseInt(page || "1") - 1) * parseInt(limit || "50");
-      const take = Math.min(parseInt(limit || "50"), 200);
+      const parsed = inventoryListQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        res.status(400).json({ success: false, data: null, error: parsed.error.issues[0]?.message ?? "Invalid query" });
+        return;
+      }
+      const { search, lowStock, page, limit } = parsed.data;
+      const skip = (page - 1) * limit;
+      const take = limit;
 
       const where: Record<string, unknown> = {};
       if (search) {
@@ -72,7 +127,7 @@ router.get(
         success: true,
         data: paged,
         error: null,
-        meta: { page: parseInt(page || "1"), limit: take, total },
+        meta: { page, limit: take, total },
       });
     } catch (err) {
       next(err);
@@ -87,7 +142,12 @@ router.get(
   authorize(Role.ADMIN, Role.PHARMACIST, Role.DOCTOR, Role.NURSE),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const days = parseInt((req.query.days as string) || "30");
+      const parsedExpiring = expiringQuerySchema.safeParse(req.query);
+      if (!parsedExpiring.success) {
+        res.status(400).json({ success: false, data: null, error: parsedExpiring.error.issues[0]?.message ?? "Invalid query" });
+        return;
+      }
+      const { days } = parsedExpiring.data;
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() + days);
 
@@ -201,6 +261,7 @@ router.post(
 router.patch(
   "/inventory/:id",
   authorize(Role.ADMIN, Role.PHARMACIST),
+  pharmacyIdParams,
   validate(updateInventoryItemSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -513,8 +574,12 @@ router.get(
   authorize(Role.ADMIN, Role.PHARMACIST, Role.DOCTOR, Role.NURSE),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const limit = Math.min(parseInt((req.query.limit as string) || "100"), 500);
-      const { type } = req.query as Record<string, string | undefined>;
+      const parsedMov = movementsQuerySchema.safeParse(req.query);
+      if (!parsedMov.success) {
+        res.status(400).json({ success: false, data: null, error: parsedMov.error.issues[0]?.message ?? "Invalid query" });
+        return;
+      }
+      const { limit, type } = parsedMov.data;
       const where: Record<string, unknown> = {};
       if (type) where.type = type;
 
@@ -597,7 +662,12 @@ router.get(
   authorize(Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { from, to, type } = req.query as Record<string, string | undefined>;
+      const parsedRptMov = reportMovementsQuerySchema.safeParse(req.query);
+      if (!parsedRptMov.success) {
+        res.status(400).json({ success: false, data: null, error: parsedRptMov.error.issues[0]?.message ?? "Invalid query" });
+        return;
+      }
+      const { from, to, type } = parsedRptMov.data;
       const where: Record<string, unknown> = {};
 
       if (from || to) {
@@ -656,6 +726,7 @@ router.get(
 router.post(
   "/inventory/:id/recall",
   authorize(Role.ADMIN),
+  pharmacyIdParams,
   validate(batchRecallSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -717,8 +788,13 @@ router.get(
   authorize(Role.ADMIN, Role.PHARMACIST),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const days = parseInt((req.query.days as string) || "30");
-      const leadTimeDays = parseInt((req.query.leadTime as string) || "7");
+      const parsedReorder = reorderSuggestionsQuerySchema.safeParse(req.query);
+      if (!parsedReorder.success) {
+        res.status(400).json({ success: false, data: null, error: parsedReorder.error.issues[0]?.message ?? "Invalid query" });
+        return;
+      }
+      const { days, leadTime } = parsedReorder.data;
+      const leadTimeDays = leadTime;
       const since = new Date(Date.now() - days * 24 * 3600 * 1000);
 
       // Aggregate DISPENSED movements per medicineId over last N days
@@ -851,7 +927,12 @@ router.get(
   authorize(Role.ADMIN, Role.DOCTOR),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { from, to } = req.query as Record<string, string | undefined>;
+      const parsedNarc = narcoticsLedgerQuerySchema.safeParse(req.query);
+      if (!parsedNarc.success) {
+        res.status(400).json({ success: false, data: null, error: parsedNarc.error.issues[0]?.message ?? "Invalid query" });
+        return;
+      }
+      const { from, to } = parsedNarc.data;
       const movements = await prisma.stockMovement.findMany({
         where: {
           inventoryItem: { medicine: { isNarcotic: true } },
@@ -885,6 +966,7 @@ router.get(
 
 router.get(
   "/substitutes/:medicineId",
+  validateUuidParams(["medicineId"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const base = await prisma.medicine.findUnique({
@@ -1026,13 +1108,12 @@ router.get(
       // table grew past a few thousand rows. Capped at 100 by default,
       // 200 max — the UI auto-refreshes on tab focus so newer rows show
       // up without a manual reload.
-      const {
-        reason,
-        from,
-        to,
-        page = "1",
-        limit = "100",
-      } = req.query as Record<string, string | undefined>;
+      const parsedReturns = returnsQuerySchema.safeParse(req.query);
+      if (!parsedReturns.success) {
+        res.status(400).json({ success: false, data: null, error: parsedReturns.error.issues[0]?.message ?? "Invalid query" });
+        return;
+      }
+      const { reason, from, to, page, limit } = parsedReturns.data;
       const where: Record<string, unknown> = {};
       if (reason) where.reason = reason;
       if (from || to) {
@@ -1041,8 +1122,8 @@ router.get(
           ...(to ? { lte: new Date(to) } : {}),
         };
       }
-      const take = Math.min(parseInt(limit || "100"), 200);
-      const skip = (parseInt(page || "1") - 1) * take;
+      const take = limit;
+      const skip = (page - 1) * take;
       const [rows, total] = await Promise.all([
         prisma.pharmacyReturn.findMany({
           where,
@@ -1059,7 +1140,7 @@ router.get(
         success: true,
         data: rows,
         error: null,
-        meta: { page: parseInt(page || "1"), limit: take, total },
+        meta: { page, limit: take, total },
       });
     } catch (err) {
       next(err);
@@ -1151,12 +1232,14 @@ router.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Issue #367 (Apr 30 2026): pagination + total count. Mirrors /returns.
-      const { page = "1", limit = "100" } = req.query as Record<
-        string,
-        string | undefined
-      >;
-      const take = Math.min(parseInt(limit || "100"), 200);
-      const skip = (parseInt(page || "1") - 1) * take;
+      const parsedTransfers = transfersQuerySchema.safeParse(req.query);
+      if (!parsedTransfers.success) {
+        res.status(400).json({ success: false, data: null, error: parsedTransfers.error.issues[0]?.message ?? "Invalid query" });
+        return;
+      }
+      const { page, limit } = parsedTransfers.data;
+      const take = limit;
+      const skip = (page - 1) * take;
       const [rows, total] = await Promise.all([
         prisma.stockTransfer.findMany({
           orderBy: { transferredAt: "desc" },
@@ -1170,7 +1253,7 @@ router.get(
         success: true,
         data: rows,
         error: null,
-        meta: { page: parseInt(page || "1"), limit: take, total },
+        meta: { page, limit: take, total },
       });
     } catch (err) {
       next(err);
@@ -1187,6 +1270,7 @@ router.post(
   // RBAC (issue #98): supplier ordering off the inventory record is a stock
   // write — pharmacy roles only.
   authorize(Role.ADMIN, Role.PHARMACIST),
+  pharmacyIdParams,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const item = await prisma.inventoryItem.findUnique({
@@ -1297,15 +1381,16 @@ router.get(
   authorize(Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const method = (req.query.method as string) || "WEIGHTED_AVG";
-      if (!["FIFO", "LIFO", "WEIGHTED_AVG"].includes(method)) {
+      const parsedValuation = valuationQuerySchema.safeParse(req.query);
+      if (!parsedValuation.success) {
         res.status(400).json({
           success: false,
           data: null,
-          error: "method must be FIFO | LIFO | WEIGHTED_AVG",
+          error: parsedValuation.error.issues[0]?.message ?? "method must be FIFO | LIFO | WEIGHTED_AVG",
         });
         return;
       }
+      const { method } = parsedValuation.data;
 
       // Group inventory by medicine with batches. For FIFO/LIFO use purchase-
       // movements ordered asc/desc to take layers up to on-hand qty. For

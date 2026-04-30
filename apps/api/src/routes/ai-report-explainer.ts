@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
+import { z } from "zod";
 // Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
 // auto-injects tenantId on create and auto-filters on read for the 20
 // tenant-scoped models (see services/tenant-prisma.ts). We alias it to
@@ -6,6 +7,8 @@ import { Router, Request, Response, NextFunction } from "express";
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { validate } from "../middleware/validate";
+import { validateUuidParams } from "../middleware/validate-params";
 import { auditLog } from "../middleware/audit";
 import { rateLimit } from "../middleware/rate-limit";
 import { explainLabReport } from "../services/ai/report-explainer";
@@ -23,6 +26,13 @@ function safeAudit(
     console.warn(`[audit] ${action} failed (non-fatal):`, (err as Error)?.message ?? err);
   });
 }
+
+// ── Zod schemas ────────────────────────────────────────────────────────────
+
+const explainBodySchema = z.object({
+  labOrderId: z.string().uuid(),
+  language: z.enum(["en", "hi"]).default("en"),
+});
 
 const router = Router();
 
@@ -42,17 +52,10 @@ router.post(
   authenticate,
   authorize(Role.DOCTOR, Role.ADMIN),
   explainRateLimit,
+  validate(explainBodySchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { labOrderId, language = "en" } = req.body as {
-        labOrderId: string;
-        language?: "en" | "hi";
-      };
-
-      if (!labOrderId) {
-        res.status(400).json({ success: false, data: null, error: "labOrderId is required" });
-        return;
-      }
+      const { labOrderId, language } = req.body as z.infer<typeof explainBodySchema>;
 
       // 1. Fetch LabOrder with items.results and patient info
       const labOrder = await prisma.labOrder.findUnique({
@@ -150,6 +153,7 @@ router.patch(
   "/:explanationId/approve",
   authenticate,
   authorize(Role.DOCTOR, Role.ADMIN),
+  validateUuidParams(["explanationId"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { explanationId } = req.params;

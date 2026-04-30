@@ -1,9 +1,32 @@
 import { Router, Request, Response, NextFunction } from "express";
+import { z } from "zod";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { validate } from "../middleware/validate";
+import { validateUuidParams } from "../middleware/validate-params";
 import { auditLog } from "../middleware/audit";
 import { rateLimit } from "../middleware/rate-limit";
 import { searchPatientChart, searchCohort } from "../services/ai/chart-search";
+
+// ── Zod schemas ────────────────────────────────────────────────────────────
+
+const patientChartSearchSchema = z.object({
+  query: z.string().min(1, "query is required"),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  documentTypes: z.array(z.string()).optional(),
+  synthesize: z.boolean().optional(),
+  rerank: z.boolean().optional(),
+});
+
+const cohortSearchSchema = z.object({
+  query: z.string().min(1, "query is required"),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  documentTypes: z.array(z.string()).optional(),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+  synthesize: z.boolean().optional(),
+  rerank: z.boolean().optional(),
+});
 
 const router = Router();
 router.use(authenticate);
@@ -19,27 +42,12 @@ if (process.env.NODE_ENV !== "test") {
 router.post(
   "/patient/:patientId",
   authorize(Role.DOCTOR, Role.ADMIN),
+  validateUuidParams(["patientId"]),
+  validate(patientChartSearchSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { patientId } = req.params;
-      const {
-        query,
-        limit,
-        documentTypes,
-        synthesize,
-        rerank,
-      } = (req.body ?? {}) as {
-        query?: string;
-        limit?: number;
-        documentTypes?: string[];
-        synthesize?: boolean;
-        rerank?: boolean;
-      };
-
-      if (!query || typeof query !== "string" || !query.trim()) {
-        res.status(400).json({ success: false, data: null, error: "query is required" });
-        return;
-      }
+      const { query, limit, documentTypes, synthesize, rerank } = req.body as z.infer<typeof patientChartSearchSchema>;
 
       const result = await searchPatientChart(
         query.trim(),
@@ -69,30 +77,11 @@ router.post(
 router.post(
   "/cohort",
   authorize(Role.DOCTOR, Role.ADMIN),
+  validate(cohortSearchSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const {
-        query,
-        limit,
-        documentTypes,
-        dateFrom,
-        dateTo,
-        synthesize,
-        rerank,
-      } = (req.body ?? {}) as {
-        query?: string;
-        limit?: number;
-        documentTypes?: string[];
-        dateFrom?: string;
-        dateTo?: string;
-        synthesize?: boolean;
-        rerank?: boolean;
-      };
-
-      if (!query || typeof query !== "string" || !query.trim()) {
-        res.status(400).json({ success: false, data: null, error: "query is required" });
-        return;
-      }
+      const { query, limit, documentTypes, dateFrom, dateTo, synthesize, rerank } =
+        req.body as z.infer<typeof cohortSearchSchema>;
 
       const result = await searchCohort(
         query.trim(),

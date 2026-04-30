@@ -484,8 +484,15 @@ function OccupancyForecast() {
     return <div className="p-8 text-center text-slate-500">Loading forecast...</div>;
   if (data.length === 0)
     return (
-      <div className="p-8 text-center text-slate-500 border border-dashed rounded-lg">
-        No forecast data.
+      <div className="p-12 text-center border border-dashed rounded-lg">
+        <TrendingUp className="mx-auto mb-3 h-10 w-10 text-slate-400" />
+        <h3 className="mb-1 text-base font-semibold text-slate-700 dark:text-slate-200">
+          Forecast not yet available
+        </h3>
+        <p className="mx-auto max-w-sm text-sm text-slate-500 dark:text-slate-400">
+          Predicted bed occupancy will appear here after the system has at
+          least 7 days of admission and discharge data to learn from.
+        </p>
       </div>
     );
 

@@ -144,6 +144,13 @@ export default function SchedulePage() {
 
   async function handleAddSchedule(e: React.FormEvent) {
     e.preventDefault();
+    // Issue #178: reject reverse / equal start–end before posting. The API
+    // rejects this too, but pre-validating gives the user an inline reason
+    // instead of a generic 400.
+    if (scheduleForm.startTime >= scheduleForm.endTime) {
+      toast.error("End time must be after start time");
+      return;
+    }
     try {
       await api.post(`/doctors/${selectedDoctorId}/schedule`, {
         dayOfWeek: scheduleForm.dayOfWeek,

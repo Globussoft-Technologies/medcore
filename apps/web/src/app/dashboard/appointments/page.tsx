@@ -824,8 +824,11 @@ export default function AppointmentsPage() {
     [calWeekStart]
   );
 
+  // Issue #254: 08–20 was too narrow — clinics with early-morning OPDs or
+  // late evening telemed slots had appointments hidden off the grid. Show
+  // 06:00–22:00 instead; rows outside typical hours stay empty visually.
   const calHours = useMemo(
-    () => Array.from({ length: 13 }, (_, i) => 8 + i), // 08:00..20:00
+    () => Array.from({ length: 17 }, (_, i) => 6 + i), // 06:00..22:00
     []
   );
 
@@ -1652,7 +1655,7 @@ export default function AppointmentsPage() {
                       <td className="px-4 py-3 text-sm">{apt.doctor.user.name}</td>
                       <td className="px-4 py-3 text-sm">{apt.date.slice(0, 10)}</td>
                       <td className="px-4 py-3 text-sm">
-                        {displayTime || (apt.slotStart ?? "Walk-in")}
+                        {displayTime || apt.slotStart || "Walk-in"}
                       </td>
                       <td className="px-4 py-3">
                         <span

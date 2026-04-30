@@ -129,6 +129,37 @@ async function main() {
   });
   console.log("Created nurse:", nurse.email);
 
+  // Create LAB_TECH and PHARMACIST so all 7 roles in `e2e/helpers.ts CREDS`
+  // exist after `db:seed`. Without these, the RBAC matrix spec
+  // (e2e/rbac-matrix.spec.ts) hits 401 on every loginAs("LAB_TECH" /
+  // "PHARMACIST") and cascades into apiLogin failures across both ALL_ROLES
+  // smoke groups (/dashboard/profile and /dashboard/account).
+  const labtech = await prisma.user.upsert({
+    where: { email: "labtech@medcore.local" },
+    update: {},
+    create: {
+      email: "labtech@medcore.local",
+      phone: "9999900030",
+      name: "Lab Tech Suresh",
+      passwordHash: hashPassword("labtech123"),
+      role: Role.LAB_TECH,
+    },
+  });
+  console.log("Created lab tech:", labtech.email);
+
+  const pharmacist = await prisma.user.upsert({
+    where: { email: "pharmacist@medcore.local" },
+    update: {},
+    create: {
+      email: "pharmacist@medcore.local",
+      phone: "9999900040",
+      name: "Pharmacist Vikram",
+      passwordHash: hashPassword("pharmacist123"),
+      role: Role.PHARMACIST,
+    },
+  });
+  console.log("Created pharmacist:", pharmacist.email);
+
   // Create sample patient — uses patient1@medcore.local (NOT @example.com)
   // to match the @medcore.local convention used by every other seeded user
   // and (importantly) by the E2E helper at e2e/helpers.ts which expects

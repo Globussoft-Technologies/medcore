@@ -276,14 +276,11 @@ jobs:
     #                    address the /dashboard/admin-console a11y
     #                    budget so the full suite can re-enter the gate.)
     #
-    # 2026-04-30 evening: e2e-rbac is currently red — 32 of 63 matrix
-    # assertions fail with real spec-vs-app drift (LAB_TECH/PHARMACIST
-    # routes, account/profile login). That's a substantive reconciliation
-    # job (TODO.md priority #1). Until those are fixed, e2e-rbac stays
-    # in the workflow as a non-gating signal so the failures are visible
-    # in PRs but Sprint 2 + the CI infra fixes (--include=dev, scoped
-    # PORT) can reach prod. Re-add to `needs:` once the matrix is green.
-    needs: [test, web-tests, typecheck]
+    # 2026-05-01: matrix reconciled (seed for LAB_TECH/PHARMACIST in
+    # f7514fc, ai-route 400-shape alignment in 73bfb32, dashboard-prefix
+    # match in fbf1145). Latest main run green across all 5 jobs —
+    # re-adding e2e-rbac to the gate.
+    needs: [test, web-tests, typecheck, e2e-rbac]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     # Don't cancel a deploy that's already in progress — let it finish, then
     # the next one runs. Two deploys racing on the same host can corrupt

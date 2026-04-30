@@ -6,8 +6,8 @@ and the evening continuation in
 [`docs/SESSION_SNAPSHOT_2026-04-30-evening.md`](docs/SESSION_SNAPSHOT_2026-04-30-evening.md);
 this file is the short, actionable checklist.
 
-> Updated: 2026-04-30 night — second pickup-and-handoff of the day.
-> HEAD on `main` = `b10f72b` (lab-intel GET endpoints).
+> Updated: 2026-05-01 — RBAC matrix reconciled and green on main.
+> HEAD on `main` = `fbf1145` (rbac universal-access dashboard prefix fix).
 > **Open GitHub issues: 0.** **Auto-deploy: unblocked.**
 
 ---
@@ -17,33 +17,12 @@ this file is the short, actionable checklist.
 When you sit down at home, this is the order. Each item is independently
 shippable.
 
-### 1. RBAC matrix reconciliation (~3-4 hr — substantive, not infra)
+### 1. ~~Re-gate `e2e-rbac`~~ ✅ done 2026-05-01
 
-`e2e-rbac` is currently OUT of the deploy gate (reverted in `968b8a3`)
-because 32 of 63 cases fail with real spec-vs-app drift. Three patterns
-in the failures (full breakdown in
-[`SESSION_SNAPSHOT_2026-04-30-evening.md`](docs/SESSION_SNAPSHOT_2026-04-30-evening.md#rbac-matrix--whats-actually-failing)):
-
-- **`apiLogin` failures on the "can open /dashboard/account" group** —
-  ADMIN/DOCTOR/NURSE/RECEPTION/PATIENT/LAB_TECH/PHARMACIST all fail.
-  Suggests the e2e DB isn't seeded with the 7 demo accounts at the
-  credentials the spec expects. **START HERE** — one seed fix may
-  unblock ~7 of the 32 failures.
-- **"BLOCKED → not-authorized" mismatches** — LAB_TECH/PHARMACIST/RECEPTION
-  expected to bounce on certain routes but going to `/dashboard` or
-  being allowed. Decide per-route: is the spec stale (RBAC was
-  intentionally loosened?) or is the route guard wrong?
-- **"ALLOWED" failures on the role's own page** — LAB_TECH on
-  `/dashboard/lab`, PHARMACIST on `/dashboard/{prescriptions,
-  controlled-substances, pharmacy}`. These are likely real RBAC bugs —
-  the role is being blocked from its own page.
-
-Cross-reference [`docs/RBAC_AUDIT_2026-04-30.md`](docs/RBAC_AUDIT_2026-04-30.md)
-to know which behaviour is intentional. Land fixes per-role so each
-commit's blast radius stays narrow.
-
-When the matrix is green, re-add `e2e-rbac` to `deploy.needs:` in
-`.github/workflows/test.yml` (~line 278).
+Matrix reconciled by `f7514fc` (seed LAB_TECH+PHARMACIST), `73bfb32`
+(ai-route 400-shape alignment), `fbf1145` (dashboard-prefix match).
+`e2e-rbac` re-added to `deploy.needs:` — gate is now
+`[test, web-tests, typecheck, e2e-rbac]`.
 
 ### 2. Step 2 — Migrate Postgres off Docker (deferred from yesterday)
 
@@ -78,12 +57,12 @@ The 5 zod-validation gaps closed in `9dc1913`. Remaining:
 
 All independent — could be 2-3 parallel agents.
 
-### 4. Broaden e2e-rbac → full Playwright suite (~2 hr, AFTER #1)
+### 4. Broaden e2e-rbac → full Playwright suite (~2 hr, AFTER #1 re-gates)
 
-Once the RBAC matrix runs green for ~5 pushes, drop the explicit spec
-filter in `.github/workflows/test.yml` (currently `npx playwright test
-e2e/rbac-matrix.spec.ts`) so the full 22-spec suite runs. Before that
-you'll need:
+Once `e2e-rbac` is back in `deploy.needs:` and soaking cleanly, drop the
+explicit spec filter in `.github/workflows/test.yml` (currently `npx
+playwright test e2e/rbac-matrix.spec.ts`) so the full 22-spec suite runs.
+Before that you'll need:
 
 - Fix the `/dashboard/admin-console` axe-core violation flagged in this
   TODO's prior versions. Real a11y work — pick up alongside any new
@@ -188,15 +167,11 @@ agents). #413/#410 merged after rebases.
 
 ## CI gate today
 
-`needs: [test, web-tests, typecheck]`
+`needs: [test, web-tests, typecheck, e2e-rbac]`
 
 `e2e-rbac` was removed from the gate in `968b8a3` while the matrix
-spec-vs-app drift is reconciled (priority #1 above). The job still
-runs on every push as a non-gating signal so failures stay visible
-in PRs. **Auto-deploy is unblocked.**
-
-Re-add `e2e-rbac` to `deploy.needs:` (`.github/workflows/test.yml`,
-~line 278) once the matrix runs green for ~5 pushes.
+spec-vs-app drift was reconciled, and re-added on 2026-05-01 after
+the matrix went green on `fbf1145`. **Auto-deploy is unblocked.**
 
 ---
 

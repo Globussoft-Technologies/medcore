@@ -78,6 +78,9 @@ async function generateTripNumber(): Promise<string> {
 
 router.get(
   "/trips",
+  // Issue #174 (Apr 30 2026): trip list exposes caller phone, pickup address,
+  // chief complaint. Restrict to clinical/dispatch staff (no PATIENT).
+  authorize(Role.ADMIN, Role.RECEPTION, Role.NURSE, Role.DOCTOR),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const {
@@ -204,6 +207,8 @@ router.post(
 
 router.get(
   "/trips/:id",
+  // Issue #174: trip detail = caller PII + chief complaint.
+  authorize(Role.ADMIN, Role.RECEPTION, Role.NURSE, Role.DOCTOR),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const trip = await prisma.ambulanceTrip.findUnique({
@@ -390,7 +395,8 @@ router.patch(
 // AMBULANCES
 // ───────────────────────────────────────────────────────
 
-router.get("/", async (req: Request, res: Response, next: NextFunction) => {
+router.get("/", authorize(Role.ADMIN, Role.RECEPTION, Role.NURSE, Role.DOCTOR), async (req: Request, res: Response, next: NextFunction) => {
+  // Issue #174: ambulance fleet view — operational, restrict to clinical/dispatch.
   try {
     const { status } = req.query as Record<string, string | undefined>;
     const where: Record<string, unknown> = {};
@@ -471,7 +477,8 @@ router.patch(
   }
 );
 
-router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
+router.get("/:id", authorize(Role.ADMIN, Role.RECEPTION, Role.NURSE, Role.DOCTOR), async (req: Request, res: Response, next: NextFunction) => {
+  // Issue #174: ambulance detail includes recent trips (caller PII).
   try {
     const ambulance = await prisma.ambulance.findUnique({
       where: { id: req.params.id },
@@ -651,6 +658,8 @@ router.post(
 
 router.get(
   "/fuel-logs",
+  // Issue #174: fuel logs = financial data, ops only.
+  authorize(Role.ADMIN, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { ambulanceId, from, to } = req.query as Record<string, string | undefined>;

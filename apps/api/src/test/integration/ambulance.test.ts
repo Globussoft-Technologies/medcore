@@ -199,7 +199,7 @@ describeIfDB("Ambulance API (integration)", () => {
     expect(res.body.data?.bill?.total).toBe(400);
   });
 
-  it("doctor can dispatch a trip (permission)", async () => {
+  it("doctor cannot dispatch a trip — issue #89 hardening (RBAC: only NURSE/RECEPTION/ADMIN)", async () => {
     const amb = await createAmbulance(adminToken);
     const patient = await createPatientFixture();
     const tr = await request(app)
@@ -210,6 +210,6 @@ describeIfDB("Ambulance API (integration)", () => {
         patientId: patient.id,
         pickupAddress: "Doc-call",
       });
-    expect([200, 201]).toContain(tr.status);
+    expect(tr.status).toBe(403);
   });
 });

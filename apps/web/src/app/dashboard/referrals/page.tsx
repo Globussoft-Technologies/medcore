@@ -4,8 +4,31 @@ import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
+import { Autocomplete } from "@/components/Autocomplete";
 import { createReferralSchema } from "@medcore/shared";
 import { Plus, ArrowRightLeft } from "lucide-react";
+
+// Issue #173: replace the free-text Specialty <input> with the same coded
+// Autocomplete pattern Surgery uses for ICD-10 (Issue #97). The canonical
+// list mirrors `apps/web/src/app/dashboard/ai-letters/page.tsx` SPECIALTIES.
+// Filtered locally so no new API is required; the form still persists the
+// rendered string into the existing free-text `specialty` column.
+const SPECIALTY_OPTIONS = [
+  "Cardiologist",
+  "Neurologist",
+  "Pulmonologist",
+  "Gastroenterologist",
+  "Orthopedic",
+  "Dermatologist",
+  "ENT",
+  "Ophthalmologist",
+  "Gynecologist",
+  "Urologist",
+  "Endocrinologist",
+  "Psychiatrist",
+  "Oncologist",
+  "Nephrologist",
+];
 
 interface Doctor {
   id: string;
@@ -500,16 +523,24 @@ export default function ReferralsPage() {
               </div>
             )}
 
-            <div className="mb-4">
+            <div className="mb-4" data-testid="referral-specialty-picker">
               <label className="mb-1 block text-sm font-medium">Specialty</label>
-              <input
-                type="text"
+              <Autocomplete<string>
                 value={form.specialty}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, specialty: e.target.value }))
+                onChange={(val, item) =>
+                  setForm((f) => ({ ...f, specialty: item ?? val }))
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
-                placeholder="e.g. Cardiology"
+                fetchOptions={async (q) => {
+                  const needle = q.trim().toLowerCase();
+                  if (!needle) return SPECIALTY_OPTIONS;
+                  return SPECIALTY_OPTIONS.filter((s) =>
+                    s.toLowerCase().includes(needle)
+                  );
+                }}
+                getOptionLabel={(s) => s}
+                renderOption={(s) => <span>{s}</span>}
+                placeholder="e.g. Cardiologist"
+                minChars={0}
               />
             </div>
 

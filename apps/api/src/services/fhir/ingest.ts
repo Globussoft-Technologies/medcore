@@ -222,9 +222,20 @@ function mapAllergySeverityBack(
   criticality: FhirAllergyIntolerance["criticality"],
   reactionSeverity?: "mild" | "moderate" | "severe"
 ): "MILD" | "MODERATE" | "SEVERE" | "LIFE_THREATENING" {
-  if (criticality === "high") return "SEVERE";
-  if (reactionSeverity === "severe") return "SEVERE";
-  if (reactionSeverity === "moderate" || criticality === "low") return "MODERATE";
+  // criticality === "high" is the SEVERE / LIFE_THREATENING bucket. The
+  // forward mapper compresses both to (criticality: "high", reactionSeverity:
+  // "severe") so we can't preserve the LIFE_THREATENING distinction without
+  // a coding extension; collapse to SEVERE on the way back.
+  if (criticality === "high" || reactionSeverity === "severe") return "SEVERE";
+  // The forward mapper emits BOTH MILD and MODERATE as criticality="low" —
+  // only `reactionSeverity` distinguishes them. Prefer reactionSeverity over
+  // criticality for that decision; falling through on criticality="low" alone
+  // would drift MILD → MODERATE on round-trip (issue #415, FHIR cluster B).
+  if (reactionSeverity === "moderate") return "MODERATE";
+  if (reactionSeverity === "mild") return "MILD";
+  // No reactionSeverity from the source bundle. criticality="low" alone is
+  // ambiguous; default to MILD (the more conservative, less-clinical-action
+  // bucket — flipping clinical urgency on incomplete data is the worse error).
   return "MILD";
 }
 
@@ -669,44 +680,75 @@ export async function ingestMedicationRequest(
   const frequency = parts[1] ?? timingText ?? "As needed";
   const duration = parts[2] ?? "As needed";
 
-  // Find or create the Prescription row. Idempotency key = most recent unlinked
-  // appointment for this patient/doctor.
-  const appointment = await tx.appointment.findFirst({
-    where: { patientId, doctorId },
-    orderBy: { date: "desc" },
-  });
-  if (!appointment) {
-    throw new Error(
-      "ingestMedicationRequest: no Appointment found for this patient/doctor pair"
-    );
+  // Forward mapper (resources.ts prescriptionToMedicationRequests) tags every
+  // MedicationRequest with `groupIdentifier.value = prescription.id`. On
+  // round-trip we recover the source prescription via that tag, which is
+  // independent of resource.id encoding. This restores idempotency when the
+  // original prescription is not attached to the most recent appointment for
+  // the patient/doctor pair (issue #415, ChronicCare).
+  let prescription: { id: string; appointmentId: string } | null = null;
+  const groupId = resource.groupIdentifier?.value;
+  if (groupId) {
+    prescription = await tx.prescription.findUnique({ where: { id: groupId } });
   }
 
-  let prescription = await tx.prescription.findUnique({
-    where: { appointmentId: appointment.id },
-  });
   let action: IngestAction = "update";
   if (!prescription) {
-    prescription = await tx.prescription.create({
-      data: {
-        appointmentId: appointment.id,
-        patientId,
-        doctorId,
-        diagnosis: "Imported from FHIR bundle",
-      },
+    // Fallback for bundles that don't carry our groupIdentifier (external
+    // systems, hand-crafted unit-test bundles). Match the most recent
+    // appointment for this patient/doctor pair, reusing an existing
+    // prescription if one is attached, else creating a new one.
+    const appointment = await tx.appointment.findFirst({
+      where: { patientId, doctorId },
+      orderBy: { date: "desc" },
     });
-    action = "create";
+    if (!appointment) {
+      throw new Error(
+        "ingestMedicationRequest: no Appointment found for this patient/doctor pair"
+      );
+    }
+
+    prescription = await tx.prescription.findUnique({
+      where: { appointmentId: appointment.id },
+    });
+    if (!prescription) {
+      prescription = await tx.prescription.create({
+        data: {
+          appointmentId: appointment.id,
+          patientId,
+          doctorId,
+          diagnosis: "Imported from FHIR bundle",
+        },
+      });
+      action = "create";
+    }
   }
 
-  await tx.prescriptionItem.create({
-    data: {
-      prescriptionId: prescription.id,
-      medicineName: medName,
-      dosage: dosageText,
-      frequency,
-      duration,
-      refills: resource.dispenseRequest?.numberOfRepeatsAllowed ?? 0,
-    },
+  // Dedupe by (prescriptionId, medicineName) so re-ingesting the same bundle
+  // doesn't double-write items. Without this the round-trip test
+  // (`ingest is idempotent — row counts unchanged`) failed because every
+  // re-ingest doubled prescriptionItems count (issue #415, FHIR cluster B).
+  const refills = resource.dispenseRequest?.numberOfRepeatsAllowed ?? 0;
+  const existingItem = await tx.prescriptionItem.findFirst({
+    where: { prescriptionId: prescription.id, medicineName: medName },
   });
+  if (existingItem) {
+    await tx.prescriptionItem.update({
+      where: { id: existingItem.id },
+      data: { dosage: dosageText, frequency, duration, refills },
+    });
+  } else {
+    await tx.prescriptionItem.create({
+      data: {
+        prescriptionId: prescription.id,
+        medicineName: medName,
+        dosage: dosageText,
+        frequency,
+        duration,
+        refills,
+      },
+    });
+  }
 
   return {
     id: prescription.id,

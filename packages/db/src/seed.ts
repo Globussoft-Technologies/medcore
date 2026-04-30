@@ -129,12 +129,15 @@ async function main() {
   });
   console.log("Created nurse:", nurse.email);
 
-  // Create sample patient
+  // Create sample patient — uses patient1@medcore.local (NOT @example.com)
+  // to match the @medcore.local convention used by every other seeded user
+  // and (importantly) by the E2E helper at e2e/helpers.ts which expects
+  // `patient1@medcore.local / patient123` for the PATIENT role.
   const patientUser = await prisma.user.upsert({
-    where: { email: "patient@example.com" },
+    where: { email: "patient1@medcore.local" },
     update: {},
     create: {
-      email: "patient@example.com",
+      email: "patient1@medcore.local",
       phone: "9876543210",
       name: "Rahul Kumar",
       passwordHash: hashPassword("patient123"),

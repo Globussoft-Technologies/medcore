@@ -18,7 +18,9 @@ const router = Router();
 router.use(authenticate);
 
 // GET /api/v1/purchase-orders — list
-router.get("/", async (req: Request, res: Response, next: NextFunction) => {
+// Issue #174 (Apr 30 2026): PO list exposes supplier names, totals, GST, line
+// items. Procurement-only — clinical and patient roles must 403.
+router.get("/", authorize(Role.ADMIN, Role.RECEPTION, Role.PHARMACIST), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { status, supplierId, from, to, page = "1", limit = "20" } =
       req.query as Record<string, string | undefined>;
@@ -61,7 +63,8 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // GET /api/v1/purchase-orders/:id
-router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
+// Issue #174: PO detail with full line items + GST breakdown.
+router.get("/:id", authorize(Role.ADMIN, Role.RECEPTION, Role.PHARMACIST), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const po = await prisma.purchaseOrder.findUnique({
       where: { id: req.params.id },
@@ -789,8 +792,10 @@ router.post(
 );
 
 // GET /api/v1/purchase-orders/:id/grns
+// Issue #174: Goods Receipt Notes — procurement-only.
 router.get(
   "/:id/grns",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PHARMACIST),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const grns = await prisma.grn.findMany({

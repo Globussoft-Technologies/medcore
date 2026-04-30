@@ -143,4 +143,74 @@ describe("BillingPage", () => {
       ).toBeInTheDocument()
     );
   });
+
+  // Regression for #203: each summary tile is fed by an independent
+  // endpoint and several are RBAC-gated (e.g. /reports/daily is
+  // ADMIN-only per #90). Promise.allSettled must let surviving tiles
+  // populate even when some endpoints 403 for the current role.
+  it("populates the surviving summary tiles when one endpoint fails (#203)", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/billing/invoices")) return Promise.resolve({ data: [] });
+      if (url.includes("/billing/reports/outstanding"))
+        return Promise.resolve({
+          data: { rows: [], totalOutstanding: 2150, count: 3 },
+        });
+      // Simulate ADMIN-only daily report 403 for RECEPTION.
+      if (url.includes("/billing/reports/daily"))
+        return Promise.reject(new Error("Forbidden"));
+      if (url.includes("/billing/reports/revenue"))
+        return Promise.resolve({ data: { totals: { inflow: 5000 } } });
+      if (url.includes("/billing/reports/refunds"))
+        return Promise.resolve({ data: { totalRefunded: 0 } });
+      return Promise.resolve({ data: [] });
+    });
+    render(<BillingPage />);
+    // Total Outstanding tile (always reception-visible) must show the
+    // non-zero figure even though the daily-collection call rejected.
+    await waitFor(() => {
+      const outstandingCard = screen
+        .getByText(/total outstanding/i)
+        .closest("div");
+      expect(outstandingCard?.textContent || "").toMatch(/2,150/);
+    });
+    const monthCard = screen
+      .getByText(/this month's revenue/i)
+      .closest("div");
+    expect(monthCard?.textContent || "").toMatch(/5,000/);
+  });
+
+  // Regression for #235: a row with paymentStatus = PAID and balance > 0
+  // must render the displayed badge as PARTIAL — the underlying field is
+  // not mutated, only the rendered string.
+  it("displays PARTIAL when persisted PAID has positive balance (#235)", async () => {
+    const inv = {
+      id: "inv-235",
+      invoiceNumber: "INV000228",
+      totalAmount: 590,
+      paymentStatus: "PAID",
+      createdAt: new Date().toISOString(),
+      patientId: "p1",
+      patient: { user: { name: "Aarav Mehta", phone: "9000000001" } },
+      payments: [
+        {
+          id: "pm1",
+          amount: 500,
+          mode: "CASH",
+          paidAt: new Date().toISOString(),
+        },
+      ],
+    };
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/billing/invoices"))
+        return Promise.resolve({ data: [inv] });
+      return Promise.resolve(defaultGet(url));
+    });
+    render(<BillingPage />);
+    await waitFor(() =>
+      expect(screen.getByText("INV000228")).toBeInTheDocument()
+    );
+    expect(screen.getByTestId("bills-status-inv-235").textContent).toBe(
+      "PARTIAL"
+    );
+  });
 });

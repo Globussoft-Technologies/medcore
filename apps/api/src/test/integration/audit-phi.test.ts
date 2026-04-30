@@ -136,7 +136,7 @@ describeIfDB("PHI read audit logging (integration)", () => {
     const start = await request(app)
       .post("/api/v1/ai/triage/start")
       .set("Authorization", `Bearer ${doctorToken}`)
-      .send({ language: "en", inputMode: "text" });
+      .send({ consentGiven: true, language: "en", inputMode: "text" });
     expect(start.status).toBe(200);
     const sessionId: string = start.body.data.sessionId;
 

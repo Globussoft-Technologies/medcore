@@ -31,13 +31,23 @@ export default function WalkInPage() {
     phone: "",
     gender: "MALE",
     age: "",
+    // Issue #206 (2026-04-30): reception needs DOB / Address / Email at
+    // walk-in registration so the back office isn't chasing the patient
+    // for these later. All three are optional on the API side.
+    dateOfBirth: "",
+    address: "",
+    email: "",
   });
   // Issue #354: track age error too now that the walk-in "+ New Patient"
   // form enforces a sane numeric range.
+  // Issue #206: extend errors map to cover DOB / address / email.
   const [fieldErrors, setFieldErrors] = useState<{
     name?: string;
     phone?: string;
     age?: string;
+    dateOfBirth?: string;
+    address?: string;
+    email?: string;
   }>({});
   const [result, setResult] = useState<{
     tokenNumber: number;
@@ -78,9 +88,19 @@ export default function WalkInPage() {
   // also supplies a date of birth.
   const PATIENT_NAME_REGEX_LOCAL = /^[A-Za-zऀ-ॿ\s.\-']{2,100}$/;
   const PHONE_REGEX_LOCAL = /^\+?\d{10,15}$/;
+  // Issue #206: simple sanity-check email regex (server applies the
+  // canonical RFC-ish check via zod's .email()).
+  const EMAIL_REGEX_LOCAL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
   function validateNewPatient(): boolean {
-    const errs: { name?: string; phone?: string; age?: string } = {};
+    const errs: {
+      name?: string;
+      phone?: string;
+      age?: string;
+      dateOfBirth?: string;
+      address?: string;
+      email?: string;
+    } = {};
     // Issue #260, #284 (Apr 2026): layer the canonical XSS-rejecting
     // sanitizer on top of the existing PATIENT_NAME_REGEX so the same
     // payload that XSSed staff fields can't slip through Walk-in either.
@@ -103,6 +123,32 @@ export default function WalkInPage() {
         errs.age = "Age must be between 1 and 150";
       }
     }
+    // Issue #206: DOB must parse and not be in the future. Empty is OK
+    // (field is optional on the API side).
+    if (newPatient.dateOfBirth) {
+      const dob = new Date(newPatient.dateOfBirth);
+      if (Number.isNaN(dob.getTime())) {
+        errs.dateOfBirth = "Invalid date of birth";
+      } else {
+        const today = new Date();
+        today.setHours(23, 59, 59, 999);
+        if (dob.getTime() > today.getTime()) {
+          errs.dateOfBirth = "Date of birth cannot be in the future";
+        }
+      }
+    }
+    // Issue #206: address is free-form but bounded so a paste-bomb
+    // can't break the row.
+    if (newPatient.address && newPatient.address.length > 500) {
+      errs.address = "Address must be at most 500 characters";
+    }
+    // Issue #206: email is optional, but if present must look like one.
+    if (newPatient.email) {
+      const trimmedEmail = newPatient.email.trim();
+      if (!EMAIL_REGEX_LOCAL.test(trimmedEmail)) {
+        errs.email = "Email must be a valid address (e.g. user@example.com)";
+      }
+    }
     setFieldErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -111,11 +157,17 @@ export default function WalkInPage() {
     if (!validateNewPatient()) return;
     try {
       // Register new patient first
+      // Issue #206: pass DOB / address / email through so the User+Patient
+      // rows are seeded with what reception captured here. The /patients
+      // route already accepts these fields via createPatientSchema.
       const patientRes = await api.post<{ data: PatientResult }>("/patients", {
         name: newPatient.name,
         phone: newPatient.phone,
         gender: newPatient.gender,
         age: newPatient.age ? parseInt(newPatient.age) : undefined,
+        dateOfBirth: newPatient.dateOfBirth || undefined,
+        address: newPatient.address.trim() || undefined,
+        email: newPatient.email.trim() || undefined,
       });
 
       // Then register walk-in
@@ -344,15 +396,125 @@ export default function WalkInPage() {
                         <option value="FEMALE">Female</option>
                         <option value="OTHER">Other</option>
                       </select>
-                      <input
-                        placeholder="Age"
-                        type="number"
-                        value={newPatient.age}
-                        onChange={(e) =>
-                          setNewPatient({ ...newPatient, age: e.target.value })
-                        }
-                        className="rounded border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
-                      />
+                      <div>
+                        <input
+                          placeholder="Age"
+                          type="number"
+                          value={newPatient.age}
+                          onChange={(e) => {
+                            setNewPatient({ ...newPatient, age: e.target.value });
+                            if (fieldErrors.age)
+                              setFieldErrors((p) => ({ ...p, age: undefined }));
+                          }}
+                          className={`w-full rounded border bg-white px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 ${
+                            fieldErrors.age ? "border-red-500" : "border-gray-200 dark:border-gray-600"
+                          }`}
+                          data-testid="walkin-newpatient-age"
+                        />
+                        {fieldErrors.age && (
+                          <p
+                            className="mt-1 text-xs text-red-600 dark:text-red-400"
+                            data-testid="error-age"
+                          >
+                            {fieldErrors.age}
+                          </p>
+                        )}
+                      </div>
+                      {/* Issue #206 (2026-04-30): DOB / Email / Address.
+                          All optional but if filled must validate. */}
+                      <div>
+                        <input
+                          aria-label="Date of birth"
+                          placeholder="Date of Birth"
+                          type="date"
+                          max={new Date().toISOString().split("T")[0]}
+                          value={newPatient.dateOfBirth}
+                          onChange={(e) => {
+                            setNewPatient({
+                              ...newPatient,
+                              dateOfBirth: e.target.value,
+                            });
+                            if (fieldErrors.dateOfBirth)
+                              setFieldErrors((p) => ({
+                                ...p,
+                                dateOfBirth: undefined,
+                              }));
+                          }}
+                          className={`w-full rounded border bg-white px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 ${
+                            fieldErrors.dateOfBirth
+                              ? "border-red-500"
+                              : "border-gray-200 dark:border-gray-600"
+                          }`}
+                          data-testid="walkin-newpatient-dob"
+                        />
+                        {fieldErrors.dateOfBirth && (
+                          <p
+                            className="mt-1 text-xs text-red-600 dark:text-red-400"
+                            data-testid="error-dob"
+                          >
+                            {fieldErrors.dateOfBirth}
+                          </p>
+                        )}
+                      </div>
+                      <div className="col-span-2">
+                        <input
+                          placeholder="Email (optional)"
+                          type="email"
+                          value={newPatient.email}
+                          onChange={(e) => {
+                            setNewPatient({ ...newPatient, email: e.target.value });
+                            if (fieldErrors.email)
+                              setFieldErrors((p) => ({ ...p, email: undefined }));
+                          }}
+                          className={`w-full rounded border bg-white px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 ${
+                            fieldErrors.email
+                              ? "border-red-500"
+                              : "border-gray-200 dark:border-gray-600"
+                          }`}
+                          data-testid="walkin-newpatient-email"
+                        />
+                        {fieldErrors.email && (
+                          <p
+                            className="mt-1 text-xs text-red-600 dark:text-red-400"
+                            data-testid="error-email"
+                          >
+                            {fieldErrors.email}
+                          </p>
+                        )}
+                      </div>
+                      <div className="col-span-2">
+                        <textarea
+                          placeholder="Address (optional)"
+                          rows={2}
+                          maxLength={500}
+                          value={newPatient.address}
+                          onChange={(e) => {
+                            setNewPatient({
+                              ...newPatient,
+                              address: e.target.value,
+                            });
+                            if (fieldErrors.address)
+                              setFieldErrors((p) => ({
+                                ...p,
+                                address: undefined,
+                              }));
+                          }}
+                          className={`w-full rounded border bg-white px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 ${
+                            fieldErrors.address
+                              ? "border-red-500"
+                              : "border-gray-200 dark:border-gray-600"
+                          }`}
+                          data-testid="walkin-newpatient-address"
+                        />
+                        {fieldErrors.address && (
+                          <p
+                            className="mt-1 text-xs text-red-600 dark:text-red-400"
+                            data-testid="error-address"
+                          >
+                            {fieldErrors.address}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}

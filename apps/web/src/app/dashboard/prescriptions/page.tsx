@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
@@ -11,7 +11,7 @@ import { InfoIcon } from "@/components/Tooltip";
 import { Autocomplete } from "@/components/Autocomplete";
 import { EntityPicker } from "@/components/EntityPicker";
 import { EmptyState } from "@/components/EmptyState";
-import { FileText } from "lucide-react";
+import { FileText, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 
 // Issue #398: render the prescription's actual issue date with explicit
@@ -87,19 +87,55 @@ interface Template {
 export default function PrescriptionsPage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
+  const pathname = usePathname();
   const { t } = useTranslation();
 
   // Issue #90: redirect RECEPTION (and any non-clinical role) away.
+  // Issue #179: target /dashboard/not-authorized so the layout chrome stays.
   useEffect(() => {
     if (!isLoading && user && !RX_ALLOWED.has(user.role)) {
       toast.error("Prescriptions are restricted to clinical staff.");
-      router.replace("/dashboard");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/prescriptions")}`,
+      );
     }
-  }, [user, isLoading, router]);
+  }, [user, isLoading, router, pathname]);
   const [prescriptions, setPrescriptions] = useState<PrescriptionRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  // ─── Issue #169: list toolbar (search / status / date / sort / paginate) ──
+  // Backend `/api/v1/prescriptions` supports `?page=&limit=&patientId=&doctorId=`
+  // but does NOT honour `?search=`, `?status=`, or date range yet. We do
+  // server-side pagination and apply search/status/date filters client-side
+  // over the loaded page.  Sort is also client-side via DataTable-style
+  // toggling (default: issuedAt desc).
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"" | "ISSUED" | "PRINTED">("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [sortKey, setSortKey] = useState<"issuedAt" | "patient" | "doctor">(
+    "issuedAt",
+  );
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(1);
+  const [pageLimit, setPageLimit] = useState(25);
+  const [total, setTotal] = useState(0);
+
+  // Debounce search input — 300 ms.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Reset to page 1 whenever a filter changes — otherwise we'd land on an
+  // empty trailing page.
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, statusFilter, dateFrom, dateTo, pageLimit]);
 
   // Form state
   const [form, setForm] = useState({
@@ -208,7 +244,8 @@ export default function PrescriptionsPage() {
       .get<{ data: Template[] }>("/prescriptions/templates/list")
       .then((r) => setTemplates(r.data))
       .catch(() => {});
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pageLimit]);
 
   // Auto-open the Rx form when the doctor workspace quick-action links here
   // with ?new=1 (issue #11).
@@ -260,13 +297,20 @@ export default function PrescriptionsPage() {
 
   async function loadPrescriptions() {
     setLoading(true);
+    setLoadError(null);
     try {
-      const res = await api.get<{ data: PrescriptionRecord[] }>(
-        "/prescriptions?limit=50"
+      const res = await api.get<{
+        data: PrescriptionRecord[];
+        meta?: { total?: number };
+      }>(`/prescriptions?page=${page}&limit=${pageLimit}`);
+      setPrescriptions(res.data ?? []);
+      setTotal(res.meta?.total ?? (res.data?.length ?? 0));
+    } catch (err) {
+      setLoadError(
+        err instanceof Error ? err.message : "Failed to load prescriptions",
       );
-      setPrescriptions(res.data);
-    } catch {
-      // empty
+      setPrescriptions([]);
+      setTotal(0);
     }
     setLoading(false);
   }
@@ -396,6 +440,79 @@ export default function PrescriptionsPage() {
       await submitPrescription(false);
     }
   }
+
+  // ─── Issue #169: derive filtered + sorted view of the loaded page ────────
+  // Backend doesn't support `?search=`, status, or date range yet, so the
+  // toolbar filters apply on the client over the current page of results.
+  // The exposed `total` count reflects the server-side total *before* these
+  // client filters — that's fine; the per-page hit list is what the user
+  // sees, and the surface area where this matters most is search-as-you-type
+  // (always on the current 25 rows).
+  const visiblePrescriptions = useMemo(() => {
+    const q = debouncedSearch.toLowerCase();
+    const fromTs = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : null;
+    const toTs = dateTo ? new Date(`${dateTo}T23:59:59`).getTime() : null;
+
+    let rows = prescriptions.filter((rx) => {
+      // Search across patient name + doctor name + medication names.
+      if (q) {
+        const hay = [
+          rx.patient?.user?.name,
+          rx.doctor?.user?.name,
+          rx.diagnosis,
+          ...(rx.items?.map((i) => i.medicineName) ?? []),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      // Status filter (printed boolean → ISSUED / PRINTED).
+      if (statusFilter === "PRINTED" && !rx.printed) return false;
+      if (statusFilter === "ISSUED" && rx.printed) return false;
+      // Date range on createdAt (issuedAt).
+      if (fromTs || toTs) {
+        const t = new Date(rx.createdAt).getTime();
+        if (Number.isNaN(t)) return false;
+        if (fromTs && t < fromTs) return false;
+        if (toTs && t > toTs) return false;
+      }
+      return true;
+    });
+
+    const dir = sortDir === "asc" ? 1 : -1;
+    rows = [...rows].sort((a, b) => {
+      let av: string | number = "";
+      let bv: string | number = "";
+      if (sortKey === "issuedAt") {
+        av = new Date(a.createdAt).getTime();
+        bv = new Date(b.createdAt).getTime();
+        return ((av as number) - (bv as number)) * dir;
+      }
+      if (sortKey === "patient") {
+        av = a.patient?.user?.name ?? "";
+        bv = b.patient?.user?.name ?? "";
+      } else if (sortKey === "doctor") {
+        av = a.doctor?.user?.name ?? "";
+        bv = b.doctor?.user?.name ?? "";
+      }
+      return String(av).localeCompare(String(bv)) * dir;
+    });
+    return rows;
+  }, [prescriptions, debouncedSearch, statusFilter, dateFrom, dateTo, sortKey, sortDir]);
+
+  function toggleSort(next: typeof sortKey) {
+    if (sortKey === next) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(next);
+      setSortDir(next === "issuedAt" ? "desc" : "asc");
+    }
+  }
+
+  const hasActiveFilters =
+    !!debouncedSearch || !!statusFilter || !!dateFrom || !!dateTo;
+  const totalPages = Math.max(1, Math.ceil(total / pageLimit));
 
   return (
     <div>
@@ -733,11 +850,137 @@ export default function PrescriptionsPage() {
         </form>
       )}
 
+      {/* ── Toolbar (Issue #169): search + status + date range ──────────── */}
+      <div className="mb-4 grid gap-3 rounded-xl border border-gray-200 bg-white p-3 shadow-sm md:grid-cols-12 dark:border-gray-700 dark:bg-gray-800">
+        <div className="md:col-span-5">
+          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+            Search
+          </label>
+          <div className="relative">
+            <Search
+              size={14}
+              aria-hidden="true"
+              className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-gray-400"
+            />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by patient, doctor, medicine…"
+              data-testid="rx-search-input"
+              aria-label="Search prescriptions"
+              className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-7 pr-3 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+            />
+          </div>
+        </div>
+        <div className="md:col-span-3">
+          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+            Status
+          </label>
+          <select
+            value={statusFilter}
+            onChange={(e) =>
+              setStatusFilter(e.target.value as "" | "ISSUED" | "PRINTED")
+            }
+            data-testid="rx-status-filter"
+            aria-label="Filter by status"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+          >
+            <option value="">All statuses</option>
+            <option value="ISSUED">Issued</option>
+            <option value="PRINTED">Printed</option>
+          </select>
+        </div>
+        <div className="md:col-span-2">
+          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+            From
+          </label>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            data-testid="rx-date-from"
+            aria-label="Issued on or after"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+          />
+        </div>
+        <div className="md:col-span-2">
+          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+            To
+          </label>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            data-testid="rx-date-to"
+            aria-label="Issued on or before"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+          />
+        </div>
+      </div>
+
+      {/* Sort buttons (live above the list — DataTable-style headers don't
+          fit our card layout, so we expose them as a small toolbar). */}
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-gray-500 dark:text-gray-400">Sort:</span>
+        {(
+          [
+            { key: "issuedAt" as const, label: "Issued" },
+            { key: "patient" as const, label: "Patient" },
+            { key: "doctor" as const, label: "Doctor" },
+          ]
+        ).map((s) => {
+          const active = sortKey === s.key;
+          return (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => toggleSort(s.key)}
+              data-testid={`rx-sort-${s.key}`}
+              className={`rounded-full border px-3 py-1 ${
+                active
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700"
+              }`}
+            >
+              {s.label}
+              {active ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
+            </button>
+          );
+        })}
+        <span
+          className="ml-auto text-gray-500 dark:text-gray-400"
+          data-testid="rx-total-count"
+        >
+          {hasActiveFilters
+            ? `${visiblePrescriptions.length} of ${total} shown`
+            : `${total} prescription${total === 1 ? "" : "s"}`}
+        </span>
+      </div>
+
       {/* Prescriptions list */}
       <div className="space-y-3">
         {loading ? (
-          <div className="rounded-xl bg-white p-8 text-center text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+          <div
+            className="rounded-xl bg-white p-8 text-center text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+            data-testid="rx-loading"
+          >
             Loading...
+          </div>
+        ) : loadError ? (
+          <div
+            className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+            data-testid="rx-error"
+            role="alert"
+          >
+            <p className="font-medium">Could not load prescriptions.</p>
+            <p className="mt-1 text-xs opacity-80">{loadError}</p>
+            <button
+              onClick={loadPrescriptions}
+              className="mt-3 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-800 dark:bg-transparent"
+            >
+              Retry
+            </button>
           </div>
         ) : prescriptions.length === 0 ? (
           <EmptyState
@@ -750,9 +993,28 @@ export default function PrescriptionsPage() {
                 : undefined
             }
           />
+        ) : visiblePrescriptions.length === 0 ? (
+          <EmptyState
+            icon={<Search size={28} aria-hidden="true" />}
+            title="No matches"
+            description="No prescriptions match the current search or filter. Try clearing them."
+            action={{
+              label: "Clear filters",
+              onClick: () => {
+                setSearch("");
+                setStatusFilter("");
+                setDateFrom("");
+                setDateTo("");
+              },
+            }}
+          />
         ) : (
-          prescriptions.map((rx) => (
-            <div key={rx.id} className="rounded-xl bg-white p-4 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
+          visiblePrescriptions.map((rx) => (
+            <div
+              key={rx.id}
+              data-testid={`rx-row-${rx.id}`}
+              className="rounded-xl bg-white p-4 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100"
+            >
               <button
                 onClick={() =>
                   setExpanded(expanded === rx.id ? null : rx.id)
@@ -850,6 +1112,59 @@ export default function PrescriptionsPage() {
           ))
         )}
       </div>
+
+      {/* ── Pagination (Issue #169) ─────────────────────────────────────── */}
+      {!loading && !loadError && total > 0 && (
+        <div
+          className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+          data-testid="rx-pagination"
+        >
+          <div className="flex items-center gap-2">
+            <label htmlFor="rx-page-size" className="text-xs">
+              Rows:
+            </label>
+            <select
+              id="rx-page-size"
+              value={pageLimit}
+              onChange={(e) => setPageLimit(Number(e.target.value))}
+              data-testid="rx-page-size"
+              aria-label="Rows per page"
+              className="rounded border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+            >
+              {[10, 25, 50, 100].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <span data-testid="rx-page-status">
+              Page {page} of {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              data-testid="rx-page-prev"
+              aria-label="Previous page"
+              className="flex min-h-[32px] min-w-[32px] items-center justify-center rounded border border-gray-200 p-1 disabled:opacity-40 dark:border-gray-700"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              data-testid="rx-page-next"
+              aria-label="Next page"
+              className="flex min-h-[32px] min-w-[32px] items-center justify-center rounded border border-gray-200 p-1 disabled:opacity-40 dark:border-gray-700"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Drug Interaction Alert Modal */}
       {showInteractionModal && (

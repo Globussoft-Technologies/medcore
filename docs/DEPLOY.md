@@ -1,8 +1,11 @@
-# MedCore Production Deploy Runbook
+# MedCore Deploy Runbook
 
-> **Single authoritative runbook for deploying MedCore to prod.**
-> Host: `163.227.174.141` (Ubuntu 22.04). nginx terminates TLS and proxies to
-> PM2 processes `medcore-api` (port 4100) and `medcore-web` (port 3200).
+> **Deployment is automated via GitHub Actions.** This runbook documents
+> how the automation works and the manual fallback for the rare cases when
+> CI itself is unavailable.
+>
+> Host: `163.227.174.141` (Ubuntu 22.04). nginx terminates TLS and proxies
+> to PM2 processes `medcore-api` (port 4100) and `medcore-web` (port 3200).
 > PostgreSQL runs in Docker (`medcore-postgres`) bound to host port 5433.
 >
 > Companion docs:
@@ -15,7 +18,74 @@
 
 ---
 
-## 0. The `package-lock.json` drift pattern
+## How auto-deploy works (the canonical path)
+
+Every push to `main` triggers `.github/workflows/test.yml`. On a green CI
+gate, the `deploy` job SSHes into the dev server and runs the deploy script.
+**You do not deploy by hand for normal pushes** — the workflow does it.
+Watch each run at https://github.com/Globussoft-Technologies/medcore/actions.
+
+What the workflow does:
+
+1. **CI gate.** Currently `needs: [typecheck]` while pre-existing test rot
+   tracked at issue #415 is being cleared. Will be restored to
+   `needs: [test, web-tests, typecheck, e2e]` once #415 is closed. Type
+   check is mandatory; it catches the kind of error that breaks at runtime.
+2. **SSH.** The `Deploy to dev server` job loads the `DEPLOY_SSH_KEY` secret
+   into an ssh-agent, pins `DEPLOY_KNOWN_HOSTS`, and SSHes in as
+   `${DEPLOY_USER}@${DEPLOY_HOST}`.
+3. **Invoke the script.** Runs `bash -lc "bash /home/empcloud-development/medcore/scripts/deploy.sh --yes"`.
+   The explicit `bash <path>` (rather than executing the path directly) is
+   deliberate — git commits `.sh` files as `100644` by default on Windows
+   contributors' clones, so the file's executable bit is unreliable. Going
+   through `bash` makes the deploy work regardless of file mode.
+4. **The script** (`scripts/deploy.sh`) does git pull → `npm ci` → prisma
+   generate + `migrate deploy` → `npm --prefix apps/web run build` →
+   `pm2 restart medcore-api medcore-web` → curl `localhost:4100/api/health`
+   and `localhost:3200`.
+5. **Public smoke check.** After the script returns 0 the runner curls
+   `https://medcore.globusdemos.com/api/health` and `/` from outside the
+   box to confirm nginx is forwarding correctly.
+
+The concurrency group `deploy-medcore-dev` queues overlapping deploys so
+two pushes can't race on `npm ci` or pm2 restart.
+
+### Required GitHub secrets (already configured)
+
+| Secret | Purpose |
+|---|---|
+| `DEPLOY_SSH_KEY` | ed25519 private key whose pubkey is in `~/.ssh/authorized_keys` on the dev server. Generate a CI-only keypair; do not reuse a personal key. |
+| `DEPLOY_HOST` | `163.227.174.141`. |
+| `DEPLOY_USER` | `empcloud-development`. |
+| `DEPLOY_KNOWN_HOSTS` | Output of `ssh-keyscan -H 163.227.174.141`. Pinning the host key avoids TOFU + MITM. |
+
+### Temporarily disabling auto-deploy
+
+Comment out the `if:` line on the `deploy` job in
+`.github/workflows/test.yml` and push. Re-enable by reverting that commit.
+
+---
+
+## When to use the manual fallback
+
+The rest of this document is **only** for the scenarios where CI cannot
+ship the change for you:
+
+- CI is itself broken and you need to ship a hotfix (workflow file has a
+  syntax error, GH Actions outage, the deploy job's secrets have been
+  rotated).
+- You're shipping a destructive op (`--seed`, manual migration backfill,
+  data-correction script) that the CI workflow intentionally never runs.
+- The dev server's CI key has been revoked.
+- You want a tighter feedback loop on a tricky migration and would rather
+  drive each step yourself.
+
+For everything else: push to `main`, watch the workflow run, and if it
+goes red consult the troubleshooting section.
+
+---
+
+### Known issue: `package-lock.json` drift pattern
 
 This bit us three deploys in a row in April 2026 and is worth knowing before
 you start. The web build depends on `@tailwindcss/oxide`, which ships native
@@ -42,7 +112,13 @@ entries and re-pin if they've drifted.
 
 ---
 
-## 1. Pre-deploy checklist (run locally)
+## Manual fallback runbook
+
+The remaining sections are the manual fallback. **Use these only when
+auto-deploy isn't available** — see the "When to use the manual fallback"
+section above for the four scenarios where this applies.
+
+### 1. Pre-deploy checklist (run locally)
 
 Do all of this on your laptop **before** SSHing into prod.
 
@@ -58,15 +134,21 @@ Do all of this on your laptop **before** SSHing into prod.
 
 Do **not** deploy when:
 
-- The CI pipeline on `main` is red.
+- The CI pipeline on `main` is red. (Auto-deploy already enforces this; the
+  rule applies to manual fallback too.)
 - Any `prisma migrate dev` has been run against the dev DB but the resulting
   migration folder is not committed.
 - There are local modifications to `packages/db/prisma/schema.prisma` that
   have not been materialised as a migration folder.
 
+If auto-deploy is healthy, **prefer pushing to main and watching CI** over
+SSHing in — the workflow runs the same `scripts/deploy.sh --yes` you would
+run by hand, with the same pre-flight guards, plus a public-side smoke
+check that catches nginx/proxy regressions a localhost curl can miss.
+
 ---
 
-## 2. Outstanding migrations
+### 2. Outstanding migrations
 
 The migration history under `packages/db/prisma/migrations/` currently
 holds 16 migrations (all committed through 2026-04-24):
@@ -98,7 +180,7 @@ in a follow-up migration (see step 5 below).
 
 ---
 
-## 3. Step-by-step deploy sequence
+### 3. Step-by-step deploy sequence
 
 Nine ordered steps. Every step must succeed before moving to the next.
 
@@ -167,7 +249,7 @@ scripts/deploy.sh
 
 ---
 
-## 4. Rollback plan
+### 4. Rollback plan
 
 If any step 5-9 fails or post-deploy verification finds a regression:
 
@@ -206,7 +288,7 @@ Never run `prisma migrate reset`, `db push --force-reset`, or
 
 ---
 
-## 5. Data migration — insurance claims v2
+### 5. Data migration — insurance claims v2
 
 The legacy `insurance_claims` table is being migrated into the TPA-aware
 `insurance_claims_v2` table. Script:
@@ -239,7 +321,7 @@ Tunables: `--batch-size=<N>` (default 100). Each batch is one
 
 ---
 
-## 6. Post-deploy verification
+### 6. Post-deploy verification
 
 Two scripted checks + four manual spot-checks.
 
@@ -273,7 +355,7 @@ Prisma-client-regen issues, not data corruption.
 
 ---
 
-## 7. Known-good baseline
+### 7. Known-good baseline
 
 | Field | Value |
 |---|---|
@@ -288,7 +370,7 @@ of truth for "what is actually on the box right now".
 
 ---
 
-## 8. Environment variables
+### 8. Environment variables
 
 The full API / Web / Mobile env-var table (including the HL7 v2 inbound
 network note and the TPA connector matrix) lives in a dedicated doc so
@@ -304,7 +386,7 @@ URLs that used the old signing secret.
 
 ---
 
-## 8a. Runtime rate-limit controls
+### 8a. Runtime rate-limit controls
 
 The API has a hard ops escape hatch for bulk testing / load campaigns:
 setting `DISABLE_RATE_LIMITS=true` on `medcore-api` turns every limiter
@@ -370,7 +452,19 @@ disabled is considered a P2 until corrected.
 
 ---
 
-## 9. Troubleshooting
+### 9. Troubleshooting
+
+#### Auto-deploy (GitHub Actions) failures
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `Deploy to dev server` job logs `bash: line 1: /home/.../scripts/deploy.sh: Permission denied` (exit 126). | Script lacks the executable bit on the dev server (git on Windows commits `.sh` files as `100644`). | The workflow now invokes via `bash <path>` so the bit doesn't matter — pull the latest workflow change. As belt-and-suspenders, on the server: `chmod +x scripts/deploy.sh`. |
+| `Set up SSH agent` step fails with `error in libcrypto`. | The `DEPLOY_SSH_KEY` secret has CRLF line endings. | Re-upload the key with `tr -d '\r' < ~/medcore-ci-key \| gh secret set DEPLOY_SSH_KEY -R Globussoft-Technologies/medcore`. |
+| `Set up SSH agent` succeeds but the deploy step times out connecting. | The CI key got removed from the dev server's `authorized_keys`. | Re-add the pubkey from `~/medcore-ci-key.pub` to `/home/empcloud-development/.ssh/authorized_keys`. |
+| The deploy step succeeds but `Smoke-check public endpoints` fails on `https://medcore.globusdemos.com/api/health`. | nginx forwarding broken, or `medcore-api` failed to start cleanly post-restart. | SSH in, `pm2 status` + `pm2 logs medcore-api` to see if the API came up. If pm2 is healthy but the public URL is dead, `sudo systemctl reload nginx`. |
+| Deploy job is skipped on a push to `main`. | The `if:` gate didn't match (e.g. someone temporarily disabled auto-deploy in the workflow), or required jobs in `needs:` failed. | Check the gating clause in `.github/workflows/test.yml`. Currently `needs: [typecheck]`; restore to `[test, web-tests, typecheck, e2e]` once #415 is closed. |
+
+#### Manual-deploy / runtime issues
 
 | Symptom | Likely cause | Fix |
 |---|---|---|

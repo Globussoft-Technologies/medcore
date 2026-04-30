@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
@@ -104,6 +104,7 @@ type Tab = "active" | "all";
 export default function AmbulancePage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
+  const pathname = usePathname();
   const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>("active");
   const [ambulances, setAmbulances] = useState<Ambulance[]>([]);
@@ -114,12 +115,15 @@ export default function AmbulancePage() {
   const [completing, setCompleting] = useState<Trip | null>(null);
 
   // Issue #89: DOCTOR must not be able to manipulate trips by direct URL.
+  // Issue #179: target /dashboard/not-authorized so the layout chrome stays.
   useEffect(() => {
     if (!isLoading && user && !AMBULANCE_ALLOWED.has(user.role)) {
       toast.error("Ambulance dispatch is restricted to Admin, Reception, and Nurse.");
-      router.replace("/dashboard");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/ambulance")}`,
+      );
     }
-  }, [user, isLoading, router]);
+  }, [user, isLoading, router, pathname]);
 
   const canManage = user?.role === "ADMIN";
   // Issue #89: DOCTOR removed from canDispatch (was a footgun).

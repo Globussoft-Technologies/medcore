@@ -349,6 +349,132 @@ export function computeLineItemTax(
   };
 }
 
+// ─── Single source of truth for invoice totals (#202, #236) ──────────
+// Older invoices were persisted with `taxAmount: 0` while the renderer
+// derived per-line GST from category. That left the footer "Total" stuck
+// at the pre-tax subtotal — short-changing GST collection by 18% and
+// breaking GSTR-1 reconciliation. This helper takes the single line-item
+// list + persisted overrides and returns a consistent breakdown that the
+// web detail view, the PDF generator, and any future consumer all agree
+// on. The rule is: prefer the larger of (persisted taxAmount,
+// sum-of-per-line-tax) so that we never under-bill, and recompute Total
+// from those — never echo an unverified persisted Total.
+export interface InvoiceTotalBreakdown {
+  subtotal: number;
+  cgstAmount: number;
+  sgstAmount: number;
+  taxAmount: number;
+  discountAmount: number;
+  totalAmount: number;
+  /**
+   * True when the persisted invoice.totalAmount disagreed with the
+   * recomputed total by more than 1 paisa. UIs may want to surface a
+   * "data corrected on display" hint. The PDF + web detail page rely
+   * on this to ensure they never echo a stale persisted Total.
+   */
+  totalAmountWasCorrected: boolean;
+}
+
+export interface InvoiceLineForTotals {
+  amount: number;
+  category?: string | null;
+}
+
+export function computeInvoiceTotals(
+  items: ReadonlyArray<InvoiceLineForTotals>,
+  persisted: {
+    subtotal?: number;
+    taxAmount?: number;
+    cgstAmount?: number;
+    sgstAmount?: number;
+    discountAmount?: number;
+    totalAmount?: number;
+  } = {}
+): InvoiceTotalBreakdown {
+  const subtotal =
+    persisted.subtotal !== undefined
+      ? persisted.subtotal
+      : items.reduce((s, it) => s + (it.amount || 0), 0);
+  const lineTaxes = items.map((it) => computeLineItemTax(it.amount || 0, it.category));
+  const sumLineCgst = +lineTaxes.reduce((s, t) => s + t.cgst, 0).toFixed(2);
+  const sumLineSgst = +lineTaxes.reduce((s, t) => s + t.sgst, 0).toFixed(2);
+  const sumLineTax = +(sumLineCgst + sumLineSgst).toFixed(2);
+
+  // Prefer the persisted aggregate when it matches (or exceeds) what the
+  // line items imply — it represents what was actually billed. Otherwise
+  // fall back to the per-line sum so a `taxAmount: 0` snapshot doesn't
+  // hide GST that the line breakdown itself shows. We treat the larger
+  // of `taxAmount` and `cgstAmount + sgstAmount` as authoritative; some
+  // older snapshots filled only the split columns.
+  const persistedSplit = +(
+    (persisted.cgstAmount ?? 0) + (persisted.sgstAmount ?? 0)
+  ).toFixed(2);
+  const persistedTax = Math.max(persisted.taxAmount ?? 0, persistedSplit);
+  const useLineSum = persistedTax + 0.01 < sumLineTax;
+  const cgstAmount = useLineSum
+    ? sumLineCgst
+    : persisted.cgstAmount !== undefined
+      ? persisted.cgstAmount
+      : +(persistedTax / 2).toFixed(2);
+  const sgstAmount = useLineSum
+    ? sumLineSgst
+    : persisted.sgstAmount !== undefined
+      ? persisted.sgstAmount
+      : +(persistedTax - cgstAmount).toFixed(2);
+  const taxAmount = +(cgstAmount + sgstAmount).toFixed(2);
+
+  const discountAmount = persisted.discountAmount ?? 0;
+  const recomputedTotal = +(subtotal + taxAmount - discountAmount).toFixed(2);
+  const totalAmount = Math.max(0, recomputedTotal);
+  const persistedTotal = persisted.totalAmount;
+  const totalAmountWasCorrected =
+    persistedTotal !== undefined &&
+    Math.abs((persistedTotal ?? 0) - totalAmount) > 0.01;
+
+  return {
+    subtotal: +subtotal.toFixed(2),
+    cgstAmount,
+    sgstAmount,
+    taxAmount,
+    discountAmount: +discountAmount.toFixed(2),
+    totalAmount,
+    totalAmountWasCorrected,
+  };
+}
+
+// ─── Payment status truth (#235) ────────────────────────────────────
+// The backend mostly keeps `paymentStatus` in sync with payments, but
+// historical rows + race conditions have produced "PAID" rows with a
+// non-zero balance. Showing the badge as PAID while the Balance column
+// is red is a financial-integrity bug. This helper is the single rule
+// every UI uses to decide what to actually display: it never alters
+// stored data, only the rendered string.
+export type PaymentStatusDisplay = "PAID" | "PARTIAL" | "PENDING" | "REFUNDED" | "CANCELLED";
+
+export function derivePaymentStatus(
+  persistedStatus: string | null | undefined,
+  totalAmount: number,
+  netPaid: number
+): PaymentStatusDisplay {
+  // CANCELLED / REFUNDED rows are terminal — preserve them verbatim so
+  // the watermark + audit trail remain truthful.
+  if (persistedStatus === "CANCELLED") return "CANCELLED";
+  if (persistedStatus === "REFUNDED") return "REFUNDED";
+
+  const balance = +(totalAmount - netPaid).toFixed(2);
+  // Treat anything within 1-paisa of zero as fully paid (rounding hygiene).
+  if (balance <= 0.01) {
+    if (netPaid <= 0.01 && totalAmount <= 0.01) {
+      // Zero-amount invoice with no payments — surface the persisted
+      // value (or PENDING by default) instead of misleading "PAID".
+      return (persistedStatus as PaymentStatusDisplay) || "PENDING";
+    }
+    return "PAID";
+  }
+  if (netPaid > 0.01) return "PARTIAL";
+  return "PENDING";
+}
+
 // ─── Credit Note ───────────────────────────────────────
 export const createCreditNoteSchema = z.object({
   invoiceId: z.string().uuid(),

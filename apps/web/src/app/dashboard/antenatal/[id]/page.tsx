@@ -136,6 +136,25 @@ export default function AncCaseDetailPage() {
   async function submitVisit(e: React.FormEvent) {
     e.preventDefault();
     if (!caseData) return;
+    // Issue #219: don't create a blank ANC visit row. Require at least one
+    // clinical observation beyond the visit type so the timeline isn't
+    // polluted with content-free entries.
+    const hasClinicalContent =
+      !!visitForm.weeksOfGestation ||
+      !!visitForm.weight ||
+      !!visitForm.bloodPressure ||
+      !!visitForm.fundalHeight ||
+      !!visitForm.fetalHeartRate ||
+      !!visitForm.hemoglobin ||
+      !!visitForm.urineProtein ||
+      !!visitForm.urineSugar ||
+      !!visitForm.notes;
+    if (!hasClinicalContent) {
+      toast.error(
+        "Record at least one observation (vitals, fetal HR, urine, hemoglobin, or notes) before saving the visit."
+      );
+      return;
+    }
     try {
       await api.post("/antenatal/visits", {
         ancCaseId: caseData.id,

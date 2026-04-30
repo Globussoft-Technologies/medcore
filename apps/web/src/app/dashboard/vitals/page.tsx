@@ -57,7 +57,10 @@ export default function VitalsPage() {
     bloodPressureSystolic: "",
     bloodPressureDiastolic: "",
     temperature: "",
-    temperatureUnit: "F" as "F" | "C",
+    // Default to Celsius — Indian clinical practice uses C, and the form
+    // previously rejected typed values like 36.8 because the unit defaulted
+    // to F (36.8°F is below the schema's 90°F floor). Issue #418.
+    temperatureUnit: "C" as "F" | "C",
     weight: "",
     height: "",
     pulseRate: "",
@@ -117,8 +120,16 @@ export default function VitalsPage() {
     !isNaN(weightKg) && !isNaN(heightCm) && heightCm > 0
       ? Math.round((weightKg / Math.pow(heightCm / 100, 2)) * 10) / 10
       : null;
+  // Issue #196: BMI categories (Underweight/Normal/Overweight/Obese) only
+  // apply to ages 2+. For infants and toddlers, BMI is meaningless — clinicians
+  // use weight-for-age and length-for-age curves instead. Suppress the
+  // category for plausible infant inputs (weight under ~10 kg AND length
+  // under ~90 cm). The numeric BMI itself can still display but without a
+  // misleading "Underweight" label.
+  const looksInfant =
+    !isNaN(weightKg) && !isNaN(heightCm) && weightKg < 10 && heightCm < 90;
   const bmiCategory =
-    bmi === null
+    bmi === null || looksInfant
       ? null
       : bmi < 18.5
         ? "Underweight"
@@ -276,7 +287,7 @@ export default function VitalsPage() {
         bloodPressureSystolic: "",
         bloodPressureDiastolic: "",
         temperature: "",
-        temperatureUnit: "F",
+        temperatureUnit: "C",
         weight: "",
         height: "",
         pulseRate: "",

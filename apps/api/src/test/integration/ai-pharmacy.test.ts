@@ -67,6 +67,10 @@ const MOCK_FORECASTS: ItemForecast[] = [
 
 vi.mock("../../services/ai/pharmacy-forecast", () => ({
   forecastInventory: vi.fn().mockResolvedValue(MOCK_FORECASTS),
+  // Single-item path: tests pre-seed an InventoryItem then call
+  // /forecast/:id; default to "no forecast available" (null = 404 in route)
+  // and let individual tests override with mockResolvedValueOnce.
+  forecastSingleItem: vi.fn().mockResolvedValue(null),
   getAIInsights: vi
     .fn()
     .mockResolvedValue("- Reorder Paracetamol immediately\n- Consider topping up Amoxicillin"),
@@ -199,15 +203,13 @@ describeIfDB("AI Pharmacy API (integration)", () => {
       },
     });
 
-    // Override mock to return a forecast entry for this real item
-    const { forecastInventory } = await import("../../services/ai/pharmacy-forecast");
-    vi.mocked(forecastInventory).mockResolvedValueOnce([
-      {
-        ...MOCK_FORECASTS[0],
-        inventoryItemId: inventory.id,
-        medicineName: medicine.name,
-      },
-    ]);
+    // Override the single-item mock to return a forecast for this real item.
+    const { forecastSingleItem } = await import("../../services/ai/pharmacy-forecast");
+    vi.mocked(forecastSingleItem).mockResolvedValueOnce({
+      ...MOCK_FORECASTS[0],
+      inventoryItemId: inventory.id,
+      medicineName: medicine.name,
+    });
 
     const res = await request(app)
       .get(`/api/v1/ai/pharmacy/forecast/${inventory.id}`)
@@ -221,8 +223,11 @@ describeIfDB("AI Pharmacy API (integration)", () => {
   });
 
   it("returns 404 for an inventory item not in the forecast", async () => {
+    // security(F-PH-2): validateUuidParams rejects non-UUID with 400 before
+    // reaching the handler — use a real-looking UUID and let the default
+    // mock return null (route maps null → 404 "Inventory item not found").
     const res = await request(app)
-      .get("/api/v1/ai/pharmacy/forecast/nonexistent-item-id-xyz")
+      .get("/api/v1/ai/pharmacy/forecast/00000000-0000-0000-0000-00000000aaaa")
       .set("Authorization", `Bearer ${adminToken}`);
 
     expect(res.status).toBe(404);

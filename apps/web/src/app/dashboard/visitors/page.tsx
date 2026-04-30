@@ -260,15 +260,23 @@ export default function VisitorsPage() {
         </div>
         <div className="rounded-xl bg-white p-5 shadow-sm">
           <p className="text-xs text-gray-500">Currently Inside</p>
+          {/*
+            Issue #211: the daily-stats endpoint counted only TODAY's
+            check-ins, while /visitors/active returns every never-checked-out
+            visitor. Tile would show 0 while the table showed 7. Derive the
+            count from the actual active list so the tile and table agree.
+          */}
           <p className="text-3xl font-bold text-green-600">
-            {stats?.currentInside || 0}
+            {tab === "active"
+              ? visitors.filter((v) => !v.checkOutAt).length
+              : stats?.currentInside || 0}
           </p>
         </div>
         <div className="rounded-xl bg-white p-5 shadow-sm">
           <p className="mb-2 text-xs text-gray-500">By Purpose (Today)</p>
           <div className="space-y-1">
             {PURPOSES.map((p) => {
-              const count = stats?.byPurpose[p] || 0;
+              const count = stats?.byPurpose?.[p] ?? 0;
               const pct = total > 0 ? (count / total) * 100 : 0;
               return (
                 <div key={p} className="flex items-center gap-2">

@@ -18,7 +18,7 @@ import { generateTOTP } from "../../services/totp";
 let app: any;
 
 const EMAIL = "tfa-user@test.local";
-const PASSWORD = "password123";
+const PASSWORD = "MedCoreT3st-2026";
 
 async function loginPlain(email = EMAIL, password = PASSWORD) {
   return request(app).post("/api/v1/auth/login").send({ email, password });

@@ -75,8 +75,11 @@ async function nextCaseNumber(): Promise<string> {
 // ─── OPERATING THEATERS ─────────────────────────────────
 
 // GET /api/v1/surgery/ots — list OTs
+// Issue #174 (Apr 30 2026): OT (Operating Theater) catalog is admin/ops/clinical
+// — explicitly exclude PATIENT (was previously readable to anyone authenticated).
 router.get(
   "/ots",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { includeInactive } = req.query;
@@ -137,8 +140,10 @@ router.patch(
 );
 
 // GET /api/v1/surgery/ots/:id/schedule?date=YYYY-MM-DD
+// Issue #174: schedule reveals patient names + phone for every surgery.
 router.get(
   "/ots/:id/schedule",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const date = (req.query.date as string) || new Date().toISOString().split("T")[0];

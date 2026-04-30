@@ -228,7 +228,9 @@ router.get(
 );
 
 // ─── GET /shifts/roster?date=YYYY-MM-DD — grouped by type ──────
-router.get("/roster", async (req: Request, res: Response, next: NextFunction) => {
+// Issue #174 (Apr 30 2026): roster reveals every staff member's email + role
+// for the day. PATIENT must not see this; restrict to operational roles.
+router.get("/roster", authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR, Role.NURSE), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { date } = req.query;
     if (!date || typeof date !== "string") {

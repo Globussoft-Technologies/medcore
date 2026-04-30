@@ -1,6 +1,10 @@
 import { prisma } from "@medcore/db";
 import { generatePrescriptionQrDataUrl } from "./pdf-generator";
-import { computeLineItemTax } from "@medcore/shared";
+import {
+  computeInvoiceTotals,
+  computeLineItemTax,
+  derivePaymentStatus,
+} from "@medcore/shared";
 import { computePayroll } from "./payroll";
 
 // ─── Helpers ────────────────────────────────────────────
@@ -616,16 +620,29 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
     )
     .join("");
 
-  const taxable = inv.subtotal - inv.discountAmount - inv.packageDiscount;
+  // Issue #202 / #236: route every total through the shared
+  // `computeInvoiceTotals` helper. This guarantees Subtotal + GST = Total
+  // even on legacy invoices stored with `taxAmount: 0`, and keeps the PDF
+  // and the web detail page in lock-step.
+  const totals = computeInvoiceTotals(inv.items, {
+    subtotal: inv.subtotal,
+    taxAmount: inv.taxAmount,
+    cgstAmount: inv.cgstAmount,
+    sgstAmount: inv.sgstAmount,
+    discountAmount: inv.discountAmount,
+    totalAmount: inv.totalAmount,
+  });
+  const taxable = totals.subtotal - inv.discountAmount - inv.packageDiscount;
   const paid = inv.payments.reduce((s, x) => s + x.amount, 0);
-  const balance = inv.totalAmount - paid - inv.advanceApplied;
-
-  // If the invoice has no stored taxAmount (older invoices, schema with
-  // cgstAmount = 0), fall back to the per-line sum so "CGST" isn't empty.
-  const sumLineCgst = itemsWithTax.reduce((s, x) => s + x.tax.cgst, 0);
-  const sumLineSgst = itemsWithTax.reduce((s, x) => s + x.tax.sgst, 0);
-  const displayCgst = inv.cgstAmount > 0 ? inv.cgstAmount : +sumLineCgst.toFixed(2);
-  const displaySgst = inv.sgstAmount > 0 ? inv.sgstAmount : +sumLineSgst.toFixed(2);
+  const displayTotal = +(totals.totalAmount - inv.packageDiscount).toFixed(2);
+  const balance = displayTotal - paid - inv.advanceApplied;
+  const displayCgst = totals.cgstAmount;
+  const displaySgst = totals.sgstAmount;
+  const displayStatus = derivePaymentStatus(
+    inv.paymentStatus,
+    displayTotal,
+    paid + inv.advanceApplied
+  );
 
   const paymentRows = inv.payments
     .map(
@@ -655,7 +672,7 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
       <p><strong>Invoice #:</strong> ${escapeHtml(inv.invoiceNumber)}</p>
       <p><strong>Date:</strong> ${formatDate(inv.createdAt)}</p>
       ${inv.dueDate ? `<p><strong>Due Date:</strong> ${formatDate(inv.dueDate)}</p>` : ""}
-      <p><strong>Status:</strong> ${escapeHtml(inv.paymentStatus)}</p>
+      <p><strong>Status:</strong> ${escapeHtml(displayStatus)}</p>
     </div>
   </div>
 
@@ -676,7 +693,7 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
 
   <div style="display:flex;justify-content:flex-end;margin-bottom:14px;">
     <table style="width:340px;font-size:13px;">
-      <tr><td>Subtotal</td><td style="text-align:right;">₹${inv.subtotal.toFixed(2)}</td></tr>
+      <tr><td>Subtotal</td><td style="text-align:right;">₹${totals.subtotal.toFixed(2)}</td></tr>
       ${inv.packageDiscount > 0 ? `<tr><td>Package Discount</td><td style="text-align:right;">-₹${inv.packageDiscount.toFixed(2)}</td></tr>` : ""}
       ${inv.discountAmount > 0 ? `<tr><td>Discount</td><td style="text-align:right;">-₹${inv.discountAmount.toFixed(2)}</td></tr>` : ""}
       <tr><td>Taxable Amount</td><td style="text-align:right;">₹${taxable.toFixed(2)}</td></tr>
@@ -684,7 +701,7 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
       <tr><td>SGST</td><td style="text-align:right;">₹${displaySgst.toFixed(2)}</td></tr>
       ${inv.lateFeeAmount > 0 ? `<tr><td>Late Fee</td><td style="text-align:right;">₹${inv.lateFeeAmount.toFixed(2)}</td></tr>` : ""}
       <tr style="background:#f1f5f9;font-weight:700;font-size:14px;">
-        <td>Total</td><td style="text-align:right;">₹${inv.totalAmount.toFixed(2)}</td>
+        <td>Total</td><td style="text-align:right;">₹${displayTotal.toFixed(2)}</td>
       </tr>
       ${inv.advanceApplied > 0 ? `<tr><td>Advance Applied</td><td style="text-align:right;">-₹${inv.advanceApplied.toFixed(2)}</td></tr>` : ""}
       ${paid > 0 ? `<tr><td>Paid</td><td style="text-align:right;">-₹${paid.toFixed(2)}</td></tr>` : ""}
@@ -695,7 +712,7 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
   </div>
 
   <div class="box" style="margin-bottom:14px;font-size:12px;">
-    <strong>Amount in Words:</strong> ${escapeHtml(numberToWordsIndian(inv.totalAmount))}
+    <strong>Amount in Words:</strong> ${escapeHtml(numberToWordsIndian(displayTotal))}
   </div>
 
   ${

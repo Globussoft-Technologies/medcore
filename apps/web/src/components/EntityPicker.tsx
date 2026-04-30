@@ -52,6 +52,23 @@ function readPath(obj: unknown, path: string): string {
   return String(cur);
 }
 
+// ISO-8601 timestamps shouldn't be rendered raw in the dropdown — they're
+// noise for the user (Issue #243 called this out for adherence's
+// `createdAt` hint). Detect a YYYY-MM-DDTHH:MM[:SS[.ms]]Z|±HH:MM string and
+// format it as a short locale date. Anything else passes through unchanged.
+const ISO_LIKE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+function prettyHint(raw: string): string {
+  if (!raw) return raw;
+  if (!ISO_LIKE.test(raw)) return raw;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw;
+  return d.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 export interface EntityPickerProps {
@@ -263,7 +280,7 @@ export function EntityPicker({
               const subtitle = subtitleField
                 ? readPath(row, subtitleField)
                 : "";
-              const hint = hintField ? readPath(row, hintField) : "";
+              const hint = hintField ? prettyHint(readPath(row, hintField)) : "";
               return (
                 <li
                   key={id}

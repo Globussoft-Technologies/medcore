@@ -243,13 +243,24 @@ router.post(
 // diagnoses. PATIENT path is enforced inline below.
 router.get("/", authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PHARMACIST, Role.PATIENT), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { patientId, doctorId, page = "1", limit = "20" } = req.query;
+    const { patientId, doctorId, page = "1", limit = "20", search } = req.query;
     const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
     const take = Math.min(parseInt(limit as string), 100);
 
     const where: Record<string, unknown> = {};
     if (patientId) where.patientId = patientId;
     if (doctorId) where.doctorId = doctorId;
+
+    // Issue #243: the adherence enrollment picker (and any other consumer
+    // using the shared EntityPicker) sends `?search=<text>` to filter the
+    // dropdown by diagnosis. The endpoint previously ignored the param so
+    // results were never narrowed. Filter case-insensitively on
+    // `diagnosis`; this is purely additive so existing callers without the
+    // param see the same response as before.
+    const searchStr = typeof search === "string" ? search.trim() : "";
+    if (searchStr.length > 0) {
+      where.diagnosis = { contains: searchStr, mode: "insensitive" as const };
+    }
 
     // Patients see only their own
     if (req.user!.role === "PATIENT") {

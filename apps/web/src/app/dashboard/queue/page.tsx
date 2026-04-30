@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { usePrompt } from "@/lib/use-dialog";
@@ -58,6 +58,7 @@ export default function QueuePage() {
   const user = useAuthStore((s) => s.user);
   const isAuthLoading = useAuthStore((s) => s.isLoading);
   const router = useRouter();
+  const pathname = usePathname();
   const { t } = useTranslation();
   const promptUser = usePrompt();
   const canTransfer = user?.role === "ADMIN" || user?.role === "RECEPTION";
@@ -65,10 +66,14 @@ export default function QueuePage() {
   // Issue #383: redirect PATIENT (and any other non-staff) away.
   useEffect(() => {
     if (!isAuthLoading && user && !QUEUE_ALLOWED.has(user.role)) {
+      // Issue #179: redirect to chrome-wrapped /dashboard/not-authorized so
+      // non-staff users see "Access Denied" with the dashboard layout intact.
       toast.error("Live queue is staff-only.");
-      router.replace("/dashboard");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/queue")}`,
+      );
     }
-  }, [isAuthLoading, user, router]);
+  }, [isAuthLoading, user, router, pathname]);
   const [display, setDisplay] = useState<QueueDoctor[]>([]);
   const [selectedDoctor, setSelectedDoctor] = useState<string | null>(null);
   const [doctorQueue, setDoctorQueue] = useState<DoctorQueue | null>(null);

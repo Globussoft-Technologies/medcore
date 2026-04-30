@@ -670,9 +670,8 @@ describeIfDB("FHIR Bundle round-trip (integration)", () => {
     );
 
     it(
-      "Re-ingesting MedicationRequests appends duplicate PrescriptionItems " +
-        "(ingest.ts ingestMedicationRequest always creates an item; de-dupe not implemented). " +
-        "LOCKED until future mapper adds content-key dedupe.",
+      "Re-ingesting MedicationRequests is idempotent on PrescriptionItems " +
+        "(ingest.ts ingestMedicationRequest dedupes by (prescriptionId, medicineName)).",
       async () => {
         await truncatePatientData(prisma);
         const scenario = buildOPConsultationScenario();
@@ -687,10 +686,7 @@ describeIfDB("FHIR Bundle round-trip (integration)", () => {
         const post = await prisma.prescriptionItem.count({
           where: { prescription: { patientId: scenario.patientId } },
         });
-        // LOCKED: each round-trip doubles the item count (pre=2 → post=4).
-        // This is the CURRENT behaviour — change the assertion when the
-        // dedupe is implemented.
-        expect(post).toBeGreaterThan(pre);
+        expect(post).toBe(pre);
       }
     );
   });

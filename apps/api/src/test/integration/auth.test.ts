@@ -19,7 +19,7 @@ describeIfDB("Auth API (integration)", () => {
         name: "New User",
         email: "newuser@test.local",
         phone: "9111111111",
-        password: "password123",
+        password: "MedCoreT3st-2026",
         role: "RECEPTION",
       });
     expect(res.status).toBeLessThan(400);
@@ -28,7 +28,7 @@ describeIfDB("Auth API (integration)", () => {
   it("logs in the seeded admin", async () => {
     const res = await request(app)
       .post("/api/v1/auth/login")
-      .send({ email: "admin@test.local", password: "password123" });
+      .send({ email: "admin@test.local", password: "MedCoreT3st-2026" });
     expect(res.status).toBe(200);
     expect(res.body?.data?.tokens?.accessToken).toBeTruthy();
   });

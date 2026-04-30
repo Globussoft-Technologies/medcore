@@ -111,6 +111,15 @@ export default function PediatricDetailPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    // Issue #220: at least one of weight / height / head-circumference
+    // must be present — saving a row with only ageMonths produces a blank
+    // growth record that isn't useful for chart trending.
+    if (!form.weightKg && !form.heightCm && !form.headCircumference) {
+      toast.error(
+        "Enter at least one measurement (weight, height, or head circumference)."
+      );
+      return;
+    }
     try {
       await api.post("/growth", {
         patientId,
@@ -712,6 +721,15 @@ function FeedingLogPanel({
   }, [patientId]);
 
   async function add() {
+    // Issue #221: empty Log feed previously POSTed an all-undefined row,
+    // creating a 0-data feeding entry. Require at least one of duration,
+    // volume, or food item before submit.
+    if (!form.durationMin && !form.volumeMl && !form.foodItem.trim()) {
+      toast.error(
+        "Enter at least a duration, volume, or food item before logging."
+      );
+      return;
+    }
     try {
       await api.post(`/growth/patient/${patientId}/feeding`, {
         feedType: form.feedType,

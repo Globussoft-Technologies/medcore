@@ -146,6 +146,10 @@ export interface FhirMedicationRequest extends FhirResourceBase {
   subject: FhirReference;
   requester?: FhirReference;
   authoredOn?: string;
+  // Shared identifier across MedicationRequests that came from the same
+  // Prescription. Used by the reverse mapper to recover the source
+  // prescription id on round-trip without depending on resource.id encoding.
+  groupIdentifier?: FhirIdentifier;
   dosageInstruction?: Array<{
     text?: string;
     timing?: { code?: FhirCodeableConcept };
@@ -559,6 +563,10 @@ export function prescriptionToMedicationRequests(prescription: any): FhirMedicat
     subject: { reference: `Patient/${prescription.patientId}` },
     requester: { reference: `Practitioner/${prescription.doctorId}` },
     authoredOn: toIso(prescription.createdAt),
+    groupIdentifier: {
+      system: "http://medcore/prescription-id",
+      value: prescription.id,
+    },
     dosageInstruction: [
       {
         text: [item.dosage, item.frequency, item.duration].filter(Boolean).join(" — "),

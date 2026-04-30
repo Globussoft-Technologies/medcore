@@ -140,14 +140,14 @@ describeIfDB("Antenatal API (integration)", () => {
       .send({
         patientId: patient.id,
         doctorId: doctor.id,
-        lmpDate: "2026-05-01",
+        lmpDate: "2025-05-01",
       });
     expect([200, 201]).toContain(res.status);
     const prisma = await getPrisma();
     const row = await prisma.antenatalCase.findUnique({
       where: { id: res.body.data.id },
     });
-    const lmp = new Date("2026-05-01T00:00:00.000Z").getTime();
+    const lmp = new Date("2025-05-01T00:00:00.000Z").getTime();
     const edd = row ? new Date(row.eddDate).getTime() : 0;
     const diffDays = (edd - lmp) / (1000 * 60 * 60 * 24);
     expect(Math.round(diffDays)).toBe(280);
@@ -162,7 +162,7 @@ describeIfDB("Antenatal API (integration)", () => {
       .send({
         patientId: patient.id,
         doctorId: doctor.id,
-        lmpDate: "2026-06-01",
+        lmpDate: "2025-06-01",
         isHighRisk: true,
         riskFactors: "Previous C-section",
       });

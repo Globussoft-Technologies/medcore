@@ -301,6 +301,102 @@ describe("generateInvoicePDFBuffer", () => {
       "Invoice not found"
     );
   });
+
+  // Issue #202: regression — when an invoice was persisted with
+  // taxAmount: 0 (legacy seed path) the footer Total used to echo the
+  // pre-tax subtotal, leaving every PDF tax invoice short by 18%.
+  // computeInvoiceTotals now reconciles the footer with the line table
+  // so Subtotal + Total GST = Total holds end-to-end.
+  it("footer Total = Subtotal + GST even when persisted taxAmount is 0 (#202)", async () => {
+    prismaMock.invoice.findUnique.mockResolvedValueOnce({
+      id: "inv-202",
+      invoiceNumber: "INV-202",
+      createdAt: new Date("2026-04-27"),
+      dueDate: null,
+      paymentStatus: "PENDING",
+      subtotal: 1100,
+      // Persisted as zero — the legacy seed path that triggered #202.
+      taxAmount: 0,
+      cgstAmount: 0,
+      sgstAmount: 0,
+      discountAmount: 0,
+      packageDiscount: 0,
+      lateFeeAmount: 0,
+      totalAmount: 1100, // <-- WRONG persisted value (matches #202 repro)
+      advanceApplied: 0,
+      patient: aPatient(),
+      items: [
+        {
+          description: "Procedure A",
+          category: "PROCEDURE", // 18% GST
+          quantity: 1,
+          unitPrice: 500,
+          amount: 500,
+        },
+        {
+          description: "Procedure B",
+          category: "PROCEDURE",
+          quantity: 1,
+          unitPrice: 600,
+          amount: 600,
+        },
+      ],
+      payments: [],
+    });
+    const buf = await generateInvoicePDFBuffer("inv-202");
+    expect(isPdf(buf)).toBe(true);
+
+    const text = normalize(await pdfParse(buf).then((p) => p.text));
+    // Subtotal renders as 1,100; Total must render as 1,298 (1,100 + 198 GST)
+    expect(text).toMatch(/1[ ,.]?100/); // subtotal still present
+    expect(text).toMatch(/1[ ,.]?298/); // corrected total
+    // Amount-in-words is sourced from the same value
+    expect(text.toLowerCase()).toContain("rupees");
+  });
+
+  // Issue #235: a PAID badge must never be rendered when the balance is
+  // still positive. The PDF stamps Status from derivePaymentStatus.
+  it("renders PARTIAL when persisted status is PAID but balance > 0 (#235)", async () => {
+    prismaMock.invoice.findUnique.mockResolvedValueOnce({
+      id: "inv-235",
+      invoiceNumber: "INV-235",
+      createdAt: new Date("2026-04-28"),
+      dueDate: null,
+      paymentStatus: "PAID", // contradicting persisted status
+      subtotal: 500,
+      taxAmount: 90,
+      cgstAmount: 45,
+      sgstAmount: 45,
+      discountAmount: 0,
+      packageDiscount: 0,
+      lateFeeAmount: 0,
+      totalAmount: 590,
+      advanceApplied: 0,
+      patient: aPatient(),
+      items: [
+        {
+          description: "Consultation",
+          category: "PROCEDURE",
+          quantity: 1,
+          unitPrice: 500,
+          amount: 500,
+        },
+      ],
+      payments: [
+        {
+          paidAt: new Date("2026-04-28"),
+          mode: "CASH",
+          transactionId: null,
+          amount: 500, // 90 still due
+        },
+      ],
+    });
+    const buf = await generateInvoicePDFBuffer("inv-235");
+    const text = normalize(await pdfParse(buf).then((p) => p.text));
+    expect(text).toContain("PARTIAL");
+    // Defensively assert the literal "PAID" status row is NOT printed.
+    expect(text).not.toMatch(/Status[:\s]+PAID/);
+  });
 });
 
 describe("generateDischargeSummaryPDFBuffer", () => {

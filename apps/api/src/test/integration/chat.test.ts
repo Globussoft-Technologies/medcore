@@ -86,15 +86,15 @@ describeIfDB("Chat API (integration)", () => {
 
   it("non-participants cannot send messages (403)", async () => {
     const { room } = await createOneOnOne();
-    const stranger = await createUserFixture({ role: "NURSE" });
-    // Sign a token for stranger manually via getAuthToken won't work; use admin not in room
-    // admin is not a participant
+    // Use RECEPTION (a non-participant role for this room) — ADMIN bypasses
+    // the participant check post-#189 (agent-console triage), so the original
+    // assertion against adminToken now reasonably 201s.
+    const receptionToken = await getAuthToken("RECEPTION");
     const res = await request(app)
       .post(`/api/v1/chat/rooms/${room.id}/messages`)
-      .set("Authorization", `Bearer ${adminToken}`)
+      .set("Authorization", `Bearer ${receptionToken}`)
       .send({ content: "hi", type: "TEXT" });
     expect(res.status).toBe(403);
-    void stranger;
   });
 
   it("marks a room read (lastReadAt stamped)", async () => {

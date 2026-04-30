@@ -44,7 +44,10 @@ export default function RefundsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
 
+  const reversedRange = Boolean(from && to && from > to);
+
   const load = useCallback(async () => {
+    if (from && to && from > to) return;
     setLoading(true);
     try {
       const res = await api.get<{
@@ -89,12 +92,22 @@ export default function RefundsPage() {
             type="date"
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm"
+            className={`rounded-lg border px-3 py-2 text-sm ${
+              reversedRange ? "border-red-500" : ""
+            }`}
+            aria-invalid={reversedRange}
+            aria-describedby={reversedRange ? "refunds-to-error" : undefined}
           />
+          {reversedRange && (
+            <p id="refunds-to-error" className="mt-1 text-xs text-red-600">
+              End date must be on or after start date
+            </p>
+          )}
         </div>
         <button
           onClick={load}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+          disabled={reversedRange}
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
         >
           Apply
         </button>

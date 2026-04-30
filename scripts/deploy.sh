@@ -1,8 +1,18 @@
 #!/bin/bash
 # One-command deployment script for MedCore.
-# Usage: ./deploy.sh [--seed] [--yes]
 #
-# Guard rails (see docs/DEPLOY.md for the full runbook):
+# PRIMARY INVOKER: GitHub Actions (.github/workflows/test.yml `deploy` job).
+# Every push to `main` that passes the typecheck gate triggers the workflow,
+# which SSHes into the dev server and runs `bash scripts/deploy.sh --yes`.
+# **Do not deploy by hand** for normal pushes to `main` — the workflow does it.
+#
+# Manual fallback (CI down, hotfix, destructive op like --seed):
+#   ssh empcloud-development@163.227.174.141
+#   cd /home/empcloud-development/medcore
+#   bash scripts/deploy.sh [--seed] [--yes]
+# See docs/DEPLOY.md "Manual fallback runbook" for the full walkthrough.
+#
+# Guard rails:
 #   * refuses to run with uncommitted local changes
 #   * shows pending migrations and asks to confirm (skip with --yes)
 #   * verifies migrate status is clean after deploy
@@ -29,6 +39,13 @@ done
 cd "$MEDCORE_DIR"
 
 echo "=== 0. Pre-flight: working tree clean ==="
+# Workaround for npm/cli#4828: `npm ci` on Linux can leave package-lock.json
+# dirty after resolving @tailwindcss/oxide's optional deps. The pin in
+# apps/web/package.json keeps this rare, but if it does happen we want the
+# next deploy to recover, not abort. Drop the cosmetic dirty state silently;
+# any genuine local edit to package-lock.json on prod is itself a bug we
+# don't want to preserve.
+git checkout -- package-lock.json 2>/dev/null || true
 if ! git diff --quiet || ! git diff --cached --quiet; then
     echo "  ABORT — uncommitted local changes on prod checkout."
     echo "  git status:"

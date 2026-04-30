@@ -138,7 +138,7 @@ describeIfDB("AI-feature regressions (2026-04-26)", () => {
     const res = await request(app)
       .get(
         `/api/v1/appointments?patientId=${patient.id}&date=${dateStr}` +
-          `&status=BOOKED,CHECKED_IN,IN_PROGRESS&search=7`
+          `&status=BOOKED,CHECKED_IN,IN_CONSULTATION&search=7`
       )
       .set("Authorization", `Bearer ${doctorToken}`);
     expect(res.status).toBe(200);

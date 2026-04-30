@@ -10,10 +10,15 @@ import {
   createAppointmentFixture,
 } from "../factories";
 
+// security(F-PRED-2): the route now `validateUuidParams(["appointmentId"])`
+// before reaching the handler — an unknown non-UUID id 400s before the mock
+// fires. Use a UUID-shaped sentinel for the not-found path.
+const MISSING_APPT_UUID = "00000000-0000-0000-0000-00000000dead";
+
 vi.mock("../../services/ai/no-show-predictor", () => ({
   predictNoShow: vi.fn(async (appointmentId: string) => {
-    if (appointmentId === "nonexistent") {
-      throw new Error("Appointment nonexistent not found");
+    if (appointmentId === MISSING_APPT_UUID) {
+      throw new Error(`Appointment ${appointmentId} not found`);
     }
     return {
       appointmentId,
@@ -101,7 +106,7 @@ describeIfDB("AI Predictions API (integration)", () => {
 
   it("maps 'not found' error from service into 404", async () => {
     const res = await request(app)
-      .get("/api/v1/ai/predictions/no-show/nonexistent")
+      .get(`/api/v1/ai/predictions/no-show/${MISSING_APPT_UUID}`)
       .set("Authorization", `Bearer ${doctorToken}`);
 
     expect(res.status).toBe(404);

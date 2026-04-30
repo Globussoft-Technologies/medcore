@@ -4,7 +4,59 @@ Next-session priority list. The full per-issue history lives in
 [`docs/SESSION_SNAPSHOT_2026-04-27.md`](docs/SESSION_SNAPSHOT_2026-04-27.md);
 this file is the short, actionable checklist.
 
-> Updated: 2026-04-30 (after the integration-sweep day — 12+ commits, 25 integration test files fixed, 22 issues closed)
+> Updated: 2026-04-30 evening — end of integration-sweep day. Last commit on `main`: see `git log -1`. CI gate restored. 41 issues closed.
+
+---
+
+## ⏭️ Pickup-from-office priority list
+
+When you sit down at the office, this is the order. Pick one tier at a
+time; each tier is independently shippable.
+
+### Tier 1 — quick wins (isolated UI, ~1-2 hr each)
+
+| # | Severity | What | Where | Estimate |
+|---|---|---|---|---|
+| **#179** | — | Restricted admin pages return chromeless 404 — show "Access Denied" with sidebar | `apps/web/src/app/dashboard/layout.tsx` (role-gate hook) or new `apps/web/src/app/not-authorized/page.tsx` | 1 hr |
+| **#206** | Med | Walk-in form lacks DOB / Address / Email; Complaints "Name" column shows caller; New Complaint missing Parking/Facilities category | `apps/web/src/app/dashboard/walk-in/page.tsx` + complaints render | 30-45 min |
+| **#301** | Low | Billing Reports → Report History tab is a dead-end (no Generate / Export / Schedule buttons) | `apps/web/src/app/dashboard/reports/page.tsx` — wire to existing `/api/v1/billing/reports/*` endpoints (data layer is ready) | 1 hr |
+| **#303** | Low | Profile / account page missing — `/dashboard/profile` and `/dashboard/account` both 404 | New page reading `/api/v1/auth/me` + PATCH for edit | 2 hr |
+
+### Tier 2 — medium (UI + small backend tweak, ~2-3 hr each)
+
+| # | Severity | What |
+|---|---|---|
+| **#195** | Med | ICD-10 search rejects multi-word queries ("essential hypertension" → no matches; "hypertension" works). Backend `/icd10?q=` filter needs split-on-space + AND across tokens. |
+| **#223** | — | Generic "Validation failed" toast doesn't say which field failed. Wrapper for API error responses + zod field-error mapper. |
+| **#243** | Med | Adherence prescription picker ignores diagnosis search. Backend `/prescriptions` may not honour `?search=`; either add the param or filter client-side. |
+
+### Tier 3 — real product bugs (need investigation, may surface decisions)
+
+- **#416, #417** Production crashes: Medications + Nurse Rounds tabs crash patient chart. Need real diagnosis — check React error boundaries + null guards.
+- **#202** Critical: Tax Invoice footer Total ignores GST (Rs. 1,100 vs correct Rs. 1,298). Check `apps/api/src/services/billing/*` GST math.
+- **#203** Billing summary tiles all show Rs. 0 despite PENDING invoices. Likely query filter bug.
+- **#235, #236** Invoice math/totals inconsistent. Same surface as #202.
+- **#200** Vitals temp °F vs °C inconsistency between patient chart and admission Vitals (partial fix in e2f9749 — only nurse vitals page); also a 500 on `/admissions?status=DISCHARGE_PENDING&mine=true`; overdue Expected Discharge with no warning.
+- **#330** Patient detail header KPI strip says Total Visits = 0 while Last 90 Days panel says 1. Two queries → one source-of-truth.
+- **#192** Audit Log entity column shows raw UUIDs; USER REGISTER row missing actor. Backend audit service needs `entity_label` enrichment.
+- **#180** Notifications fan out to all 4 channels (PUSH/EMAIL/SMS/WHATSAPP) creating 4× rows per event. Honour user preference.
+
+### Tier 4 — roadmap items (multi-hour focused sessions)
+
+- **#174 RBAC bypass sweep** — biggest security risk, audit every dashboard role-gate hook against backend `authorize(...)`. Reuse the `apps/api/src/test/integration/rbac-hardening.test.ts` pattern. **Tackle first.**
+- **#168 Doctors Add modal** — 1-day scaffold using existing `<EntityPicker>`.
+- **#169 Prescriptions list search/filter/sort/pagination** — copy the Insurance Claims list template.
+- **#173 Referrals specialty autocomplete** — copy of #97's fix; existing ICD-10/specialty Autocomplete already used in Surgery + Insurance Claims.
+
+### Tier 5 — deferred (covered separately)
+
+- **E2E hardening** — see "E2E hardening (deferred follow-up)" section below.
+- **4 open PRs** — #391, #412, #410, #413 are blocked on author rebases (gh OAuth lacks `workflow` scope; PR branches touch `.github/workflows/test.yml`). I commented twice on each. Once authors rebase against current `main`, their CI flips green and they can merge.
+
+### Tier 6 — multi-bug issues (need decomposition before fixing)
+
+- **#213** Doctors directory: overlapping schedules + non-clickable cards + Pending Bills 16 vs Pending Invoices 0 inconsistency.
+- **#211 (already partially fixed)** Visitors page — current "Inside" tile fixed, but stale-visitor auto-checkout cron + "Visitor 3 / Visitor 5" placeholder names still open.
 
 ---
 
@@ -76,16 +128,17 @@ flake. Real issues to address before re-adding to the gate:
    `retries: 0`, `timeout: 120_000`. A single hang can park the job
    for 30+ min. Consider parallel workers + targeted retries.
 
-### Issues closed during this sweep (39 total)
+### Issues closed during this sweep (41 total)
 
-- **#415-cluster fixes:** see commit list above
+- **#415-cluster fixes:** see commit list above; **#415 itself closed**
+  with full handoff comment
 - **Dup consolidations** (7): #94, #188, #210, #237, #365, #212, #225
 - **Already-fixed-but-still-open** (22): #80, #85, #175, #176, #177,
   #178, #182, #184, #191, #196 (BMI infants), #208, #209 (DPDP redirect),
   #211 (visitors tile), #224, #253, #254, #274, #276, #302, #307, #356,
   #418 (vitals 400)
-- **Pushed during sweep + closed** (4): #219, #220, #221, #222
-  (empty-form validation guards)
+- **Pushed during sweep + closed** (5): #219, #220, #221, #222
+  (empty-form validation guards), #204 (Patient ID raw input → EntityPicker)
 
 ---
 

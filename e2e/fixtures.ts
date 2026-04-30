@@ -7,11 +7,15 @@ type AuthedFixtures = {
   nursePage: Page;
   receptionPage: Page;
   patientPage: Page;
+  labTechPage: Page;
+  pharmacistPage: Page;
   adminToken: string;
   doctorToken: string;
   nurseToken: string;
   receptionToken: string;
   patientToken: string;
+  labTechToken: string;
+  pharmacistToken: string;
 };
 
 async function freshPageFor(
@@ -55,6 +59,16 @@ export const test = base.extend<AuthedFixtures>({
     await use(page);
     await ctx.close();
   },
+  labTechPage: async ({ browser, request }, use) => {
+    const { ctx, page } = await freshPageFor(browser, "LAB_TECH", request);
+    await use(page);
+    await ctx.close();
+  },
+  pharmacistPage: async ({ browser, request }, use) => {
+    const { ctx, page } = await freshPageFor(browser, "PHARMACIST", request);
+    await use(page);
+    await ctx.close();
+  },
 
   adminToken: async ({ request }, use) => {
     const { token } = await apiLogin(request, CREDS.ADMIN);
@@ -74,6 +88,14 @@ export const test = base.extend<AuthedFixtures>({
   },
   patientToken: async ({ request }, use) => {
     const { token } = await apiLogin(request, CREDS.PATIENT);
+    await use(token);
+  },
+  labTechToken: async ({ request }, use) => {
+    const { token } = await apiLogin(request, CREDS.LAB_TECH);
+    await use(token);
+  },
+  pharmacistToken: async ({ request }, use) => {
+    const { token } = await apiLogin(request, CREDS.PHARMACIST);
     await use(token);
   },
 });

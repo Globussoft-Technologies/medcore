@@ -221,7 +221,11 @@ test.describe.parallel("RBAC matrix", () => {
         await page.waitForTimeout(600);
         await expect(page).not.toHaveURL(NOT_AUTH_RE);
         await expect(page).not.toHaveURL(/\/login(\?|$)/);
-        expect(page.url()).toContain(route.split("?")[0]);
+        // /dashboard/account is an intentional server-redirect alias for
+        // /dashboard/profile (issue #303). Match the dashboard prefix the
+        // same way the main matrix's ALLOWED block does (line 200) so an
+        // intentional alias doesn't fail the universal-access smoke test.
+        expect(page.url()).toContain("/dashboard/");
       });
     }
   }

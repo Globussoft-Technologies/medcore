@@ -122,8 +122,10 @@ describe("DoctorsPage", () => {
     expect(screen.getByTestId("doctor-add-button")).toBeInTheDocument();
     // DataTable renders rows in both desktop + mobile views, so the
     // testid may appear twice — getAllByTestId guards against that.
+    // #213 (commit ab318f0) renamed doctor-row-{id} -> doctor-card-{id}
+    // when each row became a Link wrapper to /dashboard/doctors/[id].
     await waitFor(() =>
-      expect(screen.getAllByTestId("doctor-row-d1").length).toBeGreaterThan(0)
+      expect(screen.getAllByTestId("doctor-card-d1").length).toBeGreaterThan(0)
     );
   });
 

@@ -78,10 +78,16 @@ describe("PharmacyPage", () => {
   });
 
   it("shows loading state while fetching", async () => {
+    // #367 (commit 34e8e79) replaced the "Loading..." text on Returns/
+    // Transfers tabs with skeleton rows. The Pharmacy heading is what
+    // mounts immediately while the inventory promise is in flight —
+    // assert that, then release the mock.
     let resolve: (v: any) => void = () => {};
     apiMock.get.mockImplementation(() => new Promise((r) => { resolve = r; }));
     render(<PharmacyPage />);
-    expect(await screen.findByText(/loading/i)).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: /pharmacy/i })
+    ).toBeInTheDocument();
     resolve({ data: [] });
   });
 

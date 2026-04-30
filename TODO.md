@@ -80,10 +80,17 @@ Before that you'll need:
   ceiling that occasionally bites demos. Per-route caps from #124 stack
   inside it. If demos continue to hit it, raise the global cap (one-line,
   needs user say-so).
-- **`package-lock.json` drift on prod** — recurs every deploy; the deploy
-  script runs `git checkout -- package-lock.json` as a workaround. Root
-  cause is probably the `@tailwindcss/oxide` optional-dep pin flapping on
-  Linux vs Windows.
+- ~~**`package-lock.json` drift on prod**~~ — investigated 2026-05-01 and
+  closed as not-a-bug. The drift is cosmetic npm-internal optional-deps
+  reshuffling between Windows-dev and Linux-prod, not a functional issue
+  (`npm ci` produces correct `node_modules` regardless). The two existing
+  pre-clean band-aids ([scripts/deploy.sh:48](scripts/deploy.sh#L48) and
+  [.github/workflows/test.yml:331](.github/workflows/test.yml#L331)) are
+  the correct fix for this codebase shape (Windows devs + Linux server +
+  cross-platform optional deps). The CI `test` job uses `npm install`
+  rather than `npm ci`, so drift never trips a build either. Real-fix
+  paths (npm bump everywhere, `overrides` lock, GHA-canonicalize-lockfile
+  workflow) all have worse ROI than the band-aid.
 - **`TenantConfig` first-class table** — the per-tenant `SystemConfig`
   key-prefix scheme works; replace with a dedicated `TenantConfig` table
   in the next schema-churn window.

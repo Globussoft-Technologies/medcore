@@ -332,15 +332,29 @@ jobs:
 
       - name: Smoke-check public endpoints
         if: success()
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
         # deploy.sh already curls localhost:4100 + localhost:3200 on the box.
         # This is a *public* check — confirms nginx is forwarding correctly
         # and nothing on the proxy side broke during the restart.
+        #
+        # Status-only checks (curl -fsS) miss the case where a proxy default
+        # page or nginx maintenance page returns 200. We validate response
+        # *content* on both targets so a genuinely-broken deploy fails here
+        # rather than waiting for a user to hit it.
         run: |
-          set -e
-          for path in /api/health /; do
-            curl -fsS --max-time 10 "https://medcore.globusdemos.com${path}" > /dev/null \
-              && echo "OK ${path}" \
-              || { echo "FAILED ${path}"; exit 1; }
-          done
+          set -euo pipefail
+          BASE="https://medcore.globusdemos.com"
+
+          # API health: JSON shape check ensures Express is up and routing,
+          # not just that nginx is serving something.
+          health=$(curl -fsS --max-time 10 "${BASE}/api/health")
+          echo "${health}" | jq -e '.status == "ok"' > /dev/null \
+            || { echo "FAILED /api/health — bad shape: ${health}"; exit 1; }
+          echo "OK /api/health"
+
+          # Web /login: stable across releases; the "MedCore" marker is in
+          # <title> and several visible elements. Confirms the Next.js bundle
+          # rendered, not just that the server responded.
+          body=$(curl -fsS --max-time 10 "${BASE}/login")
+          echo "${body}" | grep -q "MedCore" \
+            || { echo "FAILED /login — body missing MedCore marker"; exit 1; }
+          echo "OK /login"

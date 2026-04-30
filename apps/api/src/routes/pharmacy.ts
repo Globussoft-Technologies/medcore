@@ -508,6 +508,9 @@ router.post(
 //   non-admin-readable list capped at 500 rows for the inline tab view.
 router.get(
   "/movements",
+  // Issue #174 (Apr 30 2026): stock movements expose batch numbers + inventory
+  // changes. Pharmacy module — restrict to dispensing roles.
+  authorize(Role.ADMIN, Role.PHARMACIST, Role.DOCTOR, Role.NURSE),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const limit = Math.min(parseInt((req.query.limit as string) || "100"), 500);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
@@ -91,17 +91,21 @@ const MOVEMENT_COLORS: Record<string, string> = {
 export default function PharmacyPage() {
   const { user } = useAuthStore();
   const router = useRouter();
+  const pathname = usePathname();
   const confirm = useConfirm();
 
   // RBAC (issue #98): RECEPTION must NOT see stock levels (or write inventory).
   // The API now enforces 403; the UI mirrors the redirect so receptionists
   // who land here via stale bookmarks don't get a wall of empty tables.
+  // Issue #179: target /dashboard/not-authorized so the layout chrome stays.
   useEffect(() => {
     if (user && user.role === "RECEPTION") {
       toast.error("Pharmacy inventory is restricted to clinical and pharmacy roles.");
-      router.replace("/dashboard");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/pharmacy")}`,
+      );
     }
-  }, [user, router]);
+  }, [user, router, pathname]);
   const [tab, setTab] = useState<Tab>("inventory");
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [movements, setMovements] = useState<Movement[]>([]);

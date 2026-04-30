@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
@@ -74,6 +74,7 @@ function today() {
 export default function ExpensesPage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
+  const pathname = usePathname();
   const confirm = useConfirm();
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -84,12 +85,15 @@ export default function ExpensesPage() {
   const [showAdd, setShowAdd] = useState(false);
 
   // Issue #89: redirect away if role is not financial. Toast — no native alert.
+  // Issue #179: target /dashboard/not-authorized so the layout chrome stays.
   useEffect(() => {
     if (!isLoading && user && !ALLOWED_ROLES.has(user.role)) {
       toast.error("Expenses is restricted to Admin.");
-      router.replace("/dashboard");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/expenses")}`,
+      );
     }
-  }, [user, isLoading, router]);
+  }, [user, isLoading, router, pathname]);
 
   useEffect(() => {
     if (user && !ALLOWED_ROLES.has(user.role)) return;

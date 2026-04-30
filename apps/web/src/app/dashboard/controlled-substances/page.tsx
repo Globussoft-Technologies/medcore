@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
@@ -46,6 +46,7 @@ type Tab = "entries" | "register" | "audit";
 export default function ControlledSubstancesPage() {
   const { user } = useAuthStore();
   const router = useRouter();
+  const pathname = usePathname();
   const [tab, setTab] = useState<Tab>("entries");
   const [entries, setEntries] = useState<CsEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,10 +72,14 @@ export default function ControlledSubstancesPage() {
 
   useEffect(() => {
     if (user && !canView) {
+      // Issue #179: target /dashboard/not-authorized so the user keeps the
+      // sidebar/app shell instead of getting bounced to the dashboard home.
       toast.error("Controlled Substance Register is restricted to clinical and pharmacy roles.");
-      router.replace("/dashboard");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/controlled-substances")}`,
+      );
     }
-  }, [user, canView, router]);
+  }, [user, canView, router, pathname]);
 
   // Load medicines flagged as requiresRegister (paginate all via search)
   useEffect(() => {

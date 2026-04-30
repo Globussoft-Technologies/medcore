@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
+import { extractFieldErrors, type FieldErrorMap } from "@/lib/field-errors";
 import {
   Droplet,
   Plus,
@@ -881,9 +882,22 @@ function DonorModal({
     address: "",
   });
   const [saving, setSaving] = useState(false);
+  // Issue #223: per-field zod errors (e.g. "Invalid email", "Phone must
+  // be 10–15 digits") instead of a single "Validation failed" toast.
+  const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({});
+
+  function clearFieldError(field: string) {
+    setFieldErrors((p) => {
+      if (!p[field]) return p;
+      const n = { ...p };
+      delete n[field];
+      return n;
+    });
+  }
 
   async function save() {
     setSaving(true);
+    setFieldErrors({});
     try {
       await api.post("/bloodbank/donors", {
         name: form.name,
@@ -897,7 +911,13 @@ function DonorModal({
       });
       onSaved();
     } catch (err) {
-      toast.error((err as Error).message);
+      const fields = extractFieldErrors(err);
+      if (fields) {
+        setFieldErrors(fields);
+        toast.error(Object.values(fields)[0] || "Please fix the highlighted fields");
+      } else {
+        toast.error((err as Error).message);
+      }
     } finally {
       setSaving(false);
     }
@@ -911,24 +931,66 @@ function DonorModal({
           <button onClick={onClose} className="text-gray-400">✕</button>
         </div>
         <div className="space-y-3">
-          <input
-            placeholder="Full name"
-            className="w-full rounded border p-2"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-          />
-          <input
-            placeholder="Phone"
-            className="w-full rounded border p-2"
-            value={form.phone}
-            onChange={(e) => setForm({ ...form, phone: e.target.value })}
-          />
-          <input
-            placeholder="Email"
-            className="w-full rounded border p-2"
-            value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-          />
+          <div>
+            <input
+              placeholder="Full name"
+              data-testid="donor-name"
+              aria-invalid={!!fieldErrors.name}
+              className={`w-full rounded border p-2 ${
+                fieldErrors.name ? "border-red-500 bg-red-50" : ""
+              }`}
+              value={form.name}
+              onChange={(e) => {
+                setForm({ ...form, name: e.target.value });
+                clearFieldError("name");
+              }}
+            />
+            {fieldErrors.name && (
+              <p data-testid="error-donor-name" className="mt-1 text-xs text-red-600">
+                {fieldErrors.name}
+              </p>
+            )}
+          </div>
+          <div>
+            <input
+              placeholder="Phone"
+              data-testid="donor-phone"
+              aria-invalid={!!fieldErrors.phone}
+              className={`w-full rounded border p-2 ${
+                fieldErrors.phone ? "border-red-500 bg-red-50" : ""
+              }`}
+              value={form.phone}
+              onChange={(e) => {
+                setForm({ ...form, phone: e.target.value });
+                clearFieldError("phone");
+              }}
+            />
+            {fieldErrors.phone && (
+              <p data-testid="error-donor-phone" className="mt-1 text-xs text-red-600">
+                {fieldErrors.phone}
+              </p>
+            )}
+          </div>
+          <div>
+            <input
+              placeholder="Email"
+              data-testid="donor-email"
+              aria-invalid={!!fieldErrors.email}
+              className={`w-full rounded border p-2 ${
+                fieldErrors.email ? "border-red-500 bg-red-50" : ""
+              }`}
+              value={form.email}
+              onChange={(e) => {
+                setForm({ ...form, email: e.target.value });
+                clearFieldError("email");
+              }}
+            />
+            {fieldErrors.email && (
+              <p data-testid="error-donor-email" className="mt-1 text-xs text-red-600">
+                {fieldErrors.email}
+              </p>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <select
               className="rounded border p-2"
@@ -950,19 +1012,53 @@ function DonorModal({
             </select>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <input
-              type="date"
-              className="rounded border p-2"
-              value={form.dateOfBirth}
-              onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })}
-            />
-            <input
-              type="number"
-              placeholder="Weight (kg)"
-              className="rounded border p-2"
-              value={form.weight}
-              onChange={(e) => setForm({ ...form, weight: e.target.value })}
-            />
+            <div>
+              <input
+                type="date"
+                data-testid="donor-dob"
+                aria-invalid={!!fieldErrors.dateOfBirth}
+                className={`w-full rounded border p-2 ${
+                  fieldErrors.dateOfBirth ? "border-red-500 bg-red-50" : ""
+                }`}
+                value={form.dateOfBirth}
+                onChange={(e) => {
+                  setForm({ ...form, dateOfBirth: e.target.value });
+                  clearFieldError("dateOfBirth");
+                }}
+              />
+              {fieldErrors.dateOfBirth && (
+                <p
+                  data-testid="error-donor-dob"
+                  className="mt-1 text-xs text-red-600"
+                >
+                  {fieldErrors.dateOfBirth}
+                </p>
+              )}
+            </div>
+            <div>
+              <input
+                type="number"
+                placeholder="Weight (kg)"
+                data-testid="donor-weight"
+                aria-invalid={!!fieldErrors.weight}
+                className={`w-full rounded border p-2 ${
+                  fieldErrors.weight ? "border-red-500 bg-red-50" : ""
+                }`}
+                value={form.weight}
+                onChange={(e) => {
+                  setForm({ ...form, weight: e.target.value });
+                  clearFieldError("weight");
+                }}
+              />
+              {fieldErrors.weight && (
+                <p
+                  data-testid="error-donor-weight"
+                  className="mt-1 text-xs text-red-600"
+                >
+                  {fieldErrors.weight}
+                </p>
+              )}
+            </div>
           </div>
           <textarea
             placeholder="Address"

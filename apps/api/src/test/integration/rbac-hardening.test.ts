@@ -231,4 +231,222 @@ describeIfDB("RBAC hardening — issues #89 (DOCTOR leak) + #90 (RECEPTION leak)
     expect(res.body.data).toHaveProperty("totalRevenue");
     expect(res.body.data).toHaveProperty("revenueByMode");
   });
+
+  // ─── Issue #174 — DOCTOR/NURSE/PATIENT must NOT reach admin/ops modules ───
+  // Bug: page-level RBAC was sidebar-only. Direct URL bypass let any
+  // authenticated role read suppliers, purchase orders, assets, ambulance
+  // trips, OT schedules, fuel logs, and the staff roster — modules with
+  // vendor PII, financial data, and operational state.
+
+  // Suppliers (procurement PII: gstNumber, contact persons, outstanding $)
+
+  it("issue #174: DOCTOR cannot GET /suppliers (403)", async () => {
+    const res = await request(app)
+      .get("/api/v1/suppliers")
+      .set("Authorization", `Bearer ${doctorToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("issue #174: NURSE cannot GET /suppliers (403)", async () => {
+    const res = await request(app)
+      .get("/api/v1/suppliers")
+      .set("Authorization", `Bearer ${nurseToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("issue #174: ADMIN can still GET /suppliers (200)", async () => {
+    const res = await request(app)
+      .get("/api/v1/suppliers")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+  });
+
+  it("issue #174: DOCTOR cannot GET /suppliers/:id/payments (403)", async () => {
+    const res = await request(app)
+      .get("/api/v1/suppliers/some-fake-id/payments")
+      .set("Authorization", `Bearer ${doctorToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  // Purchase Orders (financial state, GST, line items)
+
+  it("issue #174: DOCTOR cannot GET /purchase-orders (403)", async () => {
+    const res = await request(app)
+      .get("/api/v1/purchase-orders")
+      .set("Authorization", `Bearer ${doctorToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("issue #174: NURSE cannot GET /purchase-orders (403)", async () => {
+    const res = await request(app)
+      .get("/api/v1/purchase-orders")
+      .set("Authorization", `Bearer ${nurseToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("issue #174: ADMIN can still GET /purchase-orders (200)", async () => {
+    const res = await request(app)
+      .get("/api/v1/purchase-orders")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+  });
+
+  it("issue #174: DOCTOR cannot GET /purchase-orders/:id/grns (403)", async () => {
+    const res = await request(app)
+      .get("/api/v1/purchase-orders/fake-id/grns")
+      .set("Authorization", `Bearer ${doctorToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  // Assets (serial numbers, purchase costs, depreciation)
+
+  it("issue #174: DOCTOR cannot GET /assets (403)", async () => {
+    const res = await request(app)
+      .get("/api/v1/assets")
+      .set("Authorization", `Bearer ${doctorToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("issue #174: NURSE cannot GET /assets (403)", async () => {
+    const res = await request(app)
+      .get("/api/v1/assets")
+      .set("Authorization", `Bearer ${nurseToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("issue #174: ADMIN can still GET /assets (200)", async () => {
+    const res = await request(app)
+      .get("/api/v1/assets")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+  });
+
+  it("issue #174: DOCTOR cannot GET /assets/maintenance/due (403)", async () => {
+    const res = await request(app)
+      .get("/api/v1/assets/maintenance/due")
+      .set("Authorization", `Bearer ${doctorToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("issue #174: DOCTOR cannot GET /assets/:id/depreciation (403)", async () => {
+    const res = await request(app)
+      .get("/api/v1/assets/fake-id/depreciation")
+      .set("Authorization", `Bearer ${doctorToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  // Ambulance (caller PII, pickup address, chief complaint)
+
+  it("issue #174: PATIENT cannot GET /ambulance (403)", async () => {
+    const patientToken = await getAuthToken("PATIENT");
+    const res = await request(app)
+      .get("/api/v1/ambulance")
+      .set("Authorization", `Bearer ${patientToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("issue #174: PATIENT cannot GET /ambulance/trips (403)", async () => {
+    const patientToken = await getAuthToken("PATIENT");
+    const res = await request(app)
+      .get("/api/v1/ambulance/trips")
+      .set("Authorization", `Bearer ${patientToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("issue #174: NURSE can still GET /ambulance/trips (200) — clinical role", async () => {
+    const res = await request(app)
+      .get("/api/v1/ambulance/trips")
+      .set("Authorization", `Bearer ${nurseToken}`);
+    expect(res.status).toBe(200);
+  });
+
+  it("issue #174: DOCTOR cannot GET /ambulance/fuel-logs (403)", async () => {
+    const res = await request(app)
+      .get("/api/v1/ambulance/fuel-logs")
+      .set("Authorization", `Bearer ${doctorToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  // Surgery / OT (schedule reveals patient PII)
+
+  it("issue #174: PATIENT cannot GET /surgery/ots (403)", async () => {
+    const patientToken = await getAuthToken("PATIENT");
+    const res = await request(app)
+      .get("/api/v1/surgery/ots")
+      .set("Authorization", `Bearer ${patientToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("issue #174: ADMIN can GET /surgery/ots (200)", async () => {
+    const res = await request(app)
+      .get("/api/v1/surgery/ots")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+  });
+
+  it("issue #174: PATIENT cannot GET /surgery/ots/:id/schedule (403)", async () => {
+    const patientToken = await getAuthToken("PATIENT");
+    const res = await request(app)
+      .get("/api/v1/surgery/ots/fake-id/schedule")
+      .set("Authorization", `Bearer ${patientToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  // Pharmacy movements (batch numbers + inventory)
+
+  it("issue #174: PATIENT cannot GET /pharmacy/movements (403)", async () => {
+    const patientToken = await getAuthToken("PATIENT");
+    const res = await request(app)
+      .get("/api/v1/pharmacy/movements")
+      .set("Authorization", `Bearer ${patientToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("issue #174: RECEPTION cannot GET /pharmacy/movements (403)", async () => {
+    const res = await request(app)
+      .get("/api/v1/pharmacy/movements")
+      .set("Authorization", `Bearer ${receptionToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  // Blood bank donor registry (donor PII)
+
+  it("issue #174: RECEPTION cannot GET /bloodbank/donors (403)", async () => {
+    const res = await request(app)
+      .get("/api/v1/bloodbank/donors")
+      .set("Authorization", `Bearer ${receptionToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("issue #174: PATIENT cannot GET /bloodbank/donors (403)", async () => {
+    const patientToken = await getAuthToken("PATIENT");
+    const res = await request(app)
+      .get("/api/v1/bloodbank/donors")
+      .set("Authorization", `Bearer ${patientToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("issue #174: NURSE can still GET /bloodbank/donors (200)", async () => {
+    const res = await request(app)
+      .get("/api/v1/bloodbank/donors")
+      .set("Authorization", `Bearer ${nurseToken}`);
+    expect(res.status).toBe(200);
+  });
+
+  // Staff roster (every staff member's email + role)
+
+  it("issue #174: PATIENT cannot GET /shifts/roster (403)", async () => {
+    const patientToken = await getAuthToken("PATIENT");
+    const res = await request(app)
+      .get("/api/v1/shifts/roster?date=2026-04-30")
+      .set("Authorization", `Bearer ${patientToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("issue #174: ADMIN can GET /shifts/roster (200)", async () => {
+    const res = await request(app)
+      .get("/api/v1/shifts/roster?date=2026-04-30")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+  });
 });

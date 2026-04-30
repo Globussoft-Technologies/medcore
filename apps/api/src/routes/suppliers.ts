@@ -15,7 +15,10 @@ const router = Router();
 router.use(authenticate);
 
 // GET /api/v1/suppliers
-router.get("/", async (req: Request, res: Response, next: NextFunction) => {
+// Issue #174 (Apr 30 2026): supplier list exposes vendor PII (gstNumber,
+// contactPerson, outstandingAmount). DOCTOR/NURSE/PATIENT have no business
+// reading procurement data — restrict to ops + finance roles.
+router.get("/", authorize(Role.ADMIN, Role.RECEPTION, Role.PHARMACIST), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { active = "true", search } = req.query as Record<string, string | undefined>;
 
@@ -42,7 +45,8 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // GET /api/v1/suppliers/:id
-router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
+// Issue #174: same rationale as list — vendor PII + outstanding balance.
+router.get("/:id", authorize(Role.ADMIN, Role.RECEPTION, Role.PHARMACIST), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const supplier = await prisma.supplier.findUnique({
       where: { id: req.params.id },
@@ -116,8 +120,10 @@ router.patch(
 // ═══════════════════════════════════════════════════════
 
 // GET /api/v1/suppliers/:id/payments
+// Issue #174: payment history is finance-only PII.
 router.get(
   "/:id/payments",
+  authorize(Role.ADMIN, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const [supplier, payments] = await Promise.all([
@@ -191,8 +197,10 @@ router.post(
 );
 
 // GET /api/v1/suppliers/:id/performance — on-time rate & rating
+// Issue #174: KPI tile for procurement, not clinical.
 router.get(
   "/:id/performance",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PHARMACIST),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const [supplier, pos] = await Promise.all([
@@ -244,8 +252,10 @@ router.get(
 );
 
 // GET /api/v1/suppliers/:id/catalog
+// Issue #174: pricing data — restrict to ops/pharmacist.
 router.get(
   "/:id/catalog",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PHARMACIST),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const items = await prisma.supplierCatalogItem.findMany({

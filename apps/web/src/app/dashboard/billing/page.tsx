@@ -8,6 +8,7 @@ import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { EmptyState } from "@/components/EmptyState";
+import { derivePaymentStatus } from "@medcore/shared";
 
 // Issue #89: DOCTOR must NOT see Billing / invoices. PATIENT keeps own-data
 // access; ADMIN + RECEPTION are the operational roles.
@@ -157,32 +158,47 @@ export default function BillingPage() {
   }, []);
 
   const loadSummary = useCallback(async () => {
-    try {
-      const today = new Date();
-      const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      const [outRes, daily, rev, refunds] = await Promise.all([
-        api.get<{ data: { totalOutstanding: number } }>(
-          "/billing/reports/outstanding"
-        ),
-        api.get<{ data: { totalCollection: number } }>(
-          `/billing/reports/daily?date=${today.toISOString().slice(0, 10)}`
-        ),
-        api.get<{ data: { totals: { inflow: number } } }>(
-          `/billing/reports/revenue?from=${firstOfMonth.toISOString()}&to=${today.toISOString()}&groupBy=day`
-        ),
-        api.get<{ data: { totalRefunded: number } }>(
-          `/billing/reports/refunds?from=${firstOfMonth.toISOString()}&to=${today.toISOString()}`
-        ),
-      ]);
-      setSummary({
-        totalOutstanding: outRes.data.totalOutstanding,
-        todayCollection: daily.data.totalCollection,
-        monthRevenue: rev.data.totals.inflow,
-        monthRefunds: refunds.data.totalRefunded,
-      });
-    } catch {
-      // ignore
-    }
+    // Issue #203: each tile is fed by an independent endpoint and several
+    // are RBAC-gated (e.g. `/reports/daily` is ADMIN-only per #90). The
+    // previous Promise.all rejected the whole batch the moment one of the
+    // four returned 403, leaving every tile stuck at Rs. 0.00 even when
+    // the others had data. Promise.allSettled lets each tile populate
+    // from whichever endpoints the current role is allowed to hit.
+    const today = new Date();
+    const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const results = await Promise.allSettled([
+      api.get<{ data: { totalOutstanding: number } }>(
+        "/billing/reports/outstanding"
+      ),
+      api.get<{ data: { totalCollection: number } }>(
+        `/billing/reports/daily?date=${today.toISOString().slice(0, 10)}`
+      ),
+      api.get<{ data: { totals: { inflow: number } } }>(
+        `/billing/reports/revenue?from=${firstOfMonth.toISOString()}&to=${today.toISOString()}&groupBy=day`
+      ),
+      api.get<{ data: { totalRefunded: number } }>(
+        `/billing/reports/refunds?from=${firstOfMonth.toISOString()}&to=${today.toISOString()}`
+      ),
+    ]);
+    const [outRes, daily, rev, refunds] = results;
+    setSummary((prev) => ({
+      totalOutstanding:
+        outRes.status === "fulfilled"
+          ? outRes.value.data.totalOutstanding ?? 0
+          : prev.totalOutstanding,
+      todayCollection:
+        daily.status === "fulfilled"
+          ? daily.value.data.totalCollection ?? 0
+          : prev.todayCollection,
+      monthRevenue:
+        rev.status === "fulfilled"
+          ? rev.value.data.totals?.inflow ?? 0
+          : prev.monthRevenue,
+      monthRefunds:
+        refunds.status === "fulfilled"
+          ? refunds.value.data.totalRefunded ?? 0
+          : prev.monthRefunds,
+    }));
   }, []);
 
   useEffect(() => {
@@ -390,7 +406,14 @@ export default function BillingPage() {
         const netPaid = paid - refunded;
         const balance = Math.max(0, inv.totalAmount - netPaid);
         const age = daysAgo(inv.createdAt);
-        return { ...inv, paid, refunded, netPaid, balance, age };
+        // Issue #235: a row stored as PAID with non-zero balance must
+        // display as PARTIAL — derivePaymentStatus is the single rule.
+        const displayStatus = derivePaymentStatus(
+          inv.paymentStatus,
+          inv.totalAmount,
+          netPaid
+        );
+        return { ...inv, paid, refunded, netPaid, balance, age, displayStatus };
       }),
     [invoices]
   );
@@ -599,9 +622,10 @@ export default function BillingPage() {
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[inv.paymentStatus] || ""}`}
+                      data-testid={`bills-status-${inv.id}`}
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[inv.displayStatus] || ""}`}
                     >
-                      {inv.paymentStatus}
+                      {inv.displayStatus}
                     </span>
                   </td>
                   {isStaff && (
@@ -621,7 +645,7 @@ export default function BillingPage() {
                           onClick={(e) => e.stopPropagation()}
                           className="absolute right-4 top-10 z-10 w-52 rounded-lg border bg-white py-1 shadow-lg"
                         >
-                          {inv.paymentStatus !== "PAID" && (
+                          {inv.displayStatus !== "PAID" && (
                             <button
                               onClick={() => {
                                 setPayInv(inv);
@@ -632,7 +656,7 @@ export default function BillingPage() {
                               <Receipt size={14} /> Record Payment
                             </button>
                           )}
-                          {inv.paymentStatus !== "PAID" && (
+                          {inv.displayStatus !== "PAID" && (
                             <button
                               onClick={() => {
                                 openPayOnlineModal(inv);
@@ -655,8 +679,8 @@ export default function BillingPage() {
                               <Undo2 size={14} /> Record Refund
                             </button>
                           )}
-                          {inv.paymentStatus !== "PAID" &&
-                            inv.paymentStatus !== "REFUNDED" && (
+                          {inv.displayStatus !== "PAID" &&
+                            inv.displayStatus !== "REFUNDED" && (
                               <button
                                 onClick={() => {
                                   setDiscInv(inv);

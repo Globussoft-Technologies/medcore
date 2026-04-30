@@ -8,9 +8,12 @@ import { formatDoctorName } from "@/lib/format-doctor-name";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useTranslation } from "@/lib/i18n";
+import { extractFieldErrors } from "@/lib/field-errors";
 import {
   categorizeService,
+  computeInvoiceTotals,
   computeLineItemTax,
+  derivePaymentStatus,
 } from "@medcore/shared";
 import {
   Printer,
@@ -126,6 +129,10 @@ export default function InvoiceDetailPage() {
   const [payAmount, setPayAmount] = useState("");
   const [payMode, setPayMode] = useState("CASH");
   const [paySubmitting, setPaySubmitting] = useState(false);
+  // Issue #223: per-field server validation messages for the payment modal.
+  const [payFieldErrors, setPayFieldErrors] = useState<
+    Record<string, string>
+  >({});
 
   // Refund
   const [refundOpen, setRefundOpen] = useState(false);
@@ -264,6 +271,7 @@ export default function InvoiceDetailPage() {
 
   async function submitPayment() {
     setPaySubmitting(true);
+    setPayFieldErrors({});
     try {
       await api.post("/billing/payments", {
         invoiceId: id,
@@ -275,7 +283,17 @@ export default function InvoiceDetailPage() {
       setPayMode("CASH");
       loadInvoice();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Payment failed");
+      // Issue #223: surface per-field zod messages instead of just a
+      // generic toast — the user needs to know whether it's `amount`
+      // (e.g. exceeds outstanding balance) or `mode` that the API
+      // rejected.
+      const fields = extractFieldErrors(err);
+      if (fields) {
+        setPayFieldErrors(fields);
+        toast.error(Object.values(fields)[0] || "Please fix the highlighted fields");
+      } else {
+        toast.error(err instanceof Error ? err.message : "Payment failed");
+      }
     }
     setPaySubmitting(false);
   }
@@ -323,7 +341,6 @@ export default function InvoiceDetailPage() {
   const grossPaid = positivePayments.reduce((s, p) => s + p.amount, 0);
   const totalRefunded = refunds.reduce((s, p) => s + Math.abs(p.amount), 0);
   const netPaid = grossPaid - totalRefunded;
-  const balance = Math.max(0, invoice.totalAmount - netPaid);
 
   // Compute per-line GST at render time via the shared helper. We do NOT
   // persist these columns in this pass — flagged as a follow-up to add
@@ -332,13 +349,29 @@ export default function InvoiceDetailPage() {
     ...it,
     tax: computeLineItemTax(it.amount, it.category),
   }));
-  const computedCgst = itemsWithTax.reduce((s, it) => s + it.tax.cgst, 0);
-  const computedSgst = itemsWithTax.reduce((s, it) => s + it.tax.sgst, 0);
-  // Prefer the stored invoice taxAmount (canonical) when present; otherwise
-  // use the per-line computation so the old invoices still render correctly.
-  const displayCgst = invoice.taxAmount > 0 ? invoice.taxAmount / 2 : computedCgst;
-  const displaySgst = invoice.taxAmount > 0 ? invoice.taxAmount / 2 : computedSgst;
-  const displayTotalTax = displayCgst + displaySgst;
+
+  // Single source of truth for the totals block (#202, #236). When the
+  // persisted `invoice.totalAmount` was stored without GST (legacy seed
+  // path), `computeInvoiceTotals` returns the corrected total derived
+  // from per-line GST; otherwise it returns the persisted figure. The
+  // footer Total + Running Balance use this in preference to the raw
+  // `invoice.totalAmount`, which guarantees Total = Subtotal + GST.
+  const totals = computeInvoiceTotals(invoice.items || [], {
+    subtotal: invoice.subtotal,
+    taxAmount: invoice.taxAmount,
+    discountAmount: invoice.discountAmount,
+    totalAmount: invoice.totalAmount,
+  });
+  const displayCgst = totals.cgstAmount;
+  const displaySgst = totals.sgstAmount;
+  const displayTotalTax = totals.taxAmount;
+  const displayTotal = totals.totalAmount;
+  const balance = Math.max(0, displayTotal - netPaid);
+  // Issue #235: never trust a persisted `paymentStatus` that disagrees
+  // with the maths (e.g. `PAID` while balance > 0). The shared helper
+  // returns the displayed status so the watermark, badge, and totals
+  // block stay self-consistent.
+  const displayStatus = derivePaymentStatus(invoice.paymentStatus, displayTotal, netPaid);
 
   const statusColors: Record<string, string> = {
     PENDING: "bg-red-100 text-red-700",
@@ -352,7 +385,7 @@ export default function InvoiceDetailPage() {
     (a, b) => new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime()
   );
 
-  const isPending = invoice.paymentStatus === "PENDING";
+  const isPending = displayStatus === "PENDING";
 
   return (
     <>
@@ -387,8 +420,8 @@ export default function InvoiceDetailPage() {
           <ArrowLeft size={16} /> Back to Billing
         </Link>
         <div className="flex flex-wrap items-center gap-2">
-          {invoice.paymentStatus !== "PAID" &&
-            invoice.paymentStatus !== "REFUNDED" && (
+          {displayStatus !== "PAID" &&
+            displayStatus !== "REFUNDED" && (
               <button
                 onClick={() => setDiscOpen(true)}
                 className="flex items-center gap-1 rounded-lg border bg-white px-3 py-1.5 text-sm hover:bg-gray-50"
@@ -461,14 +494,14 @@ export default function InvoiceDetailPage() {
         className="relative mx-auto max-w-3xl overflow-hidden rounded-xl bg-white p-8 shadow-sm"
       >
         {/* Watermark overlays */}
-        {invoice.paymentStatus === "CANCELLED" && (
+        {displayStatus === "CANCELLED" && (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
             <span className="select-none rotate-[-30deg] text-[8rem] font-black text-red-500/20">
               CANCELLED
             </span>
           </div>
         )}
-        {invoice.paymentStatus === "PAID" && (
+        {displayStatus === "PAID" && (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
             <span className="select-none rotate-[-30deg] text-[8rem] font-black text-green-500/15">
               PAID
@@ -521,9 +554,10 @@ export default function InvoiceDetailPage() {
                 })}
               </p>
               <span
-                className={`mt-2 inline-block rounded-full px-3 py-0.5 text-xs font-medium ${statusColors[invoice.paymentStatus] || ""}`}
+                className={`mt-2 inline-block rounded-full px-3 py-0.5 text-xs font-medium ${statusColors[displayStatus] || ""}`}
+                data-testid="invoice-status-badge"
               >
-                {invoice.paymentStatus}
+                {displayStatus}
               </span>
             </div>
           </div>
@@ -733,7 +767,7 @@ export default function InvoiceDetailPage() {
               <span className="text-gray-500">
                 {t("dashboard.billing.subtotal", "Subtotal")}
               </span>
-              <span>{fmtMoney(invoice.subtotal)}</span>
+              <span data-testid="totals-subtotal">{fmtMoney(totals.subtotal)}</span>
             </div>
             {displayTotalTax > 0 && (
               <>
@@ -767,7 +801,7 @@ export default function InvoiceDetailPage() {
             )}
             <div className="flex justify-between border-t pt-2 font-semibold">
               <span>Total</span>
-              <span>{fmtMoney(invoice.totalAmount)}</span>
+              <span data-testid="totals-total">{fmtMoney(displayTotal)}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">Payments</span>
@@ -791,7 +825,7 @@ export default function InvoiceDetailPage() {
               }`}
             >
               <span>Running Balance</span>
-              <span>{fmtMoney(balance)}</span>
+              <span data-testid="totals-balance">{fmtMoney(balance)}</span>
             </div>
           </div>
         </div>
@@ -972,17 +1006,41 @@ export default function InvoiceDetailPage() {
                   min="0.01"
                   step="0.01"
                   value={payAmount}
-                  onChange={(e) => setPayAmount(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  onChange={(e) => {
+                    setPayAmount(e.target.value);
+                    if (payFieldErrors.amount)
+                      setPayFieldErrors((p) => {
+                        const n = { ...p };
+                        delete n.amount;
+                        return n;
+                      });
+                  }}
+                  data-testid="payment-amount"
+                  aria-invalid={!!payFieldErrors.amount}
+                  className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                    payFieldErrors.amount ? "border-red-500 bg-red-50" : ""
+                  }`}
                   autoFocus
                 />
+                {payFieldErrors.amount && (
+                  <p
+                    data-testid="error-payment-amount"
+                    className="mt-1 text-xs text-red-600"
+                  >
+                    {payFieldErrors.amount}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="mb-1 block text-xs text-gray-500">Mode</label>
                 <select
                   value={payMode}
                   onChange={(e) => setPayMode(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  data-testid="payment-mode"
+                  aria-invalid={!!payFieldErrors.mode}
+                  className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                    payFieldErrors.mode ? "border-red-500 bg-red-50" : ""
+                  }`}
                 >
                   {["CASH", "CARD", "UPI", "ONLINE", "INSURANCE"].map((m) => (
                     <option key={m} value={m}>
@@ -990,6 +1048,14 @@ export default function InvoiceDetailPage() {
                     </option>
                   ))}
                 </select>
+                {payFieldErrors.mode && (
+                  <p
+                    data-testid="error-payment-mode"
+                    className="mt-1 text-xs text-red-600"
+                  >
+                    {payFieldErrors.mode}
+                  </p>
+                )}
               </div>
             </div>
             <div className="mt-5 flex justify-end gap-2">

@@ -230,6 +230,70 @@ describeIfDB("Prescriptions API (integration)", () => {
     expect(res.status).toBe(400);
   });
 
+  // ─── Issue #243: ?search=<diagnosis> narrows the list ──────────────
+  // The adherence enrollment EntityPicker sends `?search=<text>`; the GET
+  // used to ignore the param entirely so the dropdown was unfiltered. The
+  // route now matches `diagnosis ILIKE %text%`.
+  it("filters prescriptions by ?search=<diagnosis> (issue #243)", async () => {
+    const { doctor, token } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    const apptA = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    const apptB = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    await request(app)
+      .post("/api/v1/prescriptions")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: apptA.id,
+        patientId: patient.id,
+        diagnosis: "Type 2 Diabetes Mellitus",
+        items: [
+          {
+            medicineName: "Metformin",
+            dosage: "500mg",
+            frequency: "BID",
+            duration: "30d",
+          },
+        ],
+      });
+    await request(app)
+      .post("/api/v1/prescriptions")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: apptB.id,
+        patientId: patient.id,
+        diagnosis: "Acute Gastroenteritis",
+        items: [
+          {
+            medicineName: "ORS",
+            dosage: "1 sachet",
+            frequency: "PRN",
+            duration: "3d",
+          },
+        ],
+      });
+
+    const res = await request(app)
+      .get(`/api/v1/prescriptions?search=diabetes&patientId=${patient.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    const diagnoses = (res.body.data as Array<{ diagnosis: string }>).map(
+      (r) => r.diagnosis
+    );
+    expect(diagnoses.length).toBeGreaterThanOrEqual(1);
+    // Every returned row must contain "diabetes" (case-insensitive); the
+    // gastroenteritis row must be filtered out.
+    for (const d of diagnoses) {
+      expect(d.toLowerCase()).toContain("diabetes");
+    }
+    expect(diagnoses).not.toContain("Acute Gastroenteritis");
+  });
+
   // ─── Issue #17: non-UUID appointmentId rejected ─────────────────────
   it("rejects non-UUID appointmentId (400, issue #17)", async () => {
     const { token } = await createDoctorWithToken();

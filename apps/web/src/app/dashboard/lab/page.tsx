@@ -317,6 +317,8 @@ export default function LabPage() {
                 {orders.map((o) => (
                   <Fragment key={o.id}>
                     <tr
+                      data-testid="lab-order-row"
+                      data-order-status={o.status}
                       className={`cursor-pointer border-b border-gray-100 last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700 ${
                         o.stat ? "border-l-4 border-l-red-500 bg-red-50/40 dark:bg-red-900/20" : ""
                       }`}

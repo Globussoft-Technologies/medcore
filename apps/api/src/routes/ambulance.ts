@@ -477,6 +477,45 @@ router.patch(
   }
 );
 
+// IMPORTANT — must come BEFORE GET /:id below. Express matches in
+// declaration order and `/fuel-logs` would otherwise be eaten by `/:id`
+// with id="fuel-logs", returning 404 for "Ambulance not found" instead of
+// the fuel-logs payload (caught by the rbac-hardening test on
+// 2026-04-30 — was returning 404 to DOCTOR instead of the expected 403).
+router.get(
+  "/fuel-logs",
+  // Issue #174: fuel logs = financial data, ops only.
+  authorize(Role.ADMIN, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { ambulanceId, from, to } = req.query as Record<string, string | undefined>;
+      const where: Record<string, unknown> = {};
+      if (ambulanceId) where.ambulanceId = ambulanceId;
+      if (from || to) {
+        const d: Record<string, Date> = {};
+        if (from) d.gte = new Date(from);
+        if (to) d.lte = new Date(to);
+        where.filledAt = d;
+      }
+      const logs = await prisma.ambulanceFuelLog.findMany({
+        where,
+        orderBy: { filledAt: "desc" },
+        include: { ambulance: { select: { vehicleNumber: true } } },
+        take: 200,
+      });
+      const totalCost = logs.reduce((s, l) => s + l.costTotal, 0);
+      const totalLitres = logs.reduce((s, l) => s + l.litres, 0);
+      res.json({
+        success: true,
+        data: { logs, totalCost: Math.round(totalCost * 100) / 100, totalLitres },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 router.get("/:id", authorize(Role.ADMIN, Role.RECEPTION, Role.NURSE, Role.DOCTOR), async (req: Request, res: Response, next: NextFunction) => {
   // Issue #174: ambulance detail includes recent trips (caller PII).
   try {
@@ -650,40 +689,6 @@ router.post(
         litres: req.body.litres,
       }).catch(console.error);
       res.status(201).json({ success: true, data: log, error: null });
-    } catch (err) {
-      next(err);
-    }
-  }
-);
-
-router.get(
-  "/fuel-logs",
-  // Issue #174: fuel logs = financial data, ops only.
-  authorize(Role.ADMIN, Role.RECEPTION),
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const { ambulanceId, from, to } = req.query as Record<string, string | undefined>;
-      const where: Record<string, unknown> = {};
-      if (ambulanceId) where.ambulanceId = ambulanceId;
-      if (from || to) {
-        const d: Record<string, Date> = {};
-        if (from) d.gte = new Date(from);
-        if (to) d.lte = new Date(to);
-        where.filledAt = d;
-      }
-      const logs = await prisma.ambulanceFuelLog.findMany({
-        where,
-        orderBy: { filledAt: "desc" },
-        include: { ambulance: { select: { vehicleNumber: true } } },
-        take: 200,
-      });
-      const totalCost = logs.reduce((s, l) => s + l.costTotal, 0);
-      const totalLitres = logs.reduce((s, l) => s + l.litres, 0);
-      res.json({
-        success: true,
-        data: { logs, totalCost: Math.round(totalCost * 100) / 100, totalLitres },
-        error: null,
-      });
     } catch (err) {
       next(err);
     }

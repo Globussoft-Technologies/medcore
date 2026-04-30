@@ -1,0 +1,230 @@
+name: Release validation
+
+# Heavy-suite validation gate run BEFORE a release is declared.
+#
+# Trigger model: manual only (`workflow_dispatch`). The user explicitly
+# tells the team "do a release" → someone hits Run workflow on this file
+# → all four validation jobs run on Linux against a fresh DB. If any fail,
+# fix the failure on `main`, then re-trigger. A clean run on `main` HEAD
+# is the green light to declare the release.
+#
+# Why separate from the per-push `test` workflow:
+#   - Per-push runs the FAST gate (unit + contract + smoke + integration +
+#     web vitest + typecheck + RBAC matrix only). That keeps auto-deploys
+#     to dev quick.
+#   - This workflow runs the FULL Playwright suite (22 specs) on top of
+#     everything per-push runs. Slower, more flaky, only worth it on a
+#     release boundary.
+#
+# How to trigger:
+#   gh workflow run release.yml --ref main
+#   # or via UI: Actions → Release validation → Run workflow
+#
+# Result interpretation:
+#   - All jobs green → release is safe to cut/announce.
+#   - Any job red  → fix on main, push, retrigger this workflow. Do NOT
+#                    declare release with red checks.
+#
+# This workflow does NOT deploy. The auto-deploy on push to main (in
+# test.yml) is the deployment mechanism. This is purely validation —
+# the "are we good to call this a release" gate.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  typecheck:
+    name: Type check (api + web)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm install
+      - name: Generate Prisma client
+        run: npm run db:generate
+      - name: Type-check API
+        run: npx tsc --noEmit -p apps/api/tsconfig.json
+      - name: Type-check Web
+        run: npx tsc --noEmit -p apps/web/tsconfig.json
+
+  api-tests-full:
+    name: API tests (unit + contract + smoke + integration)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: medcore
+          POSTGRES_PASSWORD: medcore
+          POSTGRES_DB: medcore_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://medcore:medcore@localhost:5432/medcore_test
+      DATABASE_URL_TEST: postgresql://medcore:medcore@localhost:5432/medcore_test
+      JWT_SECRET: ci-jwt-secret
+      JWT_REFRESH_SECRET: ci-jwt-refresh-secret
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm install
+      - name: Generate Prisma client
+        run: npm run db:generate
+      - name: Push schema to test DB
+        run: npx prisma db push --schema packages/db/prisma/schema.prisma --force-reset --skip-generate
+      - name: Run unit + contract tests
+        run: npm run test:coverage:unit
+      - name: Run smoke tests
+        run: npm run test:smoke
+      - name: Run integration tests
+        run: npm run test:api
+
+  web-tests-full:
+    name: Web component tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm install
+      - name: Generate Prisma client
+        run: npm run db:generate
+      - name: Run web vitest suite (with coverage)
+        run: npm run test:coverage:web
+
+  e2e-full:
+    name: E2E (full Playwright suite)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: medcore
+          POSTGRES_PASSWORD: medcore
+          POSTGRES_DB: medcore_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://medcore:medcore@localhost:5432/medcore_e2e
+      JWT_SECRET: ci-jwt-secret
+      JWT_REFRESH_SECRET: ci-jwt-refresh-secret
+      NODE_ENV: production
+      # See test.yml e2e-rbac job for why PORT is scoped per-step, not at
+      # the job level.
+      NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
+      E2E_BASE_URL: http://localhost:3000
+      E2E_API_URL: http://localhost:4000/api/v1
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        # `--include=dev` is mandatory under NODE_ENV=production; see the
+        # comment block on the e2e-rbac job in test.yml.
+        run: npm install --include=dev
+
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Push schema and seed
+        run: |
+          npx prisma db push --schema packages/db/prisma/schema.prisma --force-reset --skip-generate
+          npm run db:seed
+
+      - name: Build Web (warm bundle)
+        run: npm --prefix apps/web run build
+
+      - name: Start API
+        env:
+          PORT: "4000"
+        run: |
+          cd apps/api
+          nohup npm run dev > ../../api.log 2>&1 &
+          cd ../..
+
+      - name: Start Web (next start)
+        env:
+          PORT: "3000"
+        run: |
+          cd apps/web
+          nohup npm start > ../../web.log 2>&1 &
+          cd ../..
+
+      - name: Wait for API and Web
+        run: npx wait-on http://localhost:4000/api/health http://localhost:3000/login --timeout 90000
+
+      - name: Run full Playwright suite
+        # No spec filter — run every spec in e2e/. Failures here are
+        # release-blocking; fix on main and retrigger this workflow.
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-full-report
+          path: playwright-report
+          retention-days: 30
+
+      - name: Upload server logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-logs-release
+          path: |
+            api.log
+            web.log
+          retention-days: 14
+
+  release-summary:
+    name: Release validation summary
+    runs-on: ubuntu-latest
+    needs: [typecheck, api-tests-full, web-tests-full, e2e-full]
+    if: always()
+    steps:
+      - name: Report
+        run: |
+          echo "Typecheck:    ${{ needs.typecheck.result }}"
+          echo "API tests:    ${{ needs.api-tests-full.result }}"
+          echo "Web tests:    ${{ needs.web-tests-full.result }}"
+          echo "E2E (full):   ${{ needs.e2e-full.result }}"
+          if [ "${{ needs.typecheck.result }}" = "success" ] \
+             && [ "${{ needs.api-tests-full.result }}" = "success" ] \
+             && [ "${{ needs.web-tests-full.result }}" = "success" ] \
+             && [ "${{ needs.e2e-full.result }}" = "success" ]; then
+            echo ""
+            echo "All four gates green — safe to declare a release on this SHA."
+          else
+            echo ""
+            echo "One or more gates failed — fix on main, then retrigger this workflow."
+            exit 1
+          fi

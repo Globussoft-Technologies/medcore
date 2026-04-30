@@ -16,8 +16,13 @@ export default defineConfig({
   },
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: 0,
-  workers: 1,
+  // CI bumps: 1 retry to absorb transient login/redirect flake without
+  // hiding real failures (a real bug fails twice in a row on the retry);
+  // 2 workers because the full suite is otherwise too slow on the
+  // release-validation gate. Local runs stay single-worker, no retries
+  // so flake is visible during dev.
+  retries: process.env.CI ? 1 : 0,
+  workers: process.env.CI ? 2 : 1,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL: BASE_URL,

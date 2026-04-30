@@ -57,18 +57,50 @@ The 5 zod-validation gaps closed in `9dc1913`. Remaining:
 
 All independent — could be 2-3 parallel agents.
 
-### 4. Broaden e2e-rbac → full Playwright suite (~2 hr, AFTER #1 re-gates)
+### 4. Release-validation workflow (✅ shipped 2026-05-01)
 
-Once `e2e-rbac` is back in `deploy.needs:` and soaking cleanly, drop the
-explicit spec filter in `.github/workflows/test.yml` (currently `npx
-playwright test e2e/rbac-matrix.spec.ts`) so the full 22-spec suite runs.
-Before that you'll need:
+Per-push CI stays fast (typecheck + api unit/contract/smoke/integration +
+web vitest + RBAC matrix only). The full Playwright suite is gated to a
+**release** trigger:
 
-- Fix the `/dashboard/admin-console` axe-core violation flagged in this
-  TODO's prior versions. Real a11y work — pick up alongside any new
-  admin-console feature.
-- Bump `playwright.config.ts` for CI: `workers: process.env.CI ? 2 : 1`
-  + `retries: process.env.CI ? 1 : 0` to absorb transient flake.
+- Workflow: [`.github/workflows/release.yml`](.github/workflows/release.yml)
+- Trigger: `gh workflow run release.yml --ref main` (or Actions UI →
+  "Release validation" → Run workflow)
+- Runs: typecheck + full api-tests + full web-tests + **all 22 Playwright
+  specs** + a summary job that succeeds only if all four gates are green.
+- `playwright.config.ts` now bumps `workers: 2` and `retries: 1` under
+  `CI` to absorb transient flake without hiding real failures.
+- Per-push `e2e-rbac` job in `test.yml` is unchanged — still runs on
+  every push as the fast canary.
+
+When user says "do a release":
+1. Trigger `release.yml` on the current `main` SHA.
+2. If green → safe to declare release.
+3. If red → fix on `main`, push, retrigger.
+
+First release-validation run will likely surface known pre-existing flake
+(notably the `/dashboard/admin-console` axe-core violation in
+`a11y.spec.ts`). Fix as encountered; the model is fix-then-retry, not
+"merge red".
+
+### 4b. Zero-coverage API routes (12 routes — write tests)
+
+Found by diffing `apps/api/src/routes/*.ts` against `*.test.ts` in both
+`apps/api/src/routes/` (co-located) and `apps/api/src/test/integration/`.
+These have no test file matching their name:
+
+```
+controlled-substances    growth              payment-plans     shifts
+coordinated-visits       med-reconciliation  preauth           waitlist
+feedback                 nurse-rounds        scheduled-reports search
+```
+
+Some are likely small wrappers; others (controlled-substances,
+nurse-rounds, scheduled-reports) probably have real branching logic.
+Tackle as a parallel-agent sweep — one agent per ~3 routes, each writes
+an integration test file under `apps/api/src/test/integration/<route>.test.ts`
+covering happy path + auth + at least one edge case per handler. ~1-2 hr
+total.
 
 ### 5. Deferred housekeeping
 

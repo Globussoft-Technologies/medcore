@@ -2,11 +2,13 @@ name: Test
 
 # Test + Deploy pipeline.
 #
-# - `test`, `web-tests`, `typecheck`, `e2e` run on every push and PR.
-# - `deploy` runs ONLY on push to main, after all four gates pass, and SSHes
+# - `test`, `web-tests`, `typecheck` run on every push and PR.
+# - `deploy` runs ONLY on push to main, after the three gates pass, and SSHes
 #   into the dev server to invoke scripts/deploy.sh --yes (the same script
 #   we used to invoke manually). Auto-deploy is acceptable here because the
 #   target is the dev/demo server, not a hospital production install.
+# - Playwright E2E was removed on 2026-04-30 (commit 30ec764) — see TODO.md
+#   "E2E hardening" for the conditions under which it'd be reintroduced.
 #
 # Required secrets (Settings → Secrets and variables → Actions):
 #   DEPLOY_SSH_KEY     — private key whose public counterpart is in

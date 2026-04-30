@@ -8,8 +8,11 @@ import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { formatINR } from "@/lib/currency";
-import { Plus, FlaskConical } from "lucide-react";
+import { Plus, FlaskConical, Inbox } from "lucide-react";
 import { extractFieldErrors, type FieldErrorMap } from "@/lib/field-errors";
+// Issue #438 (Apr 30 2026): canonicalise dates via the shared formatter so
+// the lab tab matches the rest of the app's `DD MMM YYYY` style.
+import { formatDate } from "@/lib/format";
 
 // Issue #90: RECEPTION must NOT see lab orders / results / result-entry form.
 // Clinical roles + LAB_TECH + PATIENT (own data).
@@ -285,8 +288,17 @@ export default function LabPage() {
           {loading ? (
             <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
           ) : orders.length === 0 ? (
-            <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-              No lab orders.
+            // Issue #438 (Apr 30 2026): give the empty state an icon + helper
+            // copy instead of a single dashed line.
+            <div
+              className="flex flex-col items-center justify-center gap-2 p-10 text-gray-500 dark:text-gray-400"
+              data-testid="lab-orders-empty-state"
+            >
+              <Inbox size={28} className="text-gray-400" aria-hidden="true" />
+              <p className="text-sm font-medium">No lab orders yet</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                Orders placed by doctors will appear here.
+              </p>
             </div>
           ) : (
             <table className="w-full">
@@ -327,20 +339,34 @@ export default function LabPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3">
-                        <p className="font-medium">{o.patient.user.name}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                      <td className="px-4 py-3 max-w-[200px]">
+                        {/* Issue #438: long patient names overflowed the cell —
+                            truncate with a `title` for hover. */}
+                        <p
+                          className="truncate font-medium"
+                          title={o.patient.user.name}
+                        >
+                          {o.patient.user.name}
+                        </p>
+                        <p className="truncate text-xs text-gray-500 dark:text-gray-400">
                           {o.patient.mrNumber}
                         </p>
                       </td>
-                      <td className="px-4 py-3 text-sm">
-                        {o.doctor?.user.name || "—"}
+                      <td className="px-4 py-3 text-sm max-w-[160px]">
+                        <span
+                          className="block truncate"
+                          title={o.doctor?.user.name || ""}
+                        >
+                          {o.doctor?.user.name || "—"}
+                        </span>
                       </td>
                       <td className="px-4 py-3 text-sm">
                         {o.items.length} test(s)
                       </td>
                       <td className="px-4 py-3 text-sm">
-                        {new Date(o.orderedAt).toLocaleDateString()}
+                        {/* Issue #438: route through shared formatter for
+                            consistent `DD MMM YYYY` across the app. */}
+                        {formatDate(o.orderedAt)}
                       </td>
                       <td className="px-4 py-3">
                         <span

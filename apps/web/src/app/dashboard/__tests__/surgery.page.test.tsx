@@ -92,4 +92,46 @@ describe("SurgeryPage", () => {
       expect(btns.length).toBeGreaterThan(0);
     });
   });
+
+  // Issue #436: nurse view must offer date filter + sortable headers.
+  it("renders date filter inputs and sortable headers (#436)", async () => {
+    authMock.mockImplementation((selector: any) => {
+      const state = { user: { id: "u9", name: "Nurse", email: "n@x.com", role: "NURSE" } };
+      return typeof selector === "function" ? selector(state) : state;
+    });
+    render(<SurgeryPage />);
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /^surgery$/i })).toBeInTheDocument()
+    );
+    expect(screen.getByTestId("surgery-filter-from")).toBeInTheDocument();
+    expect(screen.getByTestId("surgery-filter-to")).toBeInTheDocument();
+    expect(screen.getByTestId("surgery-filter-today")).toBeInTheDocument();
+    expect(screen.getByTestId("surgery-filter-clear")).toBeInTheDocument();
+  });
+
+  it("forwards `from`/`to` query params to the API (#436)", async () => {
+    apiMock.get.mockResolvedValue({ data: [] });
+    render(<SurgeryPage />);
+    await waitFor(() => {
+      const urls = apiMock.get.mock.calls.map((c) => String(c[0]));
+      // Default state ships a `from=` (today midnight) on the very first
+      // load — confirms the filter is plumbed through.
+      expect(urls.some((u) => u.includes("from="))).toBe(true);
+    });
+  });
+
+  it("clicking 'Clear dates' drops `from`/`to` from the next request (#436)", async () => {
+    apiMock.get.mockResolvedValue({ data: [] });
+    const user = userEvent.setup();
+    render(<SurgeryPage />);
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /^surgery$/i })).toBeInTheDocument()
+    );
+    apiMock.get.mockClear();
+    await user.click(screen.getByTestId("surgery-filter-clear"));
+    await waitFor(() => {
+      const urls = apiMock.get.mock.calls.map((c) => String(c[0]));
+      expect(urls.some((u) => !u.includes("from=") && u.includes("/surgery"))).toBe(true);
+    });
+  });
 });

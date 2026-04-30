@@ -87,7 +87,26 @@ export function PatientEditModal({
   const { t } = useTranslation();
   const [name, setName] = useState(patient.user?.name ?? "");
   const [phone, setPhone] = useState(patient.user?.phone ?? "");
-  const [email, setEmail] = useState(patient.user?.email ?? "");
+  // Issue #331 (Apr 2026): walk-in registration writes a synthetic
+  // placeholder email (`noemail+<MR>@medcore.invalid`) when reception
+  // doesn't capture one, because `User.email` is `@unique` + non-null in
+  // the schema and we can't store NULL. Detect the placeholder pattern
+  // here and present the field as empty so the receptionist isn't fooled
+  // into thinking she previously typed an email — which was the
+  // original symptom of the bug. Also legacy `patient_<n>@medcore.local`
+  // rows seeded before this fix should be hidden the same way so old
+  // records don't confuse anyone.
+  const isPlaceholderEmail = (e: string | null | undefined): boolean => {
+    if (!e) return false;
+    return (
+      /^noemail\+[^@]+@medcore\.invalid$/i.test(e) ||
+      /^patient_\d+@medcore\.local$/i.test(e)
+    );
+  };
+  const initialEmail = patient.user?.email ?? "";
+  const [email, setEmail] = useState(
+    isPlaceholderEmail(initialEmail) ? "" : initialEmail
+  );
   const [dob, setDob] = useState(isoDateInput(patient.dateOfBirth));
   const [gender, setGender] = useState<string>(patient.gender ?? "MALE");
   const [bloodGroup, setBloodGroup] = useState<string>(patient.bloodGroup ?? "");

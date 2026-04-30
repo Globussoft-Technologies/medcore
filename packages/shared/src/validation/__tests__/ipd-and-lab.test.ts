@@ -7,6 +7,7 @@ import {
   recordIpdVitalsSchema,
   medicationOrderSchema,
   administerMedicationSchema,
+  intakeOutputSchema,
 } from "../ipd";
 import {
   createLabOrderSchema,
@@ -88,6 +89,87 @@ describe("recordIpdVitalsSchema", () => {
     expect(
       recordIpdVitalsSchema.safeParse({ admissionId: UUID, painScore: 11 }).success
     ).toBe(false);
+  });
+
+  // ─── #419 (2026-04-30) Vitals form must reject impossible values ─────
+  // The pre-#419 form accepted Temp=999°C, BP=999/999, HR=9999. The shared
+  // schema is the last line of defense — assert each impossible value is
+  // refused individually.
+  it("#419 rejects Temp=999°C, BP=999/999, HR=9999 in admission Vitals", () => {
+    // 999°C — far above the 32–43 °C ceiling; submit with explicit °C unit.
+    expect(
+      recordIpdVitalsSchema.safeParse({
+        admissionId: UUID,
+        temperature: 999,
+        temperatureUnit: "C",
+      }).success
+    ).toBe(false);
+    // 999/999 BP — both bounds blown.
+    expect(
+      recordIpdVitalsSchema.safeParse({
+        admissionId: UUID,
+        bloodPressureSystolic: 999,
+        bloodPressureDiastolic: 999,
+      }).success
+    ).toBe(false);
+    // 9999 bpm — pulse rate ceiling is 220.
+    expect(
+      recordIpdVitalsSchema.safeParse({ admissionId: UUID, pulseRate: 9999 })
+        .success
+    ).toBe(false);
+  });
+
+  // ─── #200 (2026-04-30) Temp unit canonical to °C in admission Vitals ─
+  // A nurse trained on the doctor's °F modal could type "98.6" into the
+  // °C admission field. With temperatureUnit pinned to "C" by the form,
+  // 98.6 must be rejected (it lands far outside the °C ceiling of 43)
+  // — and the same number tagged as "F" should pass. This is the
+  // canary for the cross-unit confusion.
+  it("#200 admission Vitals: 98.6 °C is rejected, 98.6 °F is accepted", () => {
+    expect(
+      recordIpdVitalsSchema.safeParse({
+        admissionId: UUID,
+        temperature: 98.6,
+        temperatureUnit: "C",
+      }).success
+    ).toBe(false);
+    expect(
+      recordIpdVitalsSchema.safeParse({
+        admissionId: UUID,
+        temperature: 98.6,
+        temperatureUnit: "F",
+      }).success
+    ).toBe(true);
+  });
+});
+
+describe("intakeOutputSchema", () => {
+  // ─── #433 (2026-04-30) I/O must reject negatives + cap per-entry vol ─
+  it("#433 rejects negative volumes and over-cap volumes; accepts in-range", () => {
+    // Negative — distorts running balance.
+    expect(
+      intakeOutputSchema.safeParse({
+        admissionId: UUID,
+        type: "INTAKE_ORAL",
+        amountMl: -500,
+      }).success
+    ).toBe(false);
+    // Above per-entry cap (10000 mL).
+    expect(
+      intakeOutputSchema.safeParse({
+        admissionId: UUID,
+        type: "OUTPUT_URINE",
+        amountMl: 99999,
+      }).success
+    ).toBe(false);
+    // Plausible 250 mL oral intake — accepted.
+    expect(
+      intakeOutputSchema.safeParse({
+        admissionId: UUID,
+        type: "INTAKE_ORAL",
+        amountMl: 250,
+      }).success
+    ).toBe(true);
   });
 });
 

@@ -16,6 +16,11 @@ interface AuditEntry {
   action: string;
   entity: string;
   entityId: string | null;
+  // Issue #192 (Apr 30 2026): server-resolved human-readable label for the
+  // entity (e.g. `User: Dr. Sharma`, `Patient: ... (MR: MR-1234)`). When
+  // the row references a deleted record (or an unresolved entity type) the
+  // server returns `null` and the table falls back to the bare UUID.
+  entityLabel?: string | null;
   ipAddress: string | null;
   details?: unknown;
 }
@@ -412,11 +417,33 @@ export default function AuditPage() {
                       </td>
                       <td className="px-4 py-3 text-sm">{canonicalEntity(entry.entity)}</td>
                       <td className="px-4 py-3">
-                        {entry.entityId && (
-                          <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
+                        {/* Issue #192: render the human-readable entityLabel
+                            in the cell and surface the UUID only on hover
+                            (and as a small monospace caption underneath).
+                            When the resolver returned null (deleted row,
+                            unknown entity type) we fall back to the UUID. */}
+                        {entry.entityLabel ? (
+                          <div
+                            data-testid={`audit-entity-${entry.id}`}
+                            title={entry.entityId ?? ""}
+                          >
+                            <p className="text-sm text-gray-800">
+                              {entry.entityLabel}
+                            </p>
+                            {entry.entityId && (
+                              <code className="text-[10px] text-gray-400">
+                                {entry.entityId}
+                              </code>
+                            )}
+                          </div>
+                        ) : entry.entityId ? (
+                          <code
+                            data-testid={`audit-entity-${entry.id}`}
+                            className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600"
+                          >
                             {entry.entityId}
                           </code>
-                        )}
+                        ) : null}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500">
                         {entry.ipAddress ?? ""}

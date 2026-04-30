@@ -223,7 +223,11 @@ async function main() {
   seq = existing + 1;
 
   for (const c of COMPLAINTS) {
-    const ticketNumber = `COMP-${new Date().getFullYear()}-${String(seq).padStart(5, "0")}`;
+    // Issue #275 (Apr 2026): unify on the canonical `CMP-YYYY-NNNNN`
+    // prefix used by the API generator (apps/api/src/routes/feedback.ts).
+    // Previously the seed emitted `COMP-...` while the runtime emitted
+    // `CMP...`, leaving reception with a mix of formats in the list.
+    const ticketNumber = `CMP-${new Date().getFullYear()}-${String(seq).padStart(5, "0")}`;
     seq++;
 
     // Check idempotency by ticketNumber

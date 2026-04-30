@@ -14,7 +14,11 @@ import { getSocket } from "@/lib/socket";
 // shared elapsedMinutes helper clamps the reading to [0, now - arrivedAt]
 // and ignores pre-2010 timestamps, so a single bad row can no longer look
 // like a 13-day-old triage case.
-import { elapsedMinutes } from "@/lib/time";
+//
+// Issue #425 (Apr 2026): the Wait Time column was rendering raw seconds /
+// NaN / negative values. Route every reading through formatElapsed so the
+// display is always a friendly "5m" / "1h 23m" / "2d 4h" string.
+import { elapsedMinutes, formatElapsed } from "@/lib/time";
 import { InfoIcon } from "@/components/Tooltip";
 import { Plus, Siren, AlertTriangle, UserCheck, X } from "lucide-react";
 
@@ -457,7 +461,12 @@ export default function EmergencyPage() {
         <div className="mb-6 grid gap-3 md:grid-cols-2">
           <div className="rounded-xl bg-white p-4 shadow-sm">
             <p className="text-xs text-gray-500">Avg Wait Time</p>
-            <p className="text-xl font-semibold">{stats.avgWaitMin} min</p>
+            <p data-testid="er-avg-wait" className="text-xl font-semibold">
+              {/* Issue #425: server may emit NaN / negative on stale rows. */}
+              {Number.isFinite(stats.avgWaitMin) && stats.avgWaitMin >= 0
+                ? formatElapsed(stats.avgWaitMin)
+                : "—"}
+            </p>
           </div>
           <div className="rounded-xl bg-white p-4 shadow-sm">
             <p className="text-xs text-gray-500">Available Beds</p>
@@ -561,12 +570,17 @@ export default function EmergencyPage() {
                           </p>
                           <div className="mt-2 flex items-center justify-between text-xs">
                             <span
+                              data-testid={`er-wait-${c.id}`}
                               className={
                                 overdue ? "font-semibold text-red-600" : "text-gray-500"
                               }
                             >
                               {overdue && <AlertTriangle size={12} className="mr-1 inline" />}
-                              {elapsed}m elapsed
+                              {/* Issue #425: render via shared helper —
+                                  never raw seconds, NaN, or negative. */}
+                              {c.arrivedAt
+                                ? `${formatElapsed(elapsed)} waiting`
+                                : "—"}
                             </span>
                             {c.attendingDoctor && (
                               <span className="truncate text-gray-500">
@@ -793,7 +807,10 @@ export default function EmergencyPage() {
                 </h2>
                 <p className="text-sm text-gray-500">
                   Arrived {new Date(selectedCase.arrivedAt).toLocaleString()} ·{" "}
-                  {elapsedMin(selectedCase.arrivedAt)}m ago
+                  {/* Issue #425 */}
+                  {selectedCase.arrivedAt
+                    ? `${formatElapsed(elapsedMin(selectedCase.arrivedAt))} ago`
+                    : "—"}
                 </p>
               </div>
               <div className="flex items-center gap-2">

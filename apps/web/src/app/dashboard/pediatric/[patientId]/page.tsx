@@ -63,6 +63,31 @@ export default function PediatricDetailPage() {
   const canEdit =
     user?.role === "DOCTOR" || user?.role === "ADMIN" || user?.role === "NURSE";
 
+  // Issue #435: WHO growth-chart bounds for pediatric measurements. The form
+  // previously accepted negative numbers and absurdly large values (e.g.
+  // weight=-3, height=999, head=-15) which then plotted nonsense points on
+  // the percentile charts. These ranges cover newborn → adolescent and reject
+  // anything outside the WHO p3-p97 envelope plus a safety margin.
+  const RANGES = {
+    weightKg: { min: 0.5, max: 200, label: "Weight" },
+    heightCm: { min: 30, max: 220, label: "Height" },
+    headCircumference: { min: 25, max: 65, label: "Head circumference" },
+    ageMonths: { min: 0, max: 240, label: "Age" }, // 0–20 years
+  } as const;
+
+  function rangeError(
+    raw: string,
+    key: keyof typeof RANGES
+  ): string | null {
+    if (!raw) return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return `${RANGES[key].label} must be a number`;
+    const { min, max } = RANGES[key];
+    if (n < min || n > max)
+      return `${RANGES[key].label} must be between ${min} and ${max}`;
+    return null;
+  }
+
   useEffect(() => {
     load();
   }, [patientId]);
@@ -119,6 +144,22 @@ export default function PediatricDetailPage() {
         "Enter at least one measurement (weight, height, or head circumference)."
       );
       return;
+    }
+    // Issue #435: enforce WHO range guards client-side. The server still
+    // re-validates (defence-in-depth) but rejecting here means the toast is
+    // immediate and the chart never plots a -3 kg / 999 cm point.
+    const rangeChecks: Array<[keyof typeof RANGES, string]> = [
+      ["ageMonths", form.ageMonths],
+      ["weightKg", form.weightKg],
+      ["heightCm", form.heightCm],
+      ["headCircumference", form.headCircumference],
+    ];
+    for (const [key, raw] of rangeChecks) {
+      const err = rangeError(raw, key);
+      if (err) {
+        toast.error(err);
+        return;
+      }
     }
     try {
       await api.post("/growth", {
@@ -344,7 +385,9 @@ export default function PediatricDetailPage() {
               <input
                 type="number"
                 required
-                min={0}
+                min={RANGES.ageMonths.min}
+                max={RANGES.ageMonths.max}
+                data-testid="growth-age-months"
                 value={form.ageMonths}
                 onChange={(e) => setForm({ ...form, ageMonths: e.target.value })}
                 className="w-full rounded border px-2 py-1.5 text-sm"
@@ -355,6 +398,9 @@ export default function PediatricDetailPage() {
               <input
                 type="number"
                 step="0.01"
+                min={RANGES.weightKg.min}
+                max={RANGES.weightKg.max}
+                data-testid="growth-weight-kg"
                 value={form.weightKg}
                 onChange={(e) => setForm({ ...form, weightKg: e.target.value })}
                 className="w-full rounded border px-2 py-1.5 text-sm"
@@ -365,6 +411,9 @@ export default function PediatricDetailPage() {
               <input
                 type="number"
                 step="0.1"
+                min={RANGES.heightCm.min}
+                max={RANGES.heightCm.max}
+                data-testid="growth-height-cm"
                 value={form.heightCm}
                 onChange={(e) => setForm({ ...form, heightCm: e.target.value })}
                 className="w-full rounded border px-2 py-1.5 text-sm"
@@ -377,6 +426,9 @@ export default function PediatricDetailPage() {
               <input
                 type="number"
                 step="0.1"
+                min={RANGES.headCircumference.min}
+                max={RANGES.headCircumference.max}
+                data-testid="growth-head-circ"
                 value={form.headCircumference}
                 onChange={(e) =>
                   setForm({ ...form, headCircumference: e.target.value })

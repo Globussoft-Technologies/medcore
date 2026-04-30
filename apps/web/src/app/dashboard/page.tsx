@@ -10,6 +10,9 @@ import { api } from "@/lib/api";
 import { getBedSummary } from "@/lib/bed-summary";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { formatINR } from "@/lib/currency";
+// Issue #438 (Apr 30 2026): canonical `DD MMM YYYY` everywhere — kills the
+// DD/MM vs MM/DD inconsistency between the lab/bills/Rx cards.
+import { formatDate } from "@/lib/format";
 import { getSocket } from "@/lib/socket";
 import { SkeletonCard } from "@/components/Skeleton";
 import {
@@ -1093,8 +1096,8 @@ function PatientHome() {
                       {formatINR(b.totalAmount || 0)}
                     </p>
                     <p className="truncate text-[11px] text-gray-500">
-                      #{b.invoiceNumber} ·{" "}
-                      {new Date(b.createdAt).toLocaleDateString()}
+                      {/* Issue #438: shared `DD MMM YYYY` formatter. */}
+                      #{b.invoiceNumber} · {formatDate(b.createdAt)}
                     </p>
                   </div>
                   <Link
@@ -1138,8 +1141,9 @@ function PatientHome() {
                       {p.diagnosis}
                     </p>
                     <p className="truncate text-[11px] text-gray-500">
+                      {/* Issue #438: shared `DD MMM YYYY` formatter. */}
                       {p.doctor?.user?.name ? formatDoctorName(p.doctor.user.name) : "—"} ·{" "}
-                      {new Date(p.createdAt).toLocaleDateString()}
+                      {formatDate(p.createdAt)}
                     </p>
                   </div>
                   <div className="flex gap-1">
@@ -1196,7 +1200,8 @@ function PatientHome() {
                       Order #{l.orderNumber}
                     </p>
                     <p className="truncate text-[11px] text-gray-500">
-                      {new Date(l.orderedAt).toLocaleDateString()} ·{" "}
+                      {/* Issue #438: shared `DD MMM YYYY` formatter. */}
+                      {formatDate(l.orderedAt)} ·{" "}
                       {l.items?.length || 0} test
                       {l.items?.length === 1 ? "" : "s"}
                     </p>

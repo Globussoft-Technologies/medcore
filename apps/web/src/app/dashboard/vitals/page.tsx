@@ -159,12 +159,19 @@ export default function VitalsPage() {
   // ── Issue #91: client-side range validation (mirrors API) ─────────────
   const tempBounds =
     form.temperatureUnit === "C" ? RANGE.temperatureC : RANGE.temperatureF;
+  // Issue #419 — give temperature a single canonical error string regardless
+  // of unit so QA / regression tests can assert one message; the °F vs °C
+  // bounds still differ but the user-visible copy is uniform.
+  const tempRangeMessage =
+    form.temperature && rangeError(form.temperature, tempBounds)
+      ? "Temperature out of physiological range"
+      : "";
   const clientErrors: FieldErrorMap = {
     bloodPressureSystolic:
       rangeError(form.bloodPressureSystolic, RANGE.bloodPressureSystolic, true) ?? "",
     bloodPressureDiastolic:
       rangeError(form.bloodPressureDiastolic, RANGE.bloodPressureDiastolic, true) ?? "",
-    temperature: rangeError(form.temperature, tempBounds) ?? "",
+    temperature: tempRangeMessage,
     pulseRate: rangeError(form.pulseRate, RANGE.pulseRate, true) ?? "",
     spO2: rangeError(form.spO2, RANGE.spO2, true) ?? "",
     weight: rangeError(form.weight, RANGE.weight) ?? "",

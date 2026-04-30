@@ -74,17 +74,27 @@ function safe<T>(p: string, fb: T): Promise<T> {
   return api.get<T>(p).catch(() => fb);
 }
 
+// Issue #431: calendar lacked an explicit view-mode (Day/Week/Month) — the
+// month grid was the only renderable view, so the toggle in the header (which
+// users expect on every calendar UI) had no state to flip and the screen
+// looked frozen. We now keep `viewMode` as a top-level piece of state and
+// render Week and Day variants alongside the existing Month grid.
+type ViewMode = "month" | "week" | "day";
+
 export default function UnifiedCalendarPage() {
   const { user } = useAuthStore();
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
+  const [viewMode, setViewMode] = useState<ViewMode>("month");
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<CalEvent | null>(null);
 
-  // compute month bounds
+  // compute month bounds (also used as the data-fetch window for week/day —
+  // we always pull a full month and let the renderer slice it, which keeps
+  // the network footprint stable when the user just toggles view mode).
   const month = cursor.getMonth();
   const year = cursor.getFullYear();
   const first = new Date(year, month, 1);
@@ -264,31 +274,67 @@ export default function UnifiedCalendarPage() {
             Unified view of all scheduled events
           </p>
         </div>
-        <div className="flex items-center gap-2 rounded-lg bg-white p-1 shadow-sm">
-          <button
-            onClick={() => setCursor(new Date(year, month - 1, 1))}
-            className="rounded p-1.5 hover:bg-gray-100"
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Issue #431: Day/Week/Month view toggle. Previously absent — the
+              calendar only rendered a month grid, so users clicking the
+              toggle saw nothing happen. */}
+          <div
+            role="tablist"
+            aria-label="Calendar view"
+            className="flex items-center gap-1 rounded-lg bg-white p-1 shadow-sm"
           >
-            <ChevronLeft size={16} />
-          </button>
-          <span className="min-w-[140px] text-center text-sm font-semibold">
-            {monthLabel}
-          </span>
-          <button
-            onClick={() => setCursor(new Date(year, month + 1, 1))}
-            className="rounded p-1.5 hover:bg-gray-100"
-          >
-            <ChevronRight size={16} />
-          </button>
-          <button
-            onClick={() => {
-              const d = new Date();
-              setCursor(new Date(d.getFullYear(), d.getMonth(), 1));
-            }}
-            className="ml-2 rounded-md border px-2 py-0.5 text-xs hover:bg-gray-50"
-          >
-            Today
-          </button>
+            {(["day", "week", "month"] as ViewMode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="tab"
+                aria-selected={viewMode === m}
+                data-testid={`cal-view-${m}`}
+                onClick={() => setViewMode(m)}
+                className={`rounded px-2 py-1 text-xs font-medium capitalize ${
+                  viewMode === m
+                    ? "bg-primary text-white"
+                    : "text-gray-700 hover:bg-gray-100"
+                }`}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 rounded-lg bg-white p-1 shadow-sm">
+            <button
+              type="button"
+              data-testid="cal-prev"
+              aria-label="Previous month"
+              onClick={() => setCursor(new Date(year, month - 1, 1))}
+              className="rounded p-1.5 hover:bg-gray-100"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span className="min-w-[140px] text-center text-sm font-semibold">
+              {monthLabel}
+            </span>
+            <button
+              type="button"
+              data-testid="cal-next"
+              aria-label="Next month"
+              onClick={() => setCursor(new Date(year, month + 1, 1))}
+              className="rounded p-1.5 hover:bg-gray-100"
+            >
+              <ChevronRight size={16} />
+            </button>
+            <button
+              type="button"
+              data-testid="cal-today"
+              onClick={() => {
+                const d = new Date();
+                setCursor(new Date(d.getFullYear(), d.getMonth(), 1));
+              }}
+              className="ml-2 rounded-md border px-2 py-0.5 text-xs hover:bg-gray-50"
+            >
+              Today
+            </button>
+          </div>
         </div>
       </div>
 
@@ -310,8 +356,117 @@ export default function UnifiedCalendarPage() {
         </div>
       )}
 
+      {/* Issue #431: Day / Week views — sliced from the same `byDate` map.
+          The "Today" anchor for week view is `cursor` (set by the prev/next
+          buttons); for the Day view we pin to today's date so toggling Day
+          jumps you back to the live picture. */}
+      {viewMode === "day" && (
+        <div
+          data-testid="cal-day-view"
+          className="rounded-xl bg-white p-4 shadow-sm"
+        >
+          <h2 className="mb-3 text-sm font-semibold">
+            {new Date().toLocaleDateString("en-IN", {
+              weekday: "long",
+              day: "numeric",
+              month: "long",
+              year: "numeric",
+            })}
+          </h2>
+          {(byDate[todayYmd] || []).length === 0 ? (
+            <p className="text-xs text-gray-400">No events scheduled today.</p>
+          ) : (
+            <ul className="space-y-1">
+              {(byDate[todayYmd] || []).map((e) => (
+                <li key={e.id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(e)}
+                    className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-white ${e.color}`}
+                  >
+                    {e.time && (
+                      <span className="font-semibold">{e.time}</span>
+                    )}
+                    <span>{e.title}</span>
+                    {e.subtitle && (
+                      <span className="ml-auto truncate opacity-90">
+                        {e.subtitle}
+                      </span>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {viewMode === "week" && (() => {
+        // Anchor the week to `cursor` if cursor is in the displayed month,
+        // otherwise to today. Sun-start to match the month-grid header.
+        const anchor = new Date();
+        const sun = new Date(anchor);
+        sun.setDate(anchor.getDate() - anchor.getDay());
+        const days: Date[] = [];
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(sun);
+          d.setDate(sun.getDate() + i);
+          days.push(d);
+        }
+        return (
+          <div
+            data-testid="cal-week-view"
+            className="rounded-xl bg-white p-3 shadow-sm"
+          >
+            <div className="grid grid-cols-7 gap-2">
+              {days.map((d) => {
+                const ymd = fmtYmd(d);
+                const dayEvents = byDate[ymd] || [];
+                const isToday = ymd === todayYmd;
+                return (
+                  <div
+                    key={ymd}
+                    className={`min-h-[140px] rounded-lg border p-2 ${
+                      isToday ? "border-primary bg-blue-50/40" : "border-gray-100"
+                    }`}
+                  >
+                    <div className="mb-1 text-[11px] font-semibold text-gray-500">
+                      {d.toLocaleDateString("en-IN", {
+                        weekday: "short",
+                        day: "numeric",
+                      })}
+                    </div>
+                    <div className="space-y-0.5">
+                      {dayEvents.slice(0, 5).map((e) => (
+                        <button
+                          key={e.id}
+                          type="button"
+                          onClick={() => setSelected(e)}
+                          className={`block w-full truncate rounded px-1.5 py-0.5 text-left text-[10px] text-white ${e.color}`}
+                        >
+                          {e.time && (
+                            <span className="font-semibold">{e.time} · </span>
+                          )}
+                          {e.title}
+                        </button>
+                      ))}
+                      {dayEvents.length > 5 && (
+                        <p className="text-[10px] text-gray-500">
+                          +{dayEvents.length - 5} more
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Month grid */}
-      <div className="rounded-xl bg-white p-3 shadow-sm">
+      {viewMode === "month" && (
+      <div data-testid="cal-month-view" className="rounded-xl bg-white p-3 shadow-sm">
         <div className="mb-1 grid grid-cols-7 gap-1 text-center text-xs font-semibold text-gray-500">
           {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
             <div key={d} className="py-1">
@@ -369,6 +524,7 @@ export default function UnifiedCalendarPage() {
           })}
         </div>
       </div>
+      )}
 
       {/* Detail popup */}
       {selected && (

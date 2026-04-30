@@ -400,6 +400,21 @@ router.patch(
 // INVENTORY
 // ───────────────────────────────────────────────────────
 
+/**
+ * Issue #429 (Apr 30 2026) — Helper that flags whether a unit is past its
+ * `expiresAt`. The route enriches each row with this so the UI can render a
+ * red badge without recomputing the same condition in two places.
+ */
+export function isExpired(unit: { expiresAt?: Date | string | null }): boolean {
+  if (!unit.expiresAt) return false;
+  const t =
+    unit.expiresAt instanceof Date
+      ? unit.expiresAt.getTime()
+      : new Date(unit.expiresAt).getTime();
+  if (Number.isNaN(t)) return false;
+  return t < Date.now();
+}
+
 router.get(
   "/inventory",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -408,6 +423,11 @@ router.get(
         bloodGroup,
         component,
         status,
+        // Issue #429: callers can opt into / out of expired units. Default
+        // is `excludeExpired=true` so transfusion-issuance flows never see a
+        // unit whose expiresAt is already in the past.
+        excludeExpired = "true",
+        expired,
         page = "1",
         limit = "50",
       } = req.query as Record<string, string | undefined>;
@@ -420,6 +440,17 @@ router.get(
       if (component) where.component = component;
       if (status) where.status = status;
 
+      // Issue #429 expired-unit filter:
+      //  - `expired=true`  → only past-expiry rows (audit / disposal view).
+      //  - `excludeExpired=false` → include past-expiry rows.
+      //  - default → exclude past-expiry rows.
+      const now = new Date();
+      if (expired === "true") {
+        where.expiresAt = { lt: now };
+      } else if (excludeExpired !== "false") {
+        where.expiresAt = { gte: now };
+      }
+
       const [units, total] = await Promise.all([
         prisma.bloodUnit.findMany({
           where,
@@ -431,9 +462,13 @@ router.get(
         prisma.bloodUnit.count({ where }),
       ]);
 
+      // Issue #429: tag rows with `isExpired` so the inventory UI can paint
+      // a warning badge without recomputing the comparison client-side.
+      const enriched = units.map((u) => ({ ...u, isExpired: isExpired(u) }));
+
       res.json({
         success: true,
-        data: units,
+        data: enriched,
         error: null,
         meta: { page: parseInt(page || "1"), limit: take, total },
       });

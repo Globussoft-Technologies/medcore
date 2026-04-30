@@ -81,6 +81,13 @@ function startErrorMessage(err: unknown): string {
 
 type Tab = "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
 
+// Issue #436 (Apr 30 2026): nurse view of surgery schedule was a flat list
+// with no date filter, no status filter beyond the four tabs, and no
+// sortable column headers. Add a client-side sort key and direction so the
+// nurse can scan by start time / case # / patient / surgeon.
+type SortKey = "scheduledAt" | "caseNumber" | "patient" | "surgeon" | "status";
+type SortDir = "asc" | "desc";
+
 const STATUS_COLORS: Record<string, string> = {
   SCHEDULED: "bg-blue-100 text-blue-700",
   IN_PROGRESS: "bg-yellow-100 text-yellow-700",
@@ -112,6 +119,20 @@ export default function SurgeryPage() {
   const [tab, setTab] = useState<Tab>("SCHEDULED");
   const [showCreate, setShowCreate] = useState(false);
 
+  // Issue #436: filter + sort state. Default `from` to today (00:00) and
+  // `to` empty so the nurse view collapses to today + future, which is the
+  // common theatre-nursing case. Sort defaults to scheduledAt ASC for the
+  // SCHEDULED tab (next-up first), and DESC for completed/cancelled
+  // (most-recent first).
+  const [fromDate, setFromDate] = useState<string>(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d.toISOString().slice(0, 10);
+  });
+  const [toDate, setToDate] = useState<string>("");
+  const [sortKey, setSortKey] = useState<SortKey>("scheduledAt");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
   // Form
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [ots, setOts] = useState<OT[]>([]);
@@ -142,19 +163,93 @@ export default function SurgeryPage() {
   const loadSurgeries = useCallback(async () => {
     setLoading(true);
     try {
+      // Issue #436: pass `from`/`to` through to the API so the server does
+      // the date scoping (the route already supports it — see
+      // GET /api/v1/surgery in apps/api/src/routes/surgery.ts).
+      const params = new URLSearchParams({
+        status: tab,
+        limit: "100",
+      });
+      if (fromDate) {
+        params.set("from", new Date(`${fromDate}T00:00:00`).toISOString());
+      }
+      if (toDate) {
+        params.set("to", new Date(`${toDate}T23:59:59`).toISOString());
+      }
       const res = await api.get<{ data: Surgery[] }>(
-        `/surgery?status=${tab}&limit=100`
+        `/surgery?${params.toString()}`
       );
       setSurgeries(res.data);
     } catch {
       setSurgeries([]);
     }
     setLoading(false);
-  }, [tab]);
+  }, [tab, fromDate, toDate]);
 
   useEffect(() => {
     loadSurgeries();
   }, [loadSurgeries]);
+
+  // Issue #436: when the tab changes, flip the default sort direction so
+  // future-facing tabs (SCHEDULED, IN_PROGRESS) lead with "next up first"
+  // and historical tabs (COMPLETED, CANCELLED) lead with "most recent first".
+  // We only reset when the user hasn't explicitly clicked a sort header for
+  // this tab — but tracking that is over-engineering, so we just reset to
+  // scheduledAt + the natural direction on every tab switch.
+  useEffect(() => {
+    setSortKey("scheduledAt");
+    setSortDir(tab === "SCHEDULED" || tab === "IN_PROGRESS" ? "asc" : "desc");
+  }, [tab]);
+
+  // Issue #436: pure client-side sort over the loaded page. We cap at 100
+  // rows server-side so a stable in-memory sort is fine.
+  const sortedSurgeries = (() => {
+    const copy = [...surgeries];
+    copy.sort((a, b) => {
+      let av: string | number = "";
+      let bv: string | number = "";
+      switch (sortKey) {
+        case "scheduledAt":
+          av = new Date(a.scheduledAt).getTime();
+          bv = new Date(b.scheduledAt).getTime();
+          break;
+        case "caseNumber":
+          av = a.caseNumber || "";
+          bv = b.caseNumber || "";
+          break;
+        case "patient":
+          av = a.patient.user.name || "";
+          bv = b.patient.user.name || "";
+          break;
+        case "surgeon":
+          av = a.surgeon.user.name || "";
+          bv = b.surgeon.user.name || "";
+          break;
+        case "status":
+          av = effectiveStatus(a);
+          bv = effectiveStatus(b);
+          break;
+      }
+      if (av < bv) return sortDir === "asc" ? -1 : 1;
+      if (av > bv) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return copy;
+  })();
+
+  function toggleSort(k: SortKey) {
+    if (sortKey === k) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(k);
+      setSortDir("asc");
+    }
+  }
+
+  function sortIndicator(k: SortKey): string {
+    if (sortKey !== k) return "";
+    return sortDir === "asc" ? " ↑" : " ↓";
+  }
 
   useEffect(() => {
     if (showCreate) {
@@ -349,10 +444,70 @@ export default function SurgeryPage() {
         </button>
       </div>
 
+      {/* Issue #436: nurse-usable date filter row. Placing this under the
+          status tabs (and not in the modal) lets theatre nursing collapse
+          the schedule to "today" or "this week" without opening a form. */}
+      <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+            From
+          </label>
+          <input
+            type="date"
+            data-testid="surgery-filter-from"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            className="rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-900"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+            To
+          </label>
+          <input
+            type="date"
+            data-testid="surgery-filter-to"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+            className="rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-900"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            const d = new Date();
+            d.setHours(0, 0, 0, 0);
+            setFromDate(d.toISOString().slice(0, 10));
+            setToDate(d.toISOString().slice(0, 10));
+          }}
+          className="rounded-lg border border-gray-300 px-3 py-1 text-xs hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
+          data-testid="surgery-filter-today"
+        >
+          Today
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setFromDate("");
+            setToDate("");
+          }}
+          className="rounded-lg border border-gray-300 px-3 py-1 text-xs hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
+          data-testid="surgery-filter-clear"
+        >
+          Clear dates
+        </button>
+        <span
+          className="ml-auto text-xs text-gray-500 dark:text-gray-400"
+          data-testid="surgery-result-count"
+        >
+          {sortedSurgeries.length} result{sortedSurgeries.length === 1 ? "" : "s"}
+        </span>
+      </div>
+
       <div className="rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         {loading ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
-        ) : surgeries.length === 0 ? (
+        ) : sortedSurgeries.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             <Scissors size={32} className="mx-auto mb-2 text-gray-300 dark:text-gray-600" />
             No surgeries in this state.
@@ -361,19 +516,67 @@ export default function SurgeryPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                <th className="px-4 py-3">Case #</th>
-                <th className="px-4 py-3">Patient</th>
-                <th className="px-4 py-3">Surgeon</th>
+                {/* Issue #436: click-to-sort headers. Each clickable column
+                    is rendered as a button so it's keyboard accessible and
+                    announces a role-presentation to screen readers. */}
+                <th className="px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("caseNumber")}
+                    data-testid="surgery-sort-caseNumber"
+                    className="font-medium hover:text-gray-700 dark:hover:text-gray-200"
+                  >
+                    Case #{sortIndicator("caseNumber")}
+                  </button>
+                </th>
+                <th className="px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("patient")}
+                    data-testid="surgery-sort-patient"
+                    className="font-medium hover:text-gray-700 dark:hover:text-gray-200"
+                  >
+                    Patient{sortIndicator("patient")}
+                  </button>
+                </th>
+                <th className="px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("surgeon")}
+                    data-testid="surgery-sort-surgeon"
+                    className="font-medium hover:text-gray-700 dark:hover:text-gray-200"
+                  >
+                    Surgeon{sortIndicator("surgeon")}
+                  </button>
+                </th>
                 <th className="px-4 py-3">OT</th>
                 <th className="px-4 py-3">Procedure</th>
-                <th className="px-4 py-3">Scheduled</th>
+                <th className="px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("scheduledAt")}
+                    data-testid="surgery-sort-scheduledAt"
+                    className="font-medium hover:text-gray-700 dark:hover:text-gray-200"
+                  >
+                    Scheduled{sortIndicator("scheduledAt")}
+                  </button>
+                </th>
                 <th className="px-4 py-3">Duration</th>
-                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("status")}
+                    data-testid="surgery-sort-status"
+                    className="font-medium hover:text-gray-700 dark:hover:text-gray-200"
+                  >
+                    Status{sortIndicator("status")}
+                  </button>
+                </th>
                 <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {surgeries.map((s) => {
+              {sortedSurgeries.map((s) => {
                 const effective = effectiveStatus(s);
                 return (
                   <tr key={s.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">

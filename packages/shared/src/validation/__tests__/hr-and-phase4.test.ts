@@ -6,7 +6,11 @@ import {
   triageSchema,
   updateEmergencyStatusSchema,
 } from "../phase4-clinical";
-import { createAncCaseSchema } from "../phase4-specialty";
+import {
+  createAncCaseSchema,
+  createAncVisitSchema,
+  createGrowthRecordSchema,
+} from "../phase4-specialty";
 import {
   createDonorSchema,
   createDonationSchema,
@@ -365,6 +369,131 @@ describe("createAncCaseSchema", () => {
   });
 });
 
+// Issue #423 (Apr 2026): the visit form used to accept a click-Save with
+// nothing filled in, polluting the antenatal timeline with empty rows.
+// Both the web form and the schema now refuse the submission unless at
+// least one clinical observation OR a free-form note is supplied.
+describe("createAncVisitSchema", () => {
+  it("rejects a totally empty visit (no observations, no notes)", () => {
+    const res = createAncVisitSchema.safeParse({
+      ancCaseId: UUID,
+      type: "ROUTINE",
+    });
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.error.issues.some((i) => /at least one observation/i.test(i.message))).toBe(true);
+    }
+  });
+  it("accepts a visit with just notes", () => {
+    expect(
+      createAncVisitSchema.safeParse({
+        ancCaseId: UUID,
+        type: "ROUTINE",
+        notes: "Patient reports nausea, advised antacids.",
+      }).success
+    ).toBe(true);
+  });
+  it("accepts a visit with vitals only", () => {
+    expect(
+      createAncVisitSchema.safeParse({
+        ancCaseId: UUID,
+        type: "ROUTINE",
+        bloodPressure: "120/80",
+        weight: 62.5,
+      }).success
+    ).toBe(true);
+  });
+  it("rejects a visit with only whitespace strings (still effectively empty)", () => {
+    expect(
+      createAncVisitSchema.safeParse({
+        ancCaseId: UUID,
+        type: "ROUTINE",
+        notes: "   ",
+        bloodPressure: " ",
+      }).success
+    ).toBe(false);
+  });
+});
+
+// Issue #435 (Apr 30 2026): the pediatric growth measurement form used to
+// accept impossible weight / height / head-circumference values (negative,
+// zero, absurdly large). The schema now enforces the WHO p3-p97 envelope
+// plus a defensive margin, so the percentile chart never plots nonsense.
+describe("createGrowthRecordSchema (Issue #435)", () => {
+  const base = {
+    patientId: UUID,
+    ageMonths: 12,
+  };
+  it("accepts a clinically reasonable measurement", () => {
+    expect(
+      createGrowthRecordSchema.safeParse({
+        ...base,
+        weightKg: 9.4,
+        heightCm: 76,
+        headCircumference: 46,
+      }).success
+    ).toBe(true);
+  });
+  it("rejects negative weight", () => {
+    expect(
+      createGrowthRecordSchema.safeParse({ ...base, weightKg: -3 }).success
+    ).toBe(false);
+  });
+  it("rejects weight above 200 kg", () => {
+    expect(
+      createGrowthRecordSchema.safeParse({ ...base, weightKg: 250 }).success
+    ).toBe(false);
+  });
+  it("rejects height below 30 cm or above 220 cm", () => {
+    expect(
+      createGrowthRecordSchema.safeParse({ ...base, heightCm: 10 }).success
+    ).toBe(false);
+    expect(
+      createGrowthRecordSchema.safeParse({ ...base, heightCm: 999 }).success
+    ).toBe(false);
+  });
+  it("rejects negative or absurdly large head circumference", () => {
+    expect(
+      createGrowthRecordSchema.safeParse({
+        ...base,
+        headCircumference: -15,
+      }).success
+    ).toBe(false);
+    expect(
+      createGrowthRecordSchema.safeParse({
+        ...base,
+        headCircumference: 100,
+      }).success
+    ).toBe(false);
+  });
+  it("rejects ageMonths > 240 (over 20 years)", () => {
+    expect(
+      createGrowthRecordSchema.safeParse({
+        patientId: UUID,
+        ageMonths: 999,
+      }).success
+    ).toBe(false);
+  });
+  it("accepts the exact WHO envelope edges", () => {
+    expect(
+      createGrowthRecordSchema.safeParse({
+        ...base,
+        weightKg: 0.5,
+        heightCm: 30,
+        headCircumference: 25,
+      }).success
+    ).toBe(true);
+    expect(
+      createGrowthRecordSchema.safeParse({
+        ...base,
+        weightKg: 200,
+        heightCm: 220,
+        headCircumference: 65,
+      }).success
+    ).toBe(true);
+  });
+});
+
 describe("createDonorSchema", () => {
   it("accepts a valid donor", () => {
     expect(
@@ -383,6 +512,44 @@ describe("createDonorSchema", () => {
         phone: "9000000000",
         bloodGroup: "ZZ" as any,
         gender: "MALE",
+      }).success
+    ).toBe(false);
+  });
+  // Issue #428 (Apr 30 2026): explicit guard rails on the previously-loose
+  // donor schema. Empty / negative / future-dated values must be rejected.
+  it("rejects garbage donor values per #428", () => {
+    const future = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    // empty name + bad phone + future last-donation date — should fail.
+    expect(
+      createDonorSchema.safeParse({
+        name: "",
+        phone: "abc",
+        bloodGroup: "O_POS",
+        gender: "MALE",
+        lastDonation: future,
+      }).success
+    ).toBe(false);
+    // weight below 50 kg — must fail.
+    expect(
+      createDonorSchema.safeParse({
+        name: "Donor Joe",
+        phone: "9000000000",
+        bloodGroup: "O_POS",
+        gender: "MALE",
+        weight: 40,
+      }).success
+    ).toBe(false);
+    // age outside 17-65 — must fail (DOB making donor 10 yrs old).
+    const tenYrs = new Date(Date.now() - 10 * 365.25 * 86400000)
+      .toISOString()
+      .slice(0, 10);
+    expect(
+      createDonorSchema.safeParse({
+        name: "Donor Joe",
+        phone: "9000000000",
+        bloodGroup: "O_POS",
+        gender: "MALE",
+        dateOfBirth: tenYrs,
       }).success
     ).toBe(false);
   });

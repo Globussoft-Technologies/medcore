@@ -50,6 +50,13 @@ export default function PatientsPage() {
   const searchParams = useSearchParams();
   const [patients, setPatients] = useState<PatientRecord[]>([]);
   const [search, setSearch] = useState("");
+  // Issue #427: the API call must run against a *debounced* search term so
+  // typing a 5-character query doesn't fire 5 sequential `/patients?search=…`
+  // requests (and so each new keystroke doesn't replace the previous result
+  // set with a partial-match list mid-type, making the table appear "stuck").
+  // We keep `search` as the immediate-value bound to the input and derive
+  // `debouncedSearch` 250 ms later — that's the value the effect listens to.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [loading, setLoading] = useState(true);
 
   // Issue #382: redirect non-staff (PATIENT, etc.) away before any data fetch.
@@ -79,15 +86,24 @@ export default function PatientsPage() {
   const [total, setTotal] = useState(0);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
+  // Issue #427: 250 ms debounce — short enough to feel real-time while
+  // skipping the burst of in-flight requests during a fast typist's input.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 250);
+    return () => clearTimeout(t);
+  }, [search]);
+
   useEffect(() => {
     loadPatients();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search]);
+  }, [debouncedSearch]);
 
   async function loadPatients() {
     setLoading(true);
     try {
-      const q = search ? `&search=${encodeURIComponent(search)}` : "";
+      const q = debouncedSearch
+        ? `&search=${encodeURIComponent(debouncedSearch)}`
+        : "";
       const res = await api.get<{ data: PatientRecord[]; meta: { total: number } }>(
         `/patients?limit=50${q}`
       );
@@ -459,6 +475,7 @@ export default function PatientsPage() {
         </label>
         <input
           id="patient-search"
+          data-testid="patient-search"
           placeholder={t("dashboard.patients.searchPlaceholder")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}

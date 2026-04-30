@@ -4,6 +4,11 @@ const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     inventoryItem: { findMany: vi.fn(), findUnique: vi.fn() },
     stockMovement: { findMany: vi.fn() },
+    // Issue #215 (Apr 30 2026): forecast falls back to prescription history
+    // when stock-movement history is empty. Tests that don't seed an Rx
+    // fallback explicitly should still see those queries return empty.
+    medicine: { findMany: vi.fn().mockResolvedValue([]) },
+    prescriptionItem: { findMany: vi.fn().mockResolvedValue([]) },
   } as any,
 }));
 
@@ -34,6 +39,8 @@ beforeEach(() => {
   prismaMock.inventoryItem.findMany.mockReset();
   prismaMock.inventoryItem.findUnique.mockReset();
   prismaMock.stockMovement.findMany.mockReset();
+  prismaMock.medicine.findMany.mockReset().mockResolvedValue([]);
+  prismaMock.prescriptionItem.findMany.mockReset().mockResolvedValue([]);
 });
 
 describe("buildDailySeries", () => {
@@ -168,6 +175,49 @@ describe("forecastInventory", () => {
 
     const out = await forecastInventory(30);
     expect(out[0].method).toBe("fallback-mean");
+  });
+
+  // Issue #215 (Apr 30 2026)
+  it("falls back to prescription history when stock movements are empty", async () => {
+    const medId = "med-paracetamol";
+    prismaMock.inventoryItem.findMany.mockResolvedValueOnce([
+      {
+        id: "it-para",
+        quantity: 50,
+        medicineId: medId,
+        medicine: { name: "Paracetamol 500mg" },
+      },
+    ]);
+    // No stock movements → forecast must use the Rx fallback.
+    prismaMock.stockMovement.findMany.mockResolvedValueOnce([]);
+    prismaMock.medicine.findMany.mockResolvedValueOnce([
+      { id: medId, name: "Paracetamol 500mg", genericName: "Paracetamol" },
+    ]);
+    // Generate ~3 units/day across the last 90 days via prescriptions.
+    const rxItems: any[] = [];
+    const now = new Date();
+    for (let d = 0; d < 90; d++) {
+      const when = new Date(now);
+      when.setDate(when.getDate() - d);
+      // 3 prescriptions per day × duration "1" → 3 units/day demand.
+      for (let k = 0; k < 3; k++) {
+        rxItems.push({
+          medicineName: "Paracetamol 500mg",
+          duration: "1",
+          prescription: { createdAt: when },
+        });
+      }
+    }
+    prismaMock.prescriptionItem.findMany.mockResolvedValueOnce(rxItems);
+
+    const out = await forecastInventory(30);
+    expect(out.length).toBe(1);
+    const f = out[0];
+    expect(f.medicineName).toBe("Paracetamol 500mg");
+    expect(f.avgDailyConsumption).toBeGreaterThan(0);
+    expect(f.predictedConsumption7d).toBeGreaterThan(0);
+    expect(f.predictedConsumption30d).toBeGreaterThan(0);
+    expect(f.daysOfStockLeft).toBeLessThan(9999);
   });
 });
 

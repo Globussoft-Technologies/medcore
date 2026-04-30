@@ -1021,7 +1021,18 @@ router.get(
   "/returns",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { reason, from, to } = req.query as Record<string, string | undefined>;
+      // Issue #367 (Apr 30 2026): pagination. The list previously fetched
+      // every return ever recorded (no LIMIT), which timed out as the
+      // table grew past a few thousand rows. Capped at 100 by default,
+      // 200 max — the UI auto-refreshes on tab focus so newer rows show
+      // up without a manual reload.
+      const {
+        reason,
+        from,
+        to,
+        page = "1",
+        limit = "100",
+      } = req.query as Record<string, string | undefined>;
       const where: Record<string, unknown> = {};
       if (reason) where.reason = reason;
       if (from || to) {
@@ -1030,14 +1041,26 @@ router.get(
           ...(to ? { lte: new Date(to) } : {}),
         };
       }
-      const rows = await prisma.pharmacyReturn.findMany({
-        where,
-        orderBy: { createdAt: "desc" },
-        include: {
-          inventoryItem: { include: { medicine: true } },
-        },
+      const take = Math.min(parseInt(limit || "100"), 200);
+      const skip = (parseInt(page || "1") - 1) * take;
+      const [rows, total] = await Promise.all([
+        prisma.pharmacyReturn.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          include: {
+            inventoryItem: { include: { medicine: true } },
+          },
+          skip,
+          take,
+        }),
+        prisma.pharmacyReturn.count({ where }),
+      ]);
+      res.json({
+        success: true,
+        data: rows,
+        error: null,
+        meta: { page: parseInt(page || "1"), limit: take, total },
       });
-      res.json({ success: true, data: rows, error: null });
     } catch (err) {
       next(err);
     }
@@ -1125,14 +1148,30 @@ router.post(
 
 router.get(
   "/transfers",
-  async (_req: Request, res: Response, next: NextFunction) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const rows = await prisma.stockTransfer.findMany({
-        orderBy: { transferredAt: "desc" },
-        include: { inventoryItem: { include: { medicine: true } } },
-        take: 200,
+      // Issue #367 (Apr 30 2026): pagination + total count. Mirrors /returns.
+      const { page = "1", limit = "100" } = req.query as Record<
+        string,
+        string | undefined
+      >;
+      const take = Math.min(parseInt(limit || "100"), 200);
+      const skip = (parseInt(page || "1") - 1) * take;
+      const [rows, total] = await Promise.all([
+        prisma.stockTransfer.findMany({
+          orderBy: { transferredAt: "desc" },
+          include: { inventoryItem: { include: { medicine: true } } },
+          skip,
+          take,
+        }),
+        prisma.stockTransfer.count(),
+      ]);
+      res.json({
+        success: true,
+        data: rows,
+        error: null,
+        meta: { page: parseInt(page || "1"), limit: take, total },
       });
-      res.json({ success: true, data: rows, error: null });
     } catch (err) {
       next(err);
     }

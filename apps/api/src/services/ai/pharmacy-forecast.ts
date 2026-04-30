@@ -166,6 +166,95 @@ function clampNonNeg(n: number): number {
 }
 
 /**
+ * Issue #215 (Apr 30 2026) — when a hospital uses paper-tracked dispensing
+ * (or the seed populates prescriptions but never invokes the dispense
+ * endpoint), the `StockMovement` table holds zero outflow rows even though
+ * the patient-side prescription history is rich. Without a fallback the
+ * Holt-Winters fit collapses to the all-zero branch and every row in the
+ * Inventory Forecast page reads `0.00 / ∞ / 0 / OK`. We now derive a
+ * synthetic daily-consumption series from `Prescription`/`PrescriptionItem`
+ * rows when the dispensing-movement series is empty, so the forecast tracks
+ * actual prescriber demand.
+ *
+ * The mapping rules:
+ *   - Match `PrescriptionItem.medicineName` to `Medicine.name | genericName`
+ *     case-insensitively (same matcher the dispense endpoint uses).
+ *   - Bucket by `Prescription.createdAt` (the order date is the demand-date
+ *     proxy when there is no actual dispense).
+ *   - Quantity := numeric prefix of `duration` (matches dispense's qtyMatch),
+ *     defaulting to 1.
+ *   - Distribute the qty proportionally to the medicine's inventory items
+ *     by current on-hand stock so the per-batch series is non-zero.
+ */
+async function buildPrescriptionFallbackByItemId(
+  inventoryItems: Array<{ id: string; quantity: number; medicineId: string }>,
+  historyStart: Date,
+  now: Date
+): Promise<Map<string, Array<{ createdAt: Date; quantity: number; type: StockMovementType }>>> {
+  const byItem = new Map<
+    string,
+    Array<{ createdAt: Date; quantity: number; type: StockMovementType }>
+  >();
+  if (inventoryItems.length === 0) return byItem;
+
+  // Items grouped by medicineId so we can split a single Rx-line over batches.
+  const byMedicine = new Map<string, typeof inventoryItems>();
+  for (const it of inventoryItems) {
+    const list = byMedicine.get(it.medicineId) ?? [];
+    list.push(it);
+    byMedicine.set(it.medicineId, list);
+  }
+
+  // Pull all prescription items in window + their parent prescription's
+  // createdAt. We materialise the medicine-name lookup table once.
+  const medicines = await prisma.medicine.findMany({
+    where: { id: { in: Array.from(byMedicine.keys()) } },
+    select: { id: true, name: true, genericName: true },
+  });
+  const nameToMedId = new Map<string, string>();
+  for (const m of medicines) {
+    nameToMedId.set(m.name.toLowerCase(), m.id);
+    if (m.genericName) nameToMedId.set(m.genericName.toLowerCase(), m.id);
+  }
+
+  const rxItems = await prisma.prescriptionItem.findMany({
+    where: { prescription: { createdAt: { gte: historyStart, lte: now } } },
+    select: {
+      medicineName: true,
+      duration: true,
+      prescription: { select: { createdAt: true } },
+    },
+  });
+
+  for (const ri of rxItems) {
+    const medId = nameToMedId.get(ri.medicineName.toLowerCase());
+    if (!medId) continue;
+    const batches = byMedicine.get(medId);
+    if (!batches || batches.length === 0) continue;
+
+    const qtyMatch = ri.duration?.match(/(\d+)/);
+    const qty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
+    if (qty <= 0) continue;
+
+    const totalStock = batches.reduce((s, b) => s + Math.max(b.quantity, 1), 0);
+    for (const batch of batches) {
+      const share = Math.max(batch.quantity, 1) / totalStock;
+      const portion = qty * share;
+      if (portion <= 0) continue;
+      const list = byItem.get(batch.id) ?? [];
+      list.push({
+        createdAt: ri.prescription.createdAt,
+        quantity: portion,
+        type: StockMovementType.DISPENSED,
+      });
+      byItem.set(batch.id, list);
+    }
+  }
+
+  return byItem;
+}
+
+/**
  * Forecast pharmacy inventory demand for every inventory item using
  * Holt-Winters triple exponential smoothing with weekly seasonality.
  * Items with no stock and no consumption history are excluded.  The function
@@ -186,6 +275,13 @@ export async function forecastInventory(daysAhead = 30): Promise<ItemForecast[]>
     },
   });
 
+  // Issue #215: pre-compute the prescription-fallback map once (single
+  // round-trip) instead of re-running the join inside each item loop.
+  let prescriptionFallback: Map<
+    string,
+    Array<{ createdAt: Date; quantity: number; type: StockMovementType }>
+  > | null = null;
+
   const forecasts: ItemForecast[] = [];
 
   for (const item of items) {
@@ -201,7 +297,29 @@ export async function forecastInventory(daysAhead = 30): Promise<ItemForecast[]>
       select: { createdAt: true, quantity: true, type: true },
     });
 
-    const forecast = buildItemForecast(item, movements, daysAhead, now);
+    let effectiveMovements: Array<{
+      createdAt: Date | string;
+      quantity: number;
+      type: StockMovementType;
+    }> = movements;
+
+    // Issue #215: empty stock-movement history → fall back to prescriptions.
+    if (movements.length === 0) {
+      if (prescriptionFallback === null) {
+        prescriptionFallback = await buildPrescriptionFallbackByItemId(
+          items.map((i) => ({
+            id: i.id,
+            quantity: i.quantity,
+            medicineId: i.medicineId,
+          })),
+          historyStart,
+          now
+        ).catch(() => new Map());
+      }
+      effectiveMovements = prescriptionFallback.get(item.id) ?? [];
+    }
+
+    const forecast = buildItemForecast(item, effectiveMovements, daysAhead, now);
     if (forecast) forecasts.push(forecast);
   }
 

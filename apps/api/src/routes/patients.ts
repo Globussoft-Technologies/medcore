@@ -75,6 +75,26 @@ router.get(
   }
 );
 
+// Issue #331 (Apr 2026): the synthetic walk-in email placeholder must
+// never reach the frontend or notification stack. We strip it on the
+// way out — the schema requires a non-null value at write time, but
+// the API contract says "no email" should be observable as `null` so
+// the reception edit form, the CRM export, and the email channel all
+// see consistency. Matches both the new `noemail+...@medcore.invalid`
+// pattern and any pre-fix `patient_<n>@medcore.local` rows that were
+// already in the DB before this change shipped.
+const PLACEHOLDER_EMAIL_RE =
+  /^(?:noemail\+[^@]+@medcore\.invalid|patient_\d+@medcore\.local)$/i;
+function maskPlaceholderEmail<T extends { email?: string | null } | null | undefined>(
+  user: T,
+): T {
+  if (!user || typeof user.email !== "string") return user;
+  if (PLACEHOLDER_EMAIL_RE.test(user.email)) {
+    return { ...user, email: null } as T;
+  }
+  return user;
+}
+
 // GET /api/v1/patients/:id
 router.get(
   "/:id",
@@ -133,7 +153,13 @@ router.get(
 
       res.json({
         success: true,
-        data: { ...patient, appointments, vitals, prescriptions },
+        data: {
+          ...patient,
+          user: maskPlaceholderEmail(patient.user),
+          appointments,
+          vitals,
+          prescriptions,
+        },
         error: null,
       });
     } catch (err) {
@@ -194,12 +220,29 @@ router.post(
       const mrSeq = config ? parseInt(config.value) : 1;
       const mrNumber = `MR${String(mrSeq).padStart(6, "0")}`;
 
+      // Issue #331 (Apr 2026): the placeholder email
+      // `patient_<MR>@medcore.local` was leaking into appointment
+      // reminders and CRM exports — reception would open the chart,
+      // see a real-looking address, and assume it was something the
+      // patient supplied. We can't store NULL because the schema's
+      // `User.email` is non-null + `@unique`, so we keep the
+      // placeholder but switch to the `.invalid` reserved TLD (RFC
+      // 6761): every notification provider drops `.invalid` addresses
+      // immediately, and the format is unambiguously "not real" to any
+      // human reading the chart. The frontend hides anything matching
+      // this pattern from the email field on the patient detail page,
+      // so reception sees an empty field instead of a fabricated one.
+      // For phone we just pass through what reception typed — never
+      // invent one.
+      const trimmedEmail =
+        typeof data.email === "string" ? data.email.trim() : "";
+      const placeholderEmail = `noemail+${mrNumber}@medcore.invalid`;
       // Create user + patient in transaction
       const result = await prisma.$transaction(async (tx) => {
         const user = await tx.user.create({
           data: {
             name: data.name,
-            email: data.email || `patient_${mrSeq}@medcore.local`,
+            email: trimmedEmail || placeholderEmail,
             phone: data.phone,
             passwordHash: "", // walk-in patients may not need login
             role: "PATIENT",
@@ -971,6 +1014,24 @@ router.get(
       const now = new Date();
       const todayStr = now.toISOString().split("T")[0];
 
+      // Issue #330: previously totalVisits only counted COMPLETED +
+      // IN_CONSULTATION, so a freshly-registered walk-in (status BOOKED)
+      // showed Total Visits = 0 in the header KPI strip even though the
+      // "Last 90 Days" panel and the Recent Activity / Timeline both
+      // surfaced the same row as a visit. The two displays disagreed on
+      // the same screen.
+      //
+      // Align the count with what users (and the timeline) consider a
+      // visit: any real appointment, excluding only CANCELLED and
+      // NO_SHOW. The Last 90 Days panel derives from the same /history
+      // feed, so the two now agree by construction (Last 90 Days = a
+      // trailing-90-day subset of the same denominator).
+      const VISIT_STATUSES = [
+        "BOOKED",
+        "CHECKED_IN",
+        "IN_CONSULTATION",
+        "COMPLETED",
+      ] as const;
       const [
         totalVisits,
         lastVisit,
@@ -982,10 +1043,10 @@ router.get(
         currentAdmission,
       ] = await Promise.all([
         prisma.appointment.count({
-          where: { patientId, status: { in: ["COMPLETED", "IN_CONSULTATION"] } },
+          where: { patientId, status: { in: [...VISIT_STATUSES] } },
         }),
         prisma.appointment.findFirst({
-          where: { patientId, status: "COMPLETED" },
+          where: { patientId, status: { in: [...VISIT_STATUSES] } },
           orderBy: { date: "desc" },
           select: { date: true },
         }),

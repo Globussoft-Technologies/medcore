@@ -82,10 +82,22 @@ export const dischargeSchema = z.object({
   forceDischarge: z.boolean().optional(),
 });
 
+// Issue #433 (2026-04-30): I/O accepted negative volumes and unbounded values
+// (e.g. -500 mL, 99999 mL) which corrupted the running fluid balance.
+// Enforce 0–10000 mL per entry: the upper bound matches the largest plausible
+// per-event input (e.g. a 4-hour urinary catheter bag, a 2L IV infusion run).
+// Anything beyond is treated as a typo. The amount is always in mL — the
+// column name `amountMl` is the unit annotation. The clinical convention
+// across MedCore IPD is mL only; we don't support a separate "L" unit input.
+export const INTAKE_OUTPUT_VOLUME_MAX_ML = 10_000;
 export const intakeOutputSchema = z.object({
   admissionId: z.string().uuid(),
   type: z.enum(INTAKE_OUTPUT_TYPES),
-  amountMl: z.number().int().nonnegative(),
+  amountMl: z
+    .number()
+    .int("Volume must be a whole number of mL")
+    .nonnegative("Volume must be ≥ 0 mL")
+    .max(INTAKE_OUTPUT_VOLUME_MAX_ML, "Volume must be ≤ 10000 mL per entry"),
   description: z.string().optional(),
   notes: z.string().optional(),
 });

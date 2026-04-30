@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { Syringe } from "lucide-react";
@@ -26,22 +26,33 @@ export default function ImmunizationSchedulePage() {
   const [rows, setRows] = useState<ScheduleRow[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await api.get<{ data: ScheduleRow[] }>(
-        `/ehr/immunizations/schedule?filter=${filter}`
-      );
-      setRows(res.data);
-    } catch {
-      setRows([]);
-    }
-    setLoading(false);
-  }, [filter]);
-
+  // Issue #426 (Apr 2026): the filter sub-tabs were "stuck" in the wild —
+  // clicking Due this week / Due this month / Overdue updated the active
+  // chip but the underlying rows didn't refresh in some browsers. Root
+  // cause was a useCallback whose closure captured a stale `filter` value
+  // when React batched the state update with the effect deps. Rewriting
+  // load() to read filter directly inside the effect (instead of through
+  // a useCallback identity) sidesteps the stale-closure trap and removes
+  // the only reason this had to be a useCallback in the first place.
   useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      try {
+        const res = await api.get<{ data: ScheduleRow[] }>(
+          `/ehr/immunizations/schedule?filter=${filter}`
+        );
+        if (!cancelled) setRows(res.data);
+      } catch {
+        if (!cancelled) setRows([]);
+      }
+      if (!cancelled) setLoading(false);
+    }
     load();
-  }, [load]);
+    return () => {
+      cancelled = true;
+    };
+  }, [filter]);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -81,6 +92,8 @@ export default function ImmunizationSchedulePage() {
           <button
             key={f.key}
             onClick={() => setFilter(f.key)}
+            data-testid={`immunization-filter-${f.key}`}
+            data-active={filter === f.key ? "true" : "false"}
             className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${
               filter === f.key
                 ? "bg-primary text-white"

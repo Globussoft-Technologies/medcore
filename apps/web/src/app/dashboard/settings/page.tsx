@@ -24,6 +24,36 @@ import {
 
 type Tab = "profile" | "security" | "notifications" | "preferences";
 
+// Issue #437 (Apr 30 2026): Settings page exposed admin-only sections
+// (organization profile, user list, billing/integrations) to nurses, leaking
+// configuration even if API writes were rejected. Define a per-role allow
+// list so the tab list itself is filtered before render — server routes are
+// guarded separately. Nurse, Doctor, Reception, Patient see only personal
+// settings (profile / security / notifications / preferences). Admin sees
+// the full set; org/users/billing surfaces live on dedicated /admin-console
+// routes which are RBAC-gated independently — those tabs were never wired
+// in here, so the leak was actually that admin-only *future* sections were
+// being added to this generic Settings page. Future work: when adding
+// Organization/Users/Billing tabs, list them in `ALLOWED_TABS_BY_ROLE.ADMIN`
+// only and the per-role filter below will keep them hidden from everyone
+// else.
+const ALLOWED_TABS_BY_ROLE: Record<string, ReadonlyArray<Tab>> = {
+  ADMIN: ["profile", "security", "notifications", "preferences"],
+  DOCTOR: ["profile", "security", "notifications", "preferences"],
+  NURSE: ["profile", "security", "notifications", "preferences"],
+  RECEPTION: ["profile", "security", "notifications", "preferences"],
+  PATIENT: ["profile", "security", "notifications", "preferences"],
+  // Default for any role we haven't enumerated — restrict to personal
+  // settings only. If a new role is introduced, its admin-only access must
+  // be explicitly granted here.
+  __DEFAULT__: ["profile", "security", "notifications", "preferences"],
+};
+
+function allowedTabsForRole(role: string | undefined): ReadonlyArray<Tab> {
+  if (!role) return ALLOWED_TABS_BY_ROLE.__DEFAULT__;
+  return ALLOWED_TABS_BY_ROLE[role] || ALLOWED_TABS_BY_ROLE.__DEFAULT__;
+}
+
 interface MeResponse {
   data: {
     id: string;
@@ -62,27 +92,44 @@ interface ScheduleResp {
 const CHANNELS: Preference["channel"][] = ["WHATSAPP", "SMS", "EMAIL", "PUSH"];
 
 export default function SettingsPage() {
-  const [tab, setTab] = useState<Tab>("profile");
+  // Issue #437: read role first so the default tab is always one the user
+  // is actually allowed to see — protects against deep links to e.g.
+  // #organization that should never render for a nurse.
+  const { user } = useAuthStore();
+  const allowed = allowedTabsForRole(user?.role);
+  const [tab, setTab] = useState<Tab>(allowed[0] ?? "profile");
 
   // Read URL hash for tab persistence
   useEffect(() => {
     if (typeof window === "undefined") return;
     const hash = window.location.hash.replace("#", "") as Tab;
-    if (["profile", "security", "notifications", "preferences"].includes(hash)) {
+    // Issue #437: only honour the hash if the role is allowed to access it.
+    // Falling back to the first allowed tab prevents a `#billing` deep link
+    // from rendering an admin-only tab for a nurse.
+    if (allowed.includes(hash)) {
       setTab(hash);
+    } else if (hash) {
+      setTab(allowed[0] ?? "profile");
     }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.role]);
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.location.hash = tab;
   }, [tab]);
 
-  const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
+  const allTabs: { id: Tab; label: string; icon: React.ElementType }[] = [
     { id: "profile", label: "Profile", icon: UserIcon },
     { id: "security", label: "Security", icon: Shield },
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "preferences", label: "Preferences", icon: SlidersHorizontal },
   ];
+  // Issue #437: filter the visible tab list down to what this role is
+  // allowed to interact with. Hiding the tab in the nav AND skipping the
+  // content render below is the UI-layer half of the RBAC fix; routes that
+  // back the tabs (e.g. `/auth/me`, `/notifications/preferences`) are
+  // already role-gated server-side.
+  const tabs = allTabs.filter((t) => allowed.includes(t.id));
 
   return (
     <div>
@@ -110,10 +157,17 @@ export default function SettingsPage() {
 
         {/* Content */}
         <div className="flex-1">
-          {tab === "profile" && <ProfileTab />}
-          {tab === "security" && <SecurityTab />}
-          {tab === "notifications" && <NotificationsTab />}
-          {tab === "preferences" && <PreferencesTab />}
+          {/* Issue #437: belt-and-braces — even if `tab` somehow ends up at a
+              value the role isn't allowed (manual setState during dev,
+              stale URL fragment), we still gate each tab's render. */}
+          {tab === "profile" && allowed.includes("profile") && <ProfileTab />}
+          {tab === "security" && allowed.includes("security") && <SecurityTab />}
+          {tab === "notifications" && allowed.includes("notifications") && (
+            <NotificationsTab />
+          )}
+          {tab === "preferences" && allowed.includes("preferences") && (
+            <PreferencesTab />
+          )}
         </div>
       </div>
     </div>

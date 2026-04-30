@@ -8,7 +8,9 @@ import { useAuthStore } from "@/lib/store";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { toast } from "@/lib/toast";
 // Issue #162 / #163 — central elapsed-minutes helper with year-2000 clamp.
-import { elapsedMinutes } from "@/lib/time";
+// Issue #425: route the elapsed reading through formatElapsed so the
+// detail page agrees with the board on how a wait time is displayed.
+import { elapsedMinutes, formatElapsed } from "@/lib/time";
 import {
   ArrowLeft,
   Clock,
@@ -194,8 +196,11 @@ export default function EmergencyCaseDetailPage() {
               </p>
             )}
             <p className="mt-1 text-sm text-gray-500">
-              Arrived {fmt(ecase.arrivedAt)} · {elapsedMin(ecase.arrivedAt, ecase.closedAt)}m
-              total
+              Arrived {fmt(ecase.arrivedAt)} ·{" "}
+              {/* Issue #425: format elapsed minutes for human consumption. */}
+              {ecase.arrivedAt
+                ? `${formatElapsed(elapsedMin(ecase.arrivedAt, ecase.closedAt))} total`
+                : "—"}
             </p>
           </div>
           <div className="flex flex-col items-end gap-2">

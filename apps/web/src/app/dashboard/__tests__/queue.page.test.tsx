@@ -145,4 +145,27 @@ describe("QueuePage", () => {
       ).toBeInTheDocument()
     );
   });
+
+  // Issue #430: even if Socket.IO is silent (proxy / network policy / nurse
+  // role not subscribed), a 30s fallback poll must keep `/queue` fresh.
+  it("polls /queue every 30s as a fallback (#430)", async () => {
+    vi.useFakeTimers();
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/queue") return Promise.resolve({ data: doctorDisplay });
+      return Promise.resolve({ data: [] });
+    });
+    render(<QueuePage />);
+    // Initial load
+    await vi.waitFor(() => {
+      const urls = apiMock.get.mock.calls.map((c) => String(c[0]));
+      expect(urls.filter((u) => u === "/queue").length).toBe(1);
+    });
+    // Advance 30s — the fallback `setInterval` should fire one more
+    // `/queue` request.
+    apiMock.get.mockClear();
+    await vi.advanceTimersByTimeAsync(30_000);
+    const urls = apiMock.get.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u === "/queue")).toBe(true);
+    vi.useRealTimers();
+  });
 });

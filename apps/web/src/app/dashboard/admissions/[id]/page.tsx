@@ -705,6 +705,40 @@ function Field({
   );
 }
 
+// Issue #200/#419 (2026-04-30): client-side bounds for the admission Vitals
+// tab. Mirror VITALS_RANGES in @medcore/shared so the Save button is blocked
+// before the network round-trip and impossible values (Temp=999°C, BP=999/999,
+// HR=9999) never make it past the form. Storage unit for temperature is °C —
+// canonical across IPD; the form accepts °C only and explicitly tags the
+// payload as `temperatureUnit: "C"` so the backend uses the °C bounds.
+const ADMISSION_VITALS_RANGE: Record<
+  string,
+  { min: number; max: number; unit: string; int: boolean }
+> = {
+  bpSystolic: { min: 60, max: 260, unit: "mmHg", int: true },
+  bpDiastolic: { min: 30, max: 180, unit: "mmHg", int: true },
+  temperature: { min: 32, max: 43, unit: "°C", int: false },
+  pulse: { min: 30, max: 220, unit: "bpm", int: true },
+  respiratoryRate: { min: 5, max: 80, unit: "/min", int: true },
+  spO2: { min: 50, max: 100, unit: "%", int: true },
+  painScore: { min: 0, max: 10, unit: "", int: true },
+  bloodSugar: { min: 20, max: 900, unit: "mg/dL", int: true },
+};
+
+function vitalRangeError(field: string, raw: string): string | null {
+  if (!raw) return null;
+  const cfg = ADMISSION_VITALS_RANGE[field];
+  if (!cfg) return null;
+  const n = cfg.int ? parseInt(raw, 10) : parseFloat(raw);
+  if (Number.isNaN(n)) return "Enter a number";
+  if (n < cfg.min || n > cfg.max) {
+    return field === "temperature"
+      ? "Temperature out of physiological range"
+      : `Must be ${cfg.min}–${cfg.max}${cfg.unit ? " " + cfg.unit : ""}`;
+  }
+  return null;
+}
+
 function VitalsTab({
   admissionId,
   canRecord,
@@ -715,7 +749,9 @@ function VitalsTab({
   const [vitals, setVitals] = useState<Vital[]>([]);
   const [loading, setLoading] = useState(true);
   // Issue #198 — surface backend zod field errors next to each input.
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [serverFieldErrors, setServerFieldErrors] = useState<
+    Record<string, string>
+  >({});
   const [form, setForm] = useState({
     bpSystolic: "",
     bpDiastolic: "",
@@ -767,15 +803,48 @@ function VitalsTab({
     bloodSugar: "bloodSugar",
   };
 
+  // Issue #200/#419 — derive a merged client+server field-error map. Client
+  // bounds catch Temp=999°C / BP=999/999 / HR=9999 / SpO2=200 etc. before the
+  // round-trip; server errors take precedence so the user sees what the API
+  // actually rejected after a successful client validation.
+  const clientFieldErrors: Record<string, string> = {};
+  for (const f of Object.keys(ADMISSION_VITALS_RANGE)) {
+    const raw = (form as unknown as Record<string, string>)[f];
+    const err = vitalRangeError(f, raw);
+    if (err) clientFieldErrors[f] = err;
+  }
+  const sysN = form.bpSystolic ? parseInt(form.bpSystolic, 10) : NaN;
+  const diaN = form.bpDiastolic ? parseInt(form.bpDiastolic, 10) : NaN;
+  if (
+    !isNaN(sysN) &&
+    !isNaN(diaN) &&
+    !clientFieldErrors.bpSystolic &&
+    !clientFieldErrors.bpDiastolic &&
+    diaN >= sysN
+  ) {
+    clientFieldErrors.bpDiastolic = "Diastolic must be lower than systolic";
+  }
+  const fieldErrors: Record<string, string> = { ...clientFieldErrors };
+  for (const [k, v] of Object.entries(serverFieldErrors)) fieldErrors[k] = v;
+  const hasFieldErrors = Object.keys(fieldErrors).length > 0;
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setFieldErrors({});
+    if (hasFieldErrors) {
+      toast.error("Please fix the highlighted vitals before saving");
+      return;
+    }
+    setServerFieldErrors({});
     try {
       // Route is POST /admissions/:id/vitals so the URL carries the
       // admissionId. The shared schema also lists `admissionId` in body —
       // include it explicitly so zod doesn't 400 on a missing field.
       const payload: Record<string, unknown> = {
         admissionId,
+        // Issue #200 — temperature unit is canonically °C in IPD storage;
+        // pin the unit explicitly so the backend's superRefine() never
+        // falls back to °F bounds and accidentally accepts e.g. 98.6 °C.
+        temperatureUnit: "C",
         notes: form.notes || undefined,
       };
       for (const [formKey, apiKey] of Object.entries(FORM_TO_API_KEY)) {
@@ -813,7 +882,7 @@ function VitalsTab({
         for (const [k, v] of Object.entries(apiErrors)) {
           remapped[apiToForm[k] ?? k] = v;
         }
-        setFieldErrors(remapped);
+        setServerFieldErrors(remapped);
       }
       toast.error(topLineError(err, "Failed to save vitals"));
     }
@@ -896,7 +965,8 @@ function VitalsTab({
             <button
               type="submit"
               data-testid="vitals-save"
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+              disabled={hasFieldErrors}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
             >
               Save Vitals
             </button>
@@ -2727,17 +2797,46 @@ function MarTab({ admissionId }: { admissionId: string }) {
                         </td>
                       );
                     }
+                    // Issue #434: once a dose is finalized (ADMINISTERED /
+                    // REFUSED / HELD) the cell becomes a passive status
+                    // chip, not a clickable action. The server-side guard at
+                    // PATCH /medication/administrations/:id rejects a second
+                    // ADMINISTERED with HTTP 409 — but a misclick is much
+                    // more common than the race, so we block it at the
+                    // input layer and surface a tooltip instead.
+                    const isFinalized =
+                      admin.status === "ADMINISTERED" ||
+                      admin.status === "REFUSED" ||
+                      admin.status === "HELD";
                     return (
                       <td key={slot} className="px-2 py-2 text-center">
                         <button
-                          disabled={!canAdminister}
+                          type="button"
+                          data-testid={`mar-cell-${o.id}-${slot}`}
+                          disabled={!canAdminister || isFinalized}
+                          aria-disabled={!canAdminister || isFinalized}
+                          title={
+                            isFinalized
+                              ? `Already ${admin.status.toLowerCase()}${
+                                  admin.administeredAt
+                                    ? " at " +
+                                      new Date(admin.administeredAt).toLocaleTimeString()
+                                    : ""
+                                }`
+                              : undefined
+                          }
                           onClick={() => {
+                            if (isFinalized) return;
                             setSelected(admin);
                             setSelectedOrder(o);
                           }}
                           className={`w-full rounded-md border px-2 py-1 text-xs font-medium ${cellColor(
                             admin.status
-                          )} ${canAdminister ? "hover:opacity-80" : "cursor-default"}`}
+                          )} ${
+                            canAdminister && !isFinalized
+                              ? "hover:opacity-80"
+                              : "cursor-not-allowed opacity-90"
+                          }`}
                         >
                           {admin.status}
                         </button>
@@ -2786,18 +2885,36 @@ function MarAdministerModal({
   );
   const [notes, setNotes] = useState(administration.notes || "");
   const [saving, setSaving] = useState(false);
+  // Issue #434: client-side re-entrancy guard. `disabled={saving}` blocks
+  // re-clicks of the same DOM button while the request is in flight, but
+  // a "submitted" flag also blocks the keyboard re-submit path (Enter on
+  // the textarea, etc.) AFTER the response and BEFORE `onSaved()` unmounts
+  // the modal. Once true the button stays disabled regardless of `saving`.
+  const [submitted, setSubmitted] = useState(false);
 
   async function save() {
+    if (saving || submitted) return;
     setSaving(true);
     try {
       await api.patch(`/medication/administrations/${administration.id}`, {
         status,
         notes: notes || undefined,
       });
+      setSubmitted(true);
       toast.success("Administration recorded");
       onSaved();
     } catch (e) {
-      toast.error((e as Error).message);
+      // Issue #434: a 409 from the server means another tab already
+      // recorded this dose — surface that as info, not an error, and
+      // close the modal so the cell re-renders with the updated status.
+      const err = e as { status?: number; message?: string };
+      if (err?.status === 409) {
+        toast.error(err.message || "This dose was already recorded.");
+        setSubmitted(true);
+        onSaved();
+      } else {
+        toast.error((e as Error).message);
+      }
     }
     setSaving(false);
   }
@@ -2846,11 +2963,13 @@ function MarAdministerModal({
             Cancel
           </button>
           <button
+            type="button"
+            data-testid="mar-administer-save"
             onClick={save}
-            disabled={saving}
+            disabled={saving || submitted}
             className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            {saving ? "Saving..." : "Save"}
+            {saving ? "Saving..." : submitted ? "Saved" : "Save"}
           </button>
         </div>
       </div>
@@ -2919,9 +3038,29 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admissionId, date]);
 
+  // Issue #433 (2026-04-30): block negative or implausibly large volumes at
+  // the form level. The same bounds are enforced server-side by
+  // intakeOutputSchema (≥0, ≤10000 mL), but inline feedback prevents the
+  // round-trip and keeps the running balance honest.
+  const IO_MIN_ML = 0;
+  const IO_MAX_ML = 10_000;
+  let amountError: string | null = null;
+  if (form.amountMl !== "") {
+    const n = parseFloat(form.amountMl);
+    if (!Number.isFinite(n)) amountError = "Enter a number";
+    else if (!Number.isInteger(n))
+      amountError = "Volume must be a whole number of mL";
+    else if (n < IO_MIN_ML) amountError = "Volume must be ≥ 0 mL";
+    else if (n > IO_MAX_ML) amountError = "Volume must be ≤ 10000 mL per entry";
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.amountMl) return;
+    if (amountError) {
+      toast.error(amountError);
+      return;
+    }
     try {
       await api.post(`/admissions/${admissionId}/intake-output`, {
         type: form.type,
@@ -3059,17 +3198,32 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
               </select>
             </div>
             <div>
-              <label className="text-xs text-gray-600">Volume (ml) *</label>
+              <label className="text-xs text-gray-600">Volume (mL) *</label>
               <input
                 type="number"
-                min="0"
+                min={IO_MIN_ML}
+                max={IO_MAX_ML}
+                step="1"
+                data-testid="io-amount"
+                aria-invalid={!!amountError}
                 value={form.amountMl}
                 onChange={(e) =>
                   setForm({ ...form, amountMl: e.target.value })
                 }
                 required
-                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                className={
+                  "mt-1 w-full rounded-lg border px-3 py-2 text-sm " +
+                  (amountError ? "border-red-400 bg-red-50" : "")
+                }
               />
+              {amountError && (
+                <p
+                  data-testid="io-amount-error"
+                  className="mt-1 text-[11px] text-red-600"
+                >
+                  {amountError}
+                </p>
+              )}
             </div>
             <div>
               <label className="text-xs text-gray-600">Description</label>
@@ -3092,7 +3246,9 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
             </div>
             <button
               type="submit"
-              className="w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              data-testid="io-save"
+              disabled={!form.amountMl || !!amountError}
+              className="w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
               <Plus size={14} className="mr-1 inline" /> Add Event
             </button>

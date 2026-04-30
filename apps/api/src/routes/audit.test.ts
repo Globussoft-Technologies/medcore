@@ -27,6 +27,16 @@ const { prismaMock } = vi.hoisted(() => ({
     user: {
       findMany: vi.fn(),
     },
+    // Issue #192 (Apr 30 2026): the audit handler now resolves entity UUIDs
+    // to human-readable labels. Each resolver is wrapped in try/catch so a
+    // missing mock returns no labels rather than crashing — but the common
+    // resolvers are stubbed here so tests can opt in to label assertions.
+    patient: { findMany: vi.fn().mockResolvedValue([]) },
+    appointment: { findMany: vi.fn().mockResolvedValue([]) },
+    invoice: { findMany: vi.fn().mockResolvedValue([]) },
+    prescription: { findMany: vi.fn().mockResolvedValue([]) },
+    admission: { findMany: vi.fn().mockResolvedValue([]) },
+    holiday: { findMany: vi.fn().mockResolvedValue([]) },
     systemConfig: {
       findUnique: vi.fn(async () => null),
     },
@@ -140,6 +150,66 @@ describe("Issue #79 — audit log User column + entity-case", () => {
       equals: "Patient",
       mode: "insensitive",
     });
+  });
+
+  // Issue #192 (Apr 30 2026)
+  it("resolves entityId UUIDs to a human-readable entityLabel", async () => {
+    prismaMock.auditLog.findMany.mockResolvedValueOnce([
+      {
+        id: "log-1",
+        createdAt: new Date("2026-04-30T10:00:00Z"),
+        userId: "u-admin",
+        action: "USER_REGISTER",
+        entity: "user",
+        entityId: "u-new",
+        ipAddress: "127.0.0.1",
+        details: null,
+      },
+      {
+        id: "log-2",
+        createdAt: new Date("2026-04-30T10:01:00Z"),
+        userId: "u-admin",
+        action: "PATIENT_CREATE",
+        entity: "patient",
+        entityId: "p-new",
+        ipAddress: "127.0.0.1",
+        details: null,
+      },
+    ]);
+    prismaMock.auditLog.count.mockResolvedValueOnce(2);
+    // The actor lookup (admin user) + the resolver lookup (new user) hit
+    // the same `user.findMany`, so we return both rows here.
+    prismaMock.user.findMany
+      .mockResolvedValueOnce([
+        { id: "u-admin", name: "System Admin", email: "admin@test.local" },
+      ])
+      .mockResolvedValueOnce([
+        { id: "u-new", name: "Dr Vikram Kapoor", email: "v@test.local" },
+      ]);
+    prismaMock.patient.findMany.mockResolvedValueOnce([
+      {
+        id: "p-new",
+        mrNumber: "MR-1234",
+        user: { name: "Anita Sharma" },
+      },
+    ]);
+
+    const app = buildApp();
+    const res = await request(app)
+      .get("/api/v1/audit")
+      .set("Authorization", `Bearer ${adminToken()}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(2);
+    const userRow = res.body.data.find((d: any) => d.id === "log-1");
+    const patientRow = res.body.data.find((d: any) => d.id === "log-2");
+    expect(userRow.entityLabel).toBe("User: Dr Vikram Kapoor");
+    expect(patientRow.entityLabel).toBe(
+      "Patient: Anita Sharma (MR: MR-1234)"
+    );
+    // UUID is still preserved alongside the label.
+    expect(userRow.entityId).toBe("u-new");
+    expect(patientRow.entityId).toBe("p-new");
   });
 
   it("falls back to '—' for system rows that have no userId", async () => {

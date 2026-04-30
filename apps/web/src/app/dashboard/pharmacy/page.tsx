@@ -139,10 +139,37 @@ export default function PharmacyPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, search, valuationMethod]);
 
+  // Issue #367 (Apr 30 2026): Returns / Transfers tabs were stale until a
+  // hard reload. Auto-refresh whenever the browser tab regains focus or the
+  // user switches back to the page from another window so a return/transfer
+  // recorded elsewhere appears within seconds. Polling every 30s as a
+  // safety net keeps long-lived sessions in sync without hammering the API.
+  useEffect(() => {
+    if (tab !== "returns" && tab !== "transfers") return;
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      if (tab === "returns") loadReturns();
+      else loadTransfers();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    const id = window.setInterval(refresh, 30_000);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+      window.clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
   async function loadReturns() {
     setLoading(true);
     try {
-      const res = await api.get<{ data: ReturnRow[] }>("/pharmacy/returns");
+      // Issue #367: cap the page size — the unbounded fetch was the root
+      // cause of the 5s+ Returns load on production data sets.
+      const res = await api.get<{ data: ReturnRow[] }>(
+        "/pharmacy/returns?limit=100"
+      );
       setReturns(res.data);
     } catch {
       setReturns([]);
@@ -153,7 +180,10 @@ export default function PharmacyPage() {
   async function loadTransfers() {
     setLoading(true);
     try {
-      const res = await api.get<{ data: TransferRow[] }>("/pharmacy/transfers");
+      // Issue #367: matching pagination cap on Transfers.
+      const res = await api.get<{ data: TransferRow[] }>(
+        "/pharmacy/transfers?limit=100"
+      );
       setTransfers(res.data);
     } catch {
       setTransfers([]);
@@ -305,7 +335,17 @@ export default function PharmacyPage() {
 
       <div className="rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          // Issue #367 (Apr 30 2026): replaced the bare "Loading..." line
+          // with a row skeleton so the Returns / Transfers tabs no longer
+          // look frozen during their initial fetch.
+          <div className="p-4" data-testid={`pharmacy-${tab}-skeleton`}>
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                className="mb-2 h-8 animate-pulse rounded bg-gray-100 dark:bg-gray-700"
+              />
+            ))}
+          </div>
         ) : tab === "movements" ? (
           movements.length === 0 ? (
             <div className="p-8 text-center text-gray-500 dark:text-gray-400">No movements.</div>

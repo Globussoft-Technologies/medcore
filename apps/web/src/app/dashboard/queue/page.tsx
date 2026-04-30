@@ -126,8 +126,24 @@ export default function QueuePage() {
       if (selectedDoctor) loadDoctorQueue(selectedDoctor);
     });
 
+    // Issue #430 (Apr 30 2026): Live Queue does not auto-refresh for the
+    // nurse role — the page already subscribes to Socket.IO (`token-called`,
+    // `queue-updated`) but the production report shows nurse views going
+    // stale. The most likely cause is the socket either failing to connect
+    // (proxy / network policy on the prod LAN) or the server not emitting
+    // these events for nurse-scoped queries. Add a fallback `setInterval`
+    // poll every 30s so even if Socket.IO is silent, the counts move. The
+    // socket handlers above remain the primary low-latency path; the poll
+    // is a safety net. 30s matches the bug body's "every 15-30s" target.
+    const pollMs = 30_000;
+    const pollId = setInterval(() => {
+      loadDisplay();
+      if (selectedDoctor) loadDoctorQueue(selectedDoctor);
+    }, pollMs);
+
     return () => {
       socket.disconnect();
+      clearInterval(pollId);
     };
   }, [selectedDoctor]);
 

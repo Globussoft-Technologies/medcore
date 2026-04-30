@@ -6,6 +6,14 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
+// Issue #278 (Apr 2026): unify ambulance phone formatting with the rest
+// of the app. Trip cards previously rendered the raw `callerPhone`
+// (`+917321588452`) while the patients table renders 10-digit local
+// (`9876543212`); reception couldn't tell whether the two were the same
+// number or not. Route every operator-facing phone through the shared
+// helper so the canonical "10-digit local with optional `+91 ` prefix"
+// form is what we paint everywhere.
+import { formatPhone } from "@/lib/format-phone";
 
 // Issue #89: DOCTOR must NOT manipulate ambulance trips. Restricted to
 // operational/dispatch roles. NURSE included since on-call nurses dispatch.
@@ -222,7 +230,10 @@ export default function AmbulancePage() {
             </div>
             <div className="mt-3 space-y-1 text-xs text-gray-700 dark:text-gray-300">
               {a.driverName && (
-                <div>Driver: {a.driverName} {a.driverPhone && `(${a.driverPhone})`}</div>
+                <div>
+                  Driver: {a.driverName}
+                  {a.driverPhone && ` (${formatPhone(a.driverPhone)})`}
+                </div>
               )}
               {a.paramedicName && <div>Paramedic: {a.paramedicName}</div>}
             </div>
@@ -325,8 +336,9 @@ export default function AmbulancePage() {
                     </div>
                   )}
                   {t.callerPhone && (
-                    <div>
-                      <Phone size={14} className="mr-1 inline" /> {t.callerPhone}
+                    <div data-testid="trip-callerPhone-display">
+                      <Phone size={14} className="mr-1 inline" />{" "}
+                      {formatPhone(t.callerPhone)}
                     </div>
                   )}
                 </div>

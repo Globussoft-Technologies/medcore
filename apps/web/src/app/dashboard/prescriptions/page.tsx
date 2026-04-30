@@ -248,11 +248,18 @@ export default function PrescriptionsPage() {
   }, [page, pageLimit]);
 
   // Auto-open the Rx form when the doctor workspace quick-action links here
-  // with ?new=1 (issue #11).
+  // with ?new=1 (issue #11). Issue #439: also accept ?patientId=… so the
+  // "Write Prescription" quick-action on the patient chart pre-fills the
+  // form (this is the route the patient detail page links to).
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("new") === "1") setShowForm(true);
+    const pid = params.get("patientId");
+    if (pid) {
+      setShowForm(true);
+      setForm((f) => ({ ...f, patientId: pid }));
+    }
   }, []);
 
   function applyTemplate(tplId: string) {

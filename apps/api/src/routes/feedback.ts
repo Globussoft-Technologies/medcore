@@ -253,6 +253,14 @@ export { feedbackRouter };
 const complaintsRouter = Router();
 complaintsRouter.use(authenticate);
 
+// Issue #275 (Apr 2026): the ticket prefix was inconsistent in the wild
+// — old code emitted `CMP000024` (legacy) while the seed for the demo
+// data emitted `COMP-2026-00014`. Reception saw a mix in the Open tab
+// and couldn't tell which ones were "real". Standardise on the
+// year-scoped form `CMP-YYYY-NNNNN` for any *new* ticket. The
+// next-number probe still reads the trailing digit run, so it cleanly
+// resumes whether the most recent ticket was legacy `CMPnnnnnn`,
+// seed-style `COMP-YYYY-nnnnn`, or the new canonical form.
 async function nextTicketNumber(): Promise<string> {
   const last = await prisma.complaint.findFirst({
     orderBy: { ticketNumber: "desc" },
@@ -263,7 +271,8 @@ async function nextTicketNumber(): Promise<string> {
     const m = last.ticketNumber.match(/(\d+)$/);
     if (m) n = parseInt(m[1], 10) + 1;
   }
-  return `CMP${String(n).padStart(6, "0")}`;
+  const year = new Date().getFullYear();
+  return `CMP-${year}-${String(n).padStart(5, "0")}`;
 }
 
 // POST /api/v1/complaints

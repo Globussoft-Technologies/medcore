@@ -79,4 +79,35 @@ describe("SettingsPage", () => {
     }
     expect(screen.getByRole("heading", { name: /^settings$/i })).toBeInTheDocument();
   });
+
+  // Issue #437: nurse role must only see personal-scoped settings tabs.
+  // The current allow-list lists the same four for every role, but the
+  // important RBAC contract is that the *list* is filtered through the
+  // role-aware helper (so when a future Org/Users/Billing tab is added it
+  // will be hidden from nurses without a code change here). At minimum we
+  // assert the four expected nurse tabs render.
+  it("renders only nurse-allowed tabs when role=NURSE (#437)", async () => {
+    apiMock.get.mockImplementation(() => Promise.resolve({ data: [] }));
+    authMock.mockImplementation((selector: any) => {
+      const state = {
+        user: { id: "u2", name: "Nurse", email: "n@x.com", role: "NURSE" },
+        refreshUser: vi.fn(),
+      };
+      return typeof selector === "function" ? selector(state) : state;
+    });
+    render(<SettingsPage />);
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /^settings$/i })).toBeInTheDocument()
+    );
+    // Nurse-allowed tabs
+    expect(screen.getByRole("button", { name: /profile/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /security/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /notifications/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /preferences/i })).toBeInTheDocument();
+    // Admin-only tabs that may be added in the future MUST NOT render for
+    // nurse. We assert the labels don't appear at all.
+    expect(screen.queryByRole("button", { name: /organization/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^users$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /billing|integrations/i })).not.toBeInTheDocument();
+  });
 });

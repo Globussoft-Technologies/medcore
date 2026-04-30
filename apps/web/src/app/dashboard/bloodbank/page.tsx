@@ -80,6 +80,18 @@ interface BloodUnit {
   storageLocation?: string | null;
   reservedUntil?: string | null;
   reservedForRequestId?: string | null;
+  // Issue #429 (Apr 30 2026): server-flagged. Older API revisions don't send
+  // it, so fall back to a client check based on `expiresAt`.
+  isExpired?: boolean;
+}
+
+// Issue #429: shared helper so badge logic is consistent everywhere a
+// `BloodUnit` is rendered.
+function unitIsExpired(u: BloodUnit): boolean {
+  if (typeof u.isExpired === "boolean") return u.isExpired;
+  if (!u.expiresAt) return false;
+  const t = new Date(u.expiresAt).getTime();
+  return Number.isFinite(t) && t < Date.now();
 }
 
 interface InventorySummary {
@@ -713,18 +725,29 @@ export default function BloodBankPage() {
                   matchingRequest.bloodGroup,
                   "RBC"
                 );
+                // Issue #429: belt-and-braces — even though the API now
+                // filters expired units out of /inventory by default, the
+                // match endpoint may still surface a stale row. Render a
+                // red EXPIRED badge and disable selection.
+                const expired = unitIsExpired(u);
                 return (
                   <label
                     key={u.id}
                     data-testid={`abo-unit-${u.unitNumber}`}
                     className={`flex cursor-pointer items-center gap-3 rounded border p-3 hover:bg-gray-50 ${
-                      incompatible ? "border-yellow-400 bg-yellow-50" : ""
+                      expired
+                        ? "border-red-400 bg-red-50 opacity-70"
+                        : incompatible
+                        ? "border-yellow-400 bg-yellow-50"
+                        : ""
                     }`}
                   >
                     <input
                       type="checkbox"
-                      checked={checked}
+                      checked={checked && !expired}
+                      disabled={expired}
                       onChange={(e) => {
+                        if (expired) return;
                         const next = new Set(selectedMatchIds);
                         if (e.target.checked) next.add(u.id);
                         else next.delete(u.id);
@@ -738,7 +761,15 @@ export default function BloodBankPage() {
                         {prettyComponent(u.component)} • {u.volumeMl}ml • exp{" "}
                         {new Date(u.expiresAt).toLocaleDateString()}
                       </div>
-                      {incompatible && (
+                      {expired && (
+                        <div
+                          data-testid={`expired-badge-${u.unitNumber}`}
+                          className="mt-1 inline-flex items-center gap-1 rounded bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-800"
+                        >
+                          <AlertTriangle size={12} /> EXPIRED — not issuable
+                        </div>
+                      )}
+                      {!expired && incompatible && (
                         <div className="mt-1 inline-flex items-center gap-1 rounded bg-yellow-100 px-2 py-0.5 text-[11px] font-semibold text-yellow-800">
                           <AlertTriangle size={12} /> ABO mismatch with{" "}
                           {sharedPrettyGroup(matchingRequest.bloodGroup)}
@@ -829,33 +860,53 @@ export default function BloodBankPage() {
               </h3>
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {reserved.map((u) => (
-                <div
-                  key={u.id}
-                  className="rounded-lg border border-amber-300 bg-amber-50 p-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs">{u.unitNumber}</span>
-                    <span className="rounded bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white">
-                      RESERVED
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-gray-600">
-                    {u.bloodGroup.replace(/_/g, " ")} • {u.component.replace(/_/g, " ")}
-                  </p>
-                  {u.reservedUntil && (
-                    <p className="mt-1 text-xs font-medium text-amber-800">
-                      {formatRemaining(u.reservedUntil)}
-                    </p>
-                  )}
-                  <button
-                    onClick={() => releaseReservation(u.id)}
-                    className="mt-2 text-xs font-medium text-red-600 hover:underline"
+              {reserved.map((u) => {
+                // Issue #429: highlight expired-but-still-reserved units.
+                const expired = unitIsExpired(u);
+                return (
+                  <div
+                    key={u.id}
+                    className={`rounded-lg border p-3 ${
+                      expired
+                        ? "border-red-400 bg-red-50"
+                        : "border-amber-300 bg-amber-50"
+                    }`}
                   >
-                    Release
-                  </button>
-                </div>
-              ))}
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs">{u.unitNumber}</span>
+                      <span
+                        className={`rounded px-2 py-0.5 text-[10px] font-bold text-white ${
+                          expired ? "bg-red-600" : "bg-amber-500"
+                        }`}
+                      >
+                        {expired ? "EXPIRED" : "RESERVED"}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-gray-600">
+                      {u.bloodGroup.replace(/_/g, " ")} • {u.component.replace(/_/g, " ")}
+                    </p>
+                    {expired && (
+                      <p
+                        data-testid={`expired-badge-${u.unitNumber}`}
+                        className="mt-1 inline-flex items-center gap-1 rounded bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-800"
+                      >
+                        <AlertTriangle size={12} /> Past expiry — discard
+                      </p>
+                    )}
+                    {!expired && u.reservedUntil && (
+                      <p className="mt-1 text-xs font-medium text-amber-800">
+                        {formatRemaining(u.reservedUntil)}
+                      </p>
+                    )}
+                    <button
+                      onClick={() => releaseReservation(u.id)}
+                      className="mt-2 text-xs font-medium text-red-600 hover:underline"
+                    >
+                      Release
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
         );

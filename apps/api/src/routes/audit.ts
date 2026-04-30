@@ -33,6 +33,179 @@ function toCsv(rows: Record<string, unknown>[], columns: string[]): string {
   return [header, ...lines].join("\r\n");
 }
 
+// ── Entity-label resolver ──────────────────────────────
+//
+// Issue #192 (Apr 30 2026): the Audit Log table renders the raw `entityId`
+// UUID in the right-most column, which is unreadable for an admin doing
+// incident review or compliance triage. We resolve the UUID to a
+// human-readable label per entity type *server-side* (single batched
+// round-trip per entity bucket) and surface it as `entityLabel` on each
+// row. The UI keeps the UUID accessible on hover / in the details drawer.
+//
+// We deliberately don't crash if a referenced row has been deleted — the
+// label simply falls back to `null`, and the FE renders "(deleted)" or the
+// bare UUID as a last resort. Casing on the entity column is inconsistent
+// across writers (see `buildAuditWhere`'s comment about Issue #79) so we
+// normalise to lower-case for the dispatch table.
+
+type EntityResolver = (
+  ids: string[]
+) => Promise<Record<string, string>>;
+
+const ENTITY_RESOLVERS: Record<string, EntityResolver> = {
+  user: async (ids) => {
+    const rows = await prisma.user.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true, email: true },
+    });
+    return Object.fromEntries(
+      rows.map((r) => [r.id, `User: ${r.name || r.email || r.id}`])
+    );
+  },
+  patient: async (ids) => {
+    const rows = await prisma.patient.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        mrNumber: true,
+        user: { select: { name: true } },
+      },
+    });
+    return Object.fromEntries(
+      rows.map((r) => [
+        r.id,
+        `Patient: ${r.user?.name || r.mrNumber || r.id} (MR: ${r.mrNumber})`,
+      ])
+    );
+  },
+  appointment: async (ids) => {
+    const rows = await prisma.appointment.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        date: true,
+        patient: { select: { user: { select: { name: true } } } },
+      },
+    });
+    return Object.fromEntries(
+      rows.map((r) => [
+        r.id,
+        `Appointment: ${r.patient?.user?.name || "Patient"} on ${
+          r.date instanceof Date ? r.date.toISOString().slice(0, 10) : r.date
+        }`,
+      ])
+    );
+  },
+  invoice: async (ids) => {
+    const rows = await prisma.invoice.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, invoiceNumber: true, totalAmount: true },
+    });
+    return Object.fromEntries(
+      rows.map((r) => [
+        r.id,
+        `Invoice: ${r.invoiceNumber} (${r.totalAmount})`,
+      ])
+    );
+  },
+  prescription: async (ids) => {
+    const rows = await prisma.prescription.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        diagnosis: true,
+        patient: { select: { user: { select: { name: true } } } },
+      },
+    });
+    return Object.fromEntries(
+      rows.map((r) => [
+        r.id,
+        `Prescription: ${r.patient?.user?.name || "Patient"} — ${r.diagnosis}`,
+      ])
+    );
+  },
+  admission: async (ids) => {
+    const rows = await prisma.admission.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        admissionNumber: true,
+        patient: { select: { user: { select: { name: true } } } },
+      },
+    });
+    return Object.fromEntries(
+      rows.map((r) => [
+        r.id,
+        `Admission: ${r.admissionNumber} — ${r.patient?.user?.name || "Patient"}`,
+      ])
+    );
+  },
+  holiday: async (ids) => {
+    try {
+      const rows = await (prisma as any).holiday.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, name: true, date: true },
+      });
+      return Object.fromEntries(
+        rows.map((r: { id: string; name: string; date: Date | string }) => [
+          r.id,
+          `Holiday: ${r.name} (${
+            r.date instanceof Date ? r.date.toISOString().slice(0, 10) : r.date
+          })`,
+        ])
+      );
+    } catch {
+      return {};
+    }
+  },
+};
+
+/**
+ * Resolve `entityId → entityLabel` for a batch of audit rows. Groups by
+ * normalised entity name so each entity table is hit at most once.
+ */
+async function resolveEntityLabels(
+  rows: Array<{ entity: string | null; entityId: string | null }>
+): Promise<Map<string, string>> {
+  const buckets = new Map<string, Set<string>>();
+  for (const r of rows) {
+    if (!r.entity || !r.entityId) continue;
+    const key = String(r.entity).toLowerCase().replace(/_/g, "");
+    const set = buckets.get(key) ?? new Set<string>();
+    set.add(r.entityId);
+    buckets.set(key, set);
+  }
+
+  const out = new Map<string, string>();
+  await Promise.all(
+    Array.from(buckets.entries()).map(async ([entityKey, idSet]) => {
+      const resolver = ENTITY_RESOLVERS[entityKey];
+      if (!resolver) return;
+      try {
+        const map = await resolver(Array.from(idSet));
+        for (const [id, label] of Object.entries(map)) {
+          // Disambiguate by entity+id to avoid collisions across tables
+          out.set(`${entityKey}:${id}`, label);
+        }
+      } catch {
+        // Resolver failure: leave labels blank for this bucket.
+      }
+    })
+  );
+  return out;
+}
+
+/** Look up the resolved label for a single (entity, entityId) pair. */
+function labelFor(
+  entity: string | null,
+  entityId: string | null,
+  labels: Map<string, string>
+): string | null {
+  if (!entity || !entityId) return null;
+  const key = String(entity).toLowerCase().replace(/_/g, "");
+  return labels.get(`${key}:${entityId}`) ?? null;
+}
+
 function buildAuditWhere(req: Request): Record<string, unknown> {
   const { userId, entity, action, ipContains, from, to, q } = req.query;
   const where: Record<string, unknown> = {};
@@ -106,6 +279,9 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
       : [];
     const userMap = new Map(users.map((u) => [u.id, u]));
 
+    // Issue #192: resolve entityId UUIDs to human-readable labels per row.
+    const labels = await resolveEntityLabels(logs);
+
     const data = logs.map((l) => ({
       id: l.id,
       timestamp: l.createdAt.toISOString(),
@@ -115,6 +291,7 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
       action: l.action,
       entity: l.entity,
       entityId: l.entityId,
+      entityLabel: labelFor(l.entity, l.entityId, labels),
       ipAddress: l.ipAddress,
       details: l.details,
     }));
@@ -187,6 +364,10 @@ router.get(
           : [];
         const userMap = new Map(users.map((u) => [u.id, u]));
 
+        // Issue #192: enrich with entityLabel so the search-result table
+        // matches the default list rendering.
+        const labels = await resolveEntityLabels(slice);
+
         const data = slice.map((l) => ({
           id: l.id,
           timestamp: l.createdAt.toISOString(),
@@ -196,6 +377,7 @@ router.get(
           action: l.action,
           entity: l.entity,
           entityId: l.entityId,
+          entityLabel: labelFor(l.entity, l.entityId, labels),
           ipAddress: l.ipAddress,
           details: l.details,
         }));
@@ -239,6 +421,9 @@ router.get(
         : [];
       const userMap = new Map(users.map((u) => [u.id, u]));
 
+      // Issue #192: enrich the no-term branch too.
+      const labels = await resolveEntityLabels(logs);
+
       const data = logs.map((l) => ({
         id: l.id,
         timestamp: l.createdAt.toISOString(),
@@ -248,6 +433,7 @@ router.get(
         action: l.action,
         entity: l.entity,
         entityId: l.entityId,
+        entityLabel: labelFor(l.entity, l.entityId, labels),
         ipAddress: l.ipAddress,
         details: l.details,
       }));
@@ -295,6 +481,11 @@ router.get(
         : [];
       const userMap = new Map(users.map((u) => [u.id, u]));
 
+      // Issue #192: include the resolved entity label in the CSV export
+      // so a downloaded compliance report is just as skim-readable as the
+      // table view.
+      const labels = await resolveEntityLabels(logs);
+
       const rows = logs.map((l) => ({
         timestamp: l.createdAt.toISOString(),
         userId: l.userId ?? "",
@@ -303,6 +494,7 @@ router.get(
         action: l.action,
         entity: l.entity,
         entityId: l.entityId ?? "",
+        entityLabel: labelFor(l.entity, l.entityId, labels) ?? "",
         ipAddress: l.ipAddress ?? "",
         details: l.details ? JSON.stringify(l.details) : "",
       }));
@@ -315,6 +507,7 @@ router.get(
         "action",
         "entity",
         "entityId",
+        "entityLabel",
         "ipAddress",
         "details",
       ]);

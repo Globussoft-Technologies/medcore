@@ -67,25 +67,55 @@ export const updateAncCaseSchema = z.object({
   parity: z.number().int().nonnegative("Parity cannot be negative").optional(),
 });
 
-export const createAncVisitSchema = z.object({
-  ancCaseId: z.string().uuid(),
-  type: z.enum(ANC_VISIT_TYPES),
-  weeksOfGestation: z.number().int().min(0).max(50).optional(),
-  weight: z.number().positive().optional(),
-  bloodPressure: z.string().optional(),
-  fundalHeight: z.string().optional(),
-  fetalHeartRate: z.number().int().min(60).max(220).optional(),
-  presentation: z.string().optional(),
-  hemoglobin: z.number().positive().optional(),
-  urineProtein: z.string().optional(),
-  urineSugar: z.string().optional(),
-  notes: z.string().optional(),
-  prescribedMeds: z.string().optional(),
-  nextVisitDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "nextVisitDate must be YYYY-MM-DD")
-    .optional(),
-});
+// Issue #423 (Apr 2026): the existing schema let a "completely empty"
+// visit through — every clinical field is optional, so a click of Save
+// with nothing filled in created a blank row that polluted the patient's
+// antenatal timeline. The web form has its own guard, but other clients
+// (Postman, scripts, future native app) hit this route too. Enforce the
+// same rule at the schema layer so the API rejects a zero-observation
+// visit regardless of caller. Notes alone count — clinicians sometimes
+// jot a free-form observation rather than a numeric vital.
+export const createAncVisitSchema = z
+  .object({
+    ancCaseId: z.string().uuid(),
+    type: z.enum(ANC_VISIT_TYPES),
+    weeksOfGestation: z.number().int().min(0).max(50).optional(),
+    weight: z.number().positive().optional(),
+    bloodPressure: z.string().optional(),
+    fundalHeight: z.string().optional(),
+    fetalHeartRate: z.number().int().min(60).max(220).optional(),
+    presentation: z.string().optional(),
+    hemoglobin: z.number().positive().optional(),
+    urineProtein: z.string().optional(),
+    urineSugar: z.string().optional(),
+    notes: z.string().optional(),
+    prescribedMeds: z.string().optional(),
+    nextVisitDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "nextVisitDate must be YYYY-MM-DD")
+      .optional(),
+  })
+  .superRefine((data, ctx) => {
+    const hasContent =
+      data.weeksOfGestation != null ||
+      data.weight != null ||
+      (data.bloodPressure?.trim() ?? "") !== "" ||
+      (data.fundalHeight?.trim() ?? "") !== "" ||
+      data.fetalHeartRate != null ||
+      (data.presentation?.trim() ?? "") !== "" ||
+      data.hemoglobin != null ||
+      (data.urineProtein?.trim() ?? "") !== "" ||
+      (data.urineSugar?.trim() ?? "") !== "" ||
+      (data.notes?.trim() ?? "") !== "";
+    if (!hasContent) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["notes"],
+        message:
+          "Record at least one observation (vitals, fetal HR, urine, hemoglobin, or notes) before saving the visit.",
+      });
+    }
+  });
 
 export const deliveryOutcomeSchema = z.object({
   deliveryType: z.enum(DELIVERY_TYPES),
@@ -109,6 +139,17 @@ export const ultrasoundRecordSchema = z.object({
 
 // ─── PEDIATRIC GROWTH ───────────────────────────────
 
+// Issue #435: WHO p3-p97 envelope plus a defensive margin. Negative or
+// absurdly large measurements (e.g. -3 kg, 999 cm, -15 cm head circ) used
+// to be accepted and plotted nonsense points on the percentile chart.
+// These bounds cover newborn through late adolescent (0-20 years).
+const WEIGHT_KG_MIN = 0.5;
+const WEIGHT_KG_MAX = 200;
+const HEIGHT_CM_MIN = 30;
+const HEIGHT_CM_MAX = 220;
+const HEAD_CIRC_MIN = 25;
+const HEAD_CIRC_MAX = 65;
+
 export const createGrowthRecordSchema = z.object({
   patientId: z.string().uuid(),
   measurementDate: z
@@ -116,17 +157,41 @@ export const createGrowthRecordSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, "measurementDate must be YYYY-MM-DD")
     .optional(),
   ageMonths: z.number().int().min(0).max(240),
-  weightKg: z.number().positive().optional(),
-  heightCm: z.number().positive().optional(),
-  headCircumference: z.number().positive().optional(),
+  weightKg: z
+    .number()
+    .min(WEIGHT_KG_MIN, `weightKg must be ≥ ${WEIGHT_KG_MIN} kg`)
+    .max(WEIGHT_KG_MAX, `weightKg must be ≤ ${WEIGHT_KG_MAX} kg`)
+    .optional(),
+  heightCm: z
+    .number()
+    .min(HEIGHT_CM_MIN, `heightCm must be ≥ ${HEIGHT_CM_MIN} cm`)
+    .max(HEIGHT_CM_MAX, `heightCm must be ≤ ${HEIGHT_CM_MAX} cm`)
+    .optional(),
+  headCircumference: z
+    .number()
+    .min(HEAD_CIRC_MIN, `headCircumference must be ≥ ${HEAD_CIRC_MIN} cm`)
+    .max(HEAD_CIRC_MAX, `headCircumference must be ≤ ${HEAD_CIRC_MAX} cm`)
+    .optional(),
   milestoneNotes: z.string().optional(),
   developmentalNotes: z.string().optional(),
 });
 
 export const updateGrowthRecordSchema = z.object({
-  weightKg: z.number().positive().optional(),
-  heightCm: z.number().positive().optional(),
-  headCircumference: z.number().positive().optional(),
+  weightKg: z
+    .number()
+    .min(WEIGHT_KG_MIN, `weightKg must be ≥ ${WEIGHT_KG_MIN} kg`)
+    .max(WEIGHT_KG_MAX, `weightKg must be ≤ ${WEIGHT_KG_MAX} kg`)
+    .optional(),
+  heightCm: z
+    .number()
+    .min(HEIGHT_CM_MIN, `heightCm must be ≥ ${HEIGHT_CM_MIN} cm`)
+    .max(HEIGHT_CM_MAX, `heightCm must be ≤ ${HEIGHT_CM_MAX} cm`)
+    .optional(),
+  headCircumference: z
+    .number()
+    .min(HEAD_CIRC_MIN, `headCircumference must be ≥ ${HEAD_CIRC_MIN} cm`)
+    .max(HEAD_CIRC_MAX, `headCircumference must be ≤ ${HEAD_CIRC_MAX} cm`)
+    .optional(),
   milestoneNotes: z.string().optional(),
   developmentalNotes: z.string().optional(),
 });

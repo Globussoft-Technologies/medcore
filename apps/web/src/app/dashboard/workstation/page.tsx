@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import {
@@ -124,31 +125,100 @@ export default function NurseWorkstationPage() {
         </span>
       </div>
 
-      {/* Quick actions */}
+      {/* Issue #432 (Apr 30 2026): the four quick-action buttons used to be
+          plain `<Link>`s to landing pages, so a nurse would click "Record
+          Vitals" and land on a generic page with no patient context — the
+          bug report described "empty modals with no patient context".
+          Each button now routes context-aware:
+            • If the workstation already loaded a sensible "next up" target
+              (first appointment in `Vitals to Record`, first med in
+              `Meds Due`, first assigned admission, first ER triage case)
+              we deep-link straight to that contextual URL and toast which
+              patient was opened.
+            • If no context exists, we land on the picker page and toast a
+              hint so the nurse knows the next step. */}
       <div className="flex flex-wrap gap-2">
-        <Btn
-          href="/dashboard/vitals"
+        <ActionBtn
           Icon={Activity}
           label="Record Vitals"
           color="bg-cyan-600"
+          testId="quick-record-vitals"
+          onClick={() => {
+            const next = vitalsToRecord[0];
+            if (next?.id) {
+              const name = next.patient?.user?.name || "patient";
+              toast.success(`Opening vitals form for ${name}`);
+              router.push(`/dashboard/vitals?appointmentId=${next.id}`);
+            } else {
+              toast.info("Pick a patient from the queue to record vitals.");
+              router.push("/dashboard/vitals");
+            }
+          }}
         />
-        <Btn
-          href="/dashboard/medication-dashboard"
+        <ActionBtn
           Icon={Pill}
           label="Administer Med"
           color="bg-pink-600"
+          testId="quick-administer-med"
+          onClick={() => {
+            // Issue #432: drill into a specific medication administration
+            // when one is due, otherwise drop the nurse on the dashboard
+            // with a hint. The medication-dashboard route reads `?id=` to
+            // pre-open the administration drawer; if it doesn't, the
+            // landing list is still usable as a picker.
+            const next = medsDue[0];
+            if (next?.id) {
+              const name =
+                next.medicationOrder?.admission?.patient?.user?.name ||
+                next.patientName ||
+                "patient";
+              toast.success(`Opening medication administration for ${name}`);
+              router.push(`/dashboard/medication-dashboard?id=${next.id}`);
+            } else {
+              toast.info("No medications due in the next 30 minutes.");
+              router.push("/dashboard/medication-dashboard");
+            }
+          }}
         />
-        <Btn
-          href="/dashboard/admissions"
+        <ActionBtn
           Icon={Stethoscope}
           label="Start Round"
           color="bg-indigo-600"
+          testId="quick-start-round"
+          onClick={() => {
+            const next = myPatients[0];
+            if (next?.id) {
+              const name = next.patient?.user?.name || "patient";
+              // Deep-link into the admission detail page with a query flag
+              // so the page can auto-open its "Start Round" form. If the
+              // page ignores `?action=round`, the nurse still lands on the
+              // right admission and can click Start Round there.
+              toast.success(`Starting round for ${name}`);
+              router.push(`/dashboard/admissions/${next.id}?action=round`);
+            } else {
+              toast.info(
+                "No patients assigned. Pick an admission to start a round."
+              );
+              router.push("/dashboard/admissions");
+            }
+          }}
         />
-        <Btn
-          href="/dashboard/emergency"
+        <ActionBtn
           Icon={Siren}
           label="Triage Patient"
           color="bg-red-600"
+          testId="quick-triage"
+          onClick={() => {
+            const next = erTriage[0];
+            if (next?.id) {
+              const code = next.caseNumber || next.id;
+              toast.success(`Opening triage for case ${code}`);
+              router.push(`/dashboard/emergency?id=${next.id}`);
+            } else {
+              toast.info("No cases awaiting triage.");
+              router.push("/dashboard/emergency");
+            }
+          }}
         />
       </div>
 
@@ -386,5 +456,34 @@ function Btn({
     >
       <Icon size={14} /> {label}
     </Link>
+  );
+}
+
+// Issue #432: button variant that runs an `onClick` so the workstation can
+// pick a context-aware route (vs the static `Btn` above which is just a
+// dumb `Link`). Kept as a separate component so the existing `Btn` callers
+// (none right now, but reserved for future workflows) keep working.
+function ActionBtn({
+  Icon,
+  label,
+  color,
+  onClick,
+  testId,
+}: {
+  Icon: React.ElementType;
+  label: string;
+  color: string;
+  onClick: () => void;
+  testId?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-testid={testId}
+      className={`flex items-center gap-1.5 rounded-lg ${color} px-3 py-2 text-sm font-medium text-white hover:opacity-90`}
+    >
+      <Icon size={14} /> {label}
+    </button>
   );
 }

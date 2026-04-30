@@ -67,22 +67,93 @@ export const MAINTENANCE_TYPES = [
 // BLOOD BANK
 // ───────────────────────────────────────────────────────
 
-export const createDonorSchema = z.object({
-  name: z.string().min(1),
-  phone: z.string().min(5),
-  email: z.string().email().optional(),
-  bloodGroup: z.enum(BLOOD_GROUPS),
+// Issue #428 (Apr 30 2026): Register Donor previously accepted empty / out-of-
+// range values (negative age/weight, future last-donation date, garbage blood
+// groups). Tighten the schema with a refinement that enforces clinical-grade
+// donor eligibility ranges. The base object is kept separate so
+// `updateDonorSchema` can still call `.partial()` on it (zod's `.partial`
+// is not available on a `ZodEffects` returned by `.superRefine`).
+const donorBaseShape = {
+  name: z
+    .string()
+    .trim()
+    .min(2, "Name must be at least 2 characters")
+    .max(120, "Name is too long"),
+  phone: z
+    .string()
+    .trim()
+    .regex(/^\+?[0-9 \-]{7,20}$/, "Phone must be 7-20 digits"),
+  email: z
+    .string()
+    .trim()
+    .email("Invalid email")
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
+  bloodGroup: z.enum(BLOOD_GROUPS, {
+    errorMap: () => ({ message: "Select a valid blood group" }),
+  }),
   dateOfBirth: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "dateOfBirth must be YYYY-MM-DD")
     .optional(),
   gender: z.enum(GENDERS),
-  weight: z.number().positive().optional(),
+  // Donor weight must be ≥ 50 kg per typical blood-bank SOP.
+  weight: z
+    .number()
+    .min(50, "Weight must be at least 50 kg")
+    .max(250, "Weight is unrealistic")
+    .optional(),
+  lastDonation: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "lastDonation must be YYYY-MM-DD")
+    .optional(),
   address: z.string().optional(),
   notes: z.string().optional(),
-});
+} as const;
 
-export const updateDonorSchema = createDonorSchema.partial();
+const donorBaseSchema = z.object(donorBaseShape);
+
+function donorRefinement(
+  val: { dateOfBirth?: string; lastDonation?: string },
+  ctx: z.RefinementCtx
+) {
+  if (val.dateOfBirth) {
+    const dob = new Date(val.dateOfBirth);
+    if (Number.isNaN(dob.getTime()) || dob.getTime() > Date.now()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dateOfBirth"],
+        message: "Date of birth cannot be in the future",
+      });
+    } else {
+      const ageYears =
+        (Date.now() - dob.getTime()) / (365.25 * 24 * 3600 * 1000);
+      if (ageYears < 17 || ageYears > 65) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["dateOfBirth"],
+          message: "Donor age must be between 17 and 65",
+        });
+      }
+    }
+  }
+  if (val.lastDonation) {
+    const ld = new Date(val.lastDonation);
+    if (Number.isNaN(ld.getTime()) || ld.getTime() > Date.now()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["lastDonation"],
+        message: "Last donation date cannot be in the future",
+      });
+    }
+  }
+}
+
+export const createDonorSchema = donorBaseSchema.superRefine(donorRefinement);
+
+export const updateDonorSchema = donorBaseSchema
+  .partial()
+  .superRefine(donorRefinement);
 
 export const createDonationSchema = z.object({
   donorId: z.string().uuid(),

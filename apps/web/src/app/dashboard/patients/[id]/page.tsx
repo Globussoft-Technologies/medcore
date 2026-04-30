@@ -3810,7 +3810,21 @@ function Patient360Tab({
           )
         );
         // lab unread = orders completed but not yet "read" — approximate via completed in last 30d
-        const visits = hRes.data || [];
+        //
+        // Issue #330: align this filter with /patients/:id/stats — the
+        // header KPI counts BOOKED + CHECKED_IN + IN_CONSULTATION +
+        // COMPLETED (i.e. anything except CANCELLED / NO_SHOW). Without
+        // mirroring the same exclusion here, the "Last 90 Days" Visits
+        // metric could diverge whenever a recent visit was cancelled.
+        const VISIT_STATUSES = new Set([
+          "BOOKED",
+          "CHECKED_IN",
+          "IN_CONSULTATION",
+          "COMPLETED",
+        ]);
+        const visits = (hRes.data || []).filter((v: any) =>
+          VISIT_STATUSES.has(v.status)
+        );
         const since90 = new Date(ninety).getTime();
         const recent = visits.filter(
           (v: any) => new Date(v.date).getTime() >= since90

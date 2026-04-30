@@ -95,7 +95,11 @@ describeIfDB("Engagement (feedback + complaints) API (integration)", () => {
         priority: "HIGH",
       });
     expect([200, 201]).toContain(res.status);
-    expect(res.body.data?.ticketNumber).toMatch(/^CMP\d+/);
+    // Issue #275: tickets are now `CMP-YYYY-NNNNN` (e.g. `CMP-2026-00001`)
+    // so reception sees a single consistent format across legacy + seed +
+    // runtime-generated rows. Match the prefix loosely so we don't have
+    // to update this assertion every January.
+    expect(res.body.data?.ticketNumber).toMatch(/^CMP-\d{4}-\d{5}$/);
     expect(res.body.data?.slaDueAt).toBeTruthy();
   });
 

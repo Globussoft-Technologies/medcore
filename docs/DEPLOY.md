@@ -85,6 +85,48 @@ goes red consult the troubleshooting section.
 
 ---
 
+### Pre-migrate database backup
+
+Every deploy runs `pg_dump` against the live database **before**
+`prisma migrate deploy` executes (`scripts/deploy.sh` step 4b, added
+in CI hardening Phase 2.1). Backups land at:
+
+```
+$MEDCORE_DIR/backups/predeploy-<utc-timestamp>-<sha8>.sql.gz
+```
+
+We retain the last 14. Older recoverability lives in the host's daily
+Postgres WAL snapshot.
+
+**Recovery from a bad migration**:
+
+```bash
+# 1. Stop the API + Web so nothing writes during recovery.
+pm2 stop medcore-api medcore-web
+
+# 2. Identify the backup taken just before the bad deploy
+ls -1t /home/empcloud-development/medcore/backups/ | head -3
+
+# 3. Restore (this drops all current data — make sure the file is right)
+DB_URL="postgresql://medcore:medcore_secure_2024@localhost:5433/medcore?schema=public"
+gunzip -c /home/empcloud-development/medcore/backups/predeploy-<file>.sql.gz \
+  | psql "$DB_URL"
+
+# 4. Roll the code back to the matching SHA (taken from the file name)
+cd /home/empcloud-development/medcore
+git fetch && git reset --hard <sha-from-backup-name>
+bash scripts/deploy.sh --yes  # re-runs migrate deploy on the now-restored DB
+
+# 5. Restart and smoke-check
+pm2 restart medcore-api medcore-web
+curl -fsS https://medcore.globusdemos.com/api/health
+```
+
+If the dump itself is corrupt or partial, fall back to the host's
+daily snapshot. Don't ship more code until you know the DB is sane.
+
+---
+
 ### Known issue: `package-lock.json` drift pattern
 
 This bit us three deploys in a row in April 2026 and is worth knowing before

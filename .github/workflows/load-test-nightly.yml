@@ -26,10 +26,18 @@ on:
     - cron: "30 23 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: load-test-nightly
+  cancel-in-progress: false
+
 jobs:
   load-test:
     name: Load-test AI endpoints (mock)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4

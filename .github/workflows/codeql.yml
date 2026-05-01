@@ -23,10 +23,23 @@ on:
     # 06:30 IST every Monday, after the runner image refresh.
     - cron: "0 1 * * 1"
 
+# Default token: read-only. The analyze job escalates to
+# `security-events: write` per-job for upload. Defensive against any
+# future jobs added to this workflow without explicit permissions.
+permissions:
+  contents: read
+
+# Cancel in-progress CodeQL runs on PRs when a new commit lands; main
+# pushes get their own concurrency lane so each commit is analyzed.
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       actions: read
       contents: read

@@ -32,10 +32,23 @@ name: Release validation
 on:
   workflow_dispatch:
 
+# Default token: read-only repo access. No release-validation step needs
+# to mutate the repo or write to packages.
+permissions:
+  contents: read
+
+# Only one release-validation run at a time. If you trigger a second one,
+# cancel the first — it's a manual gate, the in-flight signal is
+# whichever was most recently invoked.
+concurrency:
+  group: release-validation
+  cancel-in-progress: true
+
 jobs:
   typecheck:
     name: Type check (api + web)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -54,6 +67,7 @@ jobs:
   api-tests-full:
     name: API tests (unit + contract + smoke + integration)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16
@@ -96,6 +110,7 @@ jobs:
   web-tests-full:
     name: Web component tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -112,6 +127,7 @@ jobs:
   e2e-full:
     name: E2E (full Playwright suite)
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     services:
       postgres:
         image: postgres:16
@@ -220,6 +236,7 @@ jobs:
     # that Chromium-only coverage misses. CI hardening Phase 3.4.
     name: E2E (full Playwright suite, WebKit)
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     services:
       postgres:
         image: postgres:16
@@ -313,6 +330,7 @@ jobs:
   release-summary:
     name: Release validation summary
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [typecheck, api-tests-full, web-tests-full, e2e-full, e2e-webkit]
     if: always()
     steps:

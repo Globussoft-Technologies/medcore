@@ -371,7 +371,22 @@ jobs:
     # and auto-deploys to the dev server on every green main push;
     # release-validation is the heavier "are we good to declare a
     # release" check the user triggers on demand.
-    needs: [test, web-tests, typecheck]
+    #
+    # Also gating on the four hardening jobs (Phases 1.3, 2.3, 2.4):
+    #   - npm-audit         no high/critical CVE in prod runtime deps
+    #   - migration-safety  no destructive Prisma migration without the
+    #                        `[allow-destructive-migration]` opt-in marker
+    #   - web-bundle        no catastrophic bundle bloat (>25 MB chunks)
+    # These are deploy-correctness gates: a failing one means we should
+    # NOT ship to dev. `lint` is intentionally out of the gate while we
+    # triage existing eslint violations from the first runs.
+    needs:
+      - test
+      - web-tests
+      - typecheck
+      - npm-audit
+      - migration-safety
+      - web-bundle
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     # Don't cancel a deploy that's already in progress — let it finish, then
     # the next one runs. Two deploys racing on the same host can corrupt

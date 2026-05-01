@@ -1,0 +1,96 @@
+name: Load test (nightly)
+
+# Smokes the AI endpoint orchestrator against a mock server every night.
+# Catches:
+#   - Transport-level breakage (run-load-test.ts unable to reach the API
+#     contract surface, e.g. fetch fails or returns non-2xx for >50% of
+#     requests)
+#   - Catastrophic latency tails (the orchestrator currently doesn't
+#     enforce per-endpoint p95 budgets; that's a planned follow-up.
+#     Today the workflow log is the audit trail and the artifact lets
+#     us spot trends manually.)
+#
+# Why mock-server, not the real API:
+#   - Real Sarvam quota would burn nightly. The mock simulates the
+#     contract + realistic latency without burning tokens.
+#   - The point of this workflow is to detect regressions in OUR
+#     orchestration code (auth, retries, fan-out), not Sarvam's behavior.
+#     Sarvam latency drift is caught by ai-eval-nightly.yml separately.
+#
+# CI hardening Phase 3.2.
+
+on:
+  schedule:
+    # 23:30 UTC every night = 05:00 IST. Doesn't overlap with the
+    # 22:30 UTC ai-eval cron, so artifacts don't queue.
+    - cron: "30 23 * * *"
+  workflow_dispatch:
+
+jobs:
+  load-test:
+    name: Load-test AI endpoints (mock)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Start mock server
+        # Mock server listens on :4010 by default. Background it so the
+        # subsequent orchestrator runs can hit it. nohup detaches from
+        # the GHA shell's stdin so the step doesn't block.
+        run: |
+          nohup npm run test:load:mock > mock-server.log 2>&1 &
+          # Poll until the mock is responsive (typically <1s).
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:4010/api/v1/ai/triage/start \
+                -X POST -H 'content-type: application/json' \
+                -H 'authorization: Bearer test' \
+                -d '{}' > /dev/null 2>&1; then
+              echo "Mock server ready"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Run triage load test
+        run: |
+          mkdir -p load-test-results
+          npx tsx scripts/load-tests/run-load-test.ts \
+            --endpoint=triage --mock-port=4010 \
+            --concurrency=10 --requests=100 \
+            > load-test-results/triage.log 2>&1
+          tail -40 load-test-results/triage.log
+
+      - name: Run scribe load test
+        run: |
+          npx tsx scripts/load-tests/run-load-test.ts \
+            --endpoint=scribe --mock-port=4010 \
+            --concurrency=10 --requests=100 \
+            > load-test-results/scribe.log 2>&1
+          tail -40 load-test-results/scribe.log
+
+      - name: Run chart-search load test
+        run: |
+          npx tsx scripts/load-tests/run-load-test.ts \
+            --endpoint=chart-search --mock-port=4010 \
+            --concurrency=10 --requests=100 \
+            > load-test-results/chart-search.log 2>&1
+          tail -40 load-test-results/chart-search.log
+
+      - name: Upload load-test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-logs
+          path: |
+            load-test-results/
+            mock-server.log
+          retention-days: 30

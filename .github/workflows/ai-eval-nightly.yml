@@ -1,0 +1,93 @@
+name: AI eval (nightly)
+
+# Runs the Sarvam+OpenAI eval harness against the deterministic case
+# fixtures (triage emergency detection, SOAP fidelity, red-flag drug
+# safety, specialty routing). Catches model drift, prompt regressions,
+# and accuracy floors set by PRD §3.9.
+#
+# Trigger model:
+#   - Nightly cron at 22:30 UTC (04:00 IST next morning) so a fresh
+#     report is on the dashboard before the team starts the day.
+#   - Manual `workflow_dispatch` for ad-hoc runs (e.g. after a prompt
+#     edit lands).
+#
+# Failure mode: a failure here surfaces in the Actions tab; we don't
+# auto-rollback prompts. Investigate, fix the prompt or the fixture,
+# re-run.
+#
+# Required secrets:
+#   SARVAM_API_KEY  — the prod-equivalent Sarvam key. Eval consumes a
+#                     small token quota; budget impact is bounded by
+#                     the fixture size (~100 cases × ~1k tokens each).
+#   OPENAI_API_KEY  — fallback if SARVAM is mid-outage; eval-runner
+#                     prefers Sarvam when both are set.
+#
+# CI hardening Phase 3.1.
+
+on:
+  schedule:
+    - cron: "30 22 * * *"
+  workflow_dispatch:
+
+jobs:
+  ai-eval:
+    name: Run AI eval harness
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: medcore
+          POSTGRES_PASSWORD: medcore
+          POSTGRES_DB: medcore_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://medcore:medcore@localhost:5432/medcore_test
+      DATABASE_URL_TEST: postgresql://medcore:medcore@localhost:5432/medcore_test
+      JWT_SECRET: ci-jwt-secret
+      JWT_REFRESH_SECRET: ci-jwt-refresh-secret
+      NODE_ENV: test
+      RUN_AI_EVAL: "1"
+      SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Push schema
+        run: npx prisma db push --schema packages/db/prisma/schema.prisma --force-reset --skip-generate
+
+      - name: Run AI eval harness
+        # eval-runner.ts emits a structured JSON report alongside the
+        # vitest output; uploaded as an artifact below for trend tracking.
+        run: npm run test:ai-eval
+
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-eval-report
+          path: |
+            apps/api/src/test/ai-eval/reports/
+            !apps/api/src/test/ai-eval/reports/.gitkeep
+          retention-days: 90
+          if-no-files-found: warn

@@ -29,14 +29,54 @@ SCHEMA_PATH="packages/db/prisma/schema.prisma"
 
 AUTO_YES=0
 DO_SEED=0
+DO_ROLLBACK=0
 for arg in "$@"; do
     case "$arg" in
-        --yes|-y) AUTO_YES=1 ;;
-        --seed)   DO_SEED=1 ;;
+        --yes|-y)    AUTO_YES=1 ;;
+        --seed)      DO_SEED=1 ;;
+        --rollback)  DO_ROLLBACK=1 ;;
     esac
 done
 
 cd "$MEDCORE_DIR"
+
+# ─── Rollback path (CI hardening Phase 2.2) ─────────────────────────────
+# Triggered by the workflow when the post-deploy smoke check fails. Resets
+# the checkout to PREV_SHA (recorded by the previous successful deploy at
+# /tmp/medcore-prev-sha), reinstalls deps at that SHA, and restarts pm2 —
+# but does NOT roll back the database. Reasoning:
+#   - Most migrations in this codebase are additive (add column, add table).
+#     Old code tolerates them.
+#   - Rolling back a destructive migration requires the pre-migrate dump
+#     from step 4b (see DEPLOY.md "Recovery from a bad migration" — that's
+#     a human ops procedure, not an automated workflow step).
+# If pm2 won't come up at PREV_SHA after rollback, the smoke check after
+# this script exits will still fail and the workflow turns red — at that
+# point a human takes over.
+if [ "$DO_ROLLBACK" -eq 1 ]; then
+    if [ ! -s /tmp/medcore-prev-sha ]; then
+        echo "ABORT — /tmp/medcore-prev-sha is missing; nothing to roll back to."
+        exit 1
+    fi
+    ROLLBACK_TO="$(cat /tmp/medcore-prev-sha)"
+    echo "=== ROLLBACK to ${ROLLBACK_TO} ==="
+    git checkout -- package-lock.json 2>/dev/null || true
+    git fetch origin
+    git reset --hard "$ROLLBACK_TO"
+    npm ci --ignore-scripts 2>/dev/null || npm ci
+    DATABASE_URL="$DB_URL" npx prisma generate --schema "$SCHEMA_PATH"
+    # NB: skipping `prisma migrate deploy` — schema may be ahead of this
+    # SHA. If a destructive migration broke things, restore from the dump
+    # in $MEDCORE_DIR/backups/ per DEPLOY.md.
+    npm --prefix apps/web run build
+    pm2 restart medcore-api medcore-web
+    sleep 3
+    curl -sf http://localhost:4100/api/health && echo " API OK after rollback" || { echo " API STILL FAILED after rollback — page a human"; exit 1; }
+    curl -sf http://localhost:3200 > /dev/null && echo "Web OK after rollback" || { echo "Web STILL FAILED after rollback — page a human"; exit 1; }
+    pm2 save
+    echo "=== Rollback complete (HEAD=${ROLLBACK_TO}) ==="
+    exit 0
+fi
 
 echo "=== 0. Pre-flight: working tree clean ==="
 # Workaround for npm/cli#4828: `npm ci` on Linux can leave package-lock.json

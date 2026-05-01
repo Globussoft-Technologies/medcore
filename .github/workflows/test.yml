@@ -257,6 +257,7 @@ jobs:
             'bash -lc "cd /home/empcloud-development/medcore && git checkout -- package-lock.json 2>/dev/null; bash scripts/deploy.sh --yes"'
 
       - name: Smoke-check public endpoints
+        id: smoke
         if: success()
         # deploy.sh already curls localhost:4100 + localhost:3200 on the box.
         # This is a *public* check — confirms nginx is forwarding correctly
@@ -284,3 +285,38 @@ jobs:
           echo "${body}" | grep -q "MedCore" \
             || { echo "FAILED /login — body missing MedCore marker"; exit 1; }
           echo "OK /login"
+
+      - name: Auto-rollback on smoke failure
+        # Triggered only when the smoke step above failed (the deploy step
+        # itself succeeded — if SSH failed, there's nothing on the server
+        # to roll back). SSHes back to the dev box and runs deploy.sh
+        # --rollback, which resets the checkout to PREV_SHA (saved at
+        # /tmp/medcore-prev-sha by the just-completed deploy), reinstalls
+        # at that SHA, and restarts pm2. Schema migrations are NOT rolled
+        # back — see DEPLOY.md "Recovery from a bad migration" if a
+        # destructive migration is the actual culprit.
+        # CI hardening Phase 2.2.
+        if: failure() && steps.smoke.conclusion == 'failure'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          echo "::warning::Smoke check failed; rolling back the dev server to PREV_SHA"
+          ssh -o BatchMode=yes -o ServerAliveInterval=30 \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            'bash -lc "cd /home/empcloud-development/medcore && bash scripts/deploy.sh --rollback"'
+
+      - name: Re-smoke after rollback
+        # If the rollback step ran and (presumably) succeeded, re-check the
+        # public endpoints to confirm the previous SHA is actually serving
+        # traffic. If THIS step fails, page a human — the rollback didn't
+        # bring the system back to a good state and DEPLOY.md's manual
+        # recovery flow is needed.
+        if: failure() && steps.smoke.conclusion == 'failure'
+        run: |
+          set -euo pipefail
+          BASE="https://medcore.globusdemos.com"
+          health=$(curl -fsS --max-time 10 "${BASE}/api/health")
+          echo "${health}" | jq -e '.status == "ok"' > /dev/null \
+            || { echo "::error::Rollback DID NOT RESTORE service. Manual recovery required."; exit 1; }
+          echo "::notice::Rollback restored /api/health. Investigate the failed deploy on a branch."

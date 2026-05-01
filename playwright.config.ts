@@ -7,21 +7,27 @@ import { defineConfig, devices } from "@playwright/test";
  * - Override the API URL with E2E_API_URL.
  *
  * Test tiers (Playwright projects):
- *   - `smoke`      — fast canary (auth + cross-cutting + quick-actions).
- *                    Run: `npx playwright test --project=smoke`.
- *   - `regression` — smoke + the seven role flows (doctor / nurse /
- *                    reception / patient and the future lab-tech /
- *                    pharmacist when those specs land).
- *                    Run: `npx playwright test --project=regression`.
- *   - `full`       — every spec in `e2e/`. This is what `release.yml`
- *                    runs on the release-validation gate.
- *                    Run: `npx playwright test --project=full`.
+ *   - `smoke`           — fast canary (auth + cross-cutting +
+ *                         quick-actions).
+ *                         Run: `npx playwright test --project=smoke`.
+ *   - `regression`      — smoke + the seven role flows.
+ *                         Run: `npx playwright test --project=regression`.
+ *   - `full`            — every spec in `e2e/`, on Chromium. This is
+ *                         what `release.yml` runs.
+ *                         Run: `npx playwright test --project=full`.
+ *   - `full-webkit`     — same testMatch as `full` but executed on
+ *                         WebKit (Safari engine). Catches Safari-only
+ *                         bugs that Chromium misses (date parsing,
+ *                         IndexedDB quirks, CSS rendering). Slower
+ *                         than Chromium on Linux; release.yml runs
+ *                         it in parallel with `full` so the wall-clock
+ *                         hit is bounded.
+ *                         Run: `npx playwright test --project=full-webkit`.
+ *                         CI hardening Phase 3.4.
  *
  * IMPORTANT: every CI job MUST pass an explicit `--project=` flag.
  * Running `npx playwright test` with no flag would otherwise execute
- * all three projects (smoke + regression + full), re-running the smoke
- * specs three times. release.yml + test.yml are both updated to pin
- * their project.
+ * every project, re-running shared specs once per project.
  *
  * Per-spec invocations (`npx playwright test e2e/rbac-matrix.spec.ts`)
  * still work because the explicit file path narrows the run before
@@ -87,6 +93,13 @@ export default defineConfig({
       name: "full",
       use: { ...devices["Desktop Chrome"] },
       // Everything in e2e/ — this is what release.yml runs.
+      testMatch: "**/*.spec.ts",
+    },
+    {
+      name: "full-webkit",
+      use: { ...devices["Desktop Safari"] },
+      // Same set as `full`, on WebKit. Cross-browser coverage for the
+      // release-validation gate.
       testMatch: "**/*.spec.ts",
     },
   ],

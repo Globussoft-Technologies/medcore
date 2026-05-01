@@ -213,24 +213,123 @@ jobs:
             web.log
           retention-days: 14
 
+  e2e-webkit:
+    # Same Playwright suite, executed on WebKit (Safari engine). Runs in
+    # parallel with e2e-full so wall-clock cost is bounded. Catches
+    # Safari-specific bugs (date parsing, IndexedDB quirks, CSS rendering)
+    # that Chromium-only coverage misses. CI hardening Phase 3.4.
+    name: E2E (full Playwright suite, WebKit)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: medcore
+          POSTGRES_PASSWORD: medcore
+          POSTGRES_DB: medcore_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://medcore:medcore@localhost:5432/medcore_e2e
+      JWT_SECRET: ci-jwt-secret
+      JWT_REFRESH_SECRET: ci-jwt-refresh-secret
+      NODE_ENV: production
+      DISABLE_RATE_LIMITS: "true"
+      NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
+      E2E_BASE_URL: http://localhost:3000
+      E2E_API_URL: http://localhost:4000/api/v1
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --include=dev
+
+      - name: Install Playwright webkit
+        # WebKit needs different system libs than Chromium. --with-deps
+        # installs them (libwebkit, libsoup, etc.) at runtime cost.
+        run: npx playwright install --with-deps webkit
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Push schema and seed
+        run: |
+          npx prisma db push --schema packages/db/prisma/schema.prisma --force-reset --skip-generate
+          npm run db:seed
+
+      - name: Build Web (warm bundle)
+        run: npm --prefix apps/web run build
+
+      - name: Start API
+        env:
+          PORT: "4000"
+        run: |
+          cd apps/api
+          nohup npm run dev > ../../api.log 2>&1 &
+          cd ../..
+
+      - name: Start Web (next start)
+        env:
+          PORT: "3000"
+        run: |
+          cd apps/web
+          nohup npm start > ../../web.log 2>&1 &
+          cd ../..
+
+      - name: Wait for API and Web
+        run: npx wait-on http://localhost:4000/api/health http://localhost:3000/login --timeout 90000
+
+      - name: Run full Playwright suite (WebKit)
+        run: npx playwright test --project=full-webkit
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-full-webkit-report
+          path: playwright-report
+          retention-days: 30
+
+      - name: Upload server logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-logs-release-webkit
+          path: |
+            api.log
+            web.log
+          retention-days: 14
+
   release-summary:
     name: Release validation summary
     runs-on: ubuntu-latest
-    needs: [typecheck, api-tests-full, web-tests-full, e2e-full]
+    needs: [typecheck, api-tests-full, web-tests-full, e2e-full, e2e-webkit]
     if: always()
     steps:
       - name: Report
         run: |
-          echo "Typecheck:    ${{ needs.typecheck.result }}"
-          echo "API tests:    ${{ needs.api-tests-full.result }}"
-          echo "Web tests:    ${{ needs.web-tests-full.result }}"
-          echo "E2E (full):   ${{ needs.e2e-full.result }}"
+          echo "Typecheck:        ${{ needs.typecheck.result }}"
+          echo "API tests:        ${{ needs.api-tests-full.result }}"
+          echo "Web tests:        ${{ needs.web-tests-full.result }}"
+          echo "E2E (Chromium):   ${{ needs.e2e-full.result }}"
+          echo "E2E (WebKit):     ${{ needs.e2e-webkit.result }}"
           if [ "${{ needs.typecheck.result }}" = "success" ] \
              && [ "${{ needs.api-tests-full.result }}" = "success" ] \
              && [ "${{ needs.web-tests-full.result }}" = "success" ] \
-             && [ "${{ needs.e2e-full.result }}" = "success" ]; then
+             && [ "${{ needs.e2e-full.result }}" = "success" ] \
+             && [ "${{ needs.e2e-webkit.result }}" = "success" ]; then
             echo ""
-            echo "All four gates green — safe to declare a release on this SHA."
+            echo "All five gates green — safe to declare a release on this SHA."
           else
             echo ""
             echo "One or more gates failed — fix on main, then retrigger this workflow."

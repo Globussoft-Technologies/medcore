@@ -6,6 +6,12 @@ if (process.env.SENTRY_DSN) {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
     environment: process.env.NODE_ENV || "development",
+    // SENTRY_RELEASE is set by scripts/deploy.sh to the deploying SHA
+    // (CI hardening Phase 4.2) so each error in Sentry is correlated
+    // back to the exact commit that introduced it. Falls back to
+    // undefined when running locally; Sentry's "release health"
+    // dashboards remain functional but unattributed.
+    release: process.env.SENTRY_RELEASE,
     tracesSampleRate: 0.2,
   });
 }

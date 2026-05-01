@@ -68,8 +68,12 @@ if [ "$DO_ROLLBACK" -eq 1 ]; then
     # NB: skipping `prisma migrate deploy` — schema may be ahead of this
     # SHA. If a destructive migration broke things, restore from the dump
     # in $MEDCORE_DIR/backups/ per DEPLOY.md.
+    # Tag Sentry events with the rolled-back SHA so post-rollback errors
+    # are attributed to the now-serving commit, not the bad one.
+    export SENTRY_RELEASE="$ROLLBACK_TO"
+    export NEXT_PUBLIC_SENTRY_RELEASE="$ROLLBACK_TO"
     npm --prefix apps/web run build
-    pm2 restart medcore-api medcore-web
+    pm2 restart medcore-api medcore-web --update-env
     sleep 3
     curl -sf http://localhost:4100/api/health && echo " API OK after rollback" || { echo " API STILL FAILED after rollback — page a human"; exit 1; }
     curl -sf http://localhost:3200 > /dev/null && echo "Web OK after rollback" || { echo "Web STILL FAILED after rollback — page a human"; exit 1; }
@@ -168,10 +172,18 @@ if echo "$STATUS_OUT" | grep -qiE "following migration.*have not yet been applie
 fi
 
 echo "=== 6. Building web app ==="
+# Export SENTRY_RELEASE so the Next.js build embeds it in the browser
+# bundle as NEXT_PUBLIC_SENTRY_RELEASE. Both apps read this at runtime to
+# tag every Sentry event with the deploying SHA. CI hardening Phase 4.2.
+export SENTRY_RELEASE="$INCOMING_SHA"
+export NEXT_PUBLIC_SENTRY_RELEASE="$INCOMING_SHA"
 npm --prefix apps/web run build
 
 echo "=== 7. Restarting services ==="
-pm2 restart medcore-api medcore-web
+# `--update-env` forces pm2 to re-read the parent shell's env vars on
+# restart, picking up the SENTRY_RELEASE we just exported. Without this
+# pm2 caches the env from when each process was first spawned.
+pm2 restart medcore-api medcore-web --update-env
 sleep 3
 
 echo "=== 8. Verifying ==="

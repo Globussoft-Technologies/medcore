@@ -140,139 +140,6 @@ jobs:
       - name: Type-check Web
         run: npx tsc --noEmit -p apps/web/tsconfig.json
 
-  e2e-rbac:
-    # Narrow Playwright job that runs ONLY the RBAC matrix spec —
-    # 63 (role × route) cases proving every gated route bounces every
-    # disallowed role. Started narrow so we can re-grow CI confidence
-    # in Playwright after the full-suite removal in 30ec764. If it
-    # holds green for a few pushes, broaden the `--grep` to the full
-    # suite (and fix the /dashboard/admin-console a11y budget).
-    #
-    # Uses `next build && next start` deliberately — `next dev`
-    # cold-start was the source of every flake that caused the suite
-    # to be removed in the first place. A warm-served bundle compiles
-    # once during the build step and tests then hit a fixed binary.
-    name: E2E (RBAC matrix only)
-    runs-on: ubuntu-latest
-    needs: typecheck
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: medcore
-          POSTGRES_PASSWORD: medcore
-          POSTGRES_DB: medcore_e2e
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    env:
-      DATABASE_URL: postgresql://medcore:medcore@localhost:5432/medcore_e2e
-      JWT_SECRET: ci-jwt-secret
-      JWT_REFRESH_SECRET: ci-jwt-refresh-secret
-      NODE_ENV: production
-      # Disable the 30/min auth rate limiter in E2E. With workers=2 (set in
-      # playwright.config.ts for CI), two workers share a single outbound
-      # IP, so the 63-case RBAC matrix hits 30 logins per minute well before
-      # finishing. Real prod still rate-limits; we're testing app behavior
-      # against synthetic credentials, not the limiter itself.
-      DISABLE_RATE_LIMITS: "true"
-      # NOTE: do NOT set PORT at the job level — it leaks into both the
-      # `Start API` and `Start Web` steps, causing them to fight over the
-      # same port (next start respects $PORT just like Express does, so a
-      # job-level PORT=4000 made next bind 4000 first and then the API died
-      # with EADDRINUSE). PORT is set inline per-process below.
-      NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
-      E2E_BASE_URL: http://localhost:3000
-      E2E_API_URL: http://localhost:4000/api/v1
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        # `--include=dev` is mandatory in this job because the job-level env
-        # sets NODE_ENV=production (so `next start` boots in production mode
-        # later). Under NODE_ENV=production, npm install skips devDependencies
-        # by default, which left `turbo` (devDep, drives `npm run db:generate`)
-        # uninstalled and the very next step blew up with `sh: 1: turbo: not
-        # found`. Forcing dev installs here keeps build/test tooling on PATH
-        # without changing the runtime env the API and Web processes inherit.
-        run: npm install --include=dev
-
-      - name: Install Playwright chromium
-        run: npx playwright install --with-deps chromium
-
-      - name: Generate Prisma client
-        run: npm run db:generate
-
-      - name: Push schema and seed
-        run: |
-          npx prisma db push --schema packages/db/prisma/schema.prisma --force-reset --skip-generate
-          npm run db:seed
-
-      - name: Build Web (warm bundle)
-        run: npm --prefix apps/web run build
-
-      - name: Start API
-        env:
-          PORT: "4000"
-        run: |
-          cd apps/api
-          nohup npm run dev > ../../api.log 2>&1 &
-          cd ../..
-
-      - name: Start Web (next start)
-        env:
-          PORT: "3000"
-        run: |
-          cd apps/web
-          nohup npm start > ../../web.log 2>&1 &
-          cd ../..
-
-      - name: Wait for API and Web
-        # next start serves the pre-built bundle; the only wait here is
-        # the Node bootstrap + db connection, not the JIT compile that
-        # used to dominate `next dev` cold-start.
-        run: |
-          npx wait-on http://localhost:4000/api/health http://localhost:3000/login --timeout 90000
-
-      - name: Run Playwright RBAC matrix
-        # Narrow to the single rbac-matrix spec, AND pin --project=full so
-        # the spec only runs once. (Without --project, the test would
-        # match across every project that includes it via testMatch — for
-        # rbac-matrix that's just `full`, but pinning the project here
-        # documents intent and prevents accidental broadening if the
-        # smoke/regression testMatch lists ever grow.)
-        run: npx playwright test --project=full e2e/rbac-matrix.spec.ts
-
-      - name: Upload Playwright report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-rbac-report
-          path: playwright-report
-          retention-days: 14
-
-      - name: Upload server logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: server-logs-rbac
-          path: |
-            api.log
-            web.log
-          retention-days: 7
-
   deploy:
     name: Deploy to dev server
     runs-on: ubuntu-latest
@@ -280,19 +147,14 @@ jobs:
     #   - test          (API: unit + contract + smoke + integration)
     #   - web-tests     (vitest UI components)
     #   - typecheck     (api + web tsc --noEmit)
-    #   - e2e-rbac      (NEW — Playwright RBAC matrix on a `next start`
-    #                    bundle. Narrow scope (just rbac-matrix.spec.ts)
-    #                    while we re-establish trust in the e2e step
-    #                    after the 30ec764 removal. Once it holds green
-    #                    for a few pushes, broaden the spec list and
-    #                    address the /dashboard/admin-console a11y
-    #                    budget so the full suite can re-enter the gate.)
     #
-    # 2026-05-01: matrix reconciled (seed for LAB_TECH/PHARMACIST in
-    # f7514fc, ai-route 400-shape alignment in 73bfb32, dashboard-prefix
-    # match in fbf1145). Latest main run green across all 5 jobs —
-    # re-adding e2e-rbac to the gate.
-    needs: [test, web-tests, typecheck, e2e-rbac]
+    # E2E (Playwright) is intentionally NOT in the per-push gate. The
+    # full suite runs only on the manual `release.yml` workflow, which
+    # is the release-validation gate. Per-push CI stays fast (~7 min)
+    # and auto-deploys to the dev server on every green main push;
+    # release-validation is the heavier "are we good to declare a
+    # release" check the user triggers on demand.
+    needs: [test, web-tests, typecheck]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     # Don't cancel a deploy that's already in progress — let it finish, then
     # the next one runs. Two deploys racing on the same host can corrupt

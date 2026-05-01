@@ -176,6 +176,12 @@ jobs:
       JWT_SECRET: ci-jwt-secret
       JWT_REFRESH_SECRET: ci-jwt-refresh-secret
       NODE_ENV: production
+      # Disable the 30/min auth rate limiter in E2E. With workers=2 (set in
+      # playwright.config.ts for CI), two workers share a single outbound
+      # IP, so the 63-case RBAC matrix hits 30 logins per minute well before
+      # finishing. Real prod still rate-limits; we're testing app behavior
+      # against synthetic credentials, not the limiter itself.
+      DISABLE_RATE_LIMITS: "true"
       # NOTE: do NOT set PORT at the job level — it leaks into both the
       # `Start API` and `Start Web` steps, causing them to fight over the
       # same port (next start respects $PORT just like Express does, so a

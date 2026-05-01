@@ -131,6 +131,10 @@ jobs:
       JWT_SECRET: ci-jwt-secret
       JWT_REFRESH_SECRET: ci-jwt-refresh-secret
       NODE_ENV: production
+      # Disable the 30/min auth rate limiter — see test.yml e2e-rbac job
+      # for the rationale. Required because the full Playwright suite logs
+      # in many more times than the matrix alone.
+      DISABLE_RATE_LIMITS: "true"
       # See test.yml e2e-rbac job for why PORT is scoped per-step, not at
       # the job level.
       NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1

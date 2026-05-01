@@ -1,0 +1,25 @@
+# MedCore code owners.
+#
+# When a PR modifies a path matching one of these globs, the listed users
+# are automatically added as reviewers. Pair with a branch-protection rule
+# requiring "Require review from Code Owners" to enforce.
+#
+# Catch-all for everything not otherwise specified.
+*                                  @indianbill007
+
+# CI / deploy infrastructure — every change touches release confidence.
+/.github/                          @indianbill007
+/scripts/                          @indianbill007
+/docs/CI_HARDENING_PLAN.md         @indianbill007
+/docs/DEPLOY.md                    @indianbill007
+/playwright.config.ts              @indianbill007
+/vitest.config.ts                  @indianbill007
+
+# Database schema — destructive migrations carry data-loss risk.
+/packages/db/prisma/schema.prisma  @indianbill007
+/packages/db/prisma/migrations/    @indianbill007
+
+# Auth + RBAC — security-critical.
+/apps/api/src/routes/auth.ts       @indianbill007
+/apps/api/src/middleware/auth.ts   @indianbill007
+/apps/api/src/middleware/rate-limit.ts @indianbill007

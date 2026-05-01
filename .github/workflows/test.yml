@@ -140,6 +140,58 @@ jobs:
       - name: Type-check Web
         run: npx tsc --noEmit -p apps/web/tsconfig.json
 
+  lint:
+    # ESLint via `next lint` on apps/web. Not in `deploy.needs` initially
+    # (CI hardening Phase 1.1) — first runs surface existing violations
+    # for triage, after which we flip this into the deploy gate. The api +
+    # shared workspaces' "lint" scripts alias to `tsc --noEmit` and are
+    # already covered by the typecheck job; only the web eslint pass is
+    # genuinely new signal here.
+    name: Lint (web eslint)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Generate Prisma client
+        # Web pages import shared types whose generation triggers Prisma
+        # client generation. Without this step `next lint` errors on
+        # missing `@prisma/client` types.
+        run: npm run db:generate
+
+      - name: ESLint web
+        run: npm --prefix apps/web run lint
+
+  npm-audit:
+    # Surface known CVEs in dependencies. Fails on high/critical only —
+    # moderate/low are noisy and frequently can't be fixed without major
+    # version bumps that need product decisions. Healthcare codebase makes
+    # this table-stakes (CI hardening Phase 1.3).
+    name: npm audit (high+critical)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Run npm audit
+        # `--omit=dev` skips devDeps so we only fail on prod-runtime CVEs.
+        # Tooling vulnerabilities (test runners etc.) get caught by the
+        # weekly Dependabot/CodeQL passes instead.
+        run: npm audit --audit-level=high --omit=dev
+
   deploy:
     name: Deploy to dev server
     runs-on: ubuntu-latest

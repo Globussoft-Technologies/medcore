@@ -192,6 +192,65 @@ jobs:
         # weekly Dependabot/CodeQL passes instead.
         run: npm audit --audit-level=high --omit=dev
 
+  web-bundle:
+    # Builds apps/web and prints the size of the static chunks directory
+    # on every push, so the workflow log is a longitudinal record of
+    # bundle weight. Fails only on catastrophic bloat (>25 MB of JS) to
+    # avoid noisy failures while we collect baseline numbers; tighten the
+    # budget in a follow-up commit once a few clean runs settle on a
+    # realistic size.
+    # CI hardening Phase 2.4.
+    name: Web bundle size
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Generate Prisma client
+        # next build imports types whose generation triggers prisma generate.
+        run: npm run db:generate
+
+      - name: Build web
+        run: npm --prefix apps/web run build
+
+      - name: Report and budget-check bundle size
+        run: |
+          set -euo pipefail
+          CHUNKS_DIR="apps/web/.next/static/chunks"
+          if [ ! -d "$CHUNKS_DIR" ]; then
+            echo "::error::$CHUNKS_DIR missing — next build did not produce static chunks."
+            exit 1
+          fi
+
+          BYTES=$(du -sb "$CHUNKS_DIR" | cut -f1)
+          MB=$(awk -v b="$BYTES" 'BEGIN { printf "%.2f", b/1024/1024 }')
+          echo "Static chunks: ${MB} MB (${BYTES} bytes)"
+          echo
+
+          # Per-chunk top-10 for triage when bloat appears.
+          echo "Top 10 chunks by size:"
+          du -h "$CHUNKS_DIR"/*.js 2>/dev/null | sort -hr | head -10 || true
+          echo
+
+          # Catastrophic-bloat budget: 25 MB. A typical Next.js app of
+          # this scope sits at 3-8 MB; 25 MB means a vendor bundle slipped
+          # in or a code-split boundary collapsed. Tighten this number
+          # once we have ~5 clean baseline runs.
+          BUDGET_MB=25
+          if awk -v m="$MB" -v b="$BUDGET_MB" 'BEGIN { exit !(m > b) }'; then
+            echo "::error::Bundle exceeded ${BUDGET_MB} MB budget (${MB} MB). Investigate top chunks above."
+            exit 1
+          fi
+          echo "::notice::Bundle ${MB} MB is under the ${BUDGET_MB} MB tripwire budget."
+
   migration-safety:
     # Scan new/modified Prisma migrations for destructive ops and fail the
     # build unless the commit message explicitly opts in. Since this repo

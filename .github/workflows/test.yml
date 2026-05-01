@@ -192,6 +192,89 @@ jobs:
         # weekly Dependabot/CodeQL passes instead.
         run: npm audit --audit-level=high --omit=dev
 
+  migration-safety:
+    # Scan new/modified Prisma migrations for destructive ops and fail the
+    # build unless the commit message explicitly opts in. Since this repo
+    # pushes direct to main (no mandatory PR review for code changes), the
+    # forcing function lives on the commit itself: a destructive migration
+    # MUST be paired with `[allow-destructive-migration]` in its message
+    # so reviewing the commit log later is enough to spot data-loss risk.
+    # CI hardening Phase 2.3.
+    name: Migration safety
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need at least the previous commit to diff against. fetch-depth=0
+          # is overkill but cheap; lets us scan the full PR diff if/when we
+          # add PR triggers later.
+          fetch-depth: 0
+
+      - name: Scan added/modified migrations for destructive ops
+        env:
+          # `before` is the parent SHA on a push event. On a PR event GHA
+          # exposes pull_request.base.sha; we don't run on PRs today but
+          # leaving the fallback in keeps this future-proof.
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          BASE="${PR_BASE_SHA:-$BEFORE_SHA}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            # First push to a branch — diff against main's first parent.
+            BASE="$(git rev-list --max-parents=0 HEAD | tail -1)"
+          fi
+          echo "Diffing $BASE..$HEAD_SHA for migration changes"
+
+          CHANGED=$(git diff --name-only --diff-filter=AM "$BASE..$HEAD_SHA" -- 'packages/db/prisma/migrations/**/migration.sql' || true)
+          if [ -z "$CHANGED" ]; then
+            echo "No migration changes in this push — pass."
+            exit 0
+          fi
+
+          echo "Migration files added/modified:"
+          echo "$CHANGED"
+          echo
+
+          DESTRUCTIVE=0
+          DESTRUCTIVE_LOG=""
+          # Patterns that destroy data. ALTER TYPE is included because
+          # narrowing types (text → varchar(20), int → smallint) silently
+          # truncates. We err on the side of false positives — call out
+          # additive ALTER TYPEs explicitly with the opt-in marker.
+          PATTERNS='DROP\s+TABLE|DROP\s+COLUMN|TRUNCATE|ALTER\s+TABLE\s+\S+\s+ALTER\s+COLUMN\s+\S+\s+TYPE|DROP\s+INDEX'
+          for f in $CHANGED; do
+            if grep -iEn "$PATTERNS" "$f" > /dev/null; then
+              DESTRUCTIVE=1
+              DESTRUCTIVE_LOG="${DESTRUCTIVE_LOG}\n--- $f ---\n$(grep -iEn "$PATTERNS" "$f")"
+            fi
+          done
+
+          if [ "$DESTRUCTIVE" -eq 0 ]; then
+            echo "Migration changes are additive — pass."
+            exit 0
+          fi
+
+          echo "Destructive ops found:"
+          printf "%b\n" "$DESTRUCTIVE_LOG"
+          echo
+
+          # Check the commit message for the opt-in marker. We look at the
+          # full range so a multi-commit push works too (any commit in the
+          # range can carry the marker).
+          MSGS="$(git log --format=%B "$BASE..$HEAD_SHA")"
+          if echo "$MSGS" | grep -qF '[allow-destructive-migration]'; then
+            echo "::notice::Destructive migration explicitly allowed via commit message marker."
+            exit 0
+          fi
+
+          echo "::error::Destructive migration without [allow-destructive-migration] marker."
+          echo "Add the marker to a commit message in this push (any line) if this is intentional."
+          echo "Otherwise, rewrite the migration to be additive — see DEPLOY.md 'Recovery from a bad migration'."
+          exit 1
+
   deploy:
     name: Deploy to dev server
     runs-on: ubuntu-latest

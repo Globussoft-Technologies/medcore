@@ -97,7 +97,7 @@ jobs:
 
       - name: Upload API coverage (lcov)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: api-coverage-lcov
           path: coverage/
@@ -127,7 +127,7 @@ jobs:
 
       - name: Upload web coverage (lcov)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-coverage-lcov
           path: apps/web/coverage/

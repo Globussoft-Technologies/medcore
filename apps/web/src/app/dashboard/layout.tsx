@@ -357,19 +357,37 @@ export default function DashboardLayout({
   // the test sees a `/login` URL, and the run logs out as if there were
   // no session at all.
   //
-  // Mitigation: arm the redirect with a short grace window. When
-  // `loadSession()` returned with no user BUT a token IS observable in
-  // localStorage, schedule a single retry of `loadSession()` after one
-  // event-loop tick (~150ms — long enough to absorb WebKit's storage-write
-  // ordering, short enough that real "no session" cases still bounce
-  // promptly). Only after the retry has run (or the no-token case is
-  // confirmed) do we let the redirect effect proceed.
+  // Symptom (release.yml run 74053841619, ~18 specs): WebKit fails with
+  //   "page.goto: Frame load interrupted ... navigating to
+  //    /dashboard/admin-console" (or /login?redirect=/dashboard).
   //
-  // Production cost: a single extra `/auth/me` after a stale-cache login,
-  // which already happens in practice when the user opens the app from a
-  // background tab and the cached token has expired. Healthy sessions are
-  // unaffected — the early return on `isLoading || user` short-circuits
-  // both effects immediately.
+  // The first iteration of this fix (commit 202f310) used a 150ms
+  // setTimeout that fired `loadSession()` (fire-and-forget) and then
+  // synchronously called `setRedirectArmed(true)`. That doesn't actually
+  // close the race: `loadSession()` is async (awaits GET /auth/me), and
+  // the redirect-effect re-runs as soon as `redirectArmed` flips true. On
+  // CI WebKit the in-flight retry probe was still pending when the
+  // redirect to /login fired, aborting the dashboard navigation.
+  //
+  // Approach B (this iteration): make the retry deterministic by AWAITING
+  // `loadSession()` inside the timeout callback before arming the
+  // redirect. If the retry surfaces a user, the redirect-effect early
+  // returns on `if (isLoading || user) return` — no bounce. If the retry
+  // still resolves with no user, only THEN do we arm the redirect, so
+  // there is no in-flight probe that could have rescued the session.
+  // We also extend the grace window to 250ms (still imperceptible to
+  // humans) to give WebKit a touch more headroom on the localStorage
+  // write before the first retry fires.
+  //
+  // Production cost: at most one extra `/auth/me` after a stale-cache
+  // boot (same as before; we just await it now) plus ~100ms of added
+  // latency in the genuinely-no-session bounce path. Healthy sessions
+  // (which is everyone in steady-state) are completely unaffected —
+  // useEffect 1 above hydrates `user`, both effects short-circuit on the
+  // first re-render.
+  //
+  // Validation: tsc clean locally. Whether this actually clears the ~18
+  // WebKit specs can only be confirmed by the next release.yml run.
   const retryAttemptedRef = useRef(false);
   const [redirectArmed, setRedirectArmed] = useState(false);
   useEffect(() => {
@@ -384,14 +402,23 @@ export default function DashboardLayout({
       setRedirectArmed(true); // no token, no retry needed; bounce now
       return;
     }
-    const tid = setTimeout(() => {
-      loadSession();
-      // Arm the redirect after one tick of grace. If `loadSession`
-      // resolved with a user, the next render will short-circuit the
-      // redirect via `if (isLoading || user) return`.
+    let cancelled = false;
+    const tid = setTimeout(async () => {
+      try {
+        // Deterministic retry: AWAIT the probe so the redirect-effect
+        // below cannot fire while a /auth/me request is still in flight.
+        await loadSession();
+      } catch {
+        // loadSession already swallows errors internally and clears
+        // local state, but be defensive against future refactors.
+      }
+      if (cancelled) return;
       setRedirectArmed(true);
-    }, 150);
-    return () => clearTimeout(tid);
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(tid);
+    };
   }, [isLoading, user, loadSession]);
 
   // Issue #70: previously every sidebar <Link> ran `onClick={() => setDrawerOpen(false)}`.

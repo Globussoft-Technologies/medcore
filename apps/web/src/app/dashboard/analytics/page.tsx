@@ -202,8 +202,8 @@ interface FeedbackTrends {
 
 // ─── Formatters ────────────────────────────────────
 
-function formatCurrency(n: number): string {
-  return `Rs. ${n.toLocaleString("en-IN", {
+function formatCurrency(n: number | null | undefined): string {
+  return `Rs. ${(n ?? 0).toLocaleString("en-IN", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
@@ -231,7 +231,7 @@ interface LineChartProps {
 }
 
 function LineChart({ data, xKey, yKeys, height = 220, yFormat, onPointClick }: LineChartProps) {
-  if (data.length === 0) {
+  if (!Array.isArray(data) || data.length === 0 || !Array.isArray(yKeys) || yKeys.length === 0) {
     return (
       <div className="flex items-center justify-center text-sm text-gray-400" style={{ height }}>
         No data for this period
@@ -364,12 +364,14 @@ interface BarChartProps {
 }
 
 function BarChart({ categories, values, formatValue, onBarClick }: BarChartProps) {
-  const max = Math.max(1, ...categories.map((c) => values[c.key] || 0));
+  const safeCategories = categories ?? [];
+  const safeValues = values ?? {};
+  const max = Math.max(1, ...safeCategories.map((c) => safeValues[c.key] || 0));
   const fmt = formatValue || ((n: number) => String(n));
   return (
     <div className="space-y-3">
-      {categories.map((c) => {
-        const v = values[c.key] || 0;
+      {safeCategories.map((c) => {
+        const v = safeValues[c.key] || 0;
         const pct = (v / max) * 100;
         return (
           <div
@@ -425,7 +427,8 @@ function DonutChart({
   formatValue,
   showPercent,
 }: DonutChartProps) {
-  const total = segments.reduce((s, seg) => s + seg.value, 0);
+  const safeSegments = Array.isArray(segments) ? segments : [];
+  const total = safeSegments.reduce((s, seg) => s + seg.value, 0);
   const radius = size / 2 - 10;
   const strokeW = 28;
   const circumference = 2 * Math.PI * radius;
@@ -450,7 +453,7 @@ function DonutChart({
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
         <g transform={`translate(${size / 2}, ${size / 2}) rotate(-90)`}>
           <circle r={radius} fill="none" stroke="#f3f4f6" strokeWidth={strokeW} />
-          {segments.map((seg, i) => {
+          {safeSegments.map((seg, i) => {
             const fraction = seg.value / total;
             const dash = fraction * circumference;
             const gap = circumference - dash;
@@ -491,7 +494,7 @@ function DonutChart({
         )}
       </svg>
       <div className="mt-3 flex flex-wrap justify-center gap-x-3 gap-y-1">
-        {segments.map((seg) => {
+        {safeSegments.map((seg) => {
           // Issue #78: revenue donuts were showing raw numbers as "(count)"
           // — meaningless for currency. We now respect either an explicit
           // formatter (e.g. INR formatting) or a percent-mode flag.
@@ -527,11 +530,12 @@ function HourHeatmap({
 }: {
   data: Array<{ hour: number; total: number; noShow: number; rate: number }>;
 }) {
-  const max = Math.max(1, ...data.map((d) => d.rate));
+  const safeData = Array.isArray(data) ? data : [];
+  const max = Math.max(1, ...safeData.map((d) => d.rate));
   return (
     <div className="overflow-x-auto">
       <div className="flex gap-0.5 min-w-150">
-        {data.map((d) => {
+        {safeData.map((d) => {
           const intensity = d.rate / max;
           const bg = d.total === 0
             ? "#f3f4f6"
@@ -1886,7 +1890,7 @@ export default function AnalyticsPage() {
         <Card title="Pharmacy Expiry Risk" icon={AlertTriangle}>
           {loading ? (
             <Loader />
-          ) : expiry ? (
+          ) : expiry && expiry.valueAtRisk ? (
             <div className="space-y-3">
               <div className="rounded-lg bg-red-50 p-3">
                 <p className="text-xs text-red-700">Total value at risk (90 days)</p>
@@ -2036,7 +2040,7 @@ export default function AnalyticsPage() {
         <Card className="lg:col-span-2" title="NPS & Rating Trend" icon={TrendingUp}>
           {loading ? (
             <Loader />
-          ) : feedback && feedback.series.length > 0 ? (
+          ) : feedback && (feedback.series?.length ?? 0) > 0 ? (
             <LineChart
               data={feedback.series as unknown as Array<Record<string, number | string>>}
               xKey="date"
@@ -2055,14 +2059,14 @@ export default function AnalyticsPage() {
         <Card title="Feedback by Category" icon={Star}>
           {loading ? (
             <Loader />
-          ) : feedback && feedback.categories.length > 0 ? (
+          ) : feedback && (feedback.categories?.length ?? 0) > 0 ? (
             <BarChart
-              categories={feedback.categories.map((c, i) => ({
+              categories={(feedback.categories ?? []).map((c, i) => ({
                 key: c.category,
                 label: c.category,
                 color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
               }))}
-              values={Object.fromEntries(feedback.categories.map((c) => [c.category, c.avgRating]))}
+              values={Object.fromEntries((feedback.categories ?? []).map((c) => [c.category, c.avgRating]))}
               formatValue={(n) => `${n.toFixed(2)} / 5`}
             />
           ) : (
@@ -2328,11 +2332,12 @@ function BenchmarkAndForecastPanel() {
     };
   }, [metric, period]);
 
-  function fmtValue(n: number): string {
+  function fmtValue(n: number | null | undefined): string {
+    const v = n ?? 0;
     if (metric === "revenue") {
-      return `Rs. ${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+      return `Rs. ${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
     }
-    return n.toLocaleString("en-IN");
+    return v.toLocaleString("en-IN");
   }
 
   const badgeColor = (pct: number) => {
@@ -2434,7 +2439,7 @@ function BenchmarkAndForecastPanel() {
         </div>
       )}
 
-      {forecast && !loading && (
+      {forecast && forecast.model && Array.isArray(forecast.forecast) && !loading && (
         <div className="mt-6 border-t pt-4">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-sm font-semibold">Next 7 Days Forecast</h3>

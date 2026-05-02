@@ -164,6 +164,14 @@ jobs:
         # one-shot removal of the skip block from visual.spec.ts on the
         # bootstrap run. End state: a commit happens iff anything in
         # the snapshot dir or the spec file changed.
+        #
+        # We `git pull --rebase` before pushing because the workflow
+        # checks out a snapshot of `main` at trigger time, but `main`
+        # may have moved by the time we're pushing (1+ hour of build +
+        # test). Without a rebase we eat a non-fast-forward rejection
+        # on every push. The rebase is over our 1-commit local branch
+        # over remote `main`; only conflicts arise on the snapshot
+        # files, which can't conflict because we're the only writer.
         run: |
           git add e2e/visual.spec.ts e2e/visual.spec.ts-snapshots/
           if git diff --cached --quiet; then
@@ -171,6 +179,11 @@ jobs:
             exit 0
           fi
           git commit -m "test(e2e): update Chromium visual baselines [skip ci]"
+          # Rebase the snapshot commit onto whatever main looks like NOW.
+          # Snapshots can't conflict (we're the only writer) and the spec
+          # file change is a pure deletion, so a textual rebase is safe.
+          git fetch origin main
+          git pull --rebase origin main
           git push origin HEAD:main
 
       - name: Upload Playwright report
@@ -287,6 +300,8 @@ jobs:
           git config user.name "github-actions[bot]"
 
       - name: Commit and push baselines (if changed)
+        # Same pattern as the chromium job: rebase before push to absorb
+        # any movement on `main` between this job's checkout and now.
         run: |
           git add e2e/visual.spec.ts-snapshots/
           if git diff --cached --quiet -- e2e/visual.spec.ts-snapshots/; then
@@ -294,6 +309,8 @@ jobs:
             exit 0
           fi
           git commit -m "test(e2e): update WebKit visual baselines [skip ci]"
+          git fetch origin main
+          git pull --rebase origin main
           git push origin HEAD:main
 
       - name: Upload Playwright report

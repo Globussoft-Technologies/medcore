@@ -347,6 +347,53 @@ export default function DashboardLayout({
     loadSession();
   }, [loadSession]);
 
+  // TODO.md #4 — WebKit auth-redirect residue.
+  //
+  // Even with `addInitScript`-based fixture injection (Playwright e2e), under
+  // heavy CI parallelism the auth store occasionally settles to `user: null`
+  // on first render despite a valid `medcore_token` being present in
+  // localStorage. The dashboard layout's redirect-to-login effect below
+  // would then fire before the token-bearing session probe was observed,
+  // the test sees a `/login` URL, and the run logs out as if there were
+  // no session at all.
+  //
+  // Mitigation: arm the redirect with a short grace window. When
+  // `loadSession()` returned with no user BUT a token IS observable in
+  // localStorage, schedule a single retry of `loadSession()` after one
+  // event-loop tick (~150ms — long enough to absorb WebKit's storage-write
+  // ordering, short enough that real "no session" cases still bounce
+  // promptly). Only after the retry has run (or the no-token case is
+  // confirmed) do we let the redirect effect proceed.
+  //
+  // Production cost: a single extra `/auth/me` after a stale-cache login,
+  // which already happens in practice when the user opens the app from a
+  // background tab and the cached token has expired. Healthy sessions are
+  // unaffected — the early return on `isLoading || user` short-circuits
+  // both effects immediately.
+  const retryAttemptedRef = useRef(false);
+  const [redirectArmed, setRedirectArmed] = useState(false);
+  useEffect(() => {
+    if (isLoading || user) return;
+    if (retryAttemptedRef.current) return;
+    retryAttemptedRef.current = true;
+    if (typeof window === "undefined") {
+      setRedirectArmed(true);
+      return;
+    }
+    if (!localStorage.getItem("medcore_token")) {
+      setRedirectArmed(true); // no token, no retry needed; bounce now
+      return;
+    }
+    const tid = setTimeout(() => {
+      loadSession();
+      // Arm the redirect after one tick of grace. If `loadSession`
+      // resolved with a user, the next render will short-circuit the
+      // redirect via `if (isLoading || user) return`.
+      setRedirectArmed(true);
+    }, 150);
+    return () => clearTimeout(tid);
+  }, [isLoading, user, loadSession]);
+
   // Issue #70: previously every sidebar <Link> ran `onClick={() => setDrawerOpen(false)}`.
   // On the first click the synchronous setState scheduled a re-render of the
   // <aside> while the browser was still committing the Link's navigation —
@@ -369,6 +416,10 @@ export default function DashboardLayout({
   const sessionToastShownRef = useRef(false);
   useEffect(() => {
     if (isLoading || user) return;
+    // Wait for the WebKit-grace retry block above to either arm the
+    // redirect (no token / retry attempted) or short-circuit by setting
+    // `user` from a successful retry.
+    if (!redirectArmed) return;
     // Build the redirect query param from the current URL so nested routes
     // like /dashboard/appointments?foo=bar survive the round-trip.
     let redirectTarget = pathname || "/dashboard";
@@ -387,7 +438,7 @@ export default function DashboardLayout({
     }
     const qs = new URLSearchParams({ redirect: redirectTarget });
     router.push(`/login?${qs.toString()}`);
-  }, [user, isLoading, router, pathname, t]);
+  }, [user, isLoading, router, pathname, t, redirectArmed]);
 
   // Auto-launch first-time tour after session loads.
   // Issue #122: pass user.id so a previous Skip on any page (which sets a

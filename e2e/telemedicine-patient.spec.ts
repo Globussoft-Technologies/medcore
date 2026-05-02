@@ -2,6 +2,7 @@ import { test, expect } from "./fixtures";
 import {
   API_BASE,
   apiPost,
+  dismissTourIfPresent,
   expectNotForbidden,
   freshPatientToken,
   stubAi,
@@ -274,7 +275,10 @@ test.describe("Telemedicine (multi-role)", () => {
 
     // Step 1 — run device test. The mocked getUserMedia resolves so the
     // status pills flip to "Camera OK" / "Mic OK" and the precheck state
-    // becomes "passed".
+    // becomes "passed". Dismiss the product tour first — even though
+    // injectAuth pre-dismisses by role, navigating to a new dashboard
+    // route can re-trigger it on tour-keys we haven't pre-set.
+    await dismissTourIfPresent(page);
     await page
       .getByRole("button", { name: /run device test/i })
       .click();

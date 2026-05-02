@@ -35,6 +35,14 @@ import {
  *     assert for the patient. See task spec #5 ("skip if not wired").
  */
 
+// API rejects names containing digits ("Name may only contain letters,
+// spaces, dots, hyphens and apostrophes"). Date.now().toString(36) is
+// base36 so always has digits. Helper returns a 5-char letters-only
+// random suffix derived from Math.random() — collision-resistant enough
+// for test isolation without tripping the validator.
+const letterSuffix = () =>
+  Math.random().toString(36).replace(/[^a-z]/g, "").padEnd(5, "x").slice(0, 5);
+
 test.describe("Insurance pre-authorization", () => {
   test("RECEPTION submits a preauth and gets a PA###### reference", async ({
     receptionPage,
@@ -45,7 +53,7 @@ test.describe("Insurance pre-authorization", () => {
     // Seed a patient + walk-in appointment via the API so the preauth has
     // something to anchor to (the form's patient picker debounces on
     // /patients?search=… so we need a stable, findable name).
-    const uniq = `PreAuth ${Date.now().toString(36).slice(-5)}`;
+    const uniq = `PreAuth ${letterSuffix()}`;
     const patient = await seedPatient(receptionApi, { name: uniq });
     await seedAppointment(receptionApi, { patientId: patient.id });
 
@@ -116,7 +124,7 @@ test.describe("Insurance pre-authorization", () => {
     // (tests run serially with fullyParallel: false but we still don't
     // want test 2 to depend on test 1's leftover row).
     const patient = await seedPatient(receptionApi, {
-      name: `Approve ${Date.now().toString(36).slice(-5)}`,
+      name: `Approve ${letterSuffix()}`,
     });
     const create = await receptionApi.post(`${API_BASE}/preauth`, {
       data: {
@@ -184,7 +192,7 @@ test.describe("Insurance pre-authorization", () => {
     receptionApi,
   }) => {
     const patient = await seedPatient(receptionApi, {
-      name: `Reject ${Date.now().toString(36).slice(-5)}`,
+      name: `Reject ${letterSuffix()}`,
     });
     const create = await receptionApi.post(`${API_BASE}/preauth`, {
       data: {
@@ -260,7 +268,7 @@ test.describe("Insurance pre-authorization", () => {
     //      lands, this test stays green and only needs the row-locator
     //      tightened.
     const patient = await seedPatient(receptionApi, {
-      name: `FlowBack ${Date.now().toString(36).slice(-5)}`,
+      name: `FlowBack ${letterSuffix()}`,
     });
     const create = await receptionApi.post(`${API_BASE}/preauth`, {
       data: {

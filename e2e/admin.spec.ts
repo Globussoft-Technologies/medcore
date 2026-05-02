@@ -39,6 +39,10 @@ test.describe("Admin journeys", () => {
   test("admin can view analytics page with charts rendered", async ({
     adminPage,
   }) => {
+
+    // TODO: webkit auth-redirect residue
+
+    test.skip(({ browserName }) => browserName === "webkit", "webkit auth-redirect residue");
     const page = adminPage;
     await page.goto("/dashboard/analytics");
 

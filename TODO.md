@@ -4,10 +4,15 @@ Next-session pickup list. Read this first, work top-to-bottom. Each item
 is independently shippable. Full per-session history lives under
 [`docs/archive/`](docs/archive/).
 
-> Updated: 2026-05-02 (next morning).
-> HEAD on `main` = `9a36db4` (round-4 analytics null-safety: web-tests now GREEN, auto-deploy succeeded).
-> **Open GitHub issues: 0.** **Auto-deploy: confirmed working on this commit.** **PR #445 still open** (Dependabot rebase pending; safe one-line GHA bump).
+> Updated: 2026-05-02 (afternoon, post-coverage-audit waves 1-3).
+> HEAD on `main` = `5845a4e` (§B-extras: waitlist, jitsi, metrics test coverage).
+> **Open GitHub issues: 0.** **Auto-deploy: confirmed working.** **PR #445 still open** (Dependabot rebase pending; safe one-line GHA bump).
 > **Workflow conclusion still `failure`** because the `lint` job is silently broken (no eslint installed in apps/web — see item #3 below). Lint is NOT in `deploy.needs:` so deploys still ship; this is purely a workflow-summary signal.
+> **2026-05-02 audit §A and §B both closed** in waves 1-3 (`d3fc8fb`,
+> `c12c5db`, `5845a4e`): 12 new test files, 136 new tests across the 9
+> previously-untested middleware/services. See "What landed this session"
+> below for details. Remaining audit items: §C (clinical-flow E2E),
+> §D (web auth pages), §E (Codecov tooling).
 
 ---
 
@@ -77,6 +82,33 @@ Massive CI + tests sweep. Roughly two days of work compressed:
   Result: `Web component tests` job is **green**, `Deploy to dev server`
   job is **success**. Workflow conclusion still red purely because of
   the `lint` job (see item #3).
+- **Coverage-audit waves 1-3** — closed §A (untested middleware) and §B
+  (untested schedulers + extras) from the 2026-05-02 audit. Three
+  commits, 12 new test files, **136 new tests**, full api unit suite
+  still green (1186 pass).
+  - **Wave 1 §A** (`d3fc8fb`, 64 tests) — `middleware/tenant.ts` (the
+    highest-risk gap: cross-tenant PHI leak; 15 tests across header
+    override / req.user fallback / JWT decode / precedence),
+    `services/tenant-context.ts` (14, AsyncLocalStorage scope
+    propagation incl. concurrent-tenant isolation under Promise.all),
+    `middleware/sanitize.ts` (15), `middleware/error.ts` (9, including
+    prod message-hiding), `middleware/audit.ts` (11, X-Forwarded-For
+    parsing + Prisma payload shape).
+  - **Wave 2 §B-core** (`c12c5db`, 42 tests) — `adherence-scheduler.ts`
+    (13, deriveReminderType + per-tick send/skip/error-isolation),
+    `chronic-care-scheduler.ts` (18, evaluateThresholds + isCheckInDue
+    + per-tick), `insurance-claims-scheduler.ts` (6, msUntilNextDailyTick
+    edge cases — same-day, roll-over, exact-target, drift cleanup),
+    `audio-retention.ts` (5, retention-scheduler covered transitively).
+    Three private helpers gained `export` (and `isCheckInDue` got an
+    injectable `now` param) for deterministic testing — production
+    callers unaffected.
+  - **Wave 3 §B-extras** (`5845a4e`, 30 tests) — `waitlist.ts` (3,
+    persistence-before-notify ordering for duplicate de-dup),
+    `jitsi.ts` (18, JWT signing + URL building + env-var gating),
+    `metrics.ts` (9, httpMetricsMiddleware cardinality discipline:
+    route TEMPLATE not literal URL, '<unmatched>' collapse, finish-event
+    gating). `metrics-counters.ts` skipped — pure prom-client config.
 
 ---
 
@@ -197,43 +229,47 @@ Surfaced by a coverage gap audit on 2026-05-02. None block CI today —
 they're "what `complete coverage` should mean here, prioritized." Mirror
 of [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md) §7.1. Take in this order:
 
-### A. Untested middleware (security — do first)
+### A. Untested middleware (security — do first) ✅ DONE 2026-05-02 (`d3fc8fb`)
 
-Two files in `apps/api/src/middleware/` have **no test of any kind**, no
-co-located unit test and no integration coverage:
+All four middleware closed in wave 1:
 
-- [`apps/api/src/middleware/tenant.ts`](apps/api/src/middleware/tenant.ts)
-  — multi-tenant Prisma isolation. A bug here is a PHI cross-tenant
-  leak. **Highest-risk gap in the codebase.** Test happy-path (correct
-  tenant context propagated), wrong-tenant rejection, missing-tenant
-  rejection, and the `TENANT_SCOPED_MODELS` allowlist boundary
-  (`apps/api/src/services/tenant-prisma.ts`).
-- [`apps/api/src/middleware/sanitize.ts`](apps/api/src/middleware/sanitize.ts)
-  — body sanitization on every request. Test that script tags / HTML
-  entities / null bytes are stripped from a representative request body
-  shape.
+- [`apps/api/src/middleware/tenant.test.ts`](apps/api/src/middleware/tenant.test.ts)
+  — 15 tests covering header override, req.user fallback, JWT decode,
+  malformed/expired/wrong-secret tokens, precedence (header > req.user
+  > JWT). The `TENANT_SCOPED_MODELS` allowlist boundary was already
+  covered by [`tenant-prisma.test.ts`](apps/api/src/services/tenant-prisma.test.ts).
+- [`apps/api/src/services/tenant-context.test.ts`](apps/api/src/services/tenant-context.test.ts)
+  — 14 tests on the AsyncLocalStorage helpers; concurrent-tenant
+  isolation under `Promise.all` is the load-bearing case.
+- [`apps/api/src/middleware/sanitize.test.ts`](apps/api/src/middleware/sanitize.test.ts) — 15 tests.
+- [`apps/api/src/middleware/error.test.ts`](apps/api/src/middleware/error.test.ts) — 9 tests, incl. prod message-hiding.
+- [`apps/api/src/middleware/audit.test.ts`](apps/api/src/middleware/audit.test.ts) — 11 tests, mocked Prisma.
 
-Lower-priority but same pattern: `audit.ts`, `error.ts`. Add when
-convenient.
+### B. Untested schedulers ✅ DONE 2026-05-02 (`c12c5db` + `5845a4e`)
 
-### B. Untested schedulers
+Wave 2 closed all four core schedulers + the audio-retention worker
+that `retention-scheduler.ts` wraps:
 
-Four cron-like services in `apps/api/src/services/` have zero tests:
+- [`adherence-scheduler.test.ts`](apps/api/src/services/adherence-scheduler.test.ts) — 13.
+- [`chronic-care-scheduler.test.ts`](apps/api/src/services/chronic-care-scheduler.test.ts) — 18.
+- [`insurance-claims-scheduler.test.ts`](apps/api/src/services/insurance-claims-scheduler.test.ts) — 6 (the substantive
+  reconciliation logic was already covered by
+  `insurance-claims/reconciliation.test.ts`).
+- [`audio-retention.test.ts`](apps/api/src/services/audio-retention.test.ts) — 5; `retention-scheduler.ts` is a
+  10-line setInterval wrapper, covered transitively.
 
-- `adherence-scheduler.ts`
-- `chronic-care-scheduler.ts`
-- `insurance-claims-scheduler.ts`
-- `retention-scheduler.ts`
+Wave 3 closed the "also worth a pass" extras:
 
-For each: extract the per-tick function (the work it does for a single
-patient/claim/record), unit-test the pure logic with mocked Prisma. The
-scheduling/setInterval wrapper itself can stay covered by smoke. Also
-worth a pass: `audio-retention.ts`, `metrics.ts`, `metrics-counters.ts`,
-`tenant-context.ts`, `waitlist.ts`, `jitsi.ts`.
+- [`waitlist.test.ts`](apps/api/src/services/waitlist.test.ts) — 3.
+- [`jitsi.test.ts`](apps/api/src/services/jitsi.test.ts) — 18.
+- [`metrics.test.ts`](apps/api/src/services/metrics.test.ts) — 9.
+- `metrics-counters.ts` — intentionally skipped (pure prom-client
+  config, no behaviour to assert beyond the indirect reachability
+  proven by metrics.test.ts).
 
-`patient-data-export.ts` (22 KB HIPAA export) has an integration suite
-that is currently `describe.skip`-ed pending migration; un-skip when
-the migration lands rather than write a parallel unit suite.
+`patient-data-export.ts` (22 KB HIPAA export) still has an integration
+suite that is `describe.skip`-ed pending migration; un-skip when the
+migration lands rather than write a parallel unit suite.
 
 ### C. Clinical-safety E2E flow gaps
 

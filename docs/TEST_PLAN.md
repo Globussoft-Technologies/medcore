@@ -185,29 +185,34 @@ the canonical "what's not yet tested" backlog and are mirrored in
 
 ### 7.1 Real gaps (no test of any kind)
 
-**API middleware — `apps/api/src/middleware/`:**
+**API middleware — `apps/api/src/middleware/`:** ✅ closed 2026-05-02 (`d3fc8fb`).
 
-- `tenant.ts` — multi-tenant Prisma isolation. **Untested.** A bug here is
-  a PHI cross-tenant leak; this is the highest-risk gap in the codebase.
-- `sanitize.ts` — input sanitization on every request body. Untested.
-- `audit.ts`, `error.ts` — no `.test.ts` siblings. Lower risk than the
-  above two but still meaningful.
+All four previously-untested middleware now have co-located `.test.ts`:
+`tenant.ts` (15 tests), `sanitize.ts` (15), `audit.ts` (11),
+`error.ts` (9). Plus `services/tenant-context.ts` (14 — the
+AsyncLocalStorage helpers backing tenant scope propagation).
+`auth.ts`, `rate-limit.ts`, `validate.ts`, `validate-params.ts`
+were already covered.
 
-`auth.ts`, `rate-limit.ts`, `validate.ts`, `validate-params.ts` are
-covered.
+**API services — schedulers in `apps/api/src/services/`:** ✅ closed
+2026-05-02 (`c12c5db` + `5845a4e`).
 
-**API services — schedulers in `apps/api/src/services/`:**
+All four core schedulers now have unit tests via the per-tick
+extraction pattern: `adherence-scheduler.ts` (13),
+`chronic-care-scheduler.ts` (18), `insurance-claims-scheduler.ts` (6,
+on top of the existing `insurance-claims/reconciliation.test.ts`).
+The audio-retention worker that `retention-scheduler.ts` wraps now
+has its own tests (5); the scheduler itself is a 10-line
+setInterval wrapper covered transitively. The "also worth a pass"
+extras have landed too: `waitlist.ts` (3), `jitsi.ts` (18),
+`metrics.ts` (9, focused on the cardinality firewall in
+`httpMetricsMiddleware`). `metrics-counters.ts` is pure prom-client
+config and intentionally skipped.
 
-- `adherence-scheduler.ts`
-- `chronic-care-scheduler.ts`
-- `insurance-claims-scheduler.ts`
-- `retention-scheduler.ts`
-
-All four are side-effect-heavy cron-like services that run unattended.
-None has a unit test. Other untested services: `audio-retention.ts`,
-`metrics.ts`, `metrics-counters.ts`, `patient-data-export.ts` (22 KB —
-HIPAA data export; integration suite is `describe.skip`-ed pending
-migration), `tenant-context.ts`, `waitlist.ts`, `jitsi.ts`.
+`patient-data-export.ts` (22 KB HIPAA export) still has an
+integration suite that is `describe.skip`-ed pending migration;
+un-skip when the migration lands rather than write a parallel unit
+suite.
 
 **E2E flow gaps — `/e2e/`:**
 

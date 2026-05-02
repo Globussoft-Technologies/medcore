@@ -538,6 +538,7 @@ export default function PrescriptionsPage() {
       {/* Prescription form */}
       {showForm && (
         <form
+          data-testid="rx-new-form"
           onSubmit={handleSubmit}
           className="mb-6 rounded-xl bg-white p-6 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100"
         >

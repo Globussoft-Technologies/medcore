@@ -761,6 +761,7 @@ export default function EmergencyPage() {
                   Chief Complaint *
                 </label>
                 <textarea
+                  data-testid="er-intake-complaint"
                   required
                   rows={3}
                   value={intakeForm.chiefComplaint}

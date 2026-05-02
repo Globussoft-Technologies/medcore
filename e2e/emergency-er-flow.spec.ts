@@ -84,9 +84,10 @@ test.describe("Emergency Room flow (multi-role)", () => {
     // Confirm the patient pill is visible (data-testid added in #171).
     await expect(page.getByTestId("er-patient-selected")).toBeVisible();
 
-    // Chief complaint is the only other required field.
+    // Chief complaint is the only other required field. Scope via testid so we
+    // don't collide with the close-disposition modal's textarea on this page.
     const complaint = "Sudden onset chest pain — radiating to left arm";
-    await page.locator("textarea").first().fill(complaint);
+    await page.getByTestId("er-intake-complaint").fill(complaint);
 
     // Submit the intake form.
     await page.getByRole("button", { name: /^Register$/ }).click();

@@ -109,18 +109,14 @@ test.describe("Admin operations — daily levers", () => {
       .slice(0, 10);
 
     // Set the page's date filter so the new shift becomes visible after creation.
-    const dateInput = page.locator('input[type="date"]').first();
+    const dateInput = page.getByTestId("roster-date-filter");
     await dateInput.fill(date);
 
     await page.getByRole("button", { name: /add shift/i }).first().click();
 
-    // The "Add Shift" form is the only <form> rendered with that heading.
-    // Scope all interactions to it so we don't accidentally target the
-    // page-level filters above the table.
-    const modal = page
-      .locator("form")
-      .filter({ has: page.getByRole("heading", { name: /^add shift$/i }) })
-      .first();
+    // Scope to the Add Shift modal via testid; a heading-filter chain risks
+    // matching too-broad an ancestor and drilling into page chrome.
+    const modal = page.getByTestId("add-shift-modal");
     await expect(modal).toBeVisible({ timeout: 5_000 });
     await modal.locator("select").first().selectOption(target!.id);
     await modal.locator('input[type="date"]').first().fill(date);
@@ -162,7 +158,9 @@ test.describe("Admin operations — daily levers", () => {
 
     // Apply an Entity filter (the dropdown is populated from a static list,
     // so it always has User/Patient/etc. regardless of seed state).
-    const entitySelect = page.locator("select").nth(2); // From → To → Entity
+    // Use testid: nth() in document order is brittle because the sidebar
+    // language switcher is the first <select> on every dashboard page.
+    const entitySelect = page.getByTestId("audit-entity-filter");
     await entitySelect.selectOption("User");
 
     // Capture the network call so we can assert the filter actually went
@@ -247,7 +245,7 @@ test.describe("Admin operations — daily levers", () => {
     await page.locator('input[placeholder*="Weekly Revenue Email" i]').fill(uniqueName);
     // Report type defaults to DAILY_CENSUS — leave it.
     // Frequency defaults to DAILY — leave it.
-    await page.locator('input[type="time"]').first().fill("09:00");
+    await page.getByTestId("sched-report-time").fill("09:00");
     await page
       .locator('textarea[placeholder*="admin@example.com" i]')
       .fill("ops@e2e.medcore.local");

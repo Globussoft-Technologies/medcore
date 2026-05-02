@@ -292,6 +292,7 @@ export default function AuditPage() {
             Entity Type
           </label>
           <select
+            data-testid="audit-entity-filter"
             value={entity}
             onChange={(e) => setEntity(e.target.value)}
             className="w-full rounded-lg border px-3 py-2 text-sm"

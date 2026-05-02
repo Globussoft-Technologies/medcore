@@ -238,6 +238,7 @@ export default function DutyRosterPage() {
         <div className="flex items-center gap-2">
           <label className="text-sm font-medium">Date:</label>
           <input
+            data-testid="roster-date-filter"
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
@@ -348,6 +349,7 @@ export default function DutyRosterPage() {
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <form
+            data-testid="add-shift-modal"
             onSubmit={submitAdd}
             className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
           >

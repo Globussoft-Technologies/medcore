@@ -53,13 +53,17 @@ test.describe("Doctor journeys", () => {
       await newBtn.click();
     }
 
-    // Attempt to pick the first patient + first appointment from dropdowns.
-    const firstSelect = page.locator("select").first();
-    if (await firstSelect.isVisible().catch(() => false)) {
-      const opts = await firstSelect.locator("option").all();
-      if (opts.length > 1) {
-        const val = await opts[1].getAttribute("value");
-        if (val) await firstSelect.selectOption(val);
+    // Scope to the rx form via data-testid; an unscoped page.locator("select")
+    // would resolve to the sidebar language switcher in document order.
+    const rxForm = page.getByTestId("rx-new-form");
+    if (await rxForm.isVisible().catch(() => false)) {
+      const firstSelect = rxForm.locator("select").first();
+      if (await firstSelect.isVisible().catch(() => false)) {
+        const opts = await firstSelect.locator("option").all();
+        if (opts.length > 1) {
+          const val = await opts[1].getAttribute("value");
+          if (val) await firstSelect.selectOption(val);
+        }
       }
     }
 

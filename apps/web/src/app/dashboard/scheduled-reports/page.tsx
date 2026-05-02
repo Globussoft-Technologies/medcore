@@ -286,6 +286,7 @@ export default function ScheduledReportsPage() {
               Time (HH:MM)
             </label>
             <input
+              data-testid="sched-report-time"
               type="time"
               value={timeOfDay}
               onChange={(e) => setTimeOfDay(e.target.value)}

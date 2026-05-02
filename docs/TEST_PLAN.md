@@ -274,13 +274,18 @@ step is embedded inline in the login page and exercised through
 
 ### 7.3 Coverage tooling gaps (visibility, not scope)
 
-- Locked thresholds (2026-04-15) at lines **11%**/**10%** are
-  basement-level after Wave 1+3 backfill. Real coverage is almost
-  certainly 30-60%. Threshold bump is [`/TODO.md`](../TODO.md) #8.
-- **Codecov wired in 2026-05-02.** PR comments show coverage delta +
-  per-flag (api/web) breakdowns. Trend graphs at
-  `https://codecov.io/gh/Globussoft-Technologies/medcore`. The
-  `CODECOV_TOKEN` repo secret enables uploads — without it, the upload
-  step no-ops gracefully (the lcov artifact upload is unaffected).
+- ✅ **Threshold bump 2026-05-02 (`cc01e36`).** Vitest floors raised
+  to `current_actual − 2pp` on both projects: api lines **24%** /
+  branches **68%** / functions **68%** / statements **24%**; web lines
+  **51%** / branches **65%** / functions **31%** / statements **51%**.
+  Up from the previous basement-level 11% / 10%. Per-push CI must
+  remain green at the new floors.
+- ✅ **Codecov wired 2026-05-02 (`b3b090b` + `350e74a`).** PR comments
+  surface coverage delta + per-flag (api/web) breakdowns. Trend graphs
+  at `https://codecov.io/gh/Globussoft-Technologies/medcore`. Config
+  in `codecov.yml` at repo root. The `CODECOV_TOKEN` repo secret
+  enables uploads — without it, the upload step no-ops gracefully via
+  the `if: hashFiles(...) != ''` guard (CI stays green; PR comments
+  silent until the token lands).
 - Playwright is not instrumented for coverage; E2E flow coverage is
   not visible in lcov totals (intentional; see Layer 5 above).

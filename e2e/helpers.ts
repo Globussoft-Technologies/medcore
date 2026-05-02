@@ -105,16 +105,33 @@ export async function apiLogin(
 
 /**
  * Inject auth tokens into localStorage so the web app considers the user
- * logged in. Must be called after navigating to an origin-matching URL.
+ * logged in.
+ *
+ * Uses `addInitScript` so the tokens are written into storage BEFORE any
+ * document script runs on every navigation in this page's context. This
+ * is the canonical Playwright pattern for storage-based auth fixtures
+ * and is the only one that works deterministically across Chromium AND
+ * WebKit.
+ *
+ * The previous implementation navigated to /login and then ran
+ * `page.evaluate(() => localStorage.setItem(...))`. That works in
+ * Chromium because the localStorage write is durably flushed before the
+ * next navigation's script context starts. WebKit doesn't make the same
+ * guarantee — the dashboard's React `useEffect` would run loadSession()
+ * and read `null` from storage, the auth guard would see `user === null`
+ * and immediately redirect to /login?redirect=… . That single race
+ * cascaded into 121 of 246 WebKit failures on the b6efff1 release run.
+ *
+ * After this change the function NO LONGER navigates. Callers must
+ * `page.goto(...)` themselves; both existing callers (loginAs in this
+ * file, freshPageWithCachedAuth in fixtures.ts) already do.
  */
 export async function injectAuth(
   page: Page,
   token: string,
   refresh: string
 ): Promise<void> {
-  // Navigate to origin first so localStorage is writable for the right domain.
-  await page.goto("/login", { waitUntil: "domcontentloaded" });
-  await page.evaluate(
+  await page.addInitScript(
     ([t, r]) => {
       localStorage.setItem("medcore_token", t);
       localStorage.setItem("medcore_refresh", r);

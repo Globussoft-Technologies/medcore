@@ -1,8 +1,9 @@
 # CI Hardening Plan
 
-> Drafted 2026-05-01 to close the bug-catch gaps identified during a full CI
-> audit. Owner: indianbill007. Companion to [`docs/DEPLOY.md`](DEPLOY.md) and
-> [`docs/TEST_PLAN.md`](TEST_PLAN.md).
+> Drafted 2026-05-01, executed 2026-05-01 → 2026-05-02. Phases 1, 2, 3,
+> and 4.2 all shipped to `main`. Phase 4.1 + 4.3 are user-owned ops items
+> tracked in [`/TODO.md`](../TODO.md). Owner: indianbill007. Companion
+> to [`docs/DEPLOY.md`](DEPLOY.md) and [`docs/TEST_PLAN.md`](TEST_PLAN.md).
 
 ## Why
 
@@ -15,65 +16,58 @@ bad deploys that stay live until a human notices.
 This plan adds the missing nets in priority order. **All Phase 1 items are
 purely additive** — they do not change runtime behavior, only gate it.
 
-## Phase 1 — Quick wins (additive, low risk)
+## Phase 1 — Quick wins (additive, low risk) — ✅ shipped
 
-Goal: close the biggest unguarded surfaces. Ships in this session, one
-commit per item so each is independently reverteable.
+Goal: close the biggest unguarded surfaces.
 
-| # | Item | Where | Effort | Catches |
-|---|---|---|---|---|
-| 1.1 | Add `lint` job | `.github/workflows/test.yml` | 5 min | Unused vars, dead imports, anti-patterns |
-| 1.2 | Coverage threshold | `apps/api/vitest.config.ts` + `apps/web/vitest.config.ts` | 15 min | Untested new code |
-| 1.3 | `npm audit` job | `.github/workflows/test.yml` | 5 min | Known CVEs in deps |
-| 1.4 | Dependabot config | `.github/dependabot.yml` | 5 min | Stale deps |
-| 1.5 | CodeQL workflow | `.github/workflows/codeql.yml` | 10 min | SQL inject, XSS, regex DoS |
-
-Acceptance: per-push CI on `main` lands green with all five new gates. No
-existing test breaks. Lint-job is allowed to fail-soft on the first few
-runs while we triage existing violations (set `continue-on-error: true`
-initially, flip off after).
-
-## Phase 2 — Deploy resilience (touches deploy path)
-
-Goal: a bad deploy can't take prod down silently and a bad migration can't
-delete data without recovery.
-
-| # | Item | Where | Effort | Catches |
-|---|---|---|---|---|
-| 2.1 | DB backup before `prisma migrate deploy` | `scripts/deploy.sh` | 30 min | Data loss from bad migration |
-| 2.2 | Auto-rollback on smoke-check failure | `.github/workflows/test.yml` (Smoke step) | 1 hr | Bad deploy stays live |
-| 2.3 | Migration destructive-op lint (PR) | new GHA job | 1 hr | Schema regression slipping through review |
-| 2.4 | Bundle size budget | `apps/web` build step | 30 min | JS bundle bloat |
-
-Acceptance: a deliberately-broken deploy (e.g. set DB_URL wrong on a
-branch, push) auto-rolls back to PREV_SHA and the smoke check still
-reports the failure. A migration that drops a column is blocked on PR
-unless explicitly labeled.
-
-## Phase 3 — Scheduled quality coverage
-
-Goal: regressions in AI quality, performance, and visual UX get caught
-nightly so we know the next release-validation will be clean.
-
-| # | Item | Where | Effort | Catches |
-|---|---|---|---|---|
-| 3.1 | AI eval nightly | new `.github/workflows/ai-eval.yml` | 1 hr | Sarvam model drift, prompt regression |
-| 3.2 | Load test nightly | new `.github/workflows/load-test.yml` | 1 hr | API p95 regression |
-| 3.3 | Visual regression | `release.yml` + Playwright `toHaveScreenshot()` | 2 hr | Silent UI breakage |
-| 3.4 | Cross-browser (webkit) | `playwright.config.ts` | 30 min | Safari-specific bugs |
-
-`test:ai-eval` and `test:load` scripts already exist in
-[`package.json`](../package.json) — they're just never run.
-
-## Phase 4 — Architecture (separate PRs / ops work)
-
-Goal: real production parity + governance.
-
-| # | Item | Type | Owner |
+| # | Item | Status | Commit / Notes |
 |---|---|---|---|
-| 4.1 | Staging environment between dev and prod | Infra | indianbill007 |
-| 4.2 | Sentry release tracking with deploy SHA | Code (small) | this plan |
-| 4.3 | Branch protection on `main` (require PR + review + green checks) | GitHub UI | indianbill007 |
+| 1.1 | Add `lint` job | ✅ shipped (non-gating) | Job runs on every push but apps/web has no eslint installed yet — see TODO #4 |
+| 1.2 | Coverage threshold | ✅ already in place | Locked from 2026-04-15 baseline; bump after release.yml lands clean (TODO #8) |
+| 1.3 | `npm audit` job | ✅ shipped, in deploy gate | Scoped to apps/api + apps/web (excludes mobile expo CVEs) |
+| 1.4 | Dependabot config | ✅ shipped | 14 PRs auto-opened on first run; 5 merged + 8 closed (deferred npm majors) + 1 open (#445) |
+| 1.5 | CodeQL workflow | ✅ shipped | Runs on push + PR + weekly cron, security-extended ruleset |
+
+## Phase 2 — Deploy resilience — ✅ shipped
+
+| # | Item | Status |
+|---|---|---|
+| 2.1 | `pg_dump` before `prisma migrate deploy` | ✅ scripts/deploy.sh; bug fix in `49fcaa2` strips `?schema=public` from URL before passing to pg_dump |
+| 2.2 | Auto-rollback on smoke-check failure | ✅ test.yml; deploy.sh `--rollback` flag added |
+| 2.3 | Migration destructive-op gate | ✅ test.yml `migration-safety` job; in `deploy.needs:` |
+| 2.4 | Bundle size budget | ✅ test.yml `web-bundle` job; tripwire at 25 MB, tighten after baseline (TODO #9) |
+
+## Phase 3 — Scheduled quality coverage — ✅ shipped
+
+| # | Item | Status |
+|---|---|---|
+| 3.1 | AI eval nightly | ✅ ai-eval-nightly.yml; needs `SARVAM_API_KEY` repo secret to actually run |
+| 3.2 | Load test nightly | ✅ load-test-nightly.yml; runs against the existing mock-server.ts |
+| 3.3 | Visual regression in release.yml | ✅ e2e/visual.spec.ts shipped; baselines pending — TODO #3 |
+| 3.4 | Cross-browser (WebKit) | ✅ playwright.config.ts `full-webkit` project + release.yml `e2e-webkit` job; `addInitScript` fixture fix in `a8230d1` cut WebKit fail count from 121→55 |
+
+## Phase 4 — Architecture / ops
+
+| # | Item | Status |
+|---|---|---|
+| 4.1 | Staging environment | 🟡 user-owned (infra) |
+| 4.2 | Sentry release tracking | ✅ shipped in `a07fef2` (deploy.sh exports `SENTRY_RELEASE` + `NEXT_PUBLIC_SENTRY_RELEASE`) |
+| 4.3 | Branch protection on `main` | 🟡 user-owned (GitHub UI). CODEOWNERS file already in repo |
+
+Audit hardening (post-Phase-1 sweep, also shipped in this session):
+
+- Workflow `permissions: contents: read` at top level on every workflow
+  (CodeQL escalates per-job to `security-events: write`)
+- `timeout-minutes` on every job (5-60 min sized per workload)
+- `webfactory/ssh-agent` pinned to commit SHA, not the v0.9.0 tag
+- Workflow-level `concurrency:` with cancel-in-progress on PR runs
+- `.nvmrc` (`20`) + 13 `node-version` references replaced with
+  `node-version-file: ".nvmrc"` for single-source-of-truth Node version
+- `.github/CODEOWNERS` mapping high-risk paths to indianbill007
+- `.github/pull_request_template.md` with Summary / Test plan / Risk /
+  Screenshots sections
+- `packageManager` bumped from npm@10.5.0 to npm@10.9.0 to close the
+  npm/cli#4828 lockfile-drift root cause
 
 ## Out of scope
 

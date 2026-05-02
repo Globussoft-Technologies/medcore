@@ -1330,7 +1330,7 @@ export default function AnalyticsPage() {
                 label: k,
                 color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
               }))}
-              values={revenueBreakdown.byCategory}
+              values={revenueBreakdown.byCategory ?? {}}
               formatValue={formatCurrency}
             />
           ) : (
@@ -1341,9 +1341,9 @@ export default function AnalyticsPage() {
         <Card title="Revenue by Ward (IPD)" icon={BedDouble}>
           {loading ? (
             <Loader />
-          ) : revenueBreakdown && revenueBreakdown.byWard.length > 0 ? (
+          ) : revenueBreakdown && (revenueBreakdown.byWard?.length ?? 0) > 0 ? (
             <div className="space-y-2 text-sm">
-              {revenueBreakdown.byWard.slice(0, 8).map((w) => (
+              {(revenueBreakdown.byWard ?? []).slice(0, 8).map((w) => (
                 <div key={w.wardName} className="flex items-center justify-between border-b pb-1">
                   <span className="font-medium">{w.wardName}</span>
                   <span className="text-right">
@@ -1699,7 +1699,7 @@ export default function AnalyticsPage() {
                         label: k,
                         color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
                       }))}
-                      values={erPerf.byDisposition}
+                      values={erPerf.byDisposition ?? {}}
                     />
                   )}
                 </div>

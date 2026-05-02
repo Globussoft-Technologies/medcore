@@ -75,6 +75,11 @@ jobs:
       NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
       E2E_BASE_URL: http://localhost:3000
       E2E_API_URL: http://localhost:4000/api/v1
+      # Bypass the env-var-conditional skip block in e2e/visual.spec.ts
+      # (the VISUAL_BASELINES_SKIP_BEGIN/END markers). Without this set,
+      # the visual tests skip themselves and `--update-snapshots` has
+      # nothing to update.
+      UPDATE_VISUAL_BASELINES: "1"
 
     steps:
       - uses: actions/checkout@v4
@@ -131,6 +136,23 @@ jobs:
         # so we don't churn unrelated tests' snapshots.
         run: npx playwright test --project=full --update-snapshots e2e/visual.spec.ts
 
+      - name: Remove the conditional skip block from visual.spec.ts
+        # On bootstrap (first ever baseline run) the spec file has a
+        # VISUAL_BASELINES_SKIP_BEGIN/END block that gates the suite
+        # behind UPDATE_VISUAL_BASELINES=1 so release.yml runs don't
+        # fail with "snapshot doesn't exist" before this workflow has
+        # had a chance to commit baselines. Once we have baselines we
+        # want the suite to run unconditionally on every release —
+        # delete the block. Idempotent: if the block isn't there
+        # (subsequent UI-update runs), sed is a no-op.
+        run: |
+          if grep -q VISUAL_BASELINES_SKIP_BEGIN e2e/visual.spec.ts; then
+            sed -i '/VISUAL_BASELINES_SKIP_BEGIN/,/VISUAL_BASELINES_SKIP_END/d' e2e/visual.spec.ts
+            echo "Removed VISUAL_BASELINES_SKIP block from e2e/visual.spec.ts."
+          else
+            echo "No VISUAL_BASELINES_SKIP block found — already removed in a prior run."
+          fi
+
       - name: Configure git identity
         run: |
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -138,12 +160,14 @@ jobs:
 
       - name: Commit and push baselines (if changed)
         # Stage first then check the cached diff — handles new untracked
-        # PNGs as well as modifications to existing ones. End state: a
-        # commit happens iff the snapshot directory differs from HEAD.
+        # PNGs as well as modifications to existing ones AND the
+        # one-shot removal of the skip block from visual.spec.ts on the
+        # bootstrap run. End state: a commit happens iff anything in
+        # the snapshot dir or the spec file changed.
         run: |
-          git add e2e/visual.spec.ts-snapshots/
-          if git diff --cached --quiet -- e2e/visual.spec.ts-snapshots/; then
-            echo "No snapshot changes — nothing to commit."
+          git add e2e/visual.spec.ts e2e/visual.spec.ts-snapshots/
+          if git diff --cached --quiet; then
+            echo "No snapshot or spec changes — nothing to commit."
             exit 0
           fi
           git commit -m "test(e2e): update Chromium visual baselines [skip ci]"
@@ -195,6 +219,11 @@ jobs:
       NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
       E2E_BASE_URL: http://localhost:3000
       E2E_API_URL: http://localhost:4000/api/v1
+      # Bypass the env-var-conditional skip block in e2e/visual.spec.ts
+      # (the VISUAL_BASELINES_SKIP_BEGIN/END markers). Without this set,
+      # the visual tests skip themselves and `--update-snapshots` has
+      # nothing to update.
+      UPDATE_VISUAL_BASELINES: "1"
 
     steps:
       - uses: actions/checkout@v4

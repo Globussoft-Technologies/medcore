@@ -32,12 +32,22 @@ import { test, expect } from "./fixtures";
 import { CREDS } from "./helpers";
 
 test.describe("Visual regression — critical surfaces", () => {
-  // Linux baselines have not been generated yet — every test fails with
-  // "snapshot doesn't exist". The plan (TODO.md #2) is to ship an
-  // `update-visual-baselines.yml` workflow_dispatch workflow that runs
-  // `--update-snapshots` and auto-commits the PNGs back to main. Until that
-  // lands these tests are guaranteed-fail noise on every release run.
-  test.skip(true, "TODO.md #2: Linux PNG baselines pending — needs the update-visual-baselines.yml workflow to generate and commit them");
+  // Linux baselines are generated and committed by the manual
+  // `update-visual-baselines.yml` workflow (TODO.md #2). Until that
+  // workflow has run at least once, the snapshot files don't exist and
+  // every test would fail with "snapshot doesn't exist." So the suite is
+  // bypassed unless explicitly updating.
+  //
+  // The workflow sets UPDATE_VISUAL_BASELINES=1 to skip this guard, runs
+  // with --update-snapshots, and auto-commits the resulting PNGs together
+  // with the deletion of this conditional skip block (matched by the
+  // `visual-baselines-conditional-skip-marker` substring below).
+  // VISUAL_BASELINES_SKIP_BEGIN
+  test.skip(
+    !process.env.UPDATE_VISUAL_BASELINES,
+    "visual-baselines-conditional-skip-marker — TODO.md #2: Linux PNG baselines pending; trigger update-visual-baselines.yml workflow to generate them. This skip block is auto-removed by that workflow's commit step.",
+  );
+  // VISUAL_BASELINES_SKIP_END
   test.use({
     // Pin viewport so the snapshot is platform-stable. Mobile diffs are
     // out of scope for this baseline; cross-browser is handled by the

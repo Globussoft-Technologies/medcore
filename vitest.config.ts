@@ -40,13 +40,14 @@ export default defineConfig({
         "**/.next/**",
         "apps/api/src/server.ts",
       ],
-      // Baseline locked 2026-04-15 from `vitest run apps/api/src/services packages/shared --coverage`
-      // (unit + contract, no DB). Raise these as coverage grows; never lower without discussion.
+      // Bumped 2026-05-02 from prior baseline. Source: per-push run 25257723834 lcov
+      // (api actual: lines 26.71%, branches 70.21%, functions 70.04%). Floors set to
+      // Math.floor(actual - 2pp). Raise these as coverage grows; never lower without discussion.
       thresholds: {
-        lines: 11,
-        branches: 57,
-        functions: 55,
-        statements: 11,
+        lines: 24,
+        branches: 68,
+        functions: 68,
+        statements: 24,
       },
     },
   },

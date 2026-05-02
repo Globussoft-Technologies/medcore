@@ -26,13 +26,14 @@ export default defineConfig({
         "**/.next/**",
         "**/dist/**",
       ],
-      // Baseline locked 2026-04-15 from `vitest run --config apps/web/vitest.config.ts --coverage`.
-      // Raise these as coverage grows; never lower without discussion.
+      // Bumped 2026-05-02 from prior baseline. Source: per-push run 25257723834 lcov
+      // (web actual: lines 53.78%, branches 67.00%, functions 33.43%). Floors set to
+      // Math.floor(actual - 2pp). Raise these as coverage grows; never lower without discussion.
       thresholds: {
-        lines: 10,
-        branches: 61,
-        functions: 28,
-        statements: 10,
+        lines: 51,
+        branches: 65,
+        functions: 31,
+        statements: 51,
       },
     },
   },

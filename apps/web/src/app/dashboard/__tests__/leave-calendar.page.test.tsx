@@ -81,8 +81,14 @@ describe("LeaveCalendarPage", () => {
         screen.getByRole("heading", { name: /leave calendar/i })
       ).toBeInTheDocument()
     );
-    // Headings for weekday columns are present
-    expect(screen.getByText("Mon")).toBeInTheDocument();
+    // Weekday headers live INSIDE the calendar grid which sits behind the
+    // page's `loading` flag (line 184 of page.tsx) — the heading renders
+    // immediately but "Mon" only appears after `apiMock.get` resolves and
+    // setLoading(false) runs. Wrap in `waitFor` so we ride out the async
+    // resolve, otherwise this is a CI-timing flake.
+    await waitFor(() =>
+      expect(screen.getByText("Mon")).toBeInTheDocument()
+    );
   });
 
   it("keeps rendering when API rejects", async () => {

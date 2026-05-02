@@ -441,9 +441,7 @@ denied access to lab QC is surprising. Two `test.skip` entries in
 - Per-push CI gates: `[test, web-tests, typecheck, npm-audit, migration-safety, web-bundle]`.
   E2E (Playwright) is NOT in the per-push gate; it runs only via
   release.yml on `workflow_dispatch`.
-- Local Playwright runner exists — `scripts/run-e2e-locally.sh` mirrors
-  release.yml's e2e jobs in ~5-10 min instead of ~25. See
-  [`docs/LOCAL_E2E.md`](docs/LOCAL_E2E.md).
+- Local-first test workflow: `scripts/run-tests-locally.sh` mirrors every CI gate. See [`docs/LOCAL_TESTING.md`](docs/LOCAL_TESTING.md).
 
 ---
 

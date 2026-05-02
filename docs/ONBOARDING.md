@@ -76,6 +76,14 @@ first run.
 ## 3. Running tests at each layer
 
 ```bash
+# Recommended: run ALL CI gates locally before pushing (~7 min)
+scripts/run-tests-locally.sh --quick    # 3 min, no DB (typecheck+lint+audit+migration-safety+bundle)
+scripts/run-tests-locally.sh            # 7 min, default (above + api-tests + web-tests)
+scripts/run-tests-locally.sh --with-e2e # 15-20 min, full pre-push validation
+# Full guide: docs/LOCAL_TESTING.md.
+
+# Individual layers (existing)
+
 # All vitest suites (unit + integration + web)
 npm test
 
@@ -175,6 +183,9 @@ Before you mark a PR "ready for review":
 - [`DEPLOY.md`](DEPLOY.md) — The single authoritative prod deploy runbook.
 - [`OPERATIONS_FAQ.md`](OPERATIONS_FAQ.md) — Recovery, rollback, and ops cheatsheet.
 - [`TEST_PLAN.md`](TEST_PLAN.md) — Test coverage matrix and known gaps.
+- [`LOCAL_TESTING.md`](LOCAL_TESTING.md) — Unified local test runner that
+  mirrors every CI gate from test.yml in ~7 min instead of waiting on
+  GitHub Actions.
 - [`LOCAL_E2E.md`](LOCAL_E2E.md) — Local Playwright runner that mirrors
   release.yml's e2e jobs in 5-10 min instead of 25.
 - [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — Long-form contributor rules.

@@ -83,6 +83,7 @@ SQL, then later migrations apply cleanly on top.
 
 ## Tests
 
+- Before pushing, run `scripts/run-tests-locally.sh` to mirror every CI gate locally (~7 min vs 25 min via Actions).
 - Pure unit tests: `npm test` (runs without a DB).
 - Integration tests: set `DATABASE_URL_TEST` to a throwaway Postgres and
   run `npm test`. The suite resets the DB in `beforeAll`.

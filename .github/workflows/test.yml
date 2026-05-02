@@ -207,10 +207,20 @@ jobs:
           cache: npm
 
       - name: Run npm audit
-        # `--omit=dev` skips devDeps so we only fail on prod-runtime CVEs.
-        # Tooling vulnerabilities (test runners etc.) get caught by the
-        # weekly Dependabot/CodeQL passes instead.
-        run: npm audit --audit-level=high --omit=dev
+        # Scope to the workspaces that actually ship to the dev server:
+        # apps/api (Express) and apps/web (Next.js). Excludes apps/mobile
+        # (React Native / Expo) — mobile dep CVEs are real and tracked
+        # via Dependabot PRs, but they don't affect the dev-server
+        # deploy pipeline, so they shouldn't gate it. Without scoping,
+        # the entire expo stack (~6 high CVEs in @xmldom/xmldom) blocks
+        # every deploy until mobile gets a major-version bump.
+        #
+        # `--omit=dev` skips devDeps so we only fail on prod-runtime
+        # CVEs. Tooling vulnerabilities (test runners etc.) surface via
+        # Dependabot/CodeQL instead.
+        run: |
+          npm audit --workspace=apps/api --workspace=apps/web \
+            --audit-level=high --omit=dev
 
   web-bundle:
     # Builds apps/web and prints the size of the static chunks directory

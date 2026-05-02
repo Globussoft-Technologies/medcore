@@ -142,7 +142,13 @@ echo "  → $BACKUP_FILE"
 # `pg_dump --no-owner --no-acl` keeps the dump portable across role names if
 # we ever migrate Postgres servers (see TODO.md priority #2). gzip drops the
 # size by ~5x for our schema shape.
-if pg_dump --dbname="$DB_URL" --no-owner --no-acl 2>/tmp/pgdump.log | gzip > "$BACKUP_FILE"; then
+#
+# Strip the `?schema=public` query parameter — it's a Prisma-specific URL
+# extension that pg_dump rejects with "invalid URI query parameter".
+# pg_dump dumps every schema by default; the `public` schema is what we
+# want and gets included automatically.
+PGDUMP_URL="${DB_URL%%\?*}"
+if pg_dump --dbname="$PGDUMP_URL" --no-owner --no-acl 2>/tmp/pgdump.log | gzip > "$BACKUP_FILE"; then
     echo "  OK — backup size $(du -h "$BACKUP_FILE" | cut -f1)"
 else
     echo "  ABORT — pg_dump failed. Last 20 lines of stderr:"

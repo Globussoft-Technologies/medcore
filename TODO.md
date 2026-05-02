@@ -215,9 +215,11 @@ Recipe:
 
 ### 5. Tighten web-bundle budget
 
-Currently 25 MB tripwire in `.github/workflows/test.yml`'s `web-bundle`
-step. After ~3 clean per-push runs, average the reported size from the
-workflow logs and set the budget at **average + 3 MB**.
+✅ **Closed 2026-05-02.** Average of last 8 green per-push runs was
+3.56 MB (sub-200-byte variance run-to-run). Tripwire dropped from 25 MB
+to **7 MB** (avg + ~3 MB headroom, rounded up) in `.github/workflows/test.yml`.
+A failure now means the bundle nearly doubled — actionable signal vs.
+the previous "everything passes" 25 MB ceiling.
 
 ### 6. §E — Wire Codecov (independent of the above)
 

@@ -254,11 +254,10 @@ jobs:
   web-bundle:
     # Builds apps/web and prints the size of the static chunks directory
     # on every push, so the workflow log is a longitudinal record of
-    # bundle weight. Fails only on catastrophic bloat (>25 MB of JS) to
-    # avoid noisy failures while we collect baseline numbers; tighten the
-    # budget in a follow-up commit once a few clean runs settle on a
-    # realistic size.
-    # CI hardening Phase 2.4.
+    # bundle weight. Fails when JS chunks exceed BUDGET_MB (see step
+    # below) — currently 7 MB, which is ~2x the observed 3.56 MB
+    # baseline. Adjust the budget in lockstep with code-split changes.
+    # CI hardening Phase 2.4; budget tightened 2026-05-02 (TODO #5).
     name: Web bundle size
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -300,11 +299,13 @@ jobs:
           du -h "$CHUNKS_DIR"/*.js 2>/dev/null | sort -hr | head -10 || true
           echo
 
-          # Catastrophic-bloat budget: 25 MB. A typical Next.js app of
-          # this scope sits at 3-8 MB; 25 MB means a vendor bundle slipped
-          # in or a code-split boundary collapsed. Tighten this number
-          # once we have ~5 clean baseline runs.
-          BUDGET_MB=25
+          # Regression tripwire. Average of last 8 green per-push runs
+          # was 3.56 MB with sub-200-byte variance, so avg + 3 MB rounded
+          # up to a clean integer. Last bumped 2026-05-02 (TODO #5; was
+          # 25 MB initial guard with no signal value). Bump deliberately
+          # when adding code-split routes — failing here means the bundle
+          # nearly doubled, which warrants a look at the top-chunks list.
+          BUDGET_MB=7
           if awk -v m="$MB" -v b="$BUDGET_MB" 'BEGIN { exit !(m > b) }'; then
             echo "::error::Bundle exceeded ${BUDGET_MB} MB budget (${MB} MB). Investigate top chunks above."
             exit 1
@@ -416,7 +417,7 @@ jobs:
     #   - npm-audit         no high/critical CVE in prod runtime deps
     #   - migration-safety  no destructive Prisma migration without the
     #                        `[allow-destructive-migration]` opt-in marker
-    #   - web-bundle        no catastrophic bundle bloat (>25 MB chunks)
+    #   - web-bundle        no catastrophic bundle bloat (>7 MB chunks)
     # These are deploy-correctness gates: a failing one means we should
     # NOT ship to dev. `lint` was added to the gate in TODO #3 once the
     # eslint config was bootstrapped and existing violations triaged

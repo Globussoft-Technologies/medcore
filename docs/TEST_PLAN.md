@@ -120,17 +120,7 @@ Originally out of scope; now active. Specs live in `/e2e/` (38 files,
 reception, patient, lab-tech, pharmacist) using worker-scoped role-token
 caching to respect auth rate limits. Tiers configurable via `--project`:
 
-- **smoke** (3 specs / 18 cases): runs in two contexts:
-  - on every push via `test.yml`'s api/web/typecheck jobs (against the
-    CI-runner localhost stack), AND
-  - **post-deploy** in the `deploy` job (against the public URL
-    `medcore.globusdemos.com`) so the actually-deployed server is
-    validated end-to-end before deploy success is declared. A failure
-    triggers the same auto-rollback path as the curl-based public
-    smoke (see [`DEPLOY.md`](DEPLOY.md) §"How auto-deploy works"
-    step 6). Data-creating cases (`ai/triage/start`) are guarded
-    with `test.skip` when `E2E_BASE_URL` points at globusdemos.com
-    so the deploy-time validation does not pollute the demo DB.
+- **smoke** (3 specs / 18 cases): runs on every push via `test.yml`.
 - **regression** (~7 specs / ~50 cases): manual gate.
 - **full** (38 specs) × **Chromium + WebKit**: required gate on
   `release.yml` (`workflow_dispatch`).

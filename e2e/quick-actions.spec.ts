@@ -116,15 +116,6 @@ test.describe("AI Triage API — patient-role behaviour (issue #22)", () => {
     request,
     patientToken,
   }) => {
-    // The /ai/triage/start endpoint creates a row in TriageSession on
-    // success (and may invoke the AI provider behind it). Skip on
-    // prod-target smoke runs so deploy-time validation doesn't pollute
-    // the demo DB with one session per deploy. The localhost smoke
-    // run (test.yml's `test` job) still exercises this case.
-    test.skip(
-      Boolean(process.env.E2E_BASE_URL?.includes("globusdemos.com")),
-      "Skipped on prod-target smoke runs — creates a TriageSession row."
-    );
     const { status, body } = await apiPost(request, patientToken, "/ai/triage/start", {
       language: "en",
       inputMode: "text",

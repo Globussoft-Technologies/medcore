@@ -44,19 +44,8 @@ What the workflow does:
    `pm2 restart medcore-api medcore-web` → curl `localhost:4100/api/health`
    and `localhost:3200`.
 5. **Public smoke check.** After the script returns 0 the runner curls
-   `https://medcore.globusdemos.com/api/health` and `/login` from outside
-   the box to confirm nginx is forwarding correctly. Validates response
-   *content* (JSON `status:"ok"` shape on `/api/health` and the `MedCore`
-   marker on `/login`) so a proxy default page returning 200 doesn't
-   mask a broken deploy.
-6. **Post-deploy Playwright smoke.** Runs the `smoke` Playwright project
-   (~2 min, 3 specs / ~14 active cases on Chromium) against the public
-   URL to confirm the deployed bundle works end-to-end — login round-trip,
-   dashboard render, quick-action routing. Closes the gap where per-push
-   tests proved the code worked in isolation but never the actually-
-   deployed bundle / Prisma client / env vars / migrations. Failure
-   triggers auto-rollback (same path as curl-smoke failure). The full
-   suite runs only via `release.yml` to avoid prod data pollution.
+   `https://medcore.globusdemos.com/api/health` and `/` from outside the
+   box to confirm nginx is forwarding correctly.
 
 The concurrency group `deploy-medcore-dev` queues overlapping deploys so
 two pushes can't race on `npm ci` or pm2 restart.
@@ -515,7 +504,6 @@ disabled is considered a P2 until corrected.
 | `Set up SSH agent` step fails with `error in libcrypto`. | The `DEPLOY_SSH_KEY` secret has CRLF line endings. | Re-upload the key with `tr -d '\r' < ~/medcore-ci-key \| gh secret set DEPLOY_SSH_KEY -R Globussoft-Technologies/medcore`. |
 | `Set up SSH agent` succeeds but the deploy step times out connecting. | The CI key got removed from the dev server's `authorized_keys`. | Re-add the pubkey from `~/medcore-ci-key.pub` to `/home/empcloud-development/.ssh/authorized_keys`. |
 | The deploy step succeeds but `Smoke-check public endpoints` fails on `https://medcore.globusdemos.com/api/health`. | nginx forwarding broken, or `medcore-api` failed to start cleanly post-restart. | SSH in, `pm2 status` + `pm2 logs medcore-api` to see if the API came up. If pm2 is healthy but the public URL is dead, `sudo systemctl reload nginx`. |
-| `Post-deploy Playwright smoke` step fails after a clean curl-smoke pass. | Demo credentials clobbered on prod (sweep / reset), OR a quick-action route changed and the smoke spec's URL/heading assertion drifted, OR rate-limiting at 30 auth/min/IP throttled the parallel logins. | Download the `post-deploy-smoke-report` artifact from the failed run for trace + screenshots. If creds are the cause, run `scripts/reseed-demo-accounts.ts` on the dev box, then push an empty commit (`git commit --allow-empty -m "ci: rerun deploy after reseed"`) to retrigger. If a route assertion drifted, fix the spec. If rate-limiting, see DEPLOY.md §8a (`DISABLE_RATE_LIMITS=true`) for an ops bypass during the deploy window. |
 | Deploy job is skipped on a push to `main`. | The `if:` gate didn't match (e.g. someone temporarily disabled auto-deploy in the workflow), or required jobs in `needs:` failed. | Check the gating clause in `.github/workflows/test.yml`. Currently `needs: [typecheck]`; restore to `[test, web-tests, typecheck, e2e]` once #415 is closed. |
 
 #### Manual-deploy / runtime issues

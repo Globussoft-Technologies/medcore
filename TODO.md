@@ -441,10 +441,6 @@ denied access to lab QC is surprising. Two `test.skip` entries in
 - Per-push CI gates: `[test, web-tests, typecheck, npm-audit, migration-safety, web-bundle]`.
   E2E (Playwright) is NOT in the per-push gate; it runs only via
   release.yml on `workflow_dispatch`.
-- Every deploy now runs the Playwright `smoke` project against the
-  deployed URL (`medcore.globusdemos.com`) after PM2 restart. A failure
-  joins the existing curl-smoke auto-rollback path. See
-  [`docs/DEPLOY.md`](docs/DEPLOY.md) "How auto-deploy works" step 6.
 - Local-first test workflow: `scripts/run-tests-locally.sh` mirrors every CI gate. See [`docs/LOCAL_TESTING.md`](docs/LOCAL_TESTING.md).
 
 ---

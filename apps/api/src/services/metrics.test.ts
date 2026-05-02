@@ -43,7 +43,13 @@ function makeRes(statusCode = 200): any {
 async function getCounterValue(labels: Record<string, string>): Promise<number> {
   const metric = await httpRequestsTotal.get();
   const match = metric.values.find((v) =>
-    Object.entries(labels).every(([k, v2]) => v.labels[k] === v2),
+    Object.entries(labels).every(
+      // prom-client types `v.labels` as `Partial<Record<"status"|"method"|"path", ...>>`,
+      // which strict TS rejects when indexed with a generic `string`. We
+      // legitimately probe across all label keys here, so widen the type
+      // for the lookup. Runtime behaviour is unchanged.
+      ([k, v2]) => (v.labels as Record<string, string | number | undefined>)[k] === v2,
+    ),
   );
   return match?.value ?? 0;
 }

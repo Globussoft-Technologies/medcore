@@ -290,12 +290,20 @@ Lower priority (admin / finance, not clinical):
 and the AI deep-flow gaps (`/ai-fraud`, `/ai-doc-qa`, `/ai-differential`,
 `/ai-kpis` — smoke-only today).
 
-### D. Web auth-page tests
+### D. Web auth-page tests ✅ closed.
 
-`/login`, `/register`, `/verify`, `/forgot-password` have no page-level
-component tests. E2E `auth.spec.ts` covers them at the flow level, so
-this is just for client-side validation messaging — cheap to add, low
-priority.
+`/login`, `/register`, `/forgot-password` all have page-level tests:
+- `__tests__/login.page.test.tsx` — status-aware error handling + Remember Me
+- `__tests__/login.novalidate.test.tsx` — noValidate + inline email error
+- `__tests__/register.page.test.tsx` — render + submit + API failure + select
+- `__tests__/register.novalidate.test.tsx` — full client-side validator
+  coverage (all-fields-empty, malformed email, short phone, short password,
+  age=0 floor, per-field clear-on-edit)
+- `__tests__/forgot-password.page.test.tsx` — email-step + reset-step + error
+
+`/verify` is not a separate auth page; the only `/verify` route is
+`verify/rx/[id]/page.tsx` (Rx QR-verify), covered by
+`verify/rx/[id]/page.test.tsx`. 2FA verify is inline in the login page.
 
 ### E. Coverage visibility (separate from item #7)
 

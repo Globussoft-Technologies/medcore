@@ -229,11 +229,31 @@ suite.
 
 (`/dashboard/operating-theaters` IS covered by `ot-surgery.spec.ts`.)
 
-**Web auth pages — `apps/web/src/app/`:**
+**Web auth pages — `apps/web/src/app/`:** ✅ closed.
 
-- `/login`, `/register`, `/verify`, `/forgot-password` — no page-level
-  tests. Lower risk because covered by E2E `auth.spec.ts`, but a unit
-  test for client-side validation messaging would be cheap.
+`/login`, `/register`, `/forgot-password` all have page-level tests
+under `apps/web/src/app/__tests__/`:
+
+- `login.page.test.tsx` (193 lines) — status-aware error handling
+  (#15) covering 401/403/429/500 + Remember Me (#1).
+- `login.novalidate.test.tsx` (79 lines) — `noValidate` form attribute
+  + inline `data-testid="error-email"` rendering on empty/malformed
+  email (#102).
+- `register.page.test.tsx` (89 lines) — form render, submit success,
+  API failure, sign-in link, gender select.
+- `register.novalidate.test.tsx` (164 lines) — full client-side
+  validator coverage: noValidate, all-fields-empty (one inline error
+  per field at once, #130), malformed email, short phone, short
+  password, age=0 floor (#167), per-field error clears on edit.
+- `forgot-password.page.test.tsx` (79 lines) — email-step render,
+  forgot-password POST, reset-step transition, API error display,
+  sign-in link.
+
+`/verify` is not a separate auth page; the only `/verify` route is
+`/verify/rx/[id]/page.tsx` (the public Rx QR-verify page, covered
+by `apps/web/src/app/verify/rx/[id]/page.test.tsx`). The 2FA verify
+step is embedded inline in the login page and exercised through
+`login.page.test.tsx`'s status-aware paths.
 
 ### 7.2 Skips — currently parked
 

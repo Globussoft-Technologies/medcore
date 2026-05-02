@@ -34,9 +34,15 @@ clean Postgres image, cold `node_modules`). Local-first is the
 # + migration-safety + web-bundle.
 scripts/run-tests-locally.sh --quick
 
-# 7-10 min, with one-shot Postgres on :54322.
-# Adds web-tests + api-tests (unit + contract + smoke + integration).
+# 5-7 min, with one-shot Postgres on :54322.
+# Adds web-tests + api-tests (unit + contract + smoke).
+# Integration tests are NOT in the default — see "Why integration is opt-in".
 scripts/run-tests-locally.sh
+
+# Default + integration suite. ~30 min on Windows + Docker Desktop;
+# ~10 min on Linux. CI runs them on every push, so most of the time
+# you don't need this locally.
+scripts/run-tests-locally.sh --with-integration
 
 # 15-20 min, full pre-push validation.
 # Adds Chromium full Playwright suite via scripts/run-e2e-locally.sh.
@@ -56,9 +62,19 @@ out which jobs failed and points at the relevant log.
 | Tier | Command | Target time | Covers |
 |---|---|---|---|
 | Quick | `--quick` | 3-5 min | typecheck, lint, npm-audit, migration-safety, web-bundle |
-| Default | (no flag) | 7-10 min | quick + web-tests + api-tests |
+| Default | (no flag) | 5-7 min | quick + web-tests + api-tests (unit + contract + smoke) |
+| Default + integration | `--with-integration` | ~30 min on Windows | default + `npm run test:api` (133 integration files) |
 | Pre-push | `--with-e2e` | 15-20 min | default + Chromium e2e |
 | Release | `--with-e2e=both` | ~25 min | default + Chromium + WebKit e2e (mirrors release.yml) |
+
+### Why integration is opt-in
+
+Integration tests run against a real Postgres container. On Windows + Docker
+Desktop each commit syncs through WSL2 → Hyper-V → NTFS, and the suite
+takes ~28 min instead of the ~5 min CI's Linux runner sees. They're
+gated behind `--with-integration` so the default tier stays in the
+"feedback loop" speed range. **CI runs them on every push** — push and
+let the runner do the slow part.
 
 ### Other flags
 
@@ -83,14 +99,21 @@ edit -> --quick -> (default) -> commit -> push
 1. **While iterating**: `--quick` after each meaningful change. 3-5 min
    feedback that catches typecheck regressions, lint, audit drift, and
    bundle bloat without booting Postgres.
-2. **Before committing**: full default run. 7-10 min, hits the same
-   surface as the per-push CI gate.
+2. **Before committing**: full default run. 5-7 min — hits typecheck,
+   lint, audit, migration-safety, bundle, web-tests, and api unit +
+   contract + smoke. Same surface as per-push CI **except** integration.
+   CI runs integration on the runner in ~5 min — push and let it.
 3. **Before pushing to `main`** (or anything that triggers `release.yml`):
    `--with-e2e`. 15-20 min, covers the Playwright Chromium suite.
-4. **Push**. CI re-runs everything against a clean Linux environment
-   (different OS, different docker, different npm cache, different
-   timezone). It's still authoritative — local green is necessary but
-   not sufficient for "ready to merge".
+4. **Push**. CI re-runs everything (including integration) against a
+   clean Linux environment (different OS, different docker, different
+   npm cache, different timezone). It's still authoritative — local
+   green is necessary but not sufficient for "ready to merge".
+
+If you genuinely need the integration signal locally before pushing
+(e.g. you just edited Prisma schema or a service that 30+ integration
+tests touch), tack on `--with-integration` to the default tier. Plan
+on ~30 min on Windows.
 
 ---
 

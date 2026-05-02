@@ -7,10 +7,19 @@
 # Tiers:
 #   --quick / -q   typecheck + lint + npm-audit + migration-safety + web-bundle
 #                  (~3-5 min, no DB)
-#   default        --quick + web-tests + api-tests
-#                  (~7-10 min, one-shot Postgres on :54322)
+#   default        --quick + web-tests + api-tests (unit + contract + smoke)
+#                  (~5-7 min, one-shot Postgres on :54322 for prisma generate)
+#                  Integration tests are NOT in the default — they run ~5 min
+#                  on CI's Linux runner but ~28 min on Windows + Docker
+#                  Desktop because each Postgres commit syncs through WSL2 +
+#                  Hyper-V to NTFS. Push and let CI run them — local stays
+#                  fast for the iteration loop.
+#   --with-integration  default + npm run test:api (~30 min on Windows;
+#                  ~5 min on Linux). Use when you genuinely need the
+#                  integration signal locally and don't want to round-trip
+#                  through CI.
 #   --with-e2e     default + scripts/run-e2e-locally.sh (Chromium full)
-#                  (~15-20 min)
+#                  (~15-20 min). Composes with --with-integration.
 #   --with-e2e=both same but Chromium + WebKit (mirrors release.yml)
 #                  (~25 min)
 #
@@ -41,6 +50,7 @@ PG_DB="medcore_test"
 
 TIER_QUICK=0
 WITH_E2E=""           # "" | "chromium" | "both"
+WITH_INTEGRATION=0    # default off — slow on Windows + Docker; CI is the gate
 KEEP_DB=0
 SKIP_AUDIT=0
 SKIP_BUILD=0
@@ -62,6 +72,7 @@ for arg in "$@"; do
             echo "  valid: --with-e2e (chromium) | --with-e2e=both" >&2
             exit 2
             ;;
+        --with-integration) WITH_INTEGRATION=1 ;;
         --keep-db)          KEEP_DB=1 ;;
         --skip-audit)       SKIP_AUDIT=1 ;;
         --skip-build)       SKIP_BUILD=1 ;;
@@ -307,6 +318,11 @@ job_web_tests() {
 }
 
 # api-tests body. Assumes Postgres is up on $PG_PORT and DATABASE_URL is set.
+#
+# Integration tests are gated behind WITH_INTEGRATION because they take
+# ~28 min on Windows + Docker Desktop (each Postgres commit syncs through
+# WSL2 -> Hyper-V -> NTFS) vs ~5 min on CI's Linux runner. CI is the
+# natural gate; local stays fast for the iteration loop.
 job_api_tests() {
     set -e
     echo "--- prisma db push (force-reset) ---"
@@ -317,9 +333,15 @@ job_api_tests() {
     echo
     echo "--- smoke ---"
     npm run test:smoke
-    echo
-    echo "--- integration ---"
-    npm run test:api
+    if [ "$WITH_INTEGRATION" -eq 1 ]; then
+        echo
+        echo "--- integration (--with-integration) ---"
+        npm run test:api
+    else
+        echo
+        echo "--- integration: skipped (use --with-integration to run locally) ---"
+        echo "    CI runs them on every push; rely on CI for the integration signal."
+    fi
 }
 
 job_e2e() {

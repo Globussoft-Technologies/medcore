@@ -42,12 +42,6 @@ test.describe("Visual regression — critical surfaces", () => {
   // with --update-snapshots, and auto-commits the resulting PNGs together
   // with the deletion of this conditional skip block (matched by the
   // `visual-baselines-conditional-skip-marker` substring below).
-  // VISUAL_BASELINES_SKIP_BEGIN
-  test.skip(
-    !process.env.UPDATE_VISUAL_BASELINES,
-    "visual-baselines-conditional-skip-marker — TODO.md #2: Linux PNG baselines pending; trigger update-visual-baselines.yml workflow to generate them. This skip block is auto-removed by that workflow's commit step.",
-  );
-  // VISUAL_BASELINES_SKIP_END
   test.use({
     // Pin viewport so the snapshot is platform-stable. Mobile diffs are
     // out of scope for this baseline; cross-browser is handled by the

@@ -221,7 +221,7 @@ workflow logs and set the budget at **average + 3 MB**.
 
 ### 6. §E — Wire Codecov (independent of the above)
 
-✅ **Closed 2026-05-02 (commit `<COMMIT_SHA>`).** `codecov-action@v6`
+✅ **Closed 2026-05-02 (commit `b3b090b`).** `codecov-action@v6`
 steps added to both api-tests and web-component-tests jobs in
 `.github/workflows/test.yml`; `codecov.yml` config at repo root. The
 `CODECOV_TOKEN` repo secret needs to be added via
@@ -335,7 +335,7 @@ and the AI deep-flow gaps (`/ai-fraud`, `/ai-doc-qa`, `/ai-differential`,
 
 ### E. Coverage visibility (separate from item #7)
 
-- ✅ **Closed 2026-05-02 (commit `<COMMIT_SHA>`).** Codecov wired into
+- ✅ **Closed 2026-05-02 (commit `b3b090b`).** Codecov wired into
   `.github/workflows/test.yml` via `codecov-action@v6` on both the
   api-tests and web-component-tests jobs. PR comments now surface
   coverage delta + per-flag (api/web) breakdowns; trend graphs at

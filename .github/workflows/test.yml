@@ -439,6 +439,18 @@ jobs:
       cancel-in-progress: false
 
     steps:
+      # Checkout the repo on the runner so the Post-deploy Playwright smoke
+      # step (further down) can install Playwright + run the smoke project
+      # against the deployed URL. The deploy itself doesn't need the working
+      # tree (it SSHes and lets the dev box do its own git pull), but the
+      # post-deploy validation needs the e2e/ specs + playwright.config.ts.
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+
       - name: Set up SSH agent
         # Pinned to the commit SHA of v0.9.0, not the tag, so a tag rewrite
         # by the maintainer (compromised account, malicious update) cannot
@@ -514,17 +526,79 @@ jobs:
             || { echo "FAILED /login — body missing MedCore marker"; exit 1; }
           echo "OK /login"
 
+      - name: Install dependencies (for Playwright smoke)
+        # The post-deploy Playwright step below needs @playwright/test +
+        # the e2e/ helpers' deps. We install here so a curl-smoke failure
+        # doesn't waste the install time — but only after the curl-smoke
+        # passes (curl-smoke is ~5s, so this gating costs nothing on a
+        # green deploy and saves ~90s of install on a red one).
+        if: success()
+        run: npm install
+
+      - name: Install Playwright Chromium
+        # The smoke project uses Desktop Chrome devices only (see
+        # playwright.config.ts SMOKE_FILES + project block). Skip webkit/
+        # firefox to keep this step under ~30s.
+        if: success()
+        run: npx playwright install --with-deps chromium
+
+      - name: Post-deploy Playwright smoke (against deployed server)
+        id: post-deploy-smoke
+        if: success()
+        # Validates that the *actually-deployed* server passes the smoke
+        # project. The per-push CI test jobs (test, web-tests, typecheck)
+        # run against a runner-spun localhost stack — they prove the code
+        # works in isolation, not that the deployed bundle / Prisma client
+        # / env vars / migrations are in a good state. This step closes
+        # that gap.
+        #
+        # Smoke project = 3 specs / ~14 active cases (auth + cross-cutting
+        # + quick-actions, minus 2 prod-guarded data-creation cases),
+        # ~2 min wall-clock on Chromium. Won't run any data-creation
+        # tests against prod — those are guarded with test.skip when
+        # E2E_BASE_URL points at globusdemos.com (see e2e/quick-actions.spec.ts).
+        #
+        # The full + regression projects run only via release.yml — they
+        # exercise localhost-only flows (data creation, role-matrix RBAC)
+        # that would pollute prod data.
+        env:
+          E2E_BASE_URL: https://medcore.globusdemos.com
+          E2E_API_URL: https://medcore.globusdemos.com/api/v1
+          # Real demo credentials are baked into e2e/helpers.ts CREDS and
+          # documented in docs/TESTER_PROMPT.md. They must remain valid
+          # on the deployed seed for this step to pass — running
+          # scripts/reseed-demo-accounts.ts on prod restores them if a
+          # sweep clobbered them. Troubleshooting row in DEPLOY.md.
+          CI: "true"
+        run: npx playwright test --project=smoke
+
+      - name: Upload Playwright smoke artifacts
+        # Always-upload so a smoke failure leaves the trace + screenshots
+        # downloadable for triage (Playwright writes them to test-results/
+        # and playwright-report/ regardless of pass/fail).
+        if: always() && steps.post-deploy-smoke.conclusion != 'skipped'
+        uses: actions/upload-artifact@v7
+        with:
+          name: post-deploy-smoke-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+          if-no-files-found: ignore
+
       - name: Auto-rollback on smoke failure
-        # Triggered only when the smoke step above failed (the deploy step
-        # itself succeeded — if SSH failed, there's nothing on the server
+        # Triggered when EITHER the curl-smoke step or the Playwright
+        # post-deploy-smoke step failed (the deploy step itself
+        # succeeded — if SSH failed, there's nothing on the server
         # to roll back). SSHes back to the dev box and runs deploy.sh
         # --rollback, which resets the checkout to PREV_SHA (saved at
         # /tmp/medcore-prev-sha by the just-completed deploy), reinstalls
         # at that SHA, and restarts pm2. Schema migrations are NOT rolled
         # back — see DEPLOY.md "Recovery from a bad migration" if a
         # destructive migration is the actual culprit.
-        # CI hardening Phase 2.2.
-        if: failure() && steps.smoke.conclusion == 'failure'
+        # CI hardening Phase 2.2; extended to cover Playwright smoke
+        # 2026-05-02.
+        if: failure() && (steps.smoke.conclusion == 'failure' || steps.post-deploy-smoke.conclusion == 'failure')
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
@@ -540,7 +614,7 @@ jobs:
         # traffic. If THIS step fails, page a human — the rollback didn't
         # bring the system back to a good state and DEPLOY.md's manual
         # recovery flow is needed.
-        if: failure() && steps.smoke.conclusion == 'failure'
+        if: failure() && (steps.smoke.conclusion == 'failure' || steps.post-deploy-smoke.conclusion == 'failure')
         run: |
           set -euo pipefail
           BASE="https://medcore.globusdemos.com"

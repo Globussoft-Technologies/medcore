@@ -4,10 +4,12 @@ import { getMedicationsDueNow, generateReminderMessage } from "./ai/adherence-bo
 import { sendNotification } from "./notification";
 
 /**
- * Derive a human-readable reminder type from the current hour.
+ * Derive a human-readable reminder type from a given hour (0–23). Exported
+ * for unit tests; production callers pass `new Date().getHours()`.
  */
-function deriveReminderType(): "morning" | "afternoon" | "evening" | "night" {
-  const hour = new Date().getHours();
+export function deriveReminderType(
+  hour: number = new Date().getHours(),
+): "morning" | "afternoon" | "evening" | "night" {
   if (hour >= 5 && hour < 12) return "morning";
   if (hour >= 12 && hour < 17) return "afternoon";
   if (hour >= 17 && hour < 21) return "evening";

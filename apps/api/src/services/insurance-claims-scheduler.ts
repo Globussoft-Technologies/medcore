@@ -24,8 +24,9 @@ const ONE_DAY_MS = 24 * ONE_HOUR_MS;
 /**
  * Compute the delay (ms) from `from` until the next occurrence of the given
  * hour/minute in local time. Used to align the daily terminal sweep to 03:00.
+ * Exported for unit tests.
  */
-function msUntilNextDailyTick(hour: number, minute: number, from: Date = new Date()): number {
+export function msUntilNextDailyTick(hour: number, minute: number, from: Date = new Date()): number {
   const next = new Date(from);
   next.setHours(hour, minute, 0, 0);
   if (next.getTime() <= from.getTime()) {

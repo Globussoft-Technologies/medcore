@@ -5,14 +5,15 @@ import { sendNotification } from "./notification";
 /**
  * Decide whether a patient is due for a check-in today. A check-in is due
  * when (now - lastCheckInAt) >= checkInFrequencyDays, OR when the patient
- * has never checked in.
+ * has never checked in. Exported for unit tests.
  */
-function isCheckInDue(
+export function isCheckInDue(
   freqDays: number,
-  lastCheckInAt: Date | null
+  lastCheckInAt: Date | null,
+  now: Date = new Date(),
 ): boolean {
   if (!lastCheckInAt) return true;
-  const hoursSince = (Date.now() - lastCheckInAt.getTime()) / 36e5;
+  const hoursSince = (now.getTime() - lastCheckInAt.getTime()) / 36e5;
   return hoursSince >= freqDays * 24;
 }
 

@@ -4,9 +4,10 @@ Next-session pickup list. Read this first, work top-to-bottom. Each item
 is independently shippable. Full per-session history lives under
 [`docs/archive/`](docs/archive/).
 
-> Updated: 2026-05-02 evening.
-> HEAD on `main` = `fea55bd` (partial e2e triage: 6 fixes + 17 skips).
-> **Open GitHub issues: 0.** **Auto-deploy: unblocked.** **PR #445 still open** (Dependabot rebase pending; safe one-line GHA bump).
+> Updated: 2026-05-02 (next morning).
+> HEAD on `main` = `9a36db4` (round-4 analytics null-safety: web-tests now GREEN, auto-deploy succeeded).
+> **Open GitHub issues: 0.** **Auto-deploy: confirmed working on this commit.** **PR #445 still open** (Dependabot rebase pending; safe one-line GHA bump).
+> **Workflow conclusion still `failure`** because the `lint` job is silently broken (no eslint installed in apps/web — see item #3 below). Lint is NOT in `deploy.needs:` so deploys still ship; this is purely a workflow-summary signal.
 
 ---
 
@@ -63,31 +64,25 @@ Massive CI + tests sweep. Roughly two days of work compressed:
   data / WebKit auth-redirect residue. ~30 more skips deferred (sub-plan
   test-name substrings didn't match actual on-disk names; needs a
   re-pass with real names).
+- **Round-4 analytics null-safety** (commit `9a36db4`) — closed the
+  remaining crash classes that rounds 1-3 missed. Three different shapes:
+  (a) `formatCurrency` / local `fmtValue` widened to accept
+  `number | null | undefined` so undefined numeric reads no longer crash;
+  (b) chart components (`BarChart`, `LineChart`, `DonutChart`,
+  `HourHeatmap`) hardened at the component definition with
+  `safeX = X ?? []` so any undefined props prop pattern is contained;
+  (c) tightened the `expiry ?` and `forecast ?` guards to also require
+  the specific nested fields the renders depend on, so empty-array API
+  responses fall through to `<EmptyState />` instead of half-rendering.
+  Result: `Web component tests` job is **green**, `Deploy to dev server`
+  job is **success**. Workflow conclusion still red purely because of
+  the `lint` job (see item #3).
 
 ---
 
 ## ⏭️ Pickup-from-home priority list
 
-### 1. Round-4 analytics null-safety + re-validate web-tests gate
-
-`web-tests` is **still failing** on `2bd6957` (and therefore on `fea55bd`)
-even after analytics rounds 1-3. Next undefined-`.length` site is
-hiding somewhere in [`apps/web/src/app/dashboard/analytics/page.tsx`](apps/web/src/app/dashboard/analytics/page.tsx).
-
-Recipe:
-
-```bash
-RUN_ID=$(gh run list --repo Globussoft-Technologies/medcore --workflow=Test --branch main --limit 5 --json databaseId,headSha --jq '.[] | select(.headSha[:8]=="fea55bd") | .databaseId' | head -1)
-JOB_ID=$(gh run view --repo Globussoft-Technologies/medcore $RUN_ID --json jobs --jq '.jobs[] | select(.name=="Web component tests") | .databaseId')
-gh api "repos/Globussoft-Technologies/medcore/actions/jobs/$JOB_ID/logs" 2>&1 | grep -nE "AnalyticsPage src/app/dashboard/analytics/page.tsx:" | head -3
-```
-
-Read that line, defend the unguarded nested field with `?? {}` /
-`?? []` / `?.length ?? 0` (same shape as commits `e04ff7d` /
-`9ecfc52` / `2bd6957`). Push, watch web-tests turn green. Then
-proceed.
-
-### 2. Finish the e2e triage — remaining ~30 skips
+### 1. Finish the e2e triage — remaining ~30 skips
 
 The script `scripts/one-shot-skip-e2e.py` (now removed) skipped 17 of
 43 intended tests. The other 26 were "not-found" because the sub-plan
@@ -105,7 +100,7 @@ either `test.skip("name", ...)` declaratively or
 `test.skip(({browserName}) => browserName === "webkit", "...")` for
 the WebKit residual auth-race cluster.
 
-### 3. Visual regression baselines
+### 2. Visual regression baselines
 
 Sub-plan exists at:
 
@@ -119,7 +114,7 @@ workflow auto-commits the Linux PNGs back to main. After that, the
 4 visual specs in `e2e/visual.spec.ts` stop failing on every release
 run with "snapshot doesn't exist."
 
-### 4. Eslint setup + flip `lint` into deploy.needs
+### 3. Eslint setup + flip `lint` into deploy.needs
 
 Sub-plan exists at:
 
@@ -133,11 +128,11 @@ install `eslint` + `eslint-config-next` + `@eslint/eslintrc`, write
 eslint-disable each violation, then add `lint` to `deploy.needs:`
 in `.github/workflows/test.yml` (after `typecheck`).
 
-### 5. WebKit residual auth-race (deeper fixture investigation)
+### 4. WebKit residual auth-race (deeper fixture investigation)
 
 The `addInitScript` fix (`a8230d1`) cut WebKit fail count from
 121→55 but ~30 specs still race the auth redirect under WebKit. Most
-of those are now `test.skip`-ed under WebKit by item #2 above, but
+of those are now `test.skip`-ed under WebKit by item #1 above, but
 the right fix is fixture-side. Likely root cause: even with
 `addInitScript`, Zustand's `loadSession()` may run before WebKit's
 storage is fully populated under heavy CI parallelism.
@@ -152,17 +147,17 @@ Two fix candidates (one or both):
   `loadSession` returned null AND `isLoading` just transitioned to
   false).
 
-After this lands, un-skip the WebKit-conditional tests from item #2.
+After this lands, un-skip the WebKit-conditional tests from item #1.
 
-### 6. Merge PR #445 (actions/checkout 4→6)
+### 5. Merge PR #445 (actions/checkout 4→6)
 
 `gh pr view --repo Globussoft-Technologies/medcore 445 --json mergeStateStatus`.
 Once mergeable (Dependabot rebase resolves the conflict), squash-merge.
 One-line fix.
 
-### 7. Re-trigger release.yml on the latest HEAD
+### 6. Re-trigger release.yml on the latest HEAD
 
-After items 1-3 are green, trigger:
+After items 1-2 are done and item #3 (lint) is green, trigger:
 
 ```bash
 gh workflow run release.yml --ref main
@@ -173,7 +168,7 @@ Expected outcome: api-tests + web-tests + typecheck + e2e-full
 WebKit still has many residual failures and item #5 isn't done yet,
 WebKit will be soft-red but Chromium should be solid.
 
-### 8. Coverage threshold bump (after #7 lands clean)
+### 7. Coverage threshold bump (after #6 lands clean)
 
 Wave 3 added 264 web + 243 api tests. The current floors locked in
 the vitest configs (10-11% lines, 28-61% branches/functions) are
@@ -188,11 +183,93 @@ Recipe:
    to leave headroom for legitimate small dips.
 4. Push. Per-push CI must remain green.
 
-### 9. Tighten web-bundle budget
+### 8. Tighten web-bundle budget
 
 Currently 25 MB tripwire in `.github/workflows/test.yml`'s `web-bundle`
 step. After ~3 clean per-push runs, average the reported size from the
 workflow logs and set the budget at **average + 3 MB**.
+
+---
+
+## Coverage gaps from 2026-05-02 audit
+
+Surfaced by a coverage gap audit on 2026-05-02. None block CI today —
+they're "what `complete coverage` should mean here, prioritized." Mirror
+of [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md) §7.1. Take in this order:
+
+### A. Untested middleware (security — do first)
+
+Two files in `apps/api/src/middleware/` have **no test of any kind**, no
+co-located unit test and no integration coverage:
+
+- [`apps/api/src/middleware/tenant.ts`](apps/api/src/middleware/tenant.ts)
+  — multi-tenant Prisma isolation. A bug here is a PHI cross-tenant
+  leak. **Highest-risk gap in the codebase.** Test happy-path (correct
+  tenant context propagated), wrong-tenant rejection, missing-tenant
+  rejection, and the `TENANT_SCOPED_MODELS` allowlist boundary
+  (`apps/api/src/services/tenant-prisma.ts`).
+- [`apps/api/src/middleware/sanitize.ts`](apps/api/src/middleware/sanitize.ts)
+  — body sanitization on every request. Test that script tags / HTML
+  entities / null bytes are stripped from a representative request body
+  shape.
+
+Lower-priority but same pattern: `audit.ts`, `error.ts`. Add when
+convenient.
+
+### B. Untested schedulers
+
+Four cron-like services in `apps/api/src/services/` have zero tests:
+
+- `adherence-scheduler.ts`
+- `chronic-care-scheduler.ts`
+- `insurance-claims-scheduler.ts`
+- `retention-scheduler.ts`
+
+For each: extract the per-tick function (the work it does for a single
+patient/claim/record), unit-test the pure logic with mocked Prisma. The
+scheduling/setInterval wrapper itself can stay covered by smoke. Also
+worth a pass: `audio-retention.ts`, `metrics.ts`, `metrics-counters.ts`,
+`tenant-context.ts`, `waitlist.ts`, `jitsi.ts`.
+
+`patient-data-export.ts` (22 KB HIPAA export) has an integration suite
+that is currently `describe.skip`-ed pending migration; un-skip when
+the migration lands rather than write a parallel unit suite.
+
+### C. Clinical-safety E2E flow gaps
+
+These dashboard routes have no flow-level e2e spec (RBAC matrix only
+touches access control):
+
+- `/dashboard/bloodbank` — donor / donation / cross-match flow.
+  Clinical-safety surface; warrants a flow spec.
+- `/dashboard/ambulance` — dispatch flow.
+- `/dashboard/pediatric` — growth chart, milestone flow.
+
+Note: `/dashboard/operating-theaters` is **already** covered by
+`e2e/ot-surgery.spec.ts` — don't re-add.
+
+Lower priority (admin / finance, not clinical):
+`/dashboard/admin-console`, `/dashboard/tenants`, `/dashboard/budget`,
+`/dashboard/expense`, `/dashboard/payroll`, `/dashboard/suppliers`,
+and the AI deep-flow gaps (`/ai-fraud`, `/ai-doc-qa`, `/ai-differential`,
+`/ai-kpis` — smoke-only today).
+
+### D. Web auth-page tests
+
+`/login`, `/register`, `/verify`, `/forgot-password` have no page-level
+component tests. E2E `auth.spec.ts` covers them at the flow level, so
+this is just for client-side validation messaging — cheap to add, low
+priority.
+
+### E. Coverage visibility (separate from item #7)
+
+After item #7 (threshold bump) lands, consider:
+
+- Wire **Codecov** (or equivalent) so PRs show coverage delta and
+  trend. Today lcov is a 14-day artifact only — no PR comments, no
+  trend graph.
+- Document explicitly that Playwright is **not** instrumented for
+  coverage and E2E flow coverage is intentionally not in lcov.
 
 ---
 

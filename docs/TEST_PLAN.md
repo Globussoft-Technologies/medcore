@@ -17,7 +17,11 @@ easily extend.
    route returns a non-5xx response.
 4. Keep test-time dependencies minimal. Only `vitest`, `supertest`, and
    `@faker-js/faker` are introduced.
-5. Test coverage target: **150 - 200 test cases** across the monorepo.
+5. Test coverage target: original goal was **150 - 200 test cases**; as of
+   2026-05-02 the suite holds **~700+ cases** (api integration ~80 files,
+   web component ~169 files, e2e 38 specs / ~165 active cases). The goal
+   has shifted from headcount to risk-weighted coverage of the gaps in
+   §7 below.
 
 ## 2. Tooling
 
@@ -110,6 +114,21 @@ A single `apps/api/src/test/smoke.test.ts` file that:
   not crashing). Unauthenticated routes correctly return 401, public routes
   return 200.
 
+### Layer 5 — E2E (Playwright) — added 2026-04-30+
+Originally out of scope; now active. Specs live in `/e2e/` (38 files,
+~165 active cases). Coverage spans 7 user roles (admin, doctor, nurse,
+reception, patient, lab-tech, pharmacist) using worker-scoped role-token
+caching to respect auth rate limits. Tiers configurable via `--project`:
+
+- **smoke** (3 specs / 18 cases): runs on every push via `test.yml`.
+- **regression** (~7 specs / ~50 cases): manual gate.
+- **full** (38 specs) × **Chromium + WebKit**: required gate on
+  `release.yml` (`workflow_dispatch`).
+
+E2E does not contribute to lcov line/branch numbers (Playwright is not
+instrumented for coverage). Treat E2E coverage as *flow* coverage and
+unit/integration as *line* coverage; do not conflate them.
+
 ## 4. Test data strategy
 
 Factory functions live in `apps/api/src/test/factories.ts`. They use faker for
@@ -160,12 +179,81 @@ npm run test:coverage
 
 ## 7. Known gaps / future work
 
-- Frontend (`apps/web`) tests are **out of scope** for this initial pass. A
-  follow-up should add Vitest + React Testing Library for hooks/components.
-- The integration test layer covers ~20 of ~50 routers. Lower-priority routers
-  (visitors, suppliers, asset history, etc.) are exercised only by the smoke
-  test (status code only).
-- PDF service (`pdf.ts`) and `notification.ts` rely on Prisma; we test the pure
-  helpers (`escapeHtml`, channel stubs) and rely on integration tests for the
-  Prisma-touching paths.
-- E2E browser tests (Playwright) are out of scope.
+This list reflects the post-Wave-3 audit (2026-05-02). Items in §7.1 are
+the canonical "what's not yet tested" backlog and are mirrored in
+[`/TODO.md`](../TODO.md) under "Coverage gaps from 2026-05-02 audit."
+
+### 7.1 Real gaps (no test of any kind)
+
+**API middleware — `apps/api/src/middleware/`:**
+
+- `tenant.ts` — multi-tenant Prisma isolation. **Untested.** A bug here is
+  a PHI cross-tenant leak; this is the highest-risk gap in the codebase.
+- `sanitize.ts` — input sanitization on every request body. Untested.
+- `audit.ts`, `error.ts` — no `.test.ts` siblings. Lower risk than the
+  above two but still meaningful.
+
+`auth.ts`, `rate-limit.ts`, `validate.ts`, `validate-params.ts` are
+covered.
+
+**API services — schedulers in `apps/api/src/services/`:**
+
+- `adherence-scheduler.ts`
+- `chronic-care-scheduler.ts`
+- `insurance-claims-scheduler.ts`
+- `retention-scheduler.ts`
+
+All four are side-effect-heavy cron-like services that run unattended.
+None has a unit test. Other untested services: `audio-retention.ts`,
+`metrics.ts`, `metrics-counters.ts`, `patient-data-export.ts` (22 KB —
+HIPAA data export; integration suite is `describe.skip`-ed pending
+migration), `tenant-context.ts`, `waitlist.ts`, `jitsi.ts`.
+
+**E2E flow gaps — `/e2e/`:**
+
+- `/dashboard/bloodbank` — clinical safety domain; only RBAC matrix
+  touches it.
+- `/dashboard/ambulance` — only mentioned peripherally in
+  `emergency-er-flow.spec.ts`.
+- `/dashboard/pediatric` — no spec.
+- `/dashboard/budget`, `/expense`, `/payroll` — no specs.
+- `/dashboard/admin-console`, `/dashboard/tenants` — only RBAC negative
+  checks; no flow coverage.
+- `/dashboard/ai-fraud`, `/ai-doc-qa`, `/ai-differential`, `/ai-kpis`
+  smoke-tested only via `ai-smoke.spec.ts`; no deep-flow specs.
+
+(`/dashboard/operating-theaters` IS covered by `ot-surgery.spec.ts`.)
+
+**Web auth pages — `apps/web/src/app/`:**
+
+- `/login`, `/register`, `/verify`, `/forgot-password` — no page-level
+  tests. Lower risk because covered by E2E `auth.spec.ts`, but a unit
+  test for client-side validation messaging would be cheap.
+
+### 7.2 Skips — currently parked
+
+- **6 bed-seeding skips** in `admissions-mar.spec.ts` and
+  `emergency-er-flow.spec.ts` — `seedAdmission()` cannot find an
+  AVAILABLE bed in the realistic seed. Seeder/fixture fix.
+- **4 ABDM consent skips** in `abdm-consent.spec.ts` — UI surface
+  drifted; awaiting consent-flow stabilization.
+- **~5 explicit + ~30 cascading WebKit-conditional skips** — auth-redirect
+  residue. Partial fix in `a8230d1` (cut 121→55 fails); root-cause fix
+  tracked in [`/TODO.md`](../TODO.md) item #5.
+- **6 React-19 + jsdom Suspense skips** in
+  `apps/web/src/app/dashboard/feedback/[patientId]/page.test.tsx` —
+  upstream blocker; track until React 19 + jsdom integration stabilizes.
+- **~13 API integration skips** (edge-cases, expenses, ai-claims,
+  emergency-deep, growth, patient-data-export) — pending product or
+  migration decisions; legitimate parking, not silent regressions.
+
+### 7.3 Coverage tooling gaps (visibility, not scope)
+
+- Locked thresholds (2026-04-15) at lines **11%**/**10%** are
+  basement-level after Wave 1+3 backfill. Real coverage is almost
+  certainly 30-60%. Threshold bump is [`/TODO.md`](../TODO.md) #8.
+- No external coverage aggregator (Codecov / SonarQube / etc.). lcov
+  is uploaded as a 14-day artifact only, so there's no PR-level
+  coverage delta or trend graph.
+- Playwright is not instrumented for coverage; E2E flow coverage is
+  not visible in lcov totals (intentional; see Layer 5 above).

@@ -1,0 +1,286 @@
+name: Update visual baselines
+
+# One-off workflow to (re)generate Linux Playwright visual-regression
+# baselines for `e2e/visual.spec.ts` and auto-commit the resulting PNGs
+# back to `main`. Mirrors the structure of release.yml's e2e-full and
+# e2e-webkit jobs; differs only in trigger, `--update-snapshots`, and
+# the post-test git auto-commit step.
+#
+# When to trigger:
+#   - First-time bootstrap: visual.spec.ts is checked in but no Linux
+#     baselines have ever been committed, so every release.yml run fails
+#     with "snapshot doesn't exist". Running this once produces them.
+#   - Intentional UI change: a design tweak invalidates every existing
+#     baseline. Land the UI change on main, then trigger this workflow
+#     to refresh the PNGs in a single auto-commit per browser.
+#
+# Why two SERIAL jobs (chromium then webkit), not parallel:
+#   Both jobs push to `main`. If they run in parallel, the second push
+#   races with the first and fails non-fast-forward. `needs:
+#   chromium-baselines` plus a fresh checkout in the webkit job ensures
+#   the webkit push is a clean fast-forward over the chromium commit.
+#
+# Why `[skip ci]` in commit messages:
+#   Without it, each auto-commit re-triggers test.yml (push to main),
+#   which would attempt the auto-deploy on a snapshot-only commit. The
+#   marker tells GitHub Actions to skip workflow evaluation entirely
+#   for those commits.
+#
+# How to trigger:
+#   gh workflow run update-visual-baselines.yml --ref main
+#   # or via UI: Actions -> Update visual baselines -> Run workflow
+#
+# This workflow does NOT deploy and does NOT gate any release. It is a
+# one-off content-generation utility invoked by hand.
+
+on:
+  workflow_dispatch:
+
+# Auto-commit needs write access to push baseline PNGs back to main.
+# Scoped to `contents` only — no packages/issues/PRs/etc. mutation.
+permissions:
+  contents: write
+
+# Only one baseline-update run at a time. A second invocation cancels
+# the first to avoid two runs racing pushes to the same path.
+concurrency:
+  group: visual-baselines
+  cancel-in-progress: true
+
+jobs:
+  chromium-baselines:
+    name: Generate Chromium visual baselines
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: medcore
+          POSTGRES_PASSWORD: medcore
+          POSTGRES_DB: medcore_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://medcore:medcore@localhost:5432/medcore_e2e
+      JWT_SECRET: ci-jwt-secret
+      JWT_REFRESH_SECRET: ci-jwt-refresh-secret
+      NODE_ENV: production
+      DISABLE_RATE_LIMITS: "true"
+      NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
+      E2E_BASE_URL: http://localhost:3000
+      E2E_API_URL: http://localhost:4000/api/v1
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+
+      - name: Install dependencies
+        # `--include=dev` is mandatory under NODE_ENV=production; matches
+        # release.yml e2e-full.
+        run: npm install --include=dev
+
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Push schema and seed
+        run: |
+          npx prisma db push --schema packages/db/prisma/schema.prisma --force-reset --skip-generate
+          npm run db:seed
+
+      - name: Build Web (warm bundle)
+        run: npm --prefix apps/web run build
+
+      - name: Start API
+        env:
+          PORT: "4000"
+        run: |
+          cd apps/api
+          nohup npm run dev > ../../api.log 2>&1 &
+          cd ../..
+
+      - name: Start Web (next start)
+        env:
+          PORT: "3000"
+        run: |
+          cd apps/web
+          nohup npm start > ../../web.log 2>&1 &
+          cd ../..
+
+      - name: Wait for API and Web
+        run: npx wait-on http://localhost:4000/api/health http://localhost:3000/login --timeout 90000
+
+      - name: Run Playwright with --update-snapshots (Chromium)
+        # `--update-snapshots` writes any missing or mismatched PNGs
+        # under e2e/visual.spec.ts-snapshots/. Scope to the visual spec
+        # so we don't churn unrelated tests' snapshots.
+        run: npx playwright test --project=full --update-snapshots e2e/visual.spec.ts
+
+      - name: Configure git identity
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+      - name: Commit and push baselines (if changed)
+        # Stage first then check the cached diff — handles new untracked
+        # PNGs as well as modifications to existing ones. End state: a
+        # commit happens iff the snapshot directory differs from HEAD.
+        run: |
+          git add e2e/visual.spec.ts-snapshots/
+          if git diff --cached --quiet -- e2e/visual.spec.ts-snapshots/; then
+            echo "No snapshot changes — nothing to commit."
+            exit 0
+          fi
+          git commit -m "test(e2e): update Chromium visual baselines [skip ci]"
+          git push origin HEAD:main
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-update-chromium-report
+          path: playwright-report
+          retention-days: 14
+
+      - name: Upload server logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: server-logs-update-chromium
+          path: |
+            api.log
+            web.log
+          retention-days: 14
+
+  webkit-baselines:
+    name: Generate WebKit visual baselines
+    needs: chromium-baselines
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: medcore
+          POSTGRES_PASSWORD: medcore
+          POSTGRES_DB: medcore_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://medcore:medcore@localhost:5432/medcore_e2e
+      JWT_SECRET: ci-jwt-secret
+      JWT_REFRESH_SECRET: ci-jwt-refresh-secret
+      NODE_ENV: production
+      DISABLE_RATE_LIMITS: "true"
+      NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
+      E2E_BASE_URL: http://localhost:3000
+      E2E_API_URL: http://localhost:4000/api/v1
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 1
+          # Pull fresh main so this checkout includes the chromium
+          # job's just-pushed PNGs — keeps our subsequent push a clean
+          # fast-forward.
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --include=dev
+
+      - name: Install Playwright webkit
+        # WebKit needs different system libs than Chromium (libwebkit,
+        # libsoup, etc.). --with-deps installs them at runtime cost.
+        run: npx playwright install --with-deps webkit
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Push schema and seed
+        run: |
+          npx prisma db push --schema packages/db/prisma/schema.prisma --force-reset --skip-generate
+          npm run db:seed
+
+      - name: Build Web (warm bundle)
+        run: npm --prefix apps/web run build
+
+      - name: Start API
+        env:
+          PORT: "4000"
+        run: |
+          cd apps/api
+          nohup npm run dev > ../../api.log 2>&1 &
+          cd ../..
+
+      - name: Start Web (next start)
+        env:
+          PORT: "3000"
+        run: |
+          cd apps/web
+          nohup npm start > ../../web.log 2>&1 &
+          cd ../..
+
+      - name: Wait for API and Web
+        run: npx wait-on http://localhost:4000/api/health http://localhost:3000/login --timeout 90000
+
+      - name: Run Playwright with --update-snapshots (WebKit)
+        run: npx playwright test --project=full-webkit --update-snapshots e2e/visual.spec.ts
+
+      - name: Configure git identity
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+      - name: Commit and push baselines (if changed)
+        run: |
+          git add e2e/visual.spec.ts-snapshots/
+          if git diff --cached --quiet -- e2e/visual.spec.ts-snapshots/; then
+            echo "No snapshot changes — nothing to commit."
+            exit 0
+          fi
+          git commit -m "test(e2e): update WebKit visual baselines [skip ci]"
+          git push origin HEAD:main
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-update-webkit-report
+          path: playwright-report
+          retention-days: 14
+
+      - name: Upload server logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: server-logs-update-webkit
+          path: |
+            api.log
+            web.log
+          retention-days: 14

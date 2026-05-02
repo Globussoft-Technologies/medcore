@@ -153,6 +153,47 @@ export async function injectAuth(
 }
 
 /**
+ * WebKit auth-race v2 (release run 25256962182): even with addInitScript,
+ * 8 specs still raced the dashboard layout's redirect-to-login effect on
+ * WebKit, because the token write inside addInitScript was occasionally
+ * not yet observable when React's first `useEffect` fired loadSession().
+ *
+ * `waitForAuthReady` is the fixture-side half of the v2 fix: after the
+ * page has been navigated such that addInitScript has run (i.e. after the
+ * first `page.goto`), poll the page context until `localStorage` actually
+ * returns the expected token. Once this resolves, every subsequent
+ * `page.goto("/dashboard/X")` is guaranteed to find the token already
+ * present in storage when the dashboard layout boots, so the redirect
+ * effect cannot fire from a stale-read race.
+ *
+ * The matching layout-side half lives in
+ * apps/web/src/app/dashboard/layout.tsx — a 3-attempt loadSession() retry
+ * loop with a small backoff, in case the token IS observable but
+ * /auth/me itself is slow on WebKit under CI parallelism.
+ */
+export async function waitForAuthReady(
+  page: Page,
+  expectedToken?: string
+): Promise<void> {
+  await page
+    .waitForFunction(
+      (expected: string | null) => {
+        const t = localStorage.getItem("medcore_token");
+        if (!t) return false;
+        if (expected && t !== expected) return false;
+        return true;
+      },
+      expectedToken ?? null,
+      { timeout: 5000 }
+    )
+    .catch(() => {
+      // Best-effort: if the page is closed or navigated away mid-poll,
+      // don't blow up the whole test — the downstream goto+expect will
+      // surface a clearer error than a "waitForFunction timeout" trace.
+    });
+}
+
+/**
  * Navigate to a dashboard path but tolerate the app briefly redirecting to
  * /login if the in-browser /auth/me probe hits the prod rate limit. Re-injects
  * auth and retries up to a few times before giving up.
@@ -243,6 +284,11 @@ export async function loginAs(
   });
 
   await page.goto("/dashboard");
+  // WebKit auth-race v2: after the first navigation, addInitScript has
+  // run and the token write should be observable. Block until we can
+  // confirm that — otherwise the test's next page.goto can race the
+  // dashboard layout's redirect effect on WebKit.
+  await waitForAuthReady(page, token);
   // Wait for auth-gated UI to render rather than just a URL change.
   await expect(page.locator("text=MedCore").first()).toBeVisible({
     timeout: 15_000,

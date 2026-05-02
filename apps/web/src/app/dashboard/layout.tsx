@@ -347,7 +347,7 @@ export default function DashboardLayout({
     loadSession();
   }, [loadSession]);
 
-  // TODO.md #4 — WebKit auth-redirect residue.
+  // TODO.md #4 — WebKit auth-redirect residue (v2).
   //
   // Even with `addInitScript`-based fixture injection (Playwright e2e), under
   // heavy CI parallelism the auth store occasionally settles to `user: null`
@@ -357,37 +357,46 @@ export default function DashboardLayout({
   // the test sees a `/login` URL, and the run logs out as if there were
   // no session at all.
   //
-  // Symptom (release.yml run 74053841619, ~18 specs): WebKit fails with
-  //   "page.goto: Frame load interrupted ... navigating to
-  //    /dashboard/admin-console" (or /login?redirect=/dashboard).
+  // Symptom (release.yml run 25256962182, 8 specs still failing after v1):
+  //   "page.goto: Navigation to /dashboard/X is interrupted by another
+  //    navigation to /login?redirect=%2Fdashboard". The literal
+  //    `%2Fdashboard` (not `%2Fdashboard%2FX`) confirms the redirect
+  //    fires from the LAYOUT during a still-resolving /dashboard nav,
+  //    not from the target page itself.
   //
-  // The first iteration of this fix (commit 202f310) used a 150ms
-  // setTimeout that fired `loadSession()` (fire-and-forget) and then
-  // synchronously called `setRedirectArmed(true)`. That doesn't actually
-  // close the race: `loadSession()` is async (awaits GET /auth/me), and
-  // the redirect-effect re-runs as soon as `redirectArmed` flips true. On
-  // CI WebKit the in-flight retry probe was still pending when the
-  // redirect to /login fired, aborting the dashboard navigation.
+  // Iteration history:
+  // - v0 (commit 202f310): 150ms setTimeout, fire-and-forget loadSession.
+  //   Failed because loadSession is async and the redirect-effect still
+  //   re-armed before the in-flight /auth/me resolved.
+  // - v1 (commit 8d7fa94): 250ms timeout, AWAIT loadSession before
+  //   arming. Cleared ~10 WebKit specs but 8 still raced — either
+  //   /auth/me was slower than 250ms on WebKit CI, or the token wasn't
+  //   yet observable from page context when the layout first mounted.
+  // - v2 (this iteration): combine TWO defenses.
   //
-  // Approach B (this iteration): make the retry deterministic by AWAITING
-  // `loadSession()` inside the timeout callback before arming the
-  // redirect. If the retry surfaces a user, the redirect-effect early
-  // returns on `if (isLoading || user) return` — no bounce. If the retry
-  // still resolves with no user, only THEN do we arm the redirect, so
-  // there is no in-flight probe that could have rescued the session.
-  // We also extend the grace window to 250ms (still imperceptible to
-  // humans) to give WebKit a touch more headroom on the localStorage
-  // write before the first retry fires.
+  // Defense 1 — fixture-side wait (e2e/helpers.ts::waitForAuthReady).
+  //   After addInitScript runs and the first navigation completes, the
+  //   fixtures now block until `localStorage.getItem("medcore_token")`
+  //   actually returns the expected token from page context. This
+  //   eliminates the "token-not-yet-observable" race entirely for tests
+  //   that use the standard adminPage/doctorPage/etc. fixtures.
   //
-  // Production cost: at most one extra `/auth/me` after a stale-cache
-  // boot (same as before; we just await it now) plus ~100ms of added
-  // latency in the genuinely-no-session bounce path. Healthy sessions
-  // (which is everyone in steady-state) are completely unaffected —
-  // useEffect 1 above hydrates `user`, both effects short-circuit on the
-  // first re-render.
+  // Defense 2 — layout retry LOOP (this hook). Instead of a single
+  //   awaited loadSession() with a 250ms grace, retry up to 3 times with
+  //   200ms between attempts. If any attempt populates `user`, the outer
+  //   `if (isLoading || user) return` on the redirect-effect short-
+  //   circuits and no bounce happens. Only after 3 failed probes do we
+  //   arm the redirect. This handles the "token IS readable but
+  //   /auth/me is slow on WebKit CI" case that defense 1 doesn't cover.
   //
-  // Validation: tsc clean locally. Whether this actually clears the ~18
-  // WebKit specs can only be confirmed by the next release.yml run.
+  // Production cost: at most ~600ms added latency on a genuinely-no-
+  // session bounce (vs. v1's ~250ms). Healthy sessions are completely
+  // unaffected — useEffect 1 above hydrates `user`, both effects short-
+  // circuit on the first re-render. Three /auth/me hits in a row only
+  // happen if every probe fails, which in production means the token
+  // really is dead and the user genuinely needs to log in.
+  //
+  // Validation pending next release.yml run.
   const retryAttemptedRef = useRef(false);
   const [redirectArmed, setRedirectArmed] = useState(false);
   useEffect(() => {
@@ -403,21 +412,40 @@ export default function DashboardLayout({
       return;
     }
     let cancelled = false;
-    const tid = setTimeout(async () => {
-      try {
-        // Deterministic retry: AWAIT the probe so the redirect-effect
-        // below cannot fire while a /auth/me request is still in flight.
-        await loadSession();
-      } catch {
-        // loadSession already swallows errors internally and clears
-        // local state, but be defensive against future refactors.
+    (async () => {
+      // 3-attempt retry loop: between each attempt, sleep 200ms then
+      // call loadSession() again. If any attempt populates `user`, the
+      // OUTER `if (isLoading || user) return` guard at the top of this
+      // effect short-circuits subsequent re-runs and the redirect
+      // effect below never sees `redirectArmed=true`. We arm the
+      // redirect only after all 3 attempts have failed so a slow
+      // /auth/me on WebKit CI still has a chance to win the race.
+      for (let i = 0; i < 3; i++) {
+        await new Promise((r) => setTimeout(r, 200));
+        if (cancelled) return;
+        try {
+          await loadSession();
+        } catch {
+          // loadSession swallows errors internally and clears local
+          // state, but be defensive against future refactors.
+        }
+        if (cancelled) return;
+        // If loadSession populated `user`, this effect won't run again
+        // (retryAttemptedRef is already true), and the redirect-effect
+        // will short-circuit on its `user` guard. No need to break the
+        // loop early — the next iteration is cheap because /auth/me
+        // would short-circuit at the store layer if user is set, but
+        // we still avoid the wasted hit by checking the latest store
+        // state via the effect's stale-closure-safe approach: just
+        // letting React re-run the effect on user change isn't an
+        // option (retryAttemptedRef gates it), so we read directly.
+        if (useAuthStore.getState().user) return;
       }
       if (cancelled) return;
       setRedirectArmed(true);
-    }, 250);
+    })();
     return () => {
       cancelled = true;
-      clearTimeout(tid);
     };
   }, [isLoading, user, loadSession]);
 

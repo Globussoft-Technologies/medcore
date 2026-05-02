@@ -1,5 +1,5 @@
 import { test as base, Page, APIRequestContext, request as playwrightRequest } from "@playwright/test";
-import { apiLogin, CREDS, injectAuth, loginAs, Role } from "./helpers";
+import { apiLogin, CREDS, injectAuth, loginAs, Role, waitForAuthReady } from "./helpers";
 
 type AuthedFixtures = {
   adminPage: Page;
@@ -85,9 +85,15 @@ async function freshPageWithCachedAuth(
       }
     });
     await page.goto("/dashboard");
+    // WebKit auth-race v2: confirm the token is observably readable from
+    // the page context before handing the page back to the test. Without
+    // this, the test's next page.goto can race the dashboard layout's
+    // redirect-to-login effect on WebKit (release run 25256962182).
+    await waitForAuthReady(page, cached.token);
     return { ctx, page, token: cached.token };
   }
   // Cold path (first access for this role on this worker): full login.
+  // loginAs already calls waitForAuthReady internally.
   const token = await loginAs(page, request, role);
   return { ctx, page, token };
 }

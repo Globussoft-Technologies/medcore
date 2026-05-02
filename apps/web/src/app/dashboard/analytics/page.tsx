@@ -1518,14 +1518,14 @@ export default function AnalyticsPage() {
         <Card title="No-Show by Doctor" icon={Calendar}>
           {loading ? (
             <Loader />
-          ) : noShow && noShow.byDoctor.length > 0 ? (
+          ) : noShow && (noShow.byDoctor?.length ?? 0) > 0 ? (
             <BarChart
-              categories={noShow.byDoctor.slice(0, 8).map((d, i) => ({
+              categories={(noShow.byDoctor ?? []).slice(0, 8).map((d, i) => ({
                 key: d.doctorId,
                 label: d.doctorName,
                 color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
               }))}
-              values={Object.fromEntries(noShow.byDoctor.map((d) => [d.doctorId, d.rate]))}
+              values={Object.fromEntries((noShow.byDoctor ?? []).map((d) => [d.doctorId, d.rate]))}
               formatValue={(n) => `${n}%`}
             />
           ) : (
@@ -1538,12 +1538,12 @@ export default function AnalyticsPage() {
             <Loader />
           ) : noShow ? (
             <BarChart
-              categories={noShow.byDayOfWeek.map((d, i) => ({
+              categories={(noShow.byDayOfWeek ?? []).map((d, i) => ({
                 key: d.day,
                 label: d.day,
                 color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
               }))}
-              values={Object.fromEntries(noShow.byDayOfWeek.map((d) => [d.day, d.rate]))}
+              values={Object.fromEntries((noShow.byDayOfWeek ?? []).map((d) => [d.day, d.rate]))}
               formatValue={(n) => `${n}%`}
             />
           ) : (
@@ -1569,7 +1569,7 @@ export default function AnalyticsPage() {
               <StatRow label="Total Appointments" value={noShow.totalAppointments} />
               <StatRow label="No-Shows" value={noShow.noShowCount} color="text-red-600" />
               <p className="pt-2 text-xs font-medium text-gray-500">No-Show Rate by Hour</p>
-              <HourHeatmap data={noShow.byHour} />
+              <HourHeatmap data={noShow.byHour ?? []} />
             </div>
           ) : (
             <EmptyState />
@@ -1592,15 +1592,15 @@ export default function AnalyticsPage() {
         >
           {loading ? (
             <Loader />
-          ) : walkouts && walkouts.byDoctor.length > 0 ? (
+          ) : walkouts && (walkouts.byDoctor?.length ?? 0) > 0 ? (
             <BarChart
-              categories={walkouts.byDoctor.slice(0, 8).map((d, i) => ({
+              categories={(walkouts.byDoctor ?? []).slice(0, 8).map((d, i) => ({
                 key: d.doctorId,
                 label: d.doctorName,
                 color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
               }))}
               values={Object.fromEntries(
-                walkouts.byDoctor.map((d) => [d.doctorId, d.count])
+                (walkouts.byDoctor ?? []).map((d) => [d.doctorId, d.count])
               )}
             />
           ) : (
@@ -1611,12 +1611,12 @@ export default function AnalyticsPage() {
         <Card title="Walkouts by Hour" icon={Calendar}>
           {loading ? (
             <Loader />
-          ) : walkouts && walkouts.byHour.some((h) => h.count > 0) ? (
+          ) : walkouts && (walkouts.byHour ?? []).some((h) => h.count > 0) ? (
             <div className="flex h-40 items-end gap-1">
-              {walkouts.byHour.map((h) => {
+              {(walkouts.byHour ?? []).map((h) => {
                 const maxCount = Math.max(
                   1,
-                  ...walkouts.byHour.map((x) => x.count)
+                  ...(walkouts.byHour ?? []).map((x) => x.count)
                 );
                 const heightPct = (h.count / maxCount) * 100;
                 return (
@@ -1637,9 +1637,9 @@ export default function AnalyticsPage() {
         <Card title="Walkout Reasons" icon={ClipboardList}>
           {loading ? (
             <Loader />
-          ) : walkouts && walkouts.byReason.length > 0 ? (
+          ) : walkouts && (walkouts.byReason?.length ?? 0) > 0 ? (
             <div className="space-y-2">
-              {walkouts.byReason.slice(0, 10).map((r, i) => (
+              {(walkouts.byReason ?? []).slice(0, 10).map((r, i) => (
                 <div
                   key={i}
                   className="flex items-center justify-between rounded border-l-4 border-red-300 bg-red-50 px-3 py-1.5 text-sm"
@@ -1781,7 +1781,7 @@ export default function AnalyticsPage() {
                 </div>
               </div>
               <div className="space-y-3">
-                {occupancy.byWard.map((w) => {
+                {(occupancy.byWard ?? []).map((w) => {
                   const pct = w.total > 0 ? (w.occupied / w.total) * 100 : 0;
                   return (
                     <div key={w.wardName}>
@@ -1857,9 +1857,9 @@ export default function AnalyticsPage() {
                 <p className="text-xs uppercase tracking-wide">Items below reorder level</p>
                 <p className="text-3xl font-bold">{lowStock.count}</p>
               </div>
-              {lowStock.items.length > 0 && (
+              {(lowStock.items?.length ?? 0) > 0 && (
                 <ul className="space-y-1 text-xs">
-                  {lowStock.items.slice(0, 6).map((it) => (
+                  {(lowStock.items ?? []).slice(0, 6).map((it) => (
                     <li
                       key={it.id}
                       className="flex items-center justify-between rounded bg-gray-50 px-2 py-1.5"
@@ -1922,7 +1922,7 @@ export default function AnalyticsPage() {
         <Card className="lg:col-span-2" title="Top Expiring Items" icon={Pill}>
           {loading ? (
             <Loader />
-          ) : expiry && expiry.topItems.length > 0 ? (
+          ) : expiry && (expiry.topItems?.length ?? 0) > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
@@ -1936,7 +1936,7 @@ export default function AnalyticsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {expiry.topItems.slice(0, 10).map((it) => (
+                  {(expiry.topItems ?? []).slice(0, 10).map((it) => (
                     <tr key={it.id} className="border-b last:border-0">
                       <td className="px-2 py-1.5 font-medium text-gray-800">
                         {it.medicineName}

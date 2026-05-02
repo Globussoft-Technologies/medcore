@@ -21,7 +21,7 @@ medcore/
 │   ├── db/        — Prisma schema, migrations, seeds (single source of truth)
 │   └── shared/    — Zod validation schemas + TypeScript types shared by
 │                    api, web, and mobile
-├── e2e/           — Playwright specs (30 stabilized flows)
+├── e2e/           — Playwright specs (40 stabilized flows; explicit-invocation only)
 ├── docs/          — PRD, TEST_PLAN, ARCHITECTURE, DEPLOYMENT, screenshots/
 └── scripts/       — deploy, backup, restore, pm2-setup, healthcheck
 ```

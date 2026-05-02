@@ -35,11 +35,30 @@ to keep this index focused on living references.
 - [`TEST_PLAN.md`](TEST_PLAN.md) — overall test strategy. Tier shape:
   unit (vitest) → integration (vitest + real Postgres) → component
   (vitest + jsdom + mocked fetch) → e2e (Playwright + real stack).
+  Codifies the **e2e-explicit-invocation-only** policy (§3 Layer 5).
+- [`LOCAL_TESTING.md`](LOCAL_TESTING.md) — `scripts/run-tests-locally.sh`,
+  the unified runner that mirrors every per-push CI gate from `test.yml`
+  in ~5-7 min instead of 25 via Actions. Default tier excludes
+  integration; `--with-integration` opts in.
+- [`LOCAL_E2E.md`](LOCAL_E2E.md) — `scripts/run-e2e-locally.sh`, the
+  local Playwright runner that mirrors `release.yml`'s e2e jobs in
+  ~5-10 min. Use this **before** invoking release.yml — Playwright is
+  explicit-invocation only and never auto-runs.
 - [`CI_HARDENING_PLAN.md`](CI_HARDENING_PLAN.md) — the 4-phase plan
-  that hardened CI in 2026-05-01. Records why each gate exists.
+  that hardened CI in 2026-05-01 → 2026-05-02. Records why each gate
+  exists and the per-phase shipped status.
 - [`TESTER_PROMPT.md`](TESTER_PROMPT.md) — paste-ready prompt for the
   autonomous QA agent that exercises every module by playing each role.
   Lists the 7 demo accounts with credentials.
+
+### Status checks
+
+`claude.bat` (Windows) / `claude.sh` (POSIX) / `claude.ps1` (PowerShell)
+at the repo root print a one-screen "what's the deploy + CI doing right
+now" summary — recent `git log`, latest `test.yml` and `release.yml`
+runs, current branch state. Useful for picking up from a hand-off mid
+session without re-deriving context manually. Sourced by the autonomous
+QA agent and humans alike.
 
 ## AI substrate
 
@@ -58,7 +77,7 @@ audits that no longer reflect the current repo. Kept for historical
 context only — don't treat anything in `archive/` as canonical.
 
 Currently archived:
-- 5 `SESSION_SNAPSHOT_*` files (2026-04-27 through 2026-04-30 evening)
+- 8 `SESSION_SNAPSHOT_*` files (2026-04-27 through 2026-05-02 late-evening)
 - `TODO_2026-04-29.md` (superseded by [`/TODO.md`](../TODO.md) at repo root)
 - `RBAC_AUDIT_2026-04-30.md` (point-in-time RBAC audit; the e2e
   `rbac-matrix.spec.ts` now serves as the live source of truth)

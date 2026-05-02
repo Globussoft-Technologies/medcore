@@ -18,10 +18,12 @@ easily extend.
 4. Keep test-time dependencies minimal. Only `vitest`, `supertest`, and
    `@faker-js/faker` are introduced.
 5. Test coverage target: original goal was **150 - 200 test cases**; as of
-   2026-05-02 the suite holds **~700+ cases** (api integration ~80 files,
-   web component ~169 files, e2e 38 specs / ~165 active cases). The goal
-   has shifted from headcount to risk-weighted coverage of the gaps in
-   §7 below.
+   2026-05-03 the suite holds **~1,950+ active cases** across api
+   (~2,860 raw `it/test(` declarations under `apps/api/src`), web (~990
+   under `apps/web/src`), and shared/contract layers — netting out
+   skips and parameterized fan-outs. e2e adds **40 specs / ~165 active
+   cases** on top. The goal has shifted from headcount to
+   risk-weighted coverage of the gaps in §7 below.
 
 ## 2. Tooling
 

@@ -76,10 +76,12 @@ first run.
 ## 3. Running tests at each layer
 
 ```bash
-# Recommended: run ALL CI gates locally before pushing (~7 min)
-scripts/run-tests-locally.sh --quick    # 3 min, no DB (typecheck+lint+audit+migration-safety+bundle)
-scripts/run-tests-locally.sh            # 7 min, default (above + api-tests + web-tests)
-scripts/run-tests-locally.sh --with-e2e # 15-20 min, full pre-push validation
+# Recommended: run ALL per-push CI gates locally before pushing (~5-7 min)
+scripts/run-tests-locally.sh --quick             # 3-5 min, no DB (typecheck+lint+audit+migration-safety+bundle)
+scripts/run-tests-locally.sh                     # 5-7 min, default (above + api-tests unit/contract/smoke + web-tests)
+scripts/run-tests-locally.sh --with-integration  # default + api integration suite (~30 min on Windows; CI runs these on every push, so opt-in only when needed locally)
+scripts/run-tests-locally.sh --with-e2e          # 15-20 min, default + Chromium e2e
+scripts/run-tests-locally.sh --with-e2e=both     # ~25 min, mirrors release.yml exactly (Chromium + WebKit)
 # Full guide: docs/LOCAL_TESTING.md.
 
 # Individual layers (existing)

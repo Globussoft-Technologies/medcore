@@ -4,19 +4,23 @@ Next-session pickup list. Read this first, work top-to-bottom. Each item
 is independently shippable. Full per-session history lives under
 [`docs/archive/`](docs/archive/).
 
-> Updated: 2026-05-02 (late-evening, post-3-wave deploy recovery).
-> HEAD on `main` = `cc01e36` (`test: bump vitest coverage thresholds to current_actual - 2pp`).
+> Updated: 2026-05-03 (post-doc-sweep + local-runner landings).
+> HEAD on `main` = `84112dc` (`feat(scripts): drop integration tests
+> from default tier; gate behind --with-integration`).
 > **Open GitHub issues: 0.** **Open PRs: 0.**
 > **Per-push CI**: all gating jobs green. Auto-deploy operating.
 > **release.yml**: fully green on `febe0aa` (run `25257762655` —
 > api / typecheck / web-tests / chromium full e2e / WebKit full e2e).
-> Fresh run on `e2ec599` / `1983f01` (`25258173521`) in flight at session
-> close — expected green (changes since `febe0aa` are doc / a11y /
-> locator-tighten / bundle-budget — all low-risk).
+> Confirmed green again on `e2ec599` (run `25258173521`).
 > **Audit residuals (§A-§E):** all five closed.
-> **Prior pickup list TODO #1-6:** all closed in this and the
-> prior-evening session. Detail under "What landed 2026-05-02
-> late-evening (continuation)" below.
+> **Prior pickup list TODO #1-6:** all closed in the late-evening
+> session — see "What landed 2026-05-02 late-evening (continuation)".
+> **2026-05-03 follow-up landings (post-late-evening):** local test
+> runners (`scripts/run-tests-locally.sh` + `scripts/run-e2e-locally.sh`
+> + `docs/LOCAL_TESTING.md` + `docs/LOCAL_E2E.md`), e2e-explicit-only
+> policy codified (`406023d`), claude.{bat,sh,ps1} status scripts,
+> integration suite gated behind `--with-integration` (`84112dc`),
+> and a comprehensive doc sanity sweep refreshing every `.md`.
 
 ---
 
@@ -206,21 +210,7 @@ gh secret set CODECOV_TOKEN --repo Globussoft-Technologies/medcore
 # paste from https://codecov.io/gh/Globussoft-Technologies/medcore settings
 ```
 
-### 2. Re-validate release.yml on the latest HEAD
-
-Run `25258173521` on `e2ec599` (parent of `1983f01` for release.yml
-purposes — both post-`febe0aa`) was in flight at session close.
-Confirm conclusion via:
-
-```bash
-gh run list --workflow release.yml --limit 3 \
-  --repo Globussoft-Technologies/medcore
-```
-
-If failure, triage; expected green (changes since `febe0aa` are
-doc / a11y / locator-tighten / bundle-budget — all low-risk).
-
-### 3. Lower the heading-order a11y budget back toward 10 nodes
+### 2. Lower the heading-order a11y budget back toward 10 nodes
 
 `e6f6d24` raised the budget from 10 → 13 to ack the debt while
 shipping wave 2. `f7f1bdc` only fixed admin-console color-contrast;
@@ -228,7 +218,7 @@ shared chrome (likely sidebar/topbar in `apps/web/src/components/dashboard/`)
 is still where the heading-count creep lives. Once consolidated, drop
 back to 10.
 
-### 4. Backend gaps unblocking pharmacist e2e skips
+### 3. Backend gaps unblocking pharmacist e2e skips
 
 Each is a 1-2 hour backend addition. None are blocking; they're "the
 already-shipped e2e specs in `e2e/pharmacist.spec.ts` will start
@@ -242,7 +232,7 @@ asserting the moment the backend gains them."
   DEA-style controlled-substance dispensing typically needs a witness;
   current schema doesn't capture one.
 
-### 5. Postgres-off-Docker migration (deferred)
+### 4. Postgres-off-Docker migration (deferred)
 
 The full migration plan + script outline is in
 [`SESSION_SNAPSHOT_2026-04-30-evening.md`](docs/archive/SESSION_SNAPSHOT_2026-04-30-evening.md)

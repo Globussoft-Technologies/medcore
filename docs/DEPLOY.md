@@ -27,10 +27,13 @@ Watch each run at https://github.com/Globussoft-Technologies/medcore/actions.
 
 What the workflow does:
 
-1. **CI gate.** Currently `needs: [typecheck]` while pre-existing test rot
-   tracked at issue #415 is being cleared. Will be restored to
-   `needs: [test, web-tests, typecheck, e2e]` once #415 is closed. Type
-   check is mandatory; it catches the kind of error that breaks at runtime.
+1. **CI gate.** Deploy job runs only after the per-push gates all pass:
+   `needs: [test, web-tests, typecheck, lint, npm-audit, migration-safety, web-bundle]`.
+   E2E (Playwright) is intentionally **not** in this list — it is
+   explicit-invocation only via `release.yml` `workflow_dispatch`. See
+   [`docs/TEST_PLAN.md` §3 Layer 5](TEST_PLAN.md#layer-5--e2e-playwright--added-2026-04-30)
+   for the policy and [`docs/CI_HARDENING_PLAN.md`](CI_HARDENING_PLAN.md)
+   for the "speed + failure isolation" rationale.
 2. **SSH.** The `Deploy to dev server` job loads the `DEPLOY_SSH_KEY` secret
    into an ssh-agent, pins `DEPLOY_KNOWN_HOSTS`, and SSHes in as
    `${DEPLOY_USER}@${DEPLOY_HOST}`.
@@ -504,7 +507,7 @@ disabled is considered a P2 until corrected.
 | `Set up SSH agent` step fails with `error in libcrypto`. | The `DEPLOY_SSH_KEY` secret has CRLF line endings. | Re-upload the key with `tr -d '\r' < ~/medcore-ci-key \| gh secret set DEPLOY_SSH_KEY -R Globussoft-Technologies/medcore`. |
 | `Set up SSH agent` succeeds but the deploy step times out connecting. | The CI key got removed from the dev server's `authorized_keys`. | Re-add the pubkey from `~/medcore-ci-key.pub` to `/home/empcloud-development/.ssh/authorized_keys`. |
 | The deploy step succeeds but `Smoke-check public endpoints` fails on `https://medcore.globusdemos.com/api/health`. | nginx forwarding broken, or `medcore-api` failed to start cleanly post-restart. | SSH in, `pm2 status` + `pm2 logs medcore-api` to see if the API came up. If pm2 is healthy but the public URL is dead, `sudo systemctl reload nginx`. |
-| Deploy job is skipped on a push to `main`. | The `if:` gate didn't match (e.g. someone temporarily disabled auto-deploy in the workflow), or required jobs in `needs:` failed. | Check the gating clause in `.github/workflows/test.yml`. Currently `needs: [typecheck]`; restore to `[test, web-tests, typecheck, e2e]` once #415 is closed. |
+| Deploy job is skipped on a push to `main`. | The `if:` gate didn't match (e.g. someone temporarily disabled auto-deploy in the workflow), or one of the required jobs in `needs:` failed. | Check the gating clause in `.github/workflows/test.yml`. Current gate: `needs: [test, web-tests, typecheck, lint, npm-audit, migration-safety, web-bundle]`. E2E is intentionally NOT in this list — it runs only via `release.yml` `workflow_dispatch`. |
 
 #### Manual-deploy / runtime issues
 

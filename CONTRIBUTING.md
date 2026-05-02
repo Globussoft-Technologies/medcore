@@ -83,7 +83,28 @@ SQL, then later migrations apply cleanly on top.
 
 ## Tests
 
-- Before pushing, run `scripts/run-tests-locally.sh` to mirror every CI gate locally (~7 min vs 25 min via Actions).
+- Before pushing, run `scripts/run-tests-locally.sh` to mirror every per-push CI gate locally (~5-7 min vs 25 min via Actions). Full guide:
+  [`docs/LOCAL_TESTING.md`](docs/LOCAL_TESTING.md).
 - Pure unit tests: `npm test` (runs without a DB).
 - Integration tests: set `DATABASE_URL_TEST` to a throwaway Postgres and
-  run `npm test`. The suite resets the DB in `beforeAll`.
+  run `npm test`. The suite resets the DB in `beforeAll`. Integration is
+  **opt-in** in the local runner via `--with-integration`; CI runs them
+  on every push.
+
+### E2E policy (read this before adding any Playwright spec)
+
+Playwright e2e is **explicit-invocation only**. It never runs on push,
+deploy, or post-deploy. It runs only when:
+
+- a developer invokes `scripts/run-e2e-locally.sh` (or
+  `npx playwright test ...`) locally, OR
+- release validation is triggered via `release.yml` `workflow_dispatch`
+  in CI.
+
+Auto-deploy gates only on the non-e2e tests
+`[test, web-tests, typecheck, lint, npm-audit, migration-safety,
+web-bundle]`. **Do NOT add e2e steps to `test.yml`'s per-push gate or
+to any post-deploy chain.** The full rationale (speed + failure
+isolation) is documented at
+[`docs/TEST_PLAN.md` §3 Layer 5](docs/TEST_PLAN.md#layer-5--e2e-playwright--added-2026-04-30)
+and in [`docs/CI_HARDENING_PLAN.md`](docs/CI_HARDENING_PLAN.md).

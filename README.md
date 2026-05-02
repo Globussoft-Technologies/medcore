@@ -7,9 +7,9 @@
 A full-stack, monorepo HIS covering the patient journey from appointment to discharge — clinical, operational, financial, HR, and engagement workflows in one typed codebase.
 
 [![Live Demo](https://img.shields.io/badge/live_demo-medcore.globusdemos.com-2563eb?style=for-the-badge)](https://medcore.globusdemos.com)
-[![Tests](https://img.shields.io/badge/tests-1816_passing-16a34a?style=for-the-badge)](#testing)
-[![E2E](https://img.shields.io/badge/playwright_e2e-29_passing-0ea5e9?style=for-the-badge)](#testing)
-[![a11y](https://img.shields.io/badge/axe--core-12_passing-7c3aed?style=for-the-badge)](#accessibility)
+[![Tests](https://img.shields.io/badge/tests-1900%2B_passing-16a34a?style=for-the-badge)](#testing)
+[![E2E](https://img.shields.io/badge/playwright_e2e-40_specs-0ea5e9?style=for-the-badge)](#testing)
+[![a11y](https://img.shields.io/badge/axe--core-19_paths-7c3aed?style=for-the-badge)](#accessibility)
 [![Routers](https://img.shields.io/badge/api_routers-78-f59e0b?style=for-the-badge)](#architecture)
 [![Models](https://img.shields.io/badge/prisma_models-151-0891b2?style=for-the-badge)](#architecture)
 [![License](https://img.shields.io/badge/license-Proprietary-dc2626?style=for-the-badge)](LICENSE)
@@ -32,14 +32,14 @@ The project is under active development. A live demo instance runs at **[medcore
 
 | | |
 |---|---|
-| **Tests passing** | 1,816 active (1,208 API + 608 Web) across unit / contract / component / integration / RBAC layers; +1,873 DB-integration cases skipped without `DATABASE_URL_TEST` |
-| **E2E** | 29 Playwright specs against the live demo URL |
-| **Accessibility** | 30 axe-core tests, WCAG 2.1 AA, per-page contrast budgets |
+| **Tests passing** | ~1,950+ active (api unit/integration + web component + shared/contract + smoke) across unit / contract / component / integration / RBAC layers; +1,873 DB-integration cases skipped without `DATABASE_URL_TEST` |
+| **E2E** | 40 Playwright specs (`e2e/*.spec.ts`); release.yml runs `full` Chromium + WebKit on `workflow_dispatch` |
+| **Accessibility** | axe-core scan across 19 routes (public marketing + login + 12 dashboard pages), WCAG 2.1 AA, per-page contrast budgets |
 | **API routers** | 80+ (incl. AI: triage, scribe, radiology, KPIs, agent-console, sentiment, fraud, doc-QA, letters; plus ABDM, FHIR, HL7 v2 inbound, insurance claims, chart-search, patient-data-export) |
 | **Prisma models** | 155+ |
 | **Prisma migrations (production)** | 18, all applied via `migrate deploy` |
 | **Triage languages** | 8 (English, Hindi, Tamil, Telugu, Bengali, Marathi, Kannada, Malayalam) |
-| **CI workflows** | 4 (typecheck, API, web, Playwright E2E) |
+| **CI workflows** | 6 (`test.yml` per-push gate, `release.yml` full e2e, `codeql.yml`, `ai-eval-nightly.yml`, `load-test-nightly.yml`, `update-visual-baselines.yml`) |
 | **Demo URL** | https://medcore.globusdemos.com |
 
 ---
@@ -187,7 +187,7 @@ Server-side PDFs via pdfkit for prescriptions (with embedded PNG QR), invoices (
 | **Testing** | Jest, Supertest, Playwright, `axe-core`, Vitest (LLM eval harness) |
 | **Monorepo** | Turborepo, npm workspaces |
 | **Ops** | PM2, systemd, nginx, Let's Encrypt, Docker (Postgres), `pg_dump` backups |
-| **CI** | GitHub Actions (typecheck, API tests with Postgres service, web tests, Playwright E2E) |
+| **CI** | GitHub Actions — `test.yml` per-push gate (typecheck, lint, API + web tests, npm-audit, migration-safety, web-bundle, auto-deploy); `release.yml` full Playwright (Chromium + WebKit) on `workflow_dispatch`; `codeql.yml`, `ai-eval-nightly.yml`, `load-test-nightly.yml`, `update-visual-baselines.yml` |
 
 ---
 
@@ -202,7 +202,7 @@ medcore/
 ├── packages/
 │   ├── shared/       Zod schemas, shared types (end-to-end type safety)
 │   └── db/            Prisma schema, client, seeds, migrations
-├── e2e/              Playwright specs (run against live URL)
+├── e2e/              Playwright specs (40 spec files; explicit-invocation only — see docs/TEST_PLAN.md §3 Layer 5)
 ├── scripts/          deploy.sh, backup, health-check, migration helpers
 └── docs/             PRD, ARCHITECTURE, DEPLOYMENT, MIGRATIONS, AI_ARCHITECTURE, TEST_PLAN, 68 Playwright screenshots
 ```
@@ -233,31 +233,41 @@ MedCore layers its tests so each tier tests a different boundary:
 | **Integration** | ~900 | Full HTTP through Express + Prisma against a real Postgres. Includes concurrency, realtime delivery, permissions matrix, auth edges, 2FA, notification channel shapes, Razorpay webhook, AI triage / scribe / chart-search / letters / predictions / report-explainer / adherence / er-triage / pharmacy / knowledge / transcribe, insurance claims, and telemedicine-deep (waiting room) |
 | **Mobile** | 30 | React Native render / logic tests across the patient AI screens |
 | **AI eval** | Vitest harness | Gold-standard fixtures under `apps/api/src/test/ai-eval/`; gates regressions on triage red-flag recall and SOAP accuracy |
-| **Total** | **~2,583** | |
+| **Total** | **~1,950+** | |
 
 In addition:
 
-- **29 Playwright E2E tests** hit the live demo URL on every push (1 gated behind `E2E_FULL`).
-- **12 axe-core accessibility tests** with per-page color-contrast budgets.
+- **40 Playwright E2E specs** under `e2e/`. Per the [explicit-invocation policy](docs/TEST_PLAN.md#layer-5--e2e-playwright--added-2026-04-30), Playwright runs only via `scripts/run-e2e-locally.sh` locally or the `release.yml` `workflow_dispatch` gate in CI — never on per-push.
+- **axe-core a11y scan** across 19 routes (7 public marketing + login + 12 dashboard pages) with per-page color-contrast budgets.
 
 ### Running tests locally
 
+The unified runner mirrors every per-push CI gate from `test.yml`:
+
 ```bash
-# API test tiers
+# Full guide: docs/LOCAL_TESTING.md
+scripts/run-tests-locally.sh --quick            # 3-5 min, no DB
+scripts/run-tests-locally.sh                    # 5-7 min, default tier
+scripts/run-tests-locally.sh --with-integration # default + integration suite
+scripts/run-tests-locally.sh --with-e2e         # default + Chromium e2e (~15-20 min)
+scripts/run-tests-locally.sh --with-e2e=both    # mirrors release.yml (Chromium + WebKit)
+```
+
+For Playwright e2e against a local Postgres-API-Web topology see
+`scripts/run-e2e-locally.sh` (full guide: [`docs/LOCAL_E2E.md`](docs/LOCAL_E2E.md)).
+
+Individual layers are still available via the workspace scripts:
+
+```bash
 npm --prefix apps/api run test:unit
 npm --prefix apps/api run test:contract
 npm --prefix apps/api run test:smoke
 npm --prefix apps/api run test:integration   # requires Postgres
-
-# Web tests
 npm --prefix apps/web run test
-
-# Playwright E2E (against local or live URL)
-npx playwright test
-E2E_FULL=1 npx playwright test               # include the gated spec
+npx playwright test                          # local Playwright
 ```
 
-GitHub Actions runs four workflows on every push: typecheck, API tests with a Postgres service container, web tests, and Playwright E2E.
+GitHub Actions wires six workflows: per-push `test.yml` (typecheck + lint + npm-audit + migration-safety + web-bundle + api-tests + web-tests + auto-deploy), explicit-only `release.yml` (full Chromium + WebKit Playwright), `codeql.yml`, `ai-eval-nightly.yml`, `load-test-nightly.yml`, and `update-visual-baselines.yml`.
 
 ---
 
@@ -408,9 +418,10 @@ Daily gzipped `pg_dump` with 30-day retention. Restore rehearsal has been verifi
 ## Accessibility
 
 - Axe-core CI gate with per-page color-contrast budgets.
-- 12 passing a11y specs across key dashboard pages.
+- A single parameterized axe-core spec (`e2e/a11y.spec.ts`) sweeps **19 routes** (7 public marketing + login + 11 dashboard pages including admin-console).
 - Hard-fails on `button-name`, `select-name`, `label`, and `image-alt` rules.
 - 20+ `aria-label`s added to icon-only controls.
+- Heading-order budget currently 13 nodes (raised from 10 in `e6f6d24` while shared chrome a11y consolidation is in flight).
 
 ---
 
@@ -446,9 +457,8 @@ Quick path:
 
 ```bash
 git checkout -b feat/your-feature
-npx tsc --noEmit -p apps/api/tsconfig.json
-npx tsc --noEmit -p apps/web/tsconfig.json
-npm --prefix apps/api run test:unit
+scripts/run-tests-locally.sh --quick     # 3-5 min: typecheck + lint + audit + migration-safety + bundle
+scripts/run-tests-locally.sh             # 5-7 min: + api/web vitest tiers
 git commit -m "feat: add awesome thing"
 git push origin feat/your-feature
 ```

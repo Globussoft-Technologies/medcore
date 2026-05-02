@@ -167,15 +167,20 @@ npm test                    # jest + @testing-library/react-native
 npm test -- --watch         # watch mode
 ```
 
-**Current coverage:** 1 smoke test (`__tests__/login.smoke.test.tsx`) that
-renders the login screen and asserts the primary CTA is present.
+**Current coverage:** 38 tests across 18 suites under
+`apps/mobile/__tests__/`. Two patterns coexist — a "client-wiring"
+pattern (majority) that `require()`s each screen module and grep-asserts
+critical handler wiring, and a real render+press pattern (currently
+just `ai-triage.render.test.tsx`). Full status, RNTL upgrade history,
+and known blockers documented in [`TESTING.md`](TESTING.md).
 
-**Planned:** end-to-end tests with Maestro or Detox — not yet wired up.
-Integration priority is:
-
-1. Auth flow (login → queue → call patient).
-2. Booking flow (select doctor → pick slot → confirm).
-3. Rx verification (scan QR → verified view).
+**E2E (Maestro):** 7 YAML flows live under `apps/mobile/e2e/` covering
+login, prescriptions, billing, lab results, AI booking, AI triage
+red-flag, and adherence dose-tracking. Runner:
+[`apps/mobile/e2e/run.sh`](e2e/run.sh) — runs against any
+booted Android emulator / iOS Simulator / physical device with
+Maestro installed. See [`apps/mobile/e2e/README.md`](e2e/README.md)
+for prerequisites + CI strategy options.
 
 ---
 
@@ -264,5 +269,7 @@ Unauthenticated users are redirected to `app/login.tsx`.
   admissions. The full clinical workflow stays on the web dashboard.
 - **No offline mode.** All screens assume network access; there is no
   local cache layer yet.
-- **E2E tests not wired up.** Only one jest smoke test today — see the
-  Testing section for the planned Maestro/Detox roadmap.
+- **E2E (Maestro) is local-only today.** 7 flows ship under
+  `apps/mobile/e2e/`; CI execution (Maestro Cloud or self-hosted
+  emulator) is not wired in yet. See `apps/mobile/e2e/README.md`
+  "CI strategy" section for the three deployment options.

@@ -172,9 +172,9 @@ with only an icon, the flow will need `id:` (testID) selectors. Add
 
 ## Where this sits in the test pyramid
 
-- **Unit / render tests** (`apps/mobile/__tests__/*.test.tsx`, 39
-  suites, sub-second each) run on every commit via jest. See
-  [`../TESTING.md`](../TESTING.md).
+- **Unit / render tests** (`apps/mobile/__tests__/*.test.tsx`, 18
+  suites / 38 tests, sub-second each) run on every commit via jest.
+  See [`../TESTING.md`](../TESTING.md).
 - **E2E flows** (this folder) run pre-release / nightly / pre-merge
   on a device. Minutes each, not seconds. Not intended for the fast
   local jest loop.

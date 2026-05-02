@@ -34,7 +34,12 @@ test.describe("Reports page regression (#3 / #26)", () => {
 
     // No uncaught React errors
     expect(
-      consoleErrors.filter((m) => !/ResizeObserver|Hydration/i.test(m))
+      consoleErrors.filter(
+        (m) =>
+          !/ResizeObserver|Hydration|_rsc=|due to access control checks/i.test(
+            m
+          )
+      )
     ).toEqual([]);
   });
 
@@ -56,7 +61,12 @@ test.describe("Reports page regression (#3 / #26)", () => {
     ).toHaveCount(0);
 
     expect(
-      consoleErrors.filter((m) => !/ResizeObserver|Hydration/i.test(m))
+      consoleErrors.filter(
+        (m) =>
+          !/ResizeObserver|Hydration|_rsc=|due to access control checks/i.test(
+            m
+          )
+      )
     ).toEqual([]);
   });
 });

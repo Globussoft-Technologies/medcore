@@ -167,9 +167,10 @@ export async function injectAuth(
  * effect cannot fire from a stale-read race.
  *
  * The matching layout-side half lives in
- * apps/web/src/app/dashboard/layout.tsx — a 3-attempt loadSession() retry
- * loop with a small backoff, in case the token IS observable but
- * /auth/me itself is slow on WebKit under CI parallelism.
+ * apps/web/src/app/dashboard/layout.tsx — a 5-attempt loadSession() retry
+ * loop with a small backoff (v3 — bumped from 3 in commit 1d204d7), in
+ * case the token IS observable but /auth/me itself is slow on WebKit
+ * under CI parallelism.
  */
 export async function waitForAuthReady(
   page: Page,

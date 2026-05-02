@@ -382,19 +382,29 @@ export default function DashboardLayout({
   //   that use the standard adminPage/doctorPage/etc. fixtures.
   //
   // Defense 2 — layout retry LOOP (this hook). Instead of a single
-  //   awaited loadSession() with a 250ms grace, retry up to 3 times with
+  //   awaited loadSession() with a 250ms grace, retry up to 5 times with
   //   200ms between attempts. If any attempt populates `user`, the outer
   //   `if (isLoading || user) return` on the redirect-effect short-
-  //   circuits and no bounce happens. Only after 3 failed probes do we
+  //   circuits and no bounce happens. Only after 5 failed probes do we
   //   arm the redirect. This handles the "token IS readable but
   //   /auth/me is slow on WebKit CI" case that defense 1 doesn't cover.
   //
-  // Production cost: at most ~600ms added latency on a genuinely-no-
-  // session bounce (vs. v1's ~250ms). Healthy sessions are completely
-  // unaffected — useEffect 1 above hydrates `user`, both effects short-
-  // circuit on the first re-render. Three /auth/me hits in a row only
-  // happen if every probe fails, which in production means the token
-  // really is dead and the user genuinely needs to log in.
+  // v3 (release run 25257377985): bumped from 3×200ms (600ms) to
+  //   5×200ms (1000ms). 21 specs were still flaky on WebKit at the
+  //   v2 budget — `waitForAuthReady` confirms storage at fixture
+  //   creation but every test then does its own page.goto which
+  //   re-mounts this layout in a context where loadSession runs again
+  //   and races render. The extra 400ms of grace absorbs WebKit's
+  //   tail latency on /auth/me under CI parallelism.
+  //
+  // Production cost: at most ~1000ms added latency on a genuinely-
+  // no-session bounce (vs. v2's ~600ms). Healthy sessions are
+  // completely unaffected — useEffect 1 above hydrates `user`, both
+  // effects short-circuit on the first re-render. Five /auth/me hits
+  // in a row only happen if every probe fails, which in production
+  // means the token really is dead and the user genuinely needs to
+  // log in (and they're being redirected anyway, so the wait is
+  // invisible).
   //
   // Validation pending next release.yml run.
   const retryAttemptedRef = useRef(false);
@@ -413,14 +423,15 @@ export default function DashboardLayout({
     }
     let cancelled = false;
     (async () => {
-      // 3-attempt retry loop: between each attempt, sleep 200ms then
-      // call loadSession() again. If any attempt populates `user`, the
-      // OUTER `if (isLoading || user) return` guard at the top of this
-      // effect short-circuits subsequent re-runs and the redirect
-      // effect below never sees `redirectArmed=true`. We arm the
-      // redirect only after all 3 attempts have failed so a slow
-      // /auth/me on WebKit CI still has a chance to win the race.
-      for (let i = 0; i < 3; i++) {
+      // 5-attempt retry loop (v3): between each attempt, sleep 200ms
+      // then call loadSession() again. If any attempt populates
+      // `user`, the OUTER `if (isLoading || user) return` guard at
+      // the top of this effect short-circuits subsequent re-runs and
+      // the redirect effect below never sees `redirectArmed=true`. We
+      // arm the redirect only after all 5 attempts have failed so a
+      // slow /auth/me on WebKit CI still has a chance to win the
+      // race.
+      for (let i = 0; i < 5; i++) {
         await new Promise((r) => setTimeout(r, 200));
         if (cancelled) return;
         try {

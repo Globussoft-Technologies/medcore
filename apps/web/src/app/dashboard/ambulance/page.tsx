@@ -708,7 +708,12 @@ function DispatchModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-lg rounded-lg bg-white p-6">
+      <div
+        data-testid="dispatch-modal"
+        role="dialog"
+        aria-label="Dispatch Ambulance"
+        className="w-full max-w-lg rounded-lg bg-white p-6"
+      >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Dispatch Ambulance</h2>
           <button onClick={onClose} className="text-gray-400">✕</button>

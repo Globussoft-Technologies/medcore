@@ -211,12 +211,7 @@ test.describe("Ambulance dispatch lifecycle", () => {
 
     // Open the dispatch modal.
     await page.getByRole("button", { name: /dispatch trip/i }).first().click();
-    const modal = page
-      .locator("div")
-      .filter({
-        has: page.getByRole("heading", { name: /dispatch ambulance/i }),
-      })
-      .first();
+    const modal = page.getByTestId("dispatch-modal");
     await expect(modal).toBeVisible({ timeout: TIMEOUT });
 
     // Pick our seeded vehicle by id (the <select> options use

@@ -195,7 +195,7 @@ export default function MyLeavesPage() {
           <div className="p-8 text-center text-gray-500">Loading...</div>
         ) : leaves.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
-            No leave requests yet. Click "Request Leave" to create one.
+            No leave requests yet. Click &quot;Request Leave&quot; to create one.
           </div>
         ) : (
           <table className="w-full min-w-[720px]">

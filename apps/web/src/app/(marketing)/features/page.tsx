@@ -173,7 +173,7 @@ export default function FeaturesPage() {
         <Container>
           <div className="mx-auto max-w-3xl text-center">
             <h1 className="text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl dark:text-white">
-              Every feature you'd expect — and a few you won't.
+              Every feature you&apos;d expect — and a few you won&apos;t.
             </h1>
             <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">
               45 modules, built over two years with doctors, nurses and

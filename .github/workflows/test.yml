@@ -382,18 +382,21 @@ jobs:
     # release-validation is the heavier "are we good to declare a
     # release" check the user triggers on demand.
     #
-    # Also gating on the four hardening jobs (Phases 1.3, 2.3, 2.4):
+    # Also gating on the hardening jobs (Phases 1.1, 1.3, 2.3, 2.4):
+    #   - lint              apps/web ESLint (next/core-web-vitals + next/typescript)
     #   - npm-audit         no high/critical CVE in prod runtime deps
     #   - migration-safety  no destructive Prisma migration without the
     #                        `[allow-destructive-migration]` opt-in marker
     #   - web-bundle        no catastrophic bundle bloat (>25 MB chunks)
     # These are deploy-correctness gates: a failing one means we should
-    # NOT ship to dev. `lint` is intentionally out of the gate while we
-    # triage existing eslint violations from the first runs.
+    # NOT ship to dev. `lint` was added to the gate in TODO #3 once the
+    # eslint config was bootstrapped and existing violations triaged
+    # (rule severities tuned in apps/web/eslint.config.mjs).
     needs:
       - test
       - web-tests
       - typecheck
+      - lint
       - npm-audit
       - migration-safety
       - web-bundle

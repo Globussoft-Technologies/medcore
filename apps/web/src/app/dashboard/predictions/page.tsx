@@ -347,7 +347,7 @@ export default function PredictionsPage() {
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center py-20 gap-3">
             <Calendar className="w-10 h-10 text-gray-300" />
             <p className="text-sm text-gray-400">
-              Select a date and click "Load Predictions" to begin.
+              Select a date and click &quot;Load Predictions&quot; to begin.
             </p>
           </div>
         )}

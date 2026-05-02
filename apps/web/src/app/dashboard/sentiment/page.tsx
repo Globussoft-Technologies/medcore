@@ -208,10 +208,10 @@ export default function SentimentAnalyticsPage() {
     load();
   }, [from, to, user, isLoading, load]);
 
-  // Brief render-guard between role-check and router.replace landing.
-  if (user && !SENTIMENT_ALLOWED.has(user.role)) return null;
-
   // Derive sentiment distribution + flagged feedback from the recent rows.
+  // NOTE: every useMemo below must run on every render to satisfy
+  // react-hooks/rules-of-hooks. The role-gate render-guard MUST live AFTER
+  // all hook calls (moved below `driverBars`).
   const distribution = useMemo(() => {
     let pos = 0;
     let neu = 0;
@@ -261,6 +261,10 @@ export default function SentimentAnalyticsPage() {
   }, [drivers]);
 
   const driverMax = Math.max(1, ...driverBars.map((d) => d.weight));
+
+  // Brief render-guard between role-check and router.replace landing.
+  // MUST sit AFTER every useMemo above so the hook call order is stable.
+  if (user && !SENTIMENT_ALLOWED.has(user.role)) return null;
 
   const totalFeedback = drivers?.totalFeedback ?? summary?.totalCount ?? 0;
   const nps = summary?.npsScore ?? 0;

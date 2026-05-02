@@ -201,7 +201,7 @@ export default function ChartSearchPage() {
             Ambient Chart Search
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Ask natural-language questions over your patients' charts — get
+            Ask natural-language questions over your patients&apos; charts — get
             grounded answers with source citations.
           </p>
         </div>

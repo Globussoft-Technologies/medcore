@@ -134,7 +134,7 @@ jobs:
         # `--update-snapshots` writes any missing or mismatched PNGs
         # under e2e/visual.spec.ts-snapshots/. Scope to the visual spec
         # so we don't churn unrelated tests' snapshots.
-        run: npx playwright test --project=full --update-snapshots e2e/visual.spec.ts
+        run: npx playwright test e2e/visual.spec.ts --project=full --update-snapshots
 
       - name: Remove the conditional skip block from visual.spec.ts
         # On bootstrap (first ever baseline run) the spec file has a
@@ -279,7 +279,7 @@ jobs:
         run: npx wait-on http://localhost:4000/api/health http://localhost:3000/login --timeout 90000
 
       - name: Run Playwright with --update-snapshots (WebKit)
-        run: npx playwright test --project=full-webkit --update-snapshots e2e/visual.spec.ts
+        run: npx playwright test e2e/visual.spec.ts --project=full-webkit --update-snapshots
 
       - name: Configure git identity
         run: |

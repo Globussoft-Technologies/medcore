@@ -756,7 +756,7 @@ function CareContextsTab({ patient }: { patient: PatientOpt | null }) {
     <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
       <h2 className="mb-1 text-lg font-semibold">Push care context</h2>
       <p className="mb-4 text-xs text-gray-500 dark:text-gray-400">
-        Link a MedCore consultation or discharge to the patient's ABHA so it
+        Link a MedCore consultation or discharge to the patient&apos;s ABHA so it
         appears in the national health locker.
       </p>
 

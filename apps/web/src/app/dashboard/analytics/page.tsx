@@ -1264,26 +1264,26 @@ export default function AnalyticsPage() {
               <div>
                 <p className="mb-2 text-center text-xs font-medium text-gray-500">By Gender</p>
                 <DonutChart
-                  segments={Object.entries(demographics.byGender).map(([k, v]) => ({
+                  segments={Object.entries(demographics.byGender ?? {}).map(([k, v]) => ({
                     label: k,
                     value: v,
                     color: GENDER_COLORS[k] || "#6b7280",
                   }))}
                   centerText={String(
-                    Object.values(demographics.byGender).reduce((a, b) => a + b, 0)
+                    Object.values(demographics.byGender ?? {}).reduce((a, b) => a + b, 0)
                   )}
                 />
               </div>
               <div>
                 <p className="mb-2 text-center text-xs font-medium text-gray-500">By Age Group</p>
                 <DonutChart
-                  segments={Object.entries(demographics.byAgeGroup).map(([k, v]) => ({
+                  segments={Object.entries(demographics.byAgeGroup ?? {}).map(([k, v]) => ({
                     label: k,
                     value: v,
                     color: AGE_COLORS[k] || "#6b7280",
                   }))}
                   centerText={String(
-                    Object.values(demographics.byAgeGroup).reduce((a, b) => a + b, 0)
+                    Object.values(demographics.byAgeGroup ?? {}).reduce((a, b) => a + b, 0)
                   )}
                 />
               </div>
@@ -1305,13 +1305,13 @@ export default function AnalyticsPage() {
             // "(count)" — misleading because the same component is used for
             // count-based donuts elsewhere).
             <DonutChart
-              segments={Object.entries(revenueBreakdown.byType).map(([k, v], i) => ({
+              segments={Object.entries(revenueBreakdown.byType ?? {}).map(([k, v], i) => ({
                 label: k === "WALK_IN" ? "Walk-in" : "Scheduled",
                 value: Math.round(v),
                 color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
               }))}
               centerText={formatCurrency(
-                Object.values(revenueBreakdown.byType).reduce((a, b) => a + b, 0)
+                Object.values(revenueBreakdown.byType ?? {}).reduce((a, b) => a + b, 0)
               )}
               formatValue={formatCurrency}
             />
@@ -1323,9 +1323,9 @@ export default function AnalyticsPage() {
         <Card title="Revenue by Service Category" icon={DollarSign}>
           {loading ? (
             <Loader />
-          ) : revenueBreakdown && Object.keys(revenueBreakdown.byCategory).length > 0 ? (
+          ) : revenueBreakdown && Object.keys(revenueBreakdown.byCategory ?? {}).length > 0 ? (
             <BarChart
-              categories={Object.keys(revenueBreakdown.byCategory).map((k, i) => ({
+              categories={Object.keys(revenueBreakdown.byCategory ?? {}).map((k, i) => ({
                 key: k,
                 label: k,
                 color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
@@ -1678,7 +1678,7 @@ export default function AnalyticsPage() {
                 <div>
                   <p className="mb-2 text-xs font-medium text-gray-500">Triage Level Distribution</p>
                   <DonutChart
-                    segments={Object.entries(erPerf.byTriage)
+                    segments={Object.entries(erPerf.byTriage ?? {})
                       .filter(([, v]) => v > 0)
                       .map(([k, v]) => ({
                         label: k,
@@ -1690,11 +1690,11 @@ export default function AnalyticsPage() {
                 </div>
                 <div>
                   <p className="mb-2 text-xs font-medium text-gray-500">Dispositions</p>
-                  {Object.keys(erPerf.byDisposition).length === 0 ? (
+                  {Object.keys(erPerf.byDisposition ?? {}).length === 0 ? (
                     <EmptyState />
                   ) : (
                     <BarChart
-                      categories={Object.keys(erPerf.byDisposition).map((k, i) => ({
+                      categories={Object.keys(erPerf.byDisposition ?? {}).map((k, i) => ({
                         key: k,
                         label: k,
                         color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],

@@ -277,8 +277,10 @@ step is embedded inline in the login page and exercised through
 - Locked thresholds (2026-04-15) at lines **11%**/**10%** are
   basement-level after Wave 1+3 backfill. Real coverage is almost
   certainly 30-60%. Threshold bump is [`/TODO.md`](../TODO.md) #8.
-- No external coverage aggregator (Codecov / SonarQube / etc.). lcov
-  is uploaded as a 14-day artifact only, so there's no PR-level
-  coverage delta or trend graph.
+- **Codecov wired in 2026-05-02.** PR comments show coverage delta +
+  per-flag (api/web) breakdowns. Trend graphs at
+  `https://codecov.io/gh/Globussoft-Technologies/medcore`. The
+  `CODECOV_TOKEN` repo secret enables uploads — without it, the upload
+  step no-ops gracefully (the lcov artifact upload is unaffected).
 - Playwright is not instrumented for coverage; E2E flow coverage is
   not visible in lcov totals (intentional; see Layer 5 above).

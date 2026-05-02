@@ -11,7 +11,8 @@ is independently shippable. Full per-session history lives under
 > 8c790f0 leave-calendar flake fix. Auto-deploy operating.
 > **Audit residuals (§C / §D / §E):** §C ✅ closed (1,611 lines of new e2e
 > across 15 cases — bloodbank / ambulance / pediatric); §D ✅ closed; §E
-> still pending (Codecov wiring).
+> ✅ closed (Codecov wired via codecov-action@v6 on api + web jobs;
+> codecov.yml at repo root).
 > **TODO #1-6 from the prior pickup list:** all closed in this session
 > (e2e triage, visual baselines, ESLint bootstrap, WebKit auth-race,
 > PR #445 merge, release.yml verification). Detail under "What landed
@@ -220,10 +221,13 @@ workflow logs and set the budget at **average + 3 MB**.
 
 ### 6. §E — Wire Codecov (independent of the above)
 
-The 2026-05-02 audit's §E item: lcov is a 14-day artifact only — no
-PR-level coverage delta or trend graph. Wire Codecov (or equivalent)
-so PRs surface delta. ~30 min for the workflow setup + a repo secret
-(`CODECOV_TOKEN`) which the user adds via Settings → Secrets.
+✅ **Closed 2026-05-02 (commit `<COMMIT_SHA>`).** `codecov-action@v6`
+steps added to both api-tests and web-component-tests jobs in
+`.github/workflows/test.yml`; `codecov.yml` config at repo root. The
+`CODECOV_TOKEN` repo secret needs to be added via
+`gh secret set CODECOV_TOKEN` (Settings → Secrets and variables →
+Actions) — without it, the upload step no-ops gracefully via the
+`hashFiles()` guard, so CI stays green until the secret lands.
 
 ### 7. Postgres-off-Docker migration (deferred from yesterday)
 
@@ -331,13 +335,16 @@ and the AI deep-flow gaps (`/ai-fraud`, `/ai-doc-qa`, `/ai-differential`,
 
 ### E. Coverage visibility (separate from item #7)
 
-After item #7 (threshold bump) lands, consider:
-
-- Wire **Codecov** (or equivalent) so PRs show coverage delta and
-  trend. Today lcov is a 14-day artifact only — no PR comments, no
-  trend graph.
-- Document explicitly that Playwright is **not** instrumented for
-  coverage and E2E flow coverage is intentionally not in lcov.
+- ✅ **Closed 2026-05-02 (commit `<COMMIT_SHA>`).** Codecov wired into
+  `.github/workflows/test.yml` via `codecov-action@v6` on both the
+  api-tests and web-component-tests jobs. PR comments now surface
+  coverage delta + per-flag (api/web) breakdowns; trend graphs at
+  `https://codecov.io/gh/Globussoft-Technologies/medcore`. Config in
+  `codecov.yml` at repo root. The `CODECOV_TOKEN` repo secret enables
+  uploads — without it, the guarded `if: hashFiles(...) != ''` step
+  no-ops gracefully.
+- Still to do: document explicitly that Playwright is **not** instrumented
+  for coverage and E2E flow coverage is intentionally not in lcov.
 
 ---
 

@@ -1,0 +1,42 @@
+# Codecov configuration. Reference:
+# https://docs.codecov.com/docs/codecovyml-reference
+#
+# Wired into CI on 2026-05-02 (closes §E of the coverage gap audit).
+# Uploads land via .github/workflows/test.yml's two codecov-action@v6
+# steps — one per coverage-producing job (api / web).
+#
+# Why these targets:
+#   - project: target=auto means "don't fall below the most-recent main
+#     baseline" rather than enforcing an absolute floor. The repo's
+#     vitest thresholds are locked at lines=10/11% (basement), and a
+#     hard absolute floor here would conflict with that real-coverage-
+#     is-30-60% reality. We want PRs to track delta, not absolutes.
+#   - patch: 80% on new code is the standard Codecov default. New code
+#     should be testable; legacy code is already locked-in via vitest.
+#   - 1pp project drift / 5pp patch drift absorbs noise in flaky-but-
+#     passing test runs without giving up signal.
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: 80%
+        threshold: 5%
+
+flags:
+  api:
+    paths:
+      - apps/api/src
+      - packages/shared/src
+  web:
+    paths:
+      - apps/web/src
+
+comment:
+  layout: "reach,diff,flags,components"
+  behavior: default
+  require_changes: false

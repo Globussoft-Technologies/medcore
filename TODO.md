@@ -1,9 +1,9 @@
 # MedCore — TODO
 
 Next-session priority list. Full per-issue history lives in
-[`docs/SESSION_SNAPSHOT_2026-04-30.md`](docs/SESSION_SNAPSHOT_2026-04-30.md)
+[`docs/archive/SESSION_SNAPSHOT_2026-04-30.md`](docs/archive/SESSION_SNAPSHOT_2026-04-30.md)
 and the evening continuation in
-[`docs/SESSION_SNAPSHOT_2026-04-30-evening.md`](docs/SESSION_SNAPSHOT_2026-04-30-evening.md);
+[`docs/archive/SESSION_SNAPSHOT_2026-04-30-evening.md`](docs/archive/SESSION_SNAPSHOT_2026-04-30-evening.md);
 this file is the short, actionable checklist.
 
 > Updated: 2026-05-01 — RBAC matrix reconciled and green on main.

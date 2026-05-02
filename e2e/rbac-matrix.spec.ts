@@ -6,7 +6,7 @@ import { loginAs, Role } from "./helpers";
  * web-side role gate added in the issue #179 / #382 / #383 / #385 / #438
  * sweep, plus historical gates from #89 / #90 / #98 / #207.
  *
- * Source of truth: `docs/RBAC_AUDIT_2026-04-30.md` plus the `*_ALLOWED`
+ * Source of truth: `docs/archive/RBAC_AUDIT_2026-04-30.md` plus the `*_ALLOWED`
  * Set constants at the top of each `apps/web/src/app/dashboard/<m>/page.tsx`.
  *
  * Negative tests: log in as a blocked role, navigate to the route, assert

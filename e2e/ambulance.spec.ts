@@ -228,8 +228,11 @@ test.describe("Ambulance dispatch lifecycle", () => {
     // Resolve the trip via the API (deterministic — the page reloads its
     // list on save but the table render is async and depends on the
     // ambulance fleet card layout). Find the most-recent trip on our
-    // seeded vehicle.
-    const tripIdHandle = await expect
+    // seeded vehicle. The .not.toBeNull() poll already establishes the
+    // trip exists; we don't capture the value because expect.poll(...)
+    // returns Promise<void>, not the polled value, and the immediately-
+    // following block re-fetches via API anyway.
+    await expect
       .poll(
         async () => {
           const r = await adminApi.get(
@@ -243,7 +246,6 @@ test.describe("Ambulance dispatch lifecycle", () => {
         { timeout: TIMEOUT, intervals: [500, 1000, 2000] }
       )
       .not.toBeNull();
-    expect(tripIdHandle).toBeTruthy();
 
     // Now dispatch the just-created REQUESTED trip. The UI auto-renders
     // a "Dispatch" button on the REQUESTED row inside the active-trips

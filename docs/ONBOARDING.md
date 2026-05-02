@@ -95,6 +95,11 @@ npm run test:coverage:unit
 npm run test:e2e
 npm run test:e2e:ui        # UI mode
 
+# E2E (Playwright — local stack via scripts/run-e2e-locally.sh)
+scripts/run-e2e-locally.sh                          # full Chromium suite (~5-10 min)
+scripts/run-e2e-locally.sh e2e/<spec>.spec.ts       # single spec (<30 s after warm-up)
+# See docs/LOCAL_E2E.md for full flag reference + comparison vs release.yml.
+
 # Load tests
 npm run test:load          # real
 npm run test:load:mock     # against mock-server.ts
@@ -170,6 +175,8 @@ Before you mark a PR "ready for review":
 - [`DEPLOY.md`](DEPLOY.md) — The single authoritative prod deploy runbook.
 - [`OPERATIONS_FAQ.md`](OPERATIONS_FAQ.md) — Recovery, rollback, and ops cheatsheet.
 - [`TEST_PLAN.md`](TEST_PLAN.md) — Test coverage matrix and known gaps.
+- [`LOCAL_E2E.md`](LOCAL_E2E.md) — Local Playwright runner that mirrors
+  release.yml's e2e jobs in 5-10 min instead of 25.
 - [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — Long-form contributor rules.
 
 If you get stuck, ping `#medcore-dev` on Slack and include: the command you

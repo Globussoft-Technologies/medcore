@@ -115,15 +115,25 @@ A single `apps/api/src/test/smoke.test.ts` file that:
   return 200.
 
 ### Layer 5 — E2E (Playwright) — added 2026-04-30+
-Originally out of scope; now active. Specs live in `/e2e/` (38 files,
+Originally out of scope; now active. Specs live in `/e2e/` (40 files,
 ~165 active cases). Coverage spans 7 user roles (admin, doctor, nurse,
 reception, patient, lab-tech, pharmacist) using worker-scoped role-token
 caching to respect auth rate limits. Tiers configurable via `--project`:
 
-- **smoke** (3 specs / 18 cases): runs on every push via `test.yml`.
-- **regression** (~7 specs / ~50 cases): manual gate.
-- **full** (38 specs) × **Chromium + WebKit**: required gate on
-  `release.yml` (`workflow_dispatch`).
+- **smoke** (3 specs / ~18 cases): explicit invocation only.
+- **regression** (~7 specs / ~50 cases): explicit invocation only.
+- **full** (40 specs) × **Chromium + WebKit**: required gate on
+  `release.yml` (`workflow_dispatch` — explicit invocation).
+
+**Policy (codified 2026-05-02):** E2E runs only when explicitly invoked
+— locally via `scripts/run-e2e-locally.sh` or
+`npx playwright test --project=<name>`, or in CI via the
+`release.yml` workflow_dispatch trigger. E2E is intentionally NOT in
+the per-push deploy gate and NOT in any post-deploy smoke step.
+Auto-deploy gates only on the non-e2e tests (typecheck, lint,
+npm-audit, migration-safety, web-bundle, api-tests, web-tests).
+Release validation (`release.yml`) is the e2e gate; treat it as the
+"ready to declare a release" check, not as part of every deploy.
 
 E2E does not contribute to lcov line/branch numbers (Playwright is not
 instrumented for coverage). Treat E2E coverage as *flow* coverage and

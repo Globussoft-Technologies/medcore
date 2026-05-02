@@ -438,9 +438,12 @@ denied access to lab QC is surprising. Two `test.skip` entries in
 - All 7 role test creds in [`docs/TESTER_PROMPT.md`](docs/TESTER_PROMPT.md).
 - Destructive migrations need `[allow-destructive-migration]` in a commit
   message in the push (per `migration-safety` job in test.yml).
-- Per-push CI gates: `[test, web-tests, typecheck, npm-audit, migration-safety, web-bundle]`.
-  E2E (Playwright) is NOT in the per-push gate; it runs only via
-  release.yml on `workflow_dispatch`.
+- Per-push CI gates: `[test, web-tests, typecheck, lint, npm-audit, migration-safety, web-bundle]`.
+- **E2E policy (codified 2026-05-02):** Playwright e2e is **explicit-invocation only**.
+  Never auto-runs on push, deploy, or post-deploy. Runs only when:
+  - a developer invokes `scripts/run-e2e-locally.sh` (or `npx playwright test ...`) locally, OR
+  - release validation is triggered via `release.yml` `workflow_dispatch`.
+  Auto-deploy validates the non-e2e gates above; release.yml is the e2e gate.
 - Local-first test workflow: `scripts/run-tests-locally.sh` mirrors every CI gate. See [`docs/LOCAL_TESTING.md`](docs/LOCAL_TESTING.md).
 
 ---

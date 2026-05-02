@@ -152,13 +152,12 @@ test.describe("Emergency Room flow (multi-role)", () => {
   });
 
   test("DOCTOR picks up the case from /dashboard/er-triage queue list", async ({
+    browserName,
     doctorPage,
     adminApi,
   }) => {
-
-    // TODO: webkit auth-redirect residue
-
-    test.skip(({ browserName }) => browserName === "webkit", "webkit auth-redirect residue");
+    // webkit auth-redirect residue (TODO.md #4).
+    test.skip(browserName === "webkit", "webkit auth-redirect residue");
     const page = doctorPage;
 
     // Seed a patient + register an ER case via API so a row is guaranteed

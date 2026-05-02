@@ -8,10 +8,11 @@ import { dismissTourIfPresent } from "./helpers";
 
 test.describe("AI Analytics", () => {
   test("admin can load AI Analytics page with heading + date controls", async ({
+    browserName,
     adminPage,
   }) => {
-    // TODO: webkit auth-redirect residue
-    test.skip(({ browserName }) => browserName === "webkit", "webkit auth-redirect residue");
+    // webkit auth-redirect residue (TODO.md #4).
+    test.skip(browserName === "webkit", "webkit auth-redirect residue");
     const page = adminPage;
     await page.goto("/dashboard/ai-analytics");
     await dismissTourIfPresent(page);

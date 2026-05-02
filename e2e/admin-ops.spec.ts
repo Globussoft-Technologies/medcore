@@ -13,11 +13,12 @@ import { API_BASE, dismissTourIfPresent, expectNotForbidden } from "./helpers";
  */
 test.describe("Admin operations — daily levers", () => {
   test("ADMIN approves a leave request on /dashboard/leave-management", async ({
+    browserName,
     adminPage,
     adminApi,
   }) => {
-    // TODO: webkit auth-redirect residue
-    test.skip(({ browserName }) => browserName === "webkit", "webkit auth-redirect residue");
+    // webkit auth-redirect residue (TODO.md #4).
+    test.skip(browserName === "webkit", "webkit auth-redirect residue");
     const page = adminPage;
 
     // Seed a PENDING leave directly via the API. The /leaves POST handler

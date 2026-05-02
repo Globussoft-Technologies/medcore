@@ -9,10 +9,12 @@ import { dismissTourIfPresent, expectNotForbidden } from "./helpers";
 
 test.describe("Adherence (Medication Reminders)", () => {
   test("patient can load the page and see the heading + enroll action", async ({
+    browserName,
     patientPage,
   }) => {
-    // TODO: webkit auth-redirect residue after addInitScript fix — fixture race; residual ~30 specs awaiting deeper investigation
-    test.skip(({ browserName }) => browserName === "webkit", "webkit auth-redirect residue after addInitScript fix — fixture race; residual ~30 specs awaiting deeper investigation");
+    // webkit auth-redirect residue after addInitScript fix — fixture race;
+    // residual ~30 specs awaiting deeper investigation (TODO.md #4).
+    test.skip(browserName === "webkit", "webkit auth-redirect residue");
     const page = patientPage;
     await page.goto("/dashboard/adherence");
     await dismissTourIfPresent(page);
@@ -30,12 +32,11 @@ test.describe("Adherence (Medication Reminders)", () => {
   });
 
   test("enroll form opens and validates missing prescription ID", async ({
+    browserName,
     patientPage,
   }) => {
-
-    // TODO: webkit auth-redirect residue
-
-    test.skip(({ browserName }) => browserName === "webkit", "webkit auth-redirect residue");
+    // webkit auth-redirect residue (TODO.md #4).
+    test.skip(browserName === "webkit", "webkit auth-redirect residue");
     const page = patientPage;
     await page.goto("/dashboard/adherence");
     await dismissTourIfPresent(page);
@@ -88,12 +89,11 @@ test.describe("Adherence (Medication Reminders)", () => {
   });
 
   test("page renders without crash for doctor role (no patient profile)", async ({
+    browserName,
     doctorPage,
   }) => {
-
-    // TODO: webkit auth-redirect residue
-
-    test.skip(({ browserName }) => browserName === "webkit", "webkit auth-redirect residue");
+    // webkit auth-redirect residue (TODO.md #4).
+    test.skip(browserName === "webkit", "webkit auth-redirect residue");
     const page = doctorPage;
     await page.goto("/dashboard/adherence");
     await dismissTourIfPresent(page);

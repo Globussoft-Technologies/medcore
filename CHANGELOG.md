@@ -11,6 +11,47 @@ test-coverage closure across §A-§E gaps, Playwright stabilization
 across Chromium + WebKit, and the local-first test workflow.
 
 ### Added
+- **P4 — Tenant-scoping isolation regression suite (`8d0765a`).** New
+  `packages/db/src/__tests__/rls.test.ts` (686 lines, 10 it / 29
+  expects) verifies the Prisma context-binding mechanism that's our
+  actual production multi-tenant isolation (NOT Postgres RLS). Covers
+  7 tenant-scoped models with: per-tenant scoped reads, cross-tenant
+  findUnique returning null, cross-tenant write attempts (update /
+  updateMany / delete / deleteMany) failing, count() aggregations
+  scoped, raw un-scoped client seeing both tenants (proves data exists
+  + filter is doing the work). Self-skips without `DATABASE_URL_TEST`.
+  Surfaced 4 real architectural findings now logged in TODO.md:
+  scoping wrapper in wrong package, AuditLog lacks tenantId, tenant FK
+  is SetNull (orphan-PHI risk), runWithTenant doesn't validate the id.
+- **P6 — Load-test SLA gate in CI (`417066a`).** `scripts/load-test-sla-gate.ts`
+  parses load-test JSON output and fails the workflow on p95 / p99 /
+  error-rate breach. Thresholds at `scripts/load-test-thresholds.json`:
+  1% global error rate, p95 ≤ 3000ms triage / 6000ms scribe / 4000ms
+  chart-search to match README targets. `run-load-test.ts` extended
+  with `--json-out=` flag emitting `schemaVersion: 1` summary.
+  Triggers: nightly cron + on-PR for routes/load-test path changes.
+  Threshold-tuning workflow documented in
+  `docs/CI_HARDENING_PLAN.md`. Closes
+  `docs/TEST_COVERAGE_AUDIT.md` §5 P6.
+- **`/dashboard/admissions` E2E (`65b5e0a`).** 11 cases across 5 roles
+  covering admit → MAR → discharge lifecycle. Pins real route shape:
+  the page is fully accessible to all authenticated users (no `/dashboard/not-authorized`
+  redirect); only the "Admit Patient" CTA is role-gated. Discharge is
+  a two-modal sequence (`DischargeReadinessModal` then discharge
+  form); both legs walked.
+- **`/dashboard/purchase-orders` + `/dashboard/payment-plans` E2E
+  (`be36db6`).** 36 cases across both pages and 7 roles. Purchase-orders
+  exercises full state machine (`DRAFT → PENDING → APPROVED → RECEIVED`
+  + `DRAFT → CANCELLED`). Issue #262 RBAC restrictions verified by
+  direct API token assertions. Both pages share an architectural pin:
+  no client-side `canView` gate — non-authorized roles see API 403 →
+  empty list, not a `/dashboard/not-authorized` redirect.
+- **`/register` + `/forgot-password` E2E with anti-enumeration pin
+  (`592a641`).** 17 cases. Anti-enumeration **CONFIRMED**: unknown email
+  receives identical HTTP 200 + same UI step as known email. A future
+  divergence will surface as a test failure. Issue #15 rate-limit-error
+  mapping covered. Issue #167 age=0 client-side guard covered. Pinned
+  minor UX gap: neither page bounces authenticated users to `/dashboard`.
 - **WebKit auth-race v4 fix (`eb40604`).** `gotoAuthed(page, url)`
   helper in `e2e/helpers.ts` + fixture settle guard in
   `e2e/fixtures.ts` close the race that resurfaced on release.yml

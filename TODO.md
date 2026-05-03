@@ -71,19 +71,55 @@ is independently shippable. Full per-session history lives under
   suite was `describe.skip`-ed pending migration. Migration
   `20260424000004_prd_closure_models` landed and the suite already
   self-gates at runtime via `runner = hasModel ? describe : describe.skip;`.
-  Note marked stale in this commit.
+  Note marked stale in `d1cac91`.
+
+---
+
+## What landed 2026-05-04 evening (6-agent parallel batch — ~4,100 lines)
+
+> Parallel-agent push on top of the morning's 6 commits. Strict
+> non-overlapping lane discipline; all 6 agents committed without
+> collision (one minor concurrent-stage race bundled payment-plans into
+> the purchase-orders commit, content-correct, harmless).
+
+| Commit | What |
+|---|---|
+| `be36db6` | **`/dashboard/purchase-orders` + `/dashboard/payment-plans` E2E specs** (bundled by concurrent-stage race). Purchase-orders: 18 tests, 7 roles, full procurement state machine `DRAFT → PENDING → APPROVED → RECEIVED` + `DRAFT → CANCELLED`. Issue #262 RBAC restrictions verified by direct API token assertions. Payment-plans: 18 tests across ADMIN + RECEPTION positive + 5 staff RBAC negatives. **Architectural pin shared by both pages**: no client-side `canView` redirect gate — non-authorized roles reach the HTML and just get an empty list from API 403, NOT a `/dashboard/not-authorized` redirect. Same pattern, two pages, both tested for that exact behaviour. |
+| `65b5e0a` | **`/dashboard/admissions` E2E spec** — 11 tests across 5 roles. **Important route-shape correction**: neither `/dashboard/admissions` nor `/dashboard/admissions/[id]` redirects PATIENT/LAB_TECH to `/dashboard/not-authorized` — admissions pages are fully accessible to all authenticated users; only the "Admit Patient" CTA is role-gated via `canAdmit`. Tests pin this real behaviour, NOT the speculative redirect contract from the brief. **Discharge is a two-modal sequence** (`DischargeReadinessModal` checks bills/labs/summary, then `Discharge` form modal) — both legs walked. MAR is a tab on the detail page (not a separate `/dashboard/admissions-mar` route); follows the existing skip-when-bed-unavailable pattern from the legacy MAR spec. |
+| `417066a` | **P6 — Load-test SLA gate in CI** — closes `docs/TEST_COVERAGE_AUDIT.md` §5 P6. New 167-line `scripts/load-test-sla-gate.ts` reads `*.json` from `--results-dir`, exits 1 on breach with per-check PASS/FAIL summary. Thresholds in `scripts/load-test-thresholds.json` (1% global error rate ceiling; per-endpoint p95 ≤ 3000ms triage / 6000ms scribe / 4000ms chart-search to match README targets). `run-load-test.ts` extended with `--json-out=` flag emitting `schemaVersion: 1` summary. Wired into `load-test-nightly.yml`: nightly cron + on-PR for routes/load-test path changes. Threshold-tuning workflow appended to `docs/CI_HARDENING_PLAN.md`. **Real end-to-end validation done locally**: pass fixture → exit 0; mixed pass/fail fixture → exit 1 with 4 breaches reported; mock-server live run → gate read real schema correctly. |
+| `592a641` | **`/register` + `/forgot-password` E2E + anti-enumeration security pin** — 17 tests. Register (10): page-load, happy path with auto-login redirect, 6 validation cases incl. Issue #167 age=0 guard, duplicate-email 409 handling, server-side weak-password rejection. Forgot-password (7): happy path, **anti-enumeration HOLDS** (unknown email returns identical 200 + same UI step as known email — pinned in tests so a future leak surfaces immediately), Issue #15 rate-limit-error mapping, 6-digit code-button-enable threshold. **Minor UX gap pinned (not security)**: neither page bounces authenticated users to `/dashboard`. Tests will fail if anyone fixes this — treat that as the expected signal. |
+| `8d0765a` | **P4 — Tenant-scoping isolation regression suite** — closes `docs/TEST_COVERAGE_AUDIT.md` §5 P4 (re-framed correctly: this isn't Postgres RLS, it's a regression test for the Prisma context-binding mechanism that's the actual production isolation layer). 1 file, 686 lines, 10 `it` blocks, 29 assertions across 7 tenant-scoped models (User, Doctor, Patient, Appointment, Prescription, Invoice, Notification). Verifies: T1 reads return only T1, T2 reads return only T2, raw un-scoped client sees both (proves data exists), cross-tenant `findUnique` returns null both directions, cross-tenant write attempts no-op or throw (`update`, `updateMany`, `delete`, `deleteMany`), `count()` aggregations also scoped. Self-skips when `DATABASE_URL_TEST` absent; CI runs it green. |
+
+### Architectural findings surfaced by P4 (worth flagging, NOT fixed in this batch)
+
+These are real codebase issues uncovered while writing the RLS test. None are blocking, but each warrants a future PR / discussion:
+
+1. **Tenant-scoping wrapper lives in the wrong package.** `tenantScopedPrisma` and `runWithTenant` live under `apps/api/src/services/`, but the audit anchored P4 in `packages/db/src/__tests__/`. Lifting the wrapper into `@medcore/db` would let workers/cron/secondary services consume safe scoping without crossing the `apps → packages` dep arrow. The test had to use runtime dynamic `import()` (string-concatenated to defeat TS6059) as a workaround.
+2. **`AuditLog` has NO `tenantId`.** `packages/db/prisma/schema.prisma` lines 1299-1313 deliberately omit it. The audit doc lists it as tenant-scoped; it isn't. **Operational consequence**: any user with raw DB access in T1 can read T2's audit log. Worth deciding whether per-tenant audit isolation is a requirement.
+3. **Tenant FK uses `onDelete: SetNull`.** Every tenant-scoped model has `tenant Tenant? @relation(..., onDelete: SetNull)`. If a Tenant row is deleted, child rows survive with `tenantId = null` — invisible to all tenant-scoped queries (the `where: { tenantId }` never matches null) but still readable via the un-scoped client. Effectively orphaned PHI. Consider `Cascade` or a "no orphans" invariant.
+4. **`runWithTenant` does NOT validate tenantId is real.** Just stuffs the string into AsyncLocalStorage. Validation happens upstream in middleware (covered by `tenant.test.ts`); a single middleware bypass would expose. Test-suite layer-separation is correct, but the surface area is real.
 
 ### Still open — NEXT-SESSION PICKUP
 
 - **Verify WebKit auth-race v4 fix `eb40604` actually holds** —
   `gotoAuthed` + fixture settle guard typecheck-clean but the WebKit
   Playwright binary isn't installed on the dev host so live verification
-  is CI-only. Watch the next release.yml run on `6832a6f`. If the 3
+  is CI-only. Watch the next release.yml run on `8d0765a`. If the 3
   hard fails (admin-ops:144 / pharmacy-forecast:8 / predictions:128)
   + visual:65 are all green, declare v4 stable. If still flaky, audit
   whether other test bodies' `page.goto("/dashboard/...")` calls also
   need swapping to `gotoAuthed` (helper is exported and ready).
-- **TEST_COVERAGE_AUDIT P-list residuals — P5, P6, P7, P8 still open.**
+- **Architectural follow-ups from the P4 RLS suite findings (above):**
+  consider lifting `tenantScopedPrisma` into `packages/db`, adding
+  `tenantId` to `AuditLog`, switching tenant FK to `Cascade` (or
+  enforcing a no-orphan invariant), and tightening `runWithTenant`.
+- **TEST_COVERAGE_AUDIT P-list residuals** — P2 (DB migration verification),
+  P5 (Mobile E2E — multi-day), P7 (AI eval dataset 3→50+ + Sarvam vs
+  OpenAI compare), P8 (OpenAPI/Pact contract tests).
+- **E2E backlog residuals** — many remaining zero-coverage routes per
+  `docs/E2E_COVERAGE_BACKLOG.md` §2 (HR/Payroll, Communications,
+  Analytics, Profile/Account, multi-tenant onboarding, several AI
+  feature pages).
   - P5 — Mobile E2E (Detox/Maestro) — large effort, multi-day.
   - P6 — Load-test SLA gate in CI — parse load-test JSON, fail PR on
     threshold breach (~2h). Lowest friction; good next pickup.

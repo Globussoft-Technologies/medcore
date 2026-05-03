@@ -98,7 +98,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - `/dashboard/billing/patient/[patientId]` — bulk patient billing
 - `/dashboard/payment-plans` — installment plan setup
 - `/dashboard/bill-explainer` — explanation workflow (only smoke-visited)
-- `/dashboard/budgets` — budget tracking
+- ~~`/dashboard/budgets` — budget tracking~~ ✅ closed (6 tests; `e2e/budgets.spec.ts`)
 - ~~`/dashboard/expenses` — expense entry~~ ✅ closed (6 tests; `e2e/expenses.spec.ts`)
 - `/dashboard/discount-approvals` — request side (approval side covered)
 

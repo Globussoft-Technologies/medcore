@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { dismissTourIfPresent } from "./helpers";
+import { dismissTourIfPresent, gotoAuthed } from "./helpers";
 
 // Pharmacy Inventory Forecast — admin surface.
 // Endpoint: GET /ai/pharmacy/forecast?days=30[&insights=true]
@@ -9,7 +9,9 @@ test.describe("Pharmacy Forecast", () => {
     adminPage,
   }) => {
     const page = adminPage;
-    await page.goto("/dashboard/pharmacy-forecast");
+    // gotoAuthed: WebKit auth-race v4 guard — retries if the layout bounces
+    // to /login before /auth/me completes on this second navigation.
+    await gotoAuthed(page, "/dashboard/pharmacy-forecast");
     await dismissTourIfPresent(page);
 
     await expect(

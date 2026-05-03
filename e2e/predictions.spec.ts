@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { dismissTourIfPresent } from "./helpers";
+import { dismissTourIfPresent, gotoAuthed } from "./helpers";
 
 // No-Show Predictions — admin / doctor surface.
 // Endpoint: GET /ai/predictions/no-show/batch?date=YYYY-MM-DD
@@ -128,7 +128,11 @@ test.describe("No-Show Predictions", () => {
       })
     );
 
-    await page.goto("/dashboard/predictions");
+    // gotoAuthed: WebKit auth-race v4 guard — retries if the layout bounces
+    // to /login before /auth/me completes on this second navigation.
+    // The route stub above persists across retries (Playwright routes survive
+    // re-navigation within the same page context).
+    await gotoAuthed(page, "/dashboard/predictions");
     await dismissTourIfPresent(page);
 
     await page.getByRole("button", { name: /load predictions/i }).first().click();

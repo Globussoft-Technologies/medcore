@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { API_BASE, dismissTourIfPresent, expectNotForbidden } from "./helpers";
+import { API_BASE, dismissTourIfPresent, expectNotForbidden, gotoAuthed } from "./helpers";
 
 /**
  * Daily ADMIN operational levers — leave / duty-roster / audit / tenants /
@@ -146,7 +146,9 @@ test.describe("Admin operations — daily levers", () => {
   }) => {
     const page = adminPage;
 
-    await page.goto("/dashboard/audit");
+    // gotoAuthed: WebKit auth-race v4 guard — retries if the layout bounces
+    // to /login before /auth/me completes on this second navigation.
+    await gotoAuthed(page, "/dashboard/audit");
     await dismissTourIfPresent(page);
     await expectNotForbidden(page);
     await expect(

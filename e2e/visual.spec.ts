@@ -29,7 +29,7 @@
 //     coverage adds maintenance cost without proportional bug-catch value.
 
 import { test, expect } from "./fixtures";
-import { CREDS } from "./helpers";
+import { CREDS, gotoAuthed } from "./helpers";
 
 test.describe("Visual regression — critical surfaces", () => {
   // Linux baselines are generated and committed by the manual
@@ -62,7 +62,11 @@ test.describe("Visual regression — critical surfaces", () => {
   });
 
   test("admin dashboard root renders the expected layout", async ({ adminPage }) => {
-    await adminPage.goto("/dashboard");
+    // gotoAuthed: WebKit auth-race v4 guard — the fixture already landed on
+    // /dashboard, but the visual test re-navigates here explicitly to get a
+    // clean paint. On WebKit under CI the layout remount can lose the
+    // /auth/me race and bounce to /login; gotoAuthed retries if that happens.
+    await gotoAuthed(adminPage, "/dashboard");
     // The dashboard cards animate in; wait for the heading and a known
     // KPI tile so the screenshot is taken after first paint settles.
     await adminPage.getByRole("heading", { level: 1 }).first().waitFor({ state: "visible" });

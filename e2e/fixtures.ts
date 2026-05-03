@@ -90,6 +90,23 @@ async function freshPageWithCachedAuth(
     // this, the test's next page.goto can race the dashboard layout's
     // redirect-to-login effect on WebKit (release run 25256962182).
     await waitForAuthReady(page, cached.token);
+    // WebKit auth-race v4: even after waitForAuthReady confirms the token
+    // is in storage, the dashboard layout's /auth/me probe can still lose
+    // a race and redirect to /login on WebKit under CI parallelism. Wait
+    // here until the URL is no longer /login, retrying the /dashboard
+    // navigation if needed, before handing the page to the test. This
+    // prevents tests whose first action is page.goto("/dashboard/X") from
+    // seeing an unexpected /login URL at step 1.
+    for (let i = 0; i < 3; i++) {
+      const onLogin = await page
+        .waitForURL(/\/login/, { timeout: 600 })
+        .then(() => true)
+        .catch(() => false);
+      if (!onLogin) break;
+      await page.waitForTimeout(800 * (i + 1));
+      await waitForAuthReady(page, cached.token);
+      await page.goto("/dashboard");
+    }
     return { ctx, page, token: cached.token };
   }
   // Cold path (first access for this role on this worker): full login.

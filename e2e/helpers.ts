@@ -171,6 +171,13 @@ export async function injectAuth(
  * loop with a small backoff (v3 — bumped from 3 in commit 1d204d7), in
  * case the token IS observable but /auth/me itself is slow on WebKit
  * under CI parallelism.
+ *
+ * v4 (release run 25284590768): v3 held for single-navigation tests but
+ * failed on tests that navigate to a SECOND dashboard URL after the
+ * fixture. Every `page.goto("/dashboard/X")` remounts the layout in a new
+ * RSC render pass, which re-arms the /auth/me + redirect race. Fixed by
+ * `gotoAuthed()` below — a drop-in for `page.goto` that retries if
+ * WebKit bounces to /login.
  */
 export async function waitForAuthReady(
   page: Page,
@@ -221,6 +228,83 @@ export async function gotoDashboard(
       [token, refresh]
     );
     await page.goto(path, { waitUntil: "domcontentloaded" });
+  }
+}
+
+/**
+ * WebKit auth-race v4 — drop-in replacement for `page.goto()` on any
+ * dashboard URL that is navigated AFTER the fixture has already set up auth.
+ *
+ * WHY THIS IS NEEDED
+ * ------------------
+ * The v3 fix (5×200ms retry loop in dashboard/layout.tsx) protects the
+ * FIRST `page.goto("/dashboard")` that the fixture makes. But every test
+ * that then navigates to a deeper page (e.g. `page.goto("/dashboard/audit")`)
+ * causes Next.js App Router to remount the dashboard layout component in a
+ * new RSC render pass. That remount re-runs `useEffect([loadSession])`. On
+ * WebKit under CI parallelism, the /auth/me response from that second call
+ * can lose a timing race against the layout's redirect-to-login effect,
+ * causing the test to see the URL flip to `/login?redirect=%2Fdashboard`
+ * before any assertion can run.
+ *
+ * The `addInitScript` tokens ARE present in localStorage (confirmed by
+ * `waitForAuthReady`), so the auth guard could succeed if it had slightly
+ * more time. `gotoAuthed` provides that extra time by:
+ *
+ * 1. Navigating to the target URL normally.
+ * 2. If the URL is still `/login` after a short settle, confirming the
+ *    tokens are still in localStorage (they should be — `addInitScript`
+ *    runs on every navigation) and retrying up to 3 times with an
+ *    increasing back-off, allowing the layout's /auth/me round-trip to win.
+ * 3. On each retry the token is explicitly re-written via `page.evaluate`
+ *    (belt-and-suspenders: the `addInitScript` registration persists across
+ *    navigations but the synchronous evaluate ensures the current page
+ *    context's storage is populated before the goto fires again).
+ *
+ * SCOPE: Only use this for `page.goto("/dashboard/...")` calls inside
+ * test bodies. The fixture's initial `/dashboard` navigation is already
+ * handled by `loginAs` / `freshPageWithCachedAuth` + `waitForAuthReady`.
+ *
+ * RETRIES: 3 attempts × back-off of [800ms, 1600ms, 2400ms]. Total worst-
+ * case wait before the first assertion runs: ~5s. That is well within the
+ * 120s per-test timeout and resolves the race reliably in practice.
+ */
+export async function gotoAuthed(
+  page: Page,
+  url: string,
+  opts?: Parameters<Page["goto"]>[1]
+): Promise<void> {
+  const backoffs = [800, 1600, 2400];
+  await page.goto(url, { waitUntil: "domcontentloaded", ...opts });
+  for (let attempt = 0; attempt < backoffs.length; attempt++) {
+    // Allow a brief window for the layout's /auth/me + redirect effect to
+    // settle. Use waitForURL with a tight timeout rather than waitForTimeout
+    // so we bail immediately once the URL is correct (fast path).
+    const isOnLogin = await page
+      .waitForURL(/\/login/, { timeout: 400 })
+      .then(() => true)
+      .catch(() => false);
+    if (!isOnLogin) return; // Happy path — already on target URL.
+
+    // We landed on /login. The addInitScript tokens must still be in storage
+    // (they survive navigations). Re-write them synchronously and wait for
+    // the token to be observable before retrying the navigation.
+    await page.waitForTimeout(backoffs[attempt]);
+    await page
+      .evaluate(() => {
+        // Read back what addInitScript wrote so we don't need to pass
+        // the token value into the closure — it is already in storage.
+        const t = localStorage.getItem("medcore_token");
+        const r = localStorage.getItem("medcore_refresh");
+        if (t) localStorage.setItem("medcore_token", t);
+        if (r) localStorage.setItem("medcore_refresh", r);
+      })
+      .catch(() => {
+        // Page may have navigated mid-evaluate; tolerate the error —
+        // the retry goto below will surface a clearer failure if needed.
+      });
+    await waitForAuthReady(page);
+    await page.goto(url, { waitUntil: "domcontentloaded", ...opts });
   }
 }
 

@@ -38,7 +38,10 @@ const expiringQuerySchema = z.object({
 
 const movementsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
   type: z.string().optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
 });
 
 const reorderSuggestionsQuerySchema = z.object({
@@ -76,6 +79,16 @@ const transfersQuerySchema = z.object({
 
 // Shared path-param schema: UUID :id
 const pharmacyIdParams = validateUuidParams(["id"]);
+
+// Body schema for the Rx-rejection endpoint. The reason must be a real
+// sentence — anything under 10 chars is almost always a placeholder
+// ("no", "n/a") and would not satisfy a regulator's why-was-this-rejected
+// audit trail.
+const rejectPrescriptionBodySchema = z.object({
+  reason: z
+    .string()
+    .min(10, "Rejection reason must be at least 10 characters"),
+});
 
 const router = Router();
 router.use(authenticate);
@@ -544,11 +557,33 @@ router.post(
         }
       }
 
+      // Lifecycle (2026-05-03): flip Prescription.status to DISPENSED on a
+      // successful full-dispense (zero warnings = every line found stock).
+      // This complements the legacy `printed` boolean so existing dispense-
+      // log / pharmacy reports keep working. Defense in depth — neither
+      // breaks if the other already exists.
+      const fullyDispensed =
+        dispensed.length > 0 &&
+        warnings.length === 0 &&
+        dispensed.length === prescription.items.length;
+      if (fullyDispensed) {
+        try {
+          await prisma.prescription.update({
+            where: { id: prescriptionId },
+            data: { status: "DISPENSED" },
+          });
+        } catch (e) {
+          console.error("[prescription-status-update]", e);
+          warnings.push("Failed to update prescription status to DISPENSED");
+        }
+      }
+
       auditLog(req, "PRESCRIPTION_DISPENSE", "prescription", prescriptionId, {
         dispensedCount: dispensed.length,
         warningCount: warnings.length,
         autoBilledInvoiceId: autoBilled.invoiceId,
         autoBilledAmount: autoBilled.addedAmount,
+        statusFlipped: fullyDispensed,
       }).catch(console.error);
 
       res.json({
@@ -556,6 +591,56 @@ router.post(
         data: { dispensed, warnings, prescriptionId, autoBilled, controlledCreated },
         error: null,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/pharmacy/prescriptions/:id/reject — pharmacist rejects an Rx
+// State-machine guard: only PENDING prescriptions can be rejected. Already-
+// DISPENSED or already-CANCELLED rows are immutable from this endpoint —
+// reject the request with 409 so the caller can refresh and decide.
+router.post(
+  "/prescriptions/:id/reject",
+  authorize(Role.ADMIN, Role.PHARMACIST),
+  pharmacyIdParams,
+  validate(rejectPrescriptionBodySchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { reason } = req.body;
+      const existing = await prisma.prescription.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!existing) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Prescription not found",
+        });
+        return;
+      }
+      if (existing.status !== "PENDING") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `Cannot reject prescription in status ${existing.status}`,
+        });
+        return;
+      }
+      const updated = await prisma.prescription.update({
+        where: { id: existing.id },
+        data: {
+          status: "REJECTED",
+          rejectionReason: reason,
+          rejectedAt: new Date(),
+          rejectedBy: req.user!.userId,
+        },
+      });
+      auditLog(req, "PRESCRIPTION_REJECTED", "prescription", existing.id, {
+        reason,
+      }).catch(console.error);
+      res.json({ success: true, data: updated, error: null });
     } catch (err) {
       next(err);
     }
@@ -579,9 +664,15 @@ router.get(
         res.status(400).json({ success: false, data: null, error: parsedMov.error.issues[0]?.message ?? "Invalid query" });
         return;
       }
-      const { limit, type } = parsedMov.data;
+      const { limit, offset, type, from, to } = parsedMov.data;
       const where: Record<string, unknown> = {};
       if (type) where.type = type;
+      if (from || to) {
+        const range: Record<string, Date> = {};
+        if (from) range.gte = new Date(from);
+        if (to) range.lte = new Date(to);
+        where.createdAt = range;
+      }
 
       const movements = await prisma.stockMovement.findMany({
         where,
@@ -594,6 +685,7 @@ router.get(
           },
         },
         orderBy: { createdAt: "desc" },
+        skip: offset,
         take: limit,
       });
 

@@ -71,6 +71,7 @@ import { preauthRouter } from "./routes/preauth";
 import { medReconciliationRouter } from "./routes/med-reconciliation";
 import { scheduledReportsRouter } from "./routes/scheduled-reports";
 import { patientExtrasRouter } from "./routes/patient-extras";
+import { usersRouter } from "./routes/users";
 import { aiTriageRouter } from "./routes/ai-triage";
 import { aiScribeRouter } from "./routes/ai-scribe";
 import { aiTranscribeRouter } from "./routes/ai-transcribe";
@@ -253,6 +254,10 @@ export function buildApp() {
   app.use("/api/v1/agent-console", agentConsoleRouter);
   app.use("/api/v1/ai/kpis", aiKpisRouter);
   app.use("/api/v1/patient-data-export", patientDataExportRouter);
+  // /users — staff user mgmt (PATCH/list/reset-pw/service-cert/prefs).
+  // Must be registered before the catch-all `patientExtrasRouter` mount
+  // so Express finds it first.
+  app.use("/api/v1/users", usersRouter);
   app.use("/api/v1", patientExtrasRouter);
 
   // Health check — the router provides shallow `/api/health` (public) plus

@@ -86,7 +86,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 
 ### 2.2 Inventory & Supply Chain
 - ~~`/dashboard/medicines` — medicine catalog~~ ✅ closed (ADMIN/DOCTOR/NURSE/PATIENT access matrix + ADMIN-only Add CTA + search re-fetch + ADMIN create round-trip; `e2e/medicines.spec.ts`)
-- `/dashboard/pharmacy` — stock levels, reorder, expiry alerts (only landing tested)
+- ~~`/dashboard/pharmacy` — stock levels, reorder, expiry alerts (only landing tested)~~ ✅ deepened (tabs/search/filter coverage; `e2e/pharmacy.spec.ts`)
 - `/dashboard/purchase-orders` — PO list
 - `/dashboard/purchase-orders/[id]` — PO detail / approval
 - `/dashboard/assets` — equipment register

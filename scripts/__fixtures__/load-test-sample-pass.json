@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "endpoint": "triage",
+  "baseUrl": "http://localhost:4010",
+  "mockMode": true,
+  "concurrency": 10,
+  "requests": 100,
+  "completed": 100,
+  "ok": 99,
+  "errors": 1,
+  "errorRate": 0.01,
+  "wallMs": 12340,
+  "throughputRps": 8.1,
+  "latencyMs": {
+    "min": 102,
+    "p50": 480,
+    "p95": 2100,
+    "p99": 2750,
+    "max": 2980
+  },
+  "errorStatusBreakdown": {
+    "503": 1
+  },
+  "generatedAt": "2026-05-03T10:00:00.000Z"
+}

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "endpoint": "scribe",
+  "baseUrl": "http://localhost:4010",
+  "mockMode": true,
+  "concurrency": 10,
+  "requests": 100,
+  "completed": 100,
+  "ok": 90,
+  "errors": 10,
+  "errorRate": 0.1,
+  "wallMs": 28910,
+  "throughputRps": 3.5,
+  "latencyMs": {
+    "min": 320,
+    "p50": 1900,
+    "p95": 9500,
+    "p99": 12000,
+    "max": 14800
+  },
+  "errorStatusBreakdown": {
+    "429": 6,
+    "503": 4
+  },
+  "generatedAt": "2026-05-03T10:05:00.000Z"
+}

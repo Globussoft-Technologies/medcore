@@ -108,3 +108,36 @@ This policy is load-bearing for two reasons:
 Phase 1 → Phase 2 → Phase 3, in order. Phase 4 items happen in parallel
 ops work, not as part of this CI sweep. Each phase is its own commit
 batch so a regression can be cleanly bisected.
+
+## Load-test SLA gate (P6) — threshold tuning workflow
+
+Shipped 2026-05-03 (P6 closure). The gate lives in
+`scripts/load-test-sla-gate.ts`, reads `scripts/load-test-thresholds.json`,
+and runs as the `load-test-sla-gate` job in `load-test-nightly.yml` after
+the existing nightly + on PRs touching `apps/api/src/routes/**`.
+
+**When to retune:** when a real (non-flake) regression fires the gate
+or you've intentionally moved the steady-state baseline (new endpoint,
+new payload mix, mock-server latency profile change).
+
+1. Pull the failing run's `load-test-results` artifact and inspect the
+   `*.json` summaries — note the actual p95/p99/errorRate per endpoint.
+2. Confirm it's a **real** drift (3 consecutive nightly fails on
+   `main`) rather than a one-off flake. The `concurrency=10, requests=100`
+   sample is small, so single-run noise of ±300 ms p95 is normal.
+3. If genuine improvement (you sped something up): tighten the budget.
+   Set `max` to `actual_p95 + 15%` rounded to a clean number — leaves
+   headroom for noise without re-opening the gap you just closed.
+4. If genuine regression you can't fix immediately: raise the budget
+   only after filing a TODO and linking the commit. Comment the prior
+   value next to the new one in the JSON so the trend is visible in
+   future diffs.
+5. Never raise the **global error-rate** ceiling without team review.
+   1% across all endpoints is the contract; bumping it hides exactly
+   the kind of regression this gate was added to catch.
+
+**Future work:** the current thresholds target mock-server latencies.
+When the gate is re-pointed at real-API runs (staging, P4.1) bump the
+per-endpoint p95 budgets to match the README "Expected baselines" table
+(triage <3s, scribe <15s, chart-search <4s) and re-baseline against 7
+green runs before tightening further.

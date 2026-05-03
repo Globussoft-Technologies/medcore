@@ -5,10 +5,11 @@ name: Load test (nightly)
 #   - Transport-level breakage (run-load-test.ts unable to reach the API
 #     contract surface, e.g. fetch fails or returns non-2xx for >50% of
 #     requests)
-#   - Catastrophic latency tails (the orchestrator currently doesn't
-#     enforce per-endpoint p95 budgets; that's a planned follow-up.
-#     Today the workflow log is the audit trail and the artifact lets
-#     us spot trends manually.)
+#   - Catastrophic latency tails — enforced by the `load-test-sla-gate`
+#     job below (P6, 2026-05-03). Per-endpoint p95/p99 budgets and
+#     global error-rate budget live in scripts/load-test-thresholds.json;
+#     the gate fails the workflow on breach so regressions stop being
+#     "spot the trend in the artifact log" and start being a red X.
 #
 # Why mock-server, not the real API:
 #   - Real Sarvam quota would burn nightly. The mock simulates the
@@ -17,7 +18,7 @@ name: Load test (nightly)
 #     orchestration code (auth, retries, fan-out), not Sarvam's behavior.
 #     Sarvam latency drift is caught by ai-eval-nightly.yml separately.
 #
-# CI hardening Phase 3.2.
+# CI hardening Phase 3.2 + P6 SLA gate.
 
 on:
   schedule:
@@ -25,13 +26,25 @@ on:
     # 22:30 UTC ai-eval cron, so artifacts don't queue.
     - cron: "30 23 * * *"
   workflow_dispatch:
+  # Also run on PRs that touch the AI route handlers — these are the
+  # surfaces the harness exercises, so a regression caused by route-level
+  # changes (auth, validation, payload shape) will be caught at PR time
+  # instead of waking someone up at 05:00 IST. Other paths still rely on
+  # the nightly cron.
+  pull_request:
+    paths:
+      - "apps/api/src/routes/**"
+      - "scripts/load-tests/**"
+      - "scripts/load-test-sla-gate.ts"
+      - "scripts/load-test-thresholds.json"
+      - ".github/workflows/load-test-nightly.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: load-test-nightly
-  cancel-in-progress: false
+  group: load-test-nightly-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   load-test:
@@ -74,6 +87,7 @@ jobs:
           npx tsx scripts/load-tests/run-load-test.ts \
             --endpoint=triage --mock-port=4010 \
             --concurrency=10 --requests=100 \
+            --json-out=load-test-results/triage.json \
             > load-test-results/triage.log 2>&1
           tail -40 load-test-results/triage.log
 
@@ -82,6 +96,7 @@ jobs:
           npx tsx scripts/load-tests/run-load-test.ts \
             --endpoint=scribe --mock-port=4010 \
             --concurrency=10 --requests=100 \
+            --json-out=load-test-results/scribe.json \
             > load-test-results/scribe.log 2>&1
           tail -40 load-test-results/scribe.log
 
@@ -90,15 +105,58 @@ jobs:
           npx tsx scripts/load-tests/run-load-test.ts \
             --endpoint=chart-search --mock-port=4010 \
             --concurrency=10 --requests=100 \
+            --json-out=load-test-results/chart-search.json \
             > load-test-results/chart-search.log 2>&1
           tail -40 load-test-results/chart-search.log
 
-      - name: Upload load-test logs
+      - name: Upload load-test artifacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: load-test-logs
+          name: load-test-results
           path: |
             load-test-results/
             mock-server.log
           retention-days: 30
+
+  load-test-sla-gate:
+    name: Load-test SLA gate
+    needs: load-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Run even if the load-test job had a non-fatal failure — we want the
+    # gate's per-endpoint breach summary in the workflow log either way.
+    # If the load-test job produced no JSON files (catastrophic transport
+    # failure), the gate exits 2 and surfaces the missing-artifact error.
+    if: always() && needs.load-test.result != 'cancelled'
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+
+      - name: Install dependencies
+        # Only need tsx + Node built-ins for the gate; full install keeps
+        # tsx resolution simple (matches the load-test job's setup).
+        run: npm install
+
+      - name: Download load-test results
+        uses: actions/download-artifact@v6
+        with:
+          name: load-test-results
+          path: artifacts
+
+      - name: Run SLA gate
+        # Reads every artifacts/load-test-results/*.json, compares against
+        # scripts/load-test-thresholds.json, exits non-zero on breach. The
+        # workflow log shows one PASS/FAIL line per check so the failing
+        # endpoint and metric are obvious without downloading the JSON.
+        # Threshold-tuning workflow: docs/CI_HARDENING_PLAN.md "Load-test
+        # SLA gate (P6)".
+        run: |
+          npx tsx scripts/load-test-sla-gate.ts \
+            --results-dir=artifacts/load-test-results \
+            --thresholds=scripts/load-test-thresholds.json

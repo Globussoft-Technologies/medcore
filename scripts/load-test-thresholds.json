@@ -1,0 +1,60 @@
+{
+  "$schema": "./load-test-thresholds.schema.json",
+  "_comment": [
+    "SLA thresholds enforced by scripts/load-test-sla-gate.ts (P6).",
+    "These are gating thresholds, NOT performance targets. Set them so a",
+    "passing run is the steady-state expectation; raise the floor only after",
+    "you've moved the actual baseline. Source-of-truth for guidance is",
+    "scripts/load-tests/README.md \"Expected baselines\" — those are SOFT,",
+    "the values below are HARD (gate fails on breach).",
+    "",
+    "Today these are tuned to MOCK-SERVER latencies (mock-server.ts produces",
+    "100ms-5s with cube-skewed distributions, per-endpoint multipliers). When",
+    "the gate is wired to real-API runs, bump the per-endpoint p95 budgets",
+    "and re-tune off 7 days of green-run baselines."
+  ],
+  "global": {
+    "errorRate": {
+      "max": 0.01,
+      "_note": "1% across all endpoints. Mock server emits 3% by default; we run with 100 requests so noise can reach 1-2 errors. If false-positive rate is annoying, raise to 0.02 and keep the per-endpoint p95 as the real signal."
+    }
+  },
+  "endpoints": {
+    "triage": {
+      "p95Ms": {
+        "max": 3000,
+        "_note": "Triage is one short LLM call. README target <3s; mock-server caps ~3000ms via cube-skew on [100, 3000]."
+      },
+      "p99Ms": {
+        "max": 4500
+      },
+      "errorRate": {
+        "max": 0.02
+      }
+    },
+    "scribe": {
+      "p95Ms": {
+        "max": 6000,
+        "_note": "Scribe is the slowest path (longest prompt, tool calls). README target <15s for real API; mock caps ~5000ms. Set 6s as the gate to allow some headroom over mock p95 without hiding real-API regressions if/when the gate is re-targeted."
+      },
+      "p99Ms": {
+        "max": 8000
+      },
+      "errorRate": {
+        "max": 0.02
+      }
+    },
+    "chart-search": {
+      "p95Ms": {
+        "max": 4000,
+        "_note": "Retrieval + short synthesis. README target <4s. Mock caps ~4000ms via cube-skew on [150, 4000]."
+      },
+      "p99Ms": {
+        "max": 5500
+      },
+      "errorRate": {
+        "max": 0.02
+      }
+    }
+  }
+}

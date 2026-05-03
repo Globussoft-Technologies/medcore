@@ -16,12 +16,17 @@
  *                                              pair with mock-server.ts)
  *   --patient-id=<uuid>                       (chart-search only; required
  *                                              for real API, ignored by mock)
+ *   --json-out=<path>                         (also write a machine-readable
+ *                                              summary JSON to <path> for
+ *                                              the SLA-gate parser)
  *   --verbose                                 (log each request result)
  *
  * No npm deps — Node 18+ `fetch`, `perf_hooks`, and built-ins only.
  */
 
 import { performance } from "node:perf_hooks";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import {
   triagePrompts,
   scribeTranscripts,
@@ -39,6 +44,7 @@ interface CliArgs {
   baseUrl: string;
   mockPort?: number;
   patientId?: string;
+  jsonOut?: string;
   verbose: boolean;
 }
 
@@ -110,6 +116,7 @@ function parseArgs(argv: string[]): CliArgs {
     baseUrl,
     mockPort,
     patientId: args["patient-id"] as string | undefined,
+    jsonOut: args["json-out"] as string | undefined,
     verbose: Boolean(args.verbose),
   };
 }
@@ -464,6 +471,80 @@ function summarise(records: RequestRecord[], args: CliArgs): void {
   process.stdout.write(`${bar}\n`);
 }
 
+// ── JSON export for SLA gate ────────────────────────────────────────────────
+//
+// The SLA-gate parser (`scripts/load-test-sla-gate.ts`) reads this shape.
+// Keep it stable; bump `schemaVersion` if you change the layout.
+
+interface JsonSummary {
+  schemaVersion: 1;
+  endpoint: Endpoint;
+  baseUrl: string;
+  mockMode: boolean;
+  concurrency: number;
+  requests: number;
+  completed: number;
+  ok: number;
+  errors: number;
+  errorRate: number; // 0..1
+  wallMs: number;
+  throughputRps: number;
+  latencyMs: {
+    min: number;
+    p50: number;
+    p95: number;
+    p99: number;
+    max: number;
+  } | null;
+  errorStatusBreakdown: Record<string, number>;
+  generatedAt: string;
+}
+
+function buildJsonSummary(records: RequestRecord[], args: CliArgs): JsonSummary {
+  const completed = records.filter((r) => r.reqIndex >= 0);
+  const ok = completed.filter((r) => r.ok);
+  const errs = completed.filter((r) => !r.ok);
+  const latencies = ok.map((r) => r.latencyMs).sort((a, b) => a - b);
+  const wallMs = (records as { __wallMs?: number } & RequestRecord[]).__wallMs ?? 0;
+  const errorStatusBreakdown: Record<string, number> = {};
+  for (const r of errs) {
+    const key = String(r.status);
+    errorStatusBreakdown[key] = (errorStatusBreakdown[key] ?? 0) + 1;
+  }
+
+  return {
+    schemaVersion: 1,
+    endpoint: args.endpoint,
+    baseUrl: args.baseUrl,
+    mockMode: Boolean(args.mockPort),
+    concurrency: args.concurrency,
+    requests: args.requests,
+    completed: completed.length,
+    ok: ok.length,
+    errors: errs.length,
+    errorRate: completed.length === 0 ? 1 : errs.length / completed.length,
+    wallMs,
+    throughputRps: wallMs > 0 ? (completed.length / wallMs) * 1000 : 0,
+    latencyMs:
+      latencies.length === 0
+        ? null
+        : {
+            min: latencies[0],
+            p50: percentile(latencies, 50),
+            p95: percentile(latencies, 95),
+            p99: percentile(latencies, 99),
+            max: latencies[latencies.length - 1],
+          },
+    errorStatusBreakdown,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+function writeJsonSummary(path: string, summary: JsonSummary): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(summary, null, 2) + "\n", "utf8");
+}
+
 // ── Entry ───────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -473,7 +554,7 @@ async function main(): Promise<void> {
   } catch (err) {
     process.stderr.write(`Error: ${(err as Error).message}\n\n`);
     process.stderr.write(
-      `Usage: tsx scripts/load-tests/run-load-test.ts --endpoint=<triage|scribe|chart-search> [--concurrency=N] [--requests=N] [--base-url=<url>] [--mock-port=N] [--patient-id=<uuid>] [--verbose]\n`
+      `Usage: tsx scripts/load-tests/run-load-test.ts --endpoint=<triage|scribe|chart-search> [--concurrency=N] [--requests=N] [--base-url=<url>] [--mock-port=N] [--patient-id=<uuid>] [--json-out=<path>] [--verbose]\n`
     );
     process.exit(2);
     return;
@@ -485,6 +566,18 @@ async function main(): Promise<void> {
   if (!(records as any).__wallMs) (records as any).__wallMs = t1 - t0;
 
   summarise(records, args);
+
+  if (args.jsonOut) {
+    try {
+      const summary = buildJsonSummary(records, args);
+      writeJsonSummary(args.jsonOut, summary);
+      process.stdout.write(`  json summary    ${args.jsonOut}\n`);
+    } catch (err) {
+      process.stderr.write(
+        `Warning: failed to write json summary to ${args.jsonOut}: ${(err as Error).message}\n`
+      );
+    }
+  }
 
   const completed = records.filter((r) => r.reqIndex >= 0);
   const errRate =

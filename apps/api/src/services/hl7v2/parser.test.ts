@@ -265,4 +265,37 @@ describe("parser helpers", () => {
   it("parseComponents on an empty field returns an empty array", () => {
     expect(parseComponents("")).toEqual([]);
   });
+
+  it("extractMessageType returns the {msgType, trigger, structure} triplet", () => {
+    expect(extractMessageType(parsed)).toEqual({
+      msgType: "ADT",
+      trigger: "A04",
+      structure: "ADT_A01",
+    });
+  });
+
+  it("getControlId works on an MSH-only message", () => {
+    const onlyMsh = parseMessage(MSH_ADT_A04);
+    expect(getControlId(onlyMsh)).toBe("CTRL-ADT-1");
+  });
+});
+
+// ─── Surfaced parser quirk: \\S\\ collapses into component separators ───────
+
+describe("Known parser quirk — field-level unescape vs component split", () => {
+  // The parser stores fields already-unescaped. So when a sender embeds
+  // \\S\\ (escaped ^) in a value and downstream consumers call
+  // parseComponents on the field, the literal ^ produced by unescape
+  // becomes an extra component boundary. Senders that need to round-trip
+  // ^ inside a component MUST go through parseComponents at the segment
+  // level (split-then-unescape) rather than reading getField output.
+  it("getField returns the unescaped string — embedded ^ from \\S\\ is indistinguishable from a real component separator", () => {
+    const raw = [MSH_ADT_A04, "PID|1||MR-1^^^MR^MR||a\\S\\b"].join("\r");
+    const parsed = parseMessage(raw);
+    const pid5 = getField(parsed, "PID", 5)!;
+    // The escape was decoded at field level, so the field value contains a
+    // literal ^ — and parseComponents will split it into ["a","b"].
+    expect(pid5).toBe("a^b");
+    expect(parseComponents(pid5)).toEqual(["a", "b"]);
+  });
 });

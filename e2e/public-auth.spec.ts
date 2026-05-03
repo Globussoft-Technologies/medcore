@@ -450,8 +450,23 @@ test.describe("/forgot-password — password reset flow", () => {
     // The confirmation text embeds the email (expected UX — not a leak)
     await expect(page.getByText(unknownEmail)).toBeVisible();
 
-    // Must NOT show any different error message that reveals the email doesn't exist.
-    await expect(page.getByRole("alert")).not.toBeVisible();
+    // Must NOT show any error message that reveals the email doesn't exist.
+    // We can't assert `getByRole("alert")` is invisible — Next.js injects a
+    // hidden empty `<div role="alert" id="__next-route-announcer__">` on every
+    // page for screen-reader route changes, so that selector always matches.
+    // Instead, assert that none of the enumeration-revealing strings appear
+    // anywhere on the page (the page's own error renderer is unstyled
+    // text-in-a-div with no role="alert", so a content scan covers it).
+    const enumerationLeakPatterns = [
+      /no such (user|email|account)/i,
+      /user not found/i,
+      /account.*not.*(exist|found)/i,
+      /email.*not.*(registered|exist|found)/i,
+      /unknown email/i,
+    ];
+    for (const re of enumerationLeakPatterns) {
+      await expect(page.locator("body")).not.toContainText(re);
+    }
   });
 
   test("rate-limit: 429 from API renders user-friendly error, not raw message", async ({

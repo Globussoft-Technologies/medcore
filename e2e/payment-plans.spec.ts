@@ -229,13 +229,17 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
 
     // -- Step 1: pick the patient via EntityPicker
     // The EntityPicker renders a search input with placeholder matching
-    // `searchPlaceholder="Search patient by name, phone, MR..."`.
+    // `searchPlaceholder="Search patient by name, phone, MR..."` and emits
+    // dropdown rows as <li role="option" data-testid="new-plan-patient-option">.
+    // Filter by hasText against the seeded patient's full name to disambiguate
+    // when other patients in the DB happen to share the first name.
     const patientSearch = page.getByPlaceholder(/search patient/i).first();
     await patientSearch.fill(patientName.split(" ")[0]);
 
     // Wait for the dropdown option to appear and click the seeded patient.
     await page
-      .getByRole("button", { name: new RegExp(patientName, "i") })
+      .getByTestId("new-plan-patient-option")
+      .filter({ hasText: patientName })
       .first()
       .click({ timeout: 10_000 });
 
@@ -355,7 +359,8 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       .first()
       .fill(patientName.split(" ")[0]);
     await page
-      .getByRole("button", { name: new RegExp(patientName, "i") })
+      .getByTestId("new-plan-patient-option")
+      .filter({ hasText: patientName })
       .first()
       .click({ timeout: 10_000 });
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
@@ -405,7 +410,8 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       .first()
       .fill(patientName.split(" ")[0]);
     await page
-      .getByRole("button", { name: new RegExp(patientName, "i") })
+      .getByTestId("new-plan-patient-option")
+      .filter({ hasText: patientName })
       .first()
       .click({ timeout: 10_000 });
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
@@ -450,7 +456,8 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       .first()
       .fill(patientName.split(" ")[0]);
     await page
-      .getByRole("button", { name: new RegExp(patientName, "i") })
+      .getByTestId("new-plan-patient-option")
+      .filter({ hasText: patientName })
       .first()
       .click({ timeout: 10_000 });
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
@@ -496,7 +503,8 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       .first()
       .fill(patientName.split(" ")[0]);
     await page
-      .getByRole("button", { name: new RegExp(patientName, "i") })
+      .getByTestId("new-plan-patient-option")
+      .filter({ hasText: patientName })
       .first()
       .click({ timeout: 10_000 });
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
@@ -584,7 +592,8 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       .first()
       .fill(patientName.split(" ")[0]);
     await page
-      .getByRole("button", { name: new RegExp(patientName, "i") })
+      .getByTestId("new-plan-patient-option")
+      .filter({ hasText: patientName })
       .first()
       .click({ timeout: 10_000 });
 

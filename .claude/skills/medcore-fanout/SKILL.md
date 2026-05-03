@@ -109,7 +109,8 @@ After the parallel batch completes:
 1. Summarize each agent's commit in a single table for the user (commit SHA, what landed, any skips).
 2. If any agent failed, surface the failure prominently and ask the user whether to retry, redirect, or skip.
 3. If race-related rebase happened, note it (audit-friendly).
-4. Recommend the next move (e.g., "all four E2E routes shipped — kick off release.yml to validate?").
+4. **Chain `/medcore-doc-roll` next** — capture this wave's commits + agent-surfaced findings into TODO.md + CHANGELOG.md before any new wave starts. Skipping this between waves loses the architectural findings agents surface in commit bodies. Idempotent and safe — just always do it.
+5. After the doc-roll lands, recommend the next move (e.g., "all four E2E routes shipped + docs rolled — kick off release.yml to validate?").
 
 ## Common batches for MedCore
 

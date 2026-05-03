@@ -21,13 +21,16 @@ backups/*.sql.gz
 # a ~2MB root-owned medcore_software_db-22042026.sql sat in the prod working tree).
 /medcore_software_db-*.sql
 /*.sql.gz
-# Ignore everything inside .claude/ EXCEPT skills/ — git can't unignore
-# children of an ignored parent, so we have to glob the contents
-# (.claude/* / .claude/**) and then re-include skills/.
+# Ignore everything inside .claude/ EXCEPT skills/ and settings.json
+# (the project-shared files) — git can't unignore children of an
+# ignored parent, so we glob the contents (.claude/* / .claude/**)
+# then re-include the project-shared bits. settings.local.json stays
+# local-only (per-user permissions / overrides).
 .claude/*
 .claude/**/
 !.claude/skills/
 !.claude/skills/**
+!.claude/settings.json
 *.tsbuildinfo
 playwright-report/
 test-results/

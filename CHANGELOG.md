@@ -11,6 +11,34 @@ test-coverage closure across §A-§E gaps, Playwright stabilization
 across Chromium + WebKit, and the local-first test workflow.
 
 ### Added
+- **WebKit auth-race v4 fix (`eb40604`).** `gotoAuthed(page, url)`
+  helper in `e2e/helpers.ts` + fixture settle guard in
+  `e2e/fixtures.ts` close the race that resurfaced on release.yml
+  `25284590768` (3 hard fails on admin-ops:144 / pharmacy-forecast:8 /
+  predictions:128 + visual:65 + 22 flaky retries). v3's layout retry
+  protected the fixture's first `/dashboard` goto; subsequent
+  `page.goto("/dashboard/X")` inside test bodies trigger a fresh App
+  Router RSC render that re-arms the `/auth/me` race. Helper polls for
+  `/login` bounce, re-writes tokens, retries with back-off.
+- **`/dashboard/controlled-substances` E2E (`e33ceea`).** 10 cases
+  across 6 roles (PHARMACIST/DOCTOR/ADMIN allow + NURSE/RECEPTION/PATIENT
+  deny → `/dashboard/not-authorized`). Closes
+  `docs/E2E_COVERAGE_BACKLOG.md` §2.2 entry. Page is read-only audit
+  surface; entries flow from the dispense workflow.
+- **PDF / letter / invoice snapshot regression (`86766bf`).** 8
+  vitest file-based snapshots across 4 generators
+  (`generatePrescriptionPDF`, `generateInvoicePDF`,
+  `generateDischargeSummaryHTML`, `generateReferralLetter` prompt) at
+  `apps/api/src/services/__snapshots__/pdf-snapshot.test.ts.snap`.
+  Locale-dates pinned to `null`, QR PNG mocked to `STUB_QR` to avoid
+  CI flake. Closes `docs/TEST_COVERAGE_AUDIT.md` §5 P9.
+- **AI hot-path vitest benchmarks (`6832a6f`).** 13 `bench()` tasks
+  across 3 files in `apps/api/src/services/ai/` — `prompt-safety` (5),
+  `er-triage`'s `calculateMEWS` (5), `chart-search`'s `synthesizeAnswer`
+  (3). New `npm run bench` script. Compare workflow:
+  `vitest bench --run --outputJson` then `--compare`; `<0.9×` ops/sec
+  trips a >10% regression alarm. Closes
+  `docs/TEST_COVERAGE_AUDIT.md` §5 P10.
 - **Component-level a11y regression suite (vitest-axe).** New helper
   `apps/web/src/test/a11y.ts` exports `expectNoA11yViolations(node, opts)`
   pinned to `wcag2a` + `wcag2aa` + `wcag21a` + `wcag21aa` (mirrors

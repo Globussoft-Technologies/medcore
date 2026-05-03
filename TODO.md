@@ -49,17 +49,22 @@ is independently shippable. Full per-session history lives under
 
 ---
 
-## What landed 2026-05-04 (cumulative-refund guard + P3 component a11y)
+## What landed 2026-05-04 (cumulative-refund guard + P3 a11y + 4-agent parallel batch)
 
 > Continuing the late-night attack order from the
 > `docs/TEST_COVERAGE_AUDIT.md` § P-list and the late-night session
-> snapshot's "critical follow-ups". HEAD on `main` so far:
-> `ca76961` (cumulative refund) + this commit (P3 a11y scaffolding).
+> snapshot's "critical follow-ups". HEAD on `main`: `6832a6f` (P10 AI
+> benches) sitting on top of `86766bf` → `eb40604` → `e33ceea` → `d1cac91` →
+> `ca76961`. Six commits today; ~2,400 lines of new test/fix code.
 
 | Commit | What |
 |---|---|
 | `ca76961` | **Late-night critical follow-up #2 closed** — Cumulative refund fraud detection. Schema: `Payment.parentPaymentId` self-FK with `ON DELETE SET NULL` (additive migration `20260504000001_payment_parent_for_refunds`, no destructive marker). Handler: 3rd fraud guard in `apps/api/src/routes/billing.ts` sums all prior `REFUNDED` children on the same parent + the incoming refund and rejects when `priorRefundTotal + refundAmount > original.amount`. Refund creates now stamp `parentPaymentId: original.id` so subsequent events can sum against the same parent. 3 new webhook tests (cumulative-exceeds rejection, at-the-ceiling allowance, parent-stamping pin). The reason-code → error-string map in the route handler was switched from a chained ternary to a `Record<RefundResult["reason"], string>` lookup so future reasons can't fall through to the generic 400. |
-| _(pending)_ | **P3 vitest-axe component a11y scaffolding** — Closes `docs/TEST_COVERAGE_AUDIT.md` §5 P3. New helper `apps/web/src/test/a11y.ts` wraps `vitest-axe`'s `axe()` with `expectNoA11yViolations(node, opts)`, pinned to `wcag2a` + `wcag2aa` + `wcag21a` + `wcag21aa` to mirror the e2e a11y spec, default impact filter `["moderate","serious","critical"]` (skip `minor` during initial rollout). Seed test file `apps/web/src/components/__tests__/a11y.test.tsx` covers DataTable (rows / empty / loading), EmptyState (with action button), ConfirmDialog (portal-rendered — asserts on `document.body`), and EntityPicker (closed state). devDeps: `vitest-axe ^0.1.0` + `axe-core ^4.11.4`. **Component-level a11y now runs sub-second in the unit suite, surfacing violations BEFORE the ~25-min Playwright e2e tier.** |
+| `d1cac91` | **P3 vitest-axe component a11y scaffolding** — Closes `docs/TEST_COVERAGE_AUDIT.md` §5 P3. New helper `apps/web/src/test/a11y.ts` wraps `vitest-axe`'s `axe()` with `expectNoA11yViolations(node, opts)`, pinned to `wcag2a` + `wcag2aa` + `wcag21a` + `wcag21aa` to mirror the e2e a11y spec, default impact filter `["moderate","serious","critical"]` (skip `minor` during initial rollout). Seed test file `apps/web/src/components/__tests__/a11y.test.tsx` covers DataTable (rows / empty / loading), EmptyState (with action button), ConfirmDialog (portal-rendered — asserts on `document.body`), and EntityPicker (closed state). devDeps: `vitest-axe ^0.1.0` + `axe-core ^4.11.4`. **Component-level a11y now runs sub-second in the unit suite, surfacing violations BEFORE the ~25-min Playwright e2e tier.** |
+| `e33ceea` | **`/dashboard/controlled-substances` E2E spec** — closes `docs/E2E_COVERAGE_BACKLOG.md` §2.2 entry. 10 cases across 6 roles. Read-only regulatory audit register (no add-entry form on this surface — entries flow in from the dispense workflow). Positive paths: PHARMACIST × 5 (page chrome, tab nav, CSV button gate per-tab, seeded entry visible, register-by-medicine), DOCTOR × 1, ADMIN × 1. RBAC denies: NURSE / RECEPTION / PATIENT all bounce to `/dashboard/not-authorized`. |
+| `eb40604` | **WebKit auth-race v4 fix** — diagnosed and fixed the regression that surfaced in release.yml run `25284590768`. v3's 5×200ms layout retry protected the fixture's *first* `/dashboard` goto; subsequent `page.goto("/dashboard/X")` inside test bodies trigger a fresh App Router RSC render that re-arms the `/auth/me` ↔ redirect-to-login race on WebKit. Two-part fix in `e2e/` only: (1) new `gotoAuthed(page, url)` helper with a `waitForURL(/login/, 400ms)` poll + back-off retry that re-writes tokens via `page.evaluate` before retrying; (2) fixture-level settle guard in `freshPageWithCachedAuth` that retries up to 3× if the fixture's own `/dashboard` goto landed on `/login`. Helper applied surgically to the 4 failing nav sites: `admin-ops:144`, `pharmacy-forecast:8`, `predictions:128`, `visual:65`. **Next release.yml run is the verification.** |
+| `86766bf` | **P9 PDF / letter / invoice snapshot regression** — closes `docs/TEST_COVERAGE_AUDIT.md` §5 P9. 8 vitest file-based snapshots across 4 generators: `generatePrescriptionPDF` (empty + populated with QR), `generateInvoicePDF` (1-item + multi-item w/ discount + partial payment), `generateDischargeSummaryHTML` (minimal + full w/ med orders + follow-up), `generateReferralLetter` prompt (ROUTINE w/ toDoctorName + EMERGENCY w/ empty meds). Freezes the deterministic skeleton: `letterhead()` brand block, `baseStyles()` CSS, `htmlDoc()` wrapper, title blocks, table headers, totals block, QR section. Locale-formatted dates set to `null` and QR PNG mocked to `STUB_QR` to prevent Windows/macOS/Linux CI flake. All 8 generated and asserting locally. |
+| `6832a6f` | **P10 AI hot-path vitest benchmarks** — closes `docs/TEST_COVERAGE_AUDIT.md` §5 P10. 13 `bench()` tasks across 3 files in `apps/api/src/services/ai/`: `prompt-safety.bench.ts` (5 tasks — `sanitizeUserInput` short/long-adversarial/SOAP-sized, `wrapUserContent`, `buildSafePrompt` — the regex pipeline that gates EVERY AI service), `er-triage.bench.ts` (5 — `calculateMEWS` across all-normal / sepsis / hypotensive bradycardia / partial / empty), `chart-search.bench.ts` (3 — `synthesizeAnswer` with mocked Sarvam at 200B/800B/1500B chunk tiers). New `npm run bench` script. Baseline-set + compare workflow documented in each file's header (`<0.9× baseline ops/sec` = >10% regression alarm). Local sample throughput: `calculateMEWS` ~22-25M hz, `wrapUserContent` ~9.9M hz, `synthesizeAnswer` 18k-40k hz. |
 
 ### Stale doc note retired
 - TODO.md previously said the `patient-data-export.ts` integration
@@ -70,25 +75,21 @@ is independently shippable. Full per-session history lives under
 
 ### Still open — NEXT-SESSION PICKUP
 
-- **release.yml run `25284590768` resolved** — finished `failure`, but
-  **audit-phi flake CONFIRMED** (the original failing test passed
-  cleanly). API integration suite, web tests, typecheck, and full
-  Chromium E2E all green. The failure is a **new** WebKit regression:
-  - 3 hard failures: `admin-ops.spec.ts:144` (audit log filter),
-    `pharmacy-forecast.spec.ts:8` (heading + controls),
-    `predictions.spec.ts:120` (error banner when /batch 500s).
-  - 22 flaky retries.
-  - Recurring symptom in the visual.spec failure: `page.goto: Navigation to
-    "http://localhost:3000/dashboard" is interrupted by another navigation to
-    "http://localhost:3000/login?redirect=%2Fdashboard"` — looks like the
-    auth-race we thought was fully closed in `eb85749` is back, this time
-    on visual.spec + the 3 hard-fail specs. **Investigate WebKit
-    auth-race v4 first next session.**
-- **E2E recommendation #5** — `/dashboard/controlled-substances`
-  flow spec (regulatory, ~1.5h). Highest-leverage remaining e2e gap
-  per `docs/E2E_COVERAGE_BACKLOG.md`.
-- **TEST_COVERAGE_AUDIT P5–P10** — still open (lower leverage than P3,
-  which we just closed).
+- **Verify WebKit auth-race v4 fix `eb40604` actually holds** —
+  `gotoAuthed` + fixture settle guard typecheck-clean but the WebKit
+  Playwright binary isn't installed on the dev host so live verification
+  is CI-only. Watch the next release.yml run on `6832a6f`. If the 3
+  hard fails (admin-ops:144 / pharmacy-forecast:8 / predictions:128)
+  + visual:65 are all green, declare v4 stable. If still flaky, audit
+  whether other test bodies' `page.goto("/dashboard/...")` calls also
+  need swapping to `gotoAuthed` (helper is exported and ready).
+- **TEST_COVERAGE_AUDIT P-list residuals — P5, P6, P7, P8 still open.**
+  - P5 — Mobile E2E (Detox/Maestro) — large effort, multi-day.
+  - P6 — Load-test SLA gate in CI — parse load-test JSON, fail PR on
+    threshold breach (~2h). Lowest friction; good next pickup.
+  - P7 — Expand AI evaluation dataset 3 → 50+ fixtures + Sarvam vs
+    OpenAI compare harness (~3-4h).
+  - P8 — Consumer-driven contract tests (OpenAPI / Pact) (~3h).
 
 ---
 

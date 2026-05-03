@@ -62,11 +62,22 @@ For each commit body, extract:
 | Finding type | Destination |
 |---|---|
 | Spec/test added or fixed | TODO.md "What landed" section + CHANGELOG.md `[Unreleased] > Added` (or `> Fixed`) |
-| Architectural / cross-cutting bug | TODO.md "Architectural findings" section (deduplicated) |
+| **OPEN architectural / cross-cutting bug** | TODO.md "Open architectural follow-ups" canonical table (deduplicated, with a stable A-prefix ID like A11) — NOT just buried under a "What landed" sub-section |
+| **CLOSED architectural finding** (was open, now fixed by this wave) | Move from "Open" table to "Closed (kept for log)" table in TODO.md, citing closing commit |
+| New E2E coverage (route closed) | Inline strikethrough closure on the relevant `/dashboard/<route>` line in `docs/E2E_COVERAGE_BACKLOG.md` (the agent that wrote the spec usually does this; verify it landed) |
+| New test-type coverage (P-list closure) | Inline annotation on the relevant `P<N>` heading in `docs/TEST_COVERAGE_AUDIT.md` |
 | Convention / pattern codified | CHANGELOG.md `[Unreleased]` + project memory (out of scope here) |
-| Source bug fixed | TODO.md "What landed" + CHANGELOG.md `[Unreleased] > Fixed` |
-| Schema migration | TODO.md "What landed" + CHANGELOG.md `[Unreleased] > Added` + DEPLOY.md migration list (out of scope here unless the schema migration was load-bearing) |
-| Cross-cutting findings affecting other specs | TODO.md "Architectural findings" + flag in next session's snapshot |
+| Source bug fixed | TODO.md "What landed" + CHANGELOG.md `[Unreleased] > Fixed` + if it closes an open A-finding, mark it closed in the canonical table |
+| Schema migration | TODO.md "What landed" + CHANGELOG.md `[Unreleased] > Added` |
+| **High-impact source bug deserving an issue** (compliance, security, data correctness) | Offer to file as a GitHub issue via `gh issue create` (ask user before filing — issues are user-managed) |
+
+**Critical:** the "Open architectural follow-ups" table in TODO.md is
+the SINGLE SOURCE OF TRUTH for live findings. The "What landed" sections
+are CHRONOLOGICAL LOG ONLY. Do not let findings drift to the chronological
+log without an entry in the canonical table — the next reader will miss
+them. When reading commits in step 2, every architectural finding goes
+THROUGH the canonical table first; the chronological log just references
+the A-IDs.
 
 ### 4. Update TODO.md
 
@@ -93,15 +104,20 @@ b) **Append a "What landed" subsection** under the latest one. Use the same shap
 
 c) **Append architectural findings** to the consolidated "Open follow-ups / Architectural findings" section IF they're new. Critical: read existing TODO.md first and SKIP findings that are already present (substring match on the finding's distinctive keyword, e.g. "LanguageDropdown" or "AuditLog tenantId").
 
-### 5. Deduplicate findings
+### 5. Deduplicate + state-track findings
 
-Before adding a finding to TODO.md's architectural-findings list:
+Before adding a finding to TODO.md's "Open architectural follow-ups" table:
 - Read TODO.md's current contents.
 - Substring-search for the finding's distinctive keyword (e.g., "LanguageDropdown", "AuditLog", "openPrintEndpoint").
-- If FOUND → skip; the finding is already there.
-- If NOT FOUND → add. Include a back-reference to the commit SHA where it was surfaced.
+- If FOUND in **Open** table → skip; already tracked.
+- If FOUND in **Closed** table → if this wave RE-OPENS it (regression), move back to Open with the regression context. Otherwise skip.
+- If NOT FOUND → add to Open with a new A-prefix ID (next available number). Include the surfacing commit SHA.
 
-This makes the skill safely idempotent — running it twice produces the same TODO.md.
+When a wave's commits CLOSE an open A-finding (e.g., a sweep fix or a source patch):
+- Move the row from "Open" to "Closed (kept for log)" with the closing commit SHA in the "Closed by" column.
+- Update the Open table's A-IDs ONLY if their numbering is non-stable; otherwise leave gaps (A1 → A3 → A5 is fine — A-IDs are stable references).
+
+This makes the skill safely idempotent (running twice produces the same TODO.md) AND lets the reader see at a glance: "Open follow-ups" = work to do; "Closed" = log of past work.
 
 ### 6. Update CHANGELOG.md `[Unreleased]`
 

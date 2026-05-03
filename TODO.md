@@ -64,6 +64,39 @@ is independently shippable. Full per-session history lives under
 
 ---
 
+## Open architectural follow-ups (canonical live list — read this first)
+
+This is the **single source of truth** for cross-cutting architectural
+findings that are still open. Findings that have been closed are listed
+under "Closed below" with their closing commit. The "What landed"
+sections further down preserve the chronological log; this section
+preserves the live state.
+
+| # | Finding | Surfaced by | Suggested action |
+|---|---|---|---|
+| A1 | **Many pages have no client-side `VIEW_ALLOWED` / role gate.** Confirmed on at least 7 pages (medicines, suppliers, assets, notifications, complaints, census, wards). Page chrome renders for any auth'd user; security depends on API `authorize(...)`. Non-allowlisted roles see a partial shell + empty list rather than `/dashboard/not-authorized`. | Multiple autopilot-wave specs (e2e/medicines, suppliers, etc.) | **Product decision needed**: is "page reachable, API gates" the deliberate policy? If yes, document in ARCHITECTURE.md; if no, add page-level redirect. |
+| A2 | **Multiple modals render `<label>X</label><input>` without `htmlFor`.** WCAG 2.1 AA gap + breaks Playwright `getByLabel`. Partially fixed: AddMedicine / AddSupplier / AddWard (17 pairs in `ab60593`). Rest of repo unchecked. | `cdea823` `8d3f277` `49d829d` `ab60593` | Sweep remaining modals (AddPatient, AddOrder, etc.). Could use `/medcore-fanout` to parallelize. |
+| A3 | **`PATIENT_NAME_REGEX = /^[A-Za-zऀ-ॿ\s.\-']{1,100}$/` rejects digits.** Used on both client + server. Spec authors generating timestamp-tagged names (`Date.now()`) get silent POST 4xx. | `c052df6` (patients-register fix) | Add doc note in `e2e/helpers.ts` near `indianishName()` so spec authors know. **Decision**: relax regex to allow digits OR keep strict (mirroring real names) and document the gotcha. |
+| A4 | **HTML5 `<input min/max/required>` constraints race React `setError`.** Browser blocks form submit at the constraint layer before React handler runs, so React-side inline-error rendering never fires. Confirmed on payment-plans; pattern likely repo-wide. | `3decc91` (payment-plans validation fix) | Forms-wide audit: every form using both HTML5 constraints AND React `setError` is suspect. Either use `noValidate` consistently or move all validation to constraint layer + render via `validity` API. |
+| A5 | **`canX` (client) vs `authorize()` (server) RBAC drift.** Just fixed on `/dashboard/expenses` (`0646b0b`). Pattern likely exists on other pages — every client `canX` predicate should match the corresponding server `authorize(...)`. | `40673aa` (expenses spec) → `0646b0b` (drift fix) | Repo-wide audit pass: grep `apps/web/` for `canAdd \| canEdit \| canManage \| canDelete` etc. and cross-check against the corresponding API route's `authorize(...)`. Could become a project-level lint. |
+| A6 | **`/users` PATCH endpoint lives in `apps/api/src/routes/patient-extras.ts:396`.** Not in a dedicated `users.ts` (no such file). Discoverability gap. | `78feace` (users spec) | Move handler to a `users.ts` route file OR add a re-export. Low priority — works correctly, just hard to find. |
+| A7 | **Compliance: AuditLog has NO `tenantId`.** From P4 RLS suite (Day 3). T1 admin with raw DB access can read T2's audit log. Tenant-scoped models all have `tenantId`; AuditLog deliberately omits it. | P4 suite (`8d0765a`) | Schema migration + handler updates + tests. Single-thread (not fanout-friendly). **Compliance teeth.** |
+| A8 | **Tenant FK is `onDelete: SetNull` on every tenant-scoped model.** Deleted tenant → orphan PHI invisible to scoped queries but still readable via raw client. | P4 suite | Switch to `Cascade` OR enforce a "no orphans" invariant. Schema migration. |
+| A9 | **`runWithTenant` does NOT validate tenantId.** Just stuffs the string into AsyncLocalStorage. Single upstream middleware bypass would expose. | P4 suite | Add a real-tenant existence check in the wrapper (cache OK). |
+| A10 | **`tenantScopedPrisma` lives in `apps/api/src/services/`, should be in `packages/db`.** Workers / cron / secondary services can't consume safe scoping without crossing the `apps → packages` arrow. | P4 suite | Lift the wrapper into `@medcore/db`. Affects test-suite import shape (currently uses dynamic `import()` workaround). |
+
+### Closed (kept for log)
+
+| # | Finding | Closed by |
+|---|---|---|
+| C1 | LanguageDropdown `<select>` race in `locator('select').first()` | `b2e78d7` (6 specs scoped); spec-author rule documented inline |
+| C2 | Next.js route announcer matches `getByRole('alert')` | `f44c9a0` (3 specs / 7 callsites); now use `[role="alert"]:not(#__next-route-announcer__)` |
+| C3 | EntityPicker rows = `<li role="option">`, not `<button>` | Documented as contract via `2823d9c`. **Still TODO**: a one-paragraph comment at the top of `apps/web/src/components/EntityPicker.tsx` would help future spec authors. |
+| C4 | `openPrintEndpoint` opens blank popup + fetches | Documented as contract via `3628bf2`. Future tests must `waitForRequest` on the GET URL. |
+| C5 | `/dashboard/expenses` `canAdd` allowed RECEPTION but server is ADMIN-only | `0646b0b` |
+
+---
+
 ## What landed 2026-05-05 evening — fix-up wave + 5 skills + Cluster 1+2 fanout (20 commits)
 
 After the autopilot's 15-route E2E coverage gain, release.yml run `25287320476`

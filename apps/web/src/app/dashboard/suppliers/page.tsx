@@ -325,8 +325,9 @@ function AddSupplierModal({
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="mb-1 block text-sm font-medium">Name *</label>
+            <label htmlFor="add-supplier-name" className="mb-1 block text-sm font-medium">Name *</label>
             <input
+              id="add-supplier-name"
               required
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -334,8 +335,9 @@ function AddSupplierModal({
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Contact Person</label>
+            <label htmlFor="add-supplier-contact-person" className="mb-1 block text-sm font-medium">Contact Person</label>
             <input
+              id="add-supplier-contact-person"
               value={form.contactPerson}
               onChange={(e) => setForm({ ...form, contactPerson: e.target.value })}
               className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -343,16 +345,18 @@ function AddSupplierModal({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-sm font-medium">Phone</label>
+              <label htmlFor="add-supplier-phone" className="mb-1 block text-sm font-medium">Phone</label>
               <input
+                id="add-supplier-phone"
                 value={form.phone}
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
                 className="w-full rounded-lg border px-3 py-2 text-sm"
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">Email</label>
+              <label htmlFor="add-supplier-email" className="mb-1 block text-sm font-medium">Email</label>
               <input
+                id="add-supplier-email"
                 type="email"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
@@ -361,8 +365,9 @@ function AddSupplierModal({
             </div>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Address</label>
+            <label htmlFor="add-supplier-address" className="mb-1 block text-sm font-medium">Address</label>
             <textarea
+              id="add-supplier-address"
               rows={2}
               value={form.address}
               onChange={(e) => setForm({ ...form, address: e.target.value })}
@@ -371,16 +376,18 @@ function AddSupplierModal({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-sm font-medium">GST Number</label>
+              <label htmlFor="add-supplier-gst" className="mb-1 block text-sm font-medium">GST Number</label>
               <input
+                id="add-supplier-gst"
                 value={form.gstNumber}
                 onChange={(e) => setForm({ ...form, gstNumber: e.target.value })}
                 className="w-full rounded-lg border px-3 py-2 font-mono text-sm"
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">Payment Terms</label>
+              <label htmlFor="add-supplier-payment-terms" className="mb-1 block text-sm font-medium">Payment Terms</label>
               <input
+                id="add-supplier-payment-terms"
                 placeholder="Net 30, Net 60..."
                 value={form.paymentTerms}
                 onChange={(e) => setForm({ ...form, paymentTerms: e.target.value })}

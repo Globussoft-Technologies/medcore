@@ -380,8 +380,9 @@ export default function WardsPage() {
             <h2 className="mb-4 text-lg font-semibold">Add New Ward</h2>
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-sm font-medium">Name</label>
+                <label htmlFor="add-ward-name" className="mb-1 block text-sm font-medium">Name</label>
                 <input
+                  id="add-ward-name"
                   required
                   value={wardForm.name}
                   onChange={(e) =>
@@ -391,8 +392,9 @@ export default function WardsPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">Type</label>
+                <label htmlFor="add-ward-type" className="mb-1 block text-sm font-medium">Type</label>
                 <select
+                  id="add-ward-type"
                   value={wardForm.type}
                   onChange={(e) =>
                     setWardForm({ ...wardForm, type: e.target.value })
@@ -407,8 +409,9 @@ export default function WardsPage() {
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">Floor</label>
+                <label htmlFor="add-ward-floor" className="mb-1 block text-sm font-medium">Floor</label>
                 <input
+                  id="add-ward-floor"
                   value={wardForm.floor}
                   onChange={(e) =>
                     setWardForm({ ...wardForm, floor: e.target.value })
@@ -417,10 +420,11 @@ export default function WardsPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">
+                <label htmlFor="add-ward-description" className="mb-1 block text-sm font-medium">
                   Description
                 </label>
                 <textarea
+                  id="add-ward-description"
                   value={wardForm.description}
                   onChange={(e) =>
                     setWardForm({ ...wardForm, description: e.target.value })

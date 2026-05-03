@@ -395,8 +395,9 @@ export default function MedicinesPage() {
             </h2>
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-sm font-medium">Name</label>
+                <label htmlFor="add-medicine-name" className="mb-1 block text-sm font-medium">Name</label>
                 <input
+                  id="add-medicine-name"
                   required
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -405,10 +406,11 @@ export default function MedicinesPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
+                  <label htmlFor="add-medicine-generic-name" className="mb-1 block text-sm font-medium">
                     Generic Name
                   </label>
                   <input
+                    id="add-medicine-generic-name"
                     value={form.genericName}
                     onChange={(e) =>
                       setForm({ ...form, genericName: e.target.value })
@@ -417,10 +419,11 @@ export default function MedicinesPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
+                  <label htmlFor="add-medicine-category" className="mb-1 block text-sm font-medium">
                     Category
                   </label>
                   <select
+                    id="add-medicine-category"
                     value={form.category}
                     onChange={(e) =>
                       setForm({ ...form, category: e.target.value })
@@ -435,8 +438,9 @@ export default function MedicinesPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Form</label>
+                  <label htmlFor="add-medicine-form" className="mb-1 block text-sm font-medium">Form</label>
                   <input
+                    id="add-medicine-form"
                     placeholder="Tablet, Syrup..."
                     value={form.form}
                     onChange={(e) => setForm({ ...form, form: e.target.value })}
@@ -444,10 +448,11 @@ export default function MedicinesPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
+                  <label htmlFor="add-medicine-strength" className="mb-1 block text-sm font-medium">
                     Strength
                   </label>
                   <input
+                    id="add-medicine-strength"
                     placeholder="500mg"
                     value={form.strength}
                     onChange={(e) =>
@@ -458,10 +463,11 @@ export default function MedicinesPage() {
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">
+                <label htmlFor="add-medicine-manufacturer" className="mb-1 block text-sm font-medium">
                   Manufacturer <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="add-medicine-manufacturer"
                   required
                   value={form.manufacturer}
                   onChange={(e) =>

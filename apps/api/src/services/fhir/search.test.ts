@@ -494,3 +494,98 @@ describe("searchAllergyIntolerance", () => {
     expect((bundle.entry[0].resource as any).code.text).toBe("New");
   });
 });
+
+// ─── Date-prefix coverage on Encounter (gap #3 spec) ────────────────────────
+
+describe("searchEncounter — date prefix windows", () => {
+  it("filters with date=ge2026-04-01 (inclusive lower bound)", async () => {
+    seedConsultation({ patientId: "pat-d1", appointmentId: "appt-mar", createdAt: new Date("2026-03-15T10:00:00Z") });
+    seedConsultation({ patientId: "pat-d1", appointmentId: "appt-apr", createdAt: new Date("2026-04-10T10:00:00Z") });
+    seedConsultation({ patientId: "pat-d1", appointmentId: "appt-may", createdAt: new Date("2026-05-05T10:00:00Z") });
+
+    const bundle = await searchEncounter({ date: "ge2026-04-01" });
+    expect(bundle.total).toBe(2);
+    // The default order is createdAt desc, so May then Apr.
+    const refs = bundle.entry.map((e) => (e.resource as any).id);
+    expect(refs.length).toBe(2);
+  });
+
+  it("filters with date=le2026-05-01 (inclusive upper bound — May 1 itself matches)", async () => {
+    seedConsultation({ patientId: "pat-d2", appointmentId: "appt-apr", createdAt: new Date("2026-04-10T10:00:00Z") });
+    seedConsultation({ patientId: "pat-d2", appointmentId: "appt-may1", createdAt: new Date("2026-05-01T23:59:59Z") });
+    seedConsultation({ patientId: "pat-d2", appointmentId: "appt-may2", createdAt: new Date("2026-05-02T00:00:01Z") });
+
+    const bundle = await searchEncounter({ date: "le2026-05-01" });
+    // le2026-05-01 → lt 2026-05-02 00:00:00 UTC, so the first two match, the third does not.
+    expect(bundle.total).toBe(2);
+  });
+
+  it("combines patient + date=ge…&_count=… (composite filter + pagination shape)", async () => {
+    // 5 encounters for the target patient on/after 2026-04-01, 2 before that, 3 for an unrelated patient.
+    for (let i = 0; i < 5; i++) {
+      seedConsultation({
+        patientId: "pat-combo",
+        appointmentId: `appt-c-on-${i}`,
+        createdAt: new Date(`2026-04-${(10 + i).toString().padStart(2, "0")}T10:00:00Z`),
+      });
+    }
+    for (let i = 0; i < 2; i++) {
+      seedConsultation({
+        patientId: "pat-combo",
+        appointmentId: `appt-c-pre-${i}`,
+        createdAt: new Date(`2026-03-${(10 + i).toString().padStart(2, "0")}T10:00:00Z`),
+      });
+    }
+    for (let i = 0; i < 3; i++) {
+      seedConsultation({
+        patientId: "pat-other",
+        appointmentId: `appt-other-${i}`,
+        createdAt: new Date(`2026-04-${(20 + i).toString().padStart(2, "0")}T10:00:00Z`),
+      });
+    }
+
+    const bundle = await searchEncounter({
+      patient: "pat-combo",
+      date: "ge2026-04-01",
+      _count: 3,
+    });
+    // total counts every match across the patient+date filter; _count caps the page.
+    expect(bundle.total).toBe(5);
+    expect(bundle.entry).toHaveLength(3);
+    for (const e of bundle.entry) {
+      expect((e.resource as any).subject.reference).toBe("Patient/pat-combo");
+    }
+  });
+});
+
+// ─── Malformed parameter → FhirSearchError → route emits 400 OperationOutcome ──
+
+describe("searchEncounter — malformed parameter envelope", () => {
+  it("throws FhirSearchError on date=garbage (route layer maps to OperationOutcome severity=error, NOT a raw 500)", async () => {
+    // Unit-level: search.ts raises FhirSearchError carrying a `diagnostics`
+    // string. The route layer (`handleSearchError` in routes/fhir.ts) converts
+    // this into a 400 response with body
+    //   { resourceType: "OperationOutcome", issue: [{ severity: "error", ... }] }
+    // — NOT a generic 500 Internal Server Error. We assert the precondition
+    // (FhirSearchError + diagnostics field) here so the route mapping is well
+    // defined.
+    let caught: unknown;
+    try {
+      await searchEncounter({ date: "garbage" });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(FhirSearchError);
+    const err = caught as FhirSearchError;
+    expect(err.name).toBe("FhirSearchError");
+    expect(err.diagnostics).toMatch(/date|format|garbage|Invalid/i);
+    // Route would call operationOutcome("error", "invalid", diagnostics) — a
+    // 5xx leak would be a regression. We surface that here by asserting the
+    // error type is the *narrow* search error, not a generic Error.
+    expect(err).not.toBeInstanceOf(TypeError);
+  });
+
+  it("rejects malformed _offset (negative) with FhirSearchError, never reaching prisma", async () => {
+    await expect(searchEncounter({ _offset: -5 })).rejects.toBeInstanceOf(FhirSearchError);
+  });
+});

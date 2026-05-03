@@ -368,13 +368,19 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
     });
     await page.getByTestId("new-plan-invoice").selectOption({ value: invoice.id });
 
-    // Set installments to 1 (below minimum of 2)
+    // Set installments to 1 (below minimum of 2). The input has min={2}, so
+    // the browser's native HTML5 constraint validation would block a normal
+    // submit click before React's submit handler runs. Disable native
+    // validation on the form so React's setError path actually fires
+    // (page.tsx:398–400: "Installments must be between 2 and 60").
     await page.getByTestId("new-plan-installments").fill("1");
+    await page
+      .getByTestId("new-plan-modal")
+      .evaluate((form: HTMLFormElement) => {
+        form.noValidate = true;
+        form.requestSubmit();
+      });
 
-    await page.getByTestId("new-plan-submit").click();
-
-    // Inline error must appear (page.tsx:398–400: "Installments must be
-    // between 2 and 60")
     await expect(page.getByTestId("new-plan-error")).toBeVisible({
       timeout: 5_000,
     });
@@ -419,9 +425,15 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
     });
     await page.getByTestId("new-plan-invoice").selectOption({ value: invoice.id });
 
-    // 61 exceeds the maximum of 60
+    // 61 exceeds the maximum of 60. Bypass the input's native max={60}
+    // constraint so React's submit handler runs and emits the inline error.
     await page.getByTestId("new-plan-installments").fill("61");
-    await page.getByTestId("new-plan-submit").click();
+    await page
+      .getByTestId("new-plan-modal")
+      .evaluate((form: HTMLFormElement) => {
+        form.noValidate = true;
+        form.requestSubmit();
+      });
 
     await expect(page.getByTestId("new-plan-error")).toBeVisible({
       timeout: 5_000,
@@ -465,10 +477,17 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
     });
     await page.getByTestId("new-plan-invoice").selectOption({ value: invoice.id });
 
-    // Fill in a negative down payment (page.tsx:403–406: "Down payment cannot
-    // be negative")
+    // Fill in a negative down payment. The input has min={0}, so the browser
+    // would block submit-click via native validation; bypass it so React's
+    // submit handler fires (page.tsx:403–406: "Down payment cannot be
+    // negative").
     await page.getByTestId("new-plan-down-payment").fill("-100");
-    await page.getByTestId("new-plan-submit").click();
+    await page
+      .getByTestId("new-plan-modal")
+      .evaluate((form: HTMLFormElement) => {
+        form.noValidate = true;
+        form.requestSubmit();
+      });
 
     await expect(page.getByTestId("new-plan-error")).toBeVisible({
       timeout: 5_000,
@@ -543,14 +562,18 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       timeout: 8_000,
     });
 
-    // Do not pick a patient — hit submit directly.
+    // Do not pick a patient — fire form submit directly.
     // The submit button is disabled when invoiceId is empty (page.tsx:605),
-    // but the form submit handler also validates patientId and emits an error
-    // (page.tsx:388–391). Trigger the form submit via keyboard to bypass the
-    // disabled-button guard.
+    // and pressing Enter on an input still respects native required/disabled
+    // guards. Use form.requestSubmit() with noValidate so the React submit
+    // handler runs unconditionally and hits the patientId branch
+    // (page.tsx:388–391: "Select a patient").
     await page
-      .getByTestId("new-plan-installments")
-      .press("Enter");
+      .getByTestId("new-plan-modal")
+      .evaluate((form: HTMLFormElement) => {
+        form.noValidate = true;
+        form.requestSubmit();
+      });
 
     await expect(page.getByTestId("new-plan-error")).toBeVisible({
       timeout: 5_000,

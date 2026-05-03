@@ -80,6 +80,8 @@ router.post(
         prescriptionId,
         doctorId,
         notes,
+        witnessSignature,
+        witnessUserId,
       } = req.body as {
         medicineId: string;
         quantity: number;
@@ -87,6 +89,8 @@ router.post(
         prescriptionId?: string;
         doctorId?: string;
         notes?: string;
+        witnessSignature?: string;
+        witnessUserId?: string;
       };
 
       const medicine = await prisma.medicine.findUnique({
@@ -97,6 +101,46 @@ router.post(
           .status(404)
           .json({ success: false, data: null, error: "Medicine not found" });
         return;
+      }
+
+      // ─── Witness co-signing rule (Drugs and Cosmetics Rules 1945 §65) ───
+      // Schedule-H / H1 / X dispenses MUST capture a witness's printed name
+      // + role. The Zod schema already trims + min(3) when present; here we
+      // enforce that it's actually present for regulated classes. For
+      // non-controlled meds (no scheduleClass set) the field is optional —
+      // a non-narcotic dispense via this route is unusual but tolerated for
+      // backwards compatibility with the pre-2026-05-03 register.
+      const trimmedWitness =
+        typeof witnessSignature === "string" ? witnessSignature.trim() : "";
+      const requiresWitness =
+        medicine.scheduleClass === "H" ||
+        medicine.scheduleClass === "H1" ||
+        medicine.scheduleClass === "X";
+      if (requiresWitness && trimmedWitness.length < 3) {
+        res.status(422).json({
+          success: false,
+          data: null,
+          error:
+            "witnessSignature is required for Schedule-" +
+            (medicine.scheduleClass ?? "H") +
+            " dispense (printed name + role of the witnessing pharmacist or staff)",
+        });
+        return;
+      }
+
+      // FK-validate witnessUserId when provided so we don't surface a raw
+      // Prisma P2003 to the caller.
+      if (witnessUserId) {
+        const witness = await prisma.user.findUnique({
+          where: { id: witnessUserId },
+          select: { id: true },
+        });
+        if (!witness) {
+          res
+            .status(404)
+            .json({ success: false, data: null, error: "Witness user not found" });
+          return;
+        }
       }
 
       const entryNumber = await generateEntryNumber();
@@ -113,12 +157,15 @@ router.post(
           dispensedBy: req.user!.userId,
           balance,
           notes,
+          witnessSignature: trimmedWitness.length > 0 ? trimmedWitness : null,
+          witnessUserId: witnessUserId ?? null,
         },
         include: {
           medicine: true,
           patient: { include: { user: { select: { name: true } } } },
           doctor: { include: { user: { select: { name: true } } } },
           user: { select: { id: true, name: true, role: true } },
+          witness: { select: { id: true, name: true, role: true } },
         },
       });
 
@@ -126,6 +173,9 @@ router.post(
         entryNumber,
         medicineId,
         quantity,
+        scheduleClass: medicine.scheduleClass ?? null,
+        witnessSignature: trimmedWitness.length > 0 ? trimmedWitness : null,
+        witnessUserId: witnessUserId ?? null,
       }).catch(console.error);
 
       res.status(201).json({ success: true, data: entry, error: null });
@@ -176,6 +226,7 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
             select: { id: true, user: { select: { name: true } } },
           },
           user: { select: { id: true, name: true, role: true } },
+          witness: { select: { id: true, name: true, role: true } },
         },
         orderBy: { dispensedAt: "desc" },
         skip,
@@ -221,6 +272,7 @@ router.get(
           },
           doctor: { select: { id: true, user: { select: { name: true } } } },
           user: { select: { id: true, name: true, role: true } },
+          witness: { select: { id: true, name: true, role: true } },
         },
         orderBy: { dispensedAt: "asc" },
       });

@@ -150,6 +150,19 @@ export const controlledSubstanceSchema = z.object({
   prescriptionId: z.string().uuid().optional(),
   doctorId: z.string().uuid().optional(),
   notes: z.string().optional(),
+  // Witness co-signing on Schedule-H/H1 dispense (Drugs and Cosmetics
+  // Rules 1945 §65). 2026-05-03 migration. `witnessSignature` is the
+  // free-text capture of the witness's printed name + role (e.g.
+  // "Dr. Vikram Kapoor / Senior Pharmacist"). `witnessUserId` is an
+  // optional FK to the User row if the witness is a staff member with
+  // an account; null/omitted for external witnesses. The route enforces
+  // that Schedule-H/H1 medicines REQUIRE a non-blank witnessSignature.
+  witnessSignature: z
+    .string()
+    .trim()
+    .min(3, "Witness signature must be at least 3 characters")
+    .optional(),
+  witnessUserId: z.string().uuid().optional(),
 });
 
 export type ControlledSubstanceInput = z.infer<typeof controlledSubstanceSchema>;

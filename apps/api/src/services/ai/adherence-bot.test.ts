@@ -53,15 +53,12 @@ describe("generateReminderMessage", () => {
     expect(out).toMatch(/Metformin/);
   });
 
-  // TODO: empty Sarvam content is currently returned as "" because the
-  // null-coalesce uses ?? (only null/undefined), not ||. This means the
-  // patient sees an empty WhatsApp/SMS — flag as a source bug, not the test's
-  // job to fix here. We assert the current behavior so a future fix shows up
-  // as an explicit test diff.
-  it("returns the empty string when Sarvam returns empty content (current behavior, see TODO)", async () => {
+  it("falls back to the deterministic message when Sarvam returns empty content", async () => {
     createMock.mockResolvedValueOnce(textResponse(""));
     const out = await generateReminderMessage(baseOpts);
-    expect(out).toBe("");
+    expect(out).not.toBe("");
+    expect(out).toMatch(/Reminder/);
+    expect(out).toMatch(/Metformin/);
   });
 
   it("forwards Hindi language hint into the user prompt", async () => {

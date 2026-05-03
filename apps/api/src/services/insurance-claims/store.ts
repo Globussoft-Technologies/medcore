@@ -159,6 +159,52 @@ function mapEvent(row: any): ClaimStatusEventRow {
   };
 }
 
+// ── State-machine guard ─────────────────────────────────────────────────────
+
+/**
+ * Allowed transitions on `NormalisedClaimStatus`. Anything not listed here is
+ * rejected by `updateStatus` with a domain error so we never silently persist
+ * impossible lifecycle moves (e.g. SETTLED -> APPROVED, CANCELLED -> *).
+ *
+ * Note: `NormalisedClaimStatus` has no `DRAFT` value — the lifecycle starts at
+ * `SUBMITTED`. `DENIED -> SUBMITTED` is intentionally excluded: there is no
+ * appeal/auto-resubmit code path in the codebase today (see
+ * `reconciliation.ts` — the late-revision sweep covers TPA-side flips, not
+ * client-initiated resubmission). If/when an appeal flow lands, add it here.
+ */
+const ALLOWED_TRANSITIONS: Readonly<
+  Record<NormalisedClaimStatus, ReadonlyArray<NormalisedClaimStatus>>
+> = {
+  SUBMITTED: [
+    "IN_REVIEW",
+    "QUERY_RAISED",
+    "APPROVED",
+    "PARTIALLY_APPROVED",
+    "DENIED",
+    "CANCELLED",
+  ],
+  IN_REVIEW: ["QUERY_RAISED", "APPROVED", "PARTIALLY_APPROVED", "DENIED"],
+  QUERY_RAISED: ["IN_REVIEW", "APPROVED", "DENIED"],
+  APPROVED: ["SETTLED", "PARTIALLY_APPROVED"],
+  PARTIALLY_APPROVED: ["SETTLED"],
+  DENIED: [],
+  SETTLED: [],
+  CANCELLED: [],
+};
+
+function assertValidTransition(
+  from: NormalisedClaimStatus,
+  to: NormalisedClaimStatus
+): void {
+  if (from === to) return; // idempotent re-write of the same status is a no-op
+  const allowed = ALLOWED_TRANSITIONS[from] ?? [];
+  if (!allowed.includes(to)) {
+    throw new Error(
+      `invalid claim transition: ${from} -> ${to} is not permitted`
+    );
+  }
+}
+
 // ── Reset (used by tests) ───────────────────────────────────────────────────
 
 /**
@@ -328,6 +374,11 @@ export async function updateStatus(
   return prisma.$transaction(async (tx) => {
     const existing = await tx.insuranceClaim2.findUnique({ where: { id } });
     if (!existing) return undefined;
+
+    assertValidTransition(
+      existing.status as NormalisedClaimStatus,
+      input.status
+    );
 
     const data: Record<string, unknown> = { status: input.status };
     if (input.providerClaimRef !== undefined)

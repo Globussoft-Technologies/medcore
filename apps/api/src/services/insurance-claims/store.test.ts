@@ -1,10 +1,10 @@
 // Unit tests for the Prisma-backed insurance-claims store.
 //
 // We mock @medcore/db using the same vi.hoisted pattern as
-// reconciliation.test.ts so the suite runs with no database. The store has
-// no state machine — `updateStatus` accepts any transition — but it MUST
-// always write a `ClaimStatusEvent` audit row for the new status, which is
-// the load-bearing invariant for compliance.
+// reconciliation.test.ts so the suite runs with no database. `updateStatus`
+// enforces a transition guard against the `NormalisedClaimStatus` lifecycle
+// AND must always write a `ClaimStatusEvent` audit row for the new status,
+// which is the load-bearing invariant for compliance.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -240,6 +240,87 @@ describe("updateStatus — audit-row contract", () => {
 
     const evArgs = prismaMock.claimStatusEvent.create.mock.calls[0][0];
     expect(evArgs.data.source).toBe("API");
+  });
+});
+
+describe("updateStatus — transition guard", () => {
+  it("rejects DENIED -> SUBMITTED (no appeal/resubmit path exists today)", async () => {
+    prismaMock.insuranceClaim2.findUnique.mockResolvedValue(
+      fakePrismaClaimRow({ status: "DENIED" })
+    );
+
+    await expect(
+      updateStatus("c1", { status: "SUBMITTED" })
+    ).rejects.toThrow(/invalid claim transition.*DENIED.*SUBMITTED/);
+
+    expect(prismaMock.insuranceClaim2.update).not.toHaveBeenCalled();
+    expect(prismaMock.claimStatusEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects SETTLED -> APPROVED (SETTLED is terminal)", async () => {
+    prismaMock.insuranceClaim2.findUnique.mockResolvedValue(
+      fakePrismaClaimRow({ status: "SETTLED" })
+    );
+
+    await expect(
+      updateStatus("c1", { status: "APPROVED" })
+    ).rejects.toThrow(/invalid claim transition.*SETTLED.*APPROVED/);
+
+    expect(prismaMock.insuranceClaim2.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects CANCELLED -> SUBMITTED (CANCELLED is terminal)", async () => {
+    prismaMock.insuranceClaim2.findUnique.mockResolvedValue(
+      fakePrismaClaimRow({ status: "CANCELLED" })
+    );
+
+    await expect(
+      updateStatus("c1", { status: "SUBMITTED" })
+    ).rejects.toThrow(/invalid claim transition.*CANCELLED.*SUBMITTED/);
+
+    expect(prismaMock.insuranceClaim2.update).not.toHaveBeenCalled();
+  });
+
+  it("allows APPROVED -> SETTLED (TPA paid out)", async () => {
+    prismaMock.insuranceClaim2.findUnique.mockResolvedValue(
+      fakePrismaClaimRow({ status: "APPROVED" })
+    );
+    prismaMock.insuranceClaim2.update.mockResolvedValue(
+      fakePrismaClaimRow({ status: "SETTLED" })
+    );
+    prismaMock.claimStatusEvent.create.mockResolvedValue({});
+
+    const r = await updateStatus("c1", {
+      status: "SETTLED",
+      settledAt: "2026-04-30T12:00:00.000Z",
+    });
+    expect(r?.status).toBe("SETTLED");
+  });
+
+  it("allows APPROVED -> PARTIALLY_APPROVED (TPA downgrade after audit)", async () => {
+    prismaMock.insuranceClaim2.findUnique.mockResolvedValue(
+      fakePrismaClaimRow({ status: "APPROVED" })
+    );
+    prismaMock.insuranceClaim2.update.mockResolvedValue(
+      fakePrismaClaimRow({ status: "PARTIALLY_APPROVED" })
+    );
+    prismaMock.claimStatusEvent.create.mockResolvedValue({});
+
+    const r = await updateStatus("c1", { status: "PARTIALLY_APPROVED" });
+    expect(r?.status).toBe("PARTIALLY_APPROVED");
+  });
+
+  it("treats same-status writes as a no-op transition (idempotent)", async () => {
+    prismaMock.insuranceClaim2.findUnique.mockResolvedValue(
+      fakePrismaClaimRow({ status: "SUBMITTED" })
+    );
+    prismaMock.insuranceClaim2.update.mockResolvedValue(
+      fakePrismaClaimRow({ status: "SUBMITTED" })
+    );
+    prismaMock.claimStatusEvent.create.mockResolvedValue({});
+
+    const r = await updateStatus("c1", { status: "SUBMITTED" });
+    expect(r?.status).toBe("SUBMITTED");
   });
 });
 

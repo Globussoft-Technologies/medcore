@@ -53,7 +53,7 @@ export async function generateReminderMessage(opts: {
       ],
     });
 
-    return response.choices[0]?.message?.content?.trim() ?? fallbackMessage(opts);
+    return response.choices[0]?.message?.content?.trim() || fallbackMessage(opts);
   } catch {
     return fallbackMessage(opts);
   }

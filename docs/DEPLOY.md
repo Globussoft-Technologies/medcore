@@ -196,7 +196,7 @@ check that catches nginx/proxy regressions a localhost curl can miss.
 ### 2. Outstanding migrations
 
 The migration history under `packages/db/prisma/migrations/` currently
-holds 16 migrations (all committed through 2026-04-24):
+holds 19 migrations (all committed through 2026-05-03):
 
 | Folder | Introduces |
 |---|---|
@@ -216,6 +216,10 @@ holds 16 migrations (all committed through 2026-04-24):
 | `20260423000007_prd_ai_features` | 13 PRD AI feature models (claims, capacity, coaching, roster, fraud, doc-QA, etc.) |
 | `20260424000001_admission_unique_and_invoice_gst` | Admission uniqueness constraint + invoice GST columns |
 | `20260424000002_admission_dama_and_tenant_extension` | DAMA status + more tenant-scope columns *(requires `backfill-default-tenant.ts`)* |
+| `20260424000003_radiology_reports` | Radiology study + report tables (PRD §7.2) |
+| `20260424000004_prd_closure_models` | PRD closure: PatientDataExport, FrontDeskCall, MedicationIncident, SnomedConcept |
+| `20260427000001_triage_session_drift` | AITriageSession schema-drift catch-up (3 nullable columns) |
+| `20260503000001_witness_signature_and_prescription_status` | ControlledSubstanceEntry.witnessSignature + witnessUserId (Drugs and Cosmetics Rules 1945 §65); PrescriptionStatus enum (PENDING/DISPENSED/REJECTED/CANCELLED) + rejection audit columns |
 
 `prisma migrate deploy` applies them in lexical (timestamp) order. Never edit
 a migration folder after it has landed on prod — add a forward-only fix.

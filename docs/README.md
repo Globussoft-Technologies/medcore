@@ -90,7 +90,18 @@ QA agent and humans alike.
 audits that no longer reflect the current repo. Kept for historical
 context only — don't treat anything in `archive/` as canonical.
 
-Currently archived:
+[`archive/gaps/`](archive/gaps/) is a dedicated subfolder for **fully
+closed gap-tracking docs** — files whose entire backlog has been worked
+through. A gap-tracking doc moves here ONLY when every item it lists
+is closed; if even one item is still open, it stays in `docs/` (e.g.,
+[`E2E_COVERAGE_BACKLOG.md`](E2E_COVERAGE_BACKLOG.md) and
+[`TEST_COVERAGE_AUDIT.md`](TEST_COVERAGE_AUDIT.md) are NOT eligible
+yet — they have open items). Reading order on session start: this
+`README.md` → root [`TODO.md`](../TODO.md) → the latest
+`SESSION_SNAPSHOT_*` in `archive/`. The `archive/gaps/` subfolder is
+reference-only — no need to read its contents to pick up work.
+
+Currently archived in `archive/`:
 - 10 `SESSION_SNAPSHOT_*` files (2026-04-27 through 2026-05-03 late-night).
   The most recent — `SESSION_SNAPSHOT_2026-05-03-late-night.md` — is the
   current handoff: read it first on next pickup. It supersedes the
@@ -98,9 +109,11 @@ Currently archived:
 - `TODO_2026-04-29.md` (superseded by [`/TODO.md`](../TODO.md) at repo root)
 - `RBAC_AUDIT_2026-04-30.md` (point-in-time RBAC audit; the e2e
   `rbac-matrix.spec.ts` now serves as the live source of truth)
-- `TEST_GAPS_2026-05-03.md` (the gap-closer audit — all 10 priority
-  items + 5 honorable mentions closed, 510+ new tests shipped on
-  2026-05-03; archived for the closure log)
+
+Currently archived in `archive/gaps/`:
+- `TEST_GAPS_2026-05-03.md` — all 10 priority items + 5 honorable
+  mentions closed; 510+ new tests shipped on 2026-05-03. Closure log
+  preserved.
 
 ## Top-level conventions
 

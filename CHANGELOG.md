@@ -11,6 +11,39 @@ test-coverage closure across §A-§E gaps, Playwright stabilization
 across Chromium + WebKit, and the local-first test workflow.
 
 ### Added
+- **2026-05-05 round-2 fix-up wave (5-agent fanout) — cross-cutting helper fix, 2 root-cause spec fixes, 1 RBAC drift, 17 a11y label linkages.**
+  Round-2 release.yml on `4d9423f` was still red on patients-register
+  + payment-plans + ot-surgery WebKit. A 5-agent fanout closed all
+  three plus 2 source-side fixes. `0e57b4a` tightened `expectNotForbidden`
+  in `e2e/helpers.ts` (the `/forbidden|403/i` regex was matching '403'
+  as a digit substring inside random strings — ot-surgery WebKit
+  fails were OT-name timestamps containing '403'). `c052df6` found
+  that the patients-register test failures were due to digit-bearing
+  unique names (`E2eReg ${Date.now()}`) being rejected by
+  `PATIENT_NAME_REGEX = /^[A-Za-zऀ-ॿ\s.\-']{1,100}$/` — POST never
+  fired; new test asserts POST status before searching. `3decc91`
+  found that payment-plans validation tests fail because native
+  HTML5 `<input min/max>` constraints reject submit before the React
+  `setError()` handler runs — fix uses `form.noValidate = true;
+  form.requestSubmit()`. `0646b0b` tightened
+  `apps/web/src/app/dashboard/expenses/page.tsx` `canAdd` gate to
+  ADMIN-only (server is ADMIN-only; RECEPTION was seeing a POST-403
+  CTA). `ab60593` added `htmlFor`/`id` linkage to 17 label/input
+  pairs across AddMedicine + AddSupplier + AddWard modals (WCAG 2.1
+  AA + Playwright `getByLabel` compatibility). Three more
+  architectural findings logged in TODO.md as candidate PRs:
+  PATIENT_NAME_REGEX digit-rejection (consider doc note for spec
+  authors); HTML5 constraint validation racing React `setError`
+  (forms-wide review); the `canX`-vs-`authorize()` drift pattern
+  (audit pass on all client gates).
+- **`docs/archive/gaps/` subfolder.** Dedicated location for fully
+  closed gap-tracking docs (every item worked through). A gap doc
+  moves there only when its entire backlog is closed; if even one
+  item is still open it stays in `docs/`. Seeded with
+  `TEST_GAPS_2026-05-03.md` (already fully closed). Active gap files
+  (`E2E_COVERAGE_BACKLOG.md`, `TEST_COVERAGE_AUDIT.md`) stay in
+  `docs/` until done. Policy noted in TODO.md banner so it's surfaced
+  every session start.
 - **2026-05-05 evening — fix-up wave + 7-agent Cluster 1+2 fanout + 5th project skill.**
   After release.yml `25287320476` surfaced 11 failing Playwright tests
   (8 from autopilot + 3 pre-existing from earlier sessions), three

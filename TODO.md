@@ -6,7 +6,7 @@ is independently shippable. Full per-session history lives under
 
 > Updated: 2026-05-05 evening (post **fix-up wave (11 commits) + 5 skills + 7-agent Cluster 1+2 fanout (7 commits)**).
 > Latest session handoff: [`docs/archive/SESSION_SNAPSHOT_2026-05-04.md`](docs/archive/SESSION_SNAPSHOT_2026-05-04.md) (rolling forward; new snapshot at next session boundary).
-> HEAD on `main` = `2b86721` (`chore(claude): track .claude/settings.json`).
+> HEAD on `main` = `ab60593` (`fix(web/a11y): add htmlFor to bare-label modal forms`).
 > Autopilot closed **15 zero-coverage E2E routes** in 5 parallel-fanout
 > batches (~95 new cases). Subsequent fix-up wave fixed 11 failing
 > tests (8 autopilot specs + 3 pre-existing). Then the **7-agent
@@ -50,6 +50,14 @@ is independently shippable. Full per-session history lives under
 >    that actually parallelizes on this VSCode harness build (bg agents
 >    are broken on v2.1.126, see
 >    `~/.claude/projects/c--Users-Admin-gbs-projects-medcore/memory/reference_worktree_bg_agent_perms.md`).
+>
+> **Doc archive policy:** `docs/archive/gaps/` holds **fully closed**
+> gap-tracking docs (every item worked through). A gap doc moves there
+> only when its entire backlog is closed; if even one item is still open
+> it stays in `docs/` so the next reader sees it. The active gap files
+> (`E2E_COVERAGE_BACKLOG.md`, `TEST_COVERAGE_AUDIT.md`) are NOT in the
+> archive yet — they have open items. The folder is reference-only;
+> nothing in `archive/gaps/` needs to be read to pick up work.
 >
 > Prior context: 2026-05-03 late-night handoff at
 > `docs/archive/SESSION_SNAPSHOT_2026-05-03-late-night.md`.
@@ -116,6 +124,26 @@ don't lose their findings.
 7. **`/dashboard/expenses` has client/server RBAC drift.** Client allows RECEPTION via `canAdd` (page.tsx:147); server only allows ADMIN (`authorize(Role.ADMIN)` in `routes/expenses.ts:359, 437`). RECEPTION sees the Add CTA but POST 403s.
 8. **Patient `PATCH /users/:id` endpoint lives in `apps/api/src/routes/patient-extras.ts:396`** — not in a dedicated `users.ts` (no such file exists). Discoverability gap; consider moving or adding a re-export.
 9. **`EntityPicker` search query is `patientName.split(" ")[0]`** — first word only. Test selectors using full name will mismatch when the picker shows multiple seeded patients sharing a first name. Use `.filter({ hasText: fullName })` to disambiguate.
+
+### Round 2 fix-up + RBAC drift fix + a11y debt (5 commits via 5-agent fanout)
+
+After the first fix-up wave, release.yml run `25289847607` on `4d9423f`
+was STILL red (3 patient-register / payment-plans / ot-surgery clusters).
+A 5-agent fanout closed all of them and added two source-side fixes:
+
+| Commit | What | Notable |
+|---|---|---|
+| `0e57b4a` | `fix(e2e): expectNotForbidden false positive on '403' digit substring` | Helper regex `/forbidden\|403/i` was matching '403' as a substring inside random strings. ot-surgery WebKit failures were because OT-name timestamps contained "403" digits. Phrase-anchored regex now requires "Forbidden" as a discrete word OR "403" adjacent to HTTP/Error/status-code prefix. **Cross-cutting** — fixes the helper for all callers. |
+| `c052df6` | `fix(e2e): /dashboard/patients/register — assert POST status before search-row-find (was hiding 4xx)` | **Real bug found**: `E2eReg ${Date.now()}` contains digits, which `PATIENT_NAME_REGEX = /^[A-Za-zऀ-ॿ\s.\-']{1,100}$/` rejects on both client and server. Client `handleCreatePatient` was setting field-error and early-returning before any POST. Test was searching for a row that was never created. Fix: digit-free unique suffix + waitForResponse on POST + status-checked assertion + search-by-phone (stricter). |
+| `3decc91` | `fix(e2e): /dashboard/payment-plans validation tests — match real per-field error testids` | **Real cause**: native HTML5 `<input min/max/required>` constraints reject submit BEFORE the React handler runs, so `setError()` never fires and `new-plan-error` never renders. Fix: `form.noValidate = true; form.requestSubmit()` to bypass native validation and exercise the React-side error path. |
+| `0646b0b` | `fix(web/expenses): tighten canAdd CTA gate to ADMIN-only — server is ADMIN-only (RBAC drift)` | Source bug. `canAdd` allowed RECEPTION client-side; server `authorize(Role.ADMIN)` rejected. RECEPTION saw the Add CTA but POST 403'd. Tightened to client to match server. |
+| `ab60593` | `fix(web/a11y): add htmlFor/id linkage to bare-label modal forms (medicines, suppliers, wards)` | A11y debt + Playwright `getByLabel` compatibility. **17 label/input pairs** linked across 3 modals (AddMedicine 6, AddSupplier 7, AddWard 4). Closes the WCAG 2.1 AA gap surfaced by the e2e fixes in `cdea823` / `8d3f277` / `49d829d`. |
+
+### Newly-surfaced architectural findings (from this 5-agent wave)
+
+10. **`PATIENT_NAME_REGEX = /^[A-Za-zऀ-ॿ\s.\-']{1,100}$/` — digit-rejecting.** Used on both client and server (`apps/web/src/app/dashboard/patients/page.tsx` + `apps/api/src/routes/patients.ts`). E2E specs that generate timestamp-based unique names will silently fail to insert. Spec authors should use digit-free unique suffixes for patient names. Worth a short doc note in `e2e/helpers.ts` explaining `indianishName()` exists for this reason.
+11. **Native HTML5 `<input min/max/required>` constraints fire before React submit handlers.** Forms relying on React-side `setError()` for inline messages won't render those errors when the browser blocks submit at the constraint layer. Either use `form.noValidate` consistently OR move all validation to the constraint layer + render via `validity` API. Affects payment-plans; likely affects others.
+12. **`/dashboard/expenses` RBAC drift CLOSED `0646b0b`** but the same client/server-drift pattern likely exists elsewhere. Consider a project-level lint or audit pass: every `canX` predicate in `apps/web/` should match the corresponding `authorize(...)` in `apps/api/`.
 
 ### Skills status
 

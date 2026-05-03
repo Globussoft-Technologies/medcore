@@ -45,8 +45,8 @@ test.describe("Expenses — /dashboard/expenses (ADMIN Add-Expense flow + future
     ).toBeVisible({ timeout: 15_000 });
 
     // The Add Expense CTA only renders when canAdd is true (page.tsx:147,
-    // which today gates ADMIN/RECEPTION client-side; the API rejects
-    // RECEPTION at POST /expenses so only ADMIN can actually save).
+    // ADMIN-only — aligned with the server, every route in
+    // apps/api/src/routes/expenses.ts is authorize(Role.ADMIN)).
     await expect(
       page.getByRole("button", { name: /^Add Expense$/i })
     ).toBeVisible();

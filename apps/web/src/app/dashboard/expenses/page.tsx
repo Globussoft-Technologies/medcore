@@ -144,7 +144,11 @@ export default function ExpensesPage() {
     }
   }
 
-  const canAdd = user?.role === "ADMIN" || user?.role === "RECEPTION";
+  // RBAC: align with server (apps/api/src/routes/expenses.ts — every
+  // route is authorize(Role.ADMIN)) and with ALLOWED_ROLES above. Issue
+  // #98 codifies expenses as ADMIN-only until we add ACCOUNTANT; the
+  // prior `|| RECEPTION` was a 403-bound CTA (server rejected POST).
+  const canAdd = user?.role === "ADMIN";
   const canDelete = user?.role === "ADMIN";
   const maxCategoryTotal = Math.max(
     1,

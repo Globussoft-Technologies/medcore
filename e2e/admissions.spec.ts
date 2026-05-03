@@ -105,9 +105,13 @@ test.describe("Admissions — list page chrome (/dashboard/admissions)", () => {
       page.getByRole("button", { name: /currently admitted/i })
     ).toBeVisible({ timeout: PAGE_TIMEOUT });
 
-    // "Admit Patient" button — DOCTOR is in canAdmit (page.tsx:99-103)
+    // "Admit Patient" button — DOCTOR is in canAdmit (page.tsx:99-103).
+    // The page can render TWO buttons matching /admit patient/i: the header
+    // CTA (page.tsx:335) AND the DataTable empty-state action (page.tsx:405-418)
+    // when the admissions list is empty. Use .first() to consistently target
+    // the header CTA in DOM order — both buttons open the same admit modal.
     await expect(
-      page.getByRole("button", { name: /admit patient/i })
+      page.getByRole("button", { name: /admit patient/i }).first()
     ).toBeVisible({ timeout: PAGE_TIMEOUT });
   });
 
@@ -122,9 +126,11 @@ test.describe("Admissions — list page chrome (/dashboard/admissions)", () => {
       page.getByRole("heading", { name: /admissions/i }).first()
     ).toBeVisible({ timeout: PAGE_TIMEOUT });
 
-    // RECEPTION is in canAdmit (page.tsx:101)
+    // RECEPTION is in canAdmit (page.tsx:101). Same dual-render concern as
+    // the DOCTOR test: header CTA + DataTable empty-state action both match;
+    // .first() targets the header CTA deterministically.
     await expect(
-      page.getByRole("button", { name: /admit patient/i })
+      page.getByRole("button", { name: /admit patient/i }).first()
     ).toBeVisible({ timeout: PAGE_TIMEOUT });
   });
 

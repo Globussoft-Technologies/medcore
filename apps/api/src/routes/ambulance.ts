@@ -17,6 +17,98 @@ import { auditLog } from "../middleware/audit";
 const router = Router();
 router.use(authenticate);
 
+// ───────────────────────────────────────────────────────
+// Trip state machine (gap #10, 2026-05-03 audit).
+//
+// Mirrors the pattern in `apps/api/src/services/insurance-claims/store.ts`
+// (`assertValidTransition` added in 533dd53). The transition guard prevents
+// silent acceptance of impossible lifecycle moves at the HTTP boundary —
+// e.g. REQUESTED → COMPLETED skipping dispatch/arrival/en-route, or
+// COMPLETED → DISPATCHED reviving a closed trip.
+//
+// Same-state writes (e.g. POST /dispatch on an already-DISPATCHED trip)
+// are treated as idempotent no-ops — callers retrying after a flaky
+// network shouldn't get a 409.
+// ───────────────────────────────────────────────────────
+
+type TripStatus =
+  | "REQUESTED"
+  | "DISPATCHED"
+  | "ARRIVED_SCENE"
+  | "EN_ROUTE_HOSPITAL"
+  | "COMPLETED"
+  | "CANCELLED";
+
+const ALLOWED_TRIP_TRANSITIONS: Readonly<
+  Record<TripStatus, ReadonlyArray<TripStatus>>
+> = {
+  REQUESTED: ["DISPATCHED", "CANCELLED"],
+  DISPATCHED: ["ARRIVED_SCENE", "CANCELLED"],
+  ARRIVED_SCENE: ["EN_ROUTE_HOSPITAL", "CANCELLED"],
+  EN_ROUTE_HOSPITAL: ["COMPLETED", "CANCELLED"],
+  COMPLETED: [],
+  CANCELLED: [],
+};
+
+class InvalidTripTransitionError extends Error {
+  statusCode = 409;
+  constructor(public from: TripStatus, public to: TripStatus) {
+    const allowed = ALLOWED_TRIP_TRANSITIONS[from] ?? [];
+    super(
+      `Invalid ambulance trip transition: ${from} -> ${to}. ` +
+        `Valid transitions from ${from}: ${
+          allowed.length ? allowed.join(", ") : "(none — terminal state)"
+        }`
+    );
+    this.name = "InvalidTripTransitionError";
+  }
+}
+
+function assertValidTripTransition(from: TripStatus, to: TripStatus): void {
+  if (from === to) return; // idempotent same-state writes are no-ops
+  const allowed = ALLOWED_TRIP_TRANSITIONS[from] ?? [];
+  if (!allowed.includes(to)) {
+    throw new InvalidTripTransitionError(from, to);
+  }
+}
+
+/**
+ * Read the current trip status, then assert the requested transition is
+ * valid. Returns `{ status: "not-found" }` if the trip doesn't exist, or
+ * `{ status: "no-op" }` if the trip is already in the target state, or
+ * `{ status: "ok", current }` if the caller should proceed with the
+ * Prisma update. Throws `InvalidTripTransitionError` (statusCode 409)
+ * when the transition is rejected.
+ */
+async function precheckTripTransition(
+  id: string,
+  to: TripStatus
+): Promise<
+  | { kind: "not-found" }
+  | { kind: "no-op"; current: TripStatus; trip: { id: string; status: TripStatus; ambulanceId: string } }
+  | { kind: "ok"; current: TripStatus }
+> {
+  const current = await prisma.ambulanceTrip.findUnique({
+    where: { id },
+    select: { id: true, status: true, ambulanceId: true },
+  });
+  if (!current) return { kind: "not-found" };
+  const from = current.status as TripStatus;
+  if (from === to) {
+    return {
+      kind: "no-op",
+      current: from,
+      trip: {
+        id: current.id,
+        status: from,
+        ambulanceId: current.ambulanceId,
+      },
+    };
+  }
+  assertValidTripTransition(from, to);
+  return { kind: "ok", current: from };
+}
+
 // Issue #87 — Single source of truth for ambulance fleet status.
 // If any trip on the ambulance is still active (anything other than COMPLETED
 // or CANCELLED), the ambulance must read as ON_TRIP in the fleet view; once
@@ -237,6 +329,21 @@ router.patch(
   authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const pre = await precheckTripTransition(req.params.id, "DISPATCHED");
+      if (pre.kind === "not-found") {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Trip not found" });
+        return;
+      }
+      if (pre.kind === "no-op") {
+        // Idempotent — already DISPATCHED. Return the row as-is.
+        const existing = await prisma.ambulanceTrip.findUnique({
+          where: { id: req.params.id },
+        });
+        res.json({ success: true, data: existing, error: null });
+        return;
+      }
       const trip = await prisma.ambulanceTrip.update({
         where: { id: req.params.id },
         data: { dispatchedAt: new Date(), status: "DISPATCHED" },
@@ -247,6 +354,12 @@ router.patch(
       );
       res.json({ success: true, data: trip, error: null });
     } catch (err) {
+      if (err instanceof InvalidTripTransitionError) {
+        res
+          .status(409)
+          .json({ success: false, data: null, error: err.message });
+        return;
+      }
       next(err);
     }
   }
@@ -258,6 +371,20 @@ router.patch(
   authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const pre = await precheckTripTransition(req.params.id, "ARRIVED_SCENE");
+      if (pre.kind === "not-found") {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Trip not found" });
+        return;
+      }
+      if (pre.kind === "no-op") {
+        const existing = await prisma.ambulanceTrip.findUnique({
+          where: { id: req.params.id },
+        });
+        res.json({ success: true, data: existing, error: null });
+        return;
+      }
       const trip = await prisma.ambulanceTrip.update({
         where: { id: req.params.id },
         data: { arrivedAt: new Date(), status: "ARRIVED_SCENE" },
@@ -268,6 +395,12 @@ router.patch(
       );
       res.json({ success: true, data: trip, error: null });
     } catch (err) {
+      if (err instanceof InvalidTripTransitionError) {
+        res
+          .status(409)
+          .json({ success: false, data: null, error: err.message });
+        return;
+      }
       next(err);
     }
   }
@@ -279,6 +412,23 @@ router.patch(
   authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const pre = await precheckTripTransition(
+        req.params.id,
+        "EN_ROUTE_HOSPITAL"
+      );
+      if (pre.kind === "not-found") {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Trip not found" });
+        return;
+      }
+      if (pre.kind === "no-op") {
+        const existing = await prisma.ambulanceTrip.findUnique({
+          where: { id: req.params.id },
+        });
+        res.json({ success: true, data: existing, error: null });
+        return;
+      }
       const trip = await prisma.ambulanceTrip.update({
         where: { id: req.params.id },
         data: { status: "EN_ROUTE_HOSPITAL" },
@@ -289,6 +439,12 @@ router.patch(
       );
       res.json({ success: true, data: trip, error: null });
     } catch (err) {
+      if (err instanceof InvalidTripTransitionError) {
+        res
+          .status(409)
+          .json({ success: false, data: null, error: err.message });
+        return;
+      }
       next(err);
     }
   }
@@ -309,6 +465,30 @@ router.patch(
           .status(404)
           .json({ success: false, data: null, error: "Trip not found" });
         return;
+      }
+
+      // gap #10 (2026-05-03): enforce state-machine guard so REQUESTED →
+      // COMPLETED, ARRIVED_SCENE → DISPATCHED rewinds, and post-terminal
+      // moves are rejected with 409.
+      if (existing.status === "COMPLETED") {
+        // Idempotent — already complete. No-op return; do not re-run the
+        // recomputeAmbulanceStatus / audit side-effects.
+        res.json({ success: true, data: existing, error: null });
+        return;
+      }
+      try {
+        assertValidTripTransition(
+          existing.status as TripStatus,
+          "COMPLETED"
+        );
+      } catch (err) {
+        if (err instanceof InvalidTripTransitionError) {
+          res
+            .status(409)
+            .json({ success: false, data: null, error: err.message });
+          return;
+        }
+        throw err;
       }
 
       // Issue #87: completeTripSchema mandates actualEndTime, finalDistance,
@@ -364,6 +544,28 @@ router.patch(
           .status(404)
           .json({ success: false, data: null, error: "Trip not found" });
         return;
+      }
+
+      // gap #10 (2026-05-03): a CANCELLED trip is terminal. Re-cancelling
+      // is treated as an idempotent no-op; cancelling a COMPLETED trip is
+      // a domain error (409).
+      if (existing.status === "CANCELLED") {
+        res.json({ success: true, data: existing, error: null });
+        return;
+      }
+      try {
+        assertValidTripTransition(
+          existing.status as TripStatus,
+          "CANCELLED"
+        );
+      } catch (err) {
+        if (err instanceof InvalidTripTransitionError) {
+          res
+            .status(409)
+            .json({ success: false, data: null, error: err.message });
+          return;
+        }
+        throw err;
       }
 
       const trip = await prisma.$transaction(async (tx) => {
@@ -673,6 +875,9 @@ router.post(
   validate(fuelLogSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // gap #10 (2026-05-03): honour the client-supplied `filledAt` when
+      // provided (validator already enforces it cannot be in the future).
+      // Falling through to undefined lets Prisma's `@default(now())` fire.
       const log = await prisma.ambulanceFuelLog.create({
         data: {
           ambulanceId: req.body.ambulanceId,
@@ -682,6 +887,9 @@ router.post(
           stationName: req.body.stationName,
           notes: req.body.notes,
           filledBy: req.user!.userId,
+          ...(req.body.filledAt
+            ? { filledAt: new Date(req.body.filledAt) }
+            : {}),
         },
       });
       auditLog(req, "AMBULANCE_FUEL_LOG", "ambulance_fuel_log", log.id, {

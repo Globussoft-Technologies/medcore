@@ -219,6 +219,20 @@ describeIfDB("Ambulance validation (Issue #87)", () => {
   it("returns the fleet to AVAILABLE once the trip is completed", async () => {
     const amb = await createAmbulance();
     const trip = await startTrip(amb.id);
+    // Drive through the full state machine — gap #10 (2026-05-03) blocks
+    // REQUESTED → COMPLETED shortcuts.
+    await request(app)
+      .patch(`/api/v1/ambulance/trips/${trip.id}/dispatch`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+    await request(app)
+      .patch(`/api/v1/ambulance/trips/${trip.id}/arrived`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+    await request(app)
+      .patch(`/api/v1/ambulance/trips/${trip.id}/enroute`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
     const c = await request(app)
       .patch(`/api/v1/ambulance/trips/${trip.id}/complete`)
       .set("Authorization", `Bearer ${adminToken}`)

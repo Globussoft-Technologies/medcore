@@ -118,7 +118,7 @@ describeIfDB("Ambulance API (integration)", () => {
     expect(res.status).toBe(400);
   });
 
-  it("dispatch -> arrived -> complete flow (frees ambulance)", async () => {
+  it("dispatch -> arrived -> enroute -> complete flow (frees ambulance)", async () => {
     const amb = await createAmbulance(adminToken);
     const patient = await createPatientFixture();
     const tripRes = await request(app)
@@ -136,6 +136,18 @@ describeIfDB("Ambulance API (integration)", () => {
       .set("Authorization", `Bearer ${adminToken}`)
       .send({});
     expect(d.body.data?.status).toBe("DISPATCHED");
+
+    const a = await request(app)
+      .patch(`/api/v1/ambulance/trips/${trip.id}/arrived`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+    expect(a.body.data?.status).toBe("ARRIVED_SCENE");
+
+    const e = await request(app)
+      .patch(`/api/v1/ambulance/trips/${trip.id}/enroute`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+    expect(e.body.data?.status).toBe("EN_ROUTE_HOSPITAL");
 
     const c = await request(app)
       .patch(`/api/v1/ambulance/trips/${trip.id}/complete`)
@@ -181,8 +193,24 @@ describeIfDB("Ambulance API (integration)", () => {
         patientId: patient.id,
         pickupAddress: "Test",
       });
+    const tripId = tripRes.body.data.id;
+    // Drive trip through the full state machine before completing — gap #10
+    // (2026-05-03) added the transition guard so /complete can no longer be
+    // called from REQUESTED.
     await request(app)
-      .patch(`/api/v1/ambulance/trips/${tripRes.body.data.id}/complete`)
+      .patch(`/api/v1/ambulance/trips/${tripId}/dispatch`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+    await request(app)
+      .patch(`/api/v1/ambulance/trips/${tripId}/arrived`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+    await request(app)
+      .patch(`/api/v1/ambulance/trips/${tripId}/enroute`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+    await request(app)
+      .patch(`/api/v1/ambulance/trips/${tripId}/complete`)
       .set("Authorization", `Bearer ${adminToken}`)
       .send({
         actualEndTime: new Date().toISOString(),
@@ -319,27 +347,18 @@ describeIfDB("Ambulance API (integration)", () => {
 
   // ── State machine: out-of-order transitions ──────────────
   //
-  // SOURCE BUG (gap-closer 2026-05-03): the route handlers in
-  // apps/api/src/routes/ambulance.ts perform unconditional
-  // `prisma.ambulanceTrip.update({ status: ... })` with NO guard
-  // on the prior status. There is no state-machine enforcement at
-  // the HTTP boundary — REQUESTED → COMPLETED, ARRIVED_SCENE →
-  // REQUESTED (no endpoint exists for that), and COMPLETED →
-  // DISPATCHED all silently succeed. The audit's claim that the
-  // route "rejects out-of-order transitions" is aspirational.
-  //
-  // These tests assert *current* behaviour with TODO markers so
-  // the fix shows up as a clean diff. When the fix lands (status
-  // guard returning 409/422), flip these expectations.
+  // The route handlers in apps/api/src/routes/ambulance.ts now read
+  // the current trip status and call `assertValidTripTransition`
+  // before writing — illegal moves return 409 with a message
+  // containing "Invalid ambulance trip transition" and the prior
+  // status is preserved.
   //
   // Note: there is no "set status to REQUESTED" endpoint — only
-  // dispatch / arrived / enroute / complete / cancel. So
-  // ARRIVED_SCENE → REQUESTED can't even be expressed via the
-  // HTTP API. We exercise the closest analogue: post-arrival,
-  // the only "rewind" surface is /dispatch which would re-stamp
-  // dispatchedAt and revert status to DISPATCHED.
+  // dispatch / arrived / enroute / complete / cancel. The closest
+  // illegal rewind we can express via HTTP is ARRIVED_SCENE →
+  // DISPATCHED (replayed POST /dispatch on an already-arrived trip).
 
-  it("state-machine: REQUESTED → COMPLETED is currently allowed (bug — should reject)", async () => {
+  it("state-machine: REQUESTED → COMPLETED is rejected (409)", async () => {
     const { tripId } = await seedTrip(adminToken);
     const res = await request(app)
       .patch(`/api/v1/ambulance/trips/${tripId}/complete`)
@@ -350,13 +369,18 @@ describeIfDB("Ambulance API (integration)", () => {
         finalCost: 200,
         notes: "Skipping the queue",
       });
-    // TODO: when state-machine guard lands, expect 409 / 422.
-    // Currently the route accepts the transition unconditionally.
-    expect([200, 201]).toContain(res.status);
-    expect(res.body.data?.status).toBe("COMPLETED");
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/Invalid ambulance trip transition/i);
+
+    const prisma = await getPrisma();
+    const row = await prisma.ambulanceTrip.findUnique({
+      where: { id: tripId },
+    });
+    expect(row?.status).toBe("REQUESTED");
+    expect(row?.completedAt).toBeNull();
   });
 
-  it("state-machine: ARRIVED_SCENE → DISPATCHED (rewind) is currently allowed (bug — should reject)", async () => {
+  it("state-machine: ARRIVED_SCENE → DISPATCHED (rewind) is rejected (409)", async () => {
     const { tripId } = await seedTrip(adminToken);
     await request(app)
       .patch(`/api/v1/ambulance/trips/${tripId}/dispatch`)
@@ -366,23 +390,35 @@ describeIfDB("Ambulance API (integration)", () => {
       .patch(`/api/v1/ambulance/trips/${tripId}/arrived`)
       .set("Authorization", `Bearer ${adminToken}`)
       .send({});
-    // The "ARRIVED_SCENE → REQUESTED" rewind isn't expressible (no
-    // endpoint resets to REQUESTED). The closest illegal rewind is
-    // ARRIVED_SCENE → DISPATCHED, which the API currently accepts.
+    // Replayed POST /dispatch on an ARRIVED_SCENE trip is the closest
+    // expressible rewind via the HTTP surface — must now 409.
     const res = await request(app)
       .patch(`/api/v1/ambulance/trips/${tripId}/dispatch`)
       .set("Authorization", `Bearer ${adminToken}`)
       .send({});
-    // TODO: when state-machine guard lands, expect 409 / 422.
-    expect([200, 201]).toContain(res.status);
-    expect(res.body.data?.status).toBe("DISPATCHED");
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/Invalid ambulance trip transition/i);
+
+    const prisma = await getPrisma();
+    const row = await prisma.ambulanceTrip.findUnique({
+      where: { id: tripId },
+    });
+    expect(row?.status).toBe("ARRIVED_SCENE");
   });
 
-  it("state-machine: COMPLETED → DISPATCHED is currently allowed (bug — should reject)", async () => {
+  it("state-machine: COMPLETED → DISPATCHED is rejected (409, terminal-state guard)", async () => {
     const { tripId } = await seedTrip(adminToken);
-    // Drive trip to COMPLETED.
+    // Drive trip to COMPLETED via the legal path.
     await request(app)
       .patch(`/api/v1/ambulance/trips/${tripId}/dispatch`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+    await request(app)
+      .patch(`/api/v1/ambulance/trips/${tripId}/arrived`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+    await request(app)
+      .patch(`/api/v1/ambulance/trips/${tripId}/enroute`)
       .set("Authorization", `Bearer ${adminToken}`)
       .send({});
     await request(app)
@@ -394,14 +430,99 @@ describeIfDB("Ambulance API (integration)", () => {
         finalCost: 200,
         notes: "Done",
       });
-    // Now try to revive it.
+    // Now try to revive the trip — must 409.
     const res = await request(app)
       .patch(`/api/v1/ambulance/trips/${tripId}/dispatch`)
       .set("Authorization", `Bearer ${adminToken}`)
       .send({});
-    // TODO: when state-machine guard lands, expect 409 / 422.
-    expect([200, 201]).toContain(res.status);
-    expect(res.body.data?.status).toBe("DISPATCHED");
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/Invalid ambulance trip transition/i);
+    // Terminal-state guard error message lists "(none — terminal state)".
+    expect(res.body.error).toMatch(/terminal state|COMPLETED -> DISPATCHED/i);
+
+    const prisma = await getPrisma();
+    const row = await prisma.ambulanceTrip.findUnique({
+      where: { id: tripId },
+    });
+    expect(row?.status).toBe("COMPLETED");
+  });
+
+  it("state-machine: CANCELLED → DISPATCHED is rejected (409, terminal-state guard)", async () => {
+    const { tripId } = await seedTrip(adminToken);
+    await request(app)
+      .patch(`/api/v1/ambulance/trips/${tripId}/cancel`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+
+    const res = await request(app)
+      .patch(`/api/v1/ambulance/trips/${tripId}/dispatch`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/Invalid ambulance trip transition/i);
+
+    const prisma = await getPrisma();
+    const row = await prisma.ambulanceTrip.findUnique({
+      where: { id: tripId },
+    });
+    expect(row?.status).toBe("CANCELLED");
+  });
+
+  it("state-machine: COMPLETED → CANCELLED is rejected (409, no terminal cancellation)", async () => {
+    const { tripId } = await seedTrip(adminToken);
+    await request(app)
+      .patch(`/api/v1/ambulance/trips/${tripId}/dispatch`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+    await request(app)
+      .patch(`/api/v1/ambulance/trips/${tripId}/arrived`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+    await request(app)
+      .patch(`/api/v1/ambulance/trips/${tripId}/enroute`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+    await request(app)
+      .patch(`/api/v1/ambulance/trips/${tripId}/complete`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        actualEndTime: new Date().toISOString(),
+        finalDistance: 7,
+        finalCost: 280,
+        notes: "Done",
+      });
+
+    const res = await request(app)
+      .patch(`/api/v1/ambulance/trips/${tripId}/cancel`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+    expect(res.status).toBe(409);
+
+    const prisma = await getPrisma();
+    const row = await prisma.ambulanceTrip.findUnique({
+      where: { id: tripId },
+    });
+    expect(row?.status).toBe("COMPLETED");
+  });
+
+  it("state-machine: same-state /dispatch on a DISPATCHED trip is an idempotent 200 no-op", async () => {
+    const { tripId } = await seedTrip(adminToken);
+    const first = await request(app)
+      .patch(`/api/v1/ambulance/trips/${tripId}/dispatch`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+    expect(first.status).toBe(200);
+    expect(first.body.data?.status).toBe("DISPATCHED");
+    const firstDispatchedAt = first.body.data?.dispatchedAt;
+
+    const second = await request(app)
+      .patch(`/api/v1/ambulance/trips/${tripId}/dispatch`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+    expect(second.status).toBe(200);
+    expect(second.body.data?.status).toBe("DISPATCHED");
+    // No-op: dispatchedAt should be untouched (not re-stamped).
+    expect(second.body.data?.dispatchedAt).toBe(firstDispatchedAt);
   });
 
   // ── Cancel flow ──────────────────────────────────────────
@@ -477,23 +598,11 @@ describeIfDB("Ambulance API (integration)", () => {
     expect(r1.body.data.id).not.toBe(r2.body.data.id);
   });
 
-  it("fuel-log: client-supplied future timestamp is silently ignored (validator gap — should reject)", async () => {
-    // SOURCE BUG (gap-closer 2026-05-03): fuelLogSchema in
-    // packages/shared/src/validation/ancillary-enhancements.ts has
-    // NO timestamp field at all (no `filledAt`, no `timestamp`,
-    // no `loggedAt`). The route at apps/api/src/routes/ambulance.ts
-    // never reads any client timestamp. `filledAt` is set by
-    // Prisma's `@default(now())`. As a result:
-    //   1. Backdated entries can't be inserted via the API (good
-    //      side-effect, but accidental).
-    //   2. Any extra timestamp the client sends is silently
-    //      dropped — no 400 is returned (bad — the audit's claim
-    //      that backdated entries are "rejected" is aspirational).
-    // The fix is to add a `filledAt` field to fuelLogSchema with a
-    // refine() that rejects timestamps in the future, and have the
-    // route honour it. Until then this test pins current behaviour.
+  it("fuel-log: client-supplied future filledAt is rejected (400)", async () => {
     const amb = await createAmbulance(adminToken);
-    const oneHourAhead = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const oneDayAhead = new Date(
+      Date.now() + 24 * 60 * 60 * 1000
+    ).toISOString();
     const res = await request(app)
       .post("/api/v1/ambulance/fuel-logs")
       .set("Authorization", `Bearer ${adminToken}`)
@@ -503,23 +612,64 @@ describeIfDB("Ambulance API (integration)", () => {
         costTotal: 1000,
         odometerKm: 11000,
         stationName: "Future Station",
-        // Extra field not in fuelLogSchema — currently silently ignored.
-        timestamp: oneHourAhead,
-        filledAt: oneHourAhead,
+        filledAt: oneDayAhead,
       });
-    // TODO: when validator guards future timestamps, expect 400.
+    expect(res.status).toBe(400);
+    const fields = (res.body.details || []).map((d: any) => d.field);
+    expect(fields).toContain("filledAt");
+  });
+
+  it("fuel-log: client-supplied past filledAt is persisted (backdating allowed)", async () => {
+    const amb = await createAmbulance(adminToken);
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const res = await request(app)
+      .post("/api/v1/ambulance/fuel-logs")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        ambulanceId: amb.id,
+        litres: 22,
+        costTotal: 2200,
+        odometerKm: 11500,
+        stationName: "Backdated Station",
+        filledAt: yesterday,
+      });
     expect([200, 201]).toContain(res.status);
 
-    // The persisted row must use server time, NOT the client-supplied
-    // future timestamp — i.e. `filledAt` is within ~5 minutes of now.
+    // The row must reflect the client-supplied timestamp — Prisma's
+    // @default(now()) must NOT silently overwrite it.
     const prisma = await getPrisma();
     const row = await prisma.ambulanceFuelLog.findUnique({
       where: { id: res.body.data.id },
     });
     expect(row).toBeTruthy();
-    const rowTime = new Date(row!.filledAt).getTime();
-    const skewMs = Math.abs(rowTime - Date.now());
-    expect(skewMs).toBeLessThan(5 * 60 * 1000);
+    expect(new Date(row!.filledAt).toISOString()).toBe(yesterday);
+  });
+
+  it("fuel-log: omitted filledAt falls back to Prisma @default(now())", async () => {
+    const amb = await createAmbulance(adminToken);
+    const before = Date.now();
+    const res = await request(app)
+      .post("/api/v1/ambulance/fuel-logs")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        ambulanceId: amb.id,
+        litres: 18,
+        costTotal: 1800,
+        odometerKm: 12000,
+        stationName: "Default-Now Station",
+      });
+    expect([200, 201]).toContain(res.status);
+    const after = Date.now();
+
+    const prisma = await getPrisma();
+    const row = await prisma.ambulanceFuelLog.findUnique({
+      where: { id: res.body.data.id },
+    });
+    expect(row).toBeTruthy();
+    const t = new Date(row!.filledAt).getTime();
+    // Within the [before, after] window plus a generous fudge for clock skew.
+    expect(t).toBeGreaterThanOrEqual(before - 5_000);
+    expect(t).toBeLessThanOrEqual(after + 5_000);
   });
 
   // ── RBAC matrix mirroring e2e/ambulance.spec.ts ──────────

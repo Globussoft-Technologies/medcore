@@ -122,14 +122,34 @@ export const crossMatchRecordSchema = z.object({
 // AMBULANCE ENHANCEMENTS
 // ───────────────────────────────────────────────────────
 
-export const fuelLogSchema = z.object({
-  ambulanceId: z.string().uuid(),
-  litres: z.number().positive(),
-  costTotal: z.number().nonnegative(),
-  odometerKm: z.number().int().nonnegative().optional(),
-  stationName: z.string().optional(),
-  notes: z.string().optional(),
-});
+// gap #10 (2026-05-03): `filledAt` was previously absent from the schema, so
+// any client-supplied timestamp was silently dropped — Prisma's
+// `@default(now())` always won. That meant retroactive fuel logging (a real
+// dispatch-ops use case) was impossible AND future-dated typos were not
+// surfaced to the client. We now accept an optional ISO timestamp and reject
+// future dates outright; backdated entries pass through to Prisma untouched.
+export const fuelLogSchema = z
+  .object({
+    ambulanceId: z.string().uuid(),
+    litres: z.number().positive(),
+    costTotal: z.number().nonnegative(),
+    odometerKm: z.number().int().nonnegative().optional(),
+    stationName: z.string().optional(),
+    notes: z.string().optional(),
+    filledAt: z.coerce.date().optional(),
+  })
+  .refine(
+    (data) => {
+      if (!data.filledAt) return true;
+      // Allow up to 1 minute of clock skew between client and server before
+      // we call a timestamp "in the future".
+      return data.filledAt.getTime() <= Date.now() + 60 * 1000;
+    },
+    {
+      message: "filledAt cannot be in the future",
+      path: ["filledAt"],
+    }
+  );
 
 export const equipmentCheckSchema = z.object({
   equipmentChecked: z.boolean(),

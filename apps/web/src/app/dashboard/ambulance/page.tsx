@@ -369,9 +369,10 @@ export default function AmbulancePage() {
                         En Route to Hospital
                       </button>
                     )}
-                    {["ARRIVED_SCENE", "EN_ROUTE_HOSPITAL", "DISPATCHED"].includes(
-                      t.status
-                    ) && (
+                    {/* gap #10 (2026-05-03): the API state machine now */}
+                    {/* requires EN_ROUTE_HOSPITAL before COMPLETED. Hide */}
+                    {/* the Complete button until the trip is en-route. */}
+                    {t.status === "EN_ROUTE_HOSPITAL" && (
                       <button
                         onClick={() => setCompleting(t)}
                         className="flex items-center gap-1 rounded bg-green-600 px-3 py-1 text-xs text-white"

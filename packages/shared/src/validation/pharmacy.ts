@@ -141,6 +141,18 @@ export const stockMovementSchema = z.object({
 
 export const dispensePrescriptionSchema = z.object({
   prescriptionId: z.string().uuid(),
+  // Witness co-signing on Schedule-H/H1/X dispense (Drugs and Cosmetics Rules
+  // 1945 §65). Mirrors the standalone POST /controlled-substances schema —
+  // optional at the schema layer because non-controlled prescriptions don't
+  // need it; the dispense route enforces presence whenever any line item maps
+  // to a medicine with `requiresRegister=true` (Schedule-H/H1/X), closing the
+  // bypass surfaced by the Wave C controlled-substances work (e6c68e1).
+  witnessSignature: z
+    .string()
+    .trim()
+    .min(3, "Witness signature must be at least 3 characters")
+    .optional(),
+  witnessUserId: z.string().uuid().optional(),
 });
 
 export const controlledSubstanceSchema = z.object({

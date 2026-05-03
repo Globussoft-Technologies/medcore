@@ -213,10 +213,16 @@ describeIfDB("Pharmacy API — DEEP (integration)", () => {
 
   it("dispense with controlled substance auto-creates CSR entry", async () => {
     const { rx } = await setupDispensable({ narcotic: true });
+    // 2026-05-03 §65 gate (commit fixing full-Rx witness bypass): controlled
+    // substances now require a witnessSignature on the dispense body, mirroring
+    // the standalone POST /controlled-substances endpoint.
     const res = await request(app)
       .post("/api/v1/pharmacy/dispense")
       .set("Authorization", `Bearer ${pharmacistToken}`)
-      .send({ prescriptionId: rx.id });
+      .send({
+        prescriptionId: rx.id,
+        witnessSignature: "Dr. Vikram Kapoor / Senior Pharmacist",
+      });
     expect(res.status).toBe(200);
     expect(res.body.data.controlledCreated.length).toBeGreaterThanOrEqual(1);
     const prisma = await getPrisma();
@@ -224,6 +230,9 @@ describeIfDB("Pharmacy API — DEEP (integration)", () => {
       where: { prescriptionId: rx.id },
     });
     expect(entries.length).toBeGreaterThanOrEqual(1);
+    expect(entries[0].witnessSignature).toBe(
+      "Dr. Vikram Kapoor / Senior Pharmacist"
+    );
   });
 
   it("inventory/expiring returns items expiring in window", async () => {

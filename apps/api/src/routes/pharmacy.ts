@@ -355,7 +355,11 @@ router.post(
   validate(dispensePrescriptionSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { prescriptionId } = req.body;
+      const { prescriptionId, witnessSignature, witnessUserId } = req.body as {
+        prescriptionId: string;
+        witnessSignature?: string;
+        witnessUserId?: string;
+      };
 
       const prescription = await prisma.prescription.findUnique({
         where: { id: prescriptionId },
@@ -369,6 +373,86 @@ router.post(
           error: "Prescription not found",
         });
         return;
+      }
+
+      // ─── §65 witness pre-flight (Drugs and Cosmetics Rules 1945) ─────────
+      // The full-Rx dispense path auto-creates ControlledSubstanceEntry rows
+      // for any line item whose medicine has requiresRegister=true. Before
+      // this gate, that auto-creation bypassed the witnessSignature check
+      // applied on the standalone POST /controlled-substances endpoint —
+      // Schedule-H/H1/X meds could be dispensed without a co-signer. Resolve
+      // the line item → medicine mapping up-front (case-insensitive name or
+      // generic match, mirroring the per-item lookup below) and refuse the
+      // whole dispense if any of those medicines requires the register and
+      // the caller didn't include a non-blank witnessSignature.
+      const trimmedWitness =
+        typeof witnessSignature === "string" ? witnessSignature.trim() : "";
+      // Mirror the per-item resolver downstream: exact name (ci) → exact
+      // genericName (ci) → name contains (ci). We run this once per prescription
+      // item against medicines flagged requiresRegister=true so we only short-
+      // circuit when at least one line definitely maps to a controlled drug.
+      const scheduleHItems: Array<{
+        medicineName: string;
+        medicineId: string;
+        scheduleClass: string | null;
+      }> = [];
+      for (const it of prescription.items) {
+        const med = await prisma.medicine.findFirst({
+          where: {
+            requiresRegister: true,
+            OR: [
+              { name: { equals: it.medicineName, mode: "insensitive" } },
+              { genericName: { equals: it.medicineName, mode: "insensitive" } },
+              { name: { contains: it.medicineName, mode: "insensitive" } },
+            ],
+          },
+          select: { id: true, scheduleClass: true },
+        });
+        if (med) {
+          scheduleHItems.push({
+            medicineName: it.medicineName,
+            medicineId: med.id,
+            scheduleClass: med.scheduleClass ?? null,
+          });
+        }
+      }
+
+      if (scheduleHItems.length > 0 && trimmedWitness.length < 3) {
+        auditLog(
+          req,
+          "PRESCRIPTION_DISPENSE_BLOCKED_NO_WITNESS",
+          "prescription",
+          prescriptionId,
+          {
+            scheduleHItems,
+            reason: "Missing witnessSignature for Schedule-H/H1/X dispense",
+          }
+        ).catch(console.error);
+        res.status(422).json({
+          success: false,
+          data: null,
+          error:
+            "Schedule-H/H1/X medications require a witnessSignature on dispense",
+          scheduleHItems,
+        });
+        return;
+      }
+
+      // FK-validate witnessUserId when provided so we don't surface a raw
+      // Prisma P2003 to the caller.
+      if (witnessUserId) {
+        const witness = await prisma.user.findUnique({
+          where: { id: witnessUserId },
+          select: { id: true },
+        });
+        if (!witness) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "Witness user not found",
+          });
+          return;
+        }
       }
 
       const dispensed: Array<{
@@ -499,6 +583,9 @@ router.post(
               dispensedBy: req.user!.userId,
               balance,
               notes: `Auto-registered on dispense of Rx ${prescription.id}`,
+              witnessSignature:
+                trimmedWitness.length > 0 ? trimmedWitness : null,
+              witnessUserId: witnessUserId ?? null,
             },
           });
           controlledCreated.push({
@@ -584,6 +671,12 @@ router.post(
         autoBilledInvoiceId: autoBilled.invoiceId,
         autoBilledAmount: autoBilled.addedAmount,
         statusFlipped: fullyDispensed,
+        // §65 audit trail: capture both signers when any line item required
+        // the controlled-substance register, so the regulator can trace who
+        // dispensed and who witnessed even if the CSR rows are mutated later.
+        scheduleHItemCount: scheduleHItems.length,
+        witnessSignature: trimmedWitness.length > 0 ? trimmedWitness : null,
+        witnessUserId: witnessUserId ?? null,
       }).catch(console.error);
 
       res.json({

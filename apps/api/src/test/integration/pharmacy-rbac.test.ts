@@ -10,7 +10,7 @@
 //      /pharmacy/movements, /pharmacy/inventory/:id (PATCH).
 //   2. Rx-rejection lifecycle for the new POST /pharmacy/prescriptions/:id/reject
 //      endpoint — happy path, state-machine guards, audit row, RBAC.
-import { it, expect, beforeAll } from "vitest";
+import { it, expect, beforeAll, describe } from "vitest";
 import request from "supertest";
 import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
 import {
@@ -19,6 +19,7 @@ import {
   createPatientFixture,
   createDoctorFixture,
   createAppointmentFixture,
+  createUserFixture,
 } from "../factories";
 
 let app: any;
@@ -60,6 +61,50 @@ async function setupRx(opts: {
             dosage: "500mg",
             frequency: "BID",
             duration: "5 days",
+          },
+        ],
+      },
+    },
+  });
+  return { patient, doctor, med, inv, rx };
+}
+
+// Schedule-H/H1/X variant — same shape as setupRx but the underlying medicine
+// has requiresRegister=true, which triggers the §65 witnessSignature gate on
+// POST /pharmacy/dispense.
+async function setupScheduleHRx(opts: { quantityOnHand?: number } = {}) {
+  const prisma = await getPrisma();
+  const patient = await createPatientFixture();
+  const doctor = await createDoctorFixture();
+  const appt = await createAppointmentFixture({
+    patientId: patient.id,
+    doctorId: doctor.id,
+  });
+  const uniqueName = `Morphine-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  const med = await createMedicineFixture({
+    name: uniqueName,
+    isNarcotic: true,
+    requiresRegister: true,
+    scheduleClass: "H",
+  });
+  const inv = await createInventoryFixture({
+    medicineId: med.id,
+    overrides: { quantity: opts.quantityOnHand ?? 100 },
+  });
+  const rx = await prisma.prescription.create({
+    data: {
+      patientId: patient.id,
+      doctorId: doctor.id,
+      appointmentId: appt.id,
+      diagnosis: "Post-op pain",
+      status: "PENDING",
+      items: {
+        create: [
+          {
+            medicineName: uniqueName,
+            dosage: "10mg",
+            frequency: "QID",
+            duration: "3 days",
           },
         ],
       },
@@ -433,5 +478,145 @@ describeIfDB("Pharmacy RBAC + Rx-rejection (integration, Gap #8)", () => {
       .set("Authorization", `Bearer ${pharmacistToken}`)
       .send({ reason: "Not a uuid path param" });
     expect(res.status).toBe(400);
+  });
+
+  // ───────────────────────────────────────────────────────
+  // Full-Rx dispense — Schedule-H witness gate (§65 closure)
+  // Surfaced by the Wave C controlled-substances work (e6c68e1): the full-Rx
+  // dispense path auto-created ControlledSubstanceEntry rows for items where
+  // medicine.requiresRegister=true WITHOUT capturing witnessSignature, so the
+  // §65 gate enforced on POST /controlled-substances was bypassed when the
+  // same drugs were dispensed through this route.
+  // ───────────────────────────────────────────────────────
+
+  describe("Full-Rx dispense — Schedule-H witness gate", () => {
+    const VALID_WITNESS = "Dr. Vikram Kapoor / Senior Pharmacist";
+
+    it("happy path: Schedule-H Rx + witnessSignature → 200, CSR row persists both signers", async () => {
+      const { rx } = await setupScheduleHRx({ quantityOnHand: 100 });
+      const res = await request(app)
+        .post("/api/v1/pharmacy/dispense")
+        .set("Authorization", `Bearer ${pharmacistToken}`)
+        .send({ prescriptionId: rx.id, witnessSignature: VALID_WITNESS });
+      expect(res.status).toBe(200);
+      expect(res.body.data.controlledCreated.length).toBeGreaterThanOrEqual(1);
+
+      const prisma = await getPrisma();
+      const entries = await prisma.controlledSubstanceEntry.findMany({
+        where: { prescriptionId: rx.id },
+      });
+      expect(entries.length).toBeGreaterThanOrEqual(1);
+      const entry = entries[0];
+      expect(entry.witnessSignature).toBe(VALID_WITNESS);
+
+      // Both signers captured: dispensedBy = pharmacist user, witness via
+      // signature. (witnessUserId is optional — covered separately below.)
+      expect(entry.dispensedBy).toBeTruthy();
+      const pharmUser = await prisma.user.findUnique({
+        where: { email: "pharmacist@test.local" },
+      });
+      expect(entry.dispensedBy).toBe(pharmUser!.id);
+    });
+
+    it("happy path with witnessUserId: CSR row persists FK to witness user", async () => {
+      const { rx } = await setupScheduleHRx({ quantityOnHand: 100 });
+      const witnessUser = await createUserFixture({ role: "PHARMACIST" });
+      const res = await request(app)
+        .post("/api/v1/pharmacy/dispense")
+        .set("Authorization", `Bearer ${pharmacistToken}`)
+        .send({
+          prescriptionId: rx.id,
+          witnessSignature: VALID_WITNESS,
+          witnessUserId: witnessUser.id,
+        });
+      expect(res.status).toBe(200);
+
+      const prisma = await getPrisma();
+      const entries = await prisma.controlledSubstanceEntry.findMany({
+        where: { prescriptionId: rx.id },
+      });
+      expect(entries.length).toBeGreaterThanOrEqual(1);
+      expect(entries[0].witnessUserId).toBe(witnessUser.id);
+    });
+
+    it("Schedule-H Rx without witnessSignature → 422 with scheduleHItems payload", async () => {
+      const { rx, med } = await setupScheduleHRx({ quantityOnHand: 100 });
+      const res = await request(app)
+        .post("/api/v1/pharmacy/dispense")
+        .set("Authorization", `Bearer ${pharmacistToken}`)
+        .send({ prescriptionId: rx.id });
+      expect(res.status).toBe(422);
+      expect(res.body.error).toMatch(/witnessSignature/i);
+      expect(Array.isArray(res.body.scheduleHItems)).toBe(true);
+      expect(res.body.scheduleHItems.length).toBeGreaterThanOrEqual(1);
+      expect(
+        res.body.scheduleHItems.some((it: any) => it.medicineId === med.id)
+      ).toBe(true);
+
+      // Pre-flight short-circuits: no CSR row, no stock decrement, Rx still PENDING.
+      const prisma = await getPrisma();
+      const entries = await prisma.controlledSubstanceEntry.findMany({
+        where: { prescriptionId: rx.id },
+      });
+      expect(entries.length).toBe(0);
+      const refreshed = await prisma.prescription.findUnique({
+        where: { id: rx.id },
+      });
+      expect(refreshed!.status).toBe("PENDING");
+    });
+
+    it("whitespace-only witnessSignature → 422 (Zod trim + min-3 catches it)", async () => {
+      const { rx } = await setupScheduleHRx({ quantityOnHand: 100 });
+      // Zod's .trim().min(3) on the body schema rejects "   " at the validate
+      // middleware → 400. Either status is acceptable so long as the dispense
+      // is blocked and no CSR row is written.
+      const res = await request(app)
+        .post("/api/v1/pharmacy/dispense")
+        .set("Authorization", `Bearer ${pharmacistToken}`)
+        .send({ prescriptionId: rx.id, witnessSignature: "   " });
+      expect([400, 422]).toContain(res.status);
+
+      const prisma = await getPrisma();
+      const entries = await prisma.controlledSubstanceEntry.findMany({
+        where: { prescriptionId: rx.id },
+      });
+      expect(entries.length).toBe(0);
+    });
+
+    it("non-Schedule-H Rx → 200 even without witnessSignature (witness optional)", async () => {
+      const { rx } = await setupRx({ quantityOnHand: 100 });
+      const res = await request(app)
+        .post("/api/v1/pharmacy/dispense")
+        .set("Authorization", `Bearer ${pharmacistToken}`)
+        .send({ prescriptionId: rx.id });
+      expect(res.status).toBe(200);
+      // No CSR rows created for non-controlled meds.
+      const prisma = await getPrisma();
+      const entries = await prisma.controlledSubstanceEntry.findMany({
+        where: { prescriptionId: rx.id },
+      });
+      expect(entries.length).toBe(0);
+    });
+
+    it("bogus witnessUserId (UUID format, no matching user) → 400", async () => {
+      const { rx } = await setupScheduleHRx({ quantityOnHand: 100 });
+      const res = await request(app)
+        .post("/api/v1/pharmacy/dispense")
+        .set("Authorization", `Bearer ${pharmacistToken}`)
+        .send({
+          prescriptionId: rx.id,
+          witnessSignature: VALID_WITNESS,
+          witnessUserId: "00000000-0000-4000-8000-000000000000",
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/witness/i);
+
+      // No CSR row — 400 short-circuits before the dispense transaction.
+      const prisma = await getPrisma();
+      const entries = await prisma.controlledSubstanceEntry.findMany({
+        where: { prescriptionId: rx.id },
+      });
+      expect(entries.length).toBe(0);
+    });
   });
 });

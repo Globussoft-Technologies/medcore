@@ -4,15 +4,22 @@ Next-session pickup list. Read this first, work top-to-bottom. Each item
 is independently shippable. Full per-session history lives under
 [`docs/archive/`](docs/archive/).
 
-> Updated: 2026-05-05 (post **15-commit autopilot E2E fanout** + 4 project skills built).
-> Latest session handoff: [`docs/archive/SESSION_SNAPSHOT_2026-05-04.md`](docs/archive/SESSION_SNAPSHOT_2026-05-04.md) (rolling forward this round; new snapshot at next session boundary).
-> HEAD on `main` = `a6b5fe3` (`test(e2e): /dashboard/wards`). Autopilot
-> closed **15 zero-coverage E2E routes** in 5 parallel-fanout batches
-> (~95 new test cases × 2 Playwright projects = 190 listed tests),
-> validated via the new `/medcore-fanout` + `/medcore-e2e-spec`
-> project-shared skills under `.claude/skills/`. Yesterday closed P3 + P4 +
-> P6 + P9 + P10 (5 P-items) and 6 zero-coverage E2E routes; late-night
-> critical follow-ups #1, #2, #3 all resolved.
+> Updated: 2026-05-05 evening (post **fix-up wave (11 commits) + 5 skills + 7-agent Cluster 1+2 fanout (7 commits)**).
+> Latest session handoff: [`docs/archive/SESSION_SNAPSHOT_2026-05-04.md`](docs/archive/SESSION_SNAPSHOT_2026-05-04.md) (rolling forward; new snapshot at next session boundary).
+> HEAD on `main` = `2b86721` (`chore(claude): track .claude/settings.json`).
+> Autopilot closed **15 zero-coverage E2E routes** in 5 parallel-fanout
+> batches (~95 new cases). Subsequent fix-up wave fixed 11 failing
+> tests (8 autopilot specs + 3 pre-existing). Then the **7-agent
+> Cluster 1+2 fanout** swept 3 cross-cutting bug patterns across 9
+> existing specs (LanguageDropdown `<select>` race, Next route
+> announcer `getByRole('alert')` matches, bare-label modals breaking
+> `getByLabel`) AND closed 4 more E2E backlog routes
+> (`/billing/[id]`, `/budgets`, `/expenses`, `/users` edit/deactivate).
+> 5 project skills now live under `.claude/skills/`:
+> `/medcore-fanout`, `/medcore-e2e-spec`, `/medcore-route-test`,
+> `/medcore-release`, `/medcore-doc-roll` (the new auto-doc-roll skill
+> built today to capture each wave's findings before the next wave
+> erases them from working memory).
 >
 > **release.yml status:** run `25286939452` on `dfeeb48` (batch-1 tip)
 > in flight at autopilot's start; covers `medicines` + `suppliers` +
@@ -46,6 +53,80 @@ is independently shippable. Full per-session history lives under
 >
 > Prior context: 2026-05-03 late-night handoff at
 > `docs/archive/SESSION_SNAPSHOT_2026-05-03-late-night.md`.
+
+---
+
+## What landed 2026-05-05 evening — fix-up wave + 5 skills + Cluster 1+2 fanout (20 commits)
+
+After the autopilot's 15-route E2E coverage gain, release.yml run `25287320476`
+surfaced 11 failing Playwright tests (8 from autopilot + 3 pre-existing
+from earlier sessions). Three fanout-style passes closed every failure
+plus 4 more uncovered routes plus 3 cross-cutting bug-pattern sweeps,
+plus shipped a 5th project skill (`/medcore-doc-roll`) so future waves
+don't lose their findings.
+
+### Fix-up wave (11 commits — autopilot test surface tightening)
+
+| Commit | Spec | Fix pattern |
+|---|---|---|
+| `149b4db` | holidays | scoped `select:has(option[value="${currentYear}"])` (was sidebar `LanguageDropdown` race) |
+| `cdea823` | medicines | `label:text-is("Name") + input` (modal `<label>` lacks `htmlFor`) |
+| `8d3f277` | suppliers | same form-scoped sibling-label pattern |
+| `71402e7` | broadcasts | scoped `select:has(option[value="ROLE_ADMIN"])` (LanguageDropdown race x2) |
+| `1f3c99d` | notifications | xpath-ancestor scope to prefs panel (was 16-element strict-mode match) |
+| `7344857` | patients/register | dropped form-hidden assertion, anchored on existing search-driven row-find (the load-bearing signal) |
+| `3628bf2` | payroll | `waitForRequest` on the GET URL (popup never navigates — `openPrintEndpoint` opens blank popup + fetches) |
+| `49d829d` | wards | `label:text-is("Name") + input` form-scoped |
+| `f93f152` | admissions | `.first()` on `getByRole('button', { name: /admit patient/i })` (page has 2 — header CTA + DataTable empty-state action) |
+| `2823d9c` | payment-plans | `getByTestId("new-plan-patient-option").filter({ hasText })` (EntityPicker rows are `<li role="option">`, not buttons) |
+| `4d9423f` | public-auth | dropped `getByRole('alert').not.toBeVisible()` — Next.js renders `<div role="alert" id="__next-route-announcer__">` globally |
+
+### Cross-cutting sweeps (3 commits via fanout)
+
+| Commit | Sweep | Reach |
+|---|---|---|
+| `b2e78d7` | `locator('select').first()` race | 6 specs (admin-ops, ambulance, controlled-substances, doctor, insurance-preauth, purchase-orders) — scoped to `select:has(option[value="<unique>"])` |
+| `f44c9a0` | `getByRole('alert')` Next-announcer | 7 callsites in 3 specs (auth, edge-cases, public-auth) — replaced with `[role="alert"]:not(#__next-route-announcer__)` |
+| `e761a34` | `getByLabel` against bare-label modals | 1 instance in admissions (admit-patient modal Reason textarea) |
+
+### New E2E coverage (4 commits via fanout)
+
+| Commit | Route | Tests |
+|---|---|---|
+| `56d0acc` | `/dashboard/billing/[id]` (line-item edit) | 6 cases × 2 = 12 |
+| `ce856cf` | `/dashboard/budgets` | 6 cases × 2 = 12 |
+| `40673aa` | `/dashboard/expenses` | 6 cases × 2 = 12 |
+| `78feace` | `/dashboard/users` (edit/deactivate/role-change) | 6 cases × 2 = 12 |
+
+### Skills + infra (2 commits)
+
+| Commit | What |
+|---|---|
+| `94c3d55` | `feat(skills): /medcore-doc-roll` — codifies wave-end doc rollup (TODO + CHANGELOG idempotent update). `/medcore-fanout` SKILL.md updated to chain it as step 4 of post-launch. |
+| `2b86721` | `chore(claude): track .claude/settings.json + allowlist .claude/skills/**` — un-ignore project-shared settings via `.gitignore` exception, add path-glob entries for Read/Edit/Write to silence per-edit prompts. Office machine inherits via `git pull`. |
+
+### Architectural findings surfaced this wave (worth flagging — none in TODO previously)
+
+1. **`LanguageDropdown` (`apps/web/src/components/LanguageDropdown.tsx:58`) renders a native `<select>` in EVERY authed dashboard layout** (sidebar footer + mobile top-bar). Any spec doing `locator('select').first()` racing into the language switcher. Fix already swept across 6 specs in `b2e78d7`; future specs must scope their selects.
+2. **Next.js renders `<div role="alert" id="__next-route-announcer__">` globally** for screen-reader navigation. Any `getByRole('alert')` in a Playwright spec hits this. Fix swept across 3 specs in `f44c9a0`; convention now: `[role="alert"]:not(#__next-route-announcer__)`.
+3. **Many MedCore modals render `<label>X</label><input>` without `htmlFor`/`id` linkage** — `getByLabel` cannot resolve. Confirmed on medicines / suppliers / wards / admissions modals. Real a11y debt; candidate PR to add `htmlFor` repo-wide.
+4. **EntityPicker (`apps/web/src/components/EntityPicker.tsx`) renders rows as `<li role="option" data-testid="<picker>-option">`, NOT `<button>`.** Spec authors keep guessing `getByRole('button')`. Document the picker contract somewhere visible.
+5. **`openPrintEndpoint` (`apps/web/src/lib/api.ts:191`) opens `window.open("")` + `fetch()` — popup stays at `about:blank`** and never navigates. Tests must `waitForRequest` on the GET URL, not assert `target.url()` on the popup.
+6. **`/dashboard/billing/[id]` is fully accessible client-side; only the API gates RBAC.** No `/dashboard/not-authorized` redirect for non-allowlisted roles — they reach the page and see empty state from API 403. Same pattern observed on medicines, suppliers, assets, notifications, complaints, census, wards. **Decision needed:** is "page reachable, API gates" the policy?
+7. **`/dashboard/expenses` has client/server RBAC drift.** Client allows RECEPTION via `canAdd` (page.tsx:147); server only allows ADMIN (`authorize(Role.ADMIN)` in `routes/expenses.ts:359, 437`). RECEPTION sees the Add CTA but POST 403s.
+8. **Patient `PATCH /users/:id` endpoint lives in `apps/api/src/routes/patient-extras.ts:396`** — not in a dedicated `users.ts` (no such file exists). Discoverability gap; consider moving or adding a re-export.
+9. **`EntityPicker` search query is `patientName.split(" ")[0]`** — first word only. Test selectors using full name will mismatch when the picker shows multiple seeded patients sharing a first name. Use `.filter({ hasText: fullName })` to disambiguate.
+
+### Skills status
+
+5 project-shared skills now under `.claude/skills/`:
+- `/medcore-fanout` — N parallel foreground agents in non-overlapping lanes
+- `/medcore-e2e-spec` — scaffold one Playwright route spec under the descriptive-headers convention
+- `/medcore-route-test` — scaffold one Vitest route-handler unit test (RBAC + Zod + audit)
+- `/medcore-release` — dispatch + watch + diagnose release.yml
+- `/medcore-doc-roll` — capture each wave's commits + findings into TODO + CHANGELOG (idempotent)
+
+Pickup protocol still applies (banner above): pull BEFORE starting Claude — skill descriptions load at session start.
 
 ---
 

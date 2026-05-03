@@ -11,6 +11,35 @@ test-coverage closure across §A-§E gaps, Playwright stabilization
 across Chromium + WebKit, and the local-first test workflow.
 
 ### Added
+- **2026-05-05 evening — fix-up wave + 7-agent Cluster 1+2 fanout + 5th project skill.**
+  After release.yml `25287320476` surfaced 11 failing Playwright tests
+  (8 from autopilot + 3 pre-existing from earlier sessions), three
+  fanout passes closed every failure plus 4 more uncovered routes plus
+  3 cross-cutting bug-pattern sweeps. Fix-up wave (`149b4db` `cdea823`
+  `8d3f277` `71402e7` `1f3c99d` `7344857` `3628bf2` `49d829d` `f93f152`
+  `2823d9c` `4d9423f`) tightened modal selectors, scoped strict-mode
+  locators, dropped brittle assertions against the Next.js global route
+  announcer, and replaced popup-URL matches with network-request
+  observation. Cross-cutting sweeps (`b2e78d7` `f44c9a0` `e761a34`)
+  systematized the same fixes across 9 other specs that hadn't tripped
+  yet but would have. New E2E specs (`56d0acc` `ce856cf` `40673aa`
+  `78feace`) closed `/billing/[id]` line-item edit, `/budgets`,
+  `/expenses`, `/users` edit-deactivate-role-change. Surfaced 9
+  architectural findings logged as candidate PRs in TODO.md (notably:
+  LanguageDropdown injects `<select>` into every layout; Next renders
+  `role="alert"` globally; multiple modals render bare `<label>`
+  without `htmlFor`; EntityPicker rows are `<li role="option">` not
+  buttons; openPrintEndpoint opens blank popup + fetches; client/server
+  RBAC drift on `/dashboard/expenses`).
+- **5th project skill: `/medcore-doc-roll`** (`94c3d55`) — codifies the
+  end-of-wave doc rollup so architectural findings landing in commit
+  bodies don't decay between waves. Idempotent (deduplicates against
+  existing TODO entries on substring match), composable (intended to
+  chain after every `/medcore-fanout`), and surfaces what would
+  otherwise live only in `git log` once the next wave's context loads.
+  `.claude/settings.json` un-ignored via `.gitignore` exception
+  (`2b86721`) so project-shared skill-folder allowlist syncs to office
+  on `git pull`.
 - **2026-05-05 autopilot — 15-route E2E fanout via the new project skills.**
   Five 3-agent foreground-fanout batches closed 15 zero-coverage /
   undercovered dashboard routes in ~25 min wall-clock total: medicines,

@@ -147,7 +147,19 @@ across Chromium + WebKit, and the local-first test workflow.
       (route is PATIENT-only — audit's "ADMIN can export for any" was
       wrong; test pins actual behaviour).
 
-  **Total today: ~447 new test cases. README test count `~2,200+ → ~2,650+`.**
+  **Subtotal across the three waves: ~447 new test cases.**
+
+  - **Low-priority Wave (parallel, 64 cases + 3 source fixes/features):**
+    - **Honorable #11** (`b460095`) — Pharmacy forecast route: 11 cases.
+    - **Honorable #12** (`2448273`) — No-show predictor route: 12 cases.
+    - **Honorable #13** (`e340e07`) — Audit-archival orchestration: 6 cases.
+    - **Honorable #14** (`90e28b0`) — Notification multi-channel orchestrator: 7 cases.
+    - **Honorable #15** (`5ee6907`) — Razorpay webhook idempotency: 8 cases. Flagged a follow-up: no "different transactionId for same already-PAID invoice = fraud" guard.
+    - **Source fix** (`f7853a7`) — HL7v2 parser unescape-then-split. parseSegment now stores raw escaped fields; unescape happens at component-split time. Closes the parser quirk pinned in `89a6c40`.
+    - **Source fix** (`a1d0fc0`) — Full-Rx dispense Schedule-H witness-bypass. `/pharmacy/dispense` now requires `witnessSignature` for any Rx with `requiresRegister=true` items. 6 new test cases.
+    - **Feature** (`7af63c1`) — FHIR `_id` SearchParameter on Patient/Encounter/AllergyIntolerance. 10 new test cases.
+
+  **Total today: ~510 new test cases. README test count `~2,200+ → ~2,700+`.**
 
 ### Changed
 - **Web-bundle budget tightened** 25 MB → **7 MB** (`1983f01`) based

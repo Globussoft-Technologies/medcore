@@ -4,13 +4,18 @@ Next-session pickup list. Read this first, work top-to-bottom. Each item
 is independently shippable. Full per-session history lives under
 [`docs/archive/`](docs/archive/).
 
-> Updated: 2026-05-03 (post-Wave-C gap-closure landings).
-> HEAD on `main` = `e6c68e1` (`feat(api/controlled-substances):
-> require witnessSignature on Schedule-H dispense + tests (gap #2)`).
-> **All 10 priority gaps from `docs/TEST_GAPS_2026-05-03.md` now CLOSED.**
-> ~447 new test cases shipped today across Sessions 1, 2 (Wave A), and
-> 3 (Wave C); plus 1 schema migration (`20260503000001`), 2 source-bug
-> fixes, and backend wiring for witnessSignature + Rx REJECTED status.
+> Updated: 2026-05-03 (post-low-priority-closure landings).
+> HEAD on `main` = `5ee6907` (`test(api/routes): cover Razorpay
+> webhook idempotency thin spots (honorable mention #15 from
+> 2026-05-03 audit)`).
+> **All 10 priority gaps + all 5 honorable mentions from
+> `docs/TEST_GAPS_2026-05-03.md` now CLOSED.**
+> **~510 new test cases shipped today** across Session 1 + Wave A +
+> Wave C + low-priority closure; plus 1 schema migration
+> (`20260503000001`), 4 source fixes (adherence-bot nullish-coalesce,
+> store state-machine guard, HL7v2 parser unescape, full-Rx dispense
+> witness gate), 2 feature additions (Rx REJECTED endpoint, FHIR `_id`
+> parameter support), and backend wiring for witnessSignature.
 > **Open GitHub issues: 0.** **Open PRs: 0.**
 > **Per-push CI**: all 8 gating jobs green on `8302010`. Auto-deploy
 > operating; nightly AI-eval + load-test workflows also green.
@@ -32,6 +37,36 @@ is independently shippable. Full per-session history lives under
 >   + `723b6fc` (insurance-claims service, 68 cases) + `8302010`
 >   (3 AI services, 30 cases). Tracked in
 >   [`docs/TEST_GAPS_2026-05-03.md`](docs/TEST_GAPS_2026-05-03.md).
+
+---
+
+## What landed 2026-05-03 night (low-priority closure — ~64 cases + 3 source fixes)
+
+After Waves A/B/C closed the top-10 priority gaps, four more parallel
+agents closed the honorable mentions and the residual source/feature
+follow-ups. **All 5 honorable mentions + 3 follow-up bugs/features
+closed in 8 commits.**
+
+| Commit | What |
+|---|---|
+| `b460095` | Honorable #11 — Pharmacy forecast route (`/api/v1/ai/pharmacy/forecast`). 11 cases (RBAC, urgency-filter, insights gating, empty-history fallback, days-param defaulting, 404, 90-day movement scan window). |
+| `2448273` | Honorable #12 — No-show predictor route (`/api/v1/ai/predictions/no-show/...`). 12 cases (batch + single endpoints, RBAC, Zod date 400, narrowed user select to prevent PHI bleed). |
+| `e340e07` | Honorable #13 — Audit-archival job orchestration. 6 cases (idempotent re-run, cutoff derivation from `system_config`, default-batchSize-500 path, nested archive-directory auto-creation, dry-run idempotency). |
+| `90e28b0` | Honorable #14 — Notification multi-channel orchestrator. 7 cases (best-effort fanout with one channel failure, retry, quiet-hours defer, DND defer, PUSH adapter token-array forwarding). |
+| `5ee6907` | Honorable #15 — Razorpay webhook idempotency. 8 cases (payment.failed replay, refund.processed replay, P2002 race, unknown event types, malformed JSON 400, missing-payload 200, unknown-orderId 200, missing-signature 401). |
+| `f7853a7` | Source fix — HL7v2 parser unescape-then-split. `parseSegment` now stores raw escaped fields; unescape happens at component-split time. Test block that pinned the broken behaviour now asserts the fixed behaviour. Plus a round-trip case for an escaped `^` in a field value. |
+| `a1d0fc0` | Source fix — Full-Rx dispense Schedule-H witness-bypass. `POST /pharmacy/dispense` now requires `witnessSignature` for any Rx with `requiresRegister=true` items. 6 new test cases. Closes the §65 gap surfaced by `e6c68e1`'s commit body. |
+| `7af63c1` | Feature add — FHIR `_id` SearchParameter on Patient/Encounter/AllergyIntolerance. 10 new test cases. MedicationRequest excluded with rationale (its FHIR id is synthesized as `${prescription.id}-${item.id}`). |
+
+**Subtotal: 64 cases + 3 source fixes/features.**
+
+### Outstanding follow-ups (very low priority)
+
+- Razorpay: no "different `transactionId` for same already-PAID invoice
+  = fraud" guard. Current behaviour is a silent no-op past `amountPaise <
+  remainingPaise`. Tracked.
+- Un-skip pass on the ~7 WebKit-conditional skips from `476488a` after
+  another release.yml validation (auth-race v3 made them stable).
 
 ---
 

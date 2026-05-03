@@ -32,7 +32,7 @@ The project is under active development. A live demo instance runs at **[medcore
 
 | | |
 |---|---|
-| **Tests passing** | ~2,650+ active (api unit/integration + web component + shared/contract + smoke) across unit / contract / component / integration / RBAC layers; +1,873 DB-integration cases skipped without `DATABASE_URL_TEST` |
+| **Tests passing** | ~2,700+ active (api unit/integration + web component + shared/contract + smoke) across unit / contract / component / integration / RBAC layers; +1,873 DB-integration cases skipped without `DATABASE_URL_TEST` |
 | **E2E** | 40 Playwright specs (`e2e/*.spec.ts`); release.yml runs `full` Chromium + WebKit on `workflow_dispatch` |
 | **Accessibility** | axe-core scan across 19 routes (public marketing + login + 12 dashboard pages), WCAG 2.1 AA, per-page contrast budgets |
 | **API routers** | 80+ (incl. AI: triage, scribe, radiology, KPIs, agent-console, sentiment, fraud, doc-QA, letters; plus ABDM, FHIR, HL7 v2 inbound, insurance claims, chart-search, patient-data-export) |
@@ -233,7 +233,7 @@ MedCore layers its tests so each tier tests a different boundary:
 | **Integration** | ~900 | Full HTTP through Express + Prisma against a real Postgres. Includes concurrency, realtime delivery, permissions matrix, auth edges, 2FA, notification channel shapes, Razorpay webhook, AI triage / scribe / chart-search / letters / predictions / report-explainer / adherence / er-triage / pharmacy / knowledge / transcribe, insurance claims, and telemedicine-deep (waiting room) |
 | **Mobile** | 30 | React Native render / logic tests across the patient AI screens |
 | **AI eval** | Vitest harness | Gold-standard fixtures under `apps/api/src/test/ai-eval/`; gates regressions on triage red-flag recall and SOAP accuracy |
-| **Total** | **~2,650+** | |
+| **Total** | **~2,700+** | |
 
 In addition:
 

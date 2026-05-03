@@ -22,6 +22,14 @@ export interface HL7Segment {
    * id). For MSH specifically, fields[1] is the encoding characters string
    * per HL7 convention — this matches the "MSH-1 = field separator" and
    * "MSH-2 = encoding chars" numbering used by downstream consumers.
+   *
+   * IMPORTANT: field values are stored in their RAW (still-escaped) form.
+   * Unescaping happens at COMPONENT level inside `parseComponents`, so an
+   * escaped `^` (`\S\`) will not over-split a field that gets passed to
+   * `parseComponents`. Consumers that want a flat unescaped scalar should
+   * call `getField(...)` (which unescapes once) rather than reading
+   * `fields[idx]` directly. Direct reads are still valid — they just
+   * preserve the source escapes.
    */
   fields: string[];
 }
@@ -51,6 +59,15 @@ export function parseComponents(field: string, componentSep = "^"): string[] {
  * Parse a single segment into {id, fields}. MSH is special-cased because the
  * field separator itself appears in column 4 of the raw string (MSH|^~\&|...)
  * and must be treated as the MSH-1 value.
+ *
+ * Field values are kept in their RAW (still-escaped) form. The earlier
+ * implementation eagerly called `unescapeField` here, which was wrong: an
+ * escaped `^` (`\S\`) inside a field value would decode to a literal `^`
+ * BEFORE the consumer split on components, so `parseComponents(field)` would
+ * over-split fields that legitimately contained an escaped caret (e.g. a
+ * patient name with `^` in it). The correct order is split-first,
+ * unescape-each-component — which `parseComponents` already does. Flat
+ * scalar accessors like `getField` unescape on read instead.
  */
 function parseSegment(line: string, fieldSep: string): HL7Segment {
   const id = line.slice(0, 3);
@@ -62,7 +79,8 @@ function parseSegment(line: string, fieldSep: string): HL7Segment {
     const rest = afterEncoding.startsWith(fieldSep)
       ? afterEncoding.slice(1)
       : afterEncoding;
-    const tail = rest.split(fieldSep).map((f) => unescapeField(f));
+    // Keep tail fields raw — unescape happens at component level.
+    const tail = rest.split(fieldSep);
     // fields[0] is unused (for parity with segment id slot); fields[1] is
     // field separator; fields[2] is encoding chars; fields[3]... are payload.
     return {
@@ -71,13 +89,9 @@ function parseSegment(line: string, fieldSep: string): HL7Segment {
     };
   }
 
+  // Non-MSH: split on field separator, store raw. parts[0] is the segment id.
   const parts = line.split(fieldSep);
-  // parts[0] is the segment id. Shift so fields[1] is the first data field.
-  const fields: string[] = [parts[0]];
-  for (let i = 1; i < parts.length; i++) {
-    fields.push(unescapeField(parts[i]));
-  }
-  return { id, fields };
+  return { id, fields: parts };
 }
 
 /**
@@ -117,7 +131,14 @@ export function parseMessage(raw: string): HL7Message {
 
 /**
  * Convenience: find the first segment by id (e.g. "PID") and return a field
- * by its 1-based index. Returns `undefined` if the segment or field is absent.
+ * by its 1-based index, UNESCAPED. Returns `undefined` if the segment or
+ * field is absent.
+ *
+ * Note: `seg.fields[idx]` itself stores the raw escaped value. This accessor
+ * decodes it once for callers that want a flat scalar. Callers that need to
+ * split on components should use `parseComponents(seg.fields[idx])` (or the
+ * `getComponent` helper below) — those paths split-then-unescape and avoid
+ * the `\S\` over-split quirk.
  */
 export function getField(
   message: HL7Message,
@@ -126,12 +147,18 @@ export function getField(
 ): string | undefined {
   const seg = message.segments.find((s) => s.id === segmentId);
   if (!seg) return undefined;
-  return seg.fields[fieldIndex];
+  const raw = seg.fields[fieldIndex];
+  if (raw === undefined) return undefined;
+  return unescapeField(raw);
 }
 
 /**
  * Get a specific component within a field (e.g. PID-5.1 for family name).
  * Returns `undefined` if the segment/field/component is missing.
+ *
+ * Reads the RAW field value directly (not via `getField`, which would
+ * pre-unescape and collapse `\S\` into a literal `^`) and lets
+ * `parseComponents` do the correct split-then-unescape.
  */
 export function getComponent(
   message: HL7Message,
@@ -139,7 +166,9 @@ export function getComponent(
   fieldIndex: number,
   componentIndex: number
 ): string | undefined {
-  const raw = getField(message, segmentId, fieldIndex);
+  const seg = message.segments.find((s) => s.id === segmentId);
+  if (!seg) return undefined;
+  const raw = seg.fields[fieldIndex];
   if (raw === undefined) return undefined;
   const parts = parseComponents(raw, message.delimiters.component);
   return parts[componentIndex - 1]; // 1-based
@@ -154,11 +183,15 @@ export function getSegments(message: HL7Message, segmentId: string): HL7Segment[
  * Extract the MSH-9 message type triplet — `{msgType, trigger, structure}`.
  * MSH-9 is rendered as `CODE^TRIGGER^STRUCTURE` (e.g. `ADT^A04^ADT_A01`).
  * Required by the inbound dispatcher to route messages to the right ingester.
+ *
+ * Pulls the RAW MSH-9 (escaped) so parseComponents can split-then-unescape
+ * correctly per component.
  */
 export function extractMessageType(
   message: HL7Message
 ): { msgType: string; trigger: string; structure?: string } {
-  const raw = getField(message, "MSH", 9);
+  const msh = message.segments.find((s) => s.id === "MSH");
+  const raw = msh?.fields[9];
   if (!raw) {
     throw new Error("extractMessageType: MSH-9 is missing");
   }
@@ -186,9 +219,14 @@ export function getControlId(message: HL7Message): string | undefined {
  * Return the primary MR number carried in PID-3. PID-3 may repeat with `~`
  * and each repetition is `id^^^authority^typeCode`. We take the first
  * repetition's first component — that's the patient identifier per v2.5.1.
+ *
+ * Operates on the RAW PID-3 value so the repetition / component splits
+ * happen on real delimiters and `parseComponents` does the per-component
+ * unescape.
  */
 export function getPid3MrNumber(message: HL7Message): string | undefined {
-  const raw = getField(message, "PID", 3);
+  const pid = message.segments.find((s) => s.id === "PID");
+  const raw = pid?.fields[3];
   if (!raw) return undefined;
   // Split by repetition separator first — the primary MR is the first rep.
   const firstRep = raw.split(message.delimiters.repetition)[0];

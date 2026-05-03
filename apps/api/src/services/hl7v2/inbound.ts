@@ -170,7 +170,11 @@ export async function ingestADT_A04(
   const phone = getField(message, "PID", 13) || "";
 
   // PID-11 address — take first repetition, unescape components.
-  const pid11Raw = getField(message, "PID", 11);
+  // Read the RAW field (not via getField, which would pre-unescape and
+  // collapse \S\ into a literal ^) so repetition / component splits happen
+  // on real delimiters; parseComponents does the per-component unescape.
+  const pidSeg = message.segments.find((s) => s.id === "PID");
+  const pid11Raw = pidSeg?.fields[11];
   let addressLine: string | undefined;
   if (pid11Raw) {
     const firstRep = pid11Raw.split(message.delimiters.repetition)[0];

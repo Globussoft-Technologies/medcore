@@ -280,22 +280,71 @@ describe("parser helpers", () => {
   });
 });
 
-// ─── Surfaced parser quirk: \\S\\ collapses into component separators ───────
+// ─── Field-level unescape vs component split: FIXED behaviour ───────────────
 
 describe("Known parser quirk — field-level unescape vs component split", () => {
-  // The parser stores fields already-unescaped. So when a sender embeds
-  // \\S\\ (escaped ^) in a value and downstream consumers call
-  // parseComponents on the field, the literal ^ produced by unescape
-  // becomes an extra component boundary. Senders that need to round-trip
-  // ^ inside a component MUST go through parseComponents at the segment
-  // level (split-then-unescape) rather than reading getField output.
-  it("getField returns the unescaped string — embedded ^ from \\S\\ is indistinguishable from a real component separator", () => {
+  // Historical context: an earlier revision of `parseSegment` eagerly
+  // unescaped each field value at parse time. That decoded `\S\` (escaped
+  // ^) into a literal ^ BEFORE component-split, so calling
+  // `parseComponents` on the resulting flat field value would over-split
+  // — turning a single name like "a^b" into two components ["a","b"].
+  //
+  // Fix (gap #4 follow-up): `parseSegment` keeps fields RAW. Unescape
+  // happens at COMPONENT level inside `parseComponents`, so an escaped ^
+  // survives the split as a single component. Flat scalar accessors
+  // (`getField`) call `unescapeField` on read for callers that don't
+  // need to split.
+  it("parseComponents on the raw field value preserves an escaped ^ as a single component (no over-split)", () => {
     const raw = [MSH_ADT_A04, "PID|1||MR-1^^^MR^MR||a\\S\\b"].join("\r");
     const parsed = parseMessage(raw);
-    const pid5 = getField(parsed, "PID", 5)!;
-    // The escape was decoded at field level, so the field value contains a
-    // literal ^ — and parseComponents will split it into ["a","b"].
-    expect(pid5).toBe("a^b");
-    expect(parseComponents(pid5)).toEqual(["a", "b"]);
+    // Read the RAW field via `seg.fields[idx]` (NOT getField) and feed it
+    // to parseComponents — this is the canonical pattern for any field
+    // that may contain an escaped component separator.
+    const pid = parsed.segments.find((s) => s.id === "PID")!;
+    const pid5Raw = pid.fields[5];
+    expect(pid5Raw).toBe("a\\S\\b"); // still escaped at the field level
+    // parseComponents splits on ^ FIRST, then unescapes each component —
+    // so the \S\ stays intact across the split and decodes inside the
+    // single component "a^b".
+    expect(parseComponents(pid5Raw, parsed.delimiters.component)).toEqual([
+      "a^b",
+    ]);
+    // And the flat-scalar accessor `getField` still does a single
+    // unescape pass for callers that just want the literal value.
+    expect(getField(parsed, "PID", 5)).toBe("a^b");
+  });
+
+  it("getComponent on a field with an escaped ^ returns the single intended component", () => {
+    // PID-5 family name contains an escaped ^ — getComponent must NOT
+    // mistake the escape for a real component boundary.
+    const raw = [MSH_ADT_A04, "PID|1||MR-1^^^MR^MR||O\\S\\Brien^Patient"].join(
+      "\r"
+    );
+    const parsed = parseMessage(raw);
+    expect(getComponent(parsed, "PID", 5, 1)).toBe("O^Brien");
+    expect(getComponent(parsed, "PID", 5, 2)).toBe("Patient");
+  });
+
+  it("round-trip preserves an escaped ^ in a name through serialiser → parser", () => {
+    // Build a PID by hand the way `segments.ts` would: literal ^ in source
+    // is escaped to \S\ on serialise. After parse → getComponent, we want
+    // the original literal ^ back, with the field NOT over-split into 3
+    // components.
+    const family = "O^Brien"; // contains a literal caret in source data
+    const given = "Patient";
+    // Manually-built segment line: \S\ replaces the literal caret on the
+    // wire (this is exactly what `segments.escapeField` would emit).
+    const pidLine = `PID|1||MR-1^^^MR^MR||O\\S\\Brien^${given}`;
+    const raw = [MSH_ADT_A04, pidLine].join("\r");
+    const parsed = parseMessage(raw);
+    const pid = parsed.segments.find((s) => s.id === "PID")!;
+    // PID-5 raw field on the wire still has \S\ — bytes preserved.
+    expect(pid.fields[5]).toBe("O\\S\\Brien^Patient");
+    // Component-level decode recovers the original two components.
+    const comps = parseComponents(
+      pid.fields[5],
+      parsed.delimiters.component
+    );
+    expect(comps).toEqual([family, given]);
   });
 });

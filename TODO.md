@@ -12,6 +12,20 @@ is independently shippable. Full per-session history lives under
 > all resolved (audit-phi flake confirmed; cumulative-refund guard shipped;
 > WebKit auth-race v4 fix shipped — CI verification pending).
 >
+> **Pickup protocol (every session start):**
+> 1. `git pull origin main` BEFORE starting Claude — Claude reads skill
+>    descriptions at session start, so any new project-shared skills under
+>    `.claude/skills/` (e.g. `/medcore-fanout`, `/medcore-e2e-spec`) need
+>    to be on disk before the session boots, otherwise they won't be
+>    discoverable until restart.
+> 2. Read the latest `docs/archive/SESSION_SNAPSHOT_*.md` (or this banner)
+>    first.
+> 3. Before any "do these N things in parallel" ask, prefer
+>    `/medcore-fanout` — it's the codified foreground-fan-out pattern
+>    that actually parallelizes on this VSCode harness build (bg agents
+>    are broken on v2.1.126, see
+>    `~/.claude/projects/c--Users-Admin-gbs-projects-medcore/memory/reference_worktree_bg_agent_perms.md`).
+>
 > Prior context: 2026-05-03 late-night handoff at
 > `docs/archive/SESSION_SNAPSHOT_2026-05-03-late-night.md`.
 > Original ee5f253-era state below kept for backward reference.

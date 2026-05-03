@@ -81,7 +81,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - `/dashboard/prescriptions/new` — Rx creation form (only smoke-touched today)
 - ~~`/dashboard/pediatric` — pediatric ward listing~~ ✅ closed `0715f27`
 - ~~`/dashboard/pediatric/[patientId]` — pediatric chart (age-specific dosing, growth charts)~~ ✅ closed `0715f27`
-- `/dashboard/symptom-diary` — patient-reported symptom logging
+- ~~`/dashboard/symptom-diary` — patient-reported symptom logging~~ ✅ closed (PATIENT happy path + 2 RBAC bounces + staff banner; `e2e/symptom-diary.spec.ts`)
 - `/dashboard/telemedicine/waiting-room` — waiting-room UI (only mocked join tested)
 
 ### 2.2 Inventory & Supply Chain

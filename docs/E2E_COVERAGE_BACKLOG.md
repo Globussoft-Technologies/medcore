@@ -131,7 +131,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 
 ### 2.7 Admissions & Wards
 - `/dashboard/admissions` — admit form (list-touched only)
-- `/dashboard/admissions/[id]` — admission detail, MAR progression, discharge
+- ~~`/dashboard/admissions/[id]` — admission detail, MAR progression, discharge~~ closed 2026-05-03 by `e2e/admissions-id.spec.ts` (6 tests; ADMIN chrome+running-bill + NURSE isolation/belongings + RECEPTION tab strip + PATIENT page-accessible + DOCTOR transfer-modal + ADMIN discharge two-modal force-flow)
 - ~~`/dashboard/wards` — bed assignment, transfer~~ closed 2026-05-04 by `e2e/wards.spec.ts` (7 tests; ADMIN chrome/add-ward modal/forecast tab + NURSE/RECEPTION no-CTA + PATIENT/LAB_TECH page-accessible no-CTA)
 - `/dashboard/capacity-forecast` — forecast editing (smoke-visited)
 

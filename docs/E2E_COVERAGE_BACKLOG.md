@@ -85,7 +85,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - `/dashboard/telemedicine/waiting-room` — waiting-room UI (only mocked join tested)
 
 ### 2.2 Inventory & Supply Chain
-- `/dashboard/medicines` — medicine catalog
+- ~~`/dashboard/medicines` — medicine catalog~~ ✅ closed (ADMIN/DOCTOR/NURSE/PATIENT access matrix + ADMIN-only Add CTA + search re-fetch + ADMIN create round-trip; `e2e/medicines.spec.ts`)
 - `/dashboard/pharmacy` — stock levels, reorder, expiry alerts (only landing tested)
 - `/dashboard/purchase-orders` — PO list
 - `/dashboard/purchase-orders/[id]` — PO detail / approval

@@ -125,12 +125,26 @@ test.describe("Notifications — /dashboard/notifications (inbox load + preferen
     });
     await header.click();
 
+    // Scope the channel/empty-state assertion to the preferences panel
+    // container — the bare regex matches 16 elements page-wide (channel
+    // names recur in inbox-row labels, sidebar items, etc.) and trips
+    // Playwright's strict-mode multi-match guard. The panel wrapper is
+    // the closest div ancestor of the accordion heading (page.tsx:280-
+    // 357 — the rounded-xl bg-white shadow-sm card). Once it's visible,
+    // .first() on the inner regex pins the assertion to a single match.
+    const prefsPanel = page
+      .getByRole("heading", { name: /notification preferences/i })
+      .locator("xpath=ancestor::div[contains(@class, 'rounded-xl')][1]");
+    await expect(prefsPanel).toBeVisible({ timeout: 10_000 });
+
     // Either the four channel rows render, OR the empty-state copy
     // shows. Both code paths confirm the panel opened.
     await expect(
-      page.locator(
-        "text=/WHATSAPP|SMS|EMAIL|PUSH|No preference settings|Loading preferences/i"
-      )
+      prefsPanel
+        .locator(
+          "text=/WHATSAPP|SMS|EMAIL|PUSH|No preference settings|Loading preferences/i"
+        )
+        .first()
     ).toBeVisible({ timeout: 5_000 });
   });
 

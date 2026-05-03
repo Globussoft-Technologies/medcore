@@ -1209,12 +1209,22 @@ model Payment {
   status        PaymentTxnStatus @default(CAPTURED)
   paidAt        DateTime         @default(now())
 
+  // Self-FK back to the original CAPTURED payment — set on REFUNDED rows so
+  // `handleRefundProcessed` can sum prior refunds against the same parent
+  // and reject a new refund that pushes cumulative past the original
+  // captured amount (`REFUND_CUMULATIVE_EXCEEDS_PAYMENT`). Null on
+  // CAPTURED/FAILED rows. Indexed for the hot-path sum query.
+  parentPaymentId String?
+  parent          Payment?  @relation("PaymentRefunds", fields: [parentPaymentId], references: [id], onDelete: SetNull)
+  refunds         Payment[] @relation("PaymentRefunds")
+
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   invoice Invoice @relation(fields: [invoiceId], references: [id])
 
   @@index([invoiceId])
+  @@index([parentPaymentId])
   @@index([tenantId])
   @@map("payments")
 }

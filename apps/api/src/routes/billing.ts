@@ -2549,7 +2549,14 @@ async function handlePaymentFailed(entity: WebhookPaymentEntity): Promise<void> 
 // surface a 409 to the route so the response carries a structured
 // fraud-suspect code instead of silently writing a fictitious refund.
 type RefundResult =
-  | { fraudSuspect: true; invoiceId: string; reason: "REFUND_AGAINST_NON_CAPTURED_PAYMENT" | "REFUND_EXCEEDS_PAYMENT" }
+  | {
+      fraudSuspect: true;
+      invoiceId: string;
+      reason:
+        | "REFUND_AGAINST_NON_CAPTURED_PAYMENT"
+        | "REFUND_EXCEEDS_PAYMENT"
+        | "REFUND_CUMULATIVE_EXCEEDS_PAYMENT";
+    }
   | undefined;
 
 async function handleRefundProcessed(
@@ -2606,9 +2613,8 @@ async function handleRefundProcessed(
     typeof entity.amount === "number" ? entity.amount / 100 : original.amount;
 
   // Fraud guard 2: a single refund cannot exceed the payment it refunds.
-  // Razorpay never legitimately does this; cumulative-refund detection
-  // beyond a single event would need a payment->refund FK and is tracked
-  // separately. This per-event sanity check catches the obvious forgery.
+  // Razorpay never legitimately does this; per-event sanity check that
+  // catches the obvious forgery before we look at cumulative.
   if (refundAmount > original.amount) {
     await auditLog(req, "RAZORPAY_WEBHOOK_FRAUD_SUSPECT", "Payment", original.id, {
       kind: "REFUND_EXCEEDS_PAYMENT",
@@ -2635,6 +2641,59 @@ async function handleRefundProcessed(
     };
   }
 
+  // Fraud guard 3: cumulative refunds against the same parent CAPTURED
+  // payment must not exceed the original amount. Catches the "many small
+  // partial refunds totalling > 100%" forgery class that guard 2 lets
+  // through (each event is < original; only the sum is over).
+  //
+  // Sums prior refund-Payment rows whose `parentPaymentId === original.id`.
+  // Refund Payment rows store the refund amount as a NEGATIVE float; we
+  // sum-of-abs to keep the math obvious. Status filter excludes any
+  // FAILED retry attempts (current code never writes FAILED on a refund
+  // Payment but we keep the filter for defence in depth).
+  const priorRefunds = await prisma.payment.findMany({
+    where: { parentPaymentId: original.id, status: "REFUNDED" },
+    select: { amount: true },
+  });
+  const priorRefundTotal = priorRefunds.reduce(
+    (sum, p) => sum + Math.abs(p.amount),
+    0
+  );
+  if (priorRefundTotal + refundAmount > original.amount) {
+    await auditLog(
+      req,
+      "RAZORPAY_WEBHOOK_FRAUD_SUSPECT",
+      "Payment",
+      original.id,
+      {
+        kind: "REFUND_CUMULATIVE_EXCEEDS_PAYMENT",
+        incomingRefundId: refundId,
+        originalTransactionId: paymentId,
+        originalAmount: original.amount,
+        priorRefundTotal,
+        incomingRefundAmount: refundAmount,
+        cumulativeAfter: priorRefundTotal + refundAmount,
+        amountPaise: entity.amount,
+      }
+    );
+    console.error(
+      "[razorpay-webhook] FRAUD SUSPECT: cumulative refunds exceed original payment",
+      {
+        invoiceId: original.invoiceId,
+        originalPaymentId: original.id,
+        originalAmount: original.amount,
+        priorRefundTotal,
+        incomingRefundAmount: refundAmount,
+        incomingRefundId: refundId,
+      }
+    );
+    return {
+      fraudSuspect: true,
+      invoiceId: original.invoiceId,
+      reason: "REFUND_CUMULATIVE_EXCEEDS_PAYMENT",
+    };
+  }
+
   try {
     await prisma.$transaction(async (tx) => {
       await tx.payment.create({
@@ -2644,6 +2703,9 @@ async function handleRefundProcessed(
           mode: "ONLINE",
           transactionId: refundTxnId,
           status: "REFUNDED",
+          // Stamp the FK so the next refund event can sum prior refunds
+          // against this captured payment (fraud guard 3 above).
+          parentPaymentId: original.id,
         },
       });
       const after = await tx.payment.findMany({
@@ -2734,13 +2796,17 @@ webhookRouter.post(
               req
             );
             if (result?.fraudSuspect) {
+              const errorByReason: Record<typeof result.reason, string> = {
+                REFUND_AGAINST_NON_CAPTURED_PAYMENT:
+                  "Refund against non-CAPTURED payment",
+                REFUND_EXCEEDS_PAYMENT: "Refund amount exceeds original payment",
+                REFUND_CUMULATIVE_EXCEEDS_PAYMENT:
+                  "Cumulative refunds exceed original payment",
+              };
               res.status(409).json({
                 success: false,
                 data: null,
-                error:
-                  result.reason === "REFUND_EXCEEDS_PAYMENT"
-                    ? "Refund amount exceeds original payment"
-                    : "Refund against non-CAPTURED payment",
+                error: errorByReason[result.reason],
                 code: result.reason,
               });
               return;

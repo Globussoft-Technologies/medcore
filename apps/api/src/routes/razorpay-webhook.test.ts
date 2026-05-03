@@ -189,10 +189,15 @@ describe("Razorpay webhook idempotency thin spots (honorable mention #15)", () =
     prismaMock.payment.findUnique
       .mockResolvedValueOnce({ id: "p-1", transactionId: "pay_xyz", amount: 100, invoiceId: "inv-1", status: "CAPTURED" })
       .mockResolvedValueOnce(null); // dup refund check
-    prismaMock.payment.findMany.mockResolvedValueOnce([
-      { id: "p-1", invoiceId: "inv-1", amount: 100, status: "CAPTURED" },
-      { id: "p-2", invoiceId: "inv-1", amount: -50, status: "REFUNDED" },
-    ]);
+    prismaMock.payment.findMany
+      // 1st findMany: prior refunds against this parent (cumulative-fraud guard
+      // 3, added 2026-05-04). Empty — no prior refunds for this captured pay.
+      .mockResolvedValueOnce([])
+      // 2nd findMany: post-create net recompute over the invoice's payments.
+      .mockResolvedValueOnce([
+        { id: "p-1", invoiceId: "inv-1", amount: 100, status: "CAPTURED" },
+        { id: "p-2", invoiceId: "inv-1", amount: -50, status: "REFUNDED" },
+      ]);
     prismaMock.invoice.findUnique.mockResolvedValueOnce({ id: "inv-1", totalAmount: 100 });
     prismaMock.payment.create.mockResolvedValueOnce({ id: "p-2" });
 
@@ -659,10 +664,15 @@ describe("Fraud guard — refund.processed (forged refund webhooks)", () => {
         status: "CAPTURED",
       })
       .mockResolvedValueOnce(null);
-    prismaMock.payment.findMany.mockResolvedValueOnce([
-      { id: "pay-captured-2", invoiceId: "inv-4", amount: 100, status: "CAPTURED" },
-      { id: "rfnd-1", invoiceId: "inv-4", amount: -50, status: "REFUNDED" },
-    ]);
+    prismaMock.payment.findMany
+      // 1st findMany: prior refunds against this parent (cumulative-fraud
+      // guard 3). Empty — this is the first partial refund.
+      .mockResolvedValueOnce([])
+      // 2nd findMany: post-create net recompute over the invoice's payments.
+      .mockResolvedValueOnce([
+        { id: "pay-captured-2", invoiceId: "inv-4", amount: 100, status: "CAPTURED" },
+        { id: "rfnd-1", invoiceId: "inv-4", amount: -50, status: "REFUNDED" },
+      ]);
     prismaMock.invoice.findUnique.mockResolvedValueOnce({ id: "inv-4", totalAmount: 100 });
     prismaMock.payment.create.mockResolvedValueOnce({ id: "rfnd-1" });
 
@@ -681,6 +691,173 @@ describe("Fraud guard — refund.processed (forged refund webhooks)", () => {
       })
     );
     expect(auditLogMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects refund whose CUMULATIVE total against the same parent exceeds the original payment → 409 REFUND_CUMULATIVE_EXCEEDS_PAYMENT (fraud guard 3)", async () => {
+    // Fraud class that guard 2 (`REFUND_EXCEEDS_PAYMENT`) lets through:
+    // each individual refund event is < original (so guard 2 stays silent),
+    // but the SUM of refunds against the same parent exceeds the original.
+    //
+    // Setup: ₹100 captured payment with two prior partial refunds totalling
+    // ₹70. A new refund.processed for ₹40 would push cumulative to ₹110
+    // — past the ₹100 ceiling. Guard 3 fires, no Payment row written,
+    // audit logged with the cumulative arithmetic.
+    prismaMock.payment.findUnique
+      .mockResolvedValueOnce({
+        id: "pay-cumulative-orig",
+        transactionId: "pay_cumulative",
+        amount: 100,
+        invoiceId: "inv-cum",
+        status: "CAPTURED",
+      })
+      .mockResolvedValueOnce(null); // dup refund check — not a dup
+    prismaMock.payment.findMany.mockResolvedValueOnce([
+      // Prior refunds totalling ₹70 against pay-cumulative-orig.
+      { id: "rfnd-prior-1", amount: -30 },
+      { id: "rfnd-prior-2", amount: -40 },
+    ]);
+
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await postWebhook(
+      buildApp(),
+      refundEvent({
+        refundId: "rfnd_cumulative_overshoot",
+        paymentId: "pay_cumulative",
+        amountPaise: 4000, // ₹40 — under guard 2 (≤ original ₹100), but
+                           // 70 + 40 = 110 > 100, trips guard 3.
+      })
+    );
+
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({
+      success: false,
+      data: null,
+      code: "REFUND_CUMULATIVE_EXCEEDS_PAYMENT",
+    });
+    expect(prismaMock.payment.create).not.toHaveBeenCalled();
+    expect(prismaMock.invoice.update).not.toHaveBeenCalled();
+
+    expect(auditLogMock).toHaveBeenCalledTimes(1);
+    const auditCall = auditLogMock.mock.calls[0] as unknown as unknown[];
+    expect(auditCall[4]).toMatchObject({
+      kind: "REFUND_CUMULATIVE_EXCEEDS_PAYMENT",
+      originalAmount: 100,
+      priorRefundTotal: 70,
+      incomingRefundAmount: 40,
+      cumulativeAfter: 110,
+      incomingRefundId: "rfnd_cumulative_overshoot",
+    });
+
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/cumulative refunds exceed original payment/i),
+      expect.objectContaining({
+        originalAmount: 100,
+        priorRefundTotal: 70,
+        incomingRefundAmount: 40,
+      })
+    );
+    errSpy.mockRestore();
+  });
+
+  it("at-the-ceiling cumulative refund (sum exactly equals original) is allowed — equality is not fraud", async () => {
+    // ₹100 captured, ₹60 already refunded across prior events, incoming
+    // refund for ₹40 → cumulative is ₹100 == original. The guard uses
+    // strict `>`, not `>=`, so this is the legitimate "fully refunded
+    // across many partials" case and must pass through to the create
+    // path.
+    prismaMock.payment.findUnique
+      .mockResolvedValueOnce({
+        id: "pay-exact",
+        transactionId: "pay_exact",
+        amount: 100,
+        invoiceId: "inv-exact",
+        status: "CAPTURED",
+      })
+      .mockResolvedValueOnce(null);
+    prismaMock.payment.findMany
+      // Prior refunds: ₹60 already refunded.
+      .mockResolvedValueOnce([{ id: "rfnd-p1", amount: -60 }])
+      // Post-create net recompute.
+      .mockResolvedValueOnce([
+        { id: "pay-exact", invoiceId: "inv-exact", amount: 100, status: "CAPTURED" },
+        { id: "rfnd-p1", invoiceId: "inv-exact", amount: -60, status: "REFUNDED" },
+        { id: "rfnd-tip", invoiceId: "inv-exact", amount: -40, status: "REFUNDED" },
+      ]);
+    prismaMock.invoice.findUnique.mockResolvedValueOnce({
+      id: "inv-exact",
+      totalAmount: 100,
+    });
+    prismaMock.payment.create.mockResolvedValueOnce({ id: "rfnd-tip" });
+
+    const res = await postWebhook(
+      buildApp(),
+      refundEvent({
+        refundId: "rfnd_tip",
+        paymentId: "pay_exact",
+        amountPaise: 4000,
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(prismaMock.payment.create).toHaveBeenCalledTimes(1);
+    expect(auditLogMock).not.toHaveBeenCalled();
+    // Net is now 0 → invoice flips to REFUNDED.
+    expect(prismaMock.invoice.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "inv-exact" },
+        data: expect.objectContaining({ paymentStatus: "REFUNDED" }),
+      })
+    );
+  });
+
+  it("successful refund stamps parentPaymentId so the next refund event can sum against the same parent", async () => {
+    // Defence-in-depth: if the parentPaymentId stamp goes missing on the
+    // create path, every refund looks like the first one to guard 3 and
+    // cumulative detection breaks silently. Pin the create-arg shape so
+    // a future refactor that drops the field fails this test.
+    prismaMock.payment.findUnique
+      .mockResolvedValueOnce({
+        id: "pay-stamp",
+        transactionId: "pay_stamp",
+        amount: 100,
+        invoiceId: "inv-stamp",
+        status: "CAPTURED",
+      })
+      .mockResolvedValueOnce(null);
+    prismaMock.payment.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { id: "pay-stamp", invoiceId: "inv-stamp", amount: 100, status: "CAPTURED" },
+        { id: "rfnd-stamp", invoiceId: "inv-stamp", amount: -25, status: "REFUNDED" },
+      ]);
+    prismaMock.invoice.findUnique.mockResolvedValueOnce({
+      id: "inv-stamp",
+      totalAmount: 100,
+    });
+    prismaMock.payment.create.mockResolvedValueOnce({ id: "rfnd-stamp" });
+
+    const res = await postWebhook(
+      buildApp(),
+      refundEvent({
+        refundId: "rfnd_stamp",
+        paymentId: "pay_stamp",
+        amountPaise: 2500,
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(prismaMock.payment.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          parentPaymentId: "pay-stamp",
+          status: "REFUNDED",
+          amount: -25,
+        }),
+      })
+    );
   });
 
   it("legitimate Razorpay retry (same refundId) still acks 200 with no audit, even when the original is FAILED — dup-check fires before fraud guards", async () => {

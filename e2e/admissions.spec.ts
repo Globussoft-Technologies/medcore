@@ -253,9 +253,17 @@ test.describe("Admissions — admit flow (requires available bed)", () => {
     await expect(bedSelect).toBeVisible({ timeout: 5_000 });
     await bedSelect.selectOption({ index: 1 }); // pick the first available bed
 
-    // Reason textarea (required)
-    await page
-      .getByLabel(/reason for admission/i)
+    // Reason textarea (required). The admit modal renders
+    // `<label>Reason for Admission</label><textarea ... />` WITHOUT
+    // htmlFor/id linkage (apps/web/src/app/dashboard/admissions/page.tsx:553-563),
+    // so Playwright's getByLabel(/reason for admission/i) cannot resolve the
+    // textarea. Anchor on the label text and use the immediate sibling
+    // textarea — same pattern as medicines/suppliers/wards modal fixes.
+    const admitModalForm = page.locator('form:has(button[type=submit])').first();
+    await expect(admitModalForm).toBeVisible({ timeout: 10_000 });
+    await admitModalForm
+      .locator('label:text-is("Reason for Admission") + textarea')
+      .first()
       .fill("E2E test — acute fever and dehydration");
 
     // Submit

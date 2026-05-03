@@ -127,7 +127,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - `/dashboard/scheduled-reports` — same; verify dedup vs above
 - `/dashboard/analytics/reports` — analytics export
 - ~~`/dashboard/census` — bed census~~ closed 2026-05-03 by `e2e/census.spec.ts` (6 tests; ADMIN chrome + Daily/Weekly toggle + DOCTOR/NURSE reach + PATIENT/LAB_TECH 403-without-crash)
-- `/dashboard/queue` — queue priority/reassignment (page-load only)
+- ~~`/dashboard/queue` — queue priority/reassignment (page-load only)~~ ✅ deepened (priority/reassign + RBAC; `e2e/queue.spec.ts`)
 
 ### 2.7 Admissions & Wards
 - `/dashboard/admissions` — admit form (list-touched only)

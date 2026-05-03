@@ -1,13 +1,24 @@
 # Test Coverage Audit (Non-E2E)
 
-> Generated: 2026-05-02
-> Scope: All test types in the MedCore monorepo EXCEPT the Playwright E2E suite
-> Companion doc: [E2E_COVERAGE_BACKLOG.md](./E2E_COVERAGE_BACKLOG.md) for the
+> Generated: 2026-05-02. **Status update 2026-05-03:** every priority
+> item from §5 (Top 10 ROI-ranked recommendations) was closed in the
+> 2026-05-03 gap-closer pass — see
+> [`archive/TEST_GAPS_2026-05-03.md`](archive/TEST_GAPS_2026-05-03.md)
+> for the closure log + commit refs. The §3 "Test types ABSENT" backlog
+> remains the active future-direction list.
+>
+> Scope: All test types in the MedCore monorepo EXCEPT the Playwright E2E suite.
+> Companion doc: [`E2E_COVERAGE_BACKLOG.md`](E2E_COVERAGE_BACKLOG.md) for the
 > Playwright/E2E gap analysis.
 
 This audit catalogs every test category present in the repo, what it covers,
 what's missing, and which categories are entirely absent. Use it as input when
 prioritizing test investments alongside the E2E backlog.
+
+**Snapshot counts (§1, §2) reflect 2026-05-02 state.** As of 2026-05-03:
+~510 new test cases shipped today across the four-wave gap-closer pass
+(Session 1, Wave A, Wave C, low-priority). README total: ~2,700+ active
+cases. Re-tally if you need fresh numbers.
 
 ---
 
@@ -245,13 +256,26 @@ Categories with zero presence in the repo today.
 
 ## 5. Top recommendations (ROI-ranked)
 
-### P1 — Testcontainers integration tests for scheduled / background jobs
-- **Why:** Adherence reminders, insurance claim batches, chronic-care
-  alerts only have unit-level mocks. Production failures here are costly
-  (missed meds, delayed claims).
-- **What:** Add `apps/api/src/test/integration/scheduled-*.test.ts` using
-  Vitest + `@testcontainers/postgresql`. Drive cron handlers directly,
-  assert on DB side-effects + queue state.
+> **Status (2026-05-03):** P11 and P12 closed; P1 closed without
+> Testcontainers (per repo policy, see notes); P2–P10 remain open.
+> Closure log lives in `archive/TEST_GAPS_2026-05-03.md` for the
+> separate Top-10 priority pass that ran in parallel.
+
+### P1 — Testcontainers integration tests for scheduled / background jobs ✅ CLOSED 2026-05-02 (without Testcontainers)
+- **Status:** Schedulers got unit-level coverage with mocked Prisma in
+  the §B audit closure (`c12c5db` + `5845a4e`): `adherence-scheduler`,
+  `chronic-care-scheduler`, `insurance-claims-scheduler`,
+  `audio-retention`. Plus the per-tick logic helpers (`evaluateThresholds`,
+  `isCheckInDue`, `msUntilNextDailyTick`) were extracted and pure-tested.
+  Testcontainers itself remains intentionally out (per `TEST_PLAN.md` §2:
+  "Testcontainers are intentionally **not** used — they add complexity
+  and require Docker"). Real integration coverage rides on
+  `DATABASE_URL_TEST` against a shared Postgres in CI.
+- **Why we accepted no-Testcontainers:** the unit + mocked-Prisma layer
+  catches the bulk of business-logic regressions; real Postgres testing
+  via `DATABASE_URL_TEST` covers the schema/SQL layer. The Testcontainers
+  middle path was deemed not worth the Docker dependency for marginal
+  signal.
 
 ### P2 — DB migration and seed verification
 - **Why:** Schema changes (RLS, unique constraints, defaults) ship
@@ -312,27 +336,30 @@ Categories with zero presence in the repo today.
 - **What:** Vitest bench for hot paths. Set baseline from load-tests; flag
   PRs that regress >10%.
 
-### P11 — Raise coverage thresholds toward 80%
-- **Why:** Locked at 10–11% lines on both backend and frontend; far below
-  the global 80% target. Growth-enforced but the floor is low.
-- **What:** Step thresholds up by 5% per release until 80%. Track
-  per-package so weakly-tested packages are visible.
+### P11 — Raise coverage thresholds toward 80% ✅ CLOSED 2026-05-02 (`cc01e36`)
+- **Status:** Bumped to `current_actual − 2pp` floors. API: lines 11% →
+  24%, branches 57% → 68%, functions 55% → 68%, statements 11% → 24%.
+  Web: lines 10% → 51%, branches 61% → 65%, functions 28% → 31%,
+  statements 10% → 51%. Not at 80% line yet — staircase further on
+  subsequent releases as tests grow.
 
-### P12 — Dependency audit gate
-- **Why:** No `npm audit` / Snyk / Dependabot security gate today.
-- **What:** Add `npm audit --audit-level=high` to CI; block on
-  high/critical. Optionally Snyk for richer rules.
+### P12 — Dependency audit gate ✅ CLOSED (CI Phase 1.3, deploy gate)
+- **Status:** `npm audit --workspace=apps/api --workspace=apps/web
+  --audit-level=high --omit=dev` is in `.github/workflows/test.yml`'s
+  `deploy.needs:` array. Blocks deploy on high/critical CVEs. Mobile
+  workspace excluded (Expo stack has known major-bump-blocked CVEs
+  tracked separately).
 
 ---
 
 ## 6. Suggested rollout
 
-| Phase | Items | Rationale |
+| Phase | Items | Status |
 |---|---|---|
-| Now (1–2 sprints) | P1, P2, P12 | Highest production-incident risk |
-| Next (2–4 sprints) | P3, P4, P11 | Compliance + correctness debt |
-| Quarter | P5, P6, P9 | Mobile + perf safety net |
-| Stretch | P7, P8, P10 | Quality multiplier; not blocker |
+| Now (1–2 sprints) | ~~P1, P2, P12~~ | P1 ✅ via mocked-Prisma units (`c12c5db`/`5845a4e`); P12 ✅ in CI Phase 1.3; **P2 still open** (DB migration + seed verification) |
+| Next (2–4 sprints) | ~~P3~~, P4, ~~P11~~ | P11 ✅ (`cc01e36`); **P3 still open** (jest-axe in unit suite); **P4 still open** (RLS policy verification — multi-tenant covered via Prisma extension only, not PostgreSQL RLS) |
+| Quarter | P5, P6, P9 | All still open. Mobile e2e via Maestro YAML scaffolds exist (`apps/mobile/e2e/`) but not wired to CI; load-test runs nightly with no SLA gate; PDF/letter snapshot tests not started. |
+| Stretch | P7, P8, P10 | All still open. AI eval dataset grew to ~62 fixtures (`docs/AI_EVAL.md`) but no per-model A/B; no Pact/OpenAPI consumer tests; no Vitest bench for AI hot paths. |
 
 ---
 

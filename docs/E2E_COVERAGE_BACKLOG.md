@@ -1,13 +1,36 @@
 # E2E Test Coverage Backlog
 
-> Generated: 2026-05-02
-> Scope: Playwright E2E suite under `e2e/` vs. app routes under `apps/web/src/app/`
-> Source audit: 40 existing spec files reviewed against 132 page.tsx routes
+> Generated: 2026-05-02. **Status update 2026-05-03:** several
+> top-priority routes called out as zero-coverage have since shipped
+> dedicated specs — `e2e/bloodbank.spec.ts` (`9843648`),
+> `e2e/ambulance.spec.ts` (`0c94cbb`), `e2e/pediatric.spec.ts`
+> (`0715f27`) — and 5 brittle locator patterns across 8 specs got
+> tightened in `e2ec599`. Companion non-e2e closure:
+> [`archive/TEST_GAPS_2026-05-03.md`](archive/TEST_GAPS_2026-05-03.md).
+> Re-verify any individual line below before picking up; counts are
+> 2026-05-02-as-of, not refreshed wholesale.
+>
+> Scope: Playwright E2E suite under `e2e/` vs. app routes under `apps/web/src/app/`.
+> Source audit: 40 existing spec files reviewed against 132 page.tsx routes.
 
 This document is a living backlog of E2E coverage gaps and proposed work. Update the
 status column as specs are added. Routes/flows referenced here are derived from
 the current `apps/web/src/app/**/page.tsx` tree — re-verify before picking up an
 item, since the route layout drifts.
+
+## Closure log since this audit was generated (2026-05-02 → 2026-05-03)
+
+| Item from §2 / §5 | Status | Commit |
+|---|---|---|
+| `/dashboard/pediatric` (§2.1, §5 P-list note) — full flow spec | ✅ Closed | `0715f27` (e2e/pediatric.spec.ts, 5 cases incl. growth-chart drilldown + UIP/IAP immunizations) |
+| `/dashboard/bloodbank` — clinical-safety flow | ✅ Closed | `9843648` (e2e/bloodbank.spec.ts, 5 cases incl. ABO/Rh cross-match safety + expired-unit exclusion) |
+| `/dashboard/ambulance` — dispatch lifecycle | ✅ Closed | `0c94cbb` (e2e/ambulance.spec.ts, 5 cases — full DISPATCHED → COMPLETED + fuel logs + RBAC) |
+| `/dashboard/pediatric/[patientId]` — chart drilldown | ✅ Closed | included in `0715f27` |
+| Brittle locator patterns (§3 across multiple specs) | ✅ Tightened | `e2ec599` (5 patterns across 8 specs/pages — preempts ambulance-style locator-drift bugs) |
+| Visual regression baselines for 4 specs (§4.4) | ✅ Closed | `d150ab2` (Chromium) + `fb55fe6` (WebKit) |
+| WebKit auth-race instability (cross-browser, §4 implicit) | ✅ Cleared | `8d7fa94` v1 → `1d204d7` v2 → `febe0aa` v3 (release.yml run 25257762655 fully green) |
+
+Beyond the backlog: a parallel **non-e2e gap-closer pass** (Sessions 1, Wave A, Wave C, low-priority) shipped ~510 new test cases on 2026-05-03 across validation schemas, insurance-claims, AI services, controlled-substances, FHIR Bundle/search, HL7v2 parser/roundtrip/segments, bloodbank cross-match, ambulance state machine, pharmacy + Rx-rejection, patient-data-export, and 5 honorable mentions (forecast / predictions / audit-archival / notification orchestrator / Razorpay idempotency). See `archive/TEST_GAPS_2026-05-03.md`.
 
 ---
 
@@ -56,8 +79,8 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - `/dashboard/patients/[id]/problem-list` — add/edit/delete problems
 - `/dashboard/patients/register` — new patient registration form
 - `/dashboard/prescriptions/new` — Rx creation form (only smoke-touched today)
-- `/dashboard/pediatric` — pediatric ward listing
-- `/dashboard/pediatric/[patientId]` — pediatric chart (age-specific dosing, growth charts)
+- ~~`/dashboard/pediatric` — pediatric ward listing~~ ✅ closed `0715f27`
+- ~~`/dashboard/pediatric/[patientId]` — pediatric chart (age-specific dosing, growth charts)~~ ✅ closed `0715f27`
 - `/dashboard/symptom-diary` — patient-reported symptom logging
 - `/dashboard/telemedicine/waiting-room` — waiting-room UI (only mocked join tested)
 
@@ -140,7 +163,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - `/dashboard/calendar` — event creation, drag, conflict detection
 - `/dashboard/my-schedule` — shift claim, unavailability
 - `/dashboard/insurance-claims` — claim submission/appeal/reconciliation (smoke only)
-- `/dashboard/blood-bank` and `/dashboard/bloodbank` — verify dedup; only requisition is touched in OT spec
+- ~~`/dashboard/blood-bank` and `/dashboard/bloodbank`~~ ✅ flow covered `9843648` (still: verify route dedup; only requisition was touched in OT spec)
 - `/dashboard/operating-theaters` and `/dashboard/operating-theatres` — verify dedup
 - `/dashboard/medication`, `/dashboard/medication-dashboard` — overlap with admissions-mar; clarify scope
 - `/dashboard/lab-intel` — lab-intelligence dashboards (page-load only)
@@ -149,7 +172,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - `/dashboard/certifications` — staff certification tracking
 - `/dashboard/immunization-schedule` — vaccination schedule
 - `/dashboard/antenatal`, `/dashboard/antenatal/[id]` — antenatal care
-- `/dashboard/ambulance` — dispatch (touched in ER flow only)
+- ~~`/dashboard/ambulance` — dispatch (touched in ER flow only)~~ ✅ closed `0c94cbb` (full DISPATCHED → COMPLETED lifecycle + fuel logs + RBAC)
 - `/dashboard/visitors` — visitor log
 
 ---

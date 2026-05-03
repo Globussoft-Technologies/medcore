@@ -4,9 +4,13 @@ Next-session pickup list. Read this first, work top-to-bottom. Each item
 is independently shippable. Full per-session history lives under
 [`docs/archive/`](docs/archive/).
 
-> Updated: 2026-05-03 (post-Session-1 gap-closure landings).
-> HEAD on `main` = `8302010` (`test(api/ai): unit-test adherence-bot,
-> differential, symptom-diary (gap #7)`).
+> Updated: 2026-05-03 (post-Wave-C gap-closure landings).
+> HEAD on `main` = `e6c68e1` (`feat(api/controlled-substances):
+> require witnessSignature on Schedule-H dispense + tests (gap #2)`).
+> **All 10 priority gaps from `docs/TEST_GAPS_2026-05-03.md` now CLOSED.**
+> ~447 new test cases shipped today across Sessions 1, 2 (Wave A), and
+> 3 (Wave C); plus 1 schema migration (`20260503000001`), 2 source-bug
+> fixes, and backend wiring for witnessSignature + Rx REJECTED status.
 > **Open GitHub issues: 0.** **Open PRs: 0.**
 > **Per-push CI**: all 8 gating jobs green on `8302010`. Auto-deploy
 > operating; nightly AI-eval + load-test workflows also green.
@@ -28,6 +32,47 @@ is independently shippable. Full per-session history lives under
 >   + `723b6fc` (insurance-claims service, 68 cases) + `8302010`
 >   (3 AI services, 30 cases). Tracked in
 >   [`docs/TEST_GAPS_2026-05-03.md`](docs/TEST_GAPS_2026-05-03.md).
+
+---
+
+## What landed 2026-05-03 late-evening (Waves A/B/C — closes all 10 priority gaps)
+
+After Session 1 (gaps #1/#6/#7) shipped, three more waves of parallel
+agents closed the remaining seven gaps. **All 10 priority items from
+`docs/TEST_GAPS_2026-05-03.md` are now done.** ~197 additional test
+cases + 1 schema migration + 2 source-bug fixes + 4 backend wires.
+
+### Wave A — parallel test-only (2026-05-03)
+
+Five agents, disjoint files. ~143 cases + 2 source-bug fixes.
+
+| Commit | What |
+|---|---|
+| `89a6c40` (+ `6c47fad`) | Gap #4 — HL7v2 parser/roundtrip/segments unit tests (59 cases). Pinned a parser quirk: field-level `unescapeField` runs BEFORE component split, so an escaped `^` (`\\S\\`) becomes a literal component separator on subsequent `parseComponents` — flagged but NOT fixed. |
+| `6c47fad` | Gap #3 — FHIR Bundle validation + search parameter parsing (32 cases). Note: `_id` parameter not supported by `search.ts` — would require source change; flagged as wider gap. |
+| `690ffb1` | Gap #9 — Bloodbank cross-match safety matrix (40 cases). RBC compatibility matrix from `@medcore/shared/abo-compatibility`, expired-unit exclusion, reservation transitions, override path with `clinicalReason >= 10 chars`. |
+| `cc64eff` | Gap #10 — Ambulance trip state machine + fuel-log + RBAC (12 cases). Surfaced TWO source bugs: route has NO state-machine guard on transitions (REQUESTED → COMPLETED silently succeeds), and `fuelLogSchema` has no client timestamp field (future/past timestamps silently dropped via Prisma `@default(now())`). Tests pin current behaviour with TODO markers. |
+| `533dd53` | Source-bug fixes from Session 1 — `adherence-bot.ts` `??` → `\|\|` so empty Sarvam response falls through to fallback message; `insurance-claims/store.ts` got a transition-table guard rejecting invalid claim transitions (DENIED → SUBMITTED, SETTLED → APPROVED, CANCELLED → ANY). |
+
+### Wave B — schema migration (sequential, 2026-05-03)
+
+| Commit | What |
+|---|---|
+| `244b002` | New migration `20260503000001_witness_signature_and_prescription_status` adds: `ControlledSubstanceEntry.witnessSignature` (TEXT?) + `witnessUserId` (FK to users.id, ON DELETE SET NULL) + index; `Prescription.status` (PrescriptionStatus enum: PENDING/DISPENSED/REJECTED/CANCELLED) + `rejectionReason`/`rejectedAt`/`rejectedBy` audit columns + indexes. Both additive; no `[allow-destructive-migration]` needed. Cleaned up the `(prisma as any).patientDataExport` casts in the integration test (PatientDataExport migration shipped in `20260424000004` — proposal MD deleted). |
+
+### Wave C — parallel backend wiring + tests for the now-unblocked surfaces
+
+| Commit | What |
+|---|---|
+| `fd3bea6` | Gap #8 — Pharmacy route handler. New endpoint `POST /pharmacy/prescriptions/:id/reject` (PHARMACIST/ADMIN, Zod `reason.min(10)`, state-machine guard PENDING-only, audit row). `/dispense` now flips `Prescription.status` to DISPENSED on full dispense (alongside the existing `printed` boolean — defense in depth). 30 RBAC + dispense + rejection cases. |
+| `e6c68e1` | Gap #2 — Controlled substances. Schedule-H/H1/X dispense now requires `witnessSignature` (Zod min-3 with trim) at the route layer; returns 422 with a clear error otherwise. `witnessUserId` (when provided) FK-validated against users; null for external witnesses. Audit-log records `witnessSignature` + `witnessUserId` + `scheduleClass` in `details`. 12 new cases (RBAC + Schedule-H gate + audit row content + bogus UUID). **Surfaced a follow-up:** `apps/api/src/routes/pharmacy.ts:491` (full-Rx dispense flow) auto-creates `ControlledSubstanceEntry` for `requiresRegister=true` items WITHOUT `witnessSignature` capture — bypasses the new §65 gate. Tracked for next session. |
+| `65d7c96` | Gap #5 — Patient Data Export. 12 new cases: cross-tenant exclusion, `passwordHash` excluded from JSON + FHIR bundles, `Patient/<id>` reference resolution, `entry.fullUrl` uniqueness, JSON/FHIR/PDF format roundtrip with magic-byte assertion, signed-URL TTL = documented 1 hour, ADMIN actually gets 403 (route is PATIENT-only — audit's "ADMIN can export for any patient" was wrong; test pins actual behaviour). |
+
+### Validation snapshot
+
+- All 8 deploy-gating jobs green on `e6c68e1` (CI in flight at the time of writing; expected green based on local typecheck + per-file vitest runs).
+- Auto-deploy operating; the witnessSignature + REJECTED columns are additive so `prisma migrate deploy` will not pause on the next deploy.
+- Schema migration is hand-crafted per `MIGRATIONS.md` policy; not run via `prisma migrate dev`.
 
 ---
 

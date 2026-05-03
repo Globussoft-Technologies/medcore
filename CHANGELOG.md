@@ -70,11 +70,19 @@ across Chromium + WebKit, and the local-first test workflow.
   **68%** / statements **24%**; web lines **51%** / branches **65%** /
   functions **31%** / statements **51%**. Up from previous
   basement-level 11% / 10%.
-- **Test-gap audit + Session 1 closure (2026-05-03 evening, 250 new
-  test cases).** New audit doc at
+- **2026-05-03 schema migration `20260503000001_witness_signature_and_prescription_status`** (`244b002`):
+  - `ControlledSubstanceEntry.witnessSignature` (TEXT?) + `witnessUserId`
+    (FK to users.id, ON DELETE SET NULL) for §65 Schedule-H/H1
+    co-signing.
+  - `Prescription.status` (PrescriptionStatus enum: PENDING / DISPENSED
+    / REJECTED / CANCELLED) + `rejectionReason` / `rejectedAt` /
+    `rejectedBy` for the lifecycle the pharmacist Rx-rejection workflow
+    needs. Existing rows backfill to PENDING.
+  - Both additive; no `[allow-destructive-migration]` marker.
+- **Test-gap audit + Sessions 1-3 closure (2026-05-03, ~447 new test
+  cases across 10 priority gaps).** New audit doc at
   [`docs/TEST_GAPS_2026-05-03.md`](docs/TEST_GAPS_2026-05-03.md)
-  identifies a top-10 priority queue for upcoming gap-closer passes.
-  Session 1 closed 3 of those gaps:
+  identified a top-10 priority queue. **All 10 closed in three waves:**
   - **Gap #6** (`c36fb23`) — 5 untested Zod schemas in
     `packages/shared/src/validation/__tests__/`: `finance` (31),
     `pharmacy` (25), `prescription` (20), `phase4-ops` (38),
@@ -93,7 +101,53 @@ across Chromium + WebKit, and the local-first test workflow.
   behaviour with TODO comments so the fix shows up as a clean diff):
   `adherence-bot` empty-string nullish-coalesce, `store.ts` missing
   state-machine guard, `symptom-diary` missing prescription
-  cross-reference. Tracked in `TODO.md` for a follow-up session.
+  cross-reference (the third turned out to be a wrong audit assumption,
+  not a real bug — the function does what it does).
+
+  - **Wave A (parallel test-only, ~143 cases)**:
+    - **Gap #4** (`89a6c40` + `6c47fad`) — HL7v2 parser/roundtrip/segments
+      unit tests (59 cases). Pinned a parser quirk where field-level
+      `unescapeField` runs BEFORE component split, causing escaped `^`
+      to over-split downstream — flagged for follow-up.
+    - **Gap #3** (`6c47fad`) — FHIR Bundle validation + search parameter
+      parsing (32 cases). `_id` parameter not yet supported by `search.ts`
+      — flagged as wider gap.
+    - **Gap #9** (`690ffb1`) — Bloodbank cross-match safety matrix
+      (40 cases). RBC compatibility, expired-unit exclusion, reservation
+      transitions, override path with clinical-reason gating.
+    - **Gap #10** (`cc64eff`) — Ambulance trip state machine + fuel-log
+      + RBAC (12 cases). Surfaced two source bugs: route has NO
+      state-machine guard on transitions; `fuelLogSchema` has no client
+      timestamp field. Tests pin current behaviour with TODO markers.
+
+  - **Wave B — schema migration `244b002`**:
+    `20260503000001_witness_signature_and_prescription_status`. See the
+    migration entry above for shape + rationale.
+
+  - **Wave C (parallel, backend wiring + tests for newly-unblocked
+    surfaces, 54 cases)**:
+    - **Gap #8** (`fd3bea6`) — Pharmacy route. New endpoint `POST
+      /pharmacy/prescriptions/:id/reject` (PHARMACIST/ADMIN, Zod
+      `reason.min(10)`, state-machine guard PENDING-only, audit row).
+      `/dispense` now flips `Prescription.status` to DISPENSED on full
+      dispense. 30 RBAC + dispense + rejection cases.
+    - **Gap #2** (`e6c68e1`) — Controlled substances. Schedule-H/H1/X
+      dispense now requires `witnessSignature` (Zod min-3) at the route
+      layer; returns 422 otherwise. `witnessUserId` FK-validated against
+      users; null for external witnesses. Audit-log records both
+      signers + `scheduleClass`. 12 new cases. **Surfaced a follow-up:**
+      `routes/pharmacy.ts:491` (full-Rx dispense) auto-creates
+      `ControlledSubstanceEntry` for `requiresRegister=true` items
+      WITHOUT capturing `witnessSignature` — bypasses the new §65 gate.
+      Tracked.
+    - **Gap #5** (`65d7c96`) — Patient Data Export. 12 new cases:
+      cross-tenant exclusion, `passwordHash` excluded from JSON+FHIR
+      bundles, fullUrl uniqueness, JSON/FHIR/PDF roundtrip with magic-
+      byte assertion, signed-URL TTL = documented 1 hour, ADMIN gets 403
+      (route is PATIENT-only — audit's "ADMIN can export for any" was
+      wrong; test pins actual behaviour).
+
+  **Total today: ~447 new test cases. README test count `~2,200+ → ~2,650+`.**
 
 ### Changed
 - **Web-bundle budget tightened** 25 MB → **7 MB** (`1983f01`) based

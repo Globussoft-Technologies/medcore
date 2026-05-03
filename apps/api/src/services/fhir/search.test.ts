@@ -52,6 +52,9 @@ function matchesScalar(value: any, filter: any): boolean {
     }
     return hay.includes(needle);
   }
+  if (typeof filter === "object" && "in" in filter) {
+    return Array.isArray(filter.in) && filter.in.includes(value);
+  }
   if (typeof filter === "object" && ("gte" in filter || "lte" in filter || "gt" in filter || "lt" in filter)) {
     return matchesDateFilter(value, filter);
   }
@@ -60,6 +63,7 @@ function matchesScalar(value: any, filter: any): boolean {
 
 function matchesPatient(p: any, where: any): boolean {
   if (!where) return true;
+  if (where.id !== undefined && !matchesScalar(p.id, where.id)) return false;
   if (where.gender !== undefined && p.gender !== where.gender) return false;
   if (where.mrNumber !== undefined) {
     if (typeof where.mrNumber === "object") {
@@ -95,6 +99,7 @@ function matchesPatient(p: any, where: any): boolean {
 
 function matchesConsultation(c: any, where: any): boolean {
   if (!where) return true;
+  if (where.id !== undefined && !matchesScalar(c.id, where.id)) return false;
   if (where.createdAt !== undefined && !matchesScalar(c.createdAt, where.createdAt)) return false;
   if (where.updatedAt !== undefined && !matchesScalar(c.updatedAt, where.updatedAt)) return false;
   if (where.appointment?.is) {
@@ -122,6 +127,7 @@ function matchesPrescription(rx: any, where: any): boolean {
 
 function matchesAllergy(a: any, where: any): boolean {
   if (!where) return true;
+  if (where.id !== undefined && !matchesScalar(a.id, where.id)) return false;
   if (where.patientId !== undefined && a.patientId !== where.patientId) return false;
   if (where.notedAt !== undefined && !matchesScalar(a.notedAt, where.notedAt)) return false;
   return true;
@@ -587,5 +593,106 @@ describe("searchEncounter — malformed parameter envelope", () => {
 
   it("rejects malformed _offset (negative) with FhirSearchError, never reaching prisma", async () => {
     await expect(searchEncounter({ _offset: -5 })).rejects.toBeInstanceOf(FhirSearchError);
+  });
+});
+
+// ─── _id SearchParameter (FHIR R4 baseline — gap #3 follow-up) ──────────────
+//
+// FHIR R4 spec § "Parameters for all resources" (https://www.hl7.org/fhir/R4/search.html#all)
+// requires every server to support `_id`. These cases lock in:
+//   1. single UUID → filters to one resource
+//   2. comma-separated UUIDs → SQL `IN`-style filter
+//   3. malformed (non-UUID) value → FhirSearchError (route maps to 400 OO)
+//   4. combined with other params (e.g. patient + _count) → AND semantics
+
+const UUID_A = "11111111-1111-4111-8111-111111111111";
+const UUID_B = "22222222-2222-4222-8222-222222222222";
+const UUID_C = "33333333-3333-4333-8333-333333333333";
+const UUID_D = "44444444-4444-4444-8444-444444444444";
+
+describe("searchPatient — _id parameter", () => {
+  it("filters to a single Patient when _id=<uuid>", async () => {
+    seedPatient({ id: UUID_A, name: "A" });
+    seedPatient({ id: UUID_B, name: "B" });
+    seedPatient({ id: UUID_C, name: "C" });
+
+    const bundle = await searchPatient({ _id: UUID_B });
+    expect(bundle.total).toBe(1);
+    expect((bundle.entry[0].resource as any).id).toBe(UUID_B);
+  });
+
+  it("filters to N Patients when _id=<uuid>,<uuid>,<uuid>", async () => {
+    seedPatient({ id: UUID_A, name: "A" });
+    seedPatient({ id: UUID_B, name: "B" });
+    seedPatient({ id: UUID_C, name: "C" });
+    seedPatient({ id: UUID_D, name: "D" });
+
+    const bundle = await searchPatient({ _id: `${UUID_A},${UUID_C},${UUID_D}` });
+    expect(bundle.total).toBe(3);
+    const ids = new Set(bundle.entry.map((e) => (e.resource as any).id));
+    expect(ids).toEqual(new Set([UUID_A, UUID_C, UUID_D]));
+  });
+
+  it("throws FhirSearchError for malformed _id (non-UUID)", async () => {
+    seedPatient({ id: UUID_A });
+    let caught: unknown;
+    try {
+      await searchPatient({ _id: "garbage" });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(FhirSearchError);
+    expect((caught as FhirSearchError).diagnostics).toMatch(/_id|UUID|Invalid/i);
+  });
+
+  it("throws FhirSearchError when one of multiple _ids is malformed", async () => {
+    await expect(searchPatient({ _id: `${UUID_A},not-a-uuid` })).rejects.toBeInstanceOf(FhirSearchError);
+  });
+});
+
+describe("searchEncounter — _id parameter", () => {
+  it("combines _id with patient + _count (composite filter)", async () => {
+    seedConsultation({ id: UUID_A, patientId: "pat-x", appointmentId: "appt-1" });
+    seedConsultation({ id: UUID_B, patientId: "pat-x", appointmentId: "appt-2" });
+    seedConsultation({ id: UUID_C, patientId: "pat-y", appointmentId: "appt-3" });
+
+    // _id narrows to UUID_A only; patient narrows to pat-x; both must hold.
+    const bundle = await searchEncounter({
+      _id: UUID_A,
+      patient: "pat-x",
+      _count: 10,
+    });
+    expect(bundle.total).toBe(1);
+    expect((bundle.entry[0].resource as any).id).toBe(UUID_A);
+  });
+
+  it("filters by multi-id _id=<a>,<b>", async () => {
+    seedConsultation({ id: UUID_A, patientId: "pat-x", appointmentId: "appt-1" });
+    seedConsultation({ id: UUID_B, patientId: "pat-x", appointmentId: "appt-2" });
+    seedConsultation({ id: UUID_C, patientId: "pat-x", appointmentId: "appt-3" });
+
+    const bundle = await searchEncounter({ _id: `${UUID_A},${UUID_B}` });
+    expect(bundle.total).toBe(2);
+    const ids = new Set(bundle.entry.map((e) => (e.resource as any).id));
+    expect(ids).toEqual(new Set([UUID_A, UUID_B]));
+  });
+
+  it("throws FhirSearchError on _id=garbage (route maps to OperationOutcome severity=error)", async () => {
+    await expect(searchEncounter({ _id: "garbage" })).rejects.toBeInstanceOf(FhirSearchError);
+  });
+});
+
+describe("searchAllergyIntolerance — _id parameter", () => {
+  it("filters by single _id", async () => {
+    seedAllergy({ id: UUID_A, patientId: "p1", allergen: "Peanut" });
+    seedAllergy({ id: UUID_B, patientId: "p1", allergen: "Latex" });
+
+    const bundle = await searchAllergyIntolerance({ _id: UUID_A });
+    expect(bundle.total).toBe(1);
+    expect((bundle.entry[0].resource as any).id).toBe(UUID_A);
+  });
+
+  it("rejects malformed _id with FhirSearchError", async () => {
+    await expect(searchAllergyIntolerance({ _id: "not-a-uuid" })).rejects.toBeInstanceOf(FhirSearchError);
   });
 });

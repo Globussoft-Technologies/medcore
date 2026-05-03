@@ -61,13 +61,26 @@ export const MAX_COUNT = 200;
 const DATE_PREFIXES = ["ge", "le", "gt", "lt", "eq"] as const;
 type DatePrefix = (typeof DATE_PREFIXES)[number];
 
+// FHIR R4 baseline: every server must support `_id` as a SearchParameter.
+// Spec: https://www.hl7.org/fhir/R4/search.html#all
+// In MedCore the underlying Prisma rows for Patient / Encounter (Consultation) /
+// AllergyIntolerance use `id` as a UUID PK, so `_id` maps directly to the row's
+// `id` column. Multi-id (`_id=a,b,c`) becomes an `IN` filter per spec.
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 // ─── Parameter shape ────────────────────────────────────────────────────────
 
-/** Common pagination + `_lastUpdated` parameters accepted by every search. */
+/** Common pagination + `_lastUpdated` + `_id` parameters accepted by every search. */
 export interface CommonParams {
   _count?: number | string;
   _offset?: number | string;
   _lastUpdated?: string;
+  /**
+   * FHIR `_id` SearchParameter — single UUID or comma-separated list.
+   * Validated as UUID(s); invalid values raise FhirSearchError so the route
+   * layer maps to a 400 OperationOutcome (severity=error) rather than 500.
+   */
+  _id?: string;
 }
 
 export interface PatientSearchParams extends CommonParams {
@@ -234,6 +247,30 @@ function parseLastUpdated(raw: string | undefined): Record<string, Date> | null 
 }
 
 /**
+ * Parse the FHIR `_id` SearchParameter. Accepts a single UUID or a
+ * comma-separated list; per FHIR spec the latter is an OR (i.e. SQL `IN`).
+ * Returns a Prisma-compatible filter ready to assign to `where.id`, or `null`
+ * if no `_id` was supplied. Throws FhirSearchError on malformed UUIDs so the
+ * route layer maps to a 400 OperationOutcome rather than a 500.
+ */
+function parseIdParam(raw: string | undefined): string | { in: string[] } | null {
+  if (raw === undefined || raw === "") return null;
+  const ids = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (ids.length === 0) {
+    throw new FhirSearchError(`Invalid _id value: "${raw}"`);
+  }
+  for (const id of ids) {
+    if (!UUID_REGEX.test(id)) {
+      throw new FhirSearchError(`Invalid _id value: "${id}" (expected UUID)`);
+    }
+  }
+  return ids.length === 1 ? ids[0] : { in: ids };
+}
+
+/**
  * Parse `identifier` which may be `system|value` or just `value`. Returns the
  * value alone — we search across all identifier columns (mrNumber, abhaId,
  * aadhaarMasked). System filtering is best-effort: when a system is provided,
@@ -367,6 +404,9 @@ export async function searchPatient(
   const where: Record<string, unknown> = {};
   const userWhere: Record<string, unknown> = {};
 
+  const idFilter = parseIdParam(params._id);
+  if (idFilter !== null) where.id = idFilter;
+
   // name / family / given — all hit User.name (we store single-string names).
   // When more than one is provided we AND them so every token must appear
   // in the name; this lets `family=Sharma&given=Arjun` be stricter than
@@ -463,6 +503,9 @@ export async function searchEncounter(
   const where: Record<string, unknown> = {};
   const appointmentWhere: Record<string, unknown> = {};
 
+  const idFilter = parseIdParam(params._id);
+  if (idFilter !== null) where.id = idFilter;
+
   if (params.patient) {
     appointmentWhere.patientId = params.patient;
   }
@@ -524,6 +567,11 @@ export async function searchEncounter(
  * we query Prescriptions and flatten the resulting MedicationRequest array.
  * `status` filter is applied post-mapping since we hard-code status "active"
  * in the mapper.
+ *
+ * Note: `_id` is intentionally NOT supported on MedicationRequest because the
+ * resource ID is synthesised as `${prescription.id}-${item.id}` and is not a
+ * single UUID. FHIR conformance for `_id` is honoured on the resource types
+ * whose backing row IS the FHIR resource (Patient, Encounter, Allergy*).
  */
 export async function searchMedicationRequest(
   params: MedicationRequestSearchParams,
@@ -588,6 +636,8 @@ export async function searchAllergyIntolerance(
   const { count, offset } = parsePagination(params);
 
   const where: Record<string, unknown> = {};
+  const idFilter = parseIdParam(params._id);
+  if (idFilter !== null) where.id = idFilter;
   if (params.patient) where.patientId = params.patient;
 
   const lastUpdated = parseLastUpdated(params._lastUpdated);

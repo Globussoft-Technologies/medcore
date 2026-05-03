@@ -68,11 +68,22 @@ is independently shippable. Full per-session history lives under
   self-gates at runtime via `runner = hasModel ? describe : describe.skip;`.
   Note marked stale in this commit.
 
-### Still open from last session's recommendations
-- **Late-night critical follow-up #1** — release.yml run `25284590768`
-  on `ee5f253` was queued to test whether the audit-phi failure on
-  `25279367548` was a flake. Check `gh run view 25284590768` next
-  session — if green, declare flake; if red, dig into env timing.
+### Still open — NEXT-SESSION PICKUP
+
+- **release.yml run `25284590768` resolved** — finished `failure`, but
+  **audit-phi flake CONFIRMED** (the original failing test passed
+  cleanly). API integration suite, web tests, typecheck, and full
+  Chromium E2E all green. The failure is a **new** WebKit regression:
+  - 3 hard failures: `admin-ops.spec.ts:144` (audit log filter),
+    `pharmacy-forecast.spec.ts:8` (heading + controls),
+    `predictions.spec.ts:120` (error banner when /batch 500s).
+  - 22 flaky retries.
+  - Recurring symptom in the visual.spec failure: `page.goto: Navigation to
+    "http://localhost:3000/dashboard" is interrupted by another navigation to
+    "http://localhost:3000/login?redirect=%2Fdashboard"` — looks like the
+    auth-race we thought was fully closed in `eb85749` is back, this time
+    on visual.spec + the 3 hard-fail specs. **Investigate WebKit
+    auth-race v4 first next session.**
 - **E2E recommendation #5** — `/dashboard/controlled-substances`
   flow spec (regulatory, ~1.5h). Highest-leverage remaining e2e gap
   per `docs/E2E_COVERAGE_BACKLOG.md`.

@@ -104,11 +104,11 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 
 ### 2.4 HR, Payroll, Scheduling
 - `/dashboard/users` — edit/deactivate/permission matrix (create only is covered)
-- `/dashboard/payroll` — salary, payslip, deductions
+- ~~`/dashboard/payroll` — salary, payslip, deductions~~ closed 2026-05-03 by `e2e/payroll.spec.ts` (7 tests; ADMIN chrome + edit + calculate + slip + overtime tab + DOCTOR/NURSE bounces)
 - `/dashboard/my-leaves` — employee leave-request submission
 - `/dashboard/my-activity` — personal activity log
 - ~~`/dashboard/holidays` — holiday calendar~~ — closed 2026-05-03 by `e2e/holidays.spec.ts` (ADMIN calendar mgmt + non-ADMIN bounces)
-- `/dashboard/leave-calendar` — calendar view (approval side covered)
+- ~~`/dashboard/leave-calendar` — calendar view (approval side covered)~~ closed 2026-05-03 by `e2e/leave-calendar.spec.ts` (6 tests; ADMIN chrome + legend + month nav + DOCTOR/NURSE/PATIENT bounces)
 - `/dashboard/schedule` — staff schedule
 - ~~`/dashboard/doctors` — doctor directory~~ closed 2026-05-03 by `e2e/doctors.spec.ts` (6 tests; ADMIN happy/search/modal + DOCTOR/NURSE/PATIENT bounces)
 - `/dashboard/doctors/[id]` — doctor profile/schedule

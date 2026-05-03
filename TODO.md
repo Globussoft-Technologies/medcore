@@ -4,8 +4,19 @@ Next-session pickup list. Read this first, work top-to-bottom. Each item
 is independently shippable. Full per-session history lives under
 [`docs/archive/`](docs/archive/).
 
-> Updated: 2026-05-03 late-night (post bug-bash + symptom-diary E2E + agent-stall diagnosis).
-> HEAD on `main` = `ee5f253` (`test(e2e): /dashboard/symptom-diary —
+> Updated: 2026-05-04 evening (post 14-commit cumulative-refund + 5×P-list + 6×E2E spree).
+> Latest session handoff: [`docs/archive/SESSION_SNAPSHOT_2026-05-04.md`](docs/archive/SESSION_SNAPSHOT_2026-05-04.md).
+> HEAD on `main` = `4f9b4d3` (`docs: refresh TODO + CHANGELOG for 6-agent
+> evening batch`). Today closed P3 + P4 + P6 + P9 + P10 (5 P-items) and
+> 6 zero-coverage E2E routes. Late-night critical follow-ups #1, #2, #3
+> all resolved (audit-phi flake confirmed; cumulative-refund guard shipped;
+> WebKit auth-race v4 fix shipped — CI verification pending).
+>
+> Prior context: 2026-05-03 late-night handoff at
+> `docs/archive/SESSION_SNAPSHOT_2026-05-03-late-night.md`.
+> Original ee5f253-era state below kept for backward reference.
+>
+> HEAD on `main` (older snapshot) = `ee5f253` (`test(e2e): /dashboard/symptom-diary —
 > PATIENT capture flow + staff RBAC redirects`).
 > **All 10 priority gaps + all 5 honorable mentions from
 > `docs/TEST_GAPS_2026-05-03.md` CLOSED.** **All Day 2 follow-ups

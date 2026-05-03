@@ -237,10 +237,11 @@ export default function ScheduledReportsPage() {
           className="mb-6 grid grid-cols-1 gap-4 rounded-xl bg-white p-6 shadow-sm md:grid-cols-2"
         >
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">
+            <label htmlFor="add-sched-report-name" className="mb-1 block text-xs font-medium text-gray-600">
               Name
             </label>
             <input
+              id="add-sched-report-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -250,10 +251,11 @@ export default function ScheduledReportsPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">
+            <label htmlFor="add-sched-report-type" className="mb-1 block text-xs font-medium text-gray-600">
               Report Type
             </label>
             <select
+              id="add-sched-report-type"
               value={reportType}
               onChange={(e) => setReportType(e.target.value)}
               className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -266,10 +268,11 @@ export default function ScheduledReportsPage() {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">
+            <label htmlFor="add-sched-report-frequency" className="mb-1 block text-xs font-medium text-gray-600">
               Frequency
             </label>
             <select
+              id="add-sched-report-frequency"
               value={frequency}
               onChange={(e) => setFrequency(e.target.value)}
               className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -282,10 +285,11 @@ export default function ScheduledReportsPage() {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">
+            <label htmlFor="add-sched-report-time" className="mb-1 block text-xs font-medium text-gray-600">
               Time (HH:MM)
             </label>
             <input
+              id="add-sched-report-time"
               data-testid="sched-report-time"
               type="time"
               value={timeOfDay}
@@ -296,10 +300,11 @@ export default function ScheduledReportsPage() {
           </div>
           {frequency === "WEEKLY" && (
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="add-sched-report-day-of-week" className="mb-1 block text-xs font-medium text-gray-600">
                 Day of Week
               </label>
               <select
+                id="add-sched-report-day-of-week"
                 value={dayOfWeek}
                 onChange={(e) => setDayOfWeek(parseInt(e.target.value, 10))}
                 className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -314,10 +319,11 @@ export default function ScheduledReportsPage() {
           )}
           {frequency === "MONTHLY" && (
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="add-sched-report-day-of-month" className="mb-1 block text-xs font-medium text-gray-600">
                 Day of Month
               </label>
               <input
+                id="add-sched-report-day-of-month"
                 type="number"
                 min={1}
                 max={31}
@@ -328,10 +334,11 @@ export default function ScheduledReportsPage() {
             </div>
           )}
           <div className="md:col-span-2">
-            <label className="mb-1 block text-xs font-medium text-gray-600">
+            <label htmlFor="add-sched-report-recipients" className="mb-1 block text-xs font-medium text-gray-600">
               Recipients (comma or newline separated emails)
             </label>
             <textarea
+              id="add-sched-report-recipients"
               value={recipients}
               onChange={(e) => setRecipients(e.target.value)}
               required

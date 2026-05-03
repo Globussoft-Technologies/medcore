@@ -525,8 +525,9 @@ export default function WalkInPage() {
           {/* Step 3: Priority & Notes */}
           <div className="mb-6 grid grid-cols-2 gap-4">
             <div>
-              <label className="mb-1 block text-sm font-medium">Priority</label>
+              <label htmlFor="walk-in-priority" className="mb-1 block text-sm font-medium">Priority</label>
               <select
+                id="walk-in-priority"
                 value={priority}
                 onChange={(e) => setPriority(e.target.value)}
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
@@ -537,8 +538,9 @@ export default function WalkInPage() {
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">Notes</label>
+              <label htmlFor="walk-in-notes" className="mb-1 block text-sm font-medium">Notes</label>
               <input
+                id="walk-in-notes"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Optional notes"

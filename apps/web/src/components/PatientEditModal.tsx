@@ -232,10 +232,11 @@ export function PatientEditModal({
         <div className="max-h-[75vh] space-y-3 overflow-y-auto p-5">
           {/* MR Number — read only */}
           <div>
-            <label className="text-xs text-gray-600">
+            <label htmlFor="patient-edit-mr-number" className="text-xs text-gray-600">
               {t("patient.edit.mrNumber")}
             </label>
             <input
+              id="patient-edit-mr-number"
               type="text"
               readOnly
               value={patient.mrNumber}
@@ -250,10 +251,11 @@ export function PatientEditModal({
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className="text-xs text-gray-600">
+              <label htmlFor="patient-edit-name" className="text-xs text-gray-600">
                 {t("patient.edit.name")} *
               </label>
               <input
+                id="patient-edit-name"
                 ref={firstFieldRef}
                 type="text"
                 required
@@ -264,10 +266,11 @@ export function PatientEditModal({
               />
             </div>
             <div>
-              <label className="text-xs text-gray-600">
+              <label htmlFor="patient-edit-dob" className="text-xs text-gray-600">
                 {t("patient.edit.dateOfBirth")}
               </label>
               <input
+                id="patient-edit-dob"
                 type="date"
                 value={dob}
                 onChange={(e) => setDob(e.target.value)}
@@ -279,10 +282,11 @@ export function PatientEditModal({
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className="text-xs text-gray-600">
+              <label htmlFor="patient-edit-gender" className="text-xs text-gray-600">
                 {t("patient.edit.gender")}
               </label>
               <select
+                id="patient-edit-gender"
                 value={gender}
                 onChange={(e) => setGender(e.target.value)}
                 data-testid="patient-edit-field-gender"
@@ -296,10 +300,11 @@ export function PatientEditModal({
               </select>
             </div>
             <div>
-              <label className="text-xs text-gray-600">
+              <label htmlFor="patient-edit-blood-group" className="text-xs text-gray-600">
                 {t("patient.edit.bloodGroup")}
               </label>
               <select
+                id="patient-edit-blood-group"
                 value={bloodGroup}
                 onChange={(e) => setBloodGroup(e.target.value)}
                 data-testid="patient-edit-field-bloodGroup"
@@ -317,10 +322,11 @@ export function PatientEditModal({
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className="text-xs text-gray-600">
+              <label htmlFor="patient-edit-phone" className="text-xs text-gray-600">
                 {t("patient.edit.phone")} *
               </label>
               <input
+                id="patient-edit-phone"
                 type="tel"
                 required
                 minLength={10}
@@ -331,10 +337,11 @@ export function PatientEditModal({
               />
             </div>
             <div>
-              <label className="text-xs text-gray-600">
+              <label htmlFor="patient-edit-email" className="text-xs text-gray-600">
                 {t("patient.edit.email")}
               </label>
               <input
+                id="patient-edit-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -345,10 +352,11 @@ export function PatientEditModal({
           </div>
 
           <div>
-            <label className="text-xs text-gray-600">
+            <label htmlFor="patient-edit-address" className="text-xs text-gray-600">
               {t("patient.edit.address")}
             </label>
             <textarea
+              id="patient-edit-address"
               rows={2}
               value={address}
               onChange={(e) => setAddress(e.target.value)}
@@ -359,10 +367,11 @@ export function PatientEditModal({
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className="text-xs text-gray-600">
+              <label htmlFor="patient-edit-emergency-contact-name" className="text-xs text-gray-600">
                 {t("patient.edit.emergencyContact")}
               </label>
               <input
+                id="patient-edit-emergency-contact-name"
                 type="text"
                 value={emergencyContactName}
                 onChange={(e) => setEmergencyName(e.target.value)}
@@ -371,10 +380,11 @@ export function PatientEditModal({
               />
             </div>
             <div>
-              <label className="text-xs text-gray-600">
+              <label htmlFor="patient-edit-emergency-contact-phone" className="text-xs text-gray-600">
                 {t("patient.edit.emergencyPhone")}
               </label>
               <input
+                id="patient-edit-emergency-contact-phone"
                 type="tel"
                 value={emergencyContactPhone}
                 onChange={(e) => setEmergencyPhone(e.target.value)}

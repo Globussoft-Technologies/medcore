@@ -273,10 +273,11 @@ export default function HolidaysPage() {
             <h3 className="mb-4 text-lg font-semibold">Add Holiday</h3>
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="add-holiday-date" className="mb-1 block text-xs font-medium text-gray-600">
                   Date
                 </label>
                 <input
+                  id="add-holiday-date"
                   type="date"
                   value={form.date}
                   onChange={(e) => {
@@ -297,10 +298,11 @@ export default function HolidaysPage() {
                 )}
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="add-holiday-name" className="mb-1 block text-xs font-medium text-gray-600">
                   Name
                 </label>
                 <input
+                  id="add-holiday-name"
                   value={form.name}
                   onChange={(e) => {
                     setForm({ ...form, name: e.target.value });
@@ -320,10 +322,11 @@ export default function HolidaysPage() {
                 )}
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="add-holiday-type" className="mb-1 block text-xs font-medium text-gray-600">
                   Type
                 </label>
                 <select
+                  id="add-holiday-type"
                   value={form.type}
                   onChange={(e) => setForm({ ...form, type: e.target.value })}
                   className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -336,10 +339,11 @@ export default function HolidaysPage() {
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="add-holiday-description" className="mb-1 block text-xs font-medium text-gray-600">
                   Description
                 </label>
                 <textarea
+                  id="add-holiday-description"
                   value={form.description}
                   onChange={(e) =>
                     setForm({ ...form, description: e.target.value })

@@ -179,10 +179,11 @@ export default function NotificationTemplatesPage() {
             </h2>
             <div className="space-y-4">
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                <label htmlFor="edit-template-name" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                   Template Name
                 </label>
                 <input
+                  id="edit-template-name"
                   type="text"
                   value={editing.name}
                   onChange={(e) => setEditing({ ...editing, name: e.target.value })}
@@ -191,10 +192,11 @@ export default function NotificationTemplatesPage() {
               </div>
               {editing.channel === "EMAIL" && (
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                  <label htmlFor="edit-template-subject" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                     Subject
                   </label>
                   <input
+                    id="edit-template-subject"
                     type="text"
                     value={editing.subject || ""}
                     onChange={(e) => setEditing({ ...editing, subject: e.target.value })}
@@ -203,10 +205,11 @@ export default function NotificationTemplatesPage() {
                 </div>
               )}
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                <label htmlFor="edit-template-body" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                   Body (use {`{{variableName}}`} placeholders)
                 </label>
                 <textarea
+                  id="edit-template-body"
                   rows={5}
                   value={editing.body}
                   onChange={(e) => setEditing({ ...editing, body: e.target.value })}

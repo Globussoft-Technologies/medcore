@@ -356,8 +356,9 @@ export default function DutyRosterPage() {
             <h2 className="mb-4 text-lg font-semibold">Add Shift</h2>
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-sm font-medium">Staff</label>
+                <label htmlFor="add-shift-staff" className="mb-1 block text-sm font-medium">Staff</label>
                 <select
+                  id="add-shift-staff"
                   required
                   value={addForm.userId}
                   onChange={(e) =>
@@ -374,8 +375,9 @@ export default function DutyRosterPage() {
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">Date</label>
+                <label htmlFor="add-shift-date" className="mb-1 block text-sm font-medium">Date</label>
                 <input
+                  id="add-shift-date"
                   type="date"
                   required
                   value={addForm.date}
@@ -386,10 +388,11 @@ export default function DutyRosterPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">
+                <label htmlFor="add-shift-type" className="mb-1 block text-sm font-medium">
                   Shift Type
                 </label>
                 <select
+                  id="add-shift-type"
                   value={addForm.type}
                   onChange={(e) =>
                     handleShiftTypeChange(e.target.value as Shift["type"], "add")
@@ -405,10 +408,11 @@ export default function DutyRosterPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
+                  <label htmlFor="add-shift-start-time" className="mb-1 block text-sm font-medium">
                     Start Time
                   </label>
                   <input
+                    id="add-shift-start-time"
                     type="time"
                     required
                     value={addForm.startTime}
@@ -419,10 +423,11 @@ export default function DutyRosterPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
+                  <label htmlFor="add-shift-end-time" className="mb-1 block text-sm font-medium">
                     End Time
                   </label>
                   <input
+                    id="add-shift-end-time"
                     type="time"
                     required
                     value={addForm.endTime}
@@ -434,10 +439,11 @@ export default function DutyRosterPage() {
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">
+                <label htmlFor="add-shift-notes" className="mb-1 block text-sm font-medium">
                   Notes (optional)
                 </label>
                 <input
+                  id="add-shift-notes"
                   value={addForm.notes}
                   onChange={(e) =>
                     setAddForm({ ...addForm, notes: e.target.value })
@@ -503,8 +509,9 @@ export default function DutyRosterPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">From</label>
+                  <label htmlFor="bulk-shift-from" className="mb-1 block text-sm font-medium">From</label>
                   <input
+                    id="bulk-shift-from"
                     type="date"
                     required
                     value={bulkForm.fromDate}
@@ -515,8 +522,9 @@ export default function DutyRosterPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">To</label>
+                  <label htmlFor="bulk-shift-to" className="mb-1 block text-sm font-medium">To</label>
                   <input
+                    id="bulk-shift-to"
                     type="date"
                     required
                     value={bulkForm.toDate}
@@ -528,10 +536,11 @@ export default function DutyRosterPage() {
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">
+                <label htmlFor="bulk-shift-type" className="mb-1 block text-sm font-medium">
                   Shift Type
                 </label>
                 <select
+                  id="bulk-shift-type"
                   value={bulkForm.type}
                   onChange={(e) =>
                     handleShiftTypeChange(e.target.value as Shift["type"], "bulk")
@@ -547,10 +556,11 @@ export default function DutyRosterPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
+                  <label htmlFor="bulk-shift-start-time" className="mb-1 block text-sm font-medium">
                     Start Time
                   </label>
                   <input
+                    id="bulk-shift-start-time"
                     type="time"
                     required
                     value={bulkForm.startTime}
@@ -561,10 +571,11 @@ export default function DutyRosterPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
+                  <label htmlFor="bulk-shift-end-time" className="mb-1 block text-sm font-medium">
                     End Time
                   </label>
                   <input
+                    id="bulk-shift-end-time"
                     type="time"
                     required
                     value={bulkForm.endTime}

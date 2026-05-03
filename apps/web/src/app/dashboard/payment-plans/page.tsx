@@ -465,7 +465,7 @@ function NewPlanModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium">
+            <label htmlFor="new-plan-invoice" className="mb-1 block text-sm font-medium">
               Outstanding Invoice
             </label>
             {!patientId ? (
@@ -484,6 +484,7 @@ function NewPlanModal({
               </p>
             ) : (
               <select
+                id="new-plan-invoice"
                 value={invoiceId}
                 onChange={(e) => setInvoiceId(e.target.value)}
                 data-testid="new-plan-invoice"
@@ -516,10 +517,11 @@ function NewPlanModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-sm font-medium">
+              <label htmlFor="new-plan-installments" className="mb-1 block text-sm font-medium">
                 Installments
               </label>
               <input
+                id="new-plan-installments"
                 type="number"
                 min={2}
                 max={60}
@@ -532,8 +534,9 @@ function NewPlanModal({
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">Frequency</label>
+              <label htmlFor="new-plan-frequency" className="mb-1 block text-sm font-medium">Frequency</label>
               <select
+                id="new-plan-frequency"
                 value={frequency}
                 onChange={(e) =>
                   setFrequency(
@@ -552,10 +555,11 @@ function NewPlanModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-sm font-medium">
+              <label htmlFor="new-plan-start" className="mb-1 block text-sm font-medium">
                 Start Date
               </label>
               <input
+                id="new-plan-start"
                 type="date"
                 value={startDate}
                 data-testid="new-plan-start"
@@ -565,10 +569,11 @@ function NewPlanModal({
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">
+              <label htmlFor="new-plan-down-payment" className="mb-1 block text-sm font-medium">
                 Down Payment (optional)
               </label>
               <input
+                id="new-plan-down-payment"
                 type="number"
                 min={0}
                 step="0.01"

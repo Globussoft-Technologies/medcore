@@ -238,8 +238,9 @@ export default function CertificationsPage() {
                 />
               </div>
               <div>
-                <label className="text-sm font-medium">Type</label>
+                <label htmlFor="add-cert-type" className="text-sm font-medium">Type</label>
                 <select
+                  id="add-cert-type"
                   value={form.type}
                   onChange={(e) => setForm({ ...form, type: e.target.value })}
                   className="w-full border rounded px-3 py-2 text-sm"
@@ -252,8 +253,9 @@ export default function CertificationsPage() {
                 </select>
               </div>
               <div>
-                <label className="text-sm font-medium">Title</label>
+                <label htmlFor="add-cert-title" className="text-sm font-medium">Title</label>
                 <input
+                  id="add-cert-title"
                   value={form.title}
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
                   className="w-full border rounded px-3 py-2 text-sm"
@@ -261,24 +263,27 @@ export default function CertificationsPage() {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-sm font-medium">Issuing Body</label>
+                  <label htmlFor="add-cert-issuing-body" className="text-sm font-medium">Issuing Body</label>
                   <input
+                    id="add-cert-issuing-body"
                     value={form.issuingBody}
                     onChange={(e) => setForm({ ...form, issuingBody: e.target.value })}
                     className="w-full border rounded px-3 py-2 text-sm"
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Cert Number</label>
+                  <label htmlFor="add-cert-number" className="text-sm font-medium">Cert Number</label>
                   <input
+                    id="add-cert-number"
                     value={form.certNumber}
                     onChange={(e) => setForm({ ...form, certNumber: e.target.value })}
                     className="w-full border rounded px-3 py-2 text-sm"
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Issued Date</label>
+                  <label htmlFor="add-cert-issued-date" className="text-sm font-medium">Issued Date</label>
                   <input
+                    id="add-cert-issued-date"
                     type="date"
                     value={form.issuedDate}
                     onChange={(e) => setForm({ ...form, issuedDate: e.target.value })}
@@ -286,8 +291,9 @@ export default function CertificationsPage() {
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Expiry Date</label>
+                  <label htmlFor="add-cert-expiry-date" className="text-sm font-medium">Expiry Date</label>
                   <input
+                    id="add-cert-expiry-date"
                     type="date"
                     value={form.expiryDate}
                     onChange={(e) => setForm({ ...form, expiryDate: e.target.value })}
@@ -296,8 +302,9 @@ export default function CertificationsPage() {
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium">Notes</label>
+                <label htmlFor="add-cert-notes" className="text-sm font-medium">Notes</label>
                 <textarea
+                  id="add-cert-notes"
                   value={form.notes}
                   onChange={(e) => setForm({ ...form, notes: e.target.value })}
                   className="w-full border rounded px-3 py-2 text-sm"

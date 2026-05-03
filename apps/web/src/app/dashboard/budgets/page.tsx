@@ -314,10 +314,11 @@ export default function BudgetsPage() {
             <h3 className="mb-4 text-lg font-semibold">Set Monthly Budget</h3>
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="add-budget-category" className="mb-1 block text-xs font-medium text-gray-600">
                   Category
                 </label>
                 <select
+                  id="add-budget-category"
                   value={formCategory}
                   onChange={(e) => setFormCategory(e.target.value)}
                   className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -330,10 +331,11 @@ export default function BudgetsPage() {
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="add-budget-amount" className="mb-1 block text-xs font-medium text-gray-600">
                   Amount (Rs.)
                 </label>
                 <input
+                  id="add-budget-amount"
                   type="number"
                   min="0"
                   step="0.01"
@@ -343,10 +345,11 @@ export default function BudgetsPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="add-budget-notes" className="mb-1 block text-xs font-medium text-gray-600">
                   Notes
                 </label>
                 <textarea
+                  id="add-budget-notes"
                   value={formNotes}
                   onChange={(e) => setFormNotes(e.target.value)}
                   rows={2}

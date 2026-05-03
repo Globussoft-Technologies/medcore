@@ -404,8 +404,9 @@ function AddExpenseModal({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-sm font-medium">Amount *</label>
+              <label htmlFor="add-expense-amount" className="mb-1 block text-sm font-medium">Amount *</label>
               <input
+                id="add-expense-amount"
                 required
                 type="number"
                 min="0.01"
@@ -416,8 +417,9 @@ function AddExpenseModal({
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">Date *</label>
+              <label htmlFor="add-expense-date" className="mb-1 block text-sm font-medium">Date *</label>
               <input
+                id="add-expense-date"
                 required
                 type="date"
                 value={form.date}
@@ -429,8 +431,9 @@ function AddExpenseModal({
             </div>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Description *</label>
+            <label htmlFor="add-expense-description" className="mb-1 block text-sm font-medium">Description *</label>
             <input
+              id="add-expense-description"
               required
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
@@ -438,16 +441,18 @@ function AddExpenseModal({
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Paid To</label>
+            <label htmlFor="add-expense-paid-to" className="mb-1 block text-sm font-medium">Paid To</label>
             <input
+              id="add-expense-paid-to"
               value={form.paidTo}
               onChange={(e) => setForm({ ...form, paidTo: e.target.value })}
               className="w-full rounded-lg border px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Reference No</label>
+            <label htmlFor="add-expense-reference-no" className="mb-1 block text-sm font-medium">Reference No</label>
             <input
+              id="add-expense-reference-no"
               value={form.referenceNo}
               onChange={(e) => setForm({ ...form, referenceNo: e.target.value })}
               className="w-full rounded-lg border px-3 py-2 font-mono text-sm"

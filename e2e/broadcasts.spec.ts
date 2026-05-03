@@ -87,10 +87,27 @@ test.describe("Broadcasts — /dashboard/broadcasts (ADMIN compose + audience ta
     // Default audience is ALL_STAFF and PUSH is preselected. Choose
     // ROLE_ADMIN so we narrow the audience to the single seeded admin
     // user — keeps side-effects (Notification rows) bounded.
-    await page.locator("select").first().selectOption("ROLE_ADMIN");
+    //
+    // The page renders a native <select> at page.tsx:219 with the
+    // AUDIENCES options. Disambiguate from the dashboard layout's
+    // LanguageDropdown <select> (LanguageDropdown.tsx:58, en/hi options)
+    // by scoping to the select that contains the ROLE_ADMIN option —
+    // the audience select is the only one carrying that value. Without
+    // this scope, `locator("select").first()` matches the language
+    // switcher (rendered earlier in the sidebar) and selectOption times
+    // out because no "ROLE_ADMIN" option exists there.
+    const audienceSelect = page.locator(
+      'select:has(option[value="ROLE_ADMIN"])'
+    );
+    await expect(audienceSelect).toBeVisible({ timeout: 10_000 });
+    await expect(audienceSelect).toBeEnabled({ timeout: 5_000 });
+    await audienceSelect.selectOption("ROLE_ADMIN");
 
+    // Send-button gate: page.tsx:301-302 requires title && message &&
+    // channels.length > 0. Title + message were filled above and PUSH is
+    // preselected, so wait for the disabled prop to flip before clicking.
     const sendBtn = page.getByRole("button", { name: /send now/i });
-    await expect(sendBtn).toBeEnabled();
+    await expect(sendBtn).toBeEnabled({ timeout: 5_000 });
 
     const sendPromise = page.waitForResponse((r) =>
       r.url().includes("/api/v1/notifications/broadcast") &&
@@ -126,7 +143,16 @@ test.describe("Broadcasts — /dashboard/broadcasts (ADMIN compose + audience ta
 
     // Audience defaults to ALL_STAFF — the per-user checkbox panel
     // (page.tsx:233-255) is gated on audience === "SPECIFIC_USERS".
-    const audienceSelect = page.locator("select").first();
+    //
+    // Disambiguate the audience <select> from the layout-level
+    // LanguageDropdown <select> by scoping to the select that contains
+    // the SPECIFIC_USERS option (only the audience picker carries that
+    // value — see AUDIENCES at page.tsx:41-49).
+    const audienceSelect = page.locator(
+      'select:has(option[value="SPECIFIC_USERS"])'
+    );
+    await expect(audienceSelect).toBeVisible({ timeout: 10_000 });
+    await expect(audienceSelect).toBeEnabled({ timeout: 5_000 });
     await expect(
       page.locator("text=/Select users \\(/")
     ).toHaveCount(0);

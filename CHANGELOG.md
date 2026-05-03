@@ -11,6 +11,17 @@ test-coverage closure across §A-§E gaps, Playwright stabilization
 across Chromium + WebKit, and the local-first test workflow.
 
 ### Added
+- **Component-level a11y regression suite (vitest-axe).** New helper
+  `apps/web/src/test/a11y.ts` exports `expectNoA11yViolations(node, opts)`
+  pinned to `wcag2a` + `wcag2aa` + `wcag21a` + `wcag21aa` (mirrors
+  `e2e/a11y.spec.ts`'s `withTags` set), with an impact-level filter
+  defaulting to `["moderate","serious","critical"]`. Seed test file
+  `apps/web/src/components/__tests__/a11y.test.tsx` covers DataTable
+  (rows / empty / loading), EmptyState, ConfirmDialog (portal), and
+  EntityPicker (closed). Runs sub-second in the unit suite, surfaces
+  WCAG 2.1 AA violations BEFORE the ~25-min Playwright e2e tier.
+  Closes `docs/TEST_COVERAGE_AUDIT.md` §5 P3. devDeps: `vitest-axe
+  ^0.1.0` + `axe-core ^4.11.4`.
 - **CI Phase 1-4 hardened.** Lint job (eslint v9 + eslint-config-next on
   `apps/web`, gating in `deploy.needs:`), CodeQL weekly + push + PR,
   `npm audit` scoped to api+web in deploy gate, Dependabot config, AI

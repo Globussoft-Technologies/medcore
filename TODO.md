@@ -49,6 +49,38 @@ is independently shippable. Full per-session history lives under
 
 ---
 
+## What landed 2026-05-04 (cumulative-refund guard + P3 component a11y)
+
+> Continuing the late-night attack order from the
+> `docs/TEST_COVERAGE_AUDIT.md` § P-list and the late-night session
+> snapshot's "critical follow-ups". HEAD on `main` so far:
+> `ca76961` (cumulative refund) + this commit (P3 a11y scaffolding).
+
+| Commit | What |
+|---|---|
+| `ca76961` | **Late-night critical follow-up #2 closed** — Cumulative refund fraud detection. Schema: `Payment.parentPaymentId` self-FK with `ON DELETE SET NULL` (additive migration `20260504000001_payment_parent_for_refunds`, no destructive marker). Handler: 3rd fraud guard in `apps/api/src/routes/billing.ts` sums all prior `REFUNDED` children on the same parent + the incoming refund and rejects when `priorRefundTotal + refundAmount > original.amount`. Refund creates now stamp `parentPaymentId: original.id` so subsequent events can sum against the same parent. 3 new webhook tests (cumulative-exceeds rejection, at-the-ceiling allowance, parent-stamping pin). The reason-code → error-string map in the route handler was switched from a chained ternary to a `Record<RefundResult["reason"], string>` lookup so future reasons can't fall through to the generic 400. |
+| _(pending)_ | **P3 vitest-axe component a11y scaffolding** — Closes `docs/TEST_COVERAGE_AUDIT.md` §5 P3. New helper `apps/web/src/test/a11y.ts` wraps `vitest-axe`'s `axe()` with `expectNoA11yViolations(node, opts)`, pinned to `wcag2a` + `wcag2aa` + `wcag21a` + `wcag21aa` to mirror the e2e a11y spec, default impact filter `["moderate","serious","critical"]` (skip `minor` during initial rollout). Seed test file `apps/web/src/components/__tests__/a11y.test.tsx` covers DataTable (rows / empty / loading), EmptyState (with action button), ConfirmDialog (portal-rendered — asserts on `document.body`), and EntityPicker (closed state). devDeps: `vitest-axe ^0.1.0` + `axe-core ^4.11.4`. **Component-level a11y now runs sub-second in the unit suite, surfacing violations BEFORE the ~25-min Playwright e2e tier.** |
+
+### Stale doc note retired
+- TODO.md previously said the `patient-data-export.ts` integration
+  suite was `describe.skip`-ed pending migration. Migration
+  `20260424000004_prd_closure_models` landed and the suite already
+  self-gates at runtime via `runner = hasModel ? describe : describe.skip;`.
+  Note marked stale in this commit.
+
+### Still open from last session's recommendations
+- **Late-night critical follow-up #1** — release.yml run `25284590768`
+  on `ee5f253` was queued to test whether the audit-phi failure on
+  `25279367548` was a flake. Check `gh run view 25284590768` next
+  session — if green, declare flake; if red, dig into env timing.
+- **E2E recommendation #5** — `/dashboard/controlled-substances`
+  flow spec (regulatory, ~1.5h). Highest-leverage remaining e2e gap
+  per `docs/E2E_COVERAGE_BACKLOG.md`.
+- **TEST_COVERAGE_AUDIT P5–P10** — still open (lower leverage than P3,
+  which we just closed).
+
+---
+
 ## What landed 2026-05-03 night (low-priority closure — ~64 cases + 3 source fixes)
 
 After Waves A/B/C closed the top-10 priority gaps, four more parallel
@@ -515,9 +547,14 @@ Wave 3 closed the "also worth a pass" extras:
   config, no behaviour to assert beyond the indirect reachability
   proven by metrics.test.ts).
 
-`patient-data-export.ts` (22 KB HIPAA export) still has an integration
+~~`patient-data-export.ts` (22 KB HIPAA export) still has an integration
 suite that is `describe.skip`-ed pending migration; un-skip when the
-migration lands rather than write a parallel unit suite.
+migration lands rather than write a parallel unit suite.~~ **Stale —
+the migration `20260424000004_prd_closure_models` landed and the
+integration test now self-gates at runtime via
+`runner = hasModel ? describe : describe.skip;` (see
+[`apps/api/src/test/integration/patient-data-export.test.ts`](apps/api/src/test/integration/patient-data-export.test.ts)).
+No further action needed.
 
 ### C. Clinical-safety E2E flow gaps ✅ DONE 2026-05-02 (`9843648` / `0c94cbb` / `0715f27`)
 

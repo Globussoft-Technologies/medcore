@@ -63,14 +63,44 @@ test.describe(
         timeout: 10_000,
       });
 
-      // Timestamp-tagged so the row is unambiguously "this run's patient"
-      // regardless of what the realistic seeder or sibling specs created.
-      const tag = `E2eReg ${Date.now()}`;
+      // The PATIENT_NAME_REGEX (packages/shared/src/validation/patient.ts) is
+      // /^[A-Za-zऀ-ॿ\s.\-']{1,100}$/ — DIGITS ARE FORBIDDEN. The previous
+      // attempt at this test used `E2eReg ${Date.now()}` for uniqueness,
+      // which the client-side mirror regex in apps/web/.../patients/page.tsx
+      // rejected silently (handleCreatePatient sets formErrors and
+      // early-returns — no POST is fired), so the search row never appeared.
+      // We build a digit-free unique tag instead: an all-letter base name
+      // plus a unique alphabetic suffix derived from a random hex chunk
+      // mapped onto A–Z. The phone we use to drive the search is a much
+      // more reliable filter key anyway because there's no chance of a
+      // partial match against an unrelated seeded row.
+      const hexToAlpha = (hex: string) =>
+        hex
+          .split("")
+          .map((c) => String.fromCharCode(97 + (parseInt(c, 16) % 26)))
+          .join("");
+      const uniqSuffix = hexToAlpha(
+        Math.random().toString(16).slice(2, 10) +
+          Date.now().toString(16).slice(-6)
+      );
+      const tag = `E2eReg ${uniqSuffix}`; // digit-free, regex-safe
       const phone = `+9198${Math.floor(10_000_000 + Math.random() * 89_999_999)}`;
 
       await page.locator('[data-testid="patient-name"]').fill(tag);
       await page.locator('[data-testid="patient-phone"]').fill(phone);
       await page.locator('[data-testid="patient-age"]').fill("34");
+
+      // Pin the POST status BEFORE looking for the row in the list. The
+      // prior search-row-find assertion was hiding silent 4xx (and the
+      // pre-submit client-side regex bail) — by waiting on the actual
+      // network call and asserting < 400 we get a clear failure message
+      // listing the server's complaint instead of a generic
+      // "element not found" 10s after a no-op submit.
+      const createResp = page.waitForResponse(
+        (r) =>
+          r.url().includes("/patients") && r.request().method() === "POST",
+        { timeout: 10_000 }
+      );
 
       // The submit button is the form's only `type="submit"` and is the
       // first one rendered inside the registration form. Anchor on that
@@ -80,18 +110,31 @@ test.describe(
         .last()
         .click();
 
+      const resp = await createResp;
+      const status = resp.status();
+      if (status >= 400) {
+        const body = await resp.text().catch(() => "<no body>");
+        throw new Error(
+          `POST /patients failed with ${status}: ${body.slice(0, 500)}`
+        );
+      }
+      expect(status).toBeLessThan(400);
+
       // Success signal: the new row should be reachable via the patient-search
       // box. The list page doesn't show a success toast on create — handler
-      // just does setShowForm(false) + loadPatients() — and the previous
-      // form-hidden assertion was unreliable here because /dashboard/patients
-      // is the same page that owns the form (no navigation away on success),
-      // so we anchor on the load-bearing post-submit reality: the new row is
+      // just does setShowForm(false) + loadPatients() — and the form-hidden
+      // assertion was unreliable here because /dashboard/patients is the
+      // same page that owns the form (no navigation away on success), so we
+      // anchor on the load-bearing post-submit reality: the new row is
       // present in the search-driven re-fetch of /patients.
-      // We don't assert on the table cell directly because DataTable
-      // virtualises and i18n column headers vary; the search re-fetch hitting
-      // `/patients` and finding the unique-tagged row is the load-bearing
-      // assertion that the POST succeeded.
-      await page.locator('[data-testid="patient-search"]').fill(tag);
+      //
+      // We search by phone instead of by the name tag because phone is a
+      // stricter filter (10–15 contiguous digits unique per row, no risk of
+      // partial-match against a seeded patient) and the API's
+      // /patients?search=… contains-match against user.phone is the same
+      // code path the UI uses (see apps/api/src/routes/patients.ts: the
+      // search OR-clause covers mrNumber / name / phone / email / address).
+      await page.locator('[data-testid="patient-search"]').fill(phone);
       await expect(page.locator(`text=${tag}`).first()).toBeVisible({
         timeout: 10_000,
       });

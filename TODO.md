@@ -4,13 +4,31 @@ Next-session pickup list. Read this first, work top-to-bottom. Each item
 is independently shippable. Full per-session history lives under
 [`docs/archive/`](docs/archive/).
 
-> Updated: 2026-05-04 evening (post 14-commit cumulative-refund + 5×P-list + 6×E2E spree).
-> Latest session handoff: [`docs/archive/SESSION_SNAPSHOT_2026-05-04.md`](docs/archive/SESSION_SNAPSHOT_2026-05-04.md).
-> HEAD on `main` = `4f9b4d3` (`docs: refresh TODO + CHANGELOG for 6-agent
-> evening batch`). Today closed P3 + P4 + P6 + P9 + P10 (5 P-items) and
-> 6 zero-coverage E2E routes. Late-night critical follow-ups #1, #2, #3
-> all resolved (audit-phi flake confirmed; cumulative-refund guard shipped;
-> WebKit auth-race v4 fix shipped — CI verification pending).
+> Updated: 2026-05-05 (post **15-commit autopilot E2E fanout** + 4 project skills built).
+> Latest session handoff: [`docs/archive/SESSION_SNAPSHOT_2026-05-04.md`](docs/archive/SESSION_SNAPSHOT_2026-05-04.md) (rolling forward this round; new snapshot at next session boundary).
+> HEAD on `main` = `a6b5fe3` (`test(e2e): /dashboard/wards`). Autopilot
+> closed **15 zero-coverage E2E routes** in 5 parallel-fanout batches
+> (~95 new test cases × 2 Playwright projects = 190 listed tests),
+> validated via the new `/medcore-fanout` + `/medcore-e2e-spec`
+> project-shared skills under `.claude/skills/`. Yesterday closed P3 + P4 +
+> P6 + P9 + P10 (5 P-items) and 6 zero-coverage E2E routes; late-night
+> critical follow-ups #1, #2, #3 all resolved.
+>
+> **release.yml status:** run `25286939452` on `dfeeb48` (batch-1 tip)
+> in flight at autopilot's start; covers `medicines` + `suppliers` +
+> `holidays` E2E specs but NOT batches 2-5. Fresh run dispatched on
+> autopilot HEAD `a6b5fe3` to validate the remaining 12 specs +
+> WebKit auth-race v4 stability across the larger spec set.
+>
+> **Skills shipped this session** (all under `.claude/skills/`,
+> auto-tracked via .gitignore tweak):
+> - `/medcore-fanout` — codified foreground-fan-out pattern (the only
+>   proven parallelism path on VSCode harness v2.1.126)
+> - `/medcore-e2e-spec` — scaffold one Playwright route spec under the
+>   descriptive-headers convention; validates via `playwright test --list`
+> - `/medcore-route-test` — scaffold one Vitest route-handler unit test
+>   with hoisted Prisma mocks, RBAC + Zod + audit-log assertions
+> - `/medcore-release` — dispatch + watch + diagnose `release.yml`
 >
 > **Pickup protocol (every session start):**
 > 1. `git pull origin main` BEFORE starting Claude — Claude reads skill
@@ -28,6 +46,90 @@ is independently shippable. Full per-session history lives under
 >
 > Prior context: 2026-05-03 late-night handoff at
 > `docs/archive/SESSION_SNAPSHOT_2026-05-03-late-night.md`.
+
+---
+
+## What landed 2026-05-05 — autopilot E2E fanout (15 routes, 5 batches)
+
+After the 4 project-skills landed (`/medcore-fanout`, `/medcore-e2e-spec`,
+`/medcore-route-test`, `/medcore-release`) the user authorized an
+autopilot run using the skills directly. Five 3-agent foreground
+fanouts shipped 15 E2E specs against zero-coverage / undercovered
+routes, ~5 minutes wall-clock per batch.
+
+| Batch | Commits | Routes | Tests |
+|---|---|---|---|
+| 1 | `3cececd` `dfeeb48` `29604e2` | medicines, suppliers, holidays | 19 cases (38 listed) |
+| 2 | `b9dbe93` `db1df15` `b88a333` | pharmacy (deepened), assets, patients/register | 18 cases (36 listed) |
+| 3 | `bdfd5e5` `d4b19f8` `484ee98` | payroll, leave-calendar, doctors | 19 cases (38 listed) |
+| 4 | `ac7c338` `2c06fff` `430dc89` | notifications, broadcasts, complaints | 19 cases (38 listed) |
+| 5 | `45673c3` `0643349` `a6b5fe3` | queue (deepened), census, wards | 19 cases (38 listed) |
+| **Σ** | **15** | **15 routes** | **~94 cases / 188 listed** |
+
+### Architectural findings surfaced by autopilot (worth flagging for future PRs)
+
+The descriptive-headers convention and "ship the truth, not the brief"
+discipline let agents surface real codebase inconsistencies while writing
+tests. None are blocking, but each warrants a future review:
+
+1. **Many pages have NO client-side `VIEW_ALLOWED` / role gate.**
+   Confirmed across at least 7 pages this autopilot: `/dashboard/medicines`,
+   `/dashboard/suppliers`, `/dashboard/assets`, `/dashboard/notifications`,
+   `/dashboard/complaints`, `/dashboard/census`, `/dashboard/wards`. The
+   page renders for any authed user; security depends entirely on the
+   API layer's `authorize(...)` returning 403. **Operationally significant**:
+   non-allowlisted roles see a partially-loaded shell + empty list rather
+   than a `/dashboard/not-authorized` redirect — bad UX, leaks the route
+   exists. Decision needed: is "page reachable, API gates" the policy, or
+   should every gated route also redirect at the page-level?
+2. **Many pages have ZERO `data-testid` instrumentation.** Confirmed:
+   `/dashboard/suppliers`, `/dashboard/assets`, `/dashboard/payroll`,
+   `/dashboard/leave-calendar`, `/dashboard/notifications`,
+   `/dashboard/queue`, `/dashboard/census`, `/dashboard/wards`. Specs
+   fall back to accessible-name selectors (which is acceptable a11y-wise),
+   but it makes Playwright fragile to UI copy changes. Worth a sweep to
+   add stable testids to load-bearing CTAs / form fields.
+3. **`POST /api/v1/complaints` has NO `authorize(...)` middleware.** Any
+   authenticated user — including PATIENT — can file a complaint ticket.
+   Intentional (patients self-file; only staff triage), but undocumented.
+   Worth pinning in the RBAC matrix doc so future authors know.
+4. **`/dashboard/holidays` has UI-only RBAC asymmetry.** UI strictly
+   ADMIN; `GET /api/v1/hr-ops/holidays` is open-auth (no `authorize()`).
+   So an authed non-ADMIN with the API URL could read the holiday list
+   directly. Defence-in-depth gap.
+5. **Notifications page reachable by ALL roles via direct URL.** Sidebar
+   shows it for 5/7 roles, but every authed role gets the inbox content
+   on direct navigation. "Missing-from-menu ≠ RBAC-denied" matters for
+   security review.
+6. **`/dashboard/patients/register` is a 35-line redirect shim** to
+   `/dashboard/patients?register=1` (the actual form lives on the patient
+   list page). Backlog entry treats it as its own route; reality is
+   simpler. Consider deleting the shim or moving the form back.
+
+### Skills validated by this autopilot
+
+- `/medcore-fanout` ✅ — 5 batches × 3 agents = 15 dispatches, every batch
+  completed within 5 min wall-clock, no popup stalls, no commit
+  collisions. Concurrent push pattern (file-scoped `git add` + named
+  `git commit -- <files>` + rebase-retry loop) held on every push;
+  most pushed clean first try, occasional natural rebase observed and
+  handled silently.
+- `/medcore-e2e-spec` ✅ — every spec listed cleanly via
+  `playwright test --list`, descriptive headers in place, `data-testid`
+  selectors only used when present (accessible-name fallback observed
+  the "no testid" fact rather than fabricating).
+- `/medcore-release` (steps 1-3) ✅ — dispatch validated; watch step
+  on hold pending the user's release.yml result review.
+
+### Open follow-ups out of this autopilot
+
+- Verify both release.yml runs on completion: `25286939452` (batch-1
+  validation) and the new run dispatched on `a6b5fe3` (batch-2-through-5
+  validation + WebKit v4 stability across 15 new specs).
+- Architectural findings #1-#6 above are all candidate PRs.
+- `/dashboard/queue`, `/dashboard/wards`, `/dashboard/holidays` flagged
+  by their respective specs as good candidates for a "add stable
+  testids" sweep.
 > Original ee5f253-era state below kept for backward reference.
 >
 > HEAD on `main` (older snapshot) = `ee5f253` (`test(e2e): /dashboard/symptom-diary —

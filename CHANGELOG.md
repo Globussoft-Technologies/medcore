@@ -11,6 +11,37 @@ test-coverage closure across §A-§E gaps, Playwright stabilization
 across Chromium + WebKit, and the local-first test workflow.
 
 ### Added
+- **2026-05-05 autopilot — 15-route E2E fanout via the new project skills.**
+  Five 3-agent foreground-fanout batches closed 15 zero-coverage /
+  undercovered dashboard routes in ~25 min wall-clock total: medicines,
+  suppliers, holidays (batch 1, `3cececd` `dfeeb48` `29604e2`); pharmacy,
+  assets, patients/register (batch 2, `b9dbe93` `db1df15` `b88a333`);
+  payroll, leave-calendar, doctors (batch 3, `bdfd5e5` `d4b19f8`
+  `484ee98`); notifications, broadcasts, complaints (batch 4, `ac7c338`
+  `2c06fff` `430dc89`); queue, census, wards (batch 5, `45673c3`
+  `0643349` `a6b5fe3`). ~94 new test cases × 2 Playwright projects =
+  188 listed tests. Batches surfaced 6 architectural findings —
+  multiple pages have no client-side `VIEW_ALLOWED` (security relies
+  on API layer alone), several pages have zero `data-testid`,
+  `POST /complaints` has no `authorize()`, `/holidays` API is open-auth
+  while the UI gates ADMIN-only, `/notifications` is reachable by every
+  authed role via direct URL despite the sidebar omitting it for
+  PATIENT/LAB_TECH, and `/dashboard/patients/register` is a 35-line
+  redirect shim. All findings logged in TODO.md as candidate PRs.
+- **Project-shared skills under `.claude/skills/` (4 files).**
+  `/medcore-fanout` codifies the foreground-fan-out pattern — the only
+  proven parallelism path on VSCode harness v2.1.126 (bg agents stall
+  on per-Read permission popups). `/medcore-e2e-spec` scaffolds one
+  Playwright route spec under the descriptive-headers convention,
+  validates via `playwright test --list`, annotates the backlog
+  closure. `/medcore-route-test` scaffolds one Vitest route-handler
+  unit test with hoisted Prisma mocks, RBAC matrix, Zod rejections,
+  audit-log assertions. `/medcore-release` dispatches + watches +
+  diagnoses release.yml runs. `.gitignore` tweaked to track
+  `.claude/skills/` while keeping `settings.local.json` and
+  `worktrees/` local-only — git can't otherwise unignore children of
+  an excluded parent, so the contents-only pattern (`.claude/*` +
+  selective negation) was needed.
 - **P4 — Tenant-scoping isolation regression suite (`8d0765a`).** New
   `packages/db/src/__tests__/rls.test.ts` (686 lines, 10 it / 29
   expects) verifies the Prisma context-binding mechanism that's our

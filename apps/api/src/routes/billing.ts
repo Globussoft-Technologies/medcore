@@ -2379,7 +2379,15 @@ interface WebhookEvent {
   };
 }
 
-async function handlePaymentCaptured(entity: WebhookPaymentEntity): Promise<void> {
+// Result shape so the route can decide whether to 200-ack (default) or
+// surface a non-200 (e.g. fraud guard rejection). Returning undefined =
+// normal idempotent ack.
+type CapturedResult = { fraudSuspect: true; invoiceId: string } | undefined;
+
+async function handlePaymentCaptured(
+  entity: WebhookPaymentEntity,
+  req: Request
+): Promise<CapturedResult> {
   const orderId = entity.order_id;
   const paymentId = entity.id;
   const amountPaise = entity.amount;
@@ -2398,6 +2406,47 @@ async function handlePaymentCaptured(entity: WebhookPaymentEntity): Promise<void
   if (!invoice) {
     console.warn("[razorpay-webhook] invoice not found for order", orderId);
     return;
+  }
+
+  // Fraud guard: a DIFFERENT transactionId arriving against an invoice
+  // that's already PAID is suspicious. Payment.transactionId @unique only
+  // catches duplicate deliveries of the SAME id; a forged webhook with a
+  // fresh id would otherwise slip past the amountPaise < remainingPaise
+  // check below as a silent no-op (remainingPaise = 0).
+  if (invoice.paymentStatus === "PAID") {
+    // Same transactionId already on this invoice → legitimate Razorpay
+    // retry. The `existing` check above is global; this is the
+    // per-invoice scoping the fraud-guard branch needs.
+    const sameTxn = await prisma.payment.findFirst({
+      where: { invoiceId: invoice.id, transactionId: paymentId },
+      select: { id: true },
+    });
+    if (sameTxn) {
+      console.log(
+        "[razorpay-webhook] retry of known transactionId on PAID invoice — idempotent ack",
+        { invoiceId: invoice.id, transactionId: paymentId }
+      );
+      return;
+    }
+
+    // Different transactionId on a settled invoice — Razorpay should
+    // never legitimately do this. Audit + reject.
+    await auditLog(req, "RAZORPAY_WEBHOOK_FRAUD_SUSPECT", "Invoice", invoice.id, {
+      incomingTransactionId: paymentId,
+      invoiceStatus: "PAID",
+      amountPaise,
+      orderId,
+    });
+    console.error(
+      "[razorpay-webhook] FRAUD SUSPECT: different transactionId on PAID invoice",
+      {
+        invoiceId: invoice.id,
+        incomingTransactionId: paymentId,
+        amountPaise,
+        orderId,
+      }
+    );
+    return { fraudSuspect: true, invoiceId: invoice.id };
   }
 
   const totalPaid = invoice.payments.reduce((s, p) => s + p.amount, 0);
@@ -2577,7 +2626,19 @@ webhookRouter.post(
       switch (event.event) {
         case "payment.captured":
           if (event.payload?.payment?.entity) {
-            await handlePaymentCaptured(event.payload.payment.entity);
+            const result = await handlePaymentCaptured(
+              event.payload.payment.entity,
+              req
+            );
+            if (result?.fraudSuspect) {
+              res.status(409).json({
+                success: false,
+                data: null,
+                error: "Invoice already settled",
+                code: "INVOICE_ALREADY_PAID_DIFFERENT_TXN",
+              });
+              return;
+            }
           }
           break;
         case "payment.failed":

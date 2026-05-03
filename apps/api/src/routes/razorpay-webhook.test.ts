@@ -39,6 +39,7 @@ const { prismaMock } = vi.hoisted(() => {
   const base: any = {
     payment: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       create: vi.fn(),
       findMany: vi.fn(async () => []),
     },
@@ -95,8 +96,11 @@ vi.mock("../services/razorpay", () => ({
     return crypto.timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(signature, "hex"));
   },
 }));
+const { auditLogMock } = vi.hoisted(() => ({
+  auditLogMock: vi.fn(async () => {}),
+}));
 vi.mock("../middleware/audit", () => ({
-  auditLog: vi.fn(async () => {}),
+  auditLog: auditLogMock,
 }));
 vi.mock("../services/ops-helpers", () => ({
   splitGst: vi.fn(() => ({ cgst: 0, sgst: 0, igst: 0 })),
@@ -129,6 +133,7 @@ describe("Razorpay webhook idempotency thin spots (honorable mention #15)", () =
   beforeEach(() => {
     process.env.RAZORPAY_WEBHOOK_SECRET = WEBHOOK_SECRET;
     prismaMock.payment.findUnique.mockReset();
+    prismaMock.payment.findFirst.mockReset();
     prismaMock.payment.create.mockReset();
     prismaMock.invoice.findFirst.mockReset();
     prismaMock.invoice.findUnique.mockReset();
@@ -294,5 +299,176 @@ describe("Razorpay webhook idempotency thin spots (honorable mention #15)", () =
       .set("Content-Type", "application/json")
       .send(JSON.stringify({ event: "payment.captured" }));
     expect(res.status).toBe(401);
+  });
+});
+
+describe("Fraud guard — different transactionId on PAID invoice", () => {
+  beforeEach(() => {
+    process.env.RAZORPAY_WEBHOOK_SECRET = WEBHOOK_SECRET;
+    prismaMock.payment.findUnique.mockReset();
+    prismaMock.payment.findFirst.mockReset();
+    prismaMock.payment.create.mockReset();
+    prismaMock.invoice.findFirst.mockReset();
+    prismaMock.invoice.findUnique.mockReset();
+    prismaMock.invoice.update.mockReset();
+    prismaMock.$transaction.mockClear();
+    auditLogMock.mockClear();
+  });
+
+  it("happy idempotency: same transactionId retry on a PAID invoice → 200 with idempotent ack, no new Payment, no audit", async () => {
+    // Global Payment.transactionId @unique check: nothing yet (the row
+    // we'll match below is invoice-scoped, simulating the case where the
+    // global lookup missed for whatever reason — e.g. a different shard).
+    // In practice the first global findUnique would already short-circuit
+    // for a true retry, so this is the belt-and-braces invoice-scoped
+    // branch firing.
+    prismaMock.payment.findUnique.mockResolvedValueOnce(null);
+    prismaMock.invoice.findFirst.mockResolvedValueOnce({
+      id: "inv-paid-1",
+      razorpayOrderId: "order_paid",
+      totalAmount: 100,
+      paymentStatus: "PAID",
+      payments: [
+        { id: "p-existing", transactionId: "pay_known", amount: 100, status: "CAPTURED" },
+      ],
+    });
+    // Invoice-scoped lookup for the SAME transactionId → row found.
+    prismaMock.payment.findFirst.mockResolvedValueOnce({ id: "p-existing" });
+
+    const event = {
+      event: "payment.captured",
+      payload: {
+        payment: {
+          entity: { id: "pay_known", order_id: "order_paid", amount: 10000, status: "captured" },
+        },
+      },
+    };
+
+    const res = await postWebhook(buildApp(), event);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(prismaMock.payment.create).not.toHaveBeenCalled();
+    expect(prismaMock.invoice.update).not.toHaveBeenCalled();
+    expect(auditLogMock).not.toHaveBeenCalled();
+  });
+
+  it("fraud detection: different transactionId on a PAID invoice → 409 INVOICE_ALREADY_PAID_DIFFERENT_TXN, no Payment, audit row written", async () => {
+    prismaMock.payment.findUnique.mockResolvedValueOnce(null);
+    prismaMock.invoice.findFirst.mockResolvedValueOnce({
+      id: "inv-paid-2",
+      razorpayOrderId: "order_paid_2",
+      totalAmount: 100,
+      paymentStatus: "PAID",
+      payments: [
+        { id: "p-old", transactionId: "pay_legit_old", amount: 100, status: "CAPTURED" },
+      ],
+    });
+    // Invoice-scoped lookup for the NEW transactionId → not found.
+    prismaMock.payment.findFirst.mockResolvedValueOnce(null);
+
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const event = {
+      event: "payment.captured",
+      payload: {
+        payment: {
+          entity: { id: "pay_forged_new", order_id: "order_paid_2", amount: 10000, status: "captured" },
+        },
+      },
+    };
+
+    const res = await postWebhook(buildApp(), event);
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({
+      success: false,
+      data: null,
+      error: "Invoice already settled",
+      code: "INVOICE_ALREADY_PAID_DIFFERENT_TXN",
+    });
+    expect(prismaMock.payment.create).not.toHaveBeenCalled();
+    expect(prismaMock.invoice.update).not.toHaveBeenCalled();
+
+    expect(auditLogMock).toHaveBeenCalledTimes(1);
+    const auditCall = auditLogMock.mock.calls[0] as unknown as unknown[];
+    expect(auditCall[1]).toBe("RAZORPAY_WEBHOOK_FRAUD_SUSPECT");
+    expect(auditCall[2]).toBe("Invoice");
+    expect(auditCall[3]).toBe("inv-paid-2");
+    expect(auditCall[4]).toMatchObject({
+      incomingTransactionId: "pay_forged_new",
+      invoiceStatus: "PAID",
+      amountPaise: 10000,
+    });
+
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/FRAUD SUSPECT/),
+      expect.objectContaining({ invoiceId: "inv-paid-2" })
+    );
+    errSpy.mockRestore();
+  });
+
+  it("normal flow unaffected: different transactionId on a PENDING invoice still marks PAID and creates Payment", async () => {
+    prismaMock.payment.findUnique.mockResolvedValueOnce(null);
+    prismaMock.invoice.findFirst.mockResolvedValueOnce({
+      id: "inv-pending-1",
+      razorpayOrderId: "order_pending",
+      totalAmount: 100,
+      paymentStatus: "PENDING",
+      payments: [
+        // A previous FAILED attempt — totalPaid stays 0 because handler
+        // sums payment.amount (FAILED rows have amount: 0).
+        { id: "p-fail-1", transactionId: "pay_fail_1", amount: 0, status: "FAILED" },
+      ],
+    });
+    prismaMock.payment.create.mockResolvedValueOnce({ id: "pay-new" });
+
+    const event = {
+      event: "payment.captured",
+      payload: {
+        payment: {
+          entity: { id: "pay_retry_success", order_id: "order_pending", amount: 10000, status: "captured" },
+        },
+      },
+    };
+
+    const res = await postWebhook(buildApp(), event);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    // No fraud-guard branch fired → no findFirst call, no audit row.
+    expect(prismaMock.payment.findFirst).not.toHaveBeenCalled();
+    expect(auditLogMock).not.toHaveBeenCalled();
+    // Payment row was created and invoice was updated to PAID.
+    expect(prismaMock.payment.create).toHaveBeenCalledTimes(1);
+    expect(prismaMock.invoice.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "inv-pending-1" },
+        data: expect.objectContaining({ paymentStatus: "PAID" }),
+      })
+    );
+  });
+
+  it("auth still enforced: bad HMAC signature is 401 even when invoice would be PAID", async () => {
+    // Even if the body looks like a fraud-attempt against a PAID invoice,
+    // the HMAC check has to fail before any handler runs. No DB hit.
+    const event = {
+      event: "payment.captured",
+      payload: {
+        payment: {
+          entity: { id: "pay_attacker", order_id: "order_paid_3", amount: 10000, status: "captured" },
+        },
+      },
+    };
+    const body = JSON.stringify(event);
+    const res = await request(buildApp())
+      .post("/api/v1/billing/razorpay-webhook")
+      .set("Content-Type", "application/json")
+      .set("x-razorpay-signature", "deadbeef".repeat(8)) // wrong sig
+      .send(body);
+
+    expect(res.status).toBe(401);
+    expect(prismaMock.payment.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.payment.findFirst).not.toHaveBeenCalled();
+    expect(prismaMock.invoice.findFirst).not.toHaveBeenCalled();
+    expect(prismaMock.payment.create).not.toHaveBeenCalled();
+    expect(auditLogMock).not.toHaveBeenCalled();
   });
 });

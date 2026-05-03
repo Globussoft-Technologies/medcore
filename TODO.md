@@ -4,23 +4,32 @@ Next-session pickup list. Read this first, work top-to-bottom. Each item
 is independently shippable. Full per-session history lives under
 [`docs/archive/`](docs/archive/).
 
-> Updated: 2026-05-03 (post-low-priority-closure landings).
-> HEAD on `main` = `5ee6907` (`test(api/routes): cover Razorpay
-> webhook idempotency thin spots (honorable mention #15 from
-> 2026-05-03 audit)`).
+> Updated: 2026-05-03 late-night (post bug-bash + symptom-diary E2E + agent-stall diagnosis).
+> HEAD on `main` = `ee5f253` (`test(e2e): /dashboard/symptom-diary —
+> PATIENT capture flow + staff RBAC redirects`).
 > **All 10 priority gaps + all 5 honorable mentions from
-> `docs/TEST_GAPS_2026-05-03.md` now CLOSED.**
-> **~510 new test cases shipped today** across Session 1 + Wave A +
-> Wave C + low-priority closure; plus 1 schema migration
-> (`20260503000001`), 4 source fixes (adherence-bot nullish-coalesce,
-> store state-machine guard, HL7v2 parser unescape, full-Rx dispense
-> witness gate), 2 feature additions (Rx REJECTED endpoint, FHIR `_id`
-> parameter support), and backend wiring for witnessSignature.
+> `docs/TEST_GAPS_2026-05-03.md` CLOSED.** **All Day 2 follow-ups
+> closed:** ambulance state-machine guard, fuel-log timestamp validation,
+> Razorpay capture+refund fraud guards, WebKit un-skip, descriptive-
+> headers convention, symptom-diary E2E.
+> **~530+ new test cases shipped today** across Session 1 + Waves
+> A/B/C + low-priority closure + late-evening bug-bash + symptom-diary E2E.
+> Plus 1 schema migration (`20260503000001`), 6 source fixes
+> (adherence-bot nullish-coalesce, claims store state-machine guard,
+> HL7v2 parser unescape, full-Rx dispense witness gate, ambulance state
+> machine + fuel-log timestamp, Razorpay capture+refund fraud guards),
+> 2 feature additions (Rx REJECTED endpoint, FHIR `_id` parameter).
 > **Open GitHub issues: 0.** **Open PRs: 0.**
-> **Per-push CI**: all 8 gating jobs green on `8302010`. Auto-deploy
-> operating; nightly AI-eval + load-test workflows also green.
-> **release.yml**: fully green on `febe0aa` (run `25257762655`);
-> confirmed green again on `e2ec599` (run `25258173521`).
+> **Per-push CI**: green on every push through `ee5f253`. Auto-deploy
+> operating; `medcore.globusdemos.com` updated continuously.
+> **release.yml**: ⚠️ run `25279367548` on `a8ab069` finished with **1
+> integration test failure** — `apps/api/src/test/integration/audit-phi.test.ts
+> > writes AI_SCRIBE_READ audit on GET /ai/scribe/:sessionId/soap`
+> (asserted 1 audit row, got 0). 5/6 jobs green incl. full E2E +
+> WebKit E2E. Per-push CI on the same SHA was green (auto-deploy ran),
+> so this is either a flake or release.yml-specific env timing.
+> **Investigate this first next session** — see the late-night session
+> snapshot for full diagnosis pointers.
 > **Audit residuals (§A-§E):** all five closed (2026-05-02).
 > **Prior pickup list TODO #1-6:** all closed in 2026-05-02
 > late-evening — see "What landed 2026-05-02 late-evening (continuation)".
@@ -60,13 +69,75 @@ closed in 8 commits.**
 
 **Subtotal: 64 cases + 3 source fixes/features.**
 
-### Outstanding follow-ups (very low priority)
+### Outstanding follow-ups (closed 2026-05-03 late-evening)
 
-- Razorpay: no "different `transactionId` for same already-PAID invoice
-  = fraud" guard. Current behaviour is a silent no-op past `amountPaise <
-  remainingPaise`. Tracked.
-- Un-skip pass on the ~7 WebKit-conditional skips from `476488a` after
-  another release.yml validation (auth-race v3 made them stable).
+- ~~Razorpay: no "different `transactionId` for same already-PAID invoice
+  = fraud" guard.~~ ✅ closed `9486409` (capture-side) + `a8ab069` (refund-side).
+- ~~Un-skip pass on the ~7 WebKit-conditional skips from `476488a`.~~ ✅
+  closed `eb85749` — auth-race v3 validated stable.
+
+---
+
+## What landed 2026-05-03 late-night (bug-bash + descriptive-headers + symptom-diary E2E)
+
+After the night closure, six more commits landed: a focused bug-bash on
+the two outstanding follow-ups, the descriptive-headers convention
+(promoted from session feedback into a repo-level rule), and the first
+e2e spec under that new convention.
+
+| Commit | What |
+|---|---|
+| `c127e6f` | **Source fix — Ambulance state machine + fuel-log timestamp.** Added `ALLOWED_TRIP_TRANSITIONS` table + `assertValidTripTransition` helper covering REQUESTED → DISPATCHED → ARRIVED_SCENE → EN_ROUTE_HOSPITAL → COMPLETED (CANCELLED at every step; same-state writes are idempotent). `apps/web/src/app/dashboard/ambulance/page.tsx` Complete-button gating updated. `fuelLogSchema` (`packages/shared`) refuses `filledAt` >60s in the future. 3 TODO tests flipped to assert 409. |
+| `9486409` | **Source fix — Razorpay capture-side fraud guard.** `handlePaymentCaptured` detects "fresh `transactionId` arriving against already-PAID invoice", audits `RAZORPAY_WEBHOOK_FRAUD_SUSPECT`, returns 409 + `INVOICE_ALREADY_PAID_DIFFERENT_TXN`. 4 new test cases. |
+| `eb85749` | **Test — WebKit un-skip pass.** Removed 7 defensive `test.skip(({browserName}) => ...)` from `476488a` across `adherence`, `admin`, `admin-ops`, `ai-analytics`, `emergency-er-flow` specs. Auth-race v3 (`febe0aa`) made them stable. |
+| `8888541` | **Docs — Descriptive-headers convention codified.** `docs/README.md` "Top-level conventions" gained a "Tests & feature code" section: tests + new entry-point files lead with a short header — what / which modules / why. The one override to the global "default to no comments" rule. Saved as `feedback_descriptive_tests_and_code` memory. |
+| `a8ab069` | **Source fix — Razorpay refund-side fraud guard** (analogous to `9486409`). Two new branches in `handleRefundProcessed`: `REFUND_AGAINST_NON_CAPTURED_PAYMENT` (original payment must be CAPTURED) and `REFUND_EXCEEDS_PAYMENT` (refund amount ≤ original amount). Audit + 409 with structured codes. 5 new cases. |
+| `ee5f253` | **Test — `/dashboard/symptom-diary` E2E spec** (first under the new descriptive-headers convention). 7 cases: PATIENT happy path (open modal → fill → save → entry lands in history), empty-description blocked client-side, LAB_TECH/PHARMACIST bounce, NURSE without/with `?patientId=`. Closes the §2.1 backlog entry. |
+
+**Subtotal: ~12 new test cases + 6 source surfaces hardened + 1 E2E
+backlog item closed + 1 repo-wide convention codified.**
+
+### Open follow-ups for next session
+
+1. **🔴 release.yml `25279367548` flake** — `audit-phi.test.ts > writes
+   AI_SCRIBE_READ audit on GET /ai/scribe/:sessionId/soap` failed
+   (asserted 1 audit row, got 0). 5/6 jobs green incl. full Playwright
+   suite + WebKit. **Investigation steps:**
+   - Re-run release.yml on the same SHA (`a8ab069`) — if green on
+     re-run, it's a flake; mark and move on.
+   - If reproducible, suspect concurrent test isolation: another
+     integration test likely consumed the audit row before this one
+     read, OR scribe-route logging changed in `e6c68e1` / `fd3bea6`.
+     `git log --oneline -p apps/api/src/routes/ai-scribe.ts` would
+     surface the relevant diff.
+   - Quick probe: `cd apps/api && npx vitest run src/test/integration/audit-phi.test.ts` locally with `--with-integration`.
+
+2. **Cumulative refund over-refund detection** — `a8ab069`'s commit
+   body flagged this. Per-event over-refund is now caught
+   (`REFUND_EXCEEDS_PAYMENT`), but the case "5 separate partial
+   refunds totalling > original amount" still slips through because
+   refunds aren't FK-linked back to specific original payments. Needs
+   a schema change (`Payment.parentPaymentId` or a `Refund` table).
+
+3. **Background sub-agents broken on this VSCode harness** — see
+   `~/.claude/projects/c--Users-Admin-gbs-projects-medcore/memory/
+   reference_worktree_bg_agent_perms.md`. v2.1.126 silently doesn't
+   honor `Read`/`Edit` allowlist entries for bg agents — every Read
+   needs a user-clicked popup, watchdog kills at 600s. Use foreground
+   Agent calls or DIY for parallelism. Re-test on harness upgrades
+   with a tiny verification agent first.
+
+4. **TEST_COVERAGE_AUDIT.md P2-P10** — still open after today (P1, P11,
+   P12 closed). P9 (PDF/letter snapshot tests), P3 (vitest-axe a11y),
+   P10 (AI perf benchmarks) were attempted via parallel bg agents but
+   blocked by the harness issue above. Pick up in foreground or DIY
+   in the next session.
+
+5. **E2E coverage backlog** — symptom-diary closed; 92 routes still
+   uncovered. See `docs/E2E_COVERAGE_BACKLOG.md`. Next high-value
+   targets per §2: `/dashboard/medicines`, `/dashboard/purchase-orders`,
+   `/dashboard/suppliers`, `/dashboard/controlled-substances` (only
+   page-load tested today), `/dashboard/telemedicine/waiting-room`.
 
 ---
 

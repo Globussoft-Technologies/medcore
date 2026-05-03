@@ -91,7 +91,10 @@ audits that no longer reflect the current repo. Kept for historical
 context only — don't treat anything in `archive/` as canonical.
 
 Currently archived:
-- 9 `SESSION_SNAPSHOT_*` files (2026-04-27 through 2026-05-03 night)
+- 10 `SESSION_SNAPSHOT_*` files (2026-04-27 through 2026-05-03 late-night).
+  The most recent — `SESSION_SNAPSHOT_2026-05-03-late-night.md` — is the
+  current handoff: read it first on next pickup. It supersedes the
+  earlier `2026-05-03-night.md` snapshot.
 - `TODO_2026-04-29.md` (superseded by [`/TODO.md`](../TODO.md) at repo root)
 - `RBAC_AUDIT_2026-04-30.md` (point-in-time RBAC audit; the e2e
   `rbac-matrix.spec.ts` now serves as the live source of truth)

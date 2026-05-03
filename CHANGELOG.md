@@ -161,6 +161,48 @@ across Chromium + WebKit, and the local-first test workflow.
 
   **Total today: ~510 new test cases. README test count `~2,200+ → ~2,700+`.**
 
+- **Late-evening / late-night Day 2 landings** (post `b36a309`):
+  - **`c127e6f` — Ambulance state-machine guard + fuel-log timestamp validation.**
+    Added `ALLOWED_TRIP_TRANSITIONS` table + `assertValidTripTransition`
+    helper covering REQUESTED → DISPATCHED → ARRIVED_SCENE →
+    EN_ROUTE_HOSPITAL → COMPLETED (and CANCELLED at every step).
+    `apps/web/src/app/dashboard/ambulance/page.tsx` Complete-button
+    gating updated. `fuelLogSchema` (`packages/shared`) now refuses
+    `filledAt` timestamps >60s in the future. 3 TODO test cases flipped
+    to assert 409 on illegal transitions.
+  - **`9486409` — Razorpay capture-side fraud guard.** Webhook handler
+    detects "fresh `transactionId` arriving against an already-PAID
+    invoice", audits with `RAZORPAY_WEBHOOK_FRAUD_SUSPECT`, returns 409
+    + `INVOICE_ALREADY_PAID_DIFFERENT_TXN`. 4 new test cases. Flagged
+    that `handleRefundProcessed` had an analogous unfixed surface.
+  - **`eb85749` — WebKit un-skip pass.** Removed 7 defensive
+    `test.skip(({browserName}) => browserName === "webkit", ...)` from
+    `476488a` now that auth-race v3 (`febe0aa`) made WebKit stable.
+  - **`8888541` — Descriptive-headers convention codified.** `docs/README.md`
+    "Top-level conventions" gained a "Tests & feature code" section:
+    test files / new entry-point files (route handler, service module,
+    top-level component) lead with a short header — what / which
+    modules / why. Saved as `feedback_descriptive_tests_and_code`
+    memory so future sessions apply automatically.
+  - **`a8ab069` — Razorpay refund-side fraud guard** (analogous to
+    9486409). Two new fraud branches in `handleRefundProcessed`:
+    `REFUND_AGAINST_NON_CAPTURED_PAYMENT` (original payment must be
+    CAPTURED, not FAILED/REFUNDED) and `REFUND_EXCEEDS_PAYMENT` (single
+    refund amount must not exceed the payment it refunds). Audit +
+    409 with structured codes. 5 new test cases. Cumulative-refund
+    detection across multiple events is out of scope (would need a
+    payment→refund FK) — tracked separately.
+  - **`ee5f253` — `/dashboard/symptom-diary` E2E spec.** 7 cases:
+    PATIENT happy path (open modal → fill → save → entry lands in
+    history with unique tag), PATIENT empty-description blocked
+    client-side (no POST fires), LAB_TECH/PHARMACIST bounce (outside
+    VIEW_ALLOWED), NURSE without/with `?patientId=` (staff-needs-patient
+    branch + read-only banner). Closes the §2.1 backlog entry.
+
+  **Late-evening source surfaces fixed:** ambulance state machine,
+  Razorpay capture+refund fraud guards. **Tests added:** ~12 new cases
+  on top of the day's earlier ~510. **E2E backlog closed:** symptom-diary.
+
 ### Changed
 - **Web-bundle budget tightened** 25 MB → **7 MB** (`1983f01`) based
   on avg 3.56 MB on last 8 green per-push runs + ~3 MB headroom.

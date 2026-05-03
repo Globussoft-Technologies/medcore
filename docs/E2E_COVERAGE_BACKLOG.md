@@ -107,7 +107,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - `/dashboard/payroll` — salary, payslip, deductions
 - `/dashboard/my-leaves` — employee leave-request submission
 - `/dashboard/my-activity` — personal activity log
-- `/dashboard/holidays` — holiday calendar
+- ~~`/dashboard/holidays` — holiday calendar~~ — closed 2026-05-03 by `e2e/holidays.spec.ts` (ADMIN calendar mgmt + non-ADMIN bounces)
 - `/dashboard/leave-calendar` — calendar view (approval side covered)
 - `/dashboard/schedule` — staff schedule
 - `/dashboard/doctors` — doctor directory

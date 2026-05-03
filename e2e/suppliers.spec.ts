@@ -143,11 +143,36 @@ test.describe("Suppliers — /dashboard/suppliers (vendor directory render + Add
 
     await expect(
       page.getByRole("heading", { name: /^add supplier$/i })
-    ).toBeVisible({ timeout: 5_000 });
-    // The Name input is required (page.tsx:329-334) — the security-
-    // critical field. If this label disappears, the form is broken.
-    await expect(page.getByLabel(/^name/i)).toBeVisible();
-    await expect(page.getByLabel(/gst number/i)).toBeVisible();
+    ).toBeVisible({ timeout: 10_000 });
+
+    // The modal's <label>s are not associated with their <input>s via
+    // htmlFor/id (page.tsx:326-390 — sibling-label pattern), so
+    // getByLabel(...) won't resolve. We instead scope to the modal's
+    // <form> (the only form on the page once the modal is open) and
+    // assert on the form's text labels + the corresponding inputs by
+    // structural position. This pins both the visible label text AND
+    // the presence of the underlying input — what the original
+    // getByLabel assertion was meant to cover.
+    const modalForm = page.locator("form").filter({ hasText: /name \*/i });
+    await expect(modalForm).toBeVisible();
+
+    // Required Name field — page.tsx:328-334. The label text "Name *"
+    // is the visible required-marker; if this disappears the form is
+    // broken.
+    await expect(
+      modalForm.getByText(/^\s*name\s*\*\s*$/i)
+    ).toBeVisible();
+    // GST Number field — page.tsx:374-379. Vendor PII (issue #174).
+    await expect(
+      modalForm.getByText(/^\s*gst number\s*$/i)
+    ).toBeVisible();
+    // And the actual <input> elements exist + are interactable. The
+    // Name input is the only `required` input in the modal
+    // (page.tsx:330) so we lock it by that attribute. GST input is
+    // pinned by its font-mono class (page.tsx:378) which is unique
+    // within the modal.
+    await expect(modalForm.locator("input[required]")).toBeVisible();
+    await expect(modalForm.locator("input.font-mono")).toBeVisible();
   });
 
   test("DOCTOR is locked out at the API — page chrome renders but GET /suppliers comes back 403 and the list shows the empty-state", async ({

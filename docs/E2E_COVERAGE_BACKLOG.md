@@ -94,7 +94,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - `/dashboard/controlled-substances` — substance log entries (only page-load tested)
 
 ### 2.3 Billing & Finance
-- `/dashboard/billing/[id]` — line-item editing (only happy-path create tested)
+- ~~`/dashboard/billing/[id]` — line-item editing (only happy-path create tested)~~ ✅ closed (6 tests; `e2e/billing-id.spec.ts`)
 - `/dashboard/billing/patient/[patientId]` — bulk patient billing
 - `/dashboard/payment-plans` — installment plan setup
 - `/dashboard/bill-explainer` — explanation workflow (only smoke-visited)
@@ -103,7 +103,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - `/dashboard/discount-approvals` — request side (approval side covered)
 
 ### 2.4 HR, Payroll, Scheduling
-- `/dashboard/users` — edit/deactivate/permission matrix (create only is covered)
+- ~~`/dashboard/users` — edit/deactivate/permission matrix (create only is covered)~~ ✅ closed (6 tests; `e2e/users.spec.ts`)
 - ~~`/dashboard/payroll` — salary, payslip, deductions~~ closed 2026-05-03 by `e2e/payroll.spec.ts` (7 tests; ADMIN chrome + edit + calculate + slip + overtime tab + DOCTOR/NURSE bounces)
 - `/dashboard/my-leaves` — employee leave-request submission
 - `/dashboard/my-activity` — personal activity log

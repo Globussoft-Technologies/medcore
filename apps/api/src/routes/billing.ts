@@ -2531,11 +2531,35 @@ async function handlePaymentFailed(entity: WebhookPaymentEntity): Promise<void> 
   }
 }
 
-async function handleRefundProcessed(entity: {
-  id?: string;
-  payment_id?: string;
-  amount?: number;
-}): Promise<void> {
+// Refund webhook handler — Razorpay's `refund.processed` event.
+//
+// What it does: writes a negative-amount Payment row (status=REFUNDED,
+// transactionId=`RZP_REFUND:<refundId>`) against the original payment's
+// invoice and recomputes the invoice's paymentStatus.
+//
+// Surfaces touched: prisma.payment, prisma.invoice, audit log; routed
+// from POST /api/v1/billing/razorpay-webhook (refund.processed case).
+//
+// Fraud guards (mirror of the captured-side guard in
+// handlePaymentCaptured): a forged or replayed Razorpay webhook can
+// arrive with a fresh `id` but pointing at (a) an original payment that
+// is FAILED or already REFUNDED, or (b) an `amount` greater than the
+// payment it claims to refund. Either is non-physical: Razorpay never
+// legitimately refunds beyond what was captured. Both cases audit and
+// surface a 409 to the route so the response carries a structured
+// fraud-suspect code instead of silently writing a fictitious refund.
+type RefundResult =
+  | { fraudSuspect: true; invoiceId: string; reason: "REFUND_AGAINST_NON_CAPTURED_PAYMENT" | "REFUND_EXCEEDS_PAYMENT" }
+  | undefined;
+
+async function handleRefundProcessed(
+  entity: {
+    id?: string;
+    payment_id?: string;
+    amount?: number;
+  },
+  req: Request
+): Promise<RefundResult> {
   const refundId = entity.id;
   const paymentId = entity.payment_id;
   if (!refundId || !paymentId) return;
@@ -2551,8 +2575,65 @@ async function handleRefundProcessed(entity: {
   });
   if (dup) return;
 
+  // Fraud guard 1: refund.processed should only ever arrive against a
+  // CAPTURED payment. If the original is FAILED or already REFUNDED,
+  // this is either a bug in the upstream system or a forged webhook.
+  if (original.status !== "CAPTURED") {
+    await auditLog(req, "RAZORPAY_WEBHOOK_FRAUD_SUSPECT", "Payment", original.id, {
+      kind: "REFUND_AGAINST_NON_CAPTURED_PAYMENT",
+      incomingRefundId: refundId,
+      originalTransactionId: paymentId,
+      originalStatus: original.status,
+      amountPaise: entity.amount,
+    });
+    console.error(
+      "[razorpay-webhook] FRAUD SUSPECT: refund.processed against non-CAPTURED payment",
+      {
+        invoiceId: original.invoiceId,
+        originalPaymentId: original.id,
+        originalStatus: original.status,
+        incomingRefundId: refundId,
+      }
+    );
+    return {
+      fraudSuspect: true,
+      invoiceId: original.invoiceId,
+      reason: "REFUND_AGAINST_NON_CAPTURED_PAYMENT",
+    };
+  }
+
   const refundAmount =
     typeof entity.amount === "number" ? entity.amount / 100 : original.amount;
+
+  // Fraud guard 2: a single refund cannot exceed the payment it refunds.
+  // Razorpay never legitimately does this; cumulative-refund detection
+  // beyond a single event would need a payment->refund FK and is tracked
+  // separately. This per-event sanity check catches the obvious forgery.
+  if (refundAmount > original.amount) {
+    await auditLog(req, "RAZORPAY_WEBHOOK_FRAUD_SUSPECT", "Payment", original.id, {
+      kind: "REFUND_EXCEEDS_PAYMENT",
+      incomingRefundId: refundId,
+      originalTransactionId: paymentId,
+      originalAmount: original.amount,
+      refundAmount,
+      amountPaise: entity.amount,
+    });
+    console.error(
+      "[razorpay-webhook] FRAUD SUSPECT: refund amount exceeds original payment",
+      {
+        invoiceId: original.invoiceId,
+        originalPaymentId: original.id,
+        originalAmount: original.amount,
+        refundAmount,
+        incomingRefundId: refundId,
+      }
+    );
+    return {
+      fraudSuspect: true,
+      invoiceId: original.invoiceId,
+      reason: "REFUND_EXCEEDS_PAYMENT",
+    };
+  }
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -2648,7 +2729,22 @@ webhookRouter.post(
           break;
         case "refund.processed":
           if (event.payload?.refund?.entity) {
-            await handleRefundProcessed(event.payload.refund.entity);
+            const result = await handleRefundProcessed(
+              event.payload.refund.entity,
+              req
+            );
+            if (result?.fraudSuspect) {
+              res.status(409).json({
+                success: false,
+                data: null,
+                error:
+                  result.reason === "REFUND_EXCEEDS_PAYMENT"
+                    ? "Refund amount exceeds original payment"
+                    : "Refund against non-CAPTURED payment",
+                code: result.reason,
+              });
+              return;
+            }
           }
           break;
         default:

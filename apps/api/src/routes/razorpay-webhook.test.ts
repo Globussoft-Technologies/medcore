@@ -183,8 +183,11 @@ describe("Razorpay webhook idempotency thin spots (honorable mention #15)", () =
     const app = buildApp();
 
     // First call: original payment exists, no dup refund yet.
+    // status: "CAPTURED" so the refund fraud guard (added in a later
+    // commit — only allow refund.processed against CAPTURED originals)
+    // does not fire.
     prismaMock.payment.findUnique
-      .mockResolvedValueOnce({ id: "p-1", transactionId: "pay_xyz", amount: 100, invoiceId: "inv-1" })
+      .mockResolvedValueOnce({ id: "p-1", transactionId: "pay_xyz", amount: 100, invoiceId: "inv-1", status: "CAPTURED" })
       .mockResolvedValueOnce(null); // dup refund check
     prismaMock.payment.findMany.mockResolvedValueOnce([
       { id: "p-1", invoiceId: "inv-1", amount: 100, status: "CAPTURED" },
@@ -200,7 +203,7 @@ describe("Razorpay webhook idempotency thin spots (honorable mention #15)", () =
     // Replay: dup-refund findUnique returns the existing refund row → ack
     // 200 without a second create.
     prismaMock.payment.findUnique
-      .mockResolvedValueOnce({ id: "p-1", transactionId: "pay_xyz", amount: 100, invoiceId: "inv-1" })
+      .mockResolvedValueOnce({ id: "p-1", transactionId: "pay_xyz", amount: 100, invoiceId: "inv-1", status: "CAPTURED" })
       .mockResolvedValueOnce({ id: "p-2", transactionId: "RZP_REFUND:rfnd_1" });
 
     const r2 = await postWebhook(app, event);
@@ -468,6 +471,242 @@ describe("Fraud guard — different transactionId on PAID invoice", () => {
     expect(prismaMock.payment.findUnique).not.toHaveBeenCalled();
     expect(prismaMock.payment.findFirst).not.toHaveBeenCalled();
     expect(prismaMock.invoice.findFirst).not.toHaveBeenCalled();
+    expect(prismaMock.payment.create).not.toHaveBeenCalled();
+    expect(auditLogMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fraud guard — refund.processed (analogous to the captured-side guard)
+//
+// What it covers: handleRefundProcessed in apps/api/src/routes/billing.ts,
+// reached via POST /api/v1/billing/razorpay-webhook with event=refund.processed.
+//
+// Surfaces touched: prisma.payment (lookup + dup check + create), audit
+// log (RAZORPAY_WEBHOOK_FRAUD_SUSPECT), and the route's 409 translation.
+//
+// Why these tests exist: the original handler only caught duplicate
+// refundIds (RZP_REFUND:<id>). A forged webhook with a fresh refundId
+// pointing at a non-CAPTURED payment, or with an `amount` larger than
+// the payment it claims to refund, would otherwise silently write a
+// fictitious negative-amount Payment row — a refund-side analogue of
+// the gap closed for handlePaymentCaptured in commit 9486409. These
+// tests pin both fraud branches and the legitimate-retry path so the
+// invoice can never end up REFUNDED based on a forged event.
+// ---------------------------------------------------------------------------
+describe("Fraud guard — refund.processed (forged refund webhooks)", () => {
+  beforeEach(() => {
+    process.env.RAZORPAY_WEBHOOK_SECRET = WEBHOOK_SECRET;
+    prismaMock.payment.findUnique.mockReset();
+    prismaMock.payment.findFirst.mockReset();
+    prismaMock.payment.create.mockReset();
+    prismaMock.payment.findMany.mockReset();
+    prismaMock.invoice.findFirst.mockReset();
+    prismaMock.invoice.findUnique.mockReset();
+    prismaMock.invoice.update.mockReset();
+    prismaMock.$transaction.mockClear();
+    auditLogMock.mockClear();
+  });
+
+  function refundEvent(opts: { refundId: string; paymentId: string; amountPaise?: number }) {
+    return {
+      event: "refund.processed",
+      payload: {
+        refund: {
+          entity: {
+            id: opts.refundId,
+            payment_id: opts.paymentId,
+            amount: opts.amountPaise,
+          },
+        },
+      },
+    };
+  }
+
+  it("rejects refund.processed against a FAILED original → 409 REFUND_AGAINST_NON_CAPTURED_PAYMENT, no Payment row written, audit logged", async () => {
+    // Original payment exists but its status is FAILED — Razorpay should
+    // never legitimately refund a failed capture.
+    prismaMock.payment.findUnique
+      .mockResolvedValueOnce({
+        id: "pay-failed-1",
+        transactionId: "pay_failed_orig",
+        amount: 100,
+        invoiceId: "inv-1",
+        status: "FAILED",
+      })
+      .mockResolvedValueOnce(null); // dup refund check
+
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await postWebhook(
+      buildApp(),
+      refundEvent({ refundId: "rfnd_forge_1", paymentId: "pay_failed_orig", amountPaise: 5000 })
+    );
+
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({
+      success: false,
+      data: null,
+      code: "REFUND_AGAINST_NON_CAPTURED_PAYMENT",
+    });
+    expect(prismaMock.payment.create).not.toHaveBeenCalled();
+    expect(prismaMock.invoice.update).not.toHaveBeenCalled();
+
+    expect(auditLogMock).toHaveBeenCalledTimes(1);
+    const auditCall = auditLogMock.mock.calls[0] as unknown as unknown[];
+    expect(auditCall[1]).toBe("RAZORPAY_WEBHOOK_FRAUD_SUSPECT");
+    expect(auditCall[2]).toBe("Payment");
+    expect(auditCall[3]).toBe("pay-failed-1");
+    expect(auditCall[4]).toMatchObject({
+      kind: "REFUND_AGAINST_NON_CAPTURED_PAYMENT",
+      incomingRefundId: "rfnd_forge_1",
+      originalStatus: "FAILED",
+    });
+
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/FRAUD SUSPECT/),
+      expect.objectContaining({ originalStatus: "FAILED" })
+    );
+    errSpy.mockRestore();
+  });
+
+  it("rejects refund.processed against an already-REFUNDED original → 409 REFUND_AGAINST_NON_CAPTURED_PAYMENT", async () => {
+    // The original 'payment' row here is itself a previous refund row
+    // (status=REFUNDED, negative amount). A fresh refund.processed
+    // pointing at it would otherwise trigger a no-op due to the same
+    // status mismatch — but more concerning, this is the shape a forged
+    // event would take if the attacker harvested an old refund id.
+    prismaMock.payment.findUnique
+      .mockResolvedValueOnce({
+        id: "pay-refunded-1",
+        transactionId: "pay_already_refunded",
+        amount: 100,
+        invoiceId: "inv-2",
+        status: "REFUNDED",
+      })
+      .mockResolvedValueOnce(null);
+
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await postWebhook(
+      buildApp(),
+      refundEvent({ refundId: "rfnd_forge_2", paymentId: "pay_already_refunded", amountPaise: 10000 })
+    );
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("REFUND_AGAINST_NON_CAPTURED_PAYMENT");
+    expect(prismaMock.payment.create).not.toHaveBeenCalled();
+    expect(auditLogMock).toHaveBeenCalledTimes(1);
+    errSpy.mockRestore();
+  });
+
+  it("rejects refund whose amount exceeds the original payment → 409 REFUND_EXCEEDS_PAYMENT, no Payment row written, audit logged", async () => {
+    // Original payment of ₹100 (10000 paise). Forged refund claims
+    // ₹500 (50000 paise) — physically impossible and the most obvious
+    // class of refund forgery to catch.
+    prismaMock.payment.findUnique
+      .mockResolvedValueOnce({
+        id: "pay-captured-1",
+        transactionId: "pay_real_orig",
+        amount: 100,
+        invoiceId: "inv-3",
+        status: "CAPTURED",
+      })
+      .mockResolvedValueOnce(null);
+
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await postWebhook(
+      buildApp(),
+      refundEvent({ refundId: "rfnd_overrefund", paymentId: "pay_real_orig", amountPaise: 50000 })
+    );
+
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({
+      success: false,
+      data: null,
+      code: "REFUND_EXCEEDS_PAYMENT",
+    });
+    expect(prismaMock.payment.create).not.toHaveBeenCalled();
+    expect(prismaMock.invoice.update).not.toHaveBeenCalled();
+
+    expect(auditLogMock).toHaveBeenCalledTimes(1);
+    const auditCall = auditLogMock.mock.calls[0] as unknown as unknown[];
+    expect(auditCall[4]).toMatchObject({
+      kind: "REFUND_EXCEEDS_PAYMENT",
+      originalAmount: 100,
+      refundAmount: 500,
+      incomingRefundId: "rfnd_overrefund",
+    });
+
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/exceeds original payment/i),
+      expect.objectContaining({ refundAmount: 500, originalAmount: 100 })
+    );
+    errSpy.mockRestore();
+  });
+
+  it("normal refund unchanged: amount ≤ original on a CAPTURED payment writes the negative Payment row + recomputes invoice status, no audit row", async () => {
+    // A legitimate partial refund: ₹50 against a ₹100 captured payment.
+    // The handler should write the negative Payment row and recompute
+    // invoice status to PARTIAL — exactly the pre-existing behaviour.
+    prismaMock.payment.findUnique
+      .mockResolvedValueOnce({
+        id: "pay-captured-2",
+        transactionId: "pay_real_partial",
+        amount: 100,
+        invoiceId: "inv-4",
+        status: "CAPTURED",
+      })
+      .mockResolvedValueOnce(null);
+    prismaMock.payment.findMany.mockResolvedValueOnce([
+      { id: "pay-captured-2", invoiceId: "inv-4", amount: 100, status: "CAPTURED" },
+      { id: "rfnd-1", invoiceId: "inv-4", amount: -50, status: "REFUNDED" },
+    ]);
+    prismaMock.invoice.findUnique.mockResolvedValueOnce({ id: "inv-4", totalAmount: 100 });
+    prismaMock.payment.create.mockResolvedValueOnce({ id: "rfnd-1" });
+
+    const res = await postWebhook(
+      buildApp(),
+      refundEvent({ refundId: "rfnd_partial_legit", paymentId: "pay_real_partial", amountPaise: 5000 })
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(prismaMock.payment.create).toHaveBeenCalledTimes(1);
+    expect(prismaMock.invoice.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "inv-4" },
+        data: expect.objectContaining({ paymentStatus: "PARTIAL" }),
+      })
+    );
+    expect(auditLogMock).not.toHaveBeenCalled();
+  });
+
+  it("legitimate Razorpay retry (same refundId) still acks 200 with no audit, even when the original is FAILED — dup-check fires before fraud guards", async () => {
+    // Defence in depth: an attacker can't stage an invariant-violating
+    // refund THEN piggyback on a real retry to escape audit. This
+    // exercises the ordering: the dup-refund findUnique (line 2 of the
+    // handler) returns the existing refund row → handler returns
+    // immediately with no audit and no fraud-guard branch fired, even
+    // though the original is FAILED.
+    prismaMock.payment.findUnique
+      .mockResolvedValueOnce({
+        id: "pay-misc-1",
+        transactionId: "pay_dup_retry",
+        amount: 100,
+        invoiceId: "inv-5",
+        status: "FAILED", // would trip fraud guard 1 if reached
+      })
+      .mockResolvedValueOnce({ id: "rfnd-prev", transactionId: "RZP_REFUND:rfnd_dup" });
+
+    const res = await postWebhook(
+      buildApp(),
+      refundEvent({ refundId: "rfnd_dup", paymentId: "pay_dup_retry", amountPaise: 5000 })
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
     expect(prismaMock.payment.create).not.toHaveBeenCalled();
     expect(auditLogMock).not.toHaveBeenCalled();
   });

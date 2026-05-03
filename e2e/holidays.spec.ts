@@ -146,21 +146,33 @@ test.describe("Holidays — /dashboard/holidays (ADMIN calendar management + non
     // Pick a different year from the default. The selector window is
     // current±2 (page.tsx:186), so `current - 2` is always a valid
     // option and avoids picking the same value already loaded on mount.
-    const targetYear = new Date().getFullYear() - 2;
+    const currentYear = new Date().getFullYear();
+    const targetYear = currentYear - 2;
 
-    // Wait for the next GET that includes the new year before asserting.
+    // The page renders a native <select> at page.tsx:181 with the year
+    // options. Disambiguate from the modal's Type-select (PUBLIC /
+    // OPTIONAL / RESTRICTED at page.tsx:326) by scoping to the select
+    // that contains the current-year option — the year-select is the
+    // only one with numeric year options.
+    const yearSelect = page.locator(
+      `select:has(option[value="${currentYear}"])`
+    );
+    await expect(yearSelect).toBeVisible({ timeout: 15_000 });
+    // Wait for the page-load GET to settle so the year-selector handler
+    // is wired before we change the value (page.tsx:87-89).
+    await expect(yearSelect).toBeEnabled({ timeout: 5_000 });
+
+    // Set up the response listener BEFORE the selectOption call so we
+    // never miss a fast network reply.
     const refetch = page.waitForResponse(
       (r) =>
         r.url().includes("/api/v1/hr-ops/holidays") &&
         r.url().includes(`year=${targetYear}`) &&
         r.request().method() === "GET",
-      { timeout: 10_000 }
+      { timeout: 15_000 }
     );
 
-    await page
-      .locator("select")
-      .first()
-      .selectOption(String(targetYear));
+    await yearSelect.selectOption(String(targetYear));
 
     const res = await refetch;
     // GET is open-auth (hr-ops.ts:32 has no `authorize`), so any 2xx is

@@ -40,8 +40,10 @@ test.describe("Edge cases", () => {
       await submit.click().catch(() => undefined);
     }
     // Expect some validation signal — aria-invalid OR visible alert text.
+    // Exclude Next.js's __next-route-announcer__ (also role=alert) which is
+    // present on every page and would falsely satisfy this assertion.
     const hasAlert = await page
-      .getByRole("alert")
+      .locator('[role="alert"]:not(#__next-route-announcer__)')
       .first()
       .isVisible()
       .catch(() => false);
@@ -69,7 +71,12 @@ test.describe("Edge cases", () => {
       await submit.click().catch(() => undefined);
     }
     const hasInvalid = (await page.locator("[aria-invalid='true']").count()) > 0;
-    const hasAlert = await page.getByRole("alert").first().isVisible().catch(() => false);
+    // Exclude Next.js's __next-route-announcer__ (also role=alert).
+    const hasAlert = await page
+      .locator('[role="alert"]:not(#__next-route-announcer__)')
+      .first()
+      .isVisible()
+      .catch(() => false);
     expect(hasInvalid || hasAlert).toBe(true);
   });
 
@@ -98,7 +105,12 @@ test.describe("Edge cases", () => {
       await submit.click().catch(() => undefined);
     }
     const hasInvalid = (await page.locator("[aria-invalid='true']").count()) > 0;
-    const hasAlert = await page.getByRole("alert").first().isVisible().catch(() => false);
+    // Exclude Next.js's __next-route-announcer__ (also role=alert).
+    const hasAlert = await page
+      .locator('[role="alert"]:not(#__next-route-announcer__)')
+      .first()
+      .isVisible()
+      .catch(() => false);
     expect(hasInvalid || hasAlert).toBe(true);
   });
 
@@ -196,7 +208,11 @@ test.describe("Edge cases", () => {
     await page.locator("#login-email").fill("nobody@medcore.local");
     await page.locator("#login-password").fill("wrongpw");
     await page.getByRole("button", { name: /sign in|login/i }).click();
-    const toast = page.getByRole("alert").first();
+    // Exclude Next.js's __next-route-announcer__ (also role=alert) which is
+    // injected on every page and would shadow the actual error toast.
+    const toast = page
+      .locator('[role="alert"]:not(#__next-route-announcer__)')
+      .first();
     if (!(await toast.isVisible({ timeout: 8_000 }).catch(() => false))) {
       test.skip(true, "No toast surfaced — error rendered inline instead");
     }

@@ -46,7 +46,11 @@ test.describe("Auth + public surface", () => {
     await page.getByRole("button", { name: /sign in|login/i }).click();
 
     // Either the inline alert role or a toast appears with error text.
-    const alert = page.getByRole("alert").first();
+    // Exclude Next.js's __next-route-announcer__ (also role=alert) which is
+    // injected on every page and would match unconditionally.
+    const alert = page
+      .locator('[role="alert"]:not(#__next-route-announcer__)')
+      .first();
     await expect(alert).toBeVisible({ timeout: 10_000 });
     await expect(page).toHaveURL(/\/login/);
 

@@ -273,7 +273,11 @@ test.describe("/register — public registration", () => {
     expect(registerRes.status()).toBe(409);
 
     // The page renders an error alert (role="alert") — it must NOT navigate.
-    const alert = page.getByRole("alert").first();
+    // Exclude Next.js's __next-route-announcer__ (also role=alert) which is
+    // injected on every page and would match before the real error alert.
+    const alert = page
+      .locator('[role="alert"]:not(#__next-route-announcer__)')
+      .first();
     await expect(alert).toBeVisible({ timeout: 8_000 });
     await expect(alert).toContainText(/already registered|already exist|email.*taken/i);
     await expect(page).toHaveURL(/\/register/);
@@ -308,7 +312,7 @@ test.describe("/register — public registration", () => {
     // Either a field-level inline error or the global alert must appear.
     const errorVisible = await Promise.race([
       page.getByTestId("error-password").waitFor({ state: "visible", timeout: 8_000 }).then(() => true),
-      page.getByRole("alert").first().waitFor({ state: "visible", timeout: 8_000 }).then(() => true),
+      page.locator('[role="alert"]:not(#__next-route-announcer__)').first().waitFor({ state: "visible", timeout: 8_000 }).then(() => true),
     ]).catch(() => false);
 
     expect(errorVisible).toBe(true);

@@ -421,13 +421,21 @@ export function isFullRun(): boolean {
 /**
  * Assert that the page didn't bounce to the universal Access-Denied surface
  * (`/dashboard/not-authorized`) AND the rendered body doesn't contain a
- * raw "forbidden" / "403" string. Many specs re-implement these two
+ * raw "forbidden" / "403" error phrase. Many specs re-implement these two
  * assertions inline; consolidating here keeps the negative-RBAC checks
  * in lockstep across the suite.
+ *
+ * The regex is anchored to phrase context — bare "/forbidden|403/i" used to
+ * match the literal substring "403" anywhere in body text, including inside
+ * timestamps in seed fixture names (e.g. `OT-E2E-1777840357486`). Now we
+ * only match "Forbidden" as a discrete word and "403" only when adjacent to
+ * an HTTP/Error/status-code prefix or a "Forbidden" suffix.
  */
 export async function expectNotForbidden(page: Page): Promise<void> {
   expect(page.url()).not.toContain("/dashboard/not-authorized");
-  await expect(page.locator("body")).not.toContainText(/forbidden|403/i);
+  await expect(page.locator("body")).not.toContainText(
+    /\bForbidden\b|\b(?:HTTP|Error|status(?:\s+code)?)\s+403\b|\b403\s+Forbidden\b|\bAccess\s+(?:denied|forbidden)\b/i
+  );
 }
 
 // ─── Network stubbing ────────────────────────────────────────────────────

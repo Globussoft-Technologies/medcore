@@ -89,7 +89,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - ~~`/dashboard/pharmacy` — stock levels, reorder, expiry alerts (only landing tested)~~ ✅ deepened (tabs/search/filter coverage; `e2e/pharmacy.spec.ts`)
 - `/dashboard/purchase-orders` — PO list
 - `/dashboard/purchase-orders/[id]` — PO detail / approval
-- `/dashboard/assets` — equipment register
+- ~~`/dashboard/assets` — equipment register~~ ✅ closed (6 tests; `e2e/assets.spec.ts`)
 - ~~`/dashboard/suppliers` — supplier directory~~ ✅ closed (ADMIN/RECEPTION happy paths + search re-fetch + Add-Supplier modal + DOCTOR/PATIENT 403 at GET /suppliers; `e2e/suppliers.spec.ts`)
 - `/dashboard/controlled-substances` — substance log entries (only page-load tested)
 

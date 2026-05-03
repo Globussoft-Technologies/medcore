@@ -92,20 +92,25 @@ test.describe("Wards & Beds — /dashboard/wards (page chrome, ADMIN add-ward, R
     await page.getByRole("button", { name: /add ward/i }).click();
 
     // Modal — page.tsx:374. Heading "Add New Ward" (page.tsx:380) anchors
-    // the modal-open state.
-    await expect(
-      page.getByRole("heading", { name: /add new ward/i })
-    ).toBeVisible({ timeout: 5_000 });
+    // the modal-open state. Scope all input lookups to the modal form so we
+    // do not collide with anything elsewhere on the page.
+    //
+    // The modal's <label>s do NOT carry htmlFor/id linkage (page.tsx:383,394,
+    // 410,420), so Playwright's getByLabel() cannot resolve the inputs. We
+    // mirror the medicines/suppliers fix (commit cdea823) and select inputs
+    // as siblings of their label-text element instead.
+    const modal = page.locator('form:has(h2:text-is("Add New Ward"))');
+    await expect(modal).toBeVisible({ timeout: 10_000 });
 
     const wardName = `E2E Ward ${Date.now()}`;
 
-    // Name field — first input under the modal form. The page does not give
-    // form fields explicit `name=` attributes so target by their label text.
-    await page.getByLabel(/^name$/i).fill(wardName);
-    await page.getByLabel(/^type$/i).selectOption("ICU");
-    await page.getByLabel(/^floor$/i).fill("3");
+    await modal.locator('label:text-is("Name") + input').fill(wardName);
+    await modal
+      .locator('label:text-is("Type") + select')
+      .selectOption("ICU");
+    await modal.locator('label:text-is("Floor") + input').fill("3");
 
-    await page.getByRole("button", { name: /create ward/i }).click();
+    await modal.getByRole("button", { name: /create ward/i }).click();
 
     // Modal closes (heading disappears) and the new ward card lands in the
     // grid. The ward name appears as a card title — page.tsx:270.

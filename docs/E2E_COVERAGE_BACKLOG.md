@@ -118,7 +118,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - `/dashboard/notifications/delivery` — delivery status
 - ~~`/dashboard/broadcasts` — bulk announcement~~ closed 2026-05-03 by `e2e/broadcasts.spec.ts` (7 tests; ADMIN chrome + compose-send + audience picker + empty-form gate + DOCTOR/NURSE/PATIENT bounces)
 - `/dashboard/notification-templates` — template config
-- `/dashboard/complaints` — complaint workflow
+- ~~`/dashboard/complaints` — complaint workflow~~ closed 2026-05-03 by `e2e/complaints.spec.ts` (6 tests; ADMIN chrome + modal + validation toast + tab switch + RECEPTION reach + PATIENT/LAB_TECH 403 on list)
 - `/dashboard/chat` — inter-department messaging
 
 ### 2.6 Analytics & Reporting

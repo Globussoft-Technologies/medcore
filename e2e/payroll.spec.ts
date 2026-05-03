@@ -139,34 +139,31 @@ test.describe("Payroll — /dashboard/payroll (ADMIN salary/payslip/deductions f
     await gotoAuthed(page, "/dashboard/payroll");
     await expectNotForbidden(page);
 
-    // The Slip button uses openPrintEndpoint() which window.open()s the
-    // /hr-ops/payroll/:userId/slip URL with auth as a querystring (see
-    // page.tsx:376-393). Capture the popup so we can assert the
-    // contract without actually rendering the PDF/HTML.
+    // The Slip button calls openPrintEndpoint() (apps/web/src/lib/api.ts:191)
+    // which opens an about:blank popup and then `fetch()`s the slip URL
+    // with the JWT in the Authorization header. The popup itself never
+    // navigates to the slip URL — its document.url() stays about:blank
+    // while the HTML body is written in. So we assert on the network
+    // request the front-end actually fires, not on a popup URL.
     const slipButton = page.locator('[data-testid^="slip-"]').first();
     await expect(slipButton).toBeVisible({ timeout: 15_000 });
 
-    const popupPromise = page.waitForEvent("popup", { timeout: 10_000 }).catch(() => null);
+    // The URL contract: /hr-ops/payroll/{uuid}/slip?month=YYYY-MM&basicSalary=...
+    // Only the GET to that endpoint matters — body content is server-rendered
+    // and out of scope for this assertion.
+    const reqPromise = page.waitForRequest(
+      (req) =>
+        req.method() === "GET" &&
+        /\/hr-ops\/payroll\/[^/]+\/slip\?/.test(req.url()),
+      { timeout: 15_000 }
+    );
     await slipButton.click();
-    const popup = await popupPromise;
+    const req = await reqPromise;
 
-    // Either the popup fires (browser allowed window.open) or the
-    // page navigates inline. In both cases the URL must hit the
-    // payroll/:userId/slip endpoint with the month querystring.
-    const target = popup ?? page;
-    if (popup) {
-      // Wait for popup URL to settle.
-      await target.waitForLoadState("domcontentloaded").catch(() => undefined);
-    }
-    // The URL contract: /hr-ops/payroll/{uuid}/slip?month=YYYY-MM&...
-    // We don't care about the body (it's a server-rendered slip) — we
-    // care that the front-end built the right request.
-    const url = target.url();
+    const url = req.url();
     expect(url).toMatch(/\/hr-ops\/payroll\/[^/]+\/slip\?/);
-    expect(url).toMatch(/month=\d{4}-\d{2}/);
-    expect(url).toMatch(/basicSalary=/);
-
-    if (popup) await popup.close().catch(() => undefined);
+    expect(url).toMatch(/[?&]month=\d{4}-\d{2}(?:&|$)/);
+    expect(url).toMatch(/[?&]basicSalary=/);
   });
 
   test("ADMIN switches to Overtime tab — Overtime panel renders, /hr-ops/overtime fires, Auto-calculate CTA is visible", async ({

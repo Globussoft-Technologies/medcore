@@ -200,13 +200,28 @@ test.describe("Medicines — /dashboard/medicines (ADMIN/DOCTOR/NURSE/PATIENT re
     // Open the modal via the ADMIN-only CTA.
     await page.getByRole("button", { name: /add medicine/i }).click();
 
-    // The form is rendered inline (no data-testid on the modal wrapper —
-    // we anchor on the field labels and the medicine-save submit button).
+    // The Add Medicine modal in page.tsx uses bare <label> elements with no
+    // htmlFor/id association to the inputs (page.tsx:397-404, 460-471), so
+    // Playwright's getByLabel(...) regex match never resolves. Anchor on
+    // the form wrapper (the only <form> on the page — the medicine-save
+    // submit lives in it) and use the adjacent-sibling CSS selector to hop
+    // from each label's text to its sibling input.
+    const modalForm = page.locator('form:has([data-testid="medicine-save"])');
+    await expect(modalForm).toBeVisible({ timeout: 10_000 });
+
     const uniqueTag = `e2e-${Date.now()}`;
     const medName = `E2E Med ${uniqueTag}`;
 
-    await page.getByLabel(/^name$/i).fill(medName);
-    await page.getByLabel(/manufacturer/i).fill(`E2E Pharma ${uniqueTag}`);
+    // `:has-text("Name")` would also match "Generic Name" (substring), so
+    // use Playwright's `:text-is(...)` engine to require the exact label.
+    await modalForm
+      .locator('label:text-is("Name") + input')
+      .first()
+      .fill(medName);
+    await modalForm
+      .locator('label:has-text("Manufacturer") + input')
+      .first()
+      .fill(`E2E Pharma ${uniqueTag}`);
 
     // Submit and wait for the POST round-trip to confirm the create
     // contract didn't drift (server returns 201).

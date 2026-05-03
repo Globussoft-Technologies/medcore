@@ -104,6 +104,40 @@ Currently archived:
 - Anything date-stamped (e.g. `*_2026-MM-DD.md`) belongs under
   `archive/` once the work it describes has shipped.
 - Living references are name-only (no date in the filename) and are
-  updated in place when the underlying behavior changes.
+  updated **in place** when the underlying behavior changes — including
+  when their backlog items get closed. Add a closure-log banner /
+  strikethrough; do **not** archive a living reference just because its
+  open items have all shipped, or the record of progress disappears with
+  it.
 - Per-feature docs live next to the feature code, not here. This
   directory is for cross-cutting / operational references.
+
+## Tests & feature code — describe what you wrote
+
+When adding a test file or a new feature entry-point (route handler,
+service module, top-level component), lead with a short header that
+answers three questions:
+
+1. **What** does it do / assert (the behaviour, not just the symbol name).
+2. **Which modules / surfaces** it touches (route paths, service files,
+   schema tables, RBAC roles).
+3. **Why** — only if the *why* isn't obvious from the code: regulation
+   reference (e.g. "Drugs and Cosmetics Rules 1945 §65"), prior incident,
+   RBAC matrix entry, or a non-obvious invariant.
+
+For Vitest / Playwright, that means the top-level `describe(...)` string
+should read like
+
+```ts
+describe("Pharmacy Rx rejection — POST /pharmacy/prescriptions/:id/reject (PHARMACIST/ADMIN, state-machine guard PENDING-only)", ...)
+```
+
+not just `describe("reject", ...)`. Inner `it(...)` strings are
+behaviour-specific assertions ("rejects with 409 when status is already
+DISPENSED"), not function names.
+
+For new files, a 2-4 line block comment at the top is enough. This is
+the **one override** to the global "default to no comments" rule —
+entry-points get a header so an auditor can skim the directory and tell
+what each file owns. Internal helpers still don't need comments unless
+the *why* is non-obvious.

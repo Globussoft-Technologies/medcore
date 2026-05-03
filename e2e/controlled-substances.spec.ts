@@ -137,9 +137,15 @@ test.describe("Controlled Substance Register — /dashboard/controlled-substance
     ).toBeVisible();
 
     // Medicine filter select renders on every tab (page.tsx:235–247).
-    await expect(
-      page.locator("select").first()
-    ).toBeVisible();
+    // Disambiguate from the dashboard layout's LanguageDropdown <select>
+    // (LanguageDropdown.tsx:58, en/hi options) which is rendered earlier
+    // in the sidebar; scope by the placeholder option that's unique to
+    // this select.
+    const medicineSelect = page.locator(
+      'select:has(option[value=""])'
+    ).filter({ has: page.locator('option', { hasText: /all controlled medicines/i }) });
+    await expect(medicineSelect).toBeVisible({ timeout: 10_000 });
+    await expect(medicineSelect).toBeEnabled({ timeout: 5_000 });
   });
 
   // ── 2. PHARMACIST: Export CSV button present on All Entries tab ───────────
@@ -309,8 +315,16 @@ test.describe("Controlled Substance Register — /dashboard/controlled-substance
       return;
     }
 
-    // Select the seeded medicine by its value attribute.
-    const select = page.locator("select").first();
+    // Select the seeded medicine by its value attribute. Scope to the
+    // medicine filter select via its placeholder option text — the
+    // dashboard layout's LanguageDropdown <select> (LanguageDropdown.tsx:58,
+    // en/hi options) is rendered earlier in the sidebar and would win an
+    // unscoped `.first()` race.
+    const select = page.locator(
+      'select:has(option[value=""])'
+    ).filter({ has: page.locator('option', { hasText: /all controlled medicines/i }) });
+    await expect(select).toBeVisible({ timeout: 10_000 });
+    await expect(select).toBeEnabled({ timeout: 5_000 });
     await select.selectOption({ value: medicineId });
 
     // After selection the prompt disappears and the on-hand summary renders

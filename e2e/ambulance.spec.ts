@@ -216,8 +216,17 @@ test.describe("Ambulance dispatch lifecycle", () => {
 
     // Pick our seeded vehicle by id (the <select> options use
     // ambulance.id as their value — see DispatchModal in
-    // apps/web/src/app/dashboard/ambulance/page.tsx).
-    await modal.locator("select").first().selectOption(ambulance.id);
+    // apps/web/src/app/dashboard/ambulance/page.tsx). Scope by the
+    // "Select available ambulance" placeholder option to disambiguate
+    // from a second <select> (patient picker) that may render in the
+    // same modal once a search is run; a bare `.first()` is also brittle
+    // when patient results pre-populate.
+    const ambulanceSelect = modal.locator(
+      'select:has(option[value=""])'
+    ).filter({ has: page.locator('option', { hasText: /select available ambulance/i }) });
+    await expect(ambulanceSelect).toBeVisible({ timeout: 10_000 });
+    await expect(ambulanceSelect).toBeEnabled({ timeout: 5_000 });
+    await ambulanceSelect.selectOption(ambulance.id);
     await modal
       .getByPlaceholder(/pickup address/i)
       .fill("12, MG Road, Indiranagar, Bengaluru 560038");

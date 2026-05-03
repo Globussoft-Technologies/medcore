@@ -115,7 +115,17 @@ test.describe("Admin operations — daily levers", () => {
     // matching too-broad an ancestor and drilling into page chrome.
     const modal = page.getByTestId("add-shift-modal");
     await expect(modal).toBeVisible({ timeout: 5_000 });
-    await modal.locator("select").first().selectOption(target!.id);
+    // Scope to the Staff <select> via its placeholder option text — within
+    // the modal scope this is already disjoint from the sidebar's
+    // LanguageDropdown <select>, but binding to the placeholder also
+    // disambiguates from the Shift Type <select> rendered later in the
+    // same modal (page.tsx:392-404) and races at mount time.
+    const staffSelect = modal.locator(
+      'select:has(option[value=""])'
+    ).filter({ has: page.locator('option', { hasText: /select staff/i }) });
+    await expect(staffSelect).toBeVisible({ timeout: 10_000 });
+    await expect(staffSelect).toBeEnabled({ timeout: 5_000 });
+    await staffSelect.selectOption(target!.id);
     await modal.locator('input[type="date"]').first().fill(date);
 
     // Submit ("Create" button) inside the modal form.

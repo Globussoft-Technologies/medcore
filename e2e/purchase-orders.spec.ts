@@ -213,10 +213,14 @@ test.describe("Purchase Orders — /dashboard/purchase-orders (PO lifecycle + ap
       page.getByRole("heading", { name: /new purchase order/i }).first()
     ).toBeVisible({ timeout: 8_000 });
 
-    // Supplier select (page.tsx:358–370).
-    await expect(
-      page.locator("select").first()
-    ).toBeVisible();
+    // Supplier select (page.tsx:358–370). Disambiguate from the dashboard
+    // layout's LanguageDropdown <select> (LanguageDropdown.tsx:58, en/hi
+    // options) which is rendered earlier in the sidebar; scope by the
+    // "Select supplier" placeholder option unique to this select.
+    const supplierSelectAssert = page.locator(
+      'select:has(option[value=""])'
+    ).filter({ has: page.locator('option', { hasText: /select supplier/i }) });
+    await expect(supplierSelectAssert).toBeVisible({ timeout: 10_000 });
 
     // Line items table header (page.tsx:397–401).
     await expect(
@@ -261,9 +265,16 @@ test.describe("Purchase Orders — /dashboard/purchase-orders (PO lifecycle + ap
       page.getByRole("heading", { name: /new purchase order/i }).first()
     ).toBeVisible({ timeout: 8_000 });
 
-    // Select the first non-empty option in the Supplier select.
-    const supplierSelect = page.locator("select").first();
-    await expect(supplierSelect).toBeVisible();
+    // Select the first non-empty option in the Supplier select. Scope by
+    // the "Select supplier" placeholder option to disambiguate from the
+    // dashboard sidebar's LanguageDropdown <select> (LanguageDropdown.tsx:58,
+    // en/hi options) which an unscoped `.first()` would match in document
+    // order.
+    const supplierSelect = page.locator(
+      'select:has(option[value=""])'
+    ).filter({ has: page.locator('option', { hasText: /select supplier/i }) });
+    await expect(supplierSelect).toBeVisible({ timeout: 10_000 });
+    await expect(supplierSelect).toBeEnabled({ timeout: 5_000 });
     await supplierSelect.selectOption({ index: 1 }); // index 0 = "Select supplier" placeholder
 
     // Fill Description for the default first line item.

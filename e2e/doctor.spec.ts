@@ -55,10 +55,15 @@ test.describe("Doctor journeys", () => {
 
     // Scope to the rx form via data-testid; an unscoped page.locator("select")
     // would resolve to the sidebar language switcher in document order.
+    // Also exclude the LanguageDropdown by data-testid as belt-and-braces
+    // in case the form ever embeds nested layout children.
     const rxForm = page.getByTestId("rx-new-form");
     if (await rxForm.isVisible().catch(() => false)) {
-      const firstSelect = rxForm.locator("select").first();
+      const firstSelect = rxForm
+        .locator('select:not([data-testid="language-switcher"])')
+        .first();
       if (await firstSelect.isVisible().catch(() => false)) {
+        await expect(firstSelect).toBeEnabled({ timeout: 5_000 });
         const opts = await firstSelect.locator("option").all();
         if (opts.length > 1) {
           const val = await opts[1].getAttribute("value");

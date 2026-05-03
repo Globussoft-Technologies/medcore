@@ -220,14 +220,18 @@ test.describe("Insurance pre-authorization", () => {
     await row.getByRole("button", { name: /update/i }).click();
 
     // Switch the status select inside the Update modal to "Reject".
-    // The select is the first <select> inside the modal form.
+    // Scope by a unique option value ("REJECTED") rather than `.first()`,
+    // which would race the dashboard layout's LanguageDropdown <select>
+    // (LanguageDropdown.tsx:58) if document order ever shifts. The form
+    // filter also keeps us inside the Update modal regardless.
     const reason = "Procedure not covered under selected policy plan.";
-    await page
+    const statusSelect = page
       .locator("form")
       .filter({ hasText: /update\s+pa/i })
-      .locator("select")
-      .first()
-      .selectOption("REJECTED");
+      .locator('select:has(option[value="REJECTED"])');
+    await expect(statusSelect).toBeVisible({ timeout: 10_000 });
+    await expect(statusSelect).toBeEnabled({ timeout: 5_000 });
+    await statusSelect.selectOption("REJECTED");
     await page.getByPlaceholder(/rejection reason/i).fill(reason);
     await page.getByRole("button", { name: /^save$/i }).first().click();
 

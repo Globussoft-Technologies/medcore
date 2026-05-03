@@ -4,23 +4,79 @@ Next-session pickup list. Read this first, work top-to-bottom. Each item
 is independently shippable. Full per-session history lives under
 [`docs/archive/`](docs/archive/).
 
-> Updated: 2026-05-03 (post-doc-sweep + local-runner landings).
-> HEAD on `main` = `84112dc` (`feat(scripts): drop integration tests
-> from default tier; gate behind --with-integration`).
+> Updated: 2026-05-03 (post-Session-1 gap-closure landings).
+> HEAD on `main` = `8302010` (`test(api/ai): unit-test adherence-bot,
+> differential, symptom-diary (gap #7)`).
 > **Open GitHub issues: 0.** **Open PRs: 0.**
-> **Per-push CI**: all gating jobs green. Auto-deploy operating.
-> **release.yml**: fully green on `febe0aa` (run `25257762655` —
-> api / typecheck / web-tests / chromium full e2e / WebKit full e2e).
-> Confirmed green again on `e2ec599` (run `25258173521`).
-> **Audit residuals (§A-§E):** all five closed.
-> **Prior pickup list TODO #1-6:** all closed in the late-evening
-> session — see "What landed 2026-05-02 late-evening (continuation)".
-> **2026-05-03 follow-up landings (post-late-evening):** local test
-> runners (`scripts/run-tests-locally.sh` + `scripts/run-e2e-locally.sh`
-> + `docs/LOCAL_TESTING.md` + `docs/LOCAL_E2E.md`), e2e-explicit-only
-> policy codified (`406023d`), claude.{bat,sh,ps1} status scripts,
-> integration suite gated behind `--with-integration` (`84112dc`),
-> and a comprehensive doc sanity sweep refreshing every `.md`.
+> **Per-push CI**: all 8 gating jobs green on `8302010`. Auto-deploy
+> operating; nightly AI-eval + load-test workflows also green.
+> **release.yml**: fully green on `febe0aa` (run `25257762655`);
+> confirmed green again on `e2ec599` (run `25258173521`).
+> **Audit residuals (§A-§E):** all five closed (2026-05-02).
+> **Prior pickup list TODO #1-6:** all closed in 2026-05-02
+> late-evening — see "What landed 2026-05-02 late-evening (continuation)".
+> **2026-05-03 follow-up landings:**
+> - Local test runners (`scripts/run-tests-locally.sh` +
+>   `scripts/run-e2e-locally.sh` + `LOCAL_TESTING.md` + `LOCAL_E2E.md`).
+> - e2e-explicit-only policy codified (`406023d`).
+> - `claude.{bat,sh,ps1}` status-check scripts.
+> - Integration suite gated behind `--with-integration` (`84112dc`)
+>   because Docker-on-Windows takes 28 min vs Linux's 5 min.
+> - Comprehensive doc sanity sweep (`515227f`).
+> - **Test-gap audit + Session 1 closure (250 new cases):**
+>   `039cc29` (audit doc) + `c36fb23` (5 validation schemas, 152 cases)
+>   + `723b6fc` (insurance-claims service, 68 cases) + `8302010`
+>   (3 AI services, 30 cases). Tracked in
+>   [`docs/TEST_GAPS_2026-05-03.md`](docs/TEST_GAPS_2026-05-03.md).
+
+---
+
+## What landed 2026-05-03 evening (Session 1 gap closure + tooling)
+
+Continuation of the 2026-05-02 late-evening sweep. Two threads:
+**developer tooling** (local test runners, status scripts, opt-in
+integration) and **test-gap closure** (Session 1: 250 new test cases
+across 3 priority gaps from the new audit).
+
+| Commit | What |
+|---|---|
+| `bf798ba` | feat(scripts) — `scripts/run-e2e-locally.sh` mirrors release.yml in ~5 min for local Playwright iteration. |
+| `d4d4c47` | feat(scripts) — `scripts/run-tests-locally.sh` mirrors every per-push CI gate locally. NOT a pre-commit hook — opt-in. |
+| `7057608` → `4ad2ece` | ci(deploy) — added then reverted post-deploy Playwright smoke. User policy: e2e is explicit-invocation only, never auto-runs on deploy. |
+| `406023d` | docs — codify e2e-explicit-invocation-only policy in `TEST_PLAN.md` §3 Layer 5 + `TODO.md` Conventions. |
+| `aaf6251` | chore — add `claude.{bat,sh,ps1}` status-check scripts at repo root. Read-only diagnostic of test runner / Postgres / processes / GitHub Actions. |
+| `1983f01` | ci — tighten web-bundle budget 25 MB → 7 MB (avg 3.56 MB on 8 green runs + 3 MB headroom). |
+| `cc01e36` | test — bump vitest coverage thresholds to current_actual − 2pp (api lines 11% → 24%, web lines 10% → 51%). |
+| `63b0703` | docs — end-of-day handoff `SESSION_SNAPSHOT_2026-05-02-late-evening.md`. |
+| `84112dc` | feat(scripts) — drop integration tests from default tier; gate behind `--with-integration`. Integration is 28 min on Windows + Docker Desktop vs ~5 min on Linux runner. CI is now the natural integration gate. |
+| `515227f` | docs — comprehensive sanity sweep across every living `.md` file. |
+| `039cc29` | docs — `TEST_GAPS_2026-05-03.md` audit identifying top-10 priority gaps for next gap-closer pass. |
+| `c36fb23` | **Session 1 — Gap #6** test(validation) — 5 untested Zod schemas (finance, pharmacy, prescription, phase4-ops, phase4-clinical), 152 cases. |
+| `723b6fc` | **Session 1 — Gap #1** test(api/insurance-claims) — adapters + denial-predictor + store, 68 cases. |
+| `8302010` | **Session 1 — Gap #7** test(api/ai) — adherence-bot + differential + symptom-diary, 30 cases. |
+
+### Validation snapshot
+
+- All 8 deploy-gating jobs green on `8302010` (Test workflow run `25262703486`).
+- Auto-deploy to dev operating; `medcore.globusdemos.com` is on `8302010`.
+- AI eval nightly + load test nightly also green on `8302010`.
+- Integration tests run ~5 min on CI's Linux runner (vs 28 min on Windows
+  locally, which is why we made them opt-in).
+
+### Source bugs flagged but NOT fixed in Session 1
+
+The new tests assert *current* behaviour with TODO comments so the eventual
+fix shows up as a clean diff. These are real code bugs to close in a
+follow-up session:
+
+- `apps/api/src/services/ai/adherence-bot.ts` — `??` (nullish) where `||`
+  (falsy) was likely intended; empty Sarvam response slips through as `""`
+  reminder text to the patient.
+- `apps/api/src/services/insurance-claims/store.ts` — no state-machine guard
+  on `updateStatus`. Any → any transition silently allowed (e.g. DENIED →
+  SUBMITTED).
+- `apps/api/src/services/ai/symptom-diary.ts` — no prescription
+  cross-reference exposed (audit assumed there was one).
 
 ---
 

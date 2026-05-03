@@ -70,6 +70,30 @@ across Chromium + WebKit, and the local-first test workflow.
   **68%** / statements **24%**; web lines **51%** / branches **65%** /
   functions **31%** / statements **51%**. Up from previous
   basement-level 11% / 10%.
+- **Test-gap audit + Session 1 closure (2026-05-03 evening, 250 new
+  test cases).** New audit doc at
+  [`docs/TEST_GAPS_2026-05-03.md`](docs/TEST_GAPS_2026-05-03.md)
+  identifies a top-10 priority queue for upcoming gap-closer passes.
+  Session 1 closed 3 of those gaps:
+  - **Gap #6** (`c36fb23`) — 5 untested Zod schemas in
+    `packages/shared/src/validation/__tests__/`: `finance` (31),
+    `pharmacy` (25), `prescription` (20), `phase4-ops` (38),
+    `phase4-clinical` (38). 152 cases.
+  - **Gap #1** (`723b6fc`) — `apps/api/src/services/insurance-claims/`:
+    `adapters.test.ts` (TPA submit/inquire JSON round-trip; 41),
+    `denial-predictor.test.ts` (risk quantization, LLM-skip threshold;
+    14), `store.test.ts` (createClaim → updateStatus state machine,
+    ClaimStatusEvent audit row; 13). 68 cases. Sarvam + `@medcore/db`
+    mocked.
+  - **Gap #7** (`8302010`) — `apps/api/src/services/ai/`:
+    `adherence-bot.test.ts` (9), `differential.test.ts` (9),
+    `symptom-diary.test.ts` (12). 30 cases.
+
+  Session 1 also surfaced three real source bugs (tests assert *current*
+  behaviour with TODO comments so the fix shows up as a clean diff):
+  `adherence-bot` empty-string nullish-coalesce, `store.ts` missing
+  state-machine guard, `symptom-diary` missing prescription
+  cross-reference. Tracked in `TODO.md` for a follow-up session.
 
 ### Changed
 - **Web-bundle budget tightened** 25 MB → **7 MB** (`1983f01`) based

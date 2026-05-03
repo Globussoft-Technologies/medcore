@@ -110,7 +110,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - ~~`/dashboard/holidays` — holiday calendar~~ — closed 2026-05-03 by `e2e/holidays.spec.ts` (ADMIN calendar mgmt + non-ADMIN bounces)
 - `/dashboard/leave-calendar` — calendar view (approval side covered)
 - `/dashboard/schedule` — staff schedule
-- `/dashboard/doctors` — doctor directory
+- ~~`/dashboard/doctors` — doctor directory~~ closed 2026-05-03 by `e2e/doctors.spec.ts` (6 tests; ADMIN happy/search/modal + DOCTOR/NURSE/PATIENT bounces)
 - `/dashboard/doctors/[id]` — doctor profile/schedule
 
 ### 2.5 Communications

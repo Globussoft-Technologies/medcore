@@ -114,9 +114,9 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - `/dashboard/doctors/[id]` — doctor profile/schedule
 
 ### 2.5 Communications
-- `/dashboard/notifications` — inbox
+- ~~`/dashboard/notifications` — inbox~~ closed 2026-05-03 by `e2e/notifications.spec.ts` (6 tests; ADMIN/PATIENT/NURSE chrome + preferences toggle + LAB_TECH/PHARMACIST direct-URL accessibility)
 - `/dashboard/notifications/delivery` — delivery status
-- `/dashboard/broadcasts` — bulk announcement
+- ~~`/dashboard/broadcasts` — bulk announcement~~ closed 2026-05-03 by `e2e/broadcasts.spec.ts` (7 tests; ADMIN chrome + compose-send + audience picker + empty-form gate + DOCTOR/NURSE/PATIENT bounces)
 - `/dashboard/notification-templates` — template config
 - `/dashboard/complaints` — complaint workflow
 - `/dashboard/chat` — inter-department messaging

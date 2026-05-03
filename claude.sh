@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
-# Quick "is Claude still working?" status check.
-#
-# Run this from any terminal (Git Bash on Windows, or POSIX) at the repo
-# root any time you want to peek at what Claude is doing without touching
-# its terminal. Read-only — never starts/kills processes.
+# Quick "is Claude / the cloud actually working?" status check.
 #
 #   bash claude.sh           # one-shot snapshot
 #   bash claude.sh --watch   # auto-refresh every 5s (Ctrl+C to exit)
 #
-# What it shows:
-#   1. Last 30 lines of the unified test runner's live log
-#      (.test-local/run-full.out) — phase markers + PASS/FAIL per job.
-#   2. Per-job log mtimes — the most-recently-modified file is the job
-#      Claude is actively writing to. If mtimes stop advancing for >2 min,
-#      something is genuinely stuck.
-#   3. Docker test container state (medcore-test-pg on :54322).
-#   4. Top node/vitest/playwright processes by CPU.
+# Six sections:
+#   1. Live tail of the unified test runner's log (.test-local/run-full.out)
+#   2. Per-job log mtimes (newest = the job currently writing)
+#   3. Docker test container state (medcore-test-pg on :54322)
+#   4. Local test-related processes (node / vitest / playwright / next / tsc)
+#   5. Background bash processes (Claude's run_in_background tasks)
+#   6. GitHub Actions runs in flight on this repo (the "cloud agents")
+#
+# What this CAN'T see:
+#   - Claude Code subagents I spawn via the Agent tool: they run only
+#     during my turn and disappear when they report back.
+#   - Anthropic-side scheduled routines: visible only via the schedule
+#     skill or the Anthropic console.
 
 set -uo pipefail
 
@@ -26,17 +27,17 @@ snapshot() {
     echo "=== claude.sh @ $(date '+%H:%M:%S') ==="
     echo
 
-    echo "--- 1. Live test runner output (last 30 lines) ---"
+    echo "--- 1. Live test runner output (last 25 lines) ---"
     if [ -f .test-local/run-full.out ]; then
-        tail -n 30 .test-local/run-full.out
+        tail -n 25 .test-local/run-full.out
     else
-        echo "(no .test-local/run-full.out — no test run in progress)"
+        echo "(no .test-local/run-full.out - no test run in progress)"
     fi
     echo
 
     echo "--- 2. Per-job log mtimes (newest first) ---"
     if compgen -G ".test-local/*.log" >/dev/null 2>&1; then
-        ls -lat .test-local/*.log 2>/dev/null | head -10
+        ls -lat .test-local/*.log 2>/dev/null | head -8
     else
         echo "(no per-job logs)"
     fi
@@ -52,20 +53,45 @@ snapshot() {
     fi
     echo
 
-    echo "--- 4. Test-related processes ---"
+    echo "--- 4. Local test processes (node/vitest/playwright/next/tsc) ---"
     if command -v tasklist >/dev/null 2>&1; then
-        # Windows
         tasklist 2>/dev/null \
             | grep -iE "node\.exe|vitest|playwright|next|tsc" \
-            | head -8 \
+            | head -6 \
             || echo "(no test processes)"
     else
-        # POSIX
         ps -ef 2>/dev/null \
             | grep -E "node|vitest|playwright|next|tsc" \
             | grep -v grep \
-            | head -8 \
+            | head -6 \
             || echo "(no test processes)"
+    fi
+    echo
+
+    echo "--- 5. Background bash processes (Claude's run_in_background) ---"
+    if command -v tasklist >/dev/null 2>&1; then
+        tasklist 2>/dev/null \
+            | grep -iE "bash\.exe" \
+            | head -8 \
+            || echo "(no bash processes)"
+    else
+        ps -ef 2>/dev/null \
+            | grep -E "bash" \
+            | grep -v grep \
+            | head -8 \
+            || echo "(no bash processes)"
+    fi
+    echo
+
+    echo "--- 6. GitHub Actions in flight (cloud agents) ---"
+    if command -v gh >/dev/null 2>&1; then
+        gh run list --repo Globussoft-Technologies/medcore --limit 6 \
+            --json status,conclusion,headSha,workflowName,createdAt \
+            --jq '.[] | "\(.createdAt[11:16]) \(.status | (. + "        ")[0:11]) \(.conclusion // "..." | (. + "        ")[0:9]) \(.headSha[:8])  \(.workflowName)"' \
+            2>/dev/null \
+            || echo "(gh not authenticated or repo unreachable)"
+    else
+        echo "(gh CLI not on PATH)"
     fi
 }
 
@@ -73,7 +99,7 @@ if [ "${1:-}" = "--watch" ] || [ "${1:-}" = "-w" ]; then
     while true; do
         snapshot
         echo
-        echo "(refresh every 5s — Ctrl+C to exit)"
+        echo "(refresh every 5s - Ctrl+C to exit)"
         sleep 5
     done
 else

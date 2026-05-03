@@ -31,7 +31,7 @@ async function hasDataExportModel(): Promise<boolean> {
     const prisma = await getPrisma();
     // Probe the delegate; `prisma.patientDataExport` is added by
     // prisma-client only when the model is in schema.prisma.
-    const delegate = (prisma as any).patientDataExport;
+    const delegate = prisma.patientDataExport;
     if (!delegate || typeof delegate.count !== "function") return false;
     // Try a harmless count to make sure the table exists in the DB too.
     await delegate.count();
@@ -79,7 +79,7 @@ describeIfDB("Patient Data Export API (integration)", () => {
     fileSize?: number;
   }): Promise<any> {
     const prisma = await getPrisma();
-    return (prisma as any).patientDataExport.create({
+    return prisma.patientDataExport.create({
       data: {
         patientId: args.patientId,
         status: args.status ?? "QUEUED",
@@ -95,7 +95,7 @@ describeIfDB("Patient Data Export API (integration)", () => {
     const deadline = Date.now() + timeoutMs;
     let row: any = null;
     while (Date.now() < deadline) {
-      row = await (prisma as any).patientDataExport.findUnique({
+      row = await prisma.patientDataExport.findUnique({
         where: { id: requestId },
       });
       if (row && (row.status === "READY" || row.status === "FAILED")) return row;

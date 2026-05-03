@@ -17,9 +17,10 @@
  * POST /patient-data-export returns `QUEUED` immediately, and uses
  * `runWithTenant` to preserve tenant scoping across the async boundary.
  *
- * NB: Until the `PatientDataExport` migration lands (see
- * `.prisma-models-patient-export.md`) every DB call goes through
- * `(prisma as any).patientDataExport` with `// TODO(cast)` comments.
+ * Backed by the `PatientDataExport` Prisma model — migration shipped in
+ * `20260424000004_prd_closure_models`. Tenant-scoped via
+ * `TENANT_SCOPED_MODELS`, so `prisma.patientDataExport.*` calls
+ * automatically filter by `tenantId`.
  */
 
 import fs from "fs";

@@ -10,9 +10,8 @@
  * URL we hand back in `downloadUrl` can be opened in a browser without an
  * auth header. Signed URLs expire after 1 hour.
  *
- * Until the `PatientDataExport` migration lands (see
- * `.prisma-models-patient-export.md`) all DB writes/reads go through
- * `(prisma as any).patientDataExport` with `// TODO(cast)` comments.
+ * Backed by the `PatientDataExport` Prisma model — migration shipped in
+ * `20260424000004_prd_closure_models`. Tenant-scoped.
  */
 
 import fs from "fs";

@@ -655,6 +655,10 @@ model User {
   // ── PRD closure (2026-04-24) ─────────────────────────────
   medicationIncidentsReported MedicationIncident[] @relation("MedicationIncidentReporter")
 
+  // ── 2026-05-03 migration (witness signature + Rx status) ─────────────
+  controlledSubstanceWitnessing ControlledSubstanceEntry[] @relation("ControlledSubstanceWitness")
+  prescriptionsRejected         Prescription[]              @relation("PrescriptionRejectedBy")
+
   @@index([email])
   @@index([phone])
   @@index([role])
@@ -1019,22 +1023,29 @@ model Consultation {
 // ─── PRESCRIPTIONS ──────────────────────────────────────
 
 model Prescription {
-  id            String    @id @default(uuid())
-  appointmentId String    @unique
-  patientId     String
-  doctorId      String
-  diagnosis     String
-  advice        String?
-  followUpDate  DateTime? @db.Date
-  signatureUrl  String?
-  pdfUrl        String?
-  printed       Boolean   @default(false)
-  printedAt     DateTime?
-  sharedVia     String? // WHATSAPP,EMAIL,SMS (comma-separated)
-  sharedAt      DateTime?
-  copiedFromId  String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id              String             @id @default(uuid())
+  appointmentId   String             @unique
+  patientId       String
+  doctorId        String
+  diagnosis       String
+  advice          String?
+  followUpDate    DateTime?          @db.Date
+  signatureUrl    String?
+  pdfUrl          String?
+  printed         Boolean            @default(false)
+  printedAt       DateTime?
+  sharedVia       String? // WHATSAPP,EMAIL,SMS (comma-separated)
+  sharedAt        DateTime?
+  copiedFromId    String?
+  // Lifecycle state (2026-05-03 migration). Existing rows backfilled to
+  // PENDING. DISPENSED set by pharmacist on full dispense; REJECTED for
+  // pharmacist rejection with a reason; CANCELLED for doctor revocation.
+  status          PrescriptionStatus @default(PENDING)
+  rejectionReason String?
+  rejectedAt      DateTime?
+  rejectedBy      String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
@@ -1042,6 +1053,7 @@ model Prescription {
   appointment       Appointment                @relation(fields: [appointmentId], references: [id])
   patient           Patient                    @relation(fields: [patientId], references: [id])
   doctor            Doctor                     @relation(fields: [doctorId], references: [id])
+  rejectedByUser    User?                      @relation("PrescriptionRejectedBy", fields: [rejectedBy], references: [id], onDelete: SetNull)
   items             PrescriptionItem[]
   controlledEntries ControlledSubstanceEntry[]
 
@@ -1050,7 +1062,16 @@ model Prescription {
 
   @@index([patientId])
   @@index([tenantId])
+  @@index([status])
+  @@index([rejectedBy])
   @@map("prescriptions")
+}
+
+enum PrescriptionStatus {
+  PENDING
+  DISPENSED
+  REJECTED
+  CANCELLED
 }
 
 model PrescriptionItem {
@@ -3632,6 +3653,12 @@ model ControlledSubstanceEntry {
   dispensedAt    DateTime @default(now())
   balance        Int
   notes          String?
+  // Witness co-signing on Schedule-H/H1 dispense (Drugs and Cosmetics
+  // Rules 1945 §65). 2026-05-03 migration. `witnessSignature` is a free-text
+  // capture (printed name + role); `witnessUserId` is the FK if the witness
+  // is a staff member with an account, else null.
+  witnessSignature String?
+  witnessUserId    String?
   createdAt      DateTime @default(now())
 
   tenantId String?
@@ -3642,9 +3669,11 @@ model ControlledSubstanceEntry {
   prescription Prescription? @relation(fields: [prescriptionId], references: [id])
   doctor       Doctor?       @relation(fields: [doctorId], references: [id])
   user         User          @relation(fields: [dispensedBy], references: [id])
+  witness      User?         @relation("ControlledSubstanceWitness", fields: [witnessUserId], references: [id], onDelete: SetNull)
 
   @@index([medicineId, dispensedAt])
   @@index([tenantId])
+  @@index([witnessUserId])
   @@map("controlled_substance_register")
 }
 

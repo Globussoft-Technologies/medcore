@@ -36,6 +36,20 @@ to keep this index focused on living references.
   unit (vitest) → integration (vitest + real Postgres) → component
   (vitest + jsdom + mocked fetch) → e2e (Playwright + real stack).
   Codifies the **e2e-explicit-invocation-only** policy (§3 Layer 5).
+- [`SYSTEM_TEST_PLAN.md`](SYSTEM_TEST_PLAN.md) — companion to TEST_PLAN.
+  Aspect-oriented (auth / clinical-safety / money paths / RBAC / etc.)
+  rather than route-oriented; pairs with `E2E_COVERAGE_BACKLOG.md` to
+  answer "what assertions belong in this spec."
+- [`E2E_COVERAGE_BACKLOG.md`](E2E_COVERAGE_BACKLOG.md) — route-by-route
+  e2e gap list against `apps/web/src/app/**/page.tsx`. Numbers from
+  2026-05-02 — re-verify before picking up an item; the §C work
+  (bloodbank/ambulance/pediatric) plus today's gap-closer pass cleared
+  several entries.
+- [`TEST_COVERAGE_AUDIT.md`](TEST_COVERAGE_AUDIT.md) — non-e2e test
+  inventory + the "test types ABSENT" backlog (Storybook, Pact,
+  property-based, mutation testing, mobile E2E, etc.) for future
+  direction. The Top-10 priority section was closed in the
+  `TEST_GAPS_2026-05-03` pass and is now archived.
 - [`LOCAL_TESTING.md`](LOCAL_TESTING.md) — `scripts/run-tests-locally.sh`,
   the unified runner that mirrors every per-push CI gate from `test.yml`
   in ~5-7 min instead of 25 via Actions. Default tier excludes
@@ -77,10 +91,13 @@ audits that no longer reflect the current repo. Kept for historical
 context only — don't treat anything in `archive/` as canonical.
 
 Currently archived:
-- 8 `SESSION_SNAPSHOT_*` files (2026-04-27 through 2026-05-02 late-evening)
+- 9 `SESSION_SNAPSHOT_*` files (2026-04-27 through 2026-05-03 night)
 - `TODO_2026-04-29.md` (superseded by [`/TODO.md`](../TODO.md) at repo root)
 - `RBAC_AUDIT_2026-04-30.md` (point-in-time RBAC audit; the e2e
   `rbac-matrix.spec.ts` now serves as the live source of truth)
+- `TEST_GAPS_2026-05-03.md` (the gap-closer audit — all 10 priority
+  items + 5 honorable mentions closed, 510+ new tests shipped on
+  2026-05-03; archived for the closure log)
 
 ## Top-level conventions
 

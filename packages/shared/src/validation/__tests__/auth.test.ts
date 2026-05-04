@@ -92,6 +92,70 @@ describe("resetPasswordSchema", () => {
       }).success
     ).toBe(false);
   });
+
+  // Issue #493 (May 2026): the new-password field on /reset-password must
+  // enforce the SAME strongPassword rules as /register and /change-password —
+  // otherwise an attacker can use the reset flow as a back-door to set a
+  // weak password (e.g. "password", "123456", any 6-char string). These
+  // tests pin the contract that the schema (and therefore the route) rejects
+  // weak passwords with a 400 BEFORE the route handler runs, regardless of
+  // whether the email is known.
+  it("rejects newPassword that is too short (<8 chars) (#493)", () => {
+    const r = resetPasswordSchema.safeParse({
+      email: "a@b.com",
+      code: "123456",
+      newPassword: "abc12",
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const msg = r.error.issues.map((i) => i.message).join(" ");
+      expect(msg.toLowerCase()).toMatch(/8 characters|too weak/);
+    }
+  });
+  it("rejects newPassword on the common-password denylist (#493)", () => {
+    // "password" is in the top-100 list — even though it's 8 chars long it
+    // still must fail strongPassword.
+    const r = resetPasswordSchema.safeParse({
+      email: "a@b.com",
+      code: "123456",
+      newPassword: "password",
+    });
+    expect(r.success).toBe(false);
+  });
+  it("rejects newPassword 'password1' (denylisted) (#493)", () => {
+    const r = resetPasswordSchema.safeParse({
+      email: "a@b.com",
+      code: "123456",
+      newPassword: "password1",
+    });
+    expect(r.success).toBe(false);
+  });
+  it("rejects numeric-only newPassword (no letter) (#493)", () => {
+    // 8+ chars but no letter — strongPassword requires letter+digit.
+    const r = resetPasswordSchema.safeParse({
+      email: "a@b.com",
+      code: "123456",
+      newPassword: "98765432",
+    });
+    expect(r.success).toBe(false);
+  });
+  it("rejects letter-only newPassword (no digit) (#493)", () => {
+    const r = resetPasswordSchema.safeParse({
+      email: "a@b.com",
+      code: "123456",
+      newPassword: "onlyletters",
+    });
+    expect(r.success).toBe(false);
+  });
+  it("accepts a strong newPassword (#493)", () => {
+    // Long, mixed letter+digit, NOT on denylist.
+    const r = resetPasswordSchema.safeParse({
+      email: "a@b.com",
+      code: "123456",
+      newPassword: "Br0nzeFalc0n",
+    });
+    expect(r.success).toBe(true);
+  });
 });
 
 // Issue #138 (Apr 2026)

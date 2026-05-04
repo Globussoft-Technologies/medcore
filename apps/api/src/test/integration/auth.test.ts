@@ -334,6 +334,173 @@ describeIfDB("Auth API (integration)", () => {
     const errStr = JSON.stringify(res.body).toLowerCase();
     expect(errStr).toMatch(/age/);
   });
+
+  // ─── Issue #493 (forgot-password + reset-password hardening) ────────────
+  //
+  // Two adversarial vectors closed in this block:
+  //
+  //   1. Anti-enumeration on BOTH the request side (/forgot-password) and
+  //      the submit side (/reset-password). The earlier auth-edges.test.ts
+  //      coverage only checked status==200 for unknown email on the request
+  //      side and never compared the response shapes to a known email. And
+  //      the submit side had no anti-enumeration coverage at all — a junk
+  //      code against a known email vs an unknown email could have leaked
+  //      registration state.
+  //   2. Strong-password rules on the reset-submit endpoint. Pre-#493 the
+  //      reset flow could be used as a back-door to set a weak password
+  //      (e.g. "password", "123456", or any 6-char string) because the
+  //      coverage focused on /register and never pinned the rule on
+  //      /reset-password. We now assert weak passwords return 400 with a
+  //      field-shaped error and a strong password is accepted (and actually
+  //      logs in afterwards).
+  it("does not leak email registration state on /forgot-password (#493)", async () => {
+    // Seed a real account.
+    await request(app).post("/api/v1/auth/register").send({
+      name: "Forgot Real",
+      email: "forgot.real@test.local",
+      phone: "9777777771",
+      password: "MedCoreT3st-2026",
+    });
+
+    const realRes = await request(app).post("/api/v1/auth/forgot-password").send({
+      email: "forgot.real@test.local",
+    });
+    const fakeRes = await request(app).post("/api/v1/auth/forgot-password").send({
+      email: "forgot.absent@test.local",
+    });
+
+    // Status, success flag, and error string MUST be identical.
+    expectAntiEnumeration(realRes, fakeRes, [
+      "status",
+      "body.success",
+      "body.error",
+    ]);
+    expect(realRes.status).toBe(200);
+    expect(fakeRes.status).toBe(200);
+    expect(realRes.body?.success).toBe(true);
+    expect(fakeRes.body?.success).toBe(true);
+    // Even the message string should match, byte for byte — any divergence
+    // here would let an attacker enumerate registered emails.
+    expect(realRes.body?.data?.message).toBe(fakeRes.body?.data?.message);
+  });
+
+  it("does not leak email registration state on /reset-password bad-code path (#493)", async () => {
+    // Seed an account so we have a known email to probe against. We do NOT
+    // request a real reset code — we want to compare the bad-code-vs-known
+    // and bad-code-vs-unknown-email paths.
+    await request(app).post("/api/v1/auth/register").send({
+      name: "Reset Real",
+      email: "reset.real@test.local",
+      phone: "9777777772",
+      password: "MedCoreT3st-2026",
+    });
+
+    const realRes = await request(app).post("/api/v1/auth/reset-password").send({
+      email: "reset.real@test.local",
+      code: "000000",
+      newPassword: "Br0nzeFalc0n",
+    });
+    const fakeRes = await request(app).post("/api/v1/auth/reset-password").send({
+      email: "reset.absent@test.local",
+      code: "000000",
+      newPassword: "Br0nzeFalc0n",
+    });
+
+    expectAntiEnumeration(realRes, fakeRes, [
+      "status",
+      "body.success",
+      "body.error",
+    ]);
+    expect(realRes.status).toBe(400);
+    expect(fakeRes.status).toBe(400);
+    expect(realRes.body?.error).toBe(fakeRes.body?.error);
+  });
+
+  it("rejects weak newPassword on /reset-password (6-char) (#493)", async () => {
+    // 400 from the schema layer — the route handler never runs. Email here
+    // is incidental; the schema fires first.
+    const res = await request(app).post("/api/v1/auth/reset-password").send({
+      email: "anyone@test.local",
+      code: "123456",
+      newPassword: "abc12", // 5 chars — under the 8-char floor
+    });
+    expect(res.status).toBe(400);
+    const errStr = JSON.stringify(res.body).toLowerCase();
+    expect(errStr).toMatch(/password|8 characters|too weak/);
+  });
+
+  it("rejects denylisted newPassword on /reset-password ('password') (#493)", async () => {
+    const res = await request(app).post("/api/v1/auth/reset-password").send({
+      email: "anyone@test.local",
+      code: "123456",
+      newPassword: "password",
+    });
+    expect(res.status).toBe(400);
+    expect(res.body?.success).toBeFalsy();
+  });
+
+  it("rejects classic '123456' newPassword on /reset-password (#493)", async () => {
+    const res = await request(app).post("/api/v1/auth/reset-password").send({
+      email: "anyone@test.local",
+      code: "123456",
+      newPassword: "123456",
+    });
+    expect(res.status).toBe(400);
+    expect(res.body?.success).toBeFalsy();
+  });
+
+  it("accepts a strong newPassword on /reset-password and rotates the password end-to-end (#493)", async () => {
+    // Full flow: register → request reset code → look up code in DB →
+    // submit reset with strong password → log in with the new password.
+    const email = "reset.flow@test.local";
+    const oldPassword = "MedCoreT3st-2026";
+    const newPassword = "Sm0keSign4lDelta"; // letter+digit, 16 chars, not denylisted
+
+    await request(app).post("/api/v1/auth/register").send({
+      name: "Reset Flow",
+      email,
+      phone: "9777777773",
+      password: oldPassword,
+    });
+
+    const fp = await request(app)
+      .post("/api/v1/auth/forgot-password")
+      .send({ email });
+    expect(fp.status).toBe(200);
+
+    // The reset code is persisted in the DB on the known-email branch. Pull
+    // the latest unused code for this user so we can submit it.
+    const { getPrisma } = await import("../setup");
+    const prisma = await getPrisma();
+    const user = await prisma.user.findUnique({ where: { email } });
+    expect(user).toBeTruthy();
+    const codeRow = await prisma.passwordResetCode.findFirst({
+      where: { userId: user.id, usedAt: null },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(codeRow?.code).toMatch(/^\d{6}$/);
+
+    const reset = await request(app).post("/api/v1/auth/reset-password").send({
+      email,
+      code: codeRow!.code,
+      newPassword,
+    });
+    expect(reset.status).toBe(200);
+    expect(reset.body?.success).toBe(true);
+
+    // The old password must no longer log in.
+    const loginOld = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email, password: oldPassword });
+    expect(loginOld.status).toBeGreaterThanOrEqual(400);
+
+    // The new password must log in.
+    const loginNew = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email, password: newPassword });
+    expect(loginNew.status).toBe(200);
+    expect(loginNew.body?.data?.tokens?.accessToken).toBeTruthy();
+  });
 });
 
 // ─── Issue #478 (login rate-limit) ────────────────────────────────────────

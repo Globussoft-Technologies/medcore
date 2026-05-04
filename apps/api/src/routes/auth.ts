@@ -739,6 +739,14 @@ router.post(
 // POST /api/v1/auth/forgot-password
 // Issue #128: dedicated 5/min/IP limiter so a stuck reset flow doesn't burn
 // the shared auth bucket and lock the user out of /login too.
+//
+// Issue #493 (May 2026): anti-enumeration parity. The known-email and
+// unknown-email paths return BYTE-IDENTICAL response envelopes — same status
+// (200), same `success: true`, same `error: null`, same `data.message`
+// string. The only difference is server-side side effects (a real
+// PasswordResetCode row is created on the known-email path), which the
+// caller cannot observe. The `expectAntiEnumeration` helper in
+// security-assertions.ts pins this contract.
 router.post(
   "/forgot-password",
   forgotPasswordLimiter,
@@ -749,7 +757,10 @@ router.post(
 
       const user = await prisma.user.findUnique({ where: { email } });
       if (!user) {
-        // Return success even if user not found to avoid email enumeration
+        // Anti-enumeration (#493): identical envelope to the known-email path
+        // below — same status, same success, same error, same message. Do NOT
+        // diverge this branch even by a whitespace difference; the test in
+        // auth.test.ts compares both bodies via expectAntiEnumeration.
         res.json({
           success: true,
           data: { message: "If that email exists, a reset code has been sent." },
@@ -792,6 +803,21 @@ router.post(
 );
 
 // POST /api/v1/auth/reset-password
+//
+// Issue #493 (May 2026): anti-enumeration parity + strong-password rules.
+//
+//   • Anti-enumeration: the schema's `strongPassword` runs FIRST (via the
+//     `validate(resetPasswordSchema)` middleware), so a weak `newPassword`
+//     still 400's regardless of whether the email is known. Past the schema,
+//     the unknown-email path AND the bad-code path return the SAME envelope:
+//     `{ status: 400, success: false, error: "Invalid or expired reset code" }`.
+//     This means an attacker cannot enumerate registered emails by submitting
+//     a junk code — both branches are indistinguishable to the client. The
+//     `expectAntiEnumeration` helper in security-assertions.ts pins this.
+//   • Strong-password: `resetPasswordSchema.newPassword === strongPassword`
+//     (>= 8 chars, letter+digit, not in the top-100 denylist). Mirrors the
+//     rule already enforced on /auth/register and /auth/change-password —
+//     "password", "123456", and 6-char strings all 400 here.
 router.post(
   "/reset-password",
   validate(resetPasswordSchema),
@@ -801,6 +827,9 @@ router.post(
 
       const user = await prisma.user.findUnique({ where: { email } });
       if (!user) {
+        // Anti-enumeration: same envelope as the bad-code branch below so an
+        // attacker cannot tell "email exists, code wrong" from "email doesn't
+        // exist". See block comment above.
         res.status(400).json({
           success: false,
           data: null,

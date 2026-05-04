@@ -95,6 +95,8 @@ preserves the live state.
 | C4 | `openPrintEndpoint` opens blank popup + fetches | Documented as contract via `3628bf2`. Future tests must `waitForRequest` on the GET URL. |
 | C5 | `/dashboard/expenses` `canAdd` allowed RECEPTION but server is ADMIN-only | `0646b0b` |
 | C6 | `/users` PATCH lived in `patient-extras.ts:396` (discoverability gap) | `9ee446e` — extracted to dedicated `apps/api/src/routes/users.ts`, URLs unchanged |
+| C7 | `/dashboard/telemedicine canRate` UI hides ADMIN, server allows ADMIN — flagged as drift in #459 audit but is **intentional**. Admins must not be able to falsify patient satisfaction scores via the user CTA; server permission stays as a correction back-door for admin tooling. | `75a5ccc` — code comment block added to the page near `canRate`. Future RBAC audits should pin the asymmetry as documented, not "fix" it. |
+| C8 | `/dashboard/medicines` server has internal RBAC asymmetry — POST + PATCH allow ADMIN+DOCTOR, DELETE is ADMIN-only. Client correctly mirrors via `canEdit` / `canDelete`. | Header comment block on `apps/api/src/routes/medicines.ts` near the route registrations. Future RBAC audits should match per-handler, not per-resource. |
 
 ---
 

@@ -135,6 +135,24 @@ function mapMedicineInputToPrisma(
   return out;
 }
 
+// RBAC matrix for the medicine catalog (intentional asymmetry — do
+// NOT collapse to a uniform allowlist):
+//   POST   /api/v1/medicines           ADMIN, DOCTOR    (create — DOCTORs
+//                                                       add formulary entries
+//                                                       on prescribing)
+//   PATCH  /api/v1/medicines/:id       ADMIN, DOCTOR    (correct dosage,
+//                                                       interactions etc.)
+//   DELETE /api/v1/medicines/:id       ADMIN            (remove from catalog
+//                                                       — admin-only audit-
+//                                                       sensitive operation)
+// Client mirror: apps/web/src/app/dashboard/medicines/page.tsx
+//   canEdit   = isAdmin || isDoctor (matches POST + PATCH)
+//   canDelete = isAdmin             (matches DELETE)
+// Issue #459 audit erroneously flagged canEdit as drift > server in
+// 2026-05-05 — false positive; verified via d5a4fef. The asymmetry is
+// deliberate so future RBAC audits should pin to the per-handler list,
+// not assume uniform per-resource roles.
+
 // POST /api/v1/medicines — create medicine
 router.post(
   "/",

@@ -126,3 +126,16 @@ These bundles have been validated in past sessions. Use them as templates:
 - **Don't dispatch with `run_in_background: true` for file-write tasks.** Bash-only tasks ("run this test, report exit code") work in bg; anything that reads source files stalls.
 - **Don't skip the rebase-retry loop.** Concurrent pushes WILL race; the second one fails with "rejected".
 - **Don't let agents `git add -A`.** Concurrent staging will pull other agents' files into a single commit.
+
+## Known artifact: working-tree mutation by concurrent agents
+
+Multiple agents in a fanout share the SAME working tree (no worktree isolation, see above). When agent A writes file X and agent B writes file Y simultaneously, both files coexist in the working tree, but each agent's view-of-the-tree is whatever the shell sampled when it last ran a command. **This means an agent's edits CAN appear to be transiently reverted mid-task** if another agent modifies the same file slice between the first agent's `Read` and `Edit`.
+
+Observed across 3 separate agents in the 2026-05-05 fanouts:
+- Agent saw "expected revert" of edits to its own target file.
+- Recovery pattern (used successfully in commits `d76669d`, `478325e`, `75a5ccc`):
+  1. `git stash push -m "agent-$ID"` to snapshot the agent's intended changes.
+  2. `git checkout 'stash@{0}' -- <agent's target files>` to extract ONLY the agent's intended files from the stash.
+  3. `git commit -m "..." -- <agent's target files>` to commit ONLY those files (the trailing `-- <files>` scopes the commit even if other agents' uncommitted work is in the index).
+
+**This is expected, not a bug** — the cost of skipping worktree isolation. Each agent prompt should include this recovery pattern in its commit instructions when concurrent file overlap is plausible. Agents that own truly non-overlapping file lanes (e.g., 4 different `e2e/<route>.spec.ts` files) won't trigger this and don't need the stash dance.

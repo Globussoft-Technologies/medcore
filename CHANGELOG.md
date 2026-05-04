@@ -12,6 +12,19 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 5 — preauth + packages (5 more real BOLA fixes).**
+  Single-agent sweep on the next 2 long-tail files. `3beeeaf` shipped:
+  preauth `GET /` (PATIENT could list all preauths via `?patientId=`
+  query bypass — now hard-scoped server-side); preauth `GET /:id`
+  (helper); packages `GET /purchases` + `GET /purchases/:id` (helper);
+  and the **most subtle find of the day** — packages catalog
+  `GET /:id` had an eager `include: { purchases: { patient: { user } } }`
+  block exposing up-to-10 purchaser identities (name + phone) to any
+  PATIENT hitting the catalog detail. Eager-include now stripped for
+  PATIENT role, kept for staff. 19 tests. Cron Learnings bullet added
+  to `CLAUDE.md` for the "writes-gated, reads-bare" inverse pattern
+  (3 instances now: pharmacy GETs, med-reconciliation GETs, preauth
+  list — skill-extension candidate after the next confirming cycle).
 - **2026-05-05 cron-driven #511 wave (3-agent fanout) — 13 more real BOLA fixes across 5 route files.**
   First production firing of the post-restart cron with the no-skill-
   edit prompt. `a54606e` patient-data-export (PII export — 2 PATCHED

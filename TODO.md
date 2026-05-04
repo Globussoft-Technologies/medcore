@@ -270,6 +270,28 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > across 19 route files; ~203 new test cases. Long tail down from
 > ~21 to ~16 routes.
 >
+> **2026-05-05 cron-tick wave 5 (single 2-file agent)**: `3beeeaf`
+> preauth + packages — **5 real BOLA fixes**: preauth `GET /` (PATIENT
+> could list all preauths cross-patient via `?patientId=` query
+> bypass; now hard-scoped server-side), preauth `GET /:id` (helper),
+> packages `GET /purchases` + `GET /purchases/:id` (helper), and
+> the **most subtle find**: packages catalog `GET /:id` had an eager
+> `include: { purchases: { patient: { user } } }` block exposing
+> up-to-10 purchaser identities (name + phone) to any PATIENT
+> hitting the catalog detail. Now the include is stripped for
+> PATIENT role and kept for staff. Plus 2 verified-safe + 11 staff-
+> gated annotations. Surprise: packages.ts is MIXED — `HealthPackage`
+> is catalog (no patientId FK), but `PackagePurchase` IS patient-
+> scoped. The catalog leak was the eager-include shape. 19 tests.
+> **Cron Learning bullet added**: "writes-gated, reads-bare" inverse
+> pattern — pharmacy + med-reconciliation last cycle, plus this
+> cycle's preauth `GET /` (writes gated, list bare) makes 3
+> instances. Skill-extension candidate.
+>
+> **Today's running totals across all 5 #511 waves**: **65 real
+> BOLA fixes + 83 verified-safe across 21 route files; ~222 new
+> test cases.** Long tail down from ~16 to ~14 routes.
+>
 > **2026-05-05 #511 BOLA-closure wave (5-agent fanout)**: After filing
 > #511 with 112 candidate handlers, dispatched 5 agents in parallel —
 > one per route-file lane. Results: **19 real BOLA gaps patched + 9

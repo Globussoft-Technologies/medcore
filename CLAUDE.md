@@ -98,7 +98,7 @@ This is the **dump zone for the auto-pilot cron's wave-end learnings**. The cron
 
 ### Open (cron-surfaced; not yet promoted)
 
-_(empty — first cron-driven learning lands here)_
+- 2026-05-05 cron-tick (commits `585b757` + `4f02a2e`): **"writes-gated, reads-bare" inverse pattern** surfaced in 2 route files in a single wave — pharmacy.ts had 4 GET handlers with no `authorize()` while POST/PATCH were gated; med-reconciliation.ts had 3 GETs bare while writes were gated. **Suggested skill extension**: add a Section 4 ("inverse-pattern audit") to `/medcore-bola-sweep` codifying the discovery grep + the pattern-name. Ripe-when-promoted condition: 1 more cycle confirming the pattern persists across files OR a third instance found in this cycle's grep run. Discovery grep candidate: `awk` over each route file, find `router.get(` blocks lacking `authorize()` AND the file as a whole has at least one `authorize()` call elsewhere → flags "selectively-gated" files where reads slipped through.
 
 ### Promoted to skill
 

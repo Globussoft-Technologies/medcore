@@ -328,7 +328,9 @@ describeIfDB("AI Adherence API (integration)", () => {
       .set("Authorization", `Bearer ${intruderToken}`);
 
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/own/i);
+    // 2026-05-04 (issue #511): inline ownership message replaced by canonical
+    // `assertPatientOwnsResource` "Forbidden" envelope — match either.
+    expect(res.body.error).toMatch(/(own|forbidden)/i);
   });
 
   it("returns 404 when unenrolling a non-existent schedule", async () => {
@@ -440,7 +442,9 @@ describeIfDB("AI Adherence API (integration)", () => {
       });
 
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/own/i);
+    // 2026-05-04 (issue #511): inline ownership message replaced by canonical
+    // `assertPatientOwnsResource` "Forbidden" envelope — match either.
+    expect(res.body.error).toMatch(/(own|forbidden)/i);
   });
 
   it("GET /doses returns logs sorted by scheduledAt descending", async () => {

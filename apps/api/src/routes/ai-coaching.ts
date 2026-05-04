@@ -4,6 +4,7 @@ import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
 import { validateUuidParams } from "../middleware/validate-params";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { evaluateThresholds } from "../services/chronic-care-scheduler";
 
 function safeAudit(
@@ -106,27 +107,19 @@ router.post(
 router.get(
   "/plans/:patientId",
   validateUuidParams(["patientId"]),
+  // security(2026-05-04-med): issue #511 BOLA sweep — pre-gate role at the
+  // mount. PATIENT falls through to the per-row owner check below; staff
+  // (ADMIN/DOCTOR/NURSE) pass `assertPatientOwnsResource` unconditionally.
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { patientId } = req.params;
 
-      // security: patient can only view their own plans; clinical staff can
-      // view any
-      const user = req.user!;
-      const isPrivileged =
-        user.role === Role.ADMIN ||
-        user.role === Role.DOCTOR ||
-        user.role === Role.NURSE;
-      if (!isPrivileged) {
-        const patient = await prisma.patient.findUnique({
-          where: { id: patientId },
-          select: { userId: true },
-        });
-        if (!patient || patient.userId !== user.userId) {
-          res.status(403).json({ success: false, data: null, error: "Forbidden" });
-          return;
-        }
-      }
+      // security(2026-05-04-med): issue #511 — canonical per-row ownership
+      // helper. Staff roles (ADMIN/DOCTOR/NURSE) cleared the authorize gate
+      // and short-circuit to true; PATIENT must own the patient row keyed
+      // by `:patientId` or receive a 403.
+      if (!(await assertPatientOwnsResource(req, res, patientId))) return;
 
       const plans = await prisma.chronicCarePlan.findMany({
         where: { patientId, active: true },
@@ -175,15 +168,11 @@ router.post(
         return;
       }
 
-      // Verify caller owns the plan's patient
-      const patient = await prisma.patient.findUnique({
-        where: { id: plan.patientId },
-        select: { userId: true },
-      });
-      if (!patient || patient.userId !== req.user!.userId) {
-        res.status(403).json({ success: false, data: null, error: "Forbidden" });
-        return;
-      }
+      // security(2026-05-04-med): issue #511 — canonical per-row ownership
+      // helper. The route-level `authorize(Role.PATIENT)` ensures only
+      // patients reach this point; the helper then asserts the plan's
+      // patientId resolves to the caller's own user row.
+      if (!(await assertPatientOwnsResource(req, res, plan.patientId))) return;
 
       const thresholds = (plan.thresholds as Record<string, number>) || {};
       const breaches = evaluateThresholds(thresholds, responses);

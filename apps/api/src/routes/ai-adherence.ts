@@ -8,6 +8,7 @@ import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
 import { validateUuidParams } from "../middleware/validate-params";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 
 /**
  * Best-effort audit wrapper: PHI audit writes must never take a GET response
@@ -35,15 +36,18 @@ router.use(authenticate);
  * Enforces that the caller is allowed to act on dose logs for a given
  * schedule. Patients may only touch their own; ADMIN and DOCTOR may touch any.
  *
- * Returns `{ schedule, patient }` on success, or an `error` containing the
- * HTTP status + message that the handler should return verbatim.
+ * Returns `{ schedule }` on success, or `{ ok: false, ... }` with the
+ * HTTP status + message that the handler should return verbatim. The
+ * actual ownership comparison is delegated to `assertPatientOwnsResource`
+ * (issue #511 BOLA sweep) so all per-row checks use the canonical helper.
  */
 type AuthorizeResult =
   | { ok: true; schedule: NonNullable<Awaited<ReturnType<typeof prisma.adherenceSchedule.findUnique>>> }
-  | { ok: false; status: number; message: string };
+  | { ok: false; status: number; message: string; handled?: boolean };
 
 async function authorizeScheduleAccess(
   req: Request,
+  res: Response,
   scheduleId: string
 ): Promise<AuthorizeResult> {
   const schedule = await prisma.adherenceSchedule.findUnique({
@@ -53,22 +57,12 @@ async function authorizeScheduleAccess(
     return { ok: false, status: 404, message: "Schedule not found" };
   }
 
-  const patient = await prisma.patient.findUnique({
-    where: { id: schedule.patientId },
-    select: { userId: true },
-  });
-
-  const user = req.user!;
-  const isOwner = patient?.userId === user.userId;
-  const isPrivileged =
-    user.role === Role.ADMIN || user.role === Role.DOCTOR;
-
-  if (!isOwner && !isPrivileged) {
-    return {
-      ok: false,
-      status: 403,
-      message: "Forbidden: you can only access your own schedule",
-    };
+  // security(2026-05-04-med): issue #511 — delegate per-row ownership to the
+  // canonical helper. On failure the helper writes a 403 envelope to `res`
+  // and returns false; the caller MUST early-return without further
+  // response writes (signalled here by `handled: true`).
+  if (!(await assertPatientOwnsResource(req, res, schedule.patientId))) {
+    return { ok: false, status: 403, message: "Forbidden", handled: true };
   }
 
   return { ok: true, schedule };
@@ -287,30 +281,30 @@ router.get(
   // security(2026-04-23-med): F-ADH-4 — reject non-UUID :patientId up front
   // so a malformed path doesn't reach prisma.findUnique (which returns P2023).
   validateUuidParams(["patientId"]),
+  // security(2026-05-04-med): issue #511 BOLA sweep — restrict non-staff to
+  // ADMIN / DOCTOR only at the role gate. PATIENT callers fall through to
+  // the per-row `assertPatientOwnsResource` check below; everyone else is
+  // 403'd here. NURSE / PHARMACIST / RECEPTIONIST / LAB_TECH / etc are not
+  // expected callers for this endpoint (they use staff-side workflows).
+  authorize(Role.ADMIN, Role.DOCTOR, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { patientId } = req.params;
 
-      // security(2026-04-23): IDOR fix — patients can only read their own
-      // schedules; ADMIN/DOCTOR may read any. Previously any authenticated
-      // user (including another patient) could enumerate schedules by id.
+      // security(2026-05-04-med): issue #511 — use the canonical
+      // `assertPatientOwnsResource` helper so the ownership check is uniform
+      // across the codebase. ADMIN/DOCTOR pass through (already gated above);
+      // PATIENT must own the patient row keyed by `:patientId`.
+      if (!(await assertPatientOwnsResource(req, res, patientId))) return;
+
+      // 404 for staff-callers when the patient row doesn't exist (PATIENT
+      // would have already 403'd inside the helper).
       const patient = await prisma.patient.findUnique({
         where: { id: patientId },
-        select: { userId: true },
+        select: { id: true },
       });
       if (!patient) {
         res.status(404).json({ success: false, data: null, error: "Patient not found" });
-        return;
-      }
-      const user = req.user!;
-      const isOwner = patient.userId === user.userId;
-      const isPrivileged = user.role === Role.ADMIN || user.role === Role.DOCTOR;
-      if (!isOwner && !isPrivileged) {
-        res.status(403).json({
-          success: false,
-          data: null,
-          error: "Forbidden: you can only view your own schedules",
-        });
         return;
       }
 
@@ -337,6 +331,10 @@ router.delete(
   "/:scheduleId",
   // security(2026-04-23-med): F-ADH-4 — reject non-UUID :scheduleId up front.
   validateUuidParams(["scheduleId"]),
+  // security(2026-05-04-med): issue #511 BOLA sweep — pre-gate role at the
+  // mount; per-row ownership is enforced inline once we've resolved the
+  // schedule's owning patient.
+  authorize(Role.ADMIN, Role.DOCTOR, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { scheduleId } = req.params;
@@ -350,25 +348,11 @@ router.delete(
         return;
       }
 
-      // Resolve patient to check ownership
-      const patient = await prisma.patient.findUnique({
-        where: { id: schedule.patientId },
-        select: { userId: true },
-      });
-
-      const user = req.user!;
-      const isOwner = patient?.userId === user.userId;
-      const isPrivileged =
-        user.role === Role.ADMIN || user.role === Role.DOCTOR;
-
-      if (!isOwner && !isPrivileged) {
-        res.status(403).json({
-          success: false,
-          data: null,
-          error: "Forbidden: you can only unenroll your own schedule",
-        });
-        return;
-      }
+      // security(2026-05-04-med): issue #511 — use the canonical
+      // `assertPatientOwnsResource` helper. Schedule keys to a patientId; the
+      // helper looks up patient.userId and matches against req.user.userId
+      // for PATIENT callers (staff pass through unconditionally).
+      if (!(await assertPatientOwnsResource(req, res, schedule.patientId))) return;
 
       const updated = await prisma.adherenceSchedule.update({
         where: { id: scheduleId },
@@ -392,6 +376,9 @@ router.post(
   "/:scheduleId/doses",
   // security(2026-04-23-med): F-ADH-4 — reject non-UUID :scheduleId up front.
   validateUuidParams(["scheduleId"]),
+  // security(2026-05-04-med): issue #511 — pre-gate role at the mount; the
+  // schedule's owning patient is verified inline via authorizeScheduleAccess.
+  authorize(Role.ADMIN, Role.DOCTOR, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { scheduleId } = req.params;
@@ -431,13 +418,15 @@ router.post(
         return;
       }
 
-      const authResult = await authorizeScheduleAccess(req, scheduleId);
+      const authResult = await authorizeScheduleAccess(req, res, scheduleId);
       if (!authResult.ok) {
-        res.status(authResult.status).json({
-          success: false,
-          data: null,
-          error: authResult.message,
-        });
+        if (!authResult.handled) {
+          res.status(authResult.status).json({
+            success: false,
+            data: null,
+            error: authResult.message,
+          });
+        }
         return;
       }
       const { schedule } = authResult;
@@ -496,18 +485,23 @@ router.get(
   "/:scheduleId/doses",
   // security(2026-04-23-med): F-ADH-4 — reject non-UUID :scheduleId up front.
   validateUuidParams(["scheduleId"]),
+  // security(2026-05-04-med): issue #511 — pre-gate role at the mount; the
+  // schedule's owning patient is verified inline via authorizeScheduleAccess.
+  authorize(Role.ADMIN, Role.DOCTOR, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { scheduleId } = req.params;
       const { from, to } = req.query as { from?: string; to?: string };
 
-      const authResult = await authorizeScheduleAccess(req, scheduleId);
+      const authResult = await authorizeScheduleAccess(req, res, scheduleId);
       if (!authResult.ok) {
-        res.status(authResult.status).json({
-          success: false,
-          data: null,
-          error: authResult.message,
-        });
+        if (!authResult.handled) {
+          res.status(authResult.status).json({
+            success: false,
+            data: null,
+            error: authResult.message,
+          });
+        }
         return;
       }
 

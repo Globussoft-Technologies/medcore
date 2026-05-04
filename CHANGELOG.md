@@ -12,6 +12,19 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 17 — E2E coverage backlog (admin-config + clinical schedule + bulk billing).**
+  Lane A (`504c48f`) shipped `workspace.spec.ts` (7 cases — DOCTOR-only
+  personal cockpit; backlog phrasing was aspirational, actual surface
+  is a queue+tasks aggregator) + `certifications.spec.ts` (6 cases —
+  UNIVERSAL-ACCESS, hr-ops API self-scope). Lane B (`8179125`) shipped
+  `billing-patient.spec.ts` (6 cases — REDIRECT-BOUNCE to `/dashboard`
+  per Issue #385 + RECEPTION bulk-payment + bulk-discount flows) +
+  `immunization-schedule.spec.ts` (5 cases — UNIVERSAL-ACCESS + Issue
+  #426 closure-trap regression guard). 24 new tests × 2 projects = 48
+  listed cases. **6th cron-learning bullet updated to 9 instances
+  (8:1 ratio)**: redirect-target `/dashboard` confirmed in 8 pages,
+  `/dashboard/not-authorized` remains 1 (lab-intel). Final §2 backlog
+  tail: tenants/[id]/onboarding + visitors (next cron tick).
 - **2026-05-05 cron-tick wave 16 — E2E coverage backlog (staff scheduling + antenatal clinical).**
   Lane A (`374bba9`) shipped `my-schedule.spec.ts` (5 cases) +
   `calendar.spec.ts` (5 cases) — both UNIVERSAL-ACCESS archetype.

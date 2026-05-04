@@ -316,6 +316,34 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 17 (2-agent E2E fanout — admin-config + clinical schedule + bulk billing)**:
+> 4 specs scaffolded; 4 backlog items closed. Lane A (`504c48f`):
+> `e2e/workspace.spec.ts` (7 cases — DOCTOR-only personal cockpit;
+> backlog phrasing "workspace config (smoke-visited)" was aspirational —
+> the actual surface is a queue+tasks+appointments+recent-Rx aggregator
+> for DOCTOR; redirect-bounce target `/dashboard` per page.tsx:43-46;
+> page has zero data-testid attributes so anchors use heading-text +
+> role) and `e2e/certifications.spec.ts` (6 cases — UNIVERSAL-ACCESS;
+> hr-ops API self-scopes non-ADMIN to `where.userId = req.user.userId`;
+> POST/PATCH/DELETE are admin-gated; staff certification list + filter
+> + RBAC). Lane B (`8179125`): `e2e/billing-patient.spec.ts` (6 cases —
+> REDIRECT-BOUNCE to `/dashboard` per Issue #385 + RECEPTION chrome +
+> bulk-payment modal POST oldest-first + bulk-discount per-row POST +
+> zero-outstanding empty + PATIENT/DOCTOR redirect-bounce) and
+> `e2e/immunization-schedule.spec.ts` (5 cases — UNIVERSAL-ACCESS +
+> 3 filter-chip testids + Issue #426 closure-trap `?filter=overdue`
+> regression guard + NURSE parity + empty-state + PATIENT pin).
+>
+> **24 new E2E tests across 4 spec files** (×2 Playwright projects =
+> 48 listed cases). Backlog §2.3 + §2.9 + §2.12 partially closed;
+> remaining tail: tenants/[id]/onboarding, visitors.
+>
+> **6th cron-learning bullet updated to 9 instances total (8:1 ratio)**:
+> redirect-target `/dashboard` confirmed in 8 pages (added workspace +
+> billing-patient this wave); `/dashboard/not-authorized` remains 1
+> page (lab-intel, Issue #179). Skill-extension recommendation
+> unchanged — grep page.tsx for actual `router.push/replace` target.
+>
 > **2026-05-05 cron-tick wave 16 (2-agent E2E fanout — staff scheduling + antenatal clinical)**:
 > 4 specs scaffolded; 4 backlog items closed. Lane A (`374bba9`):
 > `e2e/my-schedule.spec.ts` (5 cases — DOCTOR/NURSE chrome + grid +

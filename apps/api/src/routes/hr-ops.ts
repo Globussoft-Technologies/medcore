@@ -22,6 +22,17 @@ import { computePayroll } from "../services/payroll";
 const router = Router();
 router.use(authenticate);
 
+// #511 audit (2026-05-05, cron-tick): all handlers verified safe.
+// HR-ops is staff-only by domain (holiday calendar, attendance, payroll,
+// certifications, overtime). Every write handler carries
+// `authorize(Role.ADMIN)`. The few non-admin reads (`/attendance`,
+// `/certifications`, `/overtime`, `/payroll/:userId/slip`) self-scope to
+// `req.user!.userId` (the caller's User row id) when the caller is not
+// ADMIN, with explicit 403 if a non-admin requests a different `userId`.
+// Resources here are User-keyed (StaffShift, StaffCertification,
+// OvertimeRecord) NOT Patient-keyed — assertPatientOwnsResource does not
+// apply. Verdict: VERIFIED-SAFE per /medcore-bola-sweep §B.
+
 function parseDate(s: string): Date {
   return new Date(`${s}T00:00:00.000Z`);
 }

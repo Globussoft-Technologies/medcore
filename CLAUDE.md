@@ -78,3 +78,32 @@ These were surfaced during recent fanout waves and bit multiple agents. Codified
 17. **`durable: true` on `CronCreate` is silently dropped** — crons die when the editor closes. Re-arm at session start (TODO.md banner step 4).
 
 18. **Project-shared `.claude/skills/` is tracked in git** via `.gitignore` exception (`.claude/* + !.claude/skills/`). `.claude/settings.local.json` stays gitignored (per-user). `.claude/settings.json` IS tracked (project-shared allowlist).
+
+19. **`.claude/skills/**` writes ALWAYS prompt the user** on this harness build (Claude Code v2.1.126), even with `permissions.defaultMode: "acceptEdits"` set. This is a deliberate harness boundary — skills define automated behaviors and the harness wants explicit user consent before Claude self-modifies its own instruction set. The escape hatch is the popup's option 2 ("Yes, allow `.claude/skills/<name>/` for all projects") which writes to user-level settings (`~/.claude/settings.json`). For unattended cron operation: **never edit/create skill files**. Capture learnings in CLAUDE.md instead (see "Cron learnings" section below) and let the user convert ripe learnings to skills manually.
+
+---
+
+## Cron learnings (review every 24h)
+
+This is the **dump zone for the auto-pilot cron's wave-end learnings**. The cron runs every 15 min (`3,18,33,48 * * * *`) and may not be at the keyboard to approve `.claude/skills/**` popups. So when the cron's wave-end agent surfaces a learning that *would* warrant a new skill or skill edit, it appends a bullet here instead.
+
+**Reviewer's job (once every ~24h, when the user is at the keyboard):**
+1. Read the bullets below.
+2. Decide which are skill-worthy: ripe pattern, ≥2 instances, codifiable workflow.
+3. Author or extend the skill manually (clicking through the harness popups, which are safe when you're present).
+4. Move the converted bullet to "Promoted to skill: `/medcore-<name>`" with the commit SHA.
+5. Stale bullets (> 7 days, never ripened) get deleted.
+
+**Format for new bullets:** `YYYY-MM-DD HH:MM (commit-SHA): <one-line finding> → <suggested skill name or extension>`
+
+### Open (cron-surfaced; not yet promoted)
+
+_(empty — first cron-driven learning lands here)_
+
+### Promoted to skill
+
+_(empty — populated as bullets above get converted)_
+
+### Stale / dropped
+
+_(empty — populated by the user when learnings don't ripen in 7 days)_

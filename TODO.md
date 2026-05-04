@@ -23,15 +23,15 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
    on this build — crons die when the editor closes). Cron expression:
    `3,18,33,48 * * * *` (every 15 min, jittered off the :00 mark).
    Paste this prompt verbatim (canonical version — last updated
-   2026-05-05 per user direction):
+   2026-05-05 to remove skill-edit step since `.claude/skills/**`
+   writes always pop a popup that requires user presence):
 
    ```
    If you are still in the middle of a wave, please ignore this command and continue with your current tasks.
 
-   If we finished a wave, did we have any learnings from this wave? Can we create a new skill or edit a current skill from the learnings? If yes create/edit the skill and update claude.md with the notes.
+   If we finished a wave, did we have any learnings from this wave? If yes, append them to the "## Cron learnings (review every 24h)" section in CLAUDE.md (at repo root). Do NOT create or edit any skill files under .claude/skills/ — those edits require user presence to approve harness popups, and this cron must run unattended. The user reviews the cron-learnings section every 24h and converts ripe learnings into skills manually.
 
-   Once skills is done ,  please update documentation and todos and then,
-   Please continue with the high priority tasks and close the gaps. Use the skills whereever applicable
+   Once learnings are captured, please update documentation and todos, then continue with the high priority tasks and close the gaps. Use the existing skills wherever applicable (invoking a skill is fine; editing one is not).
    ```
 
 5. **Leave editor open + step away.** The cron will fire every 15 min

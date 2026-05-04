@@ -893,6 +893,7 @@ function VitalsTab({
       {canRecord && (
         <form
           onSubmit={submit}
+          noValidate
           className="rounded-xl bg-white p-6 shadow-sm"
         >
           <h3 className="mb-4 font-semibold">Record Vitals</h3>
@@ -1136,6 +1137,21 @@ function MedicationsTab({
       toast.error("Select a medicine");
       return;
     }
+    // Issue #458 — replace HTML5 `required` constraints with explicit
+    // checks so React error reporting wins the race against the
+    // browser's native popup interception of submit.
+    if (!form.dosage.trim()) {
+      toast.error("Dosage is required");
+      return;
+    }
+    if (!form.frequency.trim()) {
+      toast.error("Frequency is required");
+      return;
+    }
+    if (!form.startDate) {
+      toast.error("Start date is required");
+      return;
+    }
     try {
       await api.post("/medication/orders", {
         admissionId,
@@ -1191,6 +1207,7 @@ function MedicationsTab({
       {showForm && (
         <form
           onSubmit={submit}
+          noValidate
           className="rounded-xl bg-white p-6 shadow-sm"
         >
           <h3 className="mb-4 font-semibold">New Medication Order</h3>
@@ -1241,7 +1258,6 @@ function MedicationsTab({
               <div>
                 <label className="mb-1 block text-sm font-medium">Dosage</label>
                 <input
-                  required
                   placeholder="e.g. 500mg"
                   value={form.dosage}
                   onChange={(e) => setForm({ ...form, dosage: e.target.value })}
@@ -1253,7 +1269,6 @@ function MedicationsTab({
                   Frequency
                 </label>
                 <input
-                  required
                   placeholder="e.g. TID"
                   value={form.frequency}
                   onChange={(e) =>
@@ -1282,7 +1297,6 @@ function MedicationsTab({
                   Start Date
                 </label>
                 <input
-                  required
                   type="date"
                   value={form.startDate}
                   onChange={(e) =>
@@ -1471,6 +1485,12 @@ function RoundsTab({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    // Issue #458 — replace HTML5 `required` with explicit guard so the
+    // React error path beats the browser tooltip.
+    if (!notes.trim()) {
+      toast.error("Round notes are required");
+      return;
+    }
     try {
       await api.post("/nurse-rounds", { admissionId, notes });
       setNotes("");
@@ -1495,10 +1515,13 @@ function RoundsTab({
       )}
 
       {showForm && (
-        <form onSubmit={submit} className="rounded-xl bg-white p-6 shadow-sm">
+        <form
+          onSubmit={submit}
+          noValidate
+          className="rounded-xl bg-white p-6 shadow-sm"
+        >
           <h3 className="mb-3 font-semibold">New Nurse Round</h3>
           <textarea
-            required
             placeholder="Round notes..."
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -1668,7 +1691,11 @@ function LabsTab({
       )}
 
       {showForm && (
-        <form onSubmit={submit} className="rounded-xl bg-white p-6 shadow-sm">
+        <form
+          onSubmit={submit}
+          noValidate
+          className="rounded-xl bg-white p-6 shadow-sm"
+        >
           <h3 className="mb-3 font-semibold">New Lab Order</h3>
           <div className="max-h-64 overflow-y-auto rounded-lg border p-3">
             {Object.keys(grouped).length === 0 ? (
@@ -3179,6 +3206,7 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
       {canRecord && (
         <form
           onSubmit={submit}
+          noValidate
           className="h-fit rounded-xl bg-white p-4 shadow-sm"
         >
           <h3 className="mb-3 text-sm font-semibold">Record I/O</h3>
@@ -3199,18 +3227,22 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
             </div>
             <div>
               <label className="text-xs text-gray-600">Volume (mL) *</label>
+              {/*
+                Issue #458 — drop HTML5 `type="number"`/`min`/`max`/`required`
+                so the React-side `amountError` toast/inline-error wins the
+                race against the browser's native popup. JS validation in
+                `submit` (and the `amountError` derived above) enforces the
+                same 0–10000 mL bounds. `inputMode="numeric"` keeps the
+                mobile numeric keypad UX without pulling in HTML5 validation.
+              */}
               <input
-                type="number"
-                min={IO_MIN_ML}
-                max={IO_MAX_ML}
-                step="1"
+                inputMode="numeric"
                 data-testid="io-amount"
                 aria-invalid={!!amountError}
                 value={form.amountMl}
                 onChange={(e) =>
                   setForm({ ...form, amountMl: e.target.value })
                 }
-                required
                 className={
                   "mt-1 w-full rounded-lg border px-3 py-2 text-sm " +
                   (amountError ? "border-red-400 bg-red-50" : "")

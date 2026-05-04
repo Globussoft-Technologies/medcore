@@ -162,13 +162,13 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - `/dashboard/referrals` — create/accept/reject (page-load only)
 - `/dashboard/calendar` — event creation, drag, conflict detection
 - `/dashboard/my-schedule` — shift claim, unavailability
-- `/dashboard/insurance-claims` — claim submission/appeal/reconciliation (smoke only)
+- ~~`/dashboard/insurance-claims` — claim submission/appeal/reconciliation (smoke only)~~ ✅ closed (7 tests; ADMIN queue chrome + Submit-new/AI-Draft/filter cluster + status-filter `?status=SUBMITTED` query-string pin + row→side-drawer GET `/claims/:id` timeline+documents render + RECEPTION RBAC parity + Submit-new empty-form Issue #302/#458 client-guard (no POST fired) + DOCTOR/PATIENT redirect-bounce-to-/dashboard archetype pin (page.tsx:138, NOT /not-authorized); `e2e/insurance-claims.spec.ts` — full lifecycle/appeal/reconcile deferred until a TPA-stub helper lands, see backlog §5 P8)
 - ~~`/dashboard/blood-bank` and `/dashboard/bloodbank`~~ ✅ flow covered `9843648` (still: verify route dedup; only requisition was touched in OT spec)
 - `/dashboard/operating-theaters` and `/dashboard/operating-theatres` — verify dedup
 - `/dashboard/medication`, `/dashboard/medication-dashboard` — overlap with admissions-mar; clarify scope
 - `/dashboard/lab-intel` — lab-intelligence dashboards (page-load only)
 - `/dashboard/fhir-export` — full export workflow (smoke only)
-- `/dashboard/audit` — audit log filtering (light coverage)
+- ~~`/dashboard/audit` — audit log filtering (light coverage)~~ ✅ closed (7 tests; ADMIN heading+Export-CSV+retention-banner+filter-cluster chrome + entity-filter `?entity=Patient` query-string pin + free-text filter `/audit` → `/audit/search` endpoint switch (page.tsx:146 / Issue #192-adjacent) + empty-state copy + Issue #79 entity canonicalisation (`patient` → `Patient`, `scheduled_report` → `ScheduledReport`) + Issue #192 entityLabel render via `audit-entity-${id}` testid + DOCTOR/PATIENT redirect-bounce-to-/dashboard (page.tsx:120, audit.ts:28 server-side gate); `e2e/audit.spec.ts` — deepens the existing single-case `admin-ops.spec.ts` audit pin)
 - `/dashboard/certifications` — staff certification tracking
 - `/dashboard/immunization-schedule` — vaccination schedule
 - `/dashboard/antenatal`, `/dashboard/antenatal/[id]` — antenatal care

@@ -393,16 +393,21 @@ export default function PrescriptionsPage() {
       for (const issue of parsed.error.issues) {
         const first = issue.path[0];
         if (first === "appointmentId") {
+          // Issue #490: never expose "UUID" to clinicians — when the picker
+          // is empty or holds a malformed value the human-meaningful action
+          // is "pick an appointment", not "fix the UUID format".
           errs.appointmentId =
-            issue.message.includes("uuid") ||
+            issue.message.toLowerCase().includes("uuid") ||
+            issue.message === "Required" ||
             issue.message.toLowerCase().includes("invalid")
-              ? "Appointment ID must be a valid UUID"
+              ? "Please select an appointment"
               : issue.message;
         } else if (first === "patientId") {
           errs.patientId =
-            issue.message.includes("uuid") ||
+            issue.message.toLowerCase().includes("uuid") ||
+            issue.message === "Required" ||
             issue.message.toLowerCase().includes("invalid")
-              ? "Patient ID must be a valid UUID"
+              ? "Please select a patient"
               : issue.message;
         } else if (first === "diagnosis") {
           errs.diagnosis = "Diagnosis is required (ICD-10 recommended)";

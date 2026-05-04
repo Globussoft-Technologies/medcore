@@ -18,6 +18,7 @@ if (process.env.SENTRY_DSN) {
 
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 import fs from "fs";
 import path from "path";
 import { createServer } from "http";
@@ -137,6 +138,35 @@ export function buildApp() {
 
   // Make io accessible to routes
   app.set("io", io);
+
+  // ─── Security headers (#475) ─────────────────────────────────────────────
+  // Mount helmet first so EVERY response — including 4xx/5xx from later
+  // middleware (CORS rejection, rate-limit, auth, validation) — carries the
+  // hardened header set. The API serves JSON only (no inline HTML/JS), so
+  // a strict default-src 'none' CSP is appropriate; any HTML responses
+  // (e.g. /api/v1/public/verify/rx/:id) override CSP per-route if needed.
+  // - x-powered-by disabled to avoid leaking the Express stack identifier.
+  // - HSTS 2y + includeSubDomains + preload — matches modern bank-grade
+  //   posture; only delivered over HTTPS so local http://dev is unaffected.
+  // - frameguard DENY blocks clickjacking; no legitimate consumer of this
+  //   API embeds it in an iframe.
+  app.disable("x-powered-by");
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        useDefaults: false,
+        directives: {
+          defaultSrc: ["'none'"],
+          frameAncestors: ["'none'"],
+        },
+      },
+      hsts: { maxAge: 63072000, includeSubDomains: true, preload: true },
+      frameguard: { action: "deny" },
+      noSniff: true,
+      referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+      crossOriginResourcePolicy: { policy: "same-site" },
+    })
+  );
 
   // Middleware
   app.use(cors({ origin: process.env.CORS_ORIGIN || "http://localhost:3000" }));

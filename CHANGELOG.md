@@ -12,6 +12,21 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 14 — E2E coverage backlog (admin/staff workflows + multi-tenant + clinical).**
+  Lane A (`e9e032a`) shipped `e2e/agent-console.spec.ts` (7 cases —
+  3-pane chrome + Suggest-this-doctor round-trip) + `e2e/workstation
+  .spec.ts` (7 cases — NURSE quick-actions + Record-Vitals deep-link +
+  Issue #432 fallback). Lane B (`d43be97`) shipped `e2e/tenants.spec.ts`
+  (6 cases — ADMIN-only multi-tenant admin) + `e2e/referrals.spec.ts`
+  (7 cases — universal-access with API-side RBAC). 27 new tests × 2
+  projects = 54 listed cases. **6th cron-learning bullet added**:
+  redirect-bounce target convention is `/dashboard`, NOT `/dashboard/
+  not-authorized` — confirmed across 5+ recently-audited pages
+  (agent-console, workstation, tenants, insurance-claims, audit). Skill
+  extension: add redirect-target sub-pattern to the 3-archetype page-
+  shape decision matrix in `/medcore-e2e-spec`. **5th bullet stays at
+  2 instances** — agent-console did not confirm a 3rd admin-gate-
+  placeholder instance (uses redirect-bounce instead).
 - **2026-05-05 cron-tick wave 13 — E2E coverage backlog (AI surfaces + compliance).**
   Lane A (`e8c648d`) shipped `e2e/ai-booking.spec.ts` (5 cases —
   universal-access pre-chat selector page) + `e2e/ai-fraud.spec.ts`

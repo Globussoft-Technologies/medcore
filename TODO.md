@@ -316,6 +316,36 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 14 (2-agent E2E fanout — admin/staff workflows + multi-tenant + clinical)**:
+> 4 backlog items closed across 4 spec files. Lane A (`e9e032a`):
+> `e2e/agent-console.spec.ts` (7 cases — 3-pane chrome (handoffs/chat/
+> co-pilot) + Suggest-this-doctor POST round-trip + composer pre-fill +
+> RECEPTION parity + DOCTOR/PATIENT redirect-bounce + empty-state) +
+> `e2e/workstation.spec.ts` (7 cases — NURSE chrome + 4 quick-action
+> testids + meds-due populated row + Record-Vitals deep-link with
+> CHECKED_IN appointment fallback Issue #432 fix + admissions+ER panels
+> + redirect-bounce). Lane B (`d43be97`): `e2e/tenants.spec.ts` (6 cases
+> — ADMIN chrome + Create modal + filter-cluster pin + RESERVED-subdomain
+> client validation + DOCTOR/PATIENT redirect-bounce; redirect-bounce
+> archetype) + `e2e/referrals.spec.ts` (7 cases — DOCTOR chrome + tab
+> cluster + tab-switch survives + New-Referral modal Issue #10/#458
+> empty-form client-guard + ADMIN no-doctor-tab parity + RECEPTION/PATIENT
+> universal-access pin; UNIVERSAL-ACCESS archetype with API-side RBAC).
+>
+> **27 new E2E tests across 4 spec files** (×2 Playwright projects =
+> 54 listed cases). Backlog §2.4 + §2.8 + §2.11 + §2.12 partially closed.
+>
+> **6th cron-learning bullet added**: redirect-bounce target convention —
+> pages bounce to `/dashboard`, NOT `/dashboard/not-authorized` (the
+> latter is mentioned in CLAUDE.md gotcha #7 but actual practice across
+> 5+ recently-audited pages: agent-console, workstation, tenants,
+> insurance-claims, audit). Skill extension: add redirect-target
+> sub-pattern to the 3-archetype decision matrix. RIPE on 5 instances.
+>
+> **5th bullet (admin-gate-placeholder) stays at 2 instances** —
+> agent-console hypothesis did not confirm; agent-console uses redirect-
+> bounce, not the admin-gate placeholder shape.
+>
 > **2026-05-05 cron-tick wave 13 (2-agent E2E fanout — AI surfaces + compliance)**:
 > 4 backlog items closed across 4 spec files. Lane A (`e8c648d`):
 > `e2e/ai-booking.spec.ts` (5 cases — universal-access; pre-chat

@@ -242,6 +242,9 @@ router.post(
 // GET /api/v1/prescriptions — list prescriptions
 // RBAC (issue #90): RECEPTION must NOT see prescriptions / clinical
 // diagnoses. PATIENT path is enforced inline below.
+// #511 audit: VERIFIED-SAFE — PATIENT branch force-overwrites
+// `where.patientId` with the caller's own Patient.id at L267-272 before the
+// findMany executes, so no per-row helper is needed for the list surface.
 router.get("/", authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PHARMACIST, Role.PATIENT), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { patientId, doctorId, page = "1", limit = "20", search } = req.query;
@@ -351,11 +354,32 @@ router.get(
 
 // GET /api/v1/prescriptions/:id/pdf — render prescription as printable HTML
 // RBAC (issue #90): RECEPTION excluded.
+// Issue #511 (BOLA, expanded criterion): PATIENT is in the authorize() list
+// AND the handler operates on a row keyed by `:id`. Without a per-row owner
+// check PATIENT-A could download PATIENT-B's prescription PDF / HTML — same
+// shape of bug as the original GET /:id (#474). Load the prescription's
+// patientId first, gate via assertPatientOwnsResource, THEN render.
 router.get(
   "/:id/pdf",
   authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PHARMACIST, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // #511 audit: per-row ownership check before delegating to the PDF
+      // service (which fetches by id with no owner gate of its own).
+      const owner = await prisma.prescription.findUnique({
+        where: { id: req.params.id },
+        select: { patientId: true },
+      });
+      if (!owner) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Prescription not found",
+        });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, owner.patientId))) return;
+
       // ?format=pdf -> real server-rendered PDF buffer (application/pdf).
       // Default behavior remains HTML (used by the existing in-browser
       // print-view flow) so this is a backward-compatible addition.
@@ -425,7 +449,7 @@ router.post(
         where: { id: req.params.id },
         select: {
           sharedVia: true,
-          patient: { select: { userId: true } },
+          patientId: true,
         },
       });
       if (!existing) {
@@ -437,20 +461,12 @@ router.post(
         return;
       }
 
-      // Issue #242: owner-or-staff check. PATIENT may only share their own
+      // Issue #242 + #511 audit: PATIENT may only share their own
       // prescription; staff already cleared the authorize() gate above.
-      const user = req.user!;
-      if (
-        user.role === Role.PATIENT &&
-        existing.patient?.userId !== user.userId
-      ) {
-        res.status(403).json({
-          success: false,
-          data: null,
-          error: "Forbidden: you can only share your own prescription",
-        });
-        return;
-      }
+      // Refactored from the previous hand-rolled `userId` comparison onto
+      // the canonical helper for drift-free behaviour with the rest of the
+      // BOLA sweep.
+      if (!(await assertPatientOwnsResource(req, res, existing.patientId))) return;
       const channels = new Set(
         (existing.sharedVia ?? "")
           .split(",")
@@ -674,6 +690,9 @@ router.delete(
 
 // GET /api/v1/prescriptions/:id/leaflets — leaflets for all medicines in prescription
 // RBAC (issue #90): RECEPTION excluded — leaflet payload exposes diagnosis.
+// Issue #511 (BOLA, expanded criterion): PATIENT in authorize() list +
+// row-keyed `:id` and no owner check → PATIENT-A could read PATIENT-B's
+// diagnosis + medicine list. Add per-row ownership gate.
 router.get(
   "/:id/leaflets",
   authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PHARMACIST, Role.PATIENT),
@@ -693,6 +712,10 @@ router.get(
           .json({ success: false, data: null, error: "Prescription not found" });
         return;
       }
+
+      // #511 audit: PATIENT must only see their own leaflet payload (the
+      // payload exposes diagnosis + every medicine, dosage, and instruction).
+      if (!(await assertPatientOwnsResource(req, res, rx.patientId))) return;
       const names = rx.items.map((i) => i.medicineName);
       const meds = await prisma.medicine.findMany({
         where: {

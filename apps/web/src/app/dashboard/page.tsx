@@ -108,12 +108,15 @@ function StatCard({
     <div className="h-full rounded-xl bg-white dark:bg-gray-800 p-5 shadow-sm transition hover:shadow-md">
       <div className="flex items-start justify-between">
         <div className="flex-1">
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+          {/* Issue #505: title + subtitle were `text-gray-500` only —
+              fails WCAG AA on dark mode (2.4:1 on bg-gray-800). Pair
+              with `dark:text-gray-300` so both modes pass. */}
+          <p className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-gray-300">
             {title}
           </p>
           <p className="mt-2 text-2xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
           {subtitle && (
-            <p className="mt-1 text-xs text-gray-500">{subtitle}</p>
+            <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">{subtitle}</p>
           )}
         </div>
         <div className={`rounded-lg p-2.5 ${color}`}>
@@ -599,28 +602,31 @@ export default function DashboardPage() {
                 iconColor="bg-primary"
                 viewAllHref="/dashboard/queue"
               >
+                {/* Issue #505: rows here use tinted backgrounds (bg-*-50) that
+                    swap to gray-800 in dark mode — bare `text-gray-700` was
+                    sub-AA on the dark surface. */}
                 <div className="space-y-2 text-sm">
-                  <div className="flex items-center justify-between rounded-lg bg-blue-50 px-3 py-2">
-                    <span className="text-gray-700">In Queue</span>
-                    <span className="font-bold text-primary">
+                  <div className="flex items-center justify-between rounded-lg bg-blue-50 px-3 py-2 dark:bg-blue-900/30">
+                    <span className="text-gray-800 dark:text-gray-100">In Queue</span>
+                    <span className="font-bold text-primary dark:text-blue-300">
                       {fmt(data.inQueueCount)}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between rounded-lg bg-indigo-50 px-3 py-2">
-                    <span className="text-gray-700">Admitted</span>
-                    <span className="font-bold text-indigo-700">
+                  <div className="flex items-center justify-between rounded-lg bg-indigo-50 px-3 py-2 dark:bg-indigo-900/30">
+                    <span className="text-gray-800 dark:text-gray-100">Admitted</span>
+                    <span className="font-bold text-indigo-700 dark:text-indigo-300">
                       {fmt(data.currentlyAdmitted)}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between rounded-lg bg-purple-50 px-3 py-2">
-                    <span className="text-gray-700">Telemedicine Today</span>
-                    <span className="font-bold text-purple-700">
+                  <div className="flex items-center justify-between rounded-lg bg-purple-50 px-3 py-2 dark:bg-purple-900/30">
+                    <span className="text-gray-800 dark:text-gray-100">Telemedicine Today</span>
+                    <span className="font-bold text-purple-700 dark:text-purple-300">
                       {fmt(data.telemedicineToday)}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between rounded-lg bg-green-50 px-3 py-2">
-                    <span className="text-gray-700">Surgeries Today</span>
-                    <span className="font-bold text-green-700">
+                  <div className="flex items-center justify-between rounded-lg bg-green-50 px-3 py-2 dark:bg-green-900/30">
+                    <span className="text-gray-800 dark:text-gray-100">Surgeries Today</span>
+                    <span className="font-bold text-green-700 dark:text-green-300">
                       {fmt(data.surgeriesScheduledToday)} scheduled,{" "}
                       {fmt(data.surgeriesInProgress)} active
                     </span>
@@ -634,26 +640,31 @@ export default function DashboardPage() {
                 iconColor="bg-teal-600"
                 viewAllHref="/dashboard/lab"
               >
+                {/* Issue #505: panel-row labels were `text-gray-700` only —
+                    fine in light mode (~10.3:1 on white) but on the dark
+                    `bg-gray-800` card they sat at ~3:1 and read as
+                    "barely visible". Pair every label with `dark:text-gray-200`
+                    so both modes clear WCAG AA 4.5:1. */}
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-700">Pending Lab Orders</span>
-                    <span className="font-bold">{fmt(data.pendingLabOrders)}</span>
+                    <span className="text-gray-700 dark:text-gray-200">Pending Lab Orders</span>
+                    <span className="font-bold text-gray-900 dark:text-gray-100">{fmt(data.pendingLabOrders)}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-700">Blood Units Available</span>
-                    <Link href="/dashboard/bloodbank" className="font-bold text-red-600">
+                    <span className="text-gray-700 dark:text-gray-200">Blood Units Available</span>
+                    <Link href="/dashboard/bloodbank" className="font-bold text-red-600 dark:text-red-400">
                       {fmt(data.bloodUnitsAvailable)}
                     </Link>
                   </div>
                   {!!data.bloodUnitsExpiring && (
-                    <div className="mt-1 flex items-center gap-2 rounded-lg bg-red-50 p-2 text-xs text-red-700">
+                    <div className="mt-1 flex items-center gap-2 rounded-lg bg-red-50 p-2 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-200">
                       <AlertTriangle size={14} />
                       {data.bloodUnitsExpiring} blood unit(s) expiring soon
                     </div>
                   )}
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-700">Overdue Immunizations</span>
-                    <Link href="/dashboard/immunization-schedule" className="font-bold text-orange-600">
+                    <span className="text-gray-700 dark:text-gray-200">Overdue Immunizations</span>
+                    <Link href="/dashboard/immunization-schedule" className="font-bold text-orange-600 dark:text-orange-400">
                       {fmt(data.overdueImmunizations)}
                     </Link>
                   </div>
@@ -666,33 +677,34 @@ export default function DashboardPage() {
                 iconColor="bg-amber-600"
                 viewAllHref="/dashboard/pharmacy"
               >
+                {/* Issue #505: same dark-mode contrast fix as Diagnostics. */}
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-700">Low Stock Items</span>
+                    <span className="text-gray-700 dark:text-gray-200">Low Stock Items</span>
                     <Link
                       href="/dashboard/pharmacy"
-                      className={`font-bold ${data.lowStockCount ? "text-red-600" : "text-green-600"}`}
+                      className={`font-bold ${data.lowStockCount ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}
                     >
                       {fmt(data.lowStockCount)}
                     </Link>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-700">Staff On Duty</span>
-                    <Link href="/dashboard/duty-roster" className="font-bold">
+                    <span className="text-gray-700 dark:text-gray-200">Staff On Duty</span>
+                    <Link href="/dashboard/duty-roster" className="font-bold text-gray-900 dark:text-gray-100">
                       {fmt(data.staffOnDuty)}
                     </Link>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-700">Active Visitors</span>
-                    <Link href="/dashboard/visitors" className="font-bold">
+                    <span className="text-gray-700 dark:text-gray-200">Active Visitors</span>
+                    <Link href="/dashboard/visitors" className="font-bold text-gray-900 dark:text-gray-100">
                       {fmt(data.activeVisitors)}
                     </Link>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-700">Open Complaints</span>
+                    <span className="text-gray-700 dark:text-gray-200">Open Complaints</span>
                     <Link
                       href="/dashboard/complaints"
-                      className={`font-bold ${data.openComplaints ? "text-red-600" : "text-green-600"}`}
+                      className={`font-bold ${data.openComplaints ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}
                     >
                       {fmt(data.openComplaints)}
                     </Link>
@@ -908,13 +920,21 @@ function QuickAction({
   icon: React.ElementType;
   label: string;
 }) {
+  // Issue #504: the dashed border + light-tinted icon + `text-gray-700` label
+  // combined to read as "disabled" on the hosted theme — users perceived the
+  // tiles as inactive even though they are functional links. Bumped:
+  //   - border tone to `border-gray-300` (light) / `border-gray-600` (dark)
+  //   - label to `text-gray-900 dark:text-gray-100` for full WCAG AA on both
+  //     `bg-white` (~16:1) and `bg-gray-800` (~14:1).
+  //   - card background to solid white / dark gray-800 so the tile doesn't
+  //     blend into its parent.
   return (
     <Link
       href={href}
-      className="flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-gray-200 p-4 text-center transition hover:border-primary hover:bg-blue-50"
+      className="flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-gray-300 bg-white p-4 text-center transition hover:border-primary hover:bg-blue-50 dark:border-gray-600 dark:bg-gray-800 dark:hover:border-primary dark:hover:bg-blue-900/30"
     >
-      <Icon className="text-primary" size={24} />
-      <span className="text-xs font-medium text-gray-700">{label}</span>
+      <Icon className="text-primary dark:text-blue-300" size={24} aria-hidden="true" />
+      <span className="text-xs font-semibold text-gray-900 dark:text-gray-100">{label}</span>
     </Link>
   );
 }

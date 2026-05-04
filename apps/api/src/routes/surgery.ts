@@ -21,6 +21,7 @@ import {
   ssiReportSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 
@@ -357,6 +358,9 @@ router.get(
         });
         return;
       }
+
+      // Issue #474 (BOLA): PATIENT must only see own surgery rows.
+      if (!(await assertPatientOwnsResource(req, res, surgery.patientId))) return;
 
       res.json({ success: true, data: withStaleFlags(surgery), error: null });
     } catch (err) {

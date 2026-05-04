@@ -25,6 +25,7 @@ import {
   validateNumericLabResult,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { generateLabReportHTML } from "../services/pdf";
@@ -214,6 +215,9 @@ router.get(
           .json({ success: false, data: null, error: "Lab order not found" });
         return;
       }
+
+      // Issue #474 (BOLA): PATIENT must only see own lab orders.
+      if (!(await assertPatientOwnsResource(req, res, order.patientId))) return;
 
       res.json({ success: true, data: order, error: null });
     } catch (err) {

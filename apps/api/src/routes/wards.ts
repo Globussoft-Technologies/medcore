@@ -35,7 +35,10 @@ router.use(authenticate);
 // Return both the flat count fields the UI expects AND the nested `beds`
 // array so BedCell has something to render. Keep `bedStats` for backward
 // compatibility with any internal/CLI callers.
-router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
+//
+// Issue #474 (CWE-285 / OWASP API1:2023 BOLA): ward layout + bed
+// occupancy is operational/clinical data — PATIENT role MUST be denied.
+router.get("/", authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION), async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const wards = await prisma.ward.findMany({
       include: {
@@ -79,8 +82,10 @@ router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
 });
 
 // GET /api/v1/wards/:id — ward detail with all beds
+// Issue #474: same operational-data argument as the list route — PATIENT denied.
 router.get(
   "/:id",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const ward = await prisma.ward.findUnique({

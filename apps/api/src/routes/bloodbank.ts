@@ -507,8 +507,11 @@ function getExpiringUnits<T extends { bloodGroup: string; expiresAt: Date }>(
   return { expiring, byBloodGroup };
 }
 
+// Issue #474 (cited route): blood-bank inventory is operational data —
+// block PATIENT explicitly. Other roles already have implicit access.
 router.get(
   "/inventory/summary",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH),
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
       const units = await prisma.bloodUnit.findMany({

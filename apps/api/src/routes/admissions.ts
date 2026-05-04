@@ -16,6 +16,7 @@ import {
   updateBelongingsSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { generateDischargeSummaryHTML } from "../services/pdf";
@@ -138,6 +139,10 @@ router.get(
         res.status(404).json({ success: false, data: null, error: "Admission not found" });
         return;
       }
+
+      // Issue #474 (BOLA / CWE-285): PATIENT-A must not be able to fetch
+      // PATIENT-B's admission by UUID. Non-PATIENT roles pass through.
+      if (!(await assertPatientOwnsResource(req, res, admission.patientId))) return;
 
       res.json({ success: true, data: admission, error: null });
     } catch (err) {

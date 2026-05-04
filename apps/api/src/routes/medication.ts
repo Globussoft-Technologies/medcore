@@ -163,8 +163,10 @@ router.post(
 );
 
 // GET /api/v1/medication/orders?admissionId=
+// Issue #474: nursing medication orders are operational. Block PATIENT.
 router.get(
   "/orders",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PHARMACIST),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { admissionId } = req.query;
@@ -215,8 +217,10 @@ router.patch(
 );
 
 // GET /api/v1/medication/administrations?admissionId=&date=
+// Issue #474: MAR for an admission is nursing data. Block PATIENT.
 router.get(
   "/administrations",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PHARMACIST),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { admissionId, date } = req.query;
@@ -262,8 +266,10 @@ router.get(
 );
 
 // GET /api/v1/medication/administrations/due — due in next 30 minutes
+// Issue #474 (cited route): nursing medication queue is operational. Block PATIENT.
 router.get(
   "/administrations/due",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PHARMACIST),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { wardId } = req.query;

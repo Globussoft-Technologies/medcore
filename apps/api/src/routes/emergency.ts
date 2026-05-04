@@ -120,7 +120,9 @@ router.post(
 );
 
 // GET /api/v1/emergency/cases — list
-router.get("/cases", async (req: Request, res: Response, next: NextFunction) => {
+// Issue #474: ER cases include MLC numbers, police info, vitals, GCS for
+// every patient in ER — operational/clinical staff only. PATIENT denied.
+router.get("/cases", authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       status,
@@ -173,8 +175,10 @@ router.get("/cases", async (req: Request, res: Response, next: NextFunction) => 
 });
 
 // GET /api/v1/emergency/cases/active — currently in ER
+// Issue #474 (cited route): full PHI for every active ER patient. Block PATIENT.
 router.get(
   "/cases/active",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION),
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
       const cases = await prisma.emergencyCase.findMany({
@@ -193,8 +197,10 @@ router.get(
 );
 
 // GET /api/v1/emergency/stats
+// Issue #474: ER occupancy / triage breakdown is operational. Block PATIENT.
 router.get(
   "/stats",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION),
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
       const active = await prisma.emergencyCase.findMany({
@@ -298,8 +304,10 @@ router.get(
 );
 
 // GET /api/v1/emergency/cases/:id
+// Issue #474: ER detail includes MLC info / police details / vitals — block PATIENT.
 router.get(
   "/cases/:id",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const ecase = await prisma.emergencyCase.findUnique({

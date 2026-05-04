@@ -16,6 +16,7 @@ import {
   prescriptionTemplateSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { validate } from "../middleware/validate";
 import {
   generatePrescriptionPDF,
@@ -337,6 +338,9 @@ router.get(
         });
         return;
       }
+
+      // Issue #474 (BOLA): PATIENT must only see own prescriptions.
+      if (!(await assertPatientOwnsResource(req, res, prescription.patientId))) return;
 
       res.json({ success: true, data: prescription, error: null });
     } catch (err) {

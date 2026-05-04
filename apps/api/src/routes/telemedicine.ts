@@ -20,6 +20,7 @@ import {
   telemedRecordingStopSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { signedJitsiRoomUrl } from "../services/jitsi";
@@ -215,6 +216,10 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
       res.status(404).json({ success: false, data: null, error: "Session not found" });
       return;
     }
+
+    // Issue #474 (BOLA): PATIENT must only see own telemedicine sessions.
+    if (!(await assertPatientOwnsResource(req, res, session.patientId))) return;
+
     res.json({ success: true, data: session, error: null });
   } catch (err) {
     next(err);

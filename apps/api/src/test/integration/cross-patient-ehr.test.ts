@@ -111,7 +111,7 @@ describeIfDB("Cross-patient BOLA — ehr.ts (issue #511)", () => {
     const docA = await prisma.patientDocument.create({
       data: {
         patientId: patientAId,
-        type: "REPORT",
+        type: "LAB_REPORT",
         title: "Doc-A",
         filePath: "uploads/ehr/doc-a.pdf",
         uploadedBy: a.userId,
@@ -120,7 +120,7 @@ describeIfDB("Cross-patient BOLA — ehr.ts (issue #511)", () => {
     const docB = await prisma.patientDocument.create({
       data: {
         patientId: patientBId,
-        type: "REPORT",
+        type: "LAB_REPORT",
         title: "Doc-B",
         filePath: "uploads/ehr/doc-b.pdf",
         uploadedBy: b.userId,

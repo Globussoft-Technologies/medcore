@@ -12,6 +12,20 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 16 — E2E coverage backlog (staff scheduling + antenatal clinical).**
+  Lane A (`374bba9`) shipped `my-schedule.spec.ts` (5 cases) +
+  `calendar.spec.ts` (5 cases) — both UNIVERSAL-ACCESS archetype.
+  Lane B (`71bb3ff`) shipped `antenatal.spec.ts` (6 cases) +
+  `antenatal-id.spec.ts` (5 cases) — both UNIVERSAL-ACCESS archetype
+  with server-side `assertPatientOwnsResource` BOLA gating for
+  /[id]. Notable: 1672-LOC chart-drilldown was tested via
+  `page.route` stubs of `/api/v1/antenatal/cases/:id` to stay
+  deterministic without polluting shared seed. PATIENT BOLA-403
+  pass-through pinned: page sits in "Loading…" rather than
+  crashing/bouncing — graceful UX. 21 new tests × 2 projects = 42
+  listed cases. No new cron-learning bullet — all 4 pages confirmed
+  the UNIVERSAL-ACCESS archetype already documented in CLAUDE.md
+  gotcha #7.
 - **2026-05-05 cron-tick wave 15 — E2E coverage backlog (dedup resolution + clinical/interop).**
   Lane A (`443d3af`) shipped `operating-theatres.spec.ts` (5 cases) +
   `medication-dashboard.spec.ts` (5 cases). **Two backlog dedup questions

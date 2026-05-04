@@ -316,6 +316,37 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 16 (2-agent E2E fanout — staff scheduling + antenatal clinical)**:
+> 4 specs scaffolded; 4 backlog items closed. Lane A (`374bba9`):
+> `e2e/my-schedule.spec.ts` (5 cases — DOCTOR/NURSE chrome + grid +
+> Leaves card + Request-Leave modal structural pin + empty-form
+> client-validation no-POST gate + PATIENT universal-access pin) and
+> `e2e/calendar.spec.ts` (5 cases — ADMIN chrome + 3-tab toggle wiring
+> + view-toggle mount/unmount + month-nav cursor round-trip + DOCTOR
+> parity + PATIENT universal-access asserting Shifts-legend chip
+> absent). Lane B (`71bb3ff`): `e2e/antenatal.spec.ts` (6 cases —
+> DOCTOR full chrome + KPI tiles + Issue #459-RBAC-drift CTA-visible
+> pin for NURSE + tab-flip query-string contract `?isHighRisk=true&
+> delivered=false` + New-ANC-Case modal structural contract using
+> `:has(option[value=""]:has-text("Select Doctor"))` to dodge
+> LanguageDropdown gotcha #9 + PATIENT/RECEPTION universal-access)
+> and `e2e/antenatal-id.spec.ts` (5 cases — DOCTOR header + 4-tab
+> skeleton + ACOG-Risk score-form mount + delivered-fixture conditional
+> surfaces + PATIENT BOLA-403 pass-through (page sits in "Loading…",
+> no crash/bounce) + bad-UUID 404 no-crash). Strategy: all 1672-LOC
+> chart-drilldown cases used `page.route` stubs of `/api/v1/antenatal/
+> cases/:id` to keep deterministic without DB seed pollution.
+>
+> **21 new E2E tests across 4 spec files** (×2 Playwright projects =
+> 42 listed cases). Backlog §2.4 + §2.12 partially closed.
+>
+> **No new cron-learning bullet** — all 4 pages confirmed the
+> UNIVERSAL-ACCESS archetype (3rd of CLAUDE.md gotcha #7's 3 known
+> archetypes), already documented. Notable: antenatal/[id] uses
+> server-side `assertPatientOwnsResource` for BOLA — page sits in
+> "Loading…" for non-owning PATIENT rather than crashing or bouncing,
+> a graceful API-403 pass-through.
+>
 > **2026-05-05 cron-tick wave 15 (2-agent E2E fanout — dedup resolution + clinical/interop)**:
 > 4 specs scaffolded; 6 backlog items + 2 §9 Open Questions resolved.
 > Lane A (`443d3af`): `e2e/operating-theatres.spec.ts` (5 cases) +

@@ -115,9 +115,9 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 
 ### 2.5 Communications
 - ~~`/dashboard/notifications` — inbox~~ closed 2026-05-03 by `e2e/notifications.spec.ts` (6 tests; ADMIN/PATIENT/NURSE chrome + preferences toggle + LAB_TECH/PHARMACIST direct-URL accessibility)
-- `/dashboard/notifications/delivery` — delivery status
+- ~~`/dashboard/notifications/delivery` — delivery status~~ ✅ closed (7 tests; `e2e/notifications-delivery.spec.ts` — ADMIN heading + GET /delivery contract + 4 filter inputs + status=FAILED filter wiring + Refresh re-fetch + READ+PUSH empty/settled state + DOCTOR/NURSE/PATIENT bounces)
 - ~~`/dashboard/broadcasts` — bulk announcement~~ closed 2026-05-03 by `e2e/broadcasts.spec.ts` (7 tests; ADMIN chrome + compose-send + audience picker + empty-form gate + DOCTOR/NURSE/PATIENT bounces)
-- `/dashboard/notification-templates` — template config
+- ~~`/dashboard/notification-templates` — template config~~ ✅ closed (7 tests; `e2e/notification-templates.spec.ts` — ADMIN matrix + 13 type rows + 4 channel headers + Add/Edit modal pre-fill + EMAIL Subject conditional + POST/PUT save round-trip + DOCTOR/NURSE/PATIENT bounces)
 - ~~`/dashboard/complaints` — complaint workflow~~ closed 2026-05-03 by `e2e/complaints.spec.ts` (6 tests; ADMIN chrome + modal + validation toast + tab switch + RECEPTION reach + PATIENT/LAB_TECH 403 on list)
 - ~~`/dashboard/chat` — inter-department messaging~~ closed 2026-05-04 by `e2e/chat.spec.ts` (7 tests; ADMIN inbox+picker+send round-trip + DOCTOR/RECEPTION sidebar reach + PATIENT/LAB_TECH direct-URL accessibility — page has no client-side role gate, only the staff filter on `/chat/users`)
 

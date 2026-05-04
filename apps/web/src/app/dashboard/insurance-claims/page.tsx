@@ -252,8 +252,9 @@ export default function InsuranceClaimsPage() {
       {/* Filters */}
       <div className="mb-4 grid gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm md:grid-cols-4 dark:border-gray-800 dark:bg-gray-900">
         <div>
-          <label className="text-xs text-gray-500">Status</label>
+          <label htmlFor="claims-filter-status" className="text-xs text-gray-500">Status</label>
           <select
+            id="claims-filter-status"
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
             className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
@@ -266,8 +267,9 @@ export default function InsuranceClaimsPage() {
           </select>
         </div>
         <div>
-          <label className="text-xs text-gray-500">TPA</label>
+          <label htmlFor="claims-filter-tpa" className="text-xs text-gray-500">TPA</label>
           <select
+            id="claims-filter-tpa"
             value={filterTpa}
             onChange={(e) => setFilterTpa(e.target.value)}
             className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
@@ -281,8 +283,9 @@ export default function InsuranceClaimsPage() {
           </select>
         </div>
         <div>
-          <label className="text-xs text-gray-500">From</label>
+          <label htmlFor="claims-filter-from" className="text-xs text-gray-500">From</label>
           <input
+            id="claims-filter-from"
             type="date"
             value={filterFrom}
             onChange={(e) => setFilterFrom(e.target.value)}
@@ -290,8 +293,9 @@ export default function InsuranceClaimsPage() {
           />
         </div>
         <div>
-          <label className="text-xs text-gray-500">To</label>
+          <label htmlFor="claims-filter-to" className="text-xs text-gray-500">To</label>
           <input
+            id="claims-filter-to"
             type="date"
             value={filterTo}
             onChange={(e) => setFilterTo(e.target.value)}
@@ -818,8 +822,9 @@ function NewClaimModal({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium">TPA</label>
+            <label htmlFor="claim-tpa" className="block text-sm font-medium">TPA</label>
             <select
+              id="claim-tpa"
               value={tpa}
               onChange={(e) => setTpa(e.target.value)}
               data-testid="claim-tpa-select"
@@ -841,10 +846,11 @@ function NewClaimModal({
               The Insurer DB table is not yet populated, so we hardcode for
               now in `packages/shared/constants.ts`. */}
           <div>
-            <label className="block text-sm font-medium">
+            <label htmlFor="claim-insurer" className="block text-sm font-medium">
               Insurer <span className="text-red-500">*</span>
             </label>
             <select
+              id="claim-insurer"
               value={insurer}
               onChange={(e) => setInsurer(e.target.value)}
               data-testid="claim-insurer-select"
@@ -863,10 +869,11 @@ function NewClaimModal({
               type free text (the API field stays a `String`); when an ICD
               row is picked we additionally send `icd10Codes: [code]`. */}
           <div className="relative">
-            <label className="block text-sm font-medium">
+            <label htmlFor="claim-diagnosis" className="block text-sm font-medium">
               Diagnosis <span className="text-red-500">*</span>
             </label>
             <input
+              id="claim-diagnosis"
               type="text"
               value={diagnosis}
               onChange={(e) => {
@@ -976,10 +983,12 @@ function Input({
   type?: string;
   required?: boolean;
 }) {
+  const inputId = `claim-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
   return (
     <div>
-      <label className="block text-sm font-medium">{label}</label>
+      <label htmlFor={inputId} className="block text-sm font-medium">{label}</label>
       <input
+        id={inputId}
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}

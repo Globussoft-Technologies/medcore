@@ -721,8 +721,9 @@ function PlanDetailModal({
             </div>
 
             <div className="mt-2 flex items-center gap-2 text-sm">
-              <label>Pay mode:</label>
+              <label htmlFor="plan-pay-mode">Pay mode:</label>
               <select
+                id="plan-pay-mode"
                 value={mode}
                 onChange={(e) => setMode(e.target.value)}
                 className="rounded border px-2 py-1 text-sm"

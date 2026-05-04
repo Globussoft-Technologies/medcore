@@ -484,18 +484,20 @@ function ReceiveGrnModal({
 
         <div className="mb-3 grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1 block text-xs text-gray-600">
+            <label htmlFor="grn-supplier-invoice" className="mb-1 block text-xs text-gray-600">
               Supplier Invoice #
             </label>
             <input
+              id="grn-supplier-invoice"
               value={invoiceNumber}
               onChange={(e) => setInvoiceNumber(e.target.value)}
               className="w-full rounded border px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-gray-600">Notes</label>
+            <label htmlFor="grn-notes" className="mb-1 block text-xs text-gray-600">Notes</label>
             <input
+              id="grn-notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="w-full rounded border px-3 py-2 text-sm"

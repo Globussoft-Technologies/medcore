@@ -101,8 +101,9 @@ export default function RefundsPage() {
       {/* Filter */}
       <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl bg-white p-4 shadow-sm">
         <div>
-          <label className="mb-1 block text-xs text-gray-500">From</label>
+          <label htmlFor="refunds-from" className="mb-1 block text-xs text-gray-500">From</label>
           <input
+            id="refunds-from"
             type="date"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
@@ -110,8 +111,9 @@ export default function RefundsPage() {
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs text-gray-500">To</label>
+          <label htmlFor="refunds-to" className="mb-1 block text-xs text-gray-500">To</label>
           <input
+            id="refunds-to"
             type="date"
             value={to}
             onChange={(e) => setTo(e.target.value)}

@@ -743,8 +743,9 @@ export default function BillingPage() {
             </h2>
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-xs text-gray-500">Amount (Rs.)</label>
+                <label htmlFor="bill-pay-amount" className="mb-1 block text-xs text-gray-500">Amount (Rs.)</label>
                 <input
+                  id="bill-pay-amount"
                   type="number"
                   step="0.01"
                   min="0.01"
@@ -755,8 +756,9 @@ export default function BillingPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs text-gray-500">Mode</label>
+                <label htmlFor="bill-pay-mode" className="mb-1 block text-xs text-gray-500">Mode</label>
                 <select
+                  id="bill-pay-mode"
                   value={payMode}
                   onChange={(e) => setPayMode(e.target.value)}
                   className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -800,8 +802,9 @@ export default function BillingPage() {
             </h2>
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-xs text-gray-500">Amount (Rs.)</label>
+                <label htmlFor="bill-refund-amount" className="mb-1 block text-xs text-gray-500">Amount (Rs.)</label>
                 <input
+                  id="bill-refund-amount"
                   type="number"
                   step="0.01"
                   min="0.01"
@@ -812,8 +815,9 @@ export default function BillingPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs text-gray-500">Mode</label>
+                <label htmlFor="bill-refund-mode" className="mb-1 block text-xs text-gray-500">Mode</label>
                 <select
+                  id="bill-refund-mode"
                   value={refundMode}
                   onChange={(e) => setRefundMode(e.target.value)}
                   className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -826,8 +830,9 @@ export default function BillingPage() {
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-xs text-gray-500">Reason</label>
+                <label htmlFor="bill-refund-reason" className="mb-1 block text-xs text-gray-500">Reason</label>
                 <textarea
+                  id="bill-refund-reason"
                   value={refundReason}
                   onChange={(e) => setRefundReason(e.target.value)}
                   className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -894,10 +899,11 @@ export default function BillingPage() {
                 </button>
               </div>
               <div>
-                <label className="mb-1 block text-xs text-gray-500">
+                <label htmlFor="bill-disc-value" className="mb-1 block text-xs text-gray-500">
                   {discType === "percentage" ? "Percentage (%)" : "Flat Amount (Rs.)"}
                 </label>
                 <input
+                  id="bill-disc-value"
                   type="number"
                   step="0.01"
                   min="0"
@@ -908,8 +914,9 @@ export default function BillingPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs text-gray-500">Reason</label>
+                <label htmlFor="bill-disc-reason" className="mb-1 block text-xs text-gray-500">Reason</label>
                 <textarea
+                  id="bill-disc-reason"
                   value={discReason}
                   onChange={(e) => setDiscReason(e.target.value)}
                   className="w-full rounded-lg border px-3 py-2 text-sm"

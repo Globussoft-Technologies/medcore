@@ -583,8 +583,9 @@ function AddAssetModal({
           />
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-gray-600">Purchase Date</label>
+              <label htmlFor="add-asset-purchase-date" className="text-xs text-gray-600">Purchase Date</label>
               <input
+                id="add-asset-purchase-date"
                 type="date"
                 className="w-full rounded border p-2"
                 value={form.purchaseDate}
@@ -594,8 +595,9 @@ function AddAssetModal({
               />
             </div>
             <div>
-              <label className="text-xs text-gray-600">Cost (₹)</label>
+              <label htmlFor="add-asset-purchase-cost" className="text-xs text-gray-600">Cost (₹)</label>
               <input
+                id="add-asset-purchase-cost"
                 type="number"
                 className="w-full rounded border p-2"
                 value={form.purchaseCost}
@@ -607,8 +609,9 @@ function AddAssetModal({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-gray-600">Warranty Expiry</label>
+              <label htmlFor="add-asset-warranty-expiry" className="text-xs text-gray-600">Warranty Expiry</label>
               <input
+                id="add-asset-warranty-expiry"
                 type="date"
                 className="w-full rounded border p-2"
                 value={form.warrantyExpiry}
@@ -618,8 +621,9 @@ function AddAssetModal({
               />
             </div>
             <div>
-              <label className="text-xs text-gray-600">AMC Expiry</label>
+              <label htmlFor="add-asset-amc-expiry" className="text-xs text-gray-600">AMC Expiry</label>
               <input
+                id="add-asset-amc-expiry"
                 type="date"
                 className="w-full rounded border p-2"
                 value={form.amcExpiryDate}
@@ -837,8 +841,9 @@ function MaintenanceModal({
             onChange={(e) => setDescription(e.target.value)}
           />
           <div>
-            <label className="text-xs text-gray-600">Next due date</label>
+            <label htmlFor="maintenance-next-due-date" className="text-xs text-gray-600">Next due date</label>
             <input
+              id="maintenance-next-due-date"
               type="date"
               className="w-full rounded border p-2"
               value={nextDueDate}

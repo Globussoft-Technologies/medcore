@@ -483,8 +483,9 @@ function SupplierContractPanel({
         <div className="space-y-2">
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-xs text-gray-500">Start</label>
+              <label htmlFor={`supplier-${supplier.id}-contract-start`} className="text-xs text-gray-500">Start</label>
               <input
+                id={`supplier-${supplier.id}-contract-start`}
                 type="date"
                 value={start}
                 onChange={(e) => setStart(e.target.value)}
@@ -492,8 +493,9 @@ function SupplierContractPanel({
               />
             </div>
             <div>
-              <label className="text-xs text-gray-500">End</label>
+              <label htmlFor={`supplier-${supplier.id}-contract-end`} className="text-xs text-gray-500">End</label>
               <input
+                id={`supplier-${supplier.id}-contract-end`}
                 type="date"
                 value={end}
                 onChange={(e) => setEnd(e.target.value)}

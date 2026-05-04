@@ -452,30 +452,33 @@ export default function VisitorsPage() {
             <h3 className="mb-4 text-lg font-semibold">Check In Visitor</h3>
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="visitor-name" className="mb-1 block text-xs font-medium text-gray-600">
                   Name *
                 </label>
                 <input
+                  id="visitor-name"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   className="w-full rounded-lg border px-3 py-2 text-sm"
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="visitor-phone" className="mb-1 block text-xs font-medium text-gray-600">
                   Phone
                 </label>
                 <input
+                  id="visitor-phone"
                   value={form.phone}
                   onChange={(e) => setForm({ ...form, phone: e.target.value })}
                   className="w-full rounded-lg border px-3 py-2 text-sm"
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="visitor-id-type" className="mb-1 block text-xs font-medium text-gray-600">
                   ID Type
                 </label>
                 <select
+                  id="visitor-id-type"
                   value={form.idProofType}
                   onChange={(e) =>
                     setForm({ ...form, idProofType: e.target.value })
@@ -490,10 +493,11 @@ export default function VisitorsPage() {
                 </select>
               </div>
               <div className="col-span-2">
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="visitor-id-number" className="mb-1 block text-xs font-medium text-gray-600">
                   ID Number
                 </label>
                 <input
+                  id="visitor-id-number"
                   value={form.idProofNumber}
                   onChange={(e) =>
                     setForm({ ...form, idProofNumber: e.target.value })
@@ -502,10 +506,11 @@ export default function VisitorsPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="visitor-purpose" className="mb-1 block text-xs font-medium text-gray-600">
                   Purpose
                 </label>
                 <select
+                  id="visitor-purpose"
                   value={form.purpose}
                   onChange={(e) => setForm({ ...form, purpose: e.target.value })}
                   className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -518,10 +523,11 @@ export default function VisitorsPage() {
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="visitor-department" className="mb-1 block text-xs font-medium text-gray-600">
                   Department
                 </label>
                 <input
+                  id="visitor-department"
                   value={form.department}
                   onChange={(e) =>
                     setForm({ ...form, department: e.target.value })
@@ -530,10 +536,11 @@ export default function VisitorsPage() {
                 />
               </div>
               <div className="col-span-2">
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="visitor-patient-id" className="mb-1 block text-xs font-medium text-gray-600">
                   Patient ID (optional)
                 </label>
                 <input
+                  id="visitor-patient-id"
                   value={form.patientId}
                   onChange={(e) =>
                     setForm({ ...form, patientId: e.target.value })
@@ -543,10 +550,11 @@ export default function VisitorsPage() {
                 />
               </div>
               <div className="col-span-2">
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="visitor-notes" className="mb-1 block text-xs font-medium text-gray-600">
                   Notes
                 </label>
                 <textarea
+                  id="visitor-notes"
                   value={form.notes}
                   onChange={(e) => setForm({ ...form, notes: e.target.value })}
                   rows={2}
@@ -554,11 +562,11 @@ export default function VisitorsPage() {
                 />
               </div>
 
-              {/* Photo capture */}
+              {/* Photo capture: Photo label is informational (no associated single field) */}
               <div className="col-span-2">
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <span className="mb-1 block text-xs font-medium text-gray-600">
                   Photo
-                </label>
+                </span>
                 {cameraOpen ? (
                   <div className="flex flex-col items-center gap-2 rounded-lg border bg-gray-50 p-3">
                     <video

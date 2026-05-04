@@ -217,8 +217,9 @@ export default function ExpensesPage() {
 
       <div className="mb-4 flex flex-wrap gap-3">
         <div>
-          <label className="mb-1 block text-xs text-gray-500">From</label>
+          <label htmlFor="expenses-filter-from" className="mb-1 block text-xs text-gray-500">From</label>
           <input
+            id="expenses-filter-from"
             type="date"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
@@ -226,8 +227,9 @@ export default function ExpensesPage() {
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs text-gray-500">To</label>
+          <label htmlFor="expenses-filter-to" className="mb-1 block text-xs text-gray-500">To</label>
           <input
+            id="expenses-filter-to"
             type="date"
             value={to}
             onChange={(e) => setTo(e.target.value)}
@@ -235,8 +237,9 @@ export default function ExpensesPage() {
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs text-gray-500">Category</label>
+          <label htmlFor="expenses-filter-category" className="mb-1 block text-xs text-gray-500">Category</label>
           <select
+            id="expenses-filter-category"
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
             className="rounded-lg border px-3 py-2 text-sm"

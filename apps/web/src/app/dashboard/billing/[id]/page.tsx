@@ -951,10 +951,11 @@ export default function InvoiceDetailPage() {
                 </button>
               </div>
               <div>
-                <label className="mb-1 block text-xs text-gray-500">
+                <label htmlFor="invoice-disc-value" className="mb-1 block text-xs text-gray-500">
                   {discType === "percentage" ? "Percentage (%)" : "Flat Amount (Rs.)"}
                 </label>
                 <input
+                  id="invoice-disc-value"
                   type="number"
                   min="0"
                   step="0.01"
@@ -965,8 +966,9 @@ export default function InvoiceDetailPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs text-gray-500">Reason</label>
+                <label htmlFor="invoice-disc-reason" className="mb-1 block text-xs text-gray-500">Reason</label>
                 <textarea
+                  id="invoice-disc-reason"
                   value={discReason}
                   onChange={(e) => setDiscReason(e.target.value)}
                   className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -1000,8 +1002,9 @@ export default function InvoiceDetailPage() {
             <h2 className="mb-4 text-lg font-bold">Record Payment</h2>
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-xs text-gray-500">Amount (Rs.)</label>
+                <label htmlFor="invoice-payment-amount" className="mb-1 block text-xs text-gray-500">Amount (Rs.)</label>
                 <input
+                  id="invoice-payment-amount"
                   type="number"
                   min="0.01"
                   step="0.01"
@@ -1032,8 +1035,9 @@ export default function InvoiceDetailPage() {
                 )}
               </div>
               <div>
-                <label className="mb-1 block text-xs text-gray-500">Mode</label>
+                <label htmlFor="invoice-payment-mode" className="mb-1 block text-xs text-gray-500">Mode</label>
                 <select
+                  id="invoice-payment-mode"
                   value={payMode}
                   onChange={(e) => setPayMode(e.target.value)}
                   data-testid="payment-mode"
@@ -1084,8 +1088,9 @@ export default function InvoiceDetailPage() {
             <h2 className="mb-4 text-lg font-bold">Issue Refund</h2>
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-xs text-gray-500">Amount (Rs.)</label>
+                <label htmlFor="invoice-refund-amount" className="mb-1 block text-xs text-gray-500">Amount (Rs.)</label>
                 <input
+                  id="invoice-refund-amount"
                   type="number"
                   min="0.01"
                   step="0.01"
@@ -1096,8 +1101,9 @@ export default function InvoiceDetailPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs text-gray-500">Mode</label>
+                <label htmlFor="invoice-refund-mode" className="mb-1 block text-xs text-gray-500">Mode</label>
                 <select
+                  id="invoice-refund-mode"
                   value={refundMode}
                   onChange={(e) => setRefundMode(e.target.value)}
                   className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -1110,8 +1116,9 @@ export default function InvoiceDetailPage() {
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-xs text-gray-500">Reason</label>
+                <label htmlFor="invoice-refund-reason" className="mb-1 block text-xs text-gray-500">Reason</label>
                 <textarea
+                  id="invoice-refund-reason"
                   value={refundReason}
                   onChange={(e) => setRefundReason(e.target.value)}
                   className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -1219,10 +1226,11 @@ function CreatePlanModal({
             Outstanding balance: {fmtMoney(balance)}
           </p>
           <div>
-            <label className="mb-1 block text-xs text-gray-500">
+            <label htmlFor="create-plan-down-payment" className="mb-1 block text-xs text-gray-500">
               Down Payment
             </label>
             <input
+              id="create-plan-down-payment"
               type="number"
               step="0.01"
               value={downPayment}
@@ -1231,11 +1239,12 @@ function CreatePlanModal({
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-gray-500">
+            <label htmlFor="create-plan-installments" className="mb-1 block text-xs text-gray-500">
               Installments
             </label>
             {/* TODO(A4): add React-side validation for installments range (2-60) */}
             <input
+              id="create-plan-installments"
               type="number"
               value={installments}
               onChange={(e) => setInstallments(e.target.value)}
@@ -1243,8 +1252,9 @@ function CreatePlanModal({
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-gray-500">Frequency</label>
+            <label htmlFor="create-plan-frequency" className="mb-1 block text-xs text-gray-500">Frequency</label>
             <select
+              id="create-plan-frequency"
               value={frequency}
               onChange={(e) => setFrequency(e.target.value)}
               className="w-full rounded border px-3 py-2"
@@ -1255,11 +1265,12 @@ function CreatePlanModal({
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-gray-500">
+            <label htmlFor="create-plan-start-date" className="mb-1 block text-xs text-gray-500">
               Start Date
             </label>
             {/* TODO(A4): add React-side validation for startDate presence */}
             <input
+              id="create-plan-start-date"
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}

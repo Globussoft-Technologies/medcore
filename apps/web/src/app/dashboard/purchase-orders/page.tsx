@@ -401,8 +401,9 @@ function NewPOModal({
         <form onSubmit={handleSubmit} noValidate className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-sm font-medium">Supplier *</label>
+              <label htmlFor="po-supplier" className="mb-1 block text-sm font-medium">Supplier *</label>
               <select
+                id="po-supplier"
                 value={supplierId}
                 onChange={(e) => setSupplierId(e.target.value)}
                 className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -416,8 +417,9 @@ function NewPOModal({
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">Expected Date</label>
+              <label htmlFor="po-expected-date" className="mb-1 block text-sm font-medium">Expected Date</label>
               <input
+                id="po-expected-date"
                 type="date"
                 value={expectedAt}
                 onChange={(e) => setExpectedAt(e.target.value)}
@@ -515,8 +517,9 @@ function NewPOModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-sm font-medium">Tax %</label>
+              <label htmlFor="po-tax-percentage" className="mb-1 block text-sm font-medium">Tax %</label>
               <input
+                id="po-tax-percentage"
                 type="number"
                 step="0.01"
                 value={taxPercentage}
@@ -541,8 +544,9 @@ function NewPOModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium">Notes</label>
+            <label htmlFor="po-notes" className="mb-1 block text-sm font-medium">Notes</label>
             <textarea
+              id="po-notes"
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}

@@ -231,8 +231,9 @@ export default function ControlledSubstancesPage() {
       {/* Filters */}
       <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border bg-white p-4">
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600">Medicine</label>
+          <label htmlFor="cs-filter-medicine" className="mb-1 block text-xs font-medium text-gray-600">Medicine</label>
           <select
+            id="cs-filter-medicine"
             className="rounded border px-3 py-1.5 text-sm"
             value={medicineFilter}
             onChange={(e) => setMedicineFilter(e.target.value)}
@@ -248,8 +249,9 @@ export default function ControlledSubstancesPage() {
         {tab !== "register" && (
           <>
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">From</label>
+              <label htmlFor="cs-filter-from" className="mb-1 block text-xs font-medium text-gray-600">From</label>
               <input
+                id="cs-filter-from"
                 type="date"
                 className="rounded border px-3 py-1.5 text-sm"
                 value={from}
@@ -257,8 +259,9 @@ export default function ControlledSubstancesPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">To</label>
+              <label htmlFor="cs-filter-to" className="mb-1 block text-xs font-medium text-gray-600">To</label>
               <input
+                id="cs-filter-to"
                 type="date"
                 className="rounded border px-3 py-1.5 text-sm"
                 value={to}

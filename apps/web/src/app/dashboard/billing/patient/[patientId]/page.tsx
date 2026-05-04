@@ -364,10 +364,11 @@ export default function PatientBillingPage() {
             </p>
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-xs text-gray-500">
+                <label htmlFor="bulk-pay-amount" className="mb-1 block text-xs text-gray-500">
                   Amount (Rs.)
                 </label>
                 <input
+                  id="bulk-pay-amount"
                   type="number"
                   min="0.01"
                   step="0.01"
@@ -378,8 +379,9 @@ export default function PatientBillingPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs text-gray-500">Mode</label>
+                <label htmlFor="bulk-pay-mode" className="mb-1 block text-xs text-gray-500">Mode</label>
                 <select
+                  id="bulk-pay-mode"
                   value={bulkMode}
                   onChange={(e) => setBulkMode(e.target.value)}
                   className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -444,10 +446,11 @@ export default function PatientBillingPage() {
                 </button>
               </div>
               <div>
-                <label className="mb-1 block text-xs text-gray-500">
+                <label htmlFor="bulk-disc-value" className="mb-1 block text-xs text-gray-500">
                   {discType === "percentage" ? "Percentage (%)" : "Flat (Rs.)"}
                 </label>
                 <input
+                  id="bulk-disc-value"
                   type="number"
                   min="0"
                   step="0.01"
@@ -458,8 +461,9 @@ export default function PatientBillingPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs text-gray-500">Reason</label>
+                <label htmlFor="bulk-disc-reason" className="mb-1 block text-xs text-gray-500">Reason</label>
                 <textarea
+                  id="bulk-disc-reason"
                   value={discReason}
                   onChange={(e) => setDiscReason(e.target.value)}
                   className="w-full rounded-lg border px-3 py-2 text-sm"

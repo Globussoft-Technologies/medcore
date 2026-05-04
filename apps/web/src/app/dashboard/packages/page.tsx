@@ -410,16 +410,18 @@ function AddPackageModal({
         </div>
         <form onSubmit={handleSubmit} noValidate className="space-y-3">
           <div>
-            <label className="mb-1 block text-sm font-medium">Name *</label>
+            <label htmlFor="add-package-name" className="mb-1 block text-sm font-medium">Name *</label>
             <input
+              id="add-package-name"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               className="w-full rounded-lg border px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Category</label>
+            <label htmlFor="add-package-category" className="mb-1 block text-sm font-medium">Category</label>
             <select
+              id="add-package-category"
               value={form.category}
               onChange={(e) => setForm({ ...form, category: e.target.value })}
               className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -433,8 +435,9 @@ function AddPackageModal({
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Description</label>
+            <label htmlFor="add-package-description" className="mb-1 block text-sm font-medium">Description</label>
             <textarea
+              id="add-package-description"
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               rows={2}
@@ -442,8 +445,9 @@ function AddPackageModal({
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Services (comma-separated) *</label>
+            <label htmlFor="add-package-services" className="mb-1 block text-sm font-medium">Services (comma-separated) *</label>
             <textarea
+              id="add-package-services"
               value={form.services}
               onChange={(e) => setForm({ ...form, services: e.target.value })}
               rows={3}
@@ -453,8 +457,9 @@ function AddPackageModal({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-sm font-medium">Price *</label>
+              <label htmlFor="add-package-price" className="mb-1 block text-sm font-medium">Price *</label>
               <input
+                id="add-package-price"
                 type="number"
                 step="0.01"
                 value={form.price}
@@ -463,8 +468,9 @@ function AddPackageModal({
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">Discount Price</label>
+              <label htmlFor="add-package-discount-price" className="mb-1 block text-sm font-medium">Discount Price</label>
               <input
+                id="add-package-discount-price"
                 type="number"
                 step="0.01"
                 value={form.discountPrice}
@@ -474,8 +480,9 @@ function AddPackageModal({
             </div>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Validity (days)</label>
+            <label htmlFor="add-package-validity-days" className="mb-1 block text-sm font-medium">Validity (days)</label>
             <input
+              id="add-package-validity-days"
               type="number"
               value={form.validityDays}
               onChange={(e) => setForm({ ...form, validityDays: e.target.value })}
@@ -594,8 +601,9 @@ function SellPackageModal({
         </div>
         <form onSubmit={handleSubmit} noValidate className="space-y-3">
           <div>
-            <label className="mb-1 block text-sm font-medium">Package *</label>
+            <label htmlFor="sell-package-package" className="mb-1 block text-sm font-medium">Package *</label>
             <select
+              id="sell-package-package"
               value={packageId}
               onChange={(e) => setPackageId(e.target.value)}
               className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -659,8 +667,9 @@ function SellPackageModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium">Amount Paid *</label>
+            <label htmlFor="sell-package-amount-paid" className="mb-1 block text-sm font-medium">Amount Paid *</label>
             <input
+              id="sell-package-amount-paid"
               type="number"
               step="0.01"
               value={amountPaid}

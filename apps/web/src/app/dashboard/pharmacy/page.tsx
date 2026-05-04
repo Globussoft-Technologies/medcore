@@ -478,8 +478,9 @@ export default function PharmacyPage() {
         ) : tab === "valuation" ? (
           <div>
             <div className="flex items-center gap-3 border-b px-4 py-3">
-              <label className="text-sm text-gray-600">Method:</label>
+              <label htmlFor="pharmacy-valuation-method" className="text-sm text-gray-600">Method:</label>
               <select
+                id="pharmacy-valuation-method"
                 value={valuationMethod}
                 onChange={(e) => setValuationMethod(e.target.value)}
                 className="rounded border px-2 py-1 text-sm"
@@ -1056,7 +1057,7 @@ function AddStockModal({
 
         <div className="space-y-3">
           <div>
-            <label className="mb-1 block text-sm font-medium">
+            <label htmlFor="add-stock-medicine-search" className="mb-1 block text-sm font-medium">
               Medicine <span className="text-red-600">*</span>
             </label>
             {selectedMed ? (
@@ -1075,6 +1076,7 @@ function AddStockModal({
             ) : (
               <>
                 <input
+                  id="add-stock-medicine-search"
                   placeholder="Search medicines"
                   value={medSearch}
                   onChange={(e) => setMedSearch(e.target.value)}
@@ -1120,8 +1122,9 @@ function AddStockModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-sm font-medium">Batch #</label>
+              <label htmlFor="add-stock-batch" className="mb-1 block text-sm font-medium">Batch #</label>
               <input
+                id="add-stock-batch"
                 value={form.batchNumber}
                 data-testid="add-stock-batch"
                 onChange={(e) =>
@@ -1144,8 +1147,9 @@ function AddStockModal({
               )}
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">Quantity</label>
+              <label htmlFor="add-stock-quantity" className="mb-1 block text-sm font-medium">Quantity</label>
               <input
+                id="add-stock-quantity"
                 type="number"
                 /* Issue #96 + #458: minimum-of-1 rule is enforced in the
                    `submit()` handler via `setFieldErrors`. The HTML5 `min`
@@ -1171,8 +1175,9 @@ function AddStockModal({
               )}
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">Unit Cost</label>
+              <label htmlFor="add-stock-unit-cost" className="mb-1 block text-sm font-medium">Unit Cost</label>
               <input
+                id="add-stock-unit-cost"
                 type="number"
                 /* Issue #96 + #458: > 0 enforced in `submit()`; HTML5 `min`
                    removed to avoid racing the React-side error. */
@@ -1197,10 +1202,11 @@ function AddStockModal({
               )}
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">
+              <label htmlFor="add-stock-selling-price" className="mb-1 block text-sm font-medium">
                 Selling Price
               </label>
               <input
+                id="add-stock-selling-price"
                 type="number"
                 /* Issue #96 + #458: > 0 enforced in `submit()`. */
                 step="0.01"
@@ -1226,10 +1232,11 @@ function AddStockModal({
               )}
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">
+              <label htmlFor="add-stock-expiry" className="mb-1 block text-sm font-medium">
                 Expiry Date
               </label>
               <input
+                id="add-stock-expiry"
                 type="date"
                 /* Issue #96 + #458: tomorrow-or-later enforced in `submit()`. */
                 value={form.expiryDate}
@@ -1254,26 +1261,29 @@ function AddStockModal({
               )}
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">Supplier</label>
+              <label htmlFor="add-stock-supplier" className="mb-1 block text-sm font-medium">Supplier</label>
               <input
+                id="add-stock-supplier"
                 value={form.supplier}
                 onChange={(e) => setForm({ ...form, supplier: e.target.value })}
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">Location</label>
+              <label htmlFor="add-stock-location" className="mb-1 block text-sm font-medium">Location</label>
               <input
+                id="add-stock-location"
                 value={form.location}
                 onChange={(e) => setForm({ ...form, location: e.target.value })}
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">
+              <label htmlFor="add-stock-reorder-level" className="mb-1 block text-sm font-medium">
                 Reorder Level
               </label>
               <input
+                id="add-stock-reorder-level"
                 type="number"
                 /* Issue #96 + #458: ≥ 0 enforced in `submit()`. */
                 step={1}

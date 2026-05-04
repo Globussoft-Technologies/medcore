@@ -637,10 +637,11 @@ export default function ComplaintsPage() {
             <h3 className="mb-4 text-lg font-semibold">New Complaint</h3>
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="complaint-patient-id" className="mb-1 block text-xs font-medium text-gray-600">
                   Patient ID (optional)
                 </label>
                 <input
+                  id="complaint-patient-id"
                   value={form.patientId}
                   onChange={(e) =>
                     setForm({ ...form, patientId: e.target.value })
@@ -651,20 +652,22 @@ export default function ComplaintsPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                  <label htmlFor="complaint-caller-name" className="mb-1 block text-xs font-medium text-gray-600">
                     Caller Name
                   </label>
                   <input
+                    id="complaint-caller-name"
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
                     className="w-full rounded-lg border px-3 py-2 text-sm"
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                  <label htmlFor="complaint-phone" className="mb-1 block text-xs font-medium text-gray-600">
                     Phone
                   </label>
                   <input
+                    id="complaint-phone"
                     value={form.phone}
                     onChange={(e) => setForm({ ...form, phone: e.target.value })}
                     className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -673,10 +676,11 @@ export default function ComplaintsPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                  <label htmlFor="complaint-category" className="mb-1 block text-xs font-medium text-gray-600">
                     Category
                   </label>
                   <select
+                    id="complaint-category"
                     value={form.category}
                     onChange={(e) =>
                       setForm({ ...form, category: e.target.value })
@@ -691,10 +695,11 @@ export default function ComplaintsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                  <label htmlFor="complaint-priority" className="mb-1 block text-xs font-medium text-gray-600">
                     Priority
                   </label>
                   <select
+                    id="complaint-priority"
                     value={form.priority}
                     onChange={(e) =>
                       setForm({ ...form, priority: e.target.value })
@@ -710,10 +715,11 @@ export default function ComplaintsPage() {
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="complaint-description" className="mb-1 block text-xs font-medium text-gray-600">
                   Description
                 </label>
                 <textarea
+                  id="complaint-description"
                   value={form.description}
                   onChange={(e) =>
                     setForm({ ...form, description: e.target.value })

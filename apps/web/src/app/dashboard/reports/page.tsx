@@ -520,10 +520,11 @@ function ReportsPageBody() {
                 <h3 className="mb-4 text-lg font-semibold">Generate Report</h3>
                 <div className="space-y-3">
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">
+                    <label htmlFor="report-generate-type" className="mb-1 block text-xs font-medium text-gray-600">
                       Report Type
                     </label>
                     <select
+                      id="report-generate-type"
                       value={genType}
                       onChange={(e) => setGenType(e.target.value)}
                       data-testid="report-generate-type"
@@ -538,10 +539,11 @@ function ReportsPageBody() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-gray-600">
+                      <label htmlFor="report-generate-from" className="mb-1 block text-xs font-medium text-gray-600">
                         From
                       </label>
                       <input
+                        id="report-generate-from"
                         type="date"
                         value={genFrom}
                         onChange={(e) => setGenFrom(e.target.value)}
@@ -550,10 +552,11 @@ function ReportsPageBody() {
                       />
                     </div>
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-gray-600">
+                      <label htmlFor="report-generate-to" className="mb-1 block text-xs font-medium text-gray-600">
                         To
                       </label>
                       <input
+                        id="report-generate-to"
                         type="date"
                         value={genTo}
                         onChange={(e) => setGenTo(e.target.value)}
@@ -598,10 +601,11 @@ function ReportsPageBody() {
                 <h3 className="mb-4 text-lg font-semibold">Schedule Report</h3>
                 <div className="space-y-3">
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">
+                    <label htmlFor="report-schedule-name" className="mb-1 block text-xs font-medium text-gray-600">
                       Name
                     </label>
                     <input
+                      id="report-schedule-name"
                       type="text"
                       value={schedName}
                       onChange={(e) => setSchedName(e.target.value)}
@@ -611,10 +615,11 @@ function ReportsPageBody() {
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">
+                    <label htmlFor="report-schedule-type" className="mb-1 block text-xs font-medium text-gray-600">
                       Report Type
                     </label>
                     <select
+                      id="report-schedule-type"
                       value={schedType}
                       onChange={(e) => setSchedType(e.target.value)}
                       data-testid="report-schedule-type"
@@ -629,10 +634,11 @@ function ReportsPageBody() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-gray-600">
+                      <label htmlFor="report-schedule-frequency" className="mb-1 block text-xs font-medium text-gray-600">
                         Frequency
                       </label>
                       <select
+                        id="report-schedule-frequency"
                         value={schedFreq}
                         onChange={(e) =>
                           setSchedFreq(e.target.value as "DAILY" | "WEEKLY" | "MONTHLY")
@@ -646,10 +652,11 @@ function ReportsPageBody() {
                       </select>
                     </div>
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-gray-600">
+                      <label htmlFor="report-schedule-time" className="mb-1 block text-xs font-medium text-gray-600">
                         Time
                       </label>
                       <input
+                        id="report-schedule-time"
                         type="time"
                         value={schedTime}
                         onChange={(e) => setSchedTime(e.target.value)}
@@ -659,10 +666,11 @@ function ReportsPageBody() {
                     </div>
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">
+                    <label htmlFor="report-schedule-email" className="mb-1 block text-xs font-medium text-gray-600">
                       Recipient Email
                     </label>
                     <input
+                      id="report-schedule-email"
                       type="email"
                       value={schedEmail}
                       onChange={(e) => setSchedEmail(e.target.value)}

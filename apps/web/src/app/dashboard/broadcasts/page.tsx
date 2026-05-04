@@ -190,10 +190,11 @@ export default function BroadcastsPage() {
           <h2 className="mb-4 font-semibold">Compose Broadcast</h2>
           <div className="space-y-4">
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="broadcast-title" className="mb-1 block text-xs font-medium text-gray-600">
                 Title
               </label>
               <input
+                id="broadcast-title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Announcement title"
@@ -201,10 +202,11 @@ export default function BroadcastsPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="broadcast-message" className="mb-1 block text-xs font-medium text-gray-600">
                 Message
               </label>
               <textarea
+                id="broadcast-message"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 rows={4}
@@ -213,10 +215,11 @@ export default function BroadcastsPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="broadcast-audience" className="mb-1 block text-xs font-medium text-gray-600">
                 Audience
               </label>
               <select
+                id="broadcast-audience"
                 value={audience}
                 onChange={(e) =>
                   setAudience(e.target.value as AudienceType)
@@ -289,6 +292,8 @@ export default function BroadcastsPage() {
               </label>
               {scheduleLater && (
                 <input
+                  id="broadcast-scheduled-for"
+                  aria-label="Scheduled date and time"
                   type="datetime-local"
                   value={scheduledFor}
                   onChange={(e) => setScheduledFor(e.target.value)}

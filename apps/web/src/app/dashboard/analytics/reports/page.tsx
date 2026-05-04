@@ -405,8 +405,9 @@ export default function ReportsPage() {
         </h2>
         <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
           <div>
-            <label className="mb-1 block text-xs text-gray-500">From</label>
+            <label htmlFor="report-builder-from" className="mb-1 block text-xs text-gray-500">From</label>
             <input
+              id="report-builder-from"
               type="date"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
@@ -414,8 +415,9 @@ export default function ReportsPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-gray-500">To</label>
+            <label htmlFor="report-builder-to" className="mb-1 block text-xs text-gray-500">To</label>
             <input
+              id="report-builder-to"
               type="date"
               value={to}
               onChange={(e) => setTo(e.target.value)}
@@ -423,8 +425,9 @@ export default function ReportsPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-gray-500">Group By</label>
+            <label htmlFor="report-builder-group-by" className="mb-1 block text-xs text-gray-500">Group By</label>
             <select
+              id="report-builder-group-by"
               value={groupBy}
               onChange={(e) => setGroupBy(e.target.value as GroupBy)}
               className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -448,8 +451,9 @@ export default function ReportsPage() {
         <div className="mb-2 grid grid-cols-1 gap-4 md:grid-cols-3">
           {type === "revenue" && (
             <div>
-              <label className="mb-1 block text-xs text-gray-500">Payment Mode</label>
+              <label htmlFor="report-builder-payment-mode" className="mb-1 block text-xs text-gray-500">Payment Mode</label>
               <select
+                id="report-builder-payment-mode"
                 value={filters.paymentMode || ""}
                 onChange={(e) =>
                   setFilters((f) => ({ ...f, paymentMode: e.target.value || undefined }))
@@ -467,8 +471,9 @@ export default function ReportsPage() {
           )}
           {type === "appointments" && (
             <div>
-              <label className="mb-1 block text-xs text-gray-500">Status</label>
+              <label htmlFor="report-builder-appt-status" className="mb-1 block text-xs text-gray-500">Status</label>
               <select
+                id="report-builder-appt-status"
                 value={filters.appointmentStatus || ""}
                 onChange={(e) =>
                   setFilters((f) => ({ ...f, appointmentStatus: e.target.value || undefined }))
@@ -568,8 +573,9 @@ export default function ReportsPage() {
         </h2>
         <div className="mb-4 flex flex-wrap items-end gap-2">
           <div className="flex-1 min-w-60">
-            <label className="mb-1 block text-xs text-gray-500">Configuration Name</label>
+            <label htmlFor="report-builder-config-name" className="mb-1 block text-xs text-gray-500">Configuration Name</label>
             <input
+              id="report-builder-config-name"
               type="text"
               value={configName}
               onChange={(e) => setConfigName(e.target.value)}

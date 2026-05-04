@@ -1037,8 +1037,9 @@ export default function AnalyticsPage() {
       <div className="no-print mb-6 rounded-xl bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-end gap-4">
           <div>
-            <label className="mb-1 block text-xs text-gray-500">Preset</label>
+            <label htmlFor="analytics-filter-preset" className="mb-1 block text-xs text-gray-500">Preset</label>
             <select
+              id="analytics-filter-preset"
               value={preset}
               onChange={(e) => applyPreset(e.target.value as PresetKey)}
               className="rounded-lg border px-3 py-2 text-sm"
@@ -1051,8 +1052,9 @@ export default function AnalyticsPage() {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-gray-500">From</label>
+            <label htmlFor="analytics-filter-from" className="mb-1 block text-xs text-gray-500">From</label>
             <input
+              id="analytics-filter-from"
               type="date"
               value={pendingFrom}
               onChange={(e) => {
@@ -1063,8 +1065,9 @@ export default function AnalyticsPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-gray-500">To</label>
+            <label htmlFor="analytics-filter-to" className="mb-1 block text-xs text-gray-500">To</label>
             <input
+              id="analytics-filter-to"
               type="date"
               value={pendingTo}
               onChange={(e) => {

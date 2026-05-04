@@ -198,10 +198,11 @@ function ReferralTab() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="ai-letters-specialty" className="block text-sm font-medium text-gray-700 mb-1">
             Refer To Specialty <span className="text-red-500">*</span>
           </label>
           <select
+            id="ai-letters-specialty"
             value={toSpecialty}
             onChange={(e) => setToSpecialty(e.target.value)}
             data-testid="ai-letters-specialty"
@@ -216,10 +217,11 @@ function ReferralTab() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="ai-letters-to-doctor" className="block text-sm font-medium text-gray-700 mb-1">
             To Doctor Name <span className="text-gray-400 font-normal">(optional)</span>
           </label>
           <input
+            id="ai-letters-to-doctor"
             type="text"
             value={toDoctorName}
             onChange={(e) => setToDoctorName(e.target.value)}
@@ -229,8 +231,9 @@ function ReferralTab() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Urgency</label>
+          <label htmlFor="ai-letters-urgency" className="block text-sm font-medium text-gray-700 mb-1">Urgency</label>
           <select
+            id="ai-letters-urgency"
             value={urgency}
             onChange={(e) => setUrgency(e.target.value as Urgency)}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"

@@ -276,8 +276,9 @@ export default function DutyRosterPage() {
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
-          <label className="text-sm font-medium">Date:</label>
+          <label htmlFor="roster-date-filter" className="text-sm font-medium">Date:</label>
           <input
+            id="roster-date-filter"
             data-testid="roster-date-filter"
             type="date"
             value={date}
@@ -286,8 +287,9 @@ export default function DutyRosterPage() {
           />
         </div>
         <div className="flex items-center gap-2">
-          <label className="text-sm font-medium">Role:</label>
+          <label htmlFor="roster-role-filter" className="text-sm font-medium">Role:</label>
           <select
+            id="roster-role-filter"
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value)}
             className="rounded-lg border px-3 py-1.5 text-sm"

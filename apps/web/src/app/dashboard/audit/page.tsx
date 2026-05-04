@@ -266,10 +266,11 @@ export default function AuditPage() {
       {/* Filters */}
       <div className="mb-6 grid grid-cols-1 gap-3 rounded-xl bg-white p-4 shadow-sm md:grid-cols-4">
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">
+          <label htmlFor="audit-filter-from" className="mb-1 block text-xs font-medium text-gray-500">
             From
           </label>
           <input
+            id="audit-filter-from"
             type="date"
             value={fromDate}
             onChange={(e) => setFromDate(e.target.value)}
@@ -277,10 +278,11 @@ export default function AuditPage() {
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">
+          <label htmlFor="audit-filter-to" className="mb-1 block text-xs font-medium text-gray-500">
             To
           </label>
           <input
+            id="audit-filter-to"
             type="date"
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}
@@ -288,10 +290,11 @@ export default function AuditPage() {
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">
+          <label htmlFor="audit-filter-entity" className="mb-1 block text-xs font-medium text-gray-500">
             Entity Type
           </label>
           <select
+            id="audit-filter-entity"
             data-testid="audit-entity-filter"
             value={entity}
             onChange={(e) => setEntity(e.target.value)}
@@ -306,10 +309,11 @@ export default function AuditPage() {
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">
+          <label htmlFor="audit-filter-action" className="mb-1 block text-xs font-medium text-gray-500">
             Action
           </label>
           <select
+            id="audit-filter-action"
             value={action}
             onChange={(e) => setAction(e.target.value)}
             className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -323,10 +327,11 @@ export default function AuditPage() {
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">
+          <label htmlFor="audit-filter-user" className="mb-1 block text-xs font-medium text-gray-500">
             User
           </label>
           <select
+            id="audit-filter-user"
             value={userId}
             onChange={(e) => setUserId(e.target.value)}
             className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -340,10 +345,11 @@ export default function AuditPage() {
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">
+          <label htmlFor="audit-filter-ip" className="mb-1 block text-xs font-medium text-gray-500">
             IP Contains
           </label>
           <input
+            id="audit-filter-ip"
             type="text"
             value={ipContains}
             onChange={(e) => setIpContains(e.target.value)}
@@ -352,10 +358,11 @@ export default function AuditPage() {
           />
         </div>
         <div className="md:col-span-2">
-          <label className="mb-1 block text-xs font-medium text-gray-500">
+          <label htmlFor="audit-filter-q" className="mb-1 block text-xs font-medium text-gray-500">
             Free-text search (entity, action, details)
           </label>
           <input
+            id="audit-filter-q"
             type="text"
             value={freeText}
             onChange={(e) => setFreeText(e.target.value)}

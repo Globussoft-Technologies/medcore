@@ -123,9 +123,10 @@ export default function AIDifferentialPage() {
       <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
         {/* Patient picker */}
         <div>
-          <label className="text-sm font-medium text-gray-700">Patient</label>
+          <label htmlFor="differential-patient-input" className="text-sm font-medium text-gray-700">Patient</label>
           <div className="mt-1 flex gap-2">
             <input
+              id="differential-patient-input"
               data-testid="differential-patient-input"
               className="flex-1 border rounded-lg px-3 py-2 text-sm"
               placeholder="Search by name or MR number..."
@@ -165,8 +166,9 @@ export default function AIDifferentialPage() {
 
         {/* Chief complaint */}
         <div>
-          <label className="text-sm font-medium text-gray-700">Chief Complaint</label>
+          <label htmlFor="differential-chief-complaint" className="text-sm font-medium text-gray-700">Chief Complaint</label>
           <textarea
+            id="differential-chief-complaint"
             className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
             rows={3}
             placeholder="e.g. Productive cough and fever for 3 days"
@@ -204,8 +206,9 @@ export default function AIDifferentialPage() {
         </div>
 
         <div>
-          <label className="text-sm font-medium text-gray-700">Relevant History (optional)</label>
+          <label htmlFor="differential-relevant-history" className="text-sm font-medium text-gray-700">Relevant History (optional)</label>
           <textarea
+            id="differential-relevant-history"
             className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
             rows={2}
             placeholder="Smoker, diabetic, recent travel..."

@@ -538,10 +538,11 @@ export default function AIBookingPage() {
 
             {bookingFor !== "SELF" && (
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
+                <label htmlFor="ai-booking-dependent-patient-id" className="block text-xs font-medium text-gray-600 mb-1">
                   Patient ID (if known)
                 </label>
                 <input
+                  id="ai-booking-dependent-patient-id"
                   type="text"
                   value={dependentPatientId}
                   onChange={(e) => setDependentPatientId(e.target.value)}
@@ -607,10 +608,11 @@ export default function AIBookingPage() {
 
           <div className="p-6 space-y-4">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
+              <label htmlFor="ai-booking-summary-complaint" className="block text-xs font-medium text-gray-600 mb-1">
                 {language === "hi" ? "मुख्य समस्या" : "Chief Complaint"}
               </label>
               <input
+                id="ai-booking-summary-complaint"
                 type="text"
                 value={summaryFields.chiefComplaint}
                 onChange={(e) => setSummaryFields((f) => ({ ...f, chiefComplaint: e.target.value }))}
@@ -621,10 +623,11 @@ export default function AIBookingPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
+                <label htmlFor="ai-booking-summary-onset" className="block text-xs font-medium text-gray-600 mb-1">
                   {language === "hi" ? "शुरुआत" : "Onset"}
                 </label>
                 <input
+                  id="ai-booking-summary-onset"
                   type="text"
                   value={summaryFields.onset || ""}
                   onChange={(e) => setSummaryFields((f) => ({ ...f, onset: e.target.value }))}
@@ -633,10 +636,11 @@ export default function AIBookingPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
+                <label htmlFor="ai-booking-summary-duration" className="block text-xs font-medium text-gray-600 mb-1">
                   {language === "hi" ? "अवधि" : "Duration"}
                 </label>
                 <input
+                  id="ai-booking-summary-duration"
                   type="text"
                   value={summaryFields.duration || ""}
                   onChange={(e) => setSummaryFields((f) => ({ ...f, duration: e.target.value }))}
@@ -647,11 +651,12 @@ export default function AIBookingPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
+              <label htmlFor="ai-booking-summary-severity" className="block text-xs font-medium text-gray-600 mb-1">
                 {language === "hi" ? "गंभीरता (1–10)" : "Severity (1–10)"}
               </label>
               <div className="flex items-center gap-3">
                 <input
+                  id="ai-booking-summary-severity"
                   type="range"
                   min={1}
                   max={10}

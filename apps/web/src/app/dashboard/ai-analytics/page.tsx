@@ -383,8 +383,9 @@ export default function AIAnalyticsPage() {
 
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-gray-500 whitespace-nowrap">From</label>
+              <label htmlFor="ai-analytics-from" className="text-xs font-medium text-gray-500 whitespace-nowrap">From</label>
               <input
+                id="ai-analytics-from"
                 type="date"
                 value={from}
                 onChange={(e) => setFrom(e.target.value)}
@@ -392,8 +393,9 @@ export default function AIAnalyticsPage() {
               />
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-gray-500 whitespace-nowrap">To</label>
+              <label htmlFor="ai-analytics-to" className="text-xs font-medium text-gray-500 whitespace-nowrap">To</label>
               <input
+                id="ai-analytics-to"
                 type="date"
                 value={to}
                 onChange={(e) => setTo(e.target.value)}

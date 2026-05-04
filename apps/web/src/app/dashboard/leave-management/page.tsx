@@ -143,8 +143,9 @@ export default function LeaveManagementPage() {
 
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-white p-3 shadow-sm">
         <div className="flex items-center gap-2">
-          <label className="text-sm font-medium">Type:</label>
+          <label htmlFor="leave-mgmt-type" className="text-sm font-medium">Type:</label>
           <select
+            id="leave-mgmt-type"
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
             className="rounded-lg border px-3 py-1.5 text-sm"
@@ -158,8 +159,9 @@ export default function LeaveManagementPage() {
           </select>
         </div>
         <div className="flex items-center gap-2">
-          <label className="text-sm font-medium">From:</label>
+          <label htmlFor="leave-mgmt-from" className="text-sm font-medium">From:</label>
           <input
+            id="leave-mgmt-from"
             type="date"
             value={fromDate}
             onChange={(e) => setFromDate(e.target.value)}
@@ -167,8 +169,9 @@ export default function LeaveManagementPage() {
           />
         </div>
         <div className="flex items-center gap-2">
-          <label className="text-sm font-medium">To:</label>
+          <label htmlFor="leave-mgmt-to" className="text-sm font-medium">To:</label>
           <input
+            id="leave-mgmt-to"
             type="date"
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}
@@ -286,10 +289,11 @@ export default function LeaveManagementPage() {
           >
             <h2 className="mb-4 text-lg font-semibold">Reject Leave Request</h2>
             <div>
-              <label className="mb-1 block text-sm font-medium">
+              <label htmlFor="leave-mgmt-reject-reason" className="mb-1 block text-sm font-medium">
                 Rejection Reason
               </label>
               <textarea
+                id="leave-mgmt-reject-reason"
                 rows={3}
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}

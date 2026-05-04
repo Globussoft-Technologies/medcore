@@ -312,10 +312,11 @@ export default function MySchedulePage() {
             <h2 className="mb-4 text-lg font-semibold">Request Leave</h2>
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-sm font-medium">
+                <label htmlFor="my-schedule-leave-type" className="mb-1 block text-sm font-medium">
                   Leave Type
                 </label>
                 <select
+                  id="my-schedule-leave-type"
                   value={leaveForm.type}
                   onChange={(e) =>
                     setLeaveForm({ ...leaveForm, type: e.target.value })
@@ -332,8 +333,9 @@ export default function MySchedulePage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">From</label>
+                  <label htmlFor="my-schedule-leave-from" className="mb-1 block text-sm font-medium">From</label>
                   <input
+                    id="my-schedule-leave-from"
                     type="date"
                     value={leaveForm.fromDate}
                     onChange={(e) =>
@@ -343,8 +345,9 @@ export default function MySchedulePage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">To</label>
+                  <label htmlFor="my-schedule-leave-to" className="mb-1 block text-sm font-medium">To</label>
                   <input
+                    id="my-schedule-leave-to"
                     type="date"
                     value={leaveForm.toDate}
                     onChange={(e) =>
@@ -355,8 +358,9 @@ export default function MySchedulePage() {
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">Reason</label>
+                <label htmlFor="my-schedule-leave-reason" className="mb-1 block text-sm font-medium">Reason</label>
                 <textarea
+                  id="my-schedule-leave-reason"
                   rows={3}
                   value={leaveForm.reason}
                   onChange={(e) =>

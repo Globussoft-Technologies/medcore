@@ -196,10 +196,11 @@ export default function AIRosterPage() {
       <div className="rounded-lg border border-gray-200 bg-white p-4">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
           <div>
-            <label className="block text-xs font-semibold uppercase text-gray-600">
+            <label htmlFor="ai-roster-start-date" className="block text-xs font-semibold uppercase text-gray-600">
               Start date
             </label>
             <input
+              id="ai-roster-start-date"
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
@@ -207,8 +208,9 @@ export default function AIRosterPage() {
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold uppercase text-gray-600">Days</label>
+            <label htmlFor="ai-roster-days" className="block text-xs font-semibold uppercase text-gray-600">Days</label>
             <select
+              id="ai-roster-days"
               value={days}
               onChange={(e) => setDays(Number(e.target.value) as 7 | 14)}
               className="mt-1 w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm"
@@ -218,10 +220,11 @@ export default function AIRosterPage() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold uppercase text-gray-600">
+            <label htmlFor="ai-roster-department" className="block text-xs font-semibold uppercase text-gray-600">
               Department
             </label>
             <input
+              id="ai-roster-department"
               type="text"
               value={department}
               onChange={(e) => setDepartment(e.target.value)}

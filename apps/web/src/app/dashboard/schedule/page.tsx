@@ -255,10 +255,11 @@ export default function SchedulePage() {
       {/* Doctor selector (Admin only) */}
       {isAdmin && doctors.length > 0 && (
         <div className="mb-6">
-          <label className="mb-1 block text-sm font-medium text-gray-700">
+          <label htmlFor="schedule-doctor-select" className="mb-1 block text-sm font-medium text-gray-700">
             Select Doctor
           </label>
           <select
+            id="schedule-doctor-select"
             value={selectedDoctorId}
             onChange={(e) => setSelectedDoctorId(e.target.value)}
             className="rounded-lg border px-4 py-2 text-sm"
@@ -287,10 +288,11 @@ export default function SchedulePage() {
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="schedule-day-of-week" className="mb-1 block text-xs font-medium text-gray-600">
                 Day of Week
               </label>
               <select
+                id="schedule-day-of-week"
                 value={scheduleForm.dayOfWeek}
                 onChange={(e) =>
                   setScheduleForm({ ...scheduleForm, dayOfWeek: e.target.value })
@@ -305,10 +307,11 @@ export default function SchedulePage() {
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="schedule-start-time" className="mb-1 block text-xs font-medium text-gray-600">
                 Start Time
               </label>
               <input
+                id="schedule-start-time"
                 type="time"
                 required
                 value={scheduleForm.startTime}
@@ -319,10 +322,11 @@ export default function SchedulePage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="schedule-end-time" className="mb-1 block text-xs font-medium text-gray-600">
                 End Time
               </label>
               <input
+                id="schedule-end-time"
                 type="time"
                 required
                 value={scheduleForm.endTime}
@@ -333,10 +337,11 @@ export default function SchedulePage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="schedule-slot-duration" className="mb-1 block text-xs font-medium text-gray-600">
                 Slot Duration (min)
               </label>
               <select
+                id="schedule-slot-duration"
                 value={scheduleForm.slotDuration}
                 onChange={(e) =>
                   setScheduleForm({
@@ -355,10 +360,11 @@ export default function SchedulePage() {
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="schedule-buffer" className="mb-1 block text-xs font-medium text-gray-600">
                 Buffer Between Slots (min)
               </label>
               <input
+                id="schedule-buffer"
                 type="number"
                 min={0}
                 max={60}
@@ -413,10 +419,11 @@ export default function SchedulePage() {
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="schedule-override-date" className="mb-1 block text-xs font-medium text-gray-600">
                 Date
               </label>
               <input
+                id="schedule-override-date"
                 type="date"
                 required
                 value={overrideForm.date}
@@ -427,10 +434,11 @@ export default function SchedulePage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="schedule-override-type" className="mb-1 block text-xs font-medium text-gray-600">
                 Type
               </label>
               <select
+                id="schedule-override-type"
                 value={overrideForm.isBlocked ? "block" : "modify"}
                 onChange={(e) =>
                   setOverrideForm({
@@ -445,10 +453,11 @@ export default function SchedulePage() {
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="schedule-override-reason" className="mb-1 block text-xs font-medium text-gray-600">
                 Reason (optional)
               </label>
               <input
+                id="schedule-override-reason"
                 type="text"
                 value={overrideForm.reason}
                 onChange={(e) =>
@@ -461,10 +470,11 @@ export default function SchedulePage() {
             {!overrideForm.isBlocked && (
               <>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                  <label htmlFor="schedule-override-start-time" className="mb-1 block text-xs font-medium text-gray-600">
                     Start Time
                   </label>
                   <input
+                    id="schedule-override-start-time"
                     type="time"
                     value={overrideForm.startTime}
                     onChange={(e) =>
@@ -477,10 +487,11 @@ export default function SchedulePage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                  <label htmlFor="schedule-override-end-time" className="mb-1 block text-xs font-medium text-gray-600">
                     End Time
                   </label>
                   <input
+                    id="schedule-override-end-time"
                     type="time"
                     value={overrideForm.endTime}
                     onChange={(e) =>

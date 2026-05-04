@@ -57,8 +57,9 @@ export default function MyActivityPage() {
       </h1>
 
       <div className="mb-4 flex items-center gap-2">
-        <label className="text-sm text-gray-500">Filter by action:</label>
+        <label htmlFor="my-activity-action-filter" className="text-sm text-gray-500">Filter by action:</label>
         <select
+          id="my-activity-action-filter"
           value={actionFilter}
           onChange={(e) => setActionFilter(e.target.value)}
           className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-900"

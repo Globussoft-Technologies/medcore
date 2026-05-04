@@ -467,7 +467,7 @@ export default function AdmissionsPage() {
             <div className="space-y-4">
               {/* Patient search */}
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label htmlFor="admit-patient-search" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Patient
                 </label>
                 {selectedPatient ? (
@@ -490,6 +490,8 @@ export default function AdmissionsPage() {
                 ) : (
                   <>
                     <input
+                      id="admit-patient-search"
+                      aria-label="Patient"
                       placeholder="Search by name or MR number"
                       value={patientSearch}
                       onChange={(e) => setPatientSearch(e.target.value)}
@@ -518,8 +520,9 @@ export default function AdmissionsPage() {
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Doctor</label>
+                <label htmlFor="admit-doctor-select" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Doctor</label>
                 <select
+                  id="admit-doctor-select"
                   aria-label="Doctor"
                   value={form.doctorId}
                   onChange={(e) =>
@@ -537,7 +540,7 @@ export default function AdmissionsPage() {
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label htmlFor="admit-bed-select" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Available Bed
                 </label>
                 {bedsUnavailable ? (
@@ -555,6 +558,7 @@ export default function AdmissionsPage() {
                   </div>
                 ) : (
                   <select
+                    id="admit-bed-select"
                     aria-label="Available Bed"
                     value={form.bedId}
                     onChange={(e) => setForm({ ...form, bedId: e.target.value })}
@@ -582,10 +586,11 @@ export default function AdmissionsPage() {
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label htmlFor="admit-reason" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Reason for Admission
                 </label>
                 <textarea
+                  id="admit-reason"
                   value={form.reason}
                   onChange={(e) => setForm({ ...form, reason: e.target.value })}
                   rows={2}
@@ -594,10 +599,11 @@ export default function AdmissionsPage() {
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label htmlFor="admit-diagnosis" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Diagnosis (optional)
                 </label>
                 <input
+                  id="admit-diagnosis"
                   value={form.diagnosis}
                   onChange={(e) =>
                     setForm({ ...form, diagnosis: e.target.value })

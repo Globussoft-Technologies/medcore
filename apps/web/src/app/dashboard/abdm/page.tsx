@@ -368,10 +368,11 @@ function LinkAbhaTab({ patient }: { patient: PatientOpt | null }) {
 
       <div className="grid gap-3 md:grid-cols-2">
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label htmlFor="abdm-link-abha-address" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             ABHA address
           </label>
           <input
+            id="abdm-link-abha-address"
             type="text"
             value={abhaAddress}
             onChange={(e) => setAbhaAddress(e.target.value)}
@@ -380,10 +381,11 @@ function LinkAbhaTab({ patient }: { patient: PatientOpt | null }) {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label htmlFor="abdm-link-abha-number" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             ABHA number <span className="text-xs text-gray-400">(optional)</span>
           </label>
           <input
+            id="abdm-link-abha-number"
             type="text"
             value={abhaNumber}
             onChange={(e) => setAbhaNumber(e.target.value)}
@@ -392,10 +394,11 @@ function LinkAbhaTab({ patient }: { patient: PatientOpt | null }) {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label htmlFor="abdm-link-otp" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             OTP (mock)
           </label>
           <input
+            id="abdm-link-otp"
             type="text"
             value={otp}
             onChange={(e) => setOtp(e.target.value)}
@@ -544,10 +547,11 @@ function ConsentsTab({ patient }: { patient: PatientOpt | null }) {
 
         <div className="grid gap-3 md:grid-cols-2">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label htmlFor="abdm-consent-abha-address" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               ABHA address
             </label>
             <input
+              id="abdm-consent-abha-address"
               type="text"
               value={abhaAddress}
               onChange={(e) => setAbhaAddress(e.target.value)}
@@ -556,10 +560,11 @@ function ConsentsTab({ patient }: { patient: PatientOpt | null }) {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label htmlFor="abdm-consent-purpose" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Purpose
             </label>
             <select
+              id="abdm-consent-purpose"
               value={purpose}
               onChange={(e) =>
                 setPurpose(e.target.value as (typeof CONSENT_PURPOSES)[number])
@@ -572,10 +577,11 @@ function ConsentsTab({ patient }: { patient: PatientOpt | null }) {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label htmlFor="abdm-consent-date-from" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Data from
             </label>
             <input
+              id="abdm-consent-date-from"
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
@@ -583,10 +589,11 @@ function ConsentsTab({ patient }: { patient: PatientOpt | null }) {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label htmlFor="abdm-consent-date-to" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Data to
             </label>
             <input
+              id="abdm-consent-date-to"
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
@@ -594,10 +601,11 @@ function ConsentsTab({ patient }: { patient: PatientOpt | null }) {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label htmlFor="abdm-consent-expires-at" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Expires
             </label>
             <input
+              id="abdm-consent-expires-at"
               type="date"
               value={expiresAt}
               onChange={(e) => setExpiresAt(e.target.value)}
@@ -762,10 +770,11 @@ function CareContextsTab({ patient }: { patient: PatientOpt | null }) {
 
       <div className="grid gap-3 md:grid-cols-2">
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label htmlFor="abdm-cc-abha-address" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             ABHA address
           </label>
           <input
+            id="abdm-cc-abha-address"
             type="text"
             value={abhaAddress}
             onChange={(e) => setAbhaAddress(e.target.value)}
@@ -774,10 +783,11 @@ function CareContextsTab({ patient }: { patient: PatientOpt | null }) {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label htmlFor="abdm-cc-type" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Care context type
           </label>
           <select
+            id="abdm-cc-type"
             value={type}
             onChange={(e) =>
               setType(e.target.value as (typeof CARE_CONTEXT_TYPES)[number])
@@ -790,10 +800,11 @@ function CareContextsTab({ patient }: { patient: PatientOpt | null }) {
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label htmlFor="abdm-cc-ref" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Care context reference (consultation ID)
           </label>
           <input
+            id="abdm-cc-ref"
             type="text"
             value={careContextRef}
             onChange={(e) => setCareContextRef(e.target.value)}
@@ -802,10 +813,11 @@ function CareContextsTab({ patient }: { patient: PatientOpt | null }) {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label htmlFor="abdm-cc-display" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Display name
           </label>
           <input
+            id="abdm-cc-display"
             type="text"
             value={display}
             onChange={(e) => setDisplay(e.target.value)}

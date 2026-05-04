@@ -511,10 +511,11 @@ export default function AiFraudPage() {
 
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+          <label htmlFor="ai-fraud-severity" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
             Severity
           </label>
           <select
+            id="ai-fraud-severity"
             value={severity}
             onChange={(e) => setSeverity(e.target.value)}
             className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
@@ -526,10 +527,11 @@ export default function AiFraudPage() {
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+          <label htmlFor="ai-fraud-status" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
             Status
           </label>
           <select
+            id="ai-fraud-status"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
@@ -543,10 +545,11 @@ export default function AiFraudPage() {
         </div>
         {role === "ADMIN" && (
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+            <label htmlFor="ai-fraud-window-days" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
               Scan Window (days)
             </label>
             <input
+              id="ai-fraud-window-days"
               type="number"
               min={1}
               max={365}

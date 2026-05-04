@@ -295,10 +295,11 @@ export default function PredictionsPage() {
           {/* Controls */}
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-gray-500 whitespace-nowrap">
+              <label htmlFor="predictions-date" className="text-xs font-medium text-gray-500 whitespace-nowrap">
                 Date
               </label>
               <input
+                id="predictions-date"
                 type="date"
                 value={date}
                 onChange={(e) => {

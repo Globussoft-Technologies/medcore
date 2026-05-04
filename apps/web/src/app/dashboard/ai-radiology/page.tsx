@@ -389,10 +389,11 @@ function UploadTab({ onCreated }: { onCreated: () => void }) {
   return (
     <form onSubmit={submit} noValidate className="max-w-2xl space-y-4 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
       <div>
-        <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+        <label htmlFor="ai-radiology-patient-id" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
           {t("radiology.field.patientId", "Patient ID")} *
         </label>
         <input
+          id="ai-radiology-patient-id"
           type="text"
           value={patientId}
           onChange={(e) => setPatientId(e.target.value)}
@@ -403,10 +404,11 @@ function UploadTab({ onCreated }: { onCreated: () => void }) {
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label htmlFor="ai-radiology-modality" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
             {t("radiology.field.modality", "Modality")} *
           </label>
           <select
+            id="ai-radiology-modality"
             value={modality}
             onChange={(e) => setModality(e.target.value as Modality)}
             className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
@@ -420,10 +422,11 @@ function UploadTab({ onCreated }: { onCreated: () => void }) {
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label htmlFor="ai-radiology-body-part" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
             {t("radiology.field.bodyPart", "Body Part")} *
           </label>
           <input
+            id="ai-radiology-body-part"
             type="text"
             value={bodyPart}
             onChange={(e) => setBodyPart(e.target.value)}
@@ -434,10 +437,11 @@ function UploadTab({ onCreated }: { onCreated: () => void }) {
       </div>
 
       <div>
-        <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+        <label htmlFor="ai-radiology-history" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
           {t("radiology.field.history", "Clinical History")}
         </label>
         <textarea
+          id="ai-radiology-history"
           value={clinicalHistory}
           onChange={(e) => setClinicalHistory(e.target.value)}
           rows={3}
@@ -447,10 +451,11 @@ function UploadTab({ onCreated }: { onCreated: () => void }) {
       </div>
 
       <div>
-        <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+        <label htmlFor="ai-radiology-images" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
           {t("radiology.field.images", "Images")} *
         </label>
         <input
+          id="ai-radiology-images"
           type="file"
           multiple
           accept="image/*,.dcm"
@@ -758,20 +763,22 @@ function ReportDetailModal({
               <CheckCircle2 className="h-4 w-4 text-green-500" />
               {t("radiology.detail.finalReport", "Radiologist Final Report")}
             </h3>
-            <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+            <label htmlFor="ai-radiology-final-impression" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
               {t("radiology.detail.impression", "Impression")}
             </label>
             <input
+              id="ai-radiology-final-impression"
               type="text"
               value={finalImpression}
               onChange={(e) => setFinalImpression(e.target.value)}
               disabled={!canApprove && !canAmend}
               className="mb-3 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 disabled:opacity-60"
             />
-            <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+            <label htmlFor="ai-radiology-final-text" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
               {t("radiology.detail.report", "Report Text")}
             </label>
             <textarea
+              id="ai-radiology-final-text"
               value={finalText}
               onChange={(e) => setFinalText(e.target.value)}
               disabled={!canApprove && !canAmend}

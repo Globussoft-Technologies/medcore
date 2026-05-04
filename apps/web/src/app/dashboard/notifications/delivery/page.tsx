@@ -84,8 +84,9 @@ export default function NotificationDeliveryPage() {
 
       <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600">Status</label>
+          <label htmlFor="notif-delivery-status" className="mb-1 block text-xs font-medium text-gray-600">Status</label>
           <select
+            id="notif-delivery-status"
             value={status}
             onChange={(e) => setStatus(e.target.value)}
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
@@ -99,8 +100,9 @@ export default function NotificationDeliveryPage() {
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600">Channel</label>
+          <label htmlFor="notif-delivery-channel" className="mb-1 block text-xs font-medium text-gray-600">Channel</label>
           <select
+            id="notif-delivery-channel"
             value={channel}
             onChange={(e) => setChannel(e.target.value)}
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
@@ -113,8 +115,9 @@ export default function NotificationDeliveryPage() {
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600">From</label>
+          <label htmlFor="notif-delivery-from" className="mb-1 block text-xs font-medium text-gray-600">From</label>
           <input
+            id="notif-delivery-from"
             type="date"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
@@ -122,8 +125,9 @@ export default function NotificationDeliveryPage() {
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600">To</label>
+          <label htmlFor="notif-delivery-to" className="mb-1 block text-xs font-medium text-gray-600">To</label>
           <input
+            id="notif-delivery-to"
             type="date"
             value={to}
             onChange={(e) => setTo(e.target.value)}

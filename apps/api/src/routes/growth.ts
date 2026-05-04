@@ -15,6 +15,7 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 
 const router = Router();
 router.use(authenticate);
@@ -170,10 +171,16 @@ router.post(
 );
 
 // GET /growth/patient/:patientId
+// #511: PATCHED — verify PATIENT callers own :patientId before
+// returning growth chart records (pediatric PHI).
 router.get(
   "/patient/:patientId",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      if (
+        !(await assertPatientOwnsResource(req, res, req.params.patientId))
+      )
+        return;
       const records = await prisma.growthRecord.findMany({
         where: { patientId: req.params.patientId },
         orderBy: { ageMonths: "asc" },
@@ -186,10 +193,16 @@ router.get(
 );
 
 // GET /growth/patient/:patientId/chart
+// #511: PATCHED — verify PATIENT ownership of :patientId before
+// returning growth-chart aggregates.
 router.get(
   "/patient/:patientId/chart",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      if (
+        !(await assertPatientOwnsResource(req, res, req.params.patientId))
+      )
+        return;
       const records = await prisma.growthRecord.findMany({
         where: { patientId: req.params.patientId },
         orderBy: { ageMonths: "asc" },
@@ -357,10 +370,16 @@ function computeAgeMonths(dob: Date | null): number | null {
 }
 
 // GET /growth/patient/:patientId/milestones
+// #511: PATCHED — verify PATIENT ownership of :patientId before
+// returning developmental milestone history (pediatric PHI).
 router.get(
   "/patient/:patientId/milestones",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      if (
+        !(await assertPatientOwnsResource(req, res, req.params.patientId))
+      )
+        return;
       const patient = await prisma.patient.findUnique({
         where: { id: req.params.patientId },
       });
@@ -406,10 +425,16 @@ router.get(
 );
 
 // GET /growth/patient/:patientId/immunization-compliance
+// #511: PATCHED — verify PATIENT ownership of :patientId before
+// returning immunization compliance status.
 router.get(
   "/patient/:patientId/immunization-compliance",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      if (
+        !(await assertPatientOwnsResource(req, res, req.params.patientId))
+      )
+        return;
       const patient = await prisma.patient.findUnique({
         where: { id: req.params.patientId },
       });
@@ -481,10 +506,16 @@ router.get(
 );
 
 // GET /growth/patient/:patientId/velocity — weight gain per month
+// #511: PATCHED — verify PATIENT ownership of :patientId before
+// returning weight-velocity metrics.
 router.get(
   "/patient/:patientId/velocity",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      if (
+        !(await assertPatientOwnsResource(req, res, req.params.patientId))
+      )
+        return;
       const records = await prisma.growthRecord.findMany({
         where: { patientId: req.params.patientId, weightKg: { not: null } },
         orderBy: { ageMonths: "asc" },
@@ -534,10 +565,13 @@ router.get(
 // ─── FAILURE-TO-THRIVE DETECTION ───────────────────────
 
 // GET /growth/patient/:id/ftt-check
+// #511: PATCHED — verify PATIENT ownership of :id before returning
+// failure-to-thrive screening output (pediatric PHI).
 router.get(
   "/patient/:id/ftt-check",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      if (!(await assertPatientOwnsResource(req, res, req.params.id))) return;
       const records = await prisma.growthRecord.findMany({
         where: { patientId: req.params.id, weightKg: { not: null } },
         orderBy: { measurementDate: "asc" },
@@ -764,10 +798,15 @@ router.post(
 );
 
 // GET /growth/patient/:id/milestones — list + catalog diff
+// #511: PATCHED — verify PATIENT ownership of :id before returning
+// milestone catalog diff. Note: an earlier `/patient/:patientId/milestones`
+// handler currently shadows this route in Express's matcher; keeping the
+// guard here defends against future re-ordering.
 router.get(
   "/patient/:id/milestones",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      if (!(await assertPatientOwnsResource(req, res, req.params.id))) return;
       const patient = await prisma.patient.findUnique({
         where: { id: req.params.id },
       });
@@ -819,12 +858,16 @@ router.get(
 // ─── FEEDING LOG ───────────────────────────────────────
 
 // POST /growth/patient/:id/feeding
+// #511: PATCHED — PATIENT is in the authorize() list (parents log
+// feeds for their own child) but the handler had no per-row ownership
+// check, so PATIENT-A could log feeds against PATIENT-B's record.
 router.post(
   "/patient/:id/feeding",
   authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PATIENT),
   validate(feedingLogSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      if (!(await assertPatientOwnsResource(req, res, req.params.id))) return;
       const patient = await prisma.patient.findUnique({
         where: { id: req.params.id },
         select: { id: true },
@@ -857,10 +900,13 @@ router.post(
 );
 
 // GET /growth/patient/:id/feeding — list + daily summary
+// #511: PATCHED — verify PATIENT ownership of :id before returning
+// feeding logs.
 router.get(
   "/patient/:id/feeding",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      if (!(await assertPatientOwnsResource(req, res, req.params.id))) return;
       const { from, to, limit = "100" } = req.query as Record<string, string | undefined>;
       const take = Math.min(parseInt(limit || "100"), 500);
       const where: Record<string, unknown> = { patientId: req.params.id };

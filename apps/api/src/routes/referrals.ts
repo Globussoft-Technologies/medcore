@@ -12,6 +12,7 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 
 const router = Router();
 router.use(authenticate);
@@ -87,8 +88,11 @@ router.post(
 );
 
 // GET /api/v1/referrals/inbox?doctorId= — referrals sent TO a doctor
+// #511: STAFF-ONLY — queries cross-patient referral PHI by doctorId.
+// PATIENT must not be able to enumerate referrals to any doctor.
 router.get(
   "/inbox",
+  authorize(Role.DOCTOR, Role.ADMIN, Role.NURSE),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { doctorId, status, page = "1", limit = "20" } = req.query;
@@ -203,6 +207,8 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // GET /api/v1/referrals/:id
+// #511: PATCHED — verify PATIENT callers own the referral's patientId
+// before returning the row (BOLA / OWASP API1:2023).
 router.get(
   "/:id",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -233,6 +239,9 @@ router.get(
         return;
       }
 
+      if (!(await assertPatientOwnsResource(req, res, referral.patientId)))
+        return;
+
       res.json({ success: true, data: referral, error: null });
     } catch (err) {
       next(err);
@@ -241,8 +250,12 @@ router.get(
 );
 
 // PATCH /api/v1/referrals/:id — update status
+// #511: STAFF-ONLY — referral status updates are a clinical workflow
+// action (accept / reject / complete a referral). PATIENT must not
+// modify referral state.
 router.patch(
   "/:id",
+  authorize(Role.DOCTOR, Role.ADMIN, Role.NURSE),
   validate(updateReferralStatusSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {

@@ -11,6 +11,30 @@ test-coverage closure across §A-§E gaps, Playwright stabilization
 across Chromium + WebKit, and the local-first test workflow.
 
 ### Added
+- **2026-05-05 A4/A5 fix wave (5-agent fanout) — 18 forms modernized to noValidate + React-only validation; A5 RBAC drift effectively CLOSED.**
+  Per Issue #458 audit recommendation, swept the top 3 most-affected
+  files plus a 4-file cluster: `d76669d` (patients/[id] — 7 sub-forms:
+  QuickVitalsModal, AllergyForm, ConditionForm, FamilyForm,
+  ImmunizationForm, DocumentUploadForm, AdvanceDirectiveForm),
+  `8f9807c` (admissions/[id] — 5 sub-forms: Vitals, MedOrder,
+  NurseRound, LabOrder, I/O), `478325e` (pharmacy + insurance-claims
+  + prescriptions + referrals — 6 sub-forms). Each form: `noValidate`
+  on `<form>`, drop HTML5 constraints (`required`, `min`, `max`,
+  `pattern`), keep `type="date"`/`type="number"` for native picker /
+  numeric-keypad UX, ensure React `submit()` validates equivalently.
+  Per Issue #459 audit, A5 RBAC drift effectively CLOSED in two
+  commits: `d5a4fef` tightened `/dashboard/lab/[orderId] canAddResults`
+  to LAB_TECH+ADMIN (the one true priority drift > server); the
+  audit's claim about `/dashboard/medicines canEdit` turned out to
+  be a FALSE POSITIVE — server actually allows ADMIN+DOCTOR matching
+  the client. `75a5ccc` resolved all 5 client<server drifts:
+  `/antenatal canCreate` + `/surgery/[id] canEdit` + `/lab canOrder`
+  loosened to match server (clinical workflow intent); `/telemedicine
+  canRate` kept hidden with a documenting comment (intentional —
+  admins shouldn't fake patient ratings); `/holidays` GET tightened
+  server-side to ADMIN (defence-in-depth). Audit-correction comment
+  on #459 still TODO. ~19 less-trafficked A4 forms still affected
+  per the audit; will batch in a future wave.
 - **2026-05-05 next-wave 5-agent fanout — A2 sweep continuation + A6 closed + 2 GH issue audits + /admissions/[id] E2E.**
   Mixed-lane fanout shipping `a5bf725` (A2 — 10 more modals / 57 label-input pairs got `htmlFor`/`id` linkage; expenses, holidays, budgets, payment-plans, duty-roster, scheduled-reports, walk-in, PatientEditModal, notification-templates, certifications), `9ee446e` (A6 closed — `/users` PATCH handlers extracted from `patient-extras.ts` into a dedicated `apps/api/src/routes/users.ts`; byte-identical URLs preserve backward-compat), `aaadbeb` (`/dashboard/admissions/[id]` E2E — 6 cases × 2 = 12 tests, isolation panel + belongings + running bill + LOS + transfer modal + ADMIN force-discharge two-modal walk; closes §2.7 backlog entry).
   Plus 2 audit-only agents posted concrete drift reports as comments

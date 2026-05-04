@@ -14,6 +14,7 @@ import {
   PACKAGE_NUMBER_PREFIX,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 
@@ -21,6 +22,9 @@ const router = Router();
 router.use(authenticate);
 
 // GET /api/v1/packages — list active packages (?category=)
+// #511 audit: VERIFIED-SAFE — HealthPackage is a catalog (no patientId FK).
+// Browsing the catalog is a legitimate PATIENT surface (purchase shopping UI).
+// `_count.purchases` is an aggregate count, not per-patient PHI.
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { category, includeInactive } = req.query as Record<string, string | undefined>;
@@ -41,6 +45,9 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // GET /api/v1/packages/purchases — list package purchases
+// #511 audit: PATCHED — PATIENT callers were able to list ALL purchases across
+// patients (cross-patient PHI: name + phone + package + amount). Now hard-scoped
+// to caller's own Patient row when role is PATIENT.
 router.get(
   "/purchases",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -57,6 +64,21 @@ router.get(
       if (active === "true") {
         where.expiresAt = { gt: new Date() };
         where.isFullyUsed = false;
+      }
+
+      // PATIENT self-scope — override any caller-supplied patientId filter.
+      if (req.user?.role === "PATIENT") {
+        const self = await prisma.patient.findUnique({
+          where: { userId: req.user.userId },
+          select: { id: true },
+        });
+        if (!self) {
+          res
+            .status(403)
+            .json({ success: false, data: null, error: "Forbidden" });
+          return;
+        }
+        where.patientId = self.id;
       }
 
       const skip = (parseInt(page || "1") - 1) * parseInt(limit || "20");
@@ -91,6 +113,8 @@ router.get(
 );
 
 // GET /api/v1/packages/purchases/:id
+// #511 audit: PATCHED — PATIENT callers could read any purchase by id (BOLA).
+// Now per-row gated via assertPatientOwnsResource against purchase.patientId.
 router.get(
   "/purchases/:id",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -108,6 +132,7 @@ router.get(
         res.status(404).json({ success: false, data: null, error: "Purchase not found" });
         return;
       }
+      if (!(await assertPatientOwnsResource(req, res, purchase.patientId))) return;
       res.json({ success: true, data: purchase, error: null });
     } catch (err) {
       next(err);
@@ -116,6 +141,7 @@ router.get(
 );
 
 // POST /api/v1/packages/purchase — patient purchases a package
+// #511 audit: VERIFIED-SAFE — authorize(ADMIN, RECEPTION) excludes PATIENT.
 router.post(
   "/purchase",
   authorize(Role.ADMIN, Role.RECEPTION),
@@ -191,19 +217,28 @@ router.post(
 );
 
 // GET /api/v1/packages/:id
+// #511 audit: PATCHED — HealthPackage itself is catalog (no patientId), but
+// the original `include: purchases.patient.user` leaked the names/phones of
+// every patient who bought this package to any PATIENT-role caller. We now
+// drop the purchases include entirely for PATIENT callers; staff still see it.
 router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const isStaff = req.user?.role !== "PATIENT";
     const pkg = await prisma.healthPackage.findUnique({
       where: { id: req.params.id },
-      include: {
-        purchases: {
-          take: 10,
-          orderBy: { purchasedAt: "desc" },
-          include: {
-            patient: { include: { user: { select: { name: true, phone: true } } } },
-          },
-        },
-      },
+      include: isStaff
+        ? {
+            purchases: {
+              take: 10,
+              orderBy: { purchasedAt: "desc" },
+              include: {
+                patient: {
+                  include: { user: { select: { name: true, phone: true } } },
+                },
+              },
+            },
+          }
+        : undefined,
     });
     if (!pkg) {
       res.status(404).json({ success: false, data: null, error: "Package not found" });
@@ -216,6 +251,7 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // POST /api/v1/packages — create (ADMIN)
+// #511 audit: VERIFIED-SAFE — authorize(ADMIN) excludes PATIENT.
 router.post(
   "/",
   authorize(Role.ADMIN),
@@ -232,6 +268,7 @@ router.post(
 );
 
 // PATCH /api/v1/packages/:id — update
+// #511 audit: VERIFIED-SAFE — authorize(ADMIN) excludes PATIENT.
 router.patch(
   "/:id",
   authorize(Role.ADMIN),
@@ -251,6 +288,7 @@ router.patch(
 );
 
 // DELETE /api/v1/packages/:id — soft-delete
+// #511 audit: VERIFIED-SAFE — authorize(ADMIN) excludes PATIENT.
 router.delete(
   "/:id",
   authorize(Role.ADMIN),
@@ -273,6 +311,7 @@ router.delete(
 // ═══════════════════════════════════════════════════════
 
 // GET /api/v1/packages/analytics — per-package revenue & most-sold
+// #511 audit: VERIFIED-SAFE — authorize(ADMIN, RECEPTION) excludes PATIENT.
 router.get(
   "/stats/analytics",
   authorize(Role.ADMIN, Role.RECEPTION),
@@ -330,6 +369,7 @@ router.get(
 );
 
 // GET /api/v1/packages/purchases/expiring?days=30 — purchases expiring soon
+// #511 audit: VERIFIED-SAFE — authorize(ADMIN, RECEPTION) excludes PATIENT.
 router.get(
   "/purchases/expiring",
   authorize(Role.ADMIN, Role.RECEPTION),
@@ -371,6 +411,7 @@ router.get(
 );
 
 // POST /api/v1/packages/purchases/:id/reminder — send expiry reminder
+// #511 audit: VERIFIED-SAFE — authorize(ADMIN, RECEPTION) excludes PATIENT.
 router.post(
   "/purchases/:id/reminder",
   authorize(Role.ADMIN, Role.RECEPTION),
@@ -416,6 +457,8 @@ router.post(
 );
 
 // POST /api/v1/packages/purchases/:id/consume — mark a service as consumed
+// #511 audit: VERIFIED-SAFE — authorize(ADMIN, RECEPTION, DOCTOR, NURSE)
+// excludes PATIENT.
 router.post(
   "/purchases/:id/consume",
   authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR, Role.NURSE),
@@ -473,6 +516,7 @@ router.post(
 );
 
 // POST /api/v1/packages/purchases/:id/renew — create a new purchase referencing prior
+// #511 audit: VERIFIED-SAFE — authorize(ADMIN, RECEPTION) excludes PATIENT.
 router.post(
   "/purchases/:id/renew",
   authorize(Role.ADMIN, Role.RECEPTION),

@@ -11,6 +11,7 @@ import {
   PREAUTH_PREFIX,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 
@@ -18,6 +19,7 @@ const router = Router();
 router.use(authenticate);
 
 // POST /api/v1/preauth — submit request
+// #511 audit: VERIFIED-SAFE — authorize(ADMIN, RECEPTION) excludes PATIENT.
 router.post(
   "/",
   authorize(Role.ADMIN, Role.RECEPTION),
@@ -73,6 +75,10 @@ router.post(
 );
 
 // GET /api/v1/preauth — list with filters
+// #511 audit: PATCHED — PATIENT callers were able to list ALL preauth requests
+// across patients (high-PHI: diagnosis, ICD-equivalent procedure, plan number).
+// We now hard-scope `where.patientId` to the caller's own Patient row when role
+// is PATIENT, regardless of what (if anything) was passed via ?patientId=.
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { status, patientId, from, to } = req.query as Record<
@@ -88,6 +94,22 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
         ...(to ? { lte: new Date(to) } : {}),
       };
     }
+
+    // PATIENT self-scope — override any caller-supplied patientId filter.
+    if (req.user?.role === "PATIENT") {
+      const self = await prisma.patient.findUnique({
+        where: { userId: req.user.userId },
+        select: { id: true },
+      });
+      if (!self) {
+        res
+          .status(403)
+          .json({ success: false, data: null, error: "Forbidden" });
+        return;
+      }
+      where.patientId = self.id;
+    }
+
     const rows = await prisma.preAuthRequest.findMany({
       where,
       orderBy: { submittedAt: "desc" },
@@ -108,6 +130,8 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // GET /api/v1/preauth/:id — detail
+// #511 audit: PATCHED — PATIENT callers could read any preauth row by id
+// (BOLA / OWASP API1:2023). Now per-row gated via assertPatientOwnsResource.
 router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const doc = await prisma.preAuthRequest.findUnique({
@@ -128,6 +152,7 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
         .json({ success: false, data: null, error: "Request not found" });
       return;
     }
+    if (!(await assertPatientOwnsResource(req, res, doc.patientId))) return;
     res.json({ success: true, data: doc, error: null });
   } catch (err) {
     next(err);
@@ -135,6 +160,7 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // PATCH /api/v1/preauth/:id/status — update status
+// #511 audit: VERIFIED-SAFE — authorize(ADMIN, RECEPTION) excludes PATIENT.
 router.patch(
   "/:id/status",
   authorize(Role.ADMIN, Role.RECEPTION),

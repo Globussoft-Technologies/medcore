@@ -153,9 +153,15 @@ export default function MedicinesPage() {
 
   async function createMedicine(e: React.FormEvent) {
     e.preventDefault();
+    // A4: parent form is `noValidate` — every required field needs a
+    // React-side guard so inline toast rendering isn't short-circuited by
+    // the browser's native constraint UI.
+    if (!form.name.trim()) {
+      toast.error("Name is required");
+      return;
+    }
     // Issue #41: Manufacturer is required. Guard here in addition to the
-    // `required` attribute (which covers the happy path) and the server-side
-    // Zod refinement (which is the source of truth).
+    // server-side Zod refinement (which is the source of truth).
     if (!form.manufacturer.trim()) {
       toast.error("Manufacturer is required");
       return;
@@ -408,6 +414,7 @@ export default function MedicinesPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <form
             onSubmit={createMedicine}
+            noValidate
             className="w-full max-w-lg rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
           >
             <h2 className="mb-4 text-lg font-semibold">
@@ -418,7 +425,6 @@ export default function MedicinesPage() {
                 <label htmlFor="add-medicine-name" className="mb-1 block text-sm font-medium">Name</label>
                 <input
                   id="add-medicine-name"
-                  required
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
@@ -488,7 +494,6 @@ export default function MedicinesPage() {
                 </label>
                 <input
                   id="add-medicine-manufacturer"
-                  required
                   value={form.manufacturer}
                   onChange={(e) =>
                     setForm({ ...form, manufacturer: e.target.value })

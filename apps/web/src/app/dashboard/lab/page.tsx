@@ -634,6 +634,7 @@ function NewOrderModal({
     >
       <form
         onSubmit={submit}
+        noValidate
         className="w-full max-w-2xl rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
       >
         <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">

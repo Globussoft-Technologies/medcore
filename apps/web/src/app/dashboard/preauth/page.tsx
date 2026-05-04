@@ -326,6 +326,7 @@ function NewRequestModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <form
         onSubmit={submit}
+        noValidate
         className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-xl"
       >
         <div className="mb-4 flex items-center justify-between">
@@ -401,7 +402,6 @@ function NewRequestModal({
                 setForm({ ...form, insuranceProvider: e.target.value })
               }
               className="w-full rounded border px-3 py-2"
-              required
             />
           </div>
           <div>
@@ -420,7 +420,6 @@ function NewRequestModal({
                 setForm({ ...form, policyNumber: e.target.value })
               }
               className="w-full rounded border px-3 py-2"
-              required
             />
           </div>
           <div>
@@ -439,7 +438,6 @@ function NewRequestModal({
                 setForm({ ...form, procedureName: e.target.value })
               }
               className="w-full rounded border px-3 py-2"
-              required
             />
           </div>
           <div>
@@ -460,7 +458,6 @@ function NewRequestModal({
                 setForm({ ...form, estimatedCost: e.target.value })
               }
               className="w-full rounded border px-3 py-2"
-              required
             />
           </div>
           <div>
@@ -538,9 +535,22 @@ function UpdateStatusModal({
   const [rejectionReason, setRejectionReason] = useState("");
   const [claimRef, setClaimRef] = useState("");
   const [saving, setSaving] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    setUpdateError(null);
+    if (status !== "REJECTED") {
+      const amt = parseFloat(approvedAmount);
+      if (Number.isNaN(amt) || amt <= 0) {
+        setUpdateError("Approved amount must be greater than 0");
+        return;
+      }
+    }
+    if (status === "REJECTED" && !rejectionReason.trim()) {
+      setUpdateError("Rejection reason is required");
+      return;
+    }
     setSaving(true);
     try {
       await api.patch(`/preauth/${row.id}/status`, {
@@ -562,6 +572,7 @@ function UpdateStatusModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <form
         onSubmit={submit}
+        noValidate
         className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
       >
         <div className="mb-4 flex items-center justify-between">
@@ -594,7 +605,6 @@ function UpdateStatusModal({
               onChange={(e) => setApprovedAmount(e.target.value)}
               className="w-full rounded border px-3 py-2"
               placeholder="Approved amount"
-              required
             />
           )}
           {status === "REJECTED" && (
@@ -604,8 +614,12 @@ function UpdateStatusModal({
               onChange={(e) => setRejectionReason(e.target.value)}
               className="w-full rounded border px-3 py-2"
               rows={2}
-              required
             />
+          )}
+          {updateError && (
+            <p className="rounded bg-red-50 p-2 text-xs text-red-600">
+              {updateError}
+            </p>
           )}
           <input
             placeholder="Claim Reference # (optional)"

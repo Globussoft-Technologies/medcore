@@ -756,6 +756,7 @@ function NewClaimModal({
     >
       <form
         onSubmit={submit}
+        noValidate
         className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-gray-900"
       >
         <div className="mb-4 flex items-center justify-between">
@@ -844,7 +845,6 @@ function NewClaimModal({
               Insurer <span className="text-red-500">*</span>
             </label>
             <select
-              required
               value={insurer}
               onChange={(e) => setInsurer(e.target.value)}
               data-testid="claim-insurer-select"
@@ -858,7 +858,7 @@ function NewClaimModal({
               ))}
             </select>
           </div>
-          <Input label="Policy number" value={policy} onChange={setPolicy} required />
+          <Input label="Policy number" value={policy} onChange={setPolicy} />
           {/* Diagnosis — bound to the ICD-10 catalogue. The user may still
               type free text (the API field stays a `String`); when an ICD
               row is picked we additionally send `icd10Codes: [code]`. */}
@@ -869,7 +869,6 @@ function NewClaimModal({
             <input
               type="text"
               value={diagnosis}
-              required
               onChange={(e) => {
                 setDiagnosis(e.target.value);
                 setIcd10Code("");
@@ -934,7 +933,6 @@ function NewClaimModal({
             value={amount}
             onChange={setAmount}
             type="number"
-            required
           />
         </div>
 

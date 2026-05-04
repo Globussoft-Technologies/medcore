@@ -263,6 +263,17 @@ function OrderItemCard({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    // React-side guard for parameter + value presence (HTML5 `required` was
+    // removed when the parent form adopted `noValidate` — see A4 sweep).
+    if (!form.parameter.trim()) {
+      setValueError(null);
+      toast.error("Parameter is required");
+      return;
+    }
+    if (!form.value.trim()) {
+      setValueError("Value is required");
+      return;
+    }
     // Client-side mirror of validateNumericLabResult — fails fast before POST
     if (isNumericTest && !numericRegex.test(form.value.trim())) {
       setValueError(
@@ -270,6 +281,25 @@ function OrderItemCard({
       );
       toast.error("Result value must be a number for this test");
       return;
+    }
+    // Range check for numeric tests with panic thresholds — mirror of the
+    // HTML5 min/max attrs that were dropped under A4.
+    if (isNumericTest) {
+      const num = parseFloat(form.value.trim());
+      if (
+        typeof item.test.panicLow === "number" &&
+        num < item.test.panicLow
+      ) {
+        setValueError(`Value must be ≥ ${item.test.panicLow}`);
+        return;
+      }
+      if (
+        typeof item.test.panicHigh === "number" &&
+        num > item.test.panicHigh
+      ) {
+        setValueError(`Value must be ≤ ${item.test.panicHigh}`);
+        return;
+      }
     }
     setValueError(null);
     try {
@@ -384,11 +414,10 @@ function OrderItemCard({
 
       {/* Issue #255: hide Add Result form from PATIENT role. */}
       {canAddResults ? (
-      <form onSubmit={submit} className="rounded-lg bg-gray-50 p-3" data-testid="lab-add-result-form">
+      <form onSubmit={submit} noValidate className="rounded-lg bg-gray-50 p-3" data-testid="lab-add-result-form">
         <p className="mb-2 text-xs font-semibold text-gray-600">Add Result</p>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
           <input
-            required
             placeholder="Parameter"
             value={form.parameter}
             onChange={(e) => setForm({ ...form, parameter: e.target.value })}
@@ -396,21 +425,14 @@ function OrderItemCard({
           />
           <div>
             <input
-              required
               // Issue #95: numeric tests accept only numbers; type=number
               // also lets browsers reject free text in supported chrome.
+              // A4: dropped HTML5 `required`/`min`/`max` — React-side checks
+              // (parameter/value presence + panic-range bounds) own truth so
+              // inline `valueError` rendering isn't short-circuited by the
+              // browser's native constraint UI.
               type={isNumericTest ? "number" : "text"}
               step={isNumericTest ? "any" : undefined}
-              min={
-                isNumericTest && typeof item.test.panicLow === "number"
-                  ? item.test.panicLow
-                  : undefined
-              }
-              max={
-                isNumericTest && typeof item.test.panicHigh === "number"
-                  ? item.test.panicHigh
-                  : undefined
-              }
               placeholder={
                 isNumericTest
                   ? typeof item.test.panicLow === "number" &&

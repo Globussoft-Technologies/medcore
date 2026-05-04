@@ -1201,6 +1201,7 @@ function CreatePlanModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <form
         onSubmit={submit}
+        noValidate
         className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
       >
         <div className="mb-4 flex items-center justify-between">
@@ -1233,14 +1234,12 @@ function CreatePlanModal({
             <label className="mb-1 block text-xs text-gray-500">
               Installments
             </label>
+            {/* TODO(A4): add React-side validation for installments range (2-60) */}
             <input
               type="number"
-              min={2}
-              max={60}
               value={installments}
               onChange={(e) => setInstallments(e.target.value)}
               className="w-full rounded border px-3 py-2"
-              required
             />
           </div>
           <div>
@@ -1259,12 +1258,12 @@ function CreatePlanModal({
             <label className="mb-1 block text-xs text-gray-500">
               Start Date
             </label>
+            {/* TODO(A4): add React-side validation for startDate presence */}
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
               className="w-full rounded border px-3 py-2"
-              required
             />
           </div>
           <p className="rounded bg-blue-50 p-2 text-xs text-blue-700">

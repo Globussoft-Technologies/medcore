@@ -316,6 +316,29 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 9 (2-agent fanout — final long-tail closure, #511 long-tail effectively CLOSED)**:
+> 6 long-tail routes closed in a single cron tick — **1 real BOLA fix +
+> 46 verified-safe handlers across 6 files**. Lane A (`ee5dd4b` +
+> `69086ab` + `e4a862b`): hr-ops (10 verified-safe — staff/HR self-scope
+> by `userId`, admin handlers `authorize(ADMIN)`); leaves — **1 real
+> BOLA**: `GET /:id/letter` previously had ZERO gating (generated a
+> downloadable leave letter with employee PII for any caller) + 9
+> verified-safe. Bug shape: sibling `PATCH /:id/cancel` had the canonical
+> "owner OR ADMIN" inline check but this handler missed it. Fix mirrors
+> the sibling pattern. medicines (catalog: 100% VERIFIED-SAFE — no
+> patientId FK; eager-include only exposes `inventoryItems` SKU/price/
+> expiry, no patient PII; eager-include lens applied + cleared).
+> Lane B (`26a9ee5`): scheduled-reports (router-level
+> `authorize(ADMIN)`), shifts (per-handler self-scope by `userId` for
+> PATIENT-reachable + `authorize(ADMIN)` for writes), tenants (router-
+> level `authorize(ADMIN)` + `requireSuperAdmin` guard). 4 new tests in
+> 1 new file (`cross-patient-leaves.test.ts`).
+>
+> **Today's running totals across all 9 #511 waves**: **69 real BOLA
+> fixes + 187 verified-safe across 36 route files; ~246 new test
+> cases.** **#511 long-tail closed** — 0 routes remain in the original
+> 12-route long-tail. Issue #511 ready for closure-comment + close.
+>
 > **2026-05-05 cron-tick wave 8 (2-agent fanout — long-tail closure)**:
 > 6 long-tail routes closed in a single cron tick — **2 real BOLA fixes
 > + 53 verified-safe handlers across 6 files**. Lane A (`81cf8b4`):

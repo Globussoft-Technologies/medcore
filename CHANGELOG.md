@@ -12,6 +12,26 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 9 — final long-tail BOLA closure (#511 long-tail CLOSED).**
+  Lane A (`ee5dd4b` + `69086ab` + `e4a862b`) closed hr-ops + leaves +
+  medicines. **1 real BOLA**: `leaves.ts GET /:id/letter` had ZERO
+  gating — generated a downloadable leave letter (employee PII +
+  manager name + dates) for ANY caller including PATIENT. Sibling
+  `PATCH /:id/cancel` had the canonical "owner OR ADMIN" inline check
+  but the letter handler missed it; fix mirrors the sibling. The bug
+  was a paper-cut sibling-handler-inconsistency, not a new pattern —
+  no cron-learning bullet warranted. hr-ops 100% verified-safe (User-
+  keyed HR resources + per-handler `authorize(ADMIN)`). medicines 100%
+  verified-safe (catalog with no patientId FK, eager-include only
+  exposes `inventoryItems` SKU/price/expiry — no patient PII; eager-
+  include lens applied + cleared). Lane B (`26a9ee5`) closed
+  scheduled-reports + shifts + tenants — all 100% verified-safe via
+  router-level `authorize(ADMIN)` mounts (scheduled-reports, tenants)
+  or per-handler self-scope (shifts; HR resource keyed to staff
+  User.id). 4 new tests in 1 new file. **Today's running totals across
+  9 #511 waves**: 69 real BOLA fixes + 187 verified-safe across 36
+  route files; ~246 new test cases. **#511 ready for closure** —
+  0 long-tail routes remain.
 - **2026-05-05 cron-tick wave 8 — long-tail BOLA closure (2-agent fanout, 6 routes).**
   Lane A (`81cf8b4`) closed agent-console + ai-admin + analytics — all
   37 handlers verified-safe via router-level `authorize()` mounts that

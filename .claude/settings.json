@@ -1,7 +1,14 @@
 {
-  "_comment": "Project-shared MedCore Claude permissions. Auto-approves common iteration on project skills + the Bash/gh/git/npm operations agents use constantly during fanout work. User-specific overrides go in settings.local.json (gitignored).",
+  "_comment": "Project-shared MedCore Claude permissions. Auto-approves common iteration on project skills + the Bash/gh/git/npm operations agents use constantly during fanout work. User-specific overrides go in settings.local.json (gitignored). NOTE: Bash(*) is intentionally broad — sub-agents in /medcore-fanout waves use heredoc redirects (cat > file <<EOF) and other compound bash that narrow patterns can't match. Restrict via destructive-path checks in agent prompts, not via Bash glob narrowing.",
   "permissions": {
     "allow": [
+      "Bash(*)",
+      "Read(**)",
+      "Read(./**)",
+      "Edit(**)",
+      "Edit(./**)",
+      "Write(**)",
+      "Write(./**)",
       "Read(.claude/**)",
       "Read(./.claude/**)",
       "Edit(.claude/**)",

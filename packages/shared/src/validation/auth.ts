@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { validatePasswordStrength } from "./security";
+import { containsHtmlOrScript, validatePasswordStrength } from "./security";
 
 // Issues #266 + #285 (Apr 2026): the standalone strong-password Zod check.
 // The previous "min 6" rule was both too short and missing a denylist —
@@ -47,11 +47,36 @@ export const loginSchema = z.object({
 // to /auth/register with the desired role — that path keeps working because
 // the dashboard sends a Bearer token and the handler honours the submitted
 // role for ADMIN callers. See route handler comments for the full story.
+// Issue #489 (HIGH/PII, May 2026): /auth/register accepted XSS payloads in
+// `name` and out-of-range `age`. The schema-level fixes here:
+//   - name: trim, max 100, reject any HTML/script vector via `containsHtmlOrScript`
+//     so payloads like `<script>alert(1)</script>` are 400'd at validation time
+//     before they ever reach the DB. (The route handler also calls
+//     `sanitizeUserInput()` as a defence-in-depth second pass.)
+//   - age: when supplied, must be an integer in [1, 150]. age=0 is rejected at
+//     this surface — the newborn/DOB path lives on `createPatientSchema` in
+//     patient.ts, not on the public auth-register endpoint.
 export const registerSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters"),
+  name: z
+    .string()
+    .trim()
+    .min(2, "Name must be at least 2 characters")
+    .max(100, "Name must be at most 100 characters")
+    .refine((v) => !containsHtmlOrScript(v), {
+      message: "Name contains characters that aren't allowed (e.g. < > or HTML tags)",
+    }),
   email: z.string().email("Invalid email address"),
   phone: z.string().min(10, "Phone number must be at least 10 digits"),
   password: strongPassword,
+  // Issue #489: bound `age` so negatives, zero, and > 150 are rejected up
+  // front. Optional because the historical patient-self-register flow does
+  // not send it (DOB-based path).
+  age: z
+    .number()
+    .int("Age must be a whole number")
+    .min(1, "Age must be at least 1")
+    .max(150, "Age must be at most 150")
+    .optional(),
   // Issue #190: keep this list in lockstep with the Role enum in
   // packages/shared/src/types/roles.ts. PHARMACIST + LAB_TECH were
   // missing here, which silently rejected admin-created staff in

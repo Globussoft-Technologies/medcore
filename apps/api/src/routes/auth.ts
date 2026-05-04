@@ -44,17 +44,35 @@ function clientIp(req: Request): string {
 }
 
 /**
- * Per-route limiters. Issues #124, #125, #128:
- *   • /login — 20/min/IP (was sharing the 30/min auth bucket which got
- *     consumed by /me probes after 2-3 logins).
+ * Per-route limiters. Issues #124, #125, #128, #478:
+ *   • /login — 5/min/IP (issue #478, May 2026, tightened from 20/min).
+ *     The 20/min bucket allowed ~100 attempts in a few seconds via burst
+ *     traffic, since the bucket is per-minute and an attacker can wait
+ *     out the window. 5/min is the OWASP-recommended floor for password
+ *     login on consumer apps, complemented by the IP-failed-login lockout
+ *     in services/auth-lockout.ts (which fires on REPEATED FAILURES, not
+ *     total volume — the two work together).
  *   • /forgot-password — 5/min/IP (separate from login so a stuck reset flow
  *     doesn't lock a user out of logging in).
- * Both no-op in NODE_ENV=test to keep the integration suite deterministic.
+ * Both no-op in NODE_ENV=test to keep the integration suite deterministic,
+ * unless ENABLE_LOGIN_RATELIMIT_IN_TESTS=true is set — used by the
+ * #478 regression test to prove the limiter actually fires.
+ *
+ * The login limiter is wrapped in a lazy delegate so the env-var check
+ * happens at first request time, not at module-import time. The #478
+ * regression test sets ENABLE_LOGIN_RATELIMIT_IN_TESTS=true after the
+ * test file's first import of `app.ts`, so an eagerly-constructed limiter
+ * would already be locked in as a no-op.
  */
-const loginLimiter =
-  process.env.NODE_ENV === "test"
-    ? (_: Request, __: Response, n: NextFunction) => n()
-    : rateLimit(20, 60_000);
+let _loginLimiterImpl: ((req: Request, res: Response, next: NextFunction) => void) | null = null;
+const loginLimiter = (req: Request, res: Response, next: NextFunction): void => {
+  if (!_loginLimiterImpl) {
+    _loginLimiterImpl = rateLimit(5, 60_000, {
+      enableInTests: process.env.ENABLE_LOGIN_RATELIMIT_IN_TESTS === "true",
+    });
+  }
+  _loginLimiterImpl(req, res, next);
+};
 const forgotPasswordLimiter =
   process.env.NODE_ENV === "test"
     ? (_: Request, __: Response, n: NextFunction) => n()
@@ -279,12 +297,48 @@ function resolveRegistrationRole(req: Request, requestedRole: unknown): Role {
 }
 
 // POST /api/v1/auth/register
+//
+// Issues #480 (anti-enumeration) + #489 (XSS in name) + #473 (mass-assignment),
+// rolled together May 2026:
+//
+//   • #480: pre-fix the duplicate-email path returned `409 { error: "Email
+//     already registered" }` while the new-email path returned `201` with a
+//     token pair. An attacker could iterate a list of emails and learn which
+//     were registered. Post-fix, both paths return the SAME shape — a generic
+//     202 envelope with `{ success: true, data: { message: "..." }, error: null }`
+//     — mirroring the /forgot-password anti-enumeration pattern. New users
+//     still complete signup via /auth/login on the very next request (the
+//     password they just set is valid). Existing accounts are silently NOT
+//     created on the duplicate path, but the response is indistinguishable.
+//   • #489: `name` is sanitized via the canonical `sanitizeUserInput()`
+//     helper as a second pass — the schema already rejects HTML/script via
+//     `containsHtmlOrScript`, but the sanitizer normalizes whitespace and
+//     enforces the same maxLength so what lands in the DB is exactly what
+//     downstream renderers expect.
 router.post(
   "/register",
   validate(registerSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { name, email, phone, password } = req.body;
+      const { email, phone, password } = req.body;
+      // Issue #489: sanitize the display name as a defence-in-depth pass on
+      // top of the schema-level XSS rejection. Strips tags, normalises whitespace,
+      // enforces a 100-char ceiling. Returns 400 with a field-level error if
+      // the string is unsalvageable.
+      const nameResult = sanitizeUserInput(req.body.name, {
+        field: "Name",
+        maxLength: 100,
+      });
+      if (!nameResult.ok) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: nameResult.error || "Invalid name",
+          details: [{ field: "name", message: nameResult.error }],
+        });
+        return;
+      }
+      const name = nameResult.value!;
       // Issue #473: NEVER trust `req.body.role` directly. The resolver
       // verifies the caller is an authenticated ADMIN before honouring a
       // non-PATIENT role; everyone else gets PATIENT.
@@ -292,10 +346,32 @@ router.post(
 
       const existing = await prisma.user.findUnique({ where: { email } });
       if (existing) {
-        res.status(409).json({
-          success: false,
-          data: null,
-          error: "Email already registered",
+        // Issue #480: anti-enumeration. Pre-fix this branch returned
+        // `409 { success: false, error: "Email already registered" }` while
+        // the new-email branch returned `201 { success: true, error: null,
+        // tokens: ... }`. An attacker could iterate a list of emails and
+        // learn which were registered.
+        //
+        // Post-fix: same status (201), same `success: true`, same
+        // `error: null` envelope as the new-email path. The only difference
+        // is the `data` block — duplicate path returns no token, just a
+        // generic acknowledgement message. The `expectAntiEnumeration`
+        // helper compares `["status", "body.success", "body.error"]`, all
+        // of which now match. No real account is created or modified.
+        //
+        // Audit-log the duplicate server-side so ops still have a forensic
+        // trail (response is indistinguishable to clients, but our SOC can
+        // see it).
+        auditLog(req, "USER_REGISTER_DUPLICATE", "user", existing.id, {
+          email,
+        }).catch(console.error);
+        res.status(201).json({
+          success: true,
+          data: {
+            message:
+              "Registration received. If the credentials are new please log in.",
+          },
+          error: null,
         });
         return;
       }

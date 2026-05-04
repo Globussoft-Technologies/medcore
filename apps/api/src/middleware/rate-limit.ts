@@ -20,11 +20,26 @@ interface RateLimitEntry {
  * of a generic "Too many requests". Headers `RateLimit-*` and
  * `Retry-After` are also set per RFC 9239 / draft-ietf-httpapi-ratelimit.
  */
-export function rateLimit(maxRequests: number, windowMs: number) {
-  if (
-    process.env.NODE_ENV === "test" ||
-    process.env.DISABLE_RATE_LIMITS === "true"
-  ) {
+export interface RateLimitOptions {
+  /**
+   * Issue #478 (May 2026): individual integration tests can opt-in to the
+   * real limiter when they specifically want to assert that 429s fire after
+   * N+1 attempts. Default false → preserves the test-suite-wide bypass that
+   * keeps every other test deterministic. Used only by /auth/login's
+   * regression test, where the env var ENABLE_LOGIN_RATELIMIT_IN_TESTS=true
+   * is set before constructing the middleware.
+   */
+  enableInTests?: boolean;
+}
+
+export function rateLimit(
+  maxRequests: number,
+  windowMs: number,
+  opts: RateLimitOptions = {}
+) {
+  const skipForTests =
+    process.env.NODE_ENV === "test" && !opts.enableInTests;
+  if (skipForTests || process.env.DISABLE_RATE_LIMITS === "true") {
     return (_req: Request, _res: Response, next: NextFunction) => next();
   }
   const store = new Map<string, RateLimitEntry>();

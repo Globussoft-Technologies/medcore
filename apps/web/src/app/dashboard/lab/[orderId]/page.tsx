@@ -233,11 +233,15 @@ function OrderItemCard({
   // form was confusing — patients would type values, hit Save, and see
   // a generic "request failed" toast. Hide the form entirely; recorded
   // results still display read-only above.
+  //
+  // Issue #459 (May 2026 — A5 RBAC drift): the allow-list previously
+  // included DOCTOR and NURSE, but POST /lab/results is LAB_TECH | ADMIN
+  // only (apps/api/src/routes/lab.ts:372 — separation of duties from
+  // issue #14: the ordering doctor must not enter their own values).
+  // Tighten the client to match the server, mirroring the canEnterResults
+  // predicate that /dashboard/lab already uses (page.tsx:122).
   const canAddResults =
-    userRole === "ADMIN" ||
-    userRole === "DOCTOR" ||
-    userRole === "NURSE" ||
-    userRole === "LAB_TECH";
+    userRole === "ADMIN" || userRole === "LAB_TECH";
   const [form, setForm] = useState({
     parameter: "",
     value: "",

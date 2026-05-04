@@ -7,6 +7,7 @@ import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role, NotificationType } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { suggestFollowUp } from "../services/ai/follow-up";
 import { sendNotification } from "../services/notification";
 
@@ -70,6 +71,12 @@ router.post(
         res.status(404).json({ success: false, data: null, error: "Consultation not found" });
         return;
       }
+
+      // #511 (BOLA): authorize() includes Role.PATIENT for self-service
+      // follow-up booking, but without this check any PATIENT could book a
+      // follow-up against another patient's consultation. Verify ownership
+      // against the consultation's appointment.patientId before proceeding.
+      if (!(await assertPatientOwnsResource(req, res, consultation.appointment.patientId))) return;
 
       // Allow caller to override the auto-computed suggestion by posting date/slot/doctor.
       const body = req.body as {

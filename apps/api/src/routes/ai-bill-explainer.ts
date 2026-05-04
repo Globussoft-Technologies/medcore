@@ -7,6 +7,7 @@ import { Role, NotificationType } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
 import { validateUuidParams } from "../middleware/validate-params";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { generateBillExplanation } from "../services/ai/bill-explainer";
 import { sendNotification } from "../services/notification";
 
@@ -47,17 +48,11 @@ router.post(
         return;
       }
 
-      // Patient role can only generate for their own invoice
-      if (req.user?.role === Role.PATIENT) {
-        if (invoice.patient?.userId !== req.user.userId) {
-          res.status(403).json({
-            success: false,
-            data: null,
-            error: "Forbidden: you can only request your own bill explanations",
-          });
-          return;
-        }
-      }
+      // #511 audit: VERIFIED-SAFE via assertPatientOwnsResource — ensures the
+      // PATIENT caller's own Patient row matches the invoice's patientId.
+      // Refactored from an inline `invoice.patient?.userId !== req.user.userId`
+      // check for drift prevention (see medcore-bola-sweep skill section 3).
+      if (!(await assertPatientOwnsResource(req, res, invoice.patientId))) return;
 
       const { content, flaggedItems, language } = await generateBillExplanation(
         invoiceId
@@ -224,22 +219,10 @@ router.get(
         return;
       }
 
-      const user = req.user!;
-      const privileged =
-        user.role === Role.ADMIN ||
-        user.role === Role.RECEPTION ||
-        user.role === Role.DOCTOR;
-
-      if (!privileged) {
-        const patient = await prisma.patient.findUnique({
-          where: { id: explanation.patientId },
-          select: { userId: true },
-        });
-        if (patient?.userId !== user.userId) {
-          res.status(403).json({ success: false, data: null, error: "Forbidden" });
-          return;
-        }
-      }
+      // #511 audit: VERIFIED-SAFE via assertPatientOwnsResource — staff roles
+      // (ADMIN/RECEPTION/DOCTOR) pass through, PATIENT must own the row.
+      // Refactored from an inline patient-userId compare for drift prevention.
+      if (!(await assertPatientOwnsResource(req, res, explanation.patientId))) return;
 
       safeAudit(req, "AI_BILL_EXPLANATION_READ", "BillExplanation", id, {
         status: explanation.status,

@@ -24,6 +24,14 @@ router.use(authenticate);
 /**
  * Resolve whether the caller is allowed to view / generate the checklist for
  * an appointment: the owning patient, any ADMIN, or the attending doctor.
+ *
+ * #511 audit: VERIFIED-SAFE — this in-handler authorizer enforces per-row
+ * ownership (PATIENT must match `appointment.patient.userId`) AND is
+ * STRICTER than the canonical `assertPatientOwnsResource` helper for the
+ * DOCTOR role, which it scopes to the attending doctor only. We keep the
+ * bespoke helper for that reason rather than refactoring to the canonical
+ * helper, which would weaken the doctor-side check. Future drift on this
+ * function is fenced by `cross-patient-ai-bill-followup-previsit.test.ts`.
  */
 async function authorizeAppointmentAccess(
   req: Request,

@@ -161,4 +161,4 @@ If a test newly fails AND there's no relevant code change: lean flake, suggest o
 - `/medcore-e2e-spec` (after a single new spec lands and you want to confirm it passes on Linux + WebKit)
 - Any source fix that touches a route handler, schema, or middleware path
 
-It pairs with (TBD) `/medcore-diagnose-flake` for deeper post-failure triage.
+It pairs with `/medcore-test-triage` when the per-push Test workflow goes red with multiple failures across files (different ergonomics — Test workflow is 7-10 min and cascades easily, release.yml is 25-40 min and rarely cascades).

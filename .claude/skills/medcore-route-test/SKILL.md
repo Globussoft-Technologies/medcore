@@ -244,3 +244,80 @@ Single-paragraph report (under 150 words):
 - **Don't test framework code.** Don't assert that `express.json()` parses JSON. Test the route's behaviour, not Express.
 - **Don't skip the `--` in `git commit -m "..." -- <files>`.** Concurrent agents in a fanout will pull each other's staged files into your commit otherwise.
 - **Don't mock more than the route uses.** Over-mocking makes the test fragile to refactors that should be safe.
+
+## Cleanup contract for module-scope mutations
+
+If your test mutates **module-scope state** in the route under test — `process.env.X`, lazy-cached singletons, in-memory Maps, rate-limit stores — you MUST pair the mutation with cleanup. `vitest.config.ts` runs the integration suite under `singleFork: true`, which means every integration test file in the run shares the same Node worker. Module imports happen ONCE per worker; module-level state persists across files for the whole run.
+
+The 2026-05-04 wave is the cautionary tale: `auth.test.ts > describeRateLimit > beforeAll` set `ENABLE_LOGIN_RATELIMIT_IN_TESTS=true` and triggered lazy construction of the real `_loginLimiterImpl` in `routes/auth.ts`. There was no `afterAll`. The real limiter (5 req/min/IP) persisted across the rest of the worker, cascading 429s into `auth-edges`, `auth-session-bleed`, `users.test`, and producing a misleading 16-failure cluster.
+
+### Pattern: pair the mutation with a reset hook
+
+In the route source — export a test-only reset function with a `__` prefix to mark it as private/test-only:
+
+```ts
+// In apps/api/src/routes/<x>.ts
+let _someCache: Foo | null = null;
+const cachedThing = () => {
+  if (!_someCache) _someCache = expensiveBuild();
+  return _someCache;
+};
+
+/**
+ * Test-only escape hatch — reset the cache so the next caller rebuilds
+ * with current env / config. Used by tests that toggle module-scope
+ * state in `beforeAll` so they can restore the test-suite default in
+ * `afterAll`. Required because `singleFork: true` in vitest.config.ts
+ * shares this module across every integration test file.
+ */
+export function __resetSomeCacheForTests(): void {
+  _someCache = null;
+}
+```
+
+In the test that mutates state — pair `beforeAll` with `afterAll`, in the right order:
+
+```ts
+beforeAll(async () => {
+  process.env.SOME_FLAG = "true";
+  // Reset BEFORE the first request so the lazy cache rebuilds with the
+  // new env value — otherwise an earlier test in the same worker may
+  // have already cached the limiter as a no-op.
+  const mod = await import("../../routes/<x>");
+  mod.__resetSomeCacheForTests();
+  // Now construct the app fresh.
+  const appMod = await import("../../app");
+  app = appMod.buildApp().app;
+});
+
+afterAll(async () => {
+  // Order matters: drop the env flag FIRST, then null the cache, so
+  // the next caller in this fork rebuilds with the env-unset default.
+  delete process.env.SOME_FLAG;
+  const mod = await import("../../routes/<x>");
+  mod.__resetSomeCacheForTests();
+});
+```
+
+### When you need this
+
+- Any test that does `process.env.X = "..."` in `beforeAll`.
+- Any test that constructs a `buildApp()` instance to flip middleware behaviour.
+- Any route handler with a module-level `let _cachedFoo: Foo | null` lazy singleton.
+- Any in-memory store (`new Map()`, `new Set()`, rate-limit buckets) constructed at module top-level.
+
+### When you don't need this
+
+- The test only reads / mocks at function-arg level (no env vars, no singletons).
+- All state lives inside the route handler closure (request-local).
+- The module re-evaluates on every `import()` (not the case for any current MedCore route — they all module-cache).
+
+### Pre-flight check before scaffolding a test that mutates module state
+
+Before adding `process.env.X = "..."` to a `beforeAll`, grep for the existing reset hook:
+
+```bash
+grep -rn "__reset.*ForTests" apps/api/src/routes/<x>.ts
+```
+
+If none exists, ADD ONE in the same commit as the test. The two changes belong together — splitting them across commits makes future bisects ambiguous when the cascade re-emerges.

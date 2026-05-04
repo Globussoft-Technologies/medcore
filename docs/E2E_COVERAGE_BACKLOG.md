@@ -371,17 +371,17 @@ For each spec already in the suite, the flows below are not tested and should be
 Ranked by user-impact × current coverage gap. Each item lists a proposed spec
 filename and the core scenarios it should cover.
 
-### P1 — Billing line-item editing & credit notes
-- **File:** `e2e/billing-line-items.spec.ts`
-- **Why:** Revenue-critical; line-item errors cascade to reconciliation, disputes, audits
-- **Scenarios:**
+### ~~P1 — Billing line-item editing & credit notes~~ ✅ closed (`e2e/billing-line-items.spec.ts`, 5 cases — UI delete-with-audit-row pin (INVOICE_ITEM_DELETE entityId+details.itemId match) + quantity-change-as-replace flow (delete-then-re-add; the only production path — there is NO PATCH /items endpoint) + partial-refund modal POST body shape pinned via page.route stub + Issue Refund CTA disabled-while-reason-empty assertion + POST /credit-notes against PAID invoice 201 with CN- noteNumber + over-credit 400 guard. Deferred — UI not shipped: (a) "edit line-item quantity" via dedicated PATCH endpoint — backend has no PATCH /items so quantity-change happens via delete+re-add, which IS covered; (b) "period-locked invoice → edit blocked" — no `lockedAt` field on Invoice model; the de-facto edit lock is `paymentStatus !== "PENDING"` which is already pinned in `e2e/billing-id.spec.ts` ("RECEPTION add-line-item is forbidden once the invoice is PAID"); (c) "overpayment → credit balance carry-forward" — no UI surface; `derivePaymentStatus` only returns REFUNDED/PAID/PARTIAL/PENDING with no advance-credit field for excess payment. There is also no `/dashboard/credit-notes` web surface today — credit notes are exercised as a pure API contract pin so the next person who builds the UI has a green baseline.)
+- ~~**File:** `e2e/billing-line-items.spec.ts`~~
+- ~~**Why:** Revenue-critical; line-item errors cascade to reconciliation, disputes, audits~~
+- ~~**Scenarios:**
   - Edit line-item quantity → invoice total recomputes
   - Delete line-item → audit entry written
   - Add line-item to existing invoice (pre-payment vs. post-payment)
   - Issue credit-note against paid invoice → balance updates
   - Partial refund (amount < invoice total)
   - Overpayment → credit balance carry-forward
-  - Period-locked invoice → edit blocked
+  - Period-locked invoice → edit blocked~~
 
 ### P2 — Prescription lifecycle (clinical safety)
 - **File:** `e2e/prescription-lifecycle.spec.ts`

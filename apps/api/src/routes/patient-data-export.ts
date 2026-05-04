@@ -21,6 +21,7 @@ import { z } from "zod";
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { signParts, verifySignature } from "../services/signed-url";
@@ -112,6 +113,11 @@ function toWireStatus(row: any, req: Request) {
 
 // ─── POST /api/v1/patient-data-export ──────────────────────────────────────
 
+// #511 audit: VERIFIED-SAFE — self-self surface. The handler resolves the
+// caller's Patient row via `getCallerPatient(req)` (1:1 by `userId`) and
+// writes a `PatientDataExport` row with `patientId = patient.id`. There
+// is no `:id`-style URL param for an attacker to swap; the export is
+// always the caller's own. PATIENT-only by `authorize(Role.PATIENT)`.
 router.post(
   "/",
   authenticate,
@@ -198,11 +204,6 @@ router.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { requestId } = req.params;
-      const patient = await getCallerPatient(req);
-      if (!patient) {
-        res.status(403).json({ success: false, data: null, error: "Forbidden" });
-        return;
-      }
 
       const row = await prisma.patientDataExport.findUnique({
         where: { id: requestId },
@@ -215,11 +216,11 @@ router.get(
         });
         return;
       }
-      if (row.patientId !== patient.id) {
-        // Don't leak whether the row exists to other patients.
-        res.status(403).json({ success: false, data: null, error: "Forbidden" });
-        return;
-      }
+      // #511 audit: PATCHED A1 — was hand-rolled inline ownership check
+      // (`row.patientId !== patient.id`). Refactored to the canonical
+      // `assertPatientOwnsResource` helper for drift prevention.
+      // Helper writes the 403 envelope and we early-return on false.
+      if (!(await assertPatientOwnsResource(req, res, row.patientId))) return;
 
       safeAudit(
         req,
@@ -263,14 +264,11 @@ router.get(
       // If no signed URL, fall back to bearer auth + ownership check.
       if (!signedValid) {
         return authenticate(req, res, async () => {
+          // PATIENT-only fallback: staff (DOCTOR/ADMIN) can't download other
+          // patients' DPDP exports. The portability artefact is a self-only
+          // surface by design (matches `authorize(Role.PATIENT)` on the
+          // status endpoint above).
           if (!req.user || req.user.role !== Role.PATIENT) {
-            res
-              .status(403)
-              .json({ success: false, data: null, error: "Forbidden" });
-            return;
-          }
-          const patient = await getCallerPatient(req);
-          if (!patient) {
             res
               .status(403)
               .json({ success: false, data: null, error: "Forbidden" });
@@ -279,17 +277,29 @@ router.get(
           const row = await prisma.patientDataExport.findUnique({
             where: { id: requestId },
           });
-          if (!row || row.patientId !== patient.id) {
+          if (!row) {
             res
               .status(403)
               .json({ success: false, data: null, error: "Forbidden" });
             return;
           }
+          // #511 audit: PATCHED A1 — was hand-rolled inline ownership check
+          // (`row.patientId !== patient.id`). Refactored to the canonical
+          // `assertPatientOwnsResource` helper for drift prevention. The
+          // helper resolves caller → Patient via `userId` and writes the
+          // 403 envelope on mismatch (we collapse not-found to the same
+          // 403 above so existence isn't leaked to other patients).
+          if (!(await assertPatientOwnsResource(req, res, row.patientId))) return;
           await streamExport(req, res, row);
         });
       }
 
-      // Signed URL path — load row directly (no tenant scoping because the
+      // #511 audit: VERIFIED-SAFE — signed-URL path. The HMAC signature
+      // (verified at line 261) is the authoritative access grant; it
+      // commits to BOTH the requestId and an expiry. Loading via raw
+      // (non-tenant-scoped) prisma is intentional and documented below
+      // because tenant context isn't populated on signed-link hits.
+      // Signed-URL path — load row directly (no tenant scoping because the
       // signature is the authoritative access grant, and tenant-scoped
       // prisma would return null for a signed link hit before auth has
       // populated tenant context).

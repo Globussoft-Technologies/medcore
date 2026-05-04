@@ -604,6 +604,7 @@ export default function EmergencyPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <form
             onSubmit={submitIntake}
+            noValidate
             className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl"
           >
             <h2 className="mb-4 text-lg font-semibold">Register Emergency Case</h2>
@@ -702,7 +703,6 @@ export default function EmergencyPage() {
                   <div className="col-span-3">
                     <label className="mb-1 block text-sm font-medium">Name / Label</label>
                     <input
-                      required
                       placeholder="e.g. John Doe, Trauma 1"
                       value={intakeForm.unknownName}
                       onChange={(e) =>
@@ -762,7 +762,6 @@ export default function EmergencyPage() {
                 </label>
                 <textarea
                   data-testid="er-intake-complaint"
-                  required
                   rows={3}
                   value={intakeForm.chiefComplaint}
                   onChange={(e) =>

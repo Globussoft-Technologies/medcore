@@ -458,6 +458,7 @@ export default function AncCaseDetailPage() {
           {showVisitForm && (
             <form
               onSubmit={submitVisit}
+              noValidate
               className="mb-4 rounded-lg border bg-gray-50 p-4"
             >
               <div className="grid grid-cols-3 gap-3">
@@ -763,7 +764,7 @@ export default function AncCaseDetailPage() {
             </div>
           ) : canDeliver ? (
             showDeliveryForm ? (
-              <form onSubmit={submitDelivery}>
+              <form onSubmit={submitDelivery} noValidate>
                 <h3 className="mb-3 font-semibold">Record Delivery</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>

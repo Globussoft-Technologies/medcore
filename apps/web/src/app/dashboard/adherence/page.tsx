@@ -215,7 +215,7 @@ export default function AdherencePage() {
       {showEnroll && (
         <div className="mb-6 bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
           <h2 className="text-lg font-medium text-gray-800 mb-4">Enroll a Prescription</h2>
-          <form onSubmit={handleEnroll} className="space-y-4">
+          <form onSubmit={handleEnroll} noValidate className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Prescription

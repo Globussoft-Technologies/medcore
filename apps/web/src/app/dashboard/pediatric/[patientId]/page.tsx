@@ -136,6 +136,13 @@ export default function PediatricDetailPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    // A4: ageMonths is required server-side. With HTML5 `required` removed
+    // (so React-side errors render instead of native browser tooltips), we
+    // must explicitly guard the empty case.
+    if (!form.ageMonths) {
+      toast.error("Age (in months) is required.");
+      return;
+    }
     // Issue #220: at least one of weight / height / head-circumference
     // must be present — saving a row with only ageMonths produces a blank
     // growth record that isn't useful for chart trending.
@@ -363,6 +370,7 @@ export default function PediatricDetailPage() {
       {showForm && (
         <form
           onSubmit={submit}
+          noValidate
           className="mb-6 rounded-xl bg-white p-5 shadow-sm"
         >
           <h3 className="mb-3 font-semibold">Record Growth Measurement</h3>
@@ -384,9 +392,6 @@ export default function PediatricDetailPage() {
               </label>
               <input
                 type="number"
-                required
-                min={RANGES.ageMonths.min}
-                max={RANGES.ageMonths.max}
                 data-testid="growth-age-months"
                 value={form.ageMonths}
                 onChange={(e) => setForm({ ...form, ageMonths: e.target.value })}
@@ -398,8 +403,6 @@ export default function PediatricDetailPage() {
               <input
                 type="number"
                 step="0.01"
-                min={RANGES.weightKg.min}
-                max={RANGES.weightKg.max}
                 data-testid="growth-weight-kg"
                 value={form.weightKg}
                 onChange={(e) => setForm({ ...form, weightKg: e.target.value })}
@@ -411,8 +414,6 @@ export default function PediatricDetailPage() {
               <input
                 type="number"
                 step="0.1"
-                min={RANGES.heightCm.min}
-                max={RANGES.heightCm.max}
                 data-testid="growth-height-cm"
                 value={form.heightCm}
                 onChange={(e) => setForm({ ...form, heightCm: e.target.value })}
@@ -426,8 +427,6 @@ export default function PediatricDetailPage() {
               <input
                 type="number"
                 step="0.1"
-                min={RANGES.headCircumference.min}
-                max={RANGES.headCircumference.max}
                 data-testid="growth-head-circ"
                 value={form.headCircumference}
                 onChange={(e) =>

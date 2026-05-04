@@ -131,6 +131,12 @@ export default function OTPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    // A4: with HTML5 `required` removed (so React-side feedback can render),
+    // we must explicitly guard the empty case for the OT name.
+    if (!form.name.trim()) {
+      toast.error("OT name is required");
+      return;
+    }
     const body = {
       name: form.name,
       floor: form.floor || undefined,
@@ -338,6 +344,7 @@ export default function OTPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <form
             onSubmit={submit}
+            noValidate
             className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
           >
             <h2 className="mb-4 text-lg font-semibold">
@@ -351,7 +358,6 @@ export default function OTPage() {
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 className="w-full rounded-lg border px-3 py-2 text-sm"
-                required
               />
             </div>
 
@@ -369,7 +375,6 @@ export default function OTPage() {
                 <label className="mb-1 block text-sm font-medium">Daily Rate</label>
                 <input
                   type="number"
-                  min="0"
                   step="0.01"
                   value={form.dailyRate}
                   onChange={(e) =>

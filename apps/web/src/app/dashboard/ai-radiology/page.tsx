@@ -387,7 +387,7 @@ function UploadTab({ onCreated }: { onCreated: () => void }) {
   }
 
   return (
-    <form onSubmit={submit} className="max-w-2xl space-y-4 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
+    <form onSubmit={submit} noValidate className="max-w-2xl space-y-4 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
       <div>
         <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
           {t("radiology.field.patientId", "Patient ID")} *

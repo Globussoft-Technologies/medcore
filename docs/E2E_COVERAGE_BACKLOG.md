@@ -111,7 +111,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - ~~`/dashboard/leave-calendar` — calendar view (approval side covered)~~ closed 2026-05-03 by `e2e/leave-calendar.spec.ts` (6 tests; ADMIN chrome + legend + month nav + DOCTOR/NURSE/PATIENT bounces)
 - ~~`/dashboard/schedule` — staff schedule~~ ✅ closed (7 tests; `e2e/schedule.spec.ts` — ADMIN/DOCTOR happy paths + Add-Slot reverse-time client guard + Add-Override Modify-Hours toggle + access-shape pinning for NURSE/RECEPTION/PATIENT, no role-gate redirect)
 - ~~`/dashboard/doctors` — doctor directory~~ closed 2026-05-03 by `e2e/doctors.spec.ts` (6 tests; ADMIN happy/search/modal + DOCTOR/NURSE/PATIENT bounces)
-- `/dashboard/doctors/[id]` — doctor profile/schedule
+- ~~`/dashboard/doctors/[id]` — doctor profile/schedule~~ ✅ closed (4 tests; `e2e/doctors-id.spec.ts` — ADMIN profile+schedule+Edit CTA + DOCTOR no-Edit-CTA + PATIENT route-shape pin: detail page universally accessible vs LIST page ADMIN-only + bad-UUID `doctor-detail-notfound` empty-state)
 
 ### 2.5 Communications
 - ~~`/dashboard/notifications` — inbox~~ closed 2026-05-03 by `e2e/notifications.spec.ts` (6 tests; ADMIN/PATIENT/NURSE chrome + preferences toggle + LAB_TECH/PHARMACIST direct-URL accessibility)

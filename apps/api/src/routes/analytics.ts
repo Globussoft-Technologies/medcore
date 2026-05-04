@@ -19,6 +19,14 @@ router.use(authenticate);
 // Revenue routes still pin ADMIN-only at the per-route level
 // (see /revenue, /revenue/breakdown, /export/revenue.csv).
 router.use(authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR));
+// #511 audit (2026-05-05, cron-tick): all handlers verified safe via
+// router-level authorize(ADMIN, RECEPTION, DOCTOR) above — PATIENT is
+// excluded fleet-wide for this file. Per-handler overrides only narrow
+// further (ADMIN-only for /revenue, /revenue/breakdown, /export/revenue.csv,
+// and re-affirmed ADMIN+RECEPTION+DOCTOR for /ai/triage, /ai/scribe).
+// grep confirms no Role.PATIENT references anywhere in this file, so the
+// expanded BOLA criterion (PATIENT-allowed handler missing per-row check)
+// also does not apply here.
 
 // ─── Helpers ───────────────────────────────────────
 

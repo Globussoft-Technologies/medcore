@@ -27,6 +27,10 @@ const router = Router();
 // Agent console is strictly for reception + admin staff.
 router.use(authenticate);
 router.use(authorize(Role.RECEPTION, Role.ADMIN));
+// #511 audit (2026-05-05, cron-tick): all handlers verified safe via
+// router-level authorize() above — PATIENT is excluded fleet-wide for this
+// file, so no per-row BOLA gap is reachable. No PATIENT-allowed handler
+// override exists (grep confirms no Role.PATIENT references in this file).
 
 /**
  * Best-effort audit wrapper: PHI audit writes must never take a GET response

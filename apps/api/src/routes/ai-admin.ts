@@ -17,6 +17,10 @@ const router = Router();
 // system prompt.
 router.use(authenticate);
 router.use(authorize(Role.ADMIN));
+// #511 audit (2026-05-05, cron-tick): all handlers verified safe via
+// router-level authorize(Role.ADMIN) above — PATIENT (and every non-ADMIN
+// role) is excluded for this entire file. No per-handler override widens
+// access; grep confirms no Role.PATIENT references in this file.
 
 /**
  * GET /api/v1/ai/admin/prompts/:key/versions

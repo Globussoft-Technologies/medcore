@@ -11,6 +11,15 @@ test-coverage closure across §A-§E gaps, Playwright stabilization
 across Chromium + WebKit, and the local-first test workflow.
 
 ### Added
+- **2026-05-05 next-wave 5-agent fanout — A2 sweep continuation + A6 closed + 2 GH issue audits + /admissions/[id] E2E.**
+  Mixed-lane fanout shipping `a5bf725` (A2 — 10 more modals / 57 label-input pairs got `htmlFor`/`id` linkage; expenses, holidays, budgets, payment-plans, duty-roster, scheduled-reports, walk-in, PatientEditModal, notification-templates, certifications), `9ee446e` (A6 closed — `/users` PATCH handlers extracted from `patient-extras.ts` into a dedicated `apps/api/src/routes/users.ts`; byte-identical URLs preserve backward-compat), `aaadbeb` (`/dashboard/admissions/[id]` E2E — 6 cases × 2 = 12 tests, isolation panel + belongings + running bill + LOS + transfer modal + ADMIN force-discharge two-modal walk; closes §2.7 backlog entry).
+  Plus 2 audit-only agents posted concrete drift reports as comments
+  on Issues #458 and #459 — the H5-constraint and canX-drift audit
+  reports went from "open issue, vague body" to "open issue, 37
+  affected forms enumerated, 2 priority drift instances named".
+  Tracked in TODO.md "Open architectural follow-ups" canonical table:
+  A6 marked CLOSED → C6, A2/A4/A5 rows enriched with the new evidence
+  + audit-comment URLs.
 - **2026-05-05 round-2 fix-up wave (5-agent fanout) — cross-cutting helper fix, 2 root-cause spec fixes, 1 RBAC drift, 17 a11y label linkages.**
   Round-2 release.yml on `4d9423f` was still red on patients-register
   + payment-plans + ot-surgery WebKit. A 5-agent fanout closed all

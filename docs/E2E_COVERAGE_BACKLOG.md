@@ -443,18 +443,18 @@ filename and the core scenarios it should cover.
   - View execution history + failures at `/dashboard/reports/scheduled` (already covered by `e2e/reports-scheduled.spec.ts` — see §2.6)
   - Re-run failed schedule (deferred — owned by `apps/api/src/routes/scheduled-reports.ts` unit tests; lifecycle skipped to avoid persisted ScheduledReport row pollution across e2e runs)
 
-### P7 — HR ops: leave requests, payroll, bulk user mgmt
+### ~~P7 — HR ops: leave requests, payroll, bulk user mgmt~~ ✅ closed 2026-05-05 by `e2e/hr-operations.spec.ts` (6 cases — ADMIN queue chrome with 4-status tab strip + filter cluster + stubbed PENDING row + Approve CTA pinning PATCH /api/v1/leaves/:id/approve body shape `{status:"APPROVED"}` via useConfirm dialog round-trip + Reject modal empty-reason gate (toast.error guard at page.tsx:88-90 short-circuits before PATCH) THEN reason-filled PATCH /api/v1/leaves/:id/reject body shape `{rejectionReason:"..."}` pin + tab-switch refetch contract Pending → Approved firing GET /api/v1/leaves?status=APPROVED with the page.tsx:54 querystring `?status=${tab}` lock + DOCTOR/PATIENT ACCESS-RESTRICTED IN-PAGE archetype pin (CLAUDE.md gotcha #7 archetype 3 distinct from /dashboard/users which router.push("/dashboard")s — leave-management page.tsx:67-73 renders an in-place "Access restricted to administrators." card branch with NO redirect, URL stays at /dashboard/leave-management, queue chrome doesn't render); page.route stubs short-circuit list GET + approve/reject PATCHes so request bodies are pinned without polluting the shared admin seed across runs. Original P7 framing's other scenarios deferred — bulk CSV staff import + fine-grained permission matrix UI are NOT shipped on the current /dashboard/users surface (no upload input, no POST /users/bulk endpoint); role-change-with-effective-DATE is shipped immediate-only (no effective-date field on PATCH /users/:id) and the basic role-change is already covered by users.spec.ts test 3; deactivation/reactivation lifecycle is already covered by users.spec.ts test 2; payroll-run is already closed by payroll.spec.ts (7 cases, 2026-05-03); shift-conflict UI not shipped (markOverlappingShifts at leaves.ts:53 is BACKEND-side post-approve, no client-facing collision warning yet))
 - **File:** `e2e/hr-operations.spec.ts`
 - **Why:** Operational continuity, payroll compliance, shift-hour tracking
 - **Scenarios:**
-  - Employee submits leave request via `/dashboard/my-leaves`
-  - Manager approves/rejects → notification flow
-  - Bulk-import staff via CSV at `/dashboard/users`
-  - Permission matrix assignment (fine-grained RBAC)
-  - Role change with effective date
-  - Deactivation + reactivation
-  - Payroll run at `/dashboard/payroll` → payslip generation
-  - Shift conflict detection during scheduling
+  - ~~Employee submits leave request via `/dashboard/my-leaves`~~ already covered by `e2e/my-leaves.spec.ts` (6 tests, see §2.4 above)
+  - ~~Manager approves/rejects → notification flow~~ ✅ pinned via approve PATCH body-shape stub + reject-with-reason modal stub (empty-reason gate + filled-reason round-trip)
+  - ~~Bulk-import staff via CSV at `/dashboard/users`~~ deferred — feature not shipped (no upload input on page.tsx, no POST /users/bulk endpoint)
+  - ~~Permission matrix assignment (fine-grained RBAC)~~ deferred — only the 7-role enum at packages/shared/Role exists, no per-action permission UI shipped
+  - ~~Role change with effective date~~ deferred — shipped role-change is immediate (no effective-date field); already covered immediately by users.spec.ts test 3 with live PATCH round-trip
+  - ~~Deactivation + reactivation~~ already covered by users.spec.ts test 2 (live disable round-trip with self-action guard)
+  - ~~Payroll run at `/dashboard/payroll` → payslip generation~~ already closed by `e2e/payroll.spec.ts` (7 tests, see §2.4 above)
+  - ~~Shift conflict detection during scheduling~~ deferred — markOverlappingShifts at leaves.ts:53 is BACKEND-side post-approve fire-and-forget, no client-facing collision warning UI shipped on /dashboard/schedule
 
 ### P8 — Insurance claims (post-treatment)
 - **File:** `e2e/insurance-claims.spec.ts`

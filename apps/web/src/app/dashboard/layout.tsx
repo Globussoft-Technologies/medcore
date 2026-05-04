@@ -841,47 +841,68 @@ export default function DashboardLayout({
           )}
         </nav>
 
-        <div className="flex items-center gap-2 border-t border-gray-200 p-3 dark:border-white/10">
-          {/* Issue #137: in-app language switcher. Persists to localStorage
-              (handled by the i18n store) AND PATCHes /auth/me so the
-              choice follows the user across devices. */}
-          <LanguageDropdown
-            persistToServer
-            instanceId="mc-lang-sidebar"
-            className="text-slate-700 dark:text-gray-300"
-          />
-          {/* Issue #485 + #508: theme toggle extracted into its own
-              component. Inlined version was missing both `type="button"`
-              (could submit if ever wrapped in a form) and `aria-pressed`
-              (screen readers couldn't observe state change). See
-              `@/components/ThemeToggle.tsx` for the full rationale. */}
-          <ThemeToggle />
-          <button
-            onClick={() => setShortcutsOpen(true)}
-            aria-label={t("common.shortcuts")}
-            title={`${t("common.shortcuts")} (?)`}
-            className="rounded-lg p-2 text-slate-700 transition hover:bg-sidebar-hover hover:text-slate-900 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none dark:text-gray-300 dark:hover:text-white"
+        {/* Issue #486 — sidebar footer was a single horizontal flex row that
+            crammed LanguageDropdown + ThemeToggle + Keyboard + Settings +
+            Sign Out into the 256px-wide aside. At 1350×803 the Sign Out
+            button's "Sign Out" label wrapped to two lines ("Sign / Out")
+            and visually collided with the leftmost Quick Action card on
+            the dashboard. Splitting the footer into two stacked rows
+            (utility icons row + dedicated full-width Sign Out row) gives
+            the label its own line, eliminates the wrap, and keeps every
+            existing icon reachable. `whitespace-nowrap` on the Sign Out
+            label is a belt-and-braces guard so future translations can't
+            re-introduce the wrap on narrower locales. */}
+        <div
+          className="flex flex-col gap-2 border-t border-gray-200 p-3 dark:border-white/10"
+          data-testid="sidebar-footer"
+        >
+          <div
+            className="flex items-center gap-2"
+            data-testid="sidebar-footer-actions"
           >
-            <Keyboard size={18} aria-hidden="true" />
-          </button>
-          <Link
-            href="/dashboard/settings"
-            aria-label={t("common.settings")}
-            title={t("common.settings")}
-            className="rounded-lg p-2 text-slate-700 transition hover:bg-sidebar-hover hover:text-slate-900 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none dark:text-gray-300 dark:hover:text-white"
-          >
-            <SettingsIcon size={18} aria-hidden="true" />
-          </Link>
+            {/* Issue #137: in-app language switcher. Persists to localStorage
+                (handled by the i18n store) AND PATCHes /auth/me so the
+                choice follows the user across devices. */}
+            <LanguageDropdown
+              persistToServer
+              instanceId="mc-lang-sidebar"
+              className="text-slate-700 dark:text-gray-300"
+            />
+            {/* Issue #485 + #508: theme toggle extracted into its own
+                component. Inlined version was missing both `type="button"`
+                (could submit if ever wrapped in a form) and `aria-pressed`
+                (screen readers couldn't observe state change). See
+                `@/components/ThemeToggle.tsx` for the full rationale. */}
+            <ThemeToggle />
+            <button
+              onClick={() => setShortcutsOpen(true)}
+              aria-label={t("common.shortcuts")}
+              title={`${t("common.shortcuts")} (?)`}
+              className="rounded-lg p-2 text-slate-700 transition hover:bg-sidebar-hover hover:text-slate-900 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none dark:text-gray-300 dark:hover:text-white"
+            >
+              <Keyboard size={18} aria-hidden="true" />
+            </button>
+            <Link
+              href="/dashboard/settings"
+              aria-label={t("common.settings")}
+              title={t("common.settings")}
+              className="ml-auto rounded-lg p-2 text-slate-700 transition hover:bg-sidebar-hover hover:text-slate-900 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none dark:text-gray-300 dark:hover:text-white"
+            >
+              <SettingsIcon size={18} aria-hidden="true" />
+            </Link>
+          </div>
           <button
+            type="button"
             onClick={() => {
               logout();
               router.push("/login");
             }}
             aria-label={t("common.signOut")}
-            className="ml-auto flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 transition hover:bg-sidebar-hover hover:text-slate-900 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none dark:text-gray-300 dark:hover:text-white"
+            data-testid="sidebar-sign-out"
+            className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm whitespace-nowrap text-slate-700 transition hover:bg-sidebar-hover hover:text-slate-900 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none dark:text-gray-300 dark:hover:text-white"
           >
             <LogOut size={16} aria-hidden="true" />
-            <span>{t("common.signOut")}</span>
+            <span className="whitespace-nowrap">{t("common.signOut")}</span>
           </button>
         </div>
       </aside>

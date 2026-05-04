@@ -123,9 +123,9 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 
 ### 2.6 Analytics & Reporting
 - `/dashboard/reports` — custom report creation (only crash-regression tested)
-- `/dashboard/reports/scheduled` — execution + delivery (only setup tested)
-- `/dashboard/scheduled-reports` — same; verify dedup vs above
-- `/dashboard/analytics/reports` — analytics export
+- ~~`/dashboard/reports/scheduled` — execution + delivery (only setup tested)~~ ✅ closed (7 tests; ADMIN deep-link → canonical redirect + GET /scheduled-reports first-paint + Run History tab GET /scheduled-reports/runs + 6-column delivery-visibility contract pin (stubbed SUCCESS+FAILED rows) + empty-name toast (Issue #458 noValidate path) + DOCTOR/PATIENT/RECEPTION bounces; `e2e/reports-scheduled.spec.ts` — also dedups `/dashboard/scheduled-reports` since `/reports/scheduled` is just a thin client-side redirect to the canonical page)
+- ~~`/dashboard/scheduled-reports` — same; verify dedup vs above~~ ✅ closed (bundled in `e2e/reports-scheduled.spec.ts` above — dedup verified: `/dashboard/reports/scheduled` is a client-side redirect (Issue #80 compat shim) onto the canonical `/dashboard/scheduled-reports` page)
+- ~~`/dashboard/analytics/reports` — analytics export~~ ✅ closed (6 tests; ADMIN heading + 5 type-tile matrix + first-paint analytics GET + type-switch contract pin (Revenue → Appointments re-fetches /analytics/appointments) + CSV download trigger contract (`<type>-report-<from>_<to>.csv` filename) + empty-state with disabled CSV/JSON buttons + DOCTOR/PATIENT bounces; `e2e/analytics-reports.spec.ts`)
 - ~~`/dashboard/census` — bed census~~ closed 2026-05-03 by `e2e/census.spec.ts` (6 tests; ADMIN chrome + Daily/Weekly toggle + DOCTOR/NURSE reach + PATIENT/LAB_TECH 403-without-crash)
 - ~~`/dashboard/queue` — queue priority/reassignment (page-load only)~~ ✅ deepened (priority/reassign + RBAC; `e2e/queue.spec.ts`)
 

@@ -12,6 +12,21 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 19 — pivot to §5 P-priorities after §2 closure (P7 + P9).**
+  Lane A (`a809efa`) shipped `er-disposition.spec.ts` (5 cases — ER
+  reassessment + 3 disposition paths via `page.route` stubs;
+  universal-access archetype). Lane B (`ce747a3`) shipped
+  `hr-operations.spec.ts` (6 cases — leave-management approval queue;
+  inline "Access restricted" archetype; 6 of 8 backlog scenarios
+  deferred — bulk CSV import / permission matrix / role-effective-date
+  / shift-conflict UI not shipped, dedup with users.spec.ts +
+  payroll.spec.ts already covering deactivation + payslips). 11 new
+  tests × 2 projects = 22 listed cases. **5th cron-learning bullet
+  RIPENED to 3 instances**: leave-management joined ai-kpis + ai-fraud
+  as the 3rd inline-admin-gate-placeholder shape. Testid convention
+  drift across the 3 instances is itself a meta-finding — bullet now
+  recommends a normative `<route>-admin-gate` testid convention for
+  new pages adopting this shape.
 - **2026-05-05 cron-tick wave 18 — E2E coverage §2 backlog tail CLOSED + §5 P6.**
   Lane A (`0c0b2aa`) shipped `tenants-onboarding.spec.ts` (5 cases —
   redirect-bounce to /dashboard) + `visitors.spec.ts` (7 cases —

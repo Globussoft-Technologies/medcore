@@ -316,6 +316,39 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 19 (2-agent E2E fanout — pivot to §5 priorities after §2 closure)**:
+> First wave fully on §5 P-priorities after §2 backlog tail closed last
+> wave. 2 specs scaffolded; 2 §5 priorities closed. Lane A (`a809efa`):
+> `e2e/er-disposition.spec.ts` (5 cases — NURSE reassessment URGENT→
+> EMERGENT PATCH /triage body shape via `page.route` stub + DOCTOR
+> DISCHARGE→ADMIT close-panel flip + discharge-with-summary modal
+> contract pin + transfer-to-another-facility + universal-access
+> archetype pin for PATIENT/PHARMACIST). Notable: backlog framing for
+> "overflow → waitlist branching" + "fast-track vs standard" was
+> aspirational — current /dashboard/emergency is a 4-column kanban
+> with no overflow/fast-track lane shipped. Deferred. Lane B
+> (`ce747a3`): `e2e/hr-operations.spec.ts` (6 cases — ADMIN leave-
+> management queue + approve PATCH body + reject empty-reason guard +
+> tab-switch refetch + DOCTOR/PATIENT in-page "Access restricted"
+> archetype). **6 of 8 P7 sub-scenarios deferred** — bulk CSV import,
+> permission matrix UI, role-effective-date, and shift-conflict UI
+> aren't shipped; deactivation/reactivation already covered by
+> `users.spec.ts`; payroll already covered by `payroll.spec.ts` (which
+> exists from 2026-05-03 but wasn't in my mental model).
+>
+> **11 new E2E tests across 2 spec files** (×2 Playwright projects =
+> 22 listed cases). §5 P7 + P9 closed.
+>
+> **5th cron-learning bullet RIPENED to 3 instances**: leave-management
+> joined ai-kpis + ai-fraud as the 3rd inline-admin-gate-placeholder
+> shape (page renders chrome + inline gate card for non-allowed role,
+> no redirect). **Testid-convention drift across the 3 instances is
+> itself a meta-finding** — ai-kpis has dedicated `ai-kpis-admin-gate`
+> testid (cleanest), ai-fraud reuses outer-wrapper testid + textual
+> "Restricted", leave-management has no gate-testid at all. Skill
+> extension recommendation now includes a normative
+> `<route>-admin-gate` testid convention for new pages.
+>
 > **2026-05-05 cron-tick wave 18 (2-agent E2E fanout — closes §2 backlog tail + §5 P6 reports-custom)**:
 > 3 specs scaffolded; 4 backlog items closed (the final §2 tail).
 > Lane A (`0c0b2aa`): `e2e/tenants-onboarding.spec.ts` (5 cases —

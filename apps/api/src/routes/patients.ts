@@ -14,6 +14,7 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 
 const router = Router();
 
@@ -122,6 +123,15 @@ router.get(
         res.status(404).json({ success: false, data: null, error: "Patient not found" });
         return;
       }
+
+      // Issue surfaced by 2026-05-05 e2e/patients-id agent: this handler
+      // had no `authorize()` middleware AND no patient-self ownership
+      // check. Any authenticated user (incl. PATIENT) could fetch any
+      // patient's chart by UUID — IDOR / BOLA / OWASP API1:2023. The
+      // #474 sweep applied `assertPatientOwnsResource` to 11 other /:id
+      // handlers but missed this one. Closing the gap now: PATIENT
+      // callers must own the row; staff roles always pass.
+      if (!(await assertPatientOwnsResource(req, res, patient.user?.id))) return;
 
       const [appointments, vitals, prescriptions] = await Promise.all([
         prisma.appointment

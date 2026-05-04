@@ -53,6 +53,25 @@ is independently shippable. Full per-session history lives under
 > backlog cleanup: payment-plans / purchase-orders / purchase-orders-id /
 > controlled-substances / admissions all annotated as already-shipped
 > (specs landed days/weeks ago but the backlog hadn't been refreshed).
+>
+> **2026-05-05 cron-driven E2E wave v2 (4-agent fanout) + security
+> fix**: `531bf15` patients/[id] (7 cases — DOCTOR full chart panels
+> [Allergies/Conditions/Immunizations/Documents/Lab Results] + SEVERE-
+> allergy banner + ADMIN edit-asymmetry Issue #185 + PHARMACIST/LAB_TECH
+> route-shape pin), `9d7391a` prescriptions/new (6 cases — DOCTOR
+> happy via EntityPicker → POST 201 → row in history + Zod-validation
+> Issue #490 wording + ADMIN UX-asymmetry pin + RECEPTION/LAB_TECH
+> bounces; page is just a 42-line redirect-stub to canonical list +
+> ?new=1), `7c1f48d` telemedicine/waiting-room (7 cases — PATIENT
+> precheck → join → WAITING + WebRTC stubbed + DOCTOR/NURSE access-
+> shape + cross-patient 403 API guard), `0ff2e2d` doctors/[id] (4
+> cases — ADMIN happy + DOCTOR no-Edit + PATIENT route-shape +
+> bad-UUID 404). **Plus security fix**: surfaced by the patients/[id]
+> agent — `GET /api/v1/patients/:id` had NO `authorize()` and NO
+> `assertPatientOwnsResource` — bypassed the #474 cross-patient sweep.
+> Any authenticated user (incl. PATIENT) could fetch any patient's
+> chart by UUID. **Fixed in same commit**: helper applied + 3 new
+> regression tests in `cross-patient-rbac.test.ts`.
 
 ---
 

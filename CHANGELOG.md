@@ -12,6 +12,38 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-driven E2E wave v2 (4-agent fanout) + emergency security fix.**
+  Auto-pilot cron `56a0a2ec` fired again at "waiting-on-CI" and dispatched
+  4-agent fanout shipping 4 more truly-uncovered routes. `531bf15`
+  `/dashboard/patients/[id]` (7 cases — full chart from doctor's
+  perspective, Medical Records / Documents / Lab Results panels,
+  SEVERE-allergy banner from seeded POST /ehr/allergies, ADMIN
+  edit-asymmetry Issue #185, PHARMACIST/LAB_TECH route-shape pins).
+  `9d7391a` `/dashboard/prescriptions/new` (6 cases — DOCTOR happy
+  via EntityPicker patient + appointment → POST /prescriptions 201 →
+  row in history; Zod-validation Issue #490 wording asserted; ADMIN
+  UX-asymmetry pinned [in `RX_ALLOWED` so chrome renders, but the
+  in-page CTA is `user.role === "DOCTOR"`-gated]; RECEPTION/LAB_TECH
+  bounces). Surprise: `/dashboard/prescriptions/new` is just a 42-line
+  redirect stub to `/dashboard/prescriptions?new=1&patientId=...`;
+  the actual form lives on the parent route. `7c1f48d`
+  `/dashboard/telemedicine/waiting-room` (7 cases — PATIENT precheck
+  → join → WAITING traversal with WebRTC stubbed via `addInitScript`
+  fake `navigator.mediaDevices.getUserMedia` + DOCTOR/NURSE access-
+  shape + cross-patient 403 API guard). `0ff2e2d`
+  `/dashboard/doctors/[id]` (4 cases — ADMIN happy + DOCTOR no-Edit-CTA
+  + PATIENT route-shape + bad-UUID not-found amber panel).
+  **Critical security fix surfaced and shipped same wave**:
+  `GET /api/v1/patients/:id` (`patients.ts:99`) had NO `authorize()`
+  middleware AND NO `assertPatientOwnsResource` — any authenticated
+  user (including PATIENT) could fetch any patient's chart by UUID.
+  IDOR / BOLA / OWASP API1:2023. The earlier #474 cross-patient sweep
+  patched 11 other `/:id` handlers but missed this specific one. Fix
+  applied: `assertPatientOwnsResource(req, res, patient.user?.id)`
+  call after the `findUnique`. PATIENT callers must own the row;
+  staff roles always pass per the helper's contract. 3 new regression
+  assertions in `cross-patient-rbac.test.ts` (PATIENT-A → PATIENT-B
+  403, PATIENT-A → own 200, DOCTOR → any 200).
 - **2026-05-05 cron-driven E2E wave (4-agent fanout, 74 new test cases).**
   Auto-pilot cron `56a0a2ec` (every 15 min, jittered :03 :18 :33 :48)
   fired at a "waiting-on-CI" tick and dispatched a 4-agent fanout to

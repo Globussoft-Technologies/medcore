@@ -482,4 +482,30 @@ describeIfDB("Cross-patient RBAC (issue #474 — BOLA / CWE-285)", () => {
       .set("Authorization", `Bearer ${patientAToken}`);
     expect(res.status).toBe(403);
   });
+
+  // Issue surfaced by the 2026-05-05 /e2e/patients-id agent: GET
+  // /patients/:id had no authorize() AND no assertPatientOwnsResource —
+  // bypassed the #474 sweep. Fix landed in the same commit; these
+  // assertions guard against regression.
+  it("patients/:id: PATIENT-A cannot GET PATIENT-B's chart (403)", async () => {
+    const res = await request(app)
+      .get(`/api/v1/patients/${patientBId}`)
+      .set("Authorization", `Bearer ${patientAToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("patients/:id: PATIENT-A CAN GET own chart (200) [positive control]", async () => {
+    const res = await request(app)
+      .get(`/api/v1/patients/${patientAId}`)
+      .set("Authorization", `Bearer ${patientAToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data?.id).toBe(patientAId);
+  });
+
+  it("patients/:id: DOCTOR can GET any patient's chart (200) [staff control]", async () => {
+    const res = await request(app)
+      .get(`/api/v1/patients/${patientAId}`)
+      .set("Authorization", `Bearer ${doctorToken}`);
+    expect(res.status).toBe(200);
+  });
 });

@@ -75,14 +75,14 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 
 ### 2.1 Patient & Clinical
 - ~~`/dashboard/patients` — list page (search/filter/sort/bulk actions)~~ ✅ closed (7 tests; ADMIN/DOCTOR/NURSE/RECEPTION view + ADMIN|RECEPTION Register CTA + Issue #427 debounced-search refetch + DataTable sort/filter/CSV aria contract + PATIENT Issue #382 bounce; `e2e/patients.spec.ts`)
-- `/dashboard/patients/[id]` — full chart from doctor's perspective (allergies, imaging, med history)
+- ~~`/dashboard/patients/[id]` — full chart from doctor's perspective (allergies, imaging, med history)~~ ✅ closed (7 tests; DOCTOR header chrome + Start-Consultation CTA + Medical Records tab allergies/conditions/immunizations + SEVERE-allergy banner + Documents tab empty-state + Lab Results tab empty-state + ADMIN edit-button asymmetry (Issue #185) + PHARMACIST/LAB_TECH route-shape pin (no redirect, CTAs gated); `e2e/patients-id.spec.ts`)
 - `/dashboard/patients/[id]/problem-list` — add/edit/delete problems
 - ~~`/dashboard/patients/register` — new patient registration form~~ ✅ closed (6 tests; `e2e/patients-register.spec.ts`)
 - ~~`/dashboard/prescriptions/new` — Rx creation form (only smoke-touched today)~~ ✅ closed (6 tests; DOCTOR redirect-contract pin + happy path through EntityPicker patient/appointment + Zod-validation Issue #490 wording + ADMIN UX-asymmetry pin + RECEPTION/LAB_TECH bounces; `e2e/prescriptions-new.spec.ts`)
 - ~~`/dashboard/pediatric` — pediatric ward listing~~ ✅ closed `0715f27`
 - ~~`/dashboard/pediatric/[patientId]` — pediatric chart (age-specific dosing, growth charts)~~ ✅ closed `0715f27`
 - ~~`/dashboard/symptom-diary` — patient-reported symptom logging~~ ✅ closed (PATIENT happy path + 2 RBAC bounces + staff banner; `e2e/symptom-diary.spec.ts`)
-- `/dashboard/telemedicine/waiting-room` — waiting-room UI (only mocked join tested)
+- ~~`/dashboard/telemedicine/waiting-room` — waiting-room UI (only mocked join tested)~~ ✅ closed (7 tests; PATIENT precheck → join → WAITING traversal + picker/precheck-gates-join + precheck-failure pills + deny-state stability + DOCTOR/NURSE no-redirect access-shape pin + cross-patient 403 API guard; `e2e/telemedicine-waiting-room.spec.ts`)
 
 ### 2.2 Inventory & Supply Chain
 - ~~`/dashboard/medicines` — medicine catalog~~ ✅ closed (ADMIN/DOCTOR/NURSE/PATIENT access matrix + ADMIN-only Add CTA + search re-fetch + ADMIN create round-trip; `e2e/medicines.spec.ts`)

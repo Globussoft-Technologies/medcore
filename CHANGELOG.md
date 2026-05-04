@@ -6,11 +6,31 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Session window: 2026-04-30 → 2026-05-03. Focus: CI hardening Phases 1-4,
+Session window: 2026-04-30 → 2026-05-05. Focus: CI hardening Phases 1-4,
 test-coverage closure across §A-§E gaps, Playwright stabilization
-across Chromium + WebKit, and the local-first test workflow.
+across Chromium + WebKit, the local-first test workflow, and the
+2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 CI unblock + A2/A10 closure + new triage skill (7 commits).**
+  Per-push Test workflow on `main` was red on `0c30e23` and `63855a0` with
+  16 auth-integration test failures. Triaged into 5 root causes via the
+  new `/medcore-test-triage` playbook; fixed in `269e185`. Then a 5-agent
+  fanout closed A2 (`<label>X</label><input>` `htmlFor` linkage across
+  76 dashboard pages, ~352 pairs — `c911f14`/`f89643d`/`e015cd8`/`585861c`)
+  and A10 (lift `tenantScopedPrisma` to `@medcore/db` with back-compat
+  re-export shim, 100+ existing import sites unchanged — `0c8ab07`).
+  `e1de4f4` ships the new `/medcore-test-triage` skill (5-category
+  failure-cluster diagnosis playbook) + `/medcore-route-test`
+  cleanup-contract addendum (any test that mutates module-scope state
+  under `singleFork: true` MUST pair `beforeAll` with `afterAll` +
+  `__resetXForTests()` reset hook). 9 of 10 architectural follow-ups now
+  closed (only A1 page-level `VIEW_ALLOWED` policy decision remains —
+  product call needed, not engineering). One remaining test failure on
+  `269e185` is the known `audit-phi` flake category (now hitting
+  `INSURANCE_CLAIMS_LIST` sub-test instead of `AI_SCRIBE_READ`) —
+  pre-existing intermittent, not from this commit; deferred audit-flush
+  helper queued for next session.
 - **2026-05-04 architectural-closure session — 8 commits closing A3/A4/A7/A8/A9
   + #457 + 4 LOW security audit items + 1 new skill.** `e7ca04d` bundled the
   May 2026 audit follow-up: 133 tenant relations flipped from `onDelete: SetNull`

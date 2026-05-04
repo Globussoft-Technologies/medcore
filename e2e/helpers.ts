@@ -525,6 +525,13 @@ function rand(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
+// IMPORTANT (A3 — TODO.md "Open architectural follow-ups"): the server- and
+// client-side `PATIENT_NAME_REGEX = /^[A-Za-zऀ-ॿ\s.\-']{1,100}$/` REJECTS
+// DIGITS. Spec authors who tag names with `${name}-${Date.now()}` get a
+// silent 4xx on POST /patients because the timestamp suffix carries
+// numerics. Use this helper for any patient/user name field. If you need
+// uniqueness, encode the timestamp or random suffix into a field that
+// allows digits (email, phone, MR number) — never into the name itself.
 function indianishName(): string {
   // Realistic-seed compatible: avoids the "test1/aaa/qwerty" anti-pattern
   // listed in docs/TESTER_PROMPT.md so screenshots from a seeded test run

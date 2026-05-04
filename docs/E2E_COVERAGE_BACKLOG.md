@@ -78,7 +78,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - `/dashboard/patients/[id]` — full chart from doctor's perspective (allergies, imaging, med history)
 - `/dashboard/patients/[id]/problem-list` — add/edit/delete problems
 - ~~`/dashboard/patients/register` — new patient registration form~~ ✅ closed (6 tests; `e2e/patients-register.spec.ts`)
-- `/dashboard/prescriptions/new` — Rx creation form (only smoke-touched today)
+- ~~`/dashboard/prescriptions/new` — Rx creation form (only smoke-touched today)~~ ✅ closed (6 tests; DOCTOR redirect-contract pin + happy path through EntityPicker patient/appointment + Zod-validation Issue #490 wording + ADMIN UX-asymmetry pin + RECEPTION/LAB_TECH bounces; `e2e/prescriptions-new.spec.ts`)
 - ~~`/dashboard/pediatric` — pediatric ward listing~~ ✅ closed `0715f27`
 - ~~`/dashboard/pediatric/[patientId]` — pediatric chart (age-specific dosing, growth charts)~~ ✅ closed `0715f27`
 - ~~`/dashboard/symptom-diary` — patient-reported symptom logging~~ ✅ closed (PATIENT happy path + 2 RBAC bounces + staff banner; `e2e/symptom-diary.spec.ts`)

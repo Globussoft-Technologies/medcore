@@ -137,17 +137,53 @@ is independently shippable. Full per-session history lives under
 >
 > **Net across both #511 waves today**: 34 real BOLA fixes + 45
 > verified-safe-or-refactored across 10 route files; ~120 new test
-> cases. Issue #511 substantially closed. Long tail (~25 lower-priority
-> routes: agent-console / ai-admin / ai-bill-explainer / ai-knowledge /
-> analytics / chat / controlled-substances / coordinated-visits /
-> doctors / hr-ops / lab / leaves / med-reconciliation / medicines /
-> notifications / packages / patient-data-export / payment-plans /
-> pharmacy / preauth / scheduled-reports / shifts / tenants / uploads)
-> remains for future cycle. **Also broadened `.claude/settings.json`**
-> with the literal `.claude/skills/**` patterns (per user-supplied
-> screenshot) — `Read/Edit/Write(.claude/skills/**)`,
-> `Bash(.claude/skills/*)`, `./.claude/skills/**` variants — alongside
-> the absolute-Windows-path forms already in place.
+> cases. Issue #511 substantially closed.
+>
+> **2026-05-05 #511 expanded-criterion wave (4-agent fanout via
+> `/medcore-bola-sweep`)**: After updating the skill with the
+> "Expanded audit criterion" (handlers WITH `authorize()` containing
+> `Role.PATIENT` but no per-row check), 4 more agents shipped:
+> - `27eb610` ai-bill-explainer + ai-followup + ai-previsit — **1 real
+>   BOLA**: `ai-followup.ts POST /:consultationId/book` allowed PATIENT
+>   self-service with NO per-row check, PATIENT-A could book
+>   appointments under PATIENT-B's consultations. 2 refactors onto
+>   canonical helper. ai-previsit had bespoke `authorizeAppointmentAccess`
+>   that's STRICTER than the canonical (attending-doctor-only) — kept
+>   as-is, refactor would weaken it. 9 tests.
+> - `5b31ee7` prescriptions — **2 real BOLAs**: `GET /:id/pdf` and
+>   `GET /:id/leaflets` were both PATIENT-reachable subsurfaces leaking
+>   prescription PHI (diagnosis, medicines, dosing) by id. The original
+>   #474 sweep only patched headline `GET /:id`; expanded criterion
+>   caught what id-only thinking missed. Plus 1 refactor on
+>   `POST /:id/share`. 9 tests.
+> - `c015bd5` coordinated-visits — **1 real BOLA**: `GET /:id` had no
+>   authorize and no row check. Strict-self decision (vs membership-
+>   of-group): CoordinatedVisit schema has single `patientId`, not a
+>   group of co-members; appointments `/group/:groupId` precedent
+>   doesn't apply. 1 refactor. 6 tests.
+> - `1285c8f` lab + billing — **9 real BOLAs**: lab `/results/:orderItemId`
+>   + `/results/trends` + `/orders/:id/report` + `/orders/:id/pdf`
+>   (4 patches; 2 added parent fetch — verdict A3); billing
+>   `/invoices/:id` + `/invoices/:id/tax-breakdown` + `/invoices/:id/pdf`
+>   + `POST /pay-online` + `POST /verify-payment` (5 patches; verify-
+>   payment ownership gate placed BEFORE signature verification so
+>   gate is payload-independent). **Surprise**: `GET /billing/invoices/:id`
+>   was claimed in the brief to be already-covered by `cross-patient-
+>   rbac.test.ts` from #474 — it WAS NOT. Real open BOLA, now patched
+>   + tested. 27 tests.
+>
+> **Net across all 3 #511 waves today**: 47 real BOLA fixes + 50
+> verified-safe-or-refactored across 14 route files; ~170 new test
+> cases. **`ad30920` set `permissions.defaultMode: 'acceptEdits'`** —
+> the actual fix for the persistent edit-popup loop. Auto-accepts
+> Edit/Write/MultiEdit; Bash still goes through allow list (`Bash(*)`).
+> Effective at next session restart.
+>
+> **Long tail remaining (~21 lower-priority routes)**: agent-console,
+> ai-admin, ai-knowledge, analytics, chat, controlled-substances,
+> doctors, hr-ops, leaves, med-reconciliation, medicines, notifications,
+> packages, patient-data-export, patient-extras, payment-plans, pharmacy,
+> preauth, scheduled-reports, shifts, tenants, uploads. Future cycle.
 >
 > **2026-05-05 #511 BOLA-closure wave (5-agent fanout)**: After filing
 > #511 with 112 candidate handlers, dispatched 5 agents in parallel —

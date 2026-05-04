@@ -12,6 +12,30 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 #511 expanded-criterion wave (4-agent fanout via `/medcore-bola-sweep`) — 13 more real BOLA fixes across 4 route files + harness defaultMode fix.**
+  Cron-driven follow-up after the skill was updated with the
+  "Expanded audit criterion" (handlers WITH `authorize()` containing
+  `Role.PATIENT` but no per-row check). Surfaced after two extra-grep
+  finds in the long-tail wave (appointments `PATCH /:id/reschedule`,
+  growth `POST /:id/feeding`) showed the original audit pattern was
+  incomplete. `27eb610` ai-bill-explainer + ai-followup + ai-previsit
+  (1 real BOLA in ai-followup `POST /:consultationId/book` — PATIENT
+  could book under another's consultation; 2 refactors). `5b31ee7`
+  prescriptions (**2 real BOLAs in `GET /:id/pdf` and `GET /:id/leaflets`**
+  — both leaked prescription PHI by id; original #474 sweep only
+  caught headline `/:id`; 1 refactor). `c015bd5` coordinated-visits
+  (1 real BOLA on `GET /:id`, strict-self semantic decision since
+  schema is single-patient not multi-member). `1285c8f` lab + billing
+  (**9 real BOLAs** including 4 in lab and 5 in billing; verify-payment
+  ownership gate placed BEFORE signature verification so gate is
+  payload-independent; surprise: `GET /billing/invoices/:id` claimed
+  in brief to be #474-covered but actually wasn't, real open gap now
+  patched). ~62 new test cases.
+- **`permissions.defaultMode: "acceptEdits"`** in `.claude/settings.json`
+  (`ad30920`). Auto-accepts Edit/Write/MultiEdit operations; Bash still
+  goes through the allow list (where `Bash(*)` lives). Necessary for
+  the unattended cron-driven autopilot pattern. Effective at next
+  Claude Code restart.
 - **2026-05-05 #511 long-tail wave (5-agent fanout via `/medcore-bola-sweep`) — 15 real BOLA fixes + 39 verified-safe refactors across 5 more route files.**
   Cron-driven follow-up to the morning's 5-agent fanout. Used the new
   `/medcore-bola-sweep` skill (built earlier this cycle) to standardize

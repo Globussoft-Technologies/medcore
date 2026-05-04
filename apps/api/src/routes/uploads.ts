@@ -97,6 +97,12 @@ async function checkDocumentAccess(
 // NOTE: this route still requires authentication. The legacy GET-by-filename
 // endpoint below also requires authentication; for cross-tenant safety,
 // callers should prefer GET /:documentId which performs row-level ACL.
+//
+// #511 audit: VERIFIED-SAFE — POST creates a new file keyed by random UUID;
+// caller can only write THEIR OWN PatientDocument afterward (the row write
+// is performed by the EHR route which scopes patientId via authorize()).
+// `patientId` arriving in this body is purely a metadata tag for audit;
+// it never grants the caller any cross-patient read of an existing row.
 router.post(
   "/",
   authenticate,
@@ -230,6 +236,10 @@ router.post(
 // Allowed: ADMIN | uploader | treating doctor | the patient themselves.
 // Everyone else gets 403. Use this in preference to the legacy
 // filename-based route for any medical file.
+//
+// #511 audit: VERIFIED-SAFE — checkDocumentAccess() implements row-level
+// ACL (ADMIN / uploader / treating-doctor / patient-self) before any
+// signed-URL or sendFile call.
 router.get(
   "/document/:documentId",
   authenticate,
@@ -294,6 +304,9 @@ router.get(
 // check as GET /document/:documentId. Useful when the client wants to embed
 // the URL in an <img> / <iframe> / share link without leaking the bearer
 // token.
+//
+// #511 audit: VERIFIED-SAFE — same checkDocumentAccess() row-level ACL as
+// /document/:documentId before the signed URL is minted.
 router.get(
   "/document/:documentId/signed-url",
   authenticate,
@@ -340,7 +353,11 @@ router.get(
 // Kept for backward compatibility with already-stored URLs and avatar /
 // logo style non-medical files. Two access modes:
 //
-//   1. Authenticated bearer token (legacy behaviour) — returns the file.
+//   1. Authenticated bearer token (legacy behaviour) — returns the file,
+//      with an additional row-level ACL when a matching PatientDocument
+//      row exists (issue #511 BOLA closure: any authenticated PATIENT
+//      could previously fetch any filename in UPLOAD_DIR — including
+//      another patient's medical document — by guessing the URL).
 //   2. Signed-URL with ?expires=…&sig=… (no auth required, but signature
 //      must verify and not be expired).
 //
@@ -368,7 +385,36 @@ router.get("/:filename", async (req: Request, res: Response, next: NextFunction)
     }
 
     // Fall back to bearer auth.
-    return authenticate(req, res, () => {
+    return authenticate(req, res, async () => {
+      // #511 BOLA closure: when this filename matches a PatientDocument row
+      // (i.e. it's a medical artefact, not an avatar/logo), apply the same
+      // ACL as GET /document/:documentId so a PATIENT-A bearer cannot fetch
+      // PATIENT-B's file by guessing/leaking the stored filename. Files with
+      // NO matching PatientDocument row (avatars, generic uploads, signed-
+      // URL-only artefacts) keep the legacy behaviour to avoid regressing
+      // existing non-medical use.
+      try {
+        if (req.user) {
+          const doc = await prisma.patientDocument.findFirst({
+            where: { filePath: { endsWith: name } },
+            select: { id: true, patientId: true, uploadedBy: true },
+          });
+          if (doc) {
+            const denied = await checkDocumentAccess(doc, req.user);
+            if (denied) {
+              res
+                .status(denied.status)
+                .json({ success: false, data: null, error: denied.error });
+              return;
+            }
+          }
+        }
+      } catch (aclErr) {
+        // ACL lookup failure must not silently allow the download —
+        // surface as 500 via next(err) so the caller knows.
+        next(aclErr);
+        return;
+      }
       res.sendFile(fullPath);
     });
   } catch (err) {

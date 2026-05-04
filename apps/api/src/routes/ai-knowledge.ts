@@ -9,6 +9,13 @@ import { indexChunk, seedFromExistingData } from "../services/ai/rag";
 const router = Router();
 router.use(authenticate, authorize(Role.ADMIN));
 
+// #511 audit (file-level): router-level `authorize(Role.ADMIN)` above gates
+// EVERY handler in this file. PATIENT (and DOCTOR / NURSE / RECEPTIONIST)
+// never reach any handler — VERIFIED-SAFE. KnowledgeChunk has no patientId
+// FK; it's a tenant-wide RAG corpus, so per-row patient ownership is not a
+// concept here. If a PATIENT-readable surface is ever added (e.g. patient-
+// facing self-service knowledge), it must NOT be mounted under this router.
+
 // GET /api/v1/ai/knowledge — list knowledge chunks (paginated, filterable by documentType)
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {

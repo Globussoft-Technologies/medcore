@@ -20,6 +20,16 @@ import { sendNotification, retryNotification } from "../services/notification";
 const router = Router();
 router.use(authenticate);
 
+// #511 audit (file-level): every PATIENT-reachable handler in this file is
+// either (a) self-scoped via `where: { userId: req.user!.userId }` so the
+// query never returns cross-user rows (GET /, GET /preferences, PUT
+// /preferences, GET /schedule, PUT /schedule, POST /test, POST
+// /push-token/register), (b) row-keyed with an explicit
+// `notification.userId !== req.user.userId` 403 (PATCH /:id/read), or
+// (c) ADMIN-only via per-handler `authorize(Role.ADMIN)` (templates,
+// broadcast, broadcasts, /:id/delivery, stats, /templates/:id, delivery,
+// /:id/retry). No cross-user BOLA surface.
+
 // GET /api/v1/notifications — list user's notifications (paginated)
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -54,6 +64,9 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // PATCH /api/v1/notifications/:id/read — mark as read
+// #511 audit: VERIFIED-SAFE — explicit `notification.userId !== req.user.userId`
+// → 403 inline check. Notifications are user-scoped (userId, NOT patientId);
+// the canonical self-only check by userId is the correct gate here.
 router.patch(
   "/:id/read",
   async (req: Request, res: Response, next: NextFunction) => {

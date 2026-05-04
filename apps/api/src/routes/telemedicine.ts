@@ -218,6 +218,8 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
     }
 
     // Issue #474 (BOLA): PATIENT must only see own telemedicine sessions.
+    // Cross-patient regression covered in cross-patient-rbac.test.ts
+    // ("telemedicine: PATIENT-A cannot GET PATIENT-B's session").
     if (!(await assertPatientOwnsResource(req, res, session.patientId))) return;
 
     res.json({ success: true, data: session, error: null });
@@ -342,20 +344,9 @@ router.patch(
         return;
       }
 
-      // Patients can only cancel their own
-      if (req.user!.role === Role.PATIENT) {
-        const patient = await prisma.patient.findUnique({
-          where: { userId: req.user!.userId },
-        });
-        if (!patient || patient.id !== existing.patientId) {
-          res.status(403).json({
-            success: false,
-            data: null,
-            error: "Cannot cancel another patient's session",
-          });
-          return;
-        }
-      }
+      // #511 audit: VERIFIED-SAFE — refactored from hand-rolled PATIENT check
+      // to canonical assertPatientOwnsResource for drift prevention.
+      if (!(await assertPatientOwnsResource(req, res, existing.patientId))) return;
 
       const session = await prisma.telemedicineSession.update({
         where: { id: req.params.id },
@@ -392,19 +383,9 @@ router.patch(
         return;
       }
 
-      if (req.user!.role === Role.PATIENT) {
-        const patient = await prisma.patient.findUnique({
-          where: { userId: req.user!.userId },
-        });
-        if (!patient || patient.id !== existing.patientId) {
-          res.status(403).json({
-            success: false,
-            data: null,
-            error: "Cannot rate another patient's session",
-          });
-          return;
-        }
-      }
+      // #511 audit: VERIFIED-SAFE — refactored from hand-rolled PATIENT check
+      // to canonical assertPatientOwnsResource for drift prevention.
+      if (!(await assertPatientOwnsResource(req, res, existing.patientId))) return;
 
       if (existing.status !== "COMPLETED") {
         res.status(409).json({
@@ -449,6 +430,9 @@ router.patch(
         return;
       }
 
+      // #511 (BOLA): PATIENT must only join own telemedicine session waiting room.
+      if (!(await assertPatientOwnsResource(req, res, existing.patientId))) return;
+
       const session = await prisma.telemedicineSession.update({
         where: { id: req.params.id },
         data: {
@@ -475,6 +459,18 @@ router.patch(
   validate(telemedTechIssuesSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // #511 (BOLA): load owner first so PATIENT can only post tech-issues
+      // against their own session.
+      const existing = await prisma.telemedicineSession.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, patientId: true },
+      });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Session not found" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, existing.patientId))) return;
+
       const session = await prisma.telemedicineSession.update({
         where: { id: req.params.id },
         data: { technicalIssues: req.body.technicalIssues },
@@ -521,12 +517,15 @@ router.get(
     try {
       const session = await prisma.telemedicineSession.findUnique({
         where: { id: req.params.id },
-        select: { id: true, sessionMessages: true },
+        select: { id: true, sessionMessages: true, patientId: true },
       });
       if (!session) {
         res.status(404).json({ success: false, data: null, error: "Session not found" });
         return;
       }
+      // #511 (BOLA): PATIENT must only read own session chat.
+      if (!(await assertPatientOwnsResource(req, res, session.patientId))) return;
+
       const messages = Array.isArray(session.sessionMessages)
         ? (session.sessionMessages as unknown as Array<Record<string, unknown>>)
         : [];
@@ -562,6 +561,8 @@ router.post(
         res.status(404).json({ success: false, data: null, error: "Session not found" });
         return;
       }
+      // #511 (BOLA): PATIENT must only post into own session chat.
+      if (!(await assertPatientOwnsResource(req, res, session.patientId))) return;
 
       const existing = Array.isArray(session.sessionMessages)
         ? (session.sessionMessages as unknown as Array<Record<string, unknown>>)
@@ -684,20 +685,9 @@ router.post(
         return;
       }
 
-      // Patients may only join waiting for their own session.
-      if (req.user!.role === Role.PATIENT) {
-        const patient = await prisma.patient.findUnique({
-          where: { userId: req.user!.userId },
-        });
-        if (!patient || patient.id !== existing.patientId) {
-          res.status(403).json({
-            success: false,
-            data: null,
-            error: "Cannot join another patient's session",
-          });
-          return;
-        }
-      }
+      // #511 audit: VERIFIED-SAFE — refactored from hand-rolled PATIENT check
+      // to canonical assertPatientOwnsResource for drift prevention.
+      if (!(await assertPatientOwnsResource(req, res, existing.patientId))) return;
 
       const now = new Date();
       const session = await prisma.telemedicineSession.update({
@@ -989,20 +979,9 @@ router.post(
         return;
       }
 
-      // Patients may only precheck their own session.
-      if (req.user!.role === Role.PATIENT) {
-        const patient = await prisma.patient.findUnique({
-          where: { userId: req.user!.userId },
-        });
-        if (!patient || patient.id !== existing.patientId) {
-          res.status(403).json({
-            success: false,
-            data: null,
-            error: "Cannot pre-check another patient's session",
-          });
-          return;
-        }
-      }
+      // #511 audit: VERIFIED-SAFE — refactored from hand-rolled PATIENT check
+      // to canonical assertPatientOwnsResource for drift prevention.
+      if (!(await assertPatientOwnsResource(req, res, existing.patientId))) return;
 
       const passed = req.body.camera === true && req.body.mic === true;
       const precheckAt = new Date();
@@ -1074,20 +1053,9 @@ router.get(
         return;
       }
 
-      // Patients may only view transcripts for their own session.
-      if (req.user!.role === Role.PATIENT) {
-        const patient = await prisma.patient.findUnique({
-          where: { userId: req.user!.userId },
-        });
-        if (!patient || patient.id !== session.patientId) {
-          res.status(403).json({
-            success: false,
-            data: null,
-            error: "Cannot view another patient's transcript",
-          });
-          return;
-        }
-      }
+      // #511 audit: VERIFIED-SAFE — refactored from hand-rolled PATIENT check
+      // to canonical assertPatientOwnsResource for drift prevention.
+      if (!(await assertPatientOwnsResource(req, res, session.patientId))) return;
 
       const transcript = Array.isArray(session.sessionMessages)
         ? (session.sessionMessages as unknown as Array<Record<string, unknown>>)

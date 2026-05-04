@@ -82,7 +82,7 @@ jobs:
       UPDATE_VISUAL_BASELINES: "1"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 1
@@ -239,7 +239,7 @@ jobs:
       UPDATE_VISUAL_BASELINES: "1"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 1

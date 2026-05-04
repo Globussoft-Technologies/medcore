@@ -316,6 +316,37 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 20 (2-agent E2E fanout — §5 P1 billing-line-items + P4 doctor-chart-review)**:
+> 2 §5 priorities closed via 11 cases across 2 spec files. Lane A
+> (`aaa9ad4`): `e2e/doctor-chart-review.spec.ts` (6 cases — DOCTOR
+> 8-tab strip + AllergyForm POST shape + empty-allergen client-guard +
+> Lab Results TrendSparkline SVG + Documents IMAGING group + Caregiver
+> /family CRUD modal). Lane B (`de0f396`): `e2e/billing-line-items
+> .spec.ts` (5 cases — UI delete + INVOICE_ITEM_DELETE audit-row pin +
+> quantity-change-as-replace via delete-then-re-add (1400→800→2600
+> subtotal recompute) + partial-refund modal POST shape + credit-note
+> POST API contract pin (no UI exists yet) + over-credit 400 guard at
+> routes/billing.ts:1825-1832).
+>
+> **11 new E2E tests across 2 spec files** (×2 Playwright projects =
+> 22 listed cases). §5 P1 + P4 closed.
+>
+> **NEW 7th cron-learning bullet (RIPE on first capture)**: backlog
+> framing in `docs/E2E_COVERAGE_BACKLOG.md` §5 P-priorities is sometimes
+> aspirational — describes INTENDED UX rather than shipped behaviour.
+> Confirmed across 6+ wave-instances (waves 17-20): workspace "config",
+> reports "department+metric filters", ER "overflow/fast-track", HR
+> "bulk CSV+permission matrix+role-effective-date+shift-conflict UI",
+> P4 "medication start/stop dates+reconciliation+imaging viewer",
+> P1 "edit quantity PATCH+period-lock+credit-note UI+overpayment
+> carry-forward". Skill extension recommendation: add a
+> "verify-before-scaffold" step to `/medcore-e2e-spec` requiring the
+> agent to grep page.tsx + API route file for each scenario before
+> writing tests; deferred scenarios get explicit "UI not shipped" +
+> evidence-citation in the spec header + backlog closure annotation.
+> Bullet is RIPE for promotion immediately given the 6-instance
+> baseline already captured.
+>
 > **2026-05-05 cron-tick wave 19 (2-agent E2E fanout — pivot to §5 priorities after §2 closure)**:
 > First wave fully on §5 P-priorities after §2 backlog tail closed last
 > wave. 2 specs scaffolded; 2 §5 priorities closed. Lane A (`a809efa`):

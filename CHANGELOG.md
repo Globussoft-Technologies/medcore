@@ -12,6 +12,23 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 20 — §5 P1 billing-line-items + P4 doctor-chart-review.**
+  Lane A (`aaa9ad4`) shipped `doctor-chart-review.spec.ts` (6 cases —
+  AllergyForm POST shape + TrendSparkline SVG + Documents IMAGING group
+  + Caregiver/family CRUD). Lane B (`de0f396`) shipped
+  `billing-line-items.spec.ts` (5 cases — UI delete + audit-row pin +
+  quantity-change-as-replace + partial-refund + credit-note API contract
+  + over-credit 400 guard). 11 new tests × 2 projects = 22 listed cases.
+  **NEW 7th cron-learning bullet** (RIPE on first capture, 6+ wave
+  instances): backlog framing in `docs/E2E_COVERAGE_BACKLOG.md` is
+  sometimes aspirational — describes intended UX rather than shipped
+  behaviour. Multiple §5 P-priorities (P1 quantity-edit/period-lock/
+  credit-note-UI/overpayment, P4 med-start-stop/reconciliation/imaging-
+  viewer, P7 bulk-CSV/permission-matrix, P9 ER-overflow/fast-track,
+  workspace "config", reports "department+metric filters") describe
+  features not shipped. Bullet recommends a "verify-before-scaffold"
+  step in `/medcore-e2e-spec` to grep page.tsx + API route file before
+  writing tests, with explicit "UI not shipped" evidence-citations.
 - **2026-05-05 cron-tick wave 19 — pivot to §5 P-priorities after §2 closure (P7 + P9).**
   Lane A (`a809efa`) shipped `er-disposition.spec.ts` (5 cases — ER
   reassessment + 3 disposition paths via `page.route` stubs;

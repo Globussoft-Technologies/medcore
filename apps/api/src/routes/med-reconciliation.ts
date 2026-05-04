@@ -17,8 +17,13 @@ const router = Router();
 router.use(authenticate);
 
 // GET /api/v1/med-reconciliation?patientId=&admissionId=
+// #511 BOLA: clinical PHI list — staff-only (matches POST/PATCH gating
+// already on this file). Without an authorize() the bare `authenticate`
+// allowed any PATIENT JWT to query reconciliations across all patients
+// by passing ?patientId=<other>. Restricted to clinical roles.
 router.get(
   "/",
+  authorize(Role.DOCTOR, Role.NURSE, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { patientId, admissionId, type } = req.query as Record<string, string>;
@@ -40,9 +45,12 @@ router.get(
 );
 
 // GET /api/v1/med-reconciliation/suggest?patientId=&admissionId=
-// Auto-extract home medications from last 90 days of prescriptions
+// Auto-extract home medications from last 90 days of prescriptions.
+// #511 BOLA: returns 90-day prescription history for any patientId in the
+// query string — pure clinical PHI, staff-only.
 router.get(
   "/suggest",
+  authorize(Role.DOCTOR, Role.NURSE, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { patientId, admissionId } = req.query as Record<string, string>;
@@ -104,8 +112,12 @@ router.get(
 );
 
 // GET /api/v1/med-reconciliation/:id
+// #511 BOLA: row-keyed read of full home/hospital/discharge medication
+// triple — clinical reconciliation surface, staff-only (matches the rest
+// of this file's authorize() gating).
 router.get(
   "/:id",
+  authorize(Role.DOCTOR, Role.NURSE, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const rec = await prisma.medReconciliation.findUnique({

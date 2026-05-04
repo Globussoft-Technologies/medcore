@@ -16,6 +16,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { auditLog } from "../middleware/audit";
 import { computePatientBaseline } from "../services/vitals-baseline";
 import {
@@ -140,6 +141,10 @@ router.get(
 );
 
 // ─── GET /patients/:id/ccda — medical record summary ──
+// #511 (expanded BOLA): authorize() includes Role.PATIENT for self-export,
+// so per-row ownership must be enforced. The :id IS the patientId — we
+// load the patient, null-check, then assertPatientOwnsResource on
+// patient.id before serialising the bundle. PATIENT-A → PATIENT-B → 403.
 
 router.get(
   "/patients/:id/ccda",
@@ -211,6 +216,10 @@ router.get(
           .json({ success: false, data: null, error: "Patient not found" });
         return;
       }
+
+      // #511 BOLA: PATIENT may only export own CCDA. Staff bypass via the
+      // helper's role check.
+      if (!(await assertPatientOwnsResource(req, res, patient.id))) return;
 
       const doc = {
         generatedAt: new Date().toISOString(),

@@ -36,7 +36,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "axe-core": "^4.11.4",
-    "eslint": "^9.39.4",
+    "eslint": "^10.3.0",
     "eslint-config-next": "^15.5.15",
     "jsdom": "^29.1.1",
     "typescript": "^5.8.0",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, use, useId } from "react";
 import Link from "next/link";
 import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
@@ -513,10 +513,11 @@ function OverviewTab({
             <h3 className="mb-4 font-semibold">Discharge Patient</h3>
             <div className="space-y-3">
               <div>
-                <label className="text-xs font-medium text-gray-600">
+                <label htmlFor="discharge-summary" className="text-xs font-medium text-gray-600">
                   Discharge Summary *
                 </label>
                 <textarea
+                  id="discharge-summary"
                   value={summary}
                   onChange={(e) => setSummary(e.target.value)}
                   rows={3}
@@ -525,10 +526,11 @@ function OverviewTab({
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-medium text-gray-600">
+                  <label htmlFor="discharge-final-diagnosis" className="text-xs font-medium text-gray-600">
                     Final Diagnosis
                   </label>
                   <input
+                    id="discharge-final-diagnosis"
                     value={dischargeForm.finalDiagnosis}
                     onChange={(e) =>
                       setDischargeForm({
@@ -540,10 +542,11 @@ function OverviewTab({
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600">
+                  <label htmlFor="discharge-condition" className="text-xs font-medium text-gray-600">
                     Condition at Discharge
                   </label>
                   <select
+                    id="discharge-condition"
                     value={dischargeForm.conditionAtDischarge}
                     onChange={(e) =>
                       setDischargeForm({
@@ -562,10 +565,11 @@ function OverviewTab({
                 </div>
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600">
+                <label htmlFor="discharge-treatment-given" className="text-xs font-medium text-gray-600">
                   Treatment Given
                 </label>
                 <textarea
+                  id="discharge-treatment-given"
                   value={dischargeForm.treatmentGiven}
                   onChange={(e) =>
                     setDischargeForm({
@@ -578,10 +582,11 @@ function OverviewTab({
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600">
+                <label htmlFor="discharge-medications" className="text-xs font-medium text-gray-600">
                   Discharge Medications
                 </label>
                 <textarea
+                  id="discharge-medications"
                   value={dischargeForm.dischargeMedications}
                   onChange={(e) =>
                     setDischargeForm({
@@ -595,10 +600,11 @@ function OverviewTab({
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600">
+                <label htmlFor="discharge-followup" className="text-xs font-medium text-gray-600">
                   Follow-up Instructions
                 </label>
                 <textarea
+                  id="discharge-followup"
                   value={dischargeForm.followUpInstructions}
                   onChange={(e) =>
                     setDischargeForm({
@@ -1046,12 +1052,14 @@ function Input({
   error?: string;
   testId?: string;
 }) {
+  const inputId = useId();
   return (
     <div>
-      <label className="mb-1 block text-xs font-medium text-gray-600">
+      <label htmlFor={inputId} className="mb-1 block text-xs font-medium text-gray-600">
         {label}
       </label>
       <input
+        id={inputId}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         data-testid={testId}
@@ -1213,7 +1221,7 @@ function MedicationsTab({
           <h3 className="mb-4 font-semibold">New Medication Order</h3>
           <div className="space-y-3">
             <div>
-              <label className="mb-1 block text-sm font-medium">Medicine</label>
+              <label htmlFor="med-order-medicine-search" className="mb-1 block text-sm font-medium">Medicine</label>
               {selectedMed ? (
                 <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2 text-sm">
                   <span>{selectedMed.name}</span>
@@ -1228,6 +1236,7 @@ function MedicationsTab({
               ) : (
                 <>
                   <input
+                    id="med-order-medicine-search"
                     placeholder="Search medicines"
                     value={medSearch}
                     onChange={(e) => setMedSearch(e.target.value)}
@@ -1256,8 +1265,9 @@ function MedicationsTab({
             </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <div>
-                <label className="mb-1 block text-sm font-medium">Dosage</label>
+                <label htmlFor="med-order-dosage" className="mb-1 block text-sm font-medium">Dosage</label>
                 <input
+                  id="med-order-dosage"
                   placeholder="e.g. 500mg"
                   value={form.dosage}
                   onChange={(e) => setForm({ ...form, dosage: e.target.value })}
@@ -1265,10 +1275,11 @@ function MedicationsTab({
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">
+                <label htmlFor="med-order-frequency" className="mb-1 block text-sm font-medium">
                   Frequency
                 </label>
                 <input
+                  id="med-order-frequency"
                   placeholder="e.g. TID"
                   value={form.frequency}
                   onChange={(e) =>
@@ -1278,8 +1289,9 @@ function MedicationsTab({
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">Route</label>
+                <label htmlFor="med-order-route" className="mb-1 block text-sm font-medium">Route</label>
                 <select
+                  id="med-order-route"
                   value={form.route}
                   onChange={(e) => setForm({ ...form, route: e.target.value })}
                   className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -1293,10 +1305,11 @@ function MedicationsTab({
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">
+                <label htmlFor="med-order-start-date" className="mb-1 block text-sm font-medium">
                   Start Date
                 </label>
                 <input
+                  id="med-order-start-date"
                   type="date"
                   value={form.startDate}
                   onChange={(e) =>
@@ -1306,10 +1319,11 @@ function MedicationsTab({
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">
+                <label htmlFor="med-order-end-date" className="mb-1 block text-sm font-medium">
                   End Date
                 </label>
                 <input
+                  id="med-order-end-date"
                   type="date"
                   value={form.endDate}
                   onChange={(e) =>
@@ -1964,10 +1978,11 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
           />
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="block text-[11px] text-gray-600 mb-0.5">
+              <label htmlFor="isolation-start" className="block text-[11px] text-gray-600 mb-0.5">
                 Start date / time
               </label>
               <input
+                id="isolation-start"
                 type="datetime-local"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
@@ -1975,10 +1990,11 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
               />
             </div>
             <div>
-              <label className="block text-[11px] text-gray-600 mb-0.5">
+              <label htmlFor="isolation-end" className="block text-[11px] text-gray-600 mb-0.5">
                 End date / time (optional)
               </label>
               <input
+                id="isolation-end"
                 type="datetime-local"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
@@ -2738,8 +2754,9 @@ function MarTab({ admissionId }: { admissionId: string }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <label className="text-sm text-gray-600">Date:</label>
+          <label htmlFor="mar-date" className="text-sm text-gray-600">Date:</label>
           <input
+            id="mar-date"
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
@@ -2961,8 +2978,9 @@ function MarAdministerModal({
           </div>
         </div>
         <div className="mb-3">
-          <label className="text-xs text-gray-600">Status</label>
+          <label htmlFor="mar-admin-status" className="text-xs text-gray-600">Status</label>
           <select
+            id="mar-admin-status"
             value={status}
             onChange={(e) => setStatus(e.target.value)}
             className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
@@ -2974,8 +2992,9 @@ function MarAdministerModal({
           </select>
         </div>
         <div className="mb-4">
-          <label className="text-xs text-gray-600">Notes</label>
+          <label htmlFor="mar-admin-notes" className="text-xs text-gray-600">Notes</label>
           <textarea
+            id="mar-admin-notes"
             rows={2}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -3115,8 +3134,9 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
       <div className="lg:col-span-2 space-y-4">
         <div className="rounded-xl bg-white p-4 shadow-sm">
           <div className="mb-3 flex items-center gap-2">
-            <label className="text-sm text-gray-600">Date:</label>
+            <label htmlFor="io-date" className="text-sm text-gray-600">Date:</label>
             <input
+              id="io-date"
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
@@ -3212,8 +3232,9 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
           <h3 className="mb-3 text-sm font-semibold">Record I/O</h3>
           <div className="space-y-3">
             <div>
-              <label className="text-xs text-gray-600">Type</label>
+              <label htmlFor="io-type" className="text-xs text-gray-600">Type</label>
               <select
+                id="io-type"
                 value={form.type}
                 onChange={(e) => setForm({ ...form, type: e.target.value })}
                 className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
@@ -3226,7 +3247,7 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
               </select>
             </div>
             <div>
-              <label className="text-xs text-gray-600">Volume (mL) *</label>
+              <label htmlFor="io-amount" className="text-xs text-gray-600">Volume (mL) *</label>
               {/*
                 Issue #458 — drop HTML5 `type="number"`/`min`/`max`/`required`
                 so the React-side `amountError` toast/inline-error wins the
@@ -3236,6 +3257,7 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
                 mobile numeric keypad UX without pulling in HTML5 validation.
               */}
               <input
+                id="io-amount"
                 inputMode="numeric"
                 data-testid="io-amount"
                 aria-invalid={!!amountError}
@@ -3258,8 +3280,9 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
               )}
             </div>
             <div>
-              <label className="text-xs text-gray-600">Description</label>
+              <label htmlFor="io-description" className="text-xs text-gray-600">Description</label>
               <input
+                id="io-description"
                 value={form.description}
                 onChange={(e) =>
                   setForm({ ...form, description: e.target.value })
@@ -3268,8 +3291,9 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
               />
             </div>
             <div>
-              <label className="text-xs text-gray-600">Notes</label>
+              <label htmlFor="io-notes" className="text-xs text-gray-600">Notes</label>
               <textarea
+                id="io-notes"
                 rows={2}
                 value={form.notes}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}

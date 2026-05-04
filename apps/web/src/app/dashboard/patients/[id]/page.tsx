@@ -2249,8 +2249,9 @@ function QuickVitalsModal({
         )}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-gray-600">BP Systolic</label>
+            <label htmlFor="vitals-sys" className="text-xs text-gray-600">BP Systolic</label>
             <input
+              id="vitals-sys"
               type="number"
               className="w-full rounded-md border px-3 py-2 text-sm"
               value={sys}
@@ -2259,8 +2260,9 @@ function QuickVitalsModal({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-600">BP Diastolic</label>
+            <label htmlFor="vitals-dia" className="text-xs text-gray-600">BP Diastolic</label>
             <input
+              id="vitals-dia"
               type="number"
               className="w-full rounded-md border px-3 py-2 text-sm"
               value={dia}
@@ -2269,8 +2271,9 @@ function QuickVitalsModal({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-600">Temperature (°F)</label>
+            <label htmlFor="vitals-temp" className="text-xs text-gray-600">Temperature (°F)</label>
             <input
+              id="vitals-temp"
               type="number"
               step="0.1"
               className="w-full rounded-md border px-3 py-2 text-sm"
@@ -2280,8 +2283,9 @@ function QuickVitalsModal({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-600">Pulse (bpm)</label>
+            <label htmlFor="vitals-pulse" className="text-xs text-gray-600">Pulse (bpm)</label>
             <input
+              id="vitals-pulse"
               type="number"
               className="w-full rounded-md border px-3 py-2 text-sm"
               value={pulse}
@@ -2290,8 +2294,9 @@ function QuickVitalsModal({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-600">SpO2 (%)</label>
+            <label htmlFor="vitals-spo2" className="text-xs text-gray-600">SpO2 (%)</label>
             <input
+              id="vitals-spo2"
               type="number"
               className="w-full rounded-md border px-3 py-2 text-sm"
               value={spo2}
@@ -2300,8 +2305,9 @@ function QuickVitalsModal({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-600">Weight (kg)</label>
+            <label htmlFor="vitals-weight" className="text-xs text-gray-600">Weight (kg)</label>
             <input
+              id="vitals-weight"
               type="number"
               step="0.1"
               className="w-full rounded-md border px-3 py-2 text-sm"
@@ -2310,8 +2316,9 @@ function QuickVitalsModal({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-600">Height (cm)</label>
+            <label htmlFor="vitals-height" className="text-xs text-gray-600">Height (cm)</label>
             <input
+              id="vitals-height"
               type="number"
               step="0.1"
               className="w-full rounded-md border px-3 py-2 text-sm"
@@ -2354,8 +2361,9 @@ function QuickVitalsModal({
           </div>
         </div>
         <div>
-          <label className="text-xs text-gray-600">Notes</label>
+          <label htmlFor="vitals-notes" className="text-xs text-gray-600">Notes</label>
           <textarea
+            id="vitals-notes"
             rows={2}
             className="w-full rounded-md border px-3 py-2 text-sm"
             value={notes}
@@ -2470,8 +2478,9 @@ function QuickBookModal({
         )}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-gray-600">Doctor</label>
+            <label htmlFor="book-doctor" className="text-xs text-gray-600">Doctor</label>
             <select
+              id="book-doctor"
               className="w-full rounded-md border px-3 py-2 text-sm"
               value={doctorId}
               onChange={(e) => setDoctorId(e.target.value)}
@@ -2485,8 +2494,9 @@ function QuickBookModal({
             </select>
           </div>
           <div>
-            <label className="text-xs text-gray-600">Date</label>
+            <label htmlFor="book-date" className="text-xs text-gray-600">Date</label>
             <input
+              id="book-date"
               type="date"
               className="w-full rounded-md border px-3 py-2 text-sm"
               value={date}
@@ -2931,16 +2941,18 @@ function AllergyForm({
     <Modal title="Add Allergy" onClose={onClose}>
       <form onSubmit={submit} className="space-y-3" noValidate>
         <div>
-          <label className="text-xs text-gray-600">Allergen *</label>
+          <label htmlFor="allergy-allergen" className="text-xs text-gray-600">Allergen *</label>
           <input
+            id="allergy-allergen"
             className="w-full rounded-md border px-3 py-2 text-sm"
             value={allergen}
             onChange={(e) => setAllergen(e.target.value)}
           />
         </div>
         <div>
-          <label className="text-xs text-gray-600">Severity *</label>
+          <label htmlFor="allergy-severity" className="text-xs text-gray-600">Severity *</label>
           <select
+            id="allergy-severity"
             className="w-full rounded-md border px-3 py-2 text-sm"
             value={severity}
             onChange={(e) =>
@@ -2954,16 +2966,18 @@ function AllergyForm({
           </select>
         </div>
         <div>
-          <label className="text-xs text-gray-600">Reaction</label>
+          <label htmlFor="allergy-reaction" className="text-xs text-gray-600">Reaction</label>
           <input
+            id="allergy-reaction"
             className="w-full rounded-md border px-3 py-2 text-sm"
             value={reaction}
             onChange={(e) => setReaction(e.target.value)}
           />
         </div>
         <div>
-          <label className="text-xs text-gray-600">Notes</label>
+          <label htmlFor="allergy-notes" className="text-xs text-gray-600">Notes</label>
           <textarea
+            id="allergy-notes"
             className="w-full rounded-md border px-3 py-2 text-sm"
             rows={2}
             value={notes}
@@ -3044,8 +3058,9 @@ function ConditionForm({
         />
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-gray-600">ICD-10</label>
+            <label htmlFor="condition-icd10" className="text-xs text-gray-600">ICD-10</label>
             <input
+              id="condition-icd10"
               className="w-full rounded-md border px-3 py-2 text-sm"
               value={icd10Code}
               onChange={(e) => setIcd10(e.target.value)}
@@ -3053,8 +3068,9 @@ function ConditionForm({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-600">Diagnosed</label>
+            <label htmlFor="condition-diagnosed" className="text-xs text-gray-600">Diagnosed</label>
             <input
+              id="condition-diagnosed"
               type="date"
               className="w-full rounded-md border px-3 py-2 text-sm"
               value={diagnosedDate}
@@ -3063,8 +3079,9 @@ function ConditionForm({
           </div>
         </div>
         <div>
-          <label className="text-xs text-gray-600">Status *</label>
+          <label htmlFor="condition-status" className="text-xs text-gray-600">Status *</label>
           <select
+            id="condition-status"
             className="w-full rounded-md border px-3 py-2 text-sm"
             value={status}
             onChange={(e) =>
@@ -3078,8 +3095,9 @@ function ConditionForm({
           </select>
         </div>
         <div>
-          <label className="text-xs text-gray-600">Notes</label>
+          <label htmlFor="condition-notes" className="text-xs text-gray-600">Notes</label>
           <textarea
+            id="condition-notes"
             className="w-full rounded-md border px-3 py-2 text-sm"
             rows={2}
             value={notes}
@@ -3150,8 +3168,9 @@ function FamilyForm({
     <Modal title="Add Family History" onClose={onClose}>
       <form onSubmit={submit} className="space-y-3" noValidate>
         <div>
-          <label className="text-xs text-gray-600">Relation *</label>
+          <label htmlFor="family-relation" className="text-xs text-gray-600">Relation *</label>
           <input
+            id="family-relation"
             placeholder="Mother, Father, Sibling..."
             className="w-full rounded-md border px-3 py-2 text-sm"
             value={relation}
@@ -3159,16 +3178,18 @@ function FamilyForm({
           />
         </div>
         <div>
-          <label className="text-xs text-gray-600">Condition *</label>
+          <label htmlFor="family-condition" className="text-xs text-gray-600">Condition *</label>
           <input
+            id="family-condition"
             className="w-full rounded-md border px-3 py-2 text-sm"
             value={condition}
             onChange={(e) => setCondition(e.target.value)}
           />
         </div>
         <div>
-          <label className="text-xs text-gray-600">Notes</label>
+          <label htmlFor="family-notes" className="text-xs text-gray-600">Notes</label>
           <textarea
+            id="family-notes"
             className="w-full rounded-md border px-3 py-2 text-sm"
             rows={2}
             value={notes}
@@ -3253,8 +3274,9 @@ function ImmunizationForm({
     <Modal title="Record Immunization" onClose={onClose}>
       <form onSubmit={submit} className="space-y-3" noValidate>
         <div>
-          <label className="text-xs text-gray-600">Vaccine *</label>
+          <label htmlFor="immunization-vaccine" className="text-xs text-gray-600">Vaccine *</label>
           <input
+            id="immunization-vaccine"
             className="w-full rounded-md border px-3 py-2 text-sm"
             value={vaccine}
             onChange={(e) => setVaccine(e.target.value)}
@@ -3262,8 +3284,9 @@ function ImmunizationForm({
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-gray-600">Dose #</label>
+            <label htmlFor="immunization-dose" className="text-xs text-gray-600">Dose #</label>
             <input
+              id="immunization-dose"
               type="number"
               className="w-full rounded-md border px-3 py-2 text-sm"
               value={doseNumber}
@@ -3271,8 +3294,9 @@ function ImmunizationForm({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-600">Date Given *</label>
+            <label htmlFor="immunization-date-given" className="text-xs text-gray-600">Date Given *</label>
             <input
+              id="immunization-date-given"
               type="date"
               className="w-full rounded-md border px-3 py-2 text-sm"
               value={dateGiven}
@@ -3282,8 +3306,9 @@ function ImmunizationForm({
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-gray-600">Next Due</label>
+            <label htmlFor="immunization-next-due" className="text-xs text-gray-600">Next Due</label>
             <input
+              id="immunization-next-due"
               type="date"
               className="w-full rounded-md border px-3 py-2 text-sm"
               value={nextDueDate}
@@ -3291,8 +3316,9 @@ function ImmunizationForm({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-600">Site</label>
+            <label htmlFor="immunization-site" className="text-xs text-gray-600">Site</label>
             <input
+              id="immunization-site"
               placeholder="Left arm"
               className="w-full rounded-md border px-3 py-2 text-sm"
               value={site}
@@ -3302,16 +3328,18 @@ function ImmunizationForm({
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-gray-600">Batch #</label>
+            <label htmlFor="immunization-batch" className="text-xs text-gray-600">Batch #</label>
             <input
+              id="immunization-batch"
               className="w-full rounded-md border px-3 py-2 text-sm"
               value={batchNumber}
               onChange={(e) => setBatch(e.target.value)}
             />
           </div>
           <div>
-            <label className="text-xs text-gray-600">Manufacturer</label>
+            <label htmlFor="immunization-manufacturer" className="text-xs text-gray-600">Manufacturer</label>
             <input
+              id="immunization-manufacturer"
               className="w-full rounded-md border px-3 py-2 text-sm"
               value={manufacturer}
               onChange={(e) => setMfg(e.target.value)}
@@ -3319,8 +3347,9 @@ function ImmunizationForm({
           </div>
         </div>
         <div>
-          <label className="text-xs text-gray-600">Notes</label>
+          <label htmlFor="immunization-notes" className="text-xs text-gray-600">Notes</label>
           <textarea
+            id="immunization-notes"
             className="w-full rounded-md border px-3 py-2 text-sm"
             rows={2}
             value={notes}
@@ -3568,8 +3597,9 @@ function DocumentUploadForm({
     <Modal title="Upload Document" onClose={onClose}>
       <form onSubmit={submit} className="space-y-3" noValidate>
         <div>
-          <label className="text-xs text-gray-600">Type *</label>
+          <label htmlFor="document-type" className="text-xs text-gray-600">Type *</label>
           <select
+            id="document-type"
             className="w-full rounded-md border px-3 py-2 text-sm"
             value={type}
             onChange={(e) =>
@@ -3584,8 +3614,9 @@ function DocumentUploadForm({
           </select>
         </div>
         <div>
-          <label className="text-xs text-gray-600">Title</label>
+          <label htmlFor="document-title" className="text-xs text-gray-600">Title</label>
           <input
+            id="document-title"
             className="w-full rounded-md border px-3 py-2 text-sm"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -3593,16 +3624,18 @@ function DocumentUploadForm({
           />
         </div>
         <div>
-          <label className="text-xs text-gray-600">File *</label>
+          <label htmlFor="document-file" className="text-xs text-gray-600">File *</label>
           <input
+            id="document-file"
             type="file"
             className="w-full text-sm"
             onChange={(e) => setFile(e.target.files?.[0] || null)}
           />
         </div>
         <div>
-          <label className="text-xs text-gray-600">Notes</label>
+          <label htmlFor="document-notes" className="text-xs text-gray-600">Notes</label>
           <textarea
+            id="document-notes"
             className="w-full rounded-md border px-3 py-2 text-sm"
             rows={2}
             value={notes}
@@ -4445,10 +4478,11 @@ function MergePatientModal({
           The source record will be marked as merged.
         </div>
         <div className="mb-3">
-          <label className="text-xs text-gray-600">
+          <label htmlFor="merge-search" className="text-xs text-gray-600">
             Search patient to merge INTO this one
           </label>
           <input
+            id="merge-search"
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
@@ -4573,8 +4607,9 @@ function Icd10Autocomplete({
 
   return (
     <div className="relative">
-      <label className="text-xs text-gray-600">Condition *</label>
+      <label htmlFor="condition-search" className="text-xs text-gray-600">Condition *</label>
       <input
+        id="condition-search"
         className="w-full rounded-md border px-3 py-2 text-sm"
         value={condition}
         onChange={(e) => {
@@ -4865,8 +4900,9 @@ function LinkFamilyModal({
     <Modal title="Add Family Member" onClose={onClose}>
       <div className="space-y-3">
         <div>
-          <label className="text-xs text-gray-600">Search patient *</label>
+          <label htmlFor="family-link-search" className="text-xs text-gray-600">Search patient *</label>
           <input
+            id="family-link-search"
             className="w-full rounded-md border px-3 py-2 text-sm"
             value={query}
             onChange={(e) => {
@@ -4912,8 +4948,9 @@ function LinkFamilyModal({
           </div>
         )}
         <div>
-          <label className="text-xs text-gray-600">Relationship *</label>
+          <label htmlFor="family-link-relationship" className="text-xs text-gray-600">Relationship *</label>
           <select
+            id="family-link-relationship"
             value={relationship}
             onChange={(e) => setRelationship(e.target.value as Relationship)}
             className="w-full rounded-md border px-3 py-2 text-sm"
@@ -5135,8 +5172,9 @@ function AdvanceDirectiveForm({
     <Modal title="Add Advance Directive" onClose={onClose}>
       <form onSubmit={submit} className="space-y-3" noValidate>
         <div>
-          <label className="text-xs text-gray-600">Type *</label>
+          <label htmlFor="directive-type" className="text-xs text-gray-600">Type *</label>
           <select
+            id="directive-type"
             value={type}
             onChange={(e) =>
               setType(e.target.value as (typeof DIRECTIVE_TYPES)[number])
@@ -5152,8 +5190,9 @@ function AdvanceDirectiveForm({
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-gray-600">Effective Date *</label>
+            <label htmlFor="directive-effective" className="text-xs text-gray-600">Effective Date *</label>
             <input
+              id="directive-effective"
               type="date"
               value={effectiveDate}
               onChange={(e) => setEffectiveDate(e.target.value)}
@@ -5161,8 +5200,9 @@ function AdvanceDirectiveForm({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-600">Expiry Date</label>
+            <label htmlFor="directive-expiry" className="text-xs text-gray-600">Expiry Date</label>
             <input
+              id="directive-expiry"
               type="date"
               value={expiryDate}
               onChange={(e) => setExpiryDate(e.target.value)}
@@ -5171,16 +5211,18 @@ function AdvanceDirectiveForm({
           </div>
         </div>
         <div>
-          <label className="text-xs text-gray-600">Witnessed By</label>
+          <label htmlFor="directive-witnessed-by" className="text-xs text-gray-600">Witnessed By</label>
           <input
+            id="directive-witnessed-by"
             value={witnessedBy}
             onChange={(e) => setWitnessedBy(e.target.value)}
             className="w-full rounded-md border px-3 py-2 text-sm"
           />
         </div>
         <div>
-          <label className="text-xs text-gray-600">Notes *</label>
+          <label htmlFor="directive-notes" className="text-xs text-gray-600">Notes *</label>
           <textarea
+            id="directive-notes"
             rows={3}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}

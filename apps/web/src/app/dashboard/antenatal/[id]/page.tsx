@@ -463,8 +463,9 @@ export default function AncCaseDetailPage() {
             >
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="mb-1 block text-xs font-medium">Type</label>
+                  <label htmlFor="anc-visit-type" className="mb-1 block text-xs font-medium">Type</label>
                   <select
+                    id="anc-visit-type"
                     value={visitForm.type}
                     onChange={(e) => setVisitForm({ ...visitForm, type: e.target.value })}
                     className="w-full rounded border px-2 py-1.5 text-sm"
@@ -477,8 +478,9 @@ export default function AncCaseDetailPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium">Weeks Gestation</label>
+                  <label htmlFor="anc-visit-weeks-gestation" className="mb-1 block text-xs font-medium">Weeks Gestation</label>
                   <input
+                    id="anc-visit-weeks-gestation"
                     type="number"
                     value={visitForm.weeksOfGestation}
                     onChange={(e) =>
@@ -488,8 +490,9 @@ export default function AncCaseDetailPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium">Weight (kg)</label>
+                  <label htmlFor="anc-visit-weight" className="mb-1 block text-xs font-medium">Weight (kg)</label>
                   <input
+                    id="anc-visit-weight"
                     type="number"
                     step="0.1"
                     value={visitForm.weight}
@@ -498,8 +501,9 @@ export default function AncCaseDetailPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium">Blood Pressure</label>
+                  <label htmlFor="anc-visit-blood-pressure" className="mb-1 block text-xs font-medium">Blood Pressure</label>
                   <input
+                    id="anc-visit-blood-pressure"
                     placeholder="e.g. 120/80"
                     value={visitForm.bloodPressure}
                     onChange={(e) =>
@@ -509,8 +513,9 @@ export default function AncCaseDetailPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium">Fundal Height (cm)</label>
+                  <label htmlFor="anc-visit-fundal-height" className="mb-1 block text-xs font-medium">Fundal Height (cm)</label>
                   <input
+                    id="anc-visit-fundal-height"
                     value={visitForm.fundalHeight}
                     onChange={(e) =>
                       setVisitForm({ ...visitForm, fundalHeight: e.target.value })
@@ -519,8 +524,9 @@ export default function AncCaseDetailPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium">FHR (bpm)</label>
+                  <label htmlFor="anc-visit-fhr" className="mb-1 block text-xs font-medium">FHR (bpm)</label>
                   <input
+                    id="anc-visit-fhr"
                     type="number"
                     value={visitForm.fetalHeartRate}
                     onChange={(e) =>
@@ -530,8 +536,9 @@ export default function AncCaseDetailPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium">Presentation</label>
+                  <label htmlFor="anc-visit-presentation" className="mb-1 block text-xs font-medium">Presentation</label>
                   <input
+                    id="anc-visit-presentation"
                     placeholder="e.g. Cephalic"
                     value={visitForm.presentation}
                     onChange={(e) =>
@@ -541,8 +548,9 @@ export default function AncCaseDetailPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium">Hb (g/dl)</label>
+                  <label htmlFor="anc-visit-hemoglobin" className="mb-1 block text-xs font-medium">Hb (g/dl)</label>
                   <input
+                    id="anc-visit-hemoglobin"
                     type="number"
                     step="0.1"
                     value={visitForm.hemoglobin}
@@ -553,8 +561,9 @@ export default function AncCaseDetailPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium">Urine Protein</label>
+                  <label htmlFor="anc-visit-urine-protein" className="mb-1 block text-xs font-medium">Urine Protein</label>
                   <input
+                    id="anc-visit-urine-protein"
                     placeholder="nil/+/++/+++"
                     value={visitForm.urineProtein}
                     onChange={(e) =>
@@ -564,8 +573,9 @@ export default function AncCaseDetailPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium">Urine Sugar</label>
+                  <label htmlFor="anc-visit-urine-sugar" className="mb-1 block text-xs font-medium">Urine Sugar</label>
                   <input
+                    id="anc-visit-urine-sugar"
                     placeholder="nil/+/++/+++"
                     value={visitForm.urineSugar}
                     onChange={(e) =>
@@ -575,8 +585,9 @@ export default function AncCaseDetailPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium">Next Visit</label>
+                  <label htmlFor="anc-visit-next-date" className="mb-1 block text-xs font-medium">Next Visit</label>
                   <input
+                    id="anc-visit-next-date"
                     type="date"
                     value={visitForm.nextVisitDate}
                     onChange={(e) =>
@@ -587,8 +598,9 @@ export default function AncCaseDetailPage() {
                 </div>
               </div>
               <div className="mt-3">
-                <label className="mb-1 block text-xs font-medium">Prescribed Meds</label>
+                <label htmlFor="anc-visit-prescribed-meds" className="mb-1 block text-xs font-medium">Prescribed Meds</label>
                 <input
+                  id="anc-visit-prescribed-meds"
                   value={visitForm.prescribedMeds}
                   onChange={(e) =>
                     setVisitForm({ ...visitForm, prescribedMeds: e.target.value })
@@ -598,8 +610,9 @@ export default function AncCaseDetailPage() {
                 />
               </div>
               <div className="mt-3">
-                <label className="mb-1 block text-xs font-medium">Notes</label>
+                <label htmlFor="anc-visit-notes" className="mb-1 block text-xs font-medium">Notes</label>
                 <textarea
+                  id="anc-visit-notes"
                   rows={2}
                   value={visitForm.notes}
                   onChange={(e) => setVisitForm({ ...visitForm, notes: e.target.value })}
@@ -768,10 +781,11 @@ export default function AncCaseDetailPage() {
                 <h3 className="mb-3 font-semibold">Record Delivery</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="mb-1 block text-sm font-medium">
+                    <label htmlFor="anc-delivery-type" className="mb-1 block text-sm font-medium">
                       Delivery Type
                     </label>
                     <select
+                      id="anc-delivery-type"
                       value={deliveryForm.deliveryType}
                       onChange={(e) =>
                         setDeliveryForm({
@@ -787,10 +801,11 @@ export default function AncCaseDetailPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium">
+                    <label htmlFor="anc-delivery-baby-gender" className="mb-1 block text-sm font-medium">
                       Baby Gender
                     </label>
                     <select
+                      id="anc-delivery-baby-gender"
                       value={deliveryForm.babyGender}
                       onChange={(e) =>
                         setDeliveryForm({
@@ -807,10 +822,11 @@ export default function AncCaseDetailPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium">
+                    <label htmlFor="anc-delivery-baby-weight" className="mb-1 block text-sm font-medium">
                       Baby Weight (kg)
                     </label>
                     <input
+                      id="anc-delivery-baby-weight"
                       type="number"
                       step="0.01"
                       value={deliveryForm.babyWeight}
@@ -825,10 +841,11 @@ export default function AncCaseDetailPage() {
                   </div>
                 </div>
                 <div className="mt-4">
-                  <label className="mb-1 block text-sm font-medium">
+                  <label htmlFor="anc-delivery-outcome-notes" className="mb-1 block text-sm font-medium">
                     Outcome Notes
                   </label>
                   <textarea
+                    id="anc-delivery-outcome-notes"
                     rows={3}
                     value={deliveryForm.outcomeNotes}
                     onChange={(e) =>

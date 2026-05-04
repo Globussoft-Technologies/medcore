@@ -6,7 +6,13 @@ is independently shippable. Full per-session history lives under
 
 > Updated: 2026-05-05 evening (post **fix-up wave (11 commits) + 5 skills + 7-agent Cluster 1+2 fanout (7 commits)**).
 > Latest session handoff: [`docs/archive/SESSION_SNAPSHOT_2026-05-04.md`](docs/archive/SESSION_SNAPSHOT_2026-05-04.md) (rolling forward; new snapshot at next session boundary).
-> HEAD on `main` = post-`66bb6d2`. Latest critical-security wave shipped: **5 issues (4 source bugs + 1 false-positive defensive test) closed via 5-agent fanout**: `b6601ad` (#473 mass-assignment in /auth/register), `66bb6d2` (#474 cross-patient — 11 routes patched + 29 tests), `bd7785a` (#475 helmet headers + 7 tests), `5f2fa2a` (#476 visitor PII redaction + 7 tests), `b6601ad` (#483 login identity-binding — bug not real but defensive test added). **Plus**: helmet@^8 added; `apps/api/src/test/helpers/security-assertions.ts` extracted (6 reusable adversarial-vector helpers); `docs/TEST_PLAN.md` §6.5 codifies the six adversarial-vector categories (mass-assignment / identity-binding / PII / headers / anti-enumeration / cross-row) so this whole class of bug can't recur silently.
+> HEAD on `main` = `3308d8f`. **Two consecutive critical-issue waves shipped today.**
+>
+> **Wave A** (5-agent, 5 issues): `b6601ad` (#473 mass-assignment), `66bb6d2` (#474 cross-patient — 11 routes / 29 tests), `bd7785a` (#475 helmet + 7 tests), `5f2fa2a` (#476 visitor PII redaction + 7 tests), `b6601ad` (#483 login identity-binding — false positive, defensive test added). **Plus** `apps/api/src/test/helpers/security-assertions.ts` (6 adversarial-vector helpers) + `docs/TEST_PLAN.md` §6.5 codifying the six categories.
+>
+> **Wave B** (4-agent, 6 issues): `74e28f6` (#480 anti-enumeration on /register + #478 login rate-limit 5/IP/min + #489 XSS sanitization + age 1-150), `fe5e805` (#479 /billing/invoices comma-separated status), `51b395e` (#500 profile PATCH validation regression tests), `3308d8f` (#491 past-date booking — defence-in-depth across Zod + route + slots endpoint + UI date-picker `min` attr).
+>
+> **11 GitHub issues closed** across both waves. Test infra now prevents this whole bug class from recurring silently — see TEST_PLAN.md §6.5 checklist convention.
 > Autopilot closed **15 zero-coverage E2E routes** in 5 parallel-fanout
 > batches (~95 new cases). Subsequent fix-up wave fixed 11 failing
 > tests (8 autopilot specs + 3 pre-existing). Then the **7-agent

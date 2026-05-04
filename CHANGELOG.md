@@ -11,6 +11,32 @@ test-coverage closure across §A-§E gaps, Playwright stabilization
 across Chromium + WebKit, and the local-first test workflow.
 
 ### Added
+- **2026-05-05 next-issues 4-agent fanout — 6 more GitHub issues closed.**
+  Wave-B closing the next-priority cluster after the wave-A criticals
+  shipped: `74e28f6` (auth-hardening — #480 anti-enumeration on
+  `/auth/register` so duplicate-email response is indistinguishable
+  from new-email; #478 tightened login rate-limit from 20/IP/min to
+  5/IP/min via existing project-local `rateLimit()` middleware,
+  added an `enableInTests` opt-in so the regression test can fire
+  the limiter; #489 XSS sanitization on register name + `age 1-150`
+  bounds in `registerSchema`; uses the new `expectAntiEnumeration`
+  helper), `fe5e805` (#479 — `GET /billing/invoices?status=PENDING,PARTIAL`
+  no longer 500s; route now splits comma-separated status into a
+  Prisma `in: [...]` filter), `51b395e` (#500 — profile PATCH
+  regression tests covering empty Name + non-numeric Phone field
+  validation surfaces; backend already enforced these via
+  `updateMeSchema` so #500 was a missing-test gap not a source bug),
+  `3308d8f` (#491 past-date booking — defence in depth across 4
+  layers: `bookAppointmentSchema` + `rescheduleAppointmentSchema`
+  Zod refines, route same-day past-time slot guard, doctors slots
+  endpoint elapsed-time filter, UI date-picker `min={today}`).
+  Surprising findings: `express-rate-limit` is NOT a project dep —
+  custom `rateLimit()` middleware exists in
+  `apps/api/src/middleware/rate-limit.ts`; module-scope construction
+  required a lazy delegate pattern so test env-flips would land.
+  `sanitizeUserInput()` already existed in
+  `packages/shared/src/validation/security.ts` (used by PATCH
+  `/auth/me` since #248/#265) — register handler now calls it too.
 - **2026-05-05 critical-security fix wave + adversarial-vector test infra.**
   Five critical/high GitHub issues closed via 5-agent fanout: `b6601ad`
   (#473 mass-assignment in `/auth/register` — `registerSchema.role`

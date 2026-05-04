@@ -95,6 +95,18 @@ is independently shippable. Full per-session history lives under
 > lock-on is `[data-testid="<picker>-option"][data-entity-id="${entity.id}"]`
 > (canonical examples in `9d7391a` and `2823d9c`).
 >
+> **2026-05-05 cron tick — new skill `/medcore-bola-sweep` codified +
+> 2 CLAUDE.md gotchas added (#12 parent-fetch-required, #13 staff-only
+> via authorize).** The 5-agent #511 wave produced a perfectly
+> repeatable pattern; new skill at `.claude/skills/medcore-bola-sweep/SKILL.md`
+> captures the verdict matrix (PATCHED A1/A2/A3 / VERIFIED-SAFE / STAFF-
+> ONLY) and the per-route-test-file isolation convention. Pairs with
+> `/medcore-fanout` for the long-tail #511 closures (~80 handlers
+> remaining in appointments / billing / ehr / immunization / lab /
+> pharmacy / insurance-claims clusters). Also broadened `.claude/settings.json`
+> with absolute-Windows-path globs for `.claude/skills/**` to silence
+> the popup loop on directory creation.
+>
 > **2026-05-05 #511 BOLA-closure wave (5-agent fanout)**: After filing
 > #511 with 112 candidate handlers, dispatched 5 agents in parallel —
 > one per route-file lane. Results: **19 real BOLA gaps patched + 9

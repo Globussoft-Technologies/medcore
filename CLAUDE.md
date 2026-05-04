@@ -53,6 +53,10 @@ These were surfaced during recent fanout waves and bit multiple agents. Codified
 
 11. **`EntityPicker` echoes `id` onto each row's `<li>` as `data-entity-id`.** Best selector pattern for picking a SPECIFIC seeded row is `[data-testid="<picker>-option"][data-entity-id="${entity.id}"]` — exact lock-on, no name-collision risk. Fallback: `getByTestId("<picker>-option").filter({ hasText: name })` when only the display name is known. See `9d7391a` (prescriptions/new spec) + `2823d9c` (payment-plans fix) for canonical examples. Updates extension of TODO C3.
 
+12. **BOLA sweep — when the URL param is `:childId`, you MUST add a parent fetch before `assertPatientOwnsResource` can compare.** Surfaced by 4 admissions handlers + 2 antenatal handlers in the 2026-05-05 #511 wave: handlers were querying child tables (`vitals`, `intakeOutput`, `belongings`, `dischargeSummary`, `ultrasoundRecord`, `postnatalVisit`) directly by URL param without ever loading the parent. Worst BOLA shape — there's literally nothing to compare ownership against. Fix pattern: add `prisma.<parent>.findUnique({where:{id:req.params.id}, select:{patientId:true}})` first, then call the helper with `parent.patientId`. The `/medcore-bola-sweep` skill codifies this as "verdict A3" in its workflow. Codebase precedent: `c87107e`, `bfb52ab`. Helper signature reference: `apps/api/src/middleware/patient-self-only.ts`.
+
+13. **BOLA sweep — non-patient resources go through `authorize(...)`, NOT the helper.** `BloodDonor` has no `User`/`Patient` link; `AuditLog` is system-wide; admin routes don't gate per-row. For these, use `authorize(Role.ADMIN, Role.DOCTOR, ...)` matching the file's other staff-only handlers. Don't try to force `assertPatientOwnsResource` onto a non-patient resource. The `/medcore-bola-sweep` skill calls this "verdict C — STAFF-ONLY". Codebase precedent: `a7bfc8c` for `BloodDonor` sub-resources.
+
 ### Doc + commit conventions
 
 11. **NO `Co-Authored-By: Claude` trailer in commit messages** — forbidden by user's global CLAUDE.md.

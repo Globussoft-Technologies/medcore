@@ -12,6 +12,38 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cleanup wave — `audit-phi` flake helper + jsx-a11y regression guard + project CLAUDE.md.**
+  Three small high-leverage commits closing the outstanding session-
+  level findings from the prior CI-unblock wave: `9c5d989` enables
+  `jsx-a11y/label-has-associated-control` at `warn` on `apps/web`
+  (also caught + fixed 3 missed labels on `/forgot-password` outside
+  the original dashboard A2 sweep — bonus closure). Severity stayed
+  `warn` rather than `error` because the rule's static analysis
+  surfaces false-positives on custom-control wrappers (`EntityPicker`,
+  `PasswordInput`); escalation path documented in the config comment
+  (wire `controlComponents` or refactor to fieldset/legend). `d1488d7`
+  ships `waitForAuditFlush()` + `waitForAuditRows()` helpers in
+  `apps/api/src/test/helpers/audit-wait.ts` (poll AuditLog up to 2s
+  for the matching tuple); retrofitted across 6 assertions in
+  `audit-phi.test.ts` (`AI_CHART_SEARCH_PATIENT`, `AI_TRIAGE_SESSION_READ`,
+  `AI_SCRIBE_READ`, `AI_NO_SHOW_BATCH`, `FHIR_SEARCH_PATIENT`,
+  `INSURANCE_CLAIMS_LIST`). Schema correction made during build:
+  AuditLog column is `entity`, not `entityType`. The fire-and-forget
+  pattern lives in per-route `safeAudit()` wrappers (e.g.
+  `ai-scribe.ts:35`, `ai-predictions.ts:26`, `agent-console.ts:43`),
+  not the `auditLog()` middleware (which uses `await`). Plus new
+  `/CLAUDE.md` at repo root captures 18 recurring patterns + gotchas
+  from the last week of fanout waves (audit-flush gotcha, sanitize
+  middleware schema-override, `singleFork` module-cache cleanup
+  contract, test DB seed creds, LanguageDropdown `<select>` race,
+  Next route announcer, `PATIENT_NAME_REGEX` digit-rejection,
+  conventional-commit + file-scoped commit rules, harness gotchas
+  including the bg-agent stall and `durable: true` silent drop) —
+  auto-loaded into every Claude session. **Auto-pilot cron** armed:
+  `3,18,33,48 * * * *` every 15 min running the wave-aware self-direction
+  prompt (mid-wave ignore / waiting-on-CI pick parallel-safe / wave-
+  done check learnings + ship gaps). Session-only on this harness
+  build (durable not honored); re-arm command in TODO.md banner.
 - **2026-05-05 CI unblock + A2/A10 closure + new triage skill (7 commits).**
   Per-push Test workflow on `main` was red on `0c30e23` and `63855a0` with
   16 auth-integration test failures. Triaged into 5 root causes via the

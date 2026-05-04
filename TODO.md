@@ -23,6 +23,17 @@ is independently shippable. Full per-session history lives under
 > Plus #459 administratively closed (all surfaced drifts resolved across `0646b0b`/`d5a4fef`/`75a5ccc`).
 >
 > **Open architectural follow-ups (after this wave): 1** — A1 (page-level VIEW_ALLOWED policy decision — needs product call) + #482 (JWT HS256→RS256 key rollover plan — operational decision). A2 + A10 closed today; A4/A7/A8/A9 closed yesterday.
+>
+> **2026-05-05 cleanup wave** (commits since `98b54f2`): `9c5d989`
+> (jsx-a11y/label-has-associated-control rule enabled at `warn` on
+> `apps/web` — also caught + fixed 3 missed labels on `/forgot-password`
+> outside the dashboard sweep), `d1488d7` (`waitForAuditFlush()` helper
+> in `apps/api/src/test/helpers/audit-wait.ts` retrofitted across 6
+> assertions in `audit-phi.test.ts` — closes the recurring `audit-phi`
+> flake; schema correction `entityType` → `entity` made during build),
+> plus a new project `/CLAUDE.md` capturing 18 recurring patterns +
+> gotchas from recent fanout waves (auto-loaded into every Claude
+> session).
 
 ---
 
@@ -97,6 +108,26 @@ The `audit-phi.test.ts > writes INSURANCE_CLAIMS_LIST audit on GET /api/v1/claim
 >    that actually parallelizes on this VSCode harness build (bg agents
 >    are broken on v2.1.126, see
 >    `~/.claude/projects/c--Users-Admin-gbs-projects-medcore/memory/reference_worktree_bg_agent_perms.md`).
+> 4. **Re-arm the 15-min auto-pilot cron** (harness `durable: true` is
+>    silently dropped on v2.1.126 — crons die when the editor closes).
+>    Cron expression: `3,18,33,48 * * * *` (every 15 min, jittered off
+>    the :00 mark). The exact prompt to paste:
+>
+>    ```
+>    If you are still in the middle of a wave means actively coding
+>    things, please ignore this prompt and continue with your current
+>    tasks. If you are not actively coding but waiting on CI then pick
+>    the next parallel safe, high value tasks and work on them.
+>
+>    If we finished a wave, did we have any learnings from this wave?
+>    Can we create a new skill or edit a current skill from the
+>    learnings? If yes create/edit the skill and update claude.md with
+>    the notes.
+>
+>    Once skills is done, please update documentation and todos and
+>    then, please continue with the high priority tasks and close the
+>    gaps. Use the skills wherever applicable.
+>    ```
 >
 > **Doc archive policy:** `docs/archive/gaps/` holds **fully closed**
 > gap-tracking docs (every item worked through). A gap doc moves there

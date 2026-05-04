@@ -97,10 +97,10 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - ~~`/dashboard/billing/[id]` — line-item editing (only happy-path create tested)~~ ✅ closed (6 tests; `e2e/billing-id.spec.ts`)
 - `/dashboard/billing/patient/[patientId]` — bulk patient billing
 - ~~`/dashboard/payment-plans` — installment plan setup~~ ✅ closed `be36db6` (`e2e/payment-plans.spec.ts` — 18 tests, ADMIN+RECEPTION positive + 5 staff RBAC negatives, EntityPicker option-li selector for patient picker, HTML5-vs-React noValidate fix landed in `3decc91`)
-- `/dashboard/bill-explainer` — explanation workflow (only smoke-visited)
+- ~~`/dashboard/bill-explainer` — explanation workflow (only smoke-visited)~~ ✅ closed (7 tests; ADMIN chrome + empty-state + DRAFT card render-and-approve round-trip + Refresh GET re-fetch + non-DRAFT no-CTA + PATIENT/DOCTOR universally-accessible no-redirect pin (page has no client gate, /pending API authorize() enforces RBAC); `e2e/bill-explainer.spec.ts`)
 - ~~`/dashboard/budgets` — budget tracking~~ ✅ closed (6 tests; `e2e/budgets.spec.ts`)
 - ~~`/dashboard/expenses` — expense entry~~ ✅ closed (6 tests; `e2e/expenses.spec.ts`)
-- `/dashboard/discount-approvals` — request side (approval side covered)
+- ~~`/dashboard/discount-approvals` — request side (approval side covered)~~ ✅ closed (7 tests; ADMIN tab strip + PENDING row Approve/Reject CTAs + empty-state + tab-switch refetch contract (PENDING→APPROVED) + REJECTED inline-reason chrome + RECEPTION read-only chrome + DOCTOR/PATIENT Issue #509 VIEW_ALLOWED gate redirect to /not-authorized; `e2e/discount-approvals.spec.ts`)
 
 ### 2.4 HR, Payroll, Scheduling
 - ~~`/dashboard/users` — edit/deactivate/permission matrix (create only is covered)~~ ✅ closed (6 tests; `e2e/users.spec.ts`)

@@ -383,17 +383,17 @@ filename and the core scenarios it should cover.
   - Overpayment → credit balance carry-forward
   - Period-locked invoice → edit blocked~~
 
-### P2 — Prescription lifecycle (clinical safety)
-- **File:** `e2e/prescription-lifecycle.spec.ts`
-- **Why:** Clinical safety; Rx errors cause direct patient harm
-- **Scenarios:**
+### ~~P2 — Prescription lifecycle (clinical safety)~~ ✅ closed 2026-05-05 by `e2e/prescription-lifecycle.spec.ts` (5 cases — DDI blocking-modal + cancel-and-revise gate (no save fires) + DDI override path with `overrideWarnings:true` body-shape pin + post-create Share-via-Email channel-contract pin + PHARMACIST queue read-access + DOCTOR-only "Write Prescription" CTA asymmetry + PATIENT list self-scoping & form-never-mounts; deliberately disjoint from `e2e/prescriptions-new.spec.ts` which already pins DOCTOR happy-path + redirect contract). Deferred — UI not shipped (verified BEFORE scaffold per cron-learning bullet 7): (a) **Doctor creates Rx via `/new`** — already closed by §2 `e2e/prescriptions-new.spec.ts`; (b) **Drug-allergy block** — `grep -i 'allerg' apps/api/src/routes/prescriptions.ts` returns 0 hits and the form has no allergy preview; only DDI is gated; (c) **Edit active Rx + version preservation** — no PATCH/PUT route handler in `apps/api/src/routes/prescriptions.ts` and no Edit CTA on history rows in `apps/web/src/app/dashboard/prescriptions/page.tsx`; (d) **Cancel Rx with patient+pharmacist notification** — no `/:id/cancel` endpoint in the route file and the history-row toolbar at page.tsx:1110-1134 only renders Print + Share buttons; (e) **Pharmacist rejects Rx with reason** — no `/:id/reject` endpoint in the route file and no rejection UI on `/dashboard/prescriptions`; (f) **Patient refill request → doctor approval** — `POST /items/:itemId/refill` exists at routes/prescriptions.ts:577 but `authorize(DOCTOR, ADMIN, NURSE)` excludes PATIENT, and there is no patient-side request UI surface (the refill counter is a staff-side increment, not a request/approval workflow). All six deferred scenarios re-enter the backlog when the matching UI/API surfaces ship.
+- ~~**File:** `e2e/prescription-lifecycle.spec.ts`~~
+- ~~**Why:** Clinical safety; Rx errors cause direct patient harm~~
+- ~~**Scenarios:**
   - Doctor creates Rx via `/dashboard/prescriptions/new` (full form)
   - Drug-allergy warning blocks contraindicated med
   - DDI warning surfaces interactions
   - Doctor edits active Rx → prior version preserved in history
   - Doctor cancels Rx → patient + pharmacist notified
   - Refill request from patient → doctor approval
-  - Pharmacist rejects Rx with reason → patient sees status
+  - Pharmacist rejects Rx with reason → patient sees status~~
 
 ### P3 — Pharmacy inventory & stock management
 - **File:** `e2e/pharmacy-inventory.spec.ts`

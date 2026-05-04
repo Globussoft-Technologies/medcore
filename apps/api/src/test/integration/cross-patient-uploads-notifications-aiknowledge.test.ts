@@ -130,7 +130,6 @@ describeIfDB(
   () => {
     beforeAll(async () => {
       await resetDB();
-      doctorToken = await getAuthToken("DOCTOR");
       adminToken = await getAuthToken("ADMIN");
 
       const a = await createPatientWithToken("A");
@@ -141,8 +140,23 @@ describeIfDB(
       patientBId = b.patientId;
       void patientAId;
 
+      // Important: the doctorToken below is for the SAME user as the
+      // doctor fixture used as `uploadedBy`. Earlier this test pulled
+      // doctorToken from the shared `getAuthToken("DOCTOR")` — a
+      // DIFFERENT seeded user — so checkDocumentAccess() (uploads.ts)
+      // saw `user.userId !== doc.uploadedBy` and 403'd the staff
+      // branch. Mint the JWT directly for the fixture doctor.
       const doctor = await createDoctorFixture();
       doctorUserId = doctor.userId;
+      const doctorUser = await (await getPrisma()).user.findUnique({
+        where: { id: doctorUserId },
+        select: { email: true },
+      });
+      doctorToken = jwt.sign(
+        { userId: doctorUserId, email: doctorUser!.email, role: "DOCTOR" },
+        process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
+        { expiresIn: "1h" }
+      );
 
       const mod = await import("../../app");
       app = mod.app;

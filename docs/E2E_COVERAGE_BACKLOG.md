@@ -467,16 +467,16 @@ filename and the core scenarios it should cover.
   - Patient with multiple policies → primary/secondary routing
   - Claim aging report / followup queue
 
-### P9 — ER reassessment & disposition pathing
+### ~~P9 — ER reassessment & disposition pathing~~ ✅ closed 2026-05-05 by `e2e/er-disposition.spec.ts` (5 cases — NURSE reassessment URGENT→EMERGENT deterioration upgrade pins PATCH /triage body shape + DOCTOR disposition flip DISCHARGE→ADMIT pins close-panel body shape with status=ADMITTED triggering admission flow + DOCTOR discharge-with-summary modal contract pin (status select scoped via `select:has(option[value="LEFT_WITHOUT_BEING_SEEN"])` to dodge LanguageDropdown gotcha #9 + close-disposition input testid + close-outcome-notes textarea testid + close-case-btn CTA testid) + DOCTOR transfer-to-another-facility status=TRANSFERRED + referral packet outcome-notes pin + PATIENT/PHARMACIST UNIVERSAL-ACCESS archetype pin (CLAUDE.md gotcha #7 archetype 3 — no `VIEW_ALLOWED`, no useEffect router.push/replace anywhere in page.tsx, server-side authorize() at emergency.ts:181 omits PATIENT/PHARMACIST so /cases/active 403 surfaces as soft failure on the chrome, NOT a redirect — confirms 6th cron-learning bullet's archetype 3 case where there is no redirect target at all); page.route stubs short-circuit PATCH /triage and PATCH /close so request bodies are pinned without polluting the shared seed across runs; overflow/waitlist branching + fast-track-vs-standard path comparison from the original backlog framing turned out to be aspirational — current page surface is a 4-column kanban (Waiting / Triaged / In Treatment / Disposition Pending) with no fast-track lane and no overflow waitlist, so those scenarios are deferred until the underlying UI ships)
 - **File:** `e2e/er-disposition.spec.ts`
 - **Why:** Triage accuracy affects safety + ER throughput
 - **Scenarios:**
-  - Reassess patient mid-wait → triage-level update + audit
-  - Doctor changes disposition (discharge → admit) → admission flow triggered
-  - Discharge with summary + followup orders
-  - Transfer to another facility with referral packet
-  - Overflow → waitlist branching
-  - Fast-track vs. standard path comparison
+  - ~~Reassess patient mid-wait → triage-level update + audit~~ ✅ pinned via NURSE URGENT→EMERGENT pill flip + PATCH /triage body capture
+  - ~~Doctor changes disposition (discharge → admit) → admission flow triggered~~ ✅ pinned via close-panel status select flip + PATCH /close body shape (status: "ADMITTED")
+  - ~~Discharge with summary + followup orders~~ ✅ pinned via close-panel modal contract + outcome-notes content carrying followup orders
+  - ~~Transfer to another facility with referral packet~~ ✅ pinned via status: "TRANSFERRED" + outcome-notes referral packet text
+  - Overflow → waitlist branching (deferred — backlog framing was aspirational; no overflow lane exists in current /dashboard/emergency surface)
+  - Fast-track vs. standard path comparison (deferred — same reason, no fast-track lane in current kanban)
 
 ### P10 — Multi-tenant data isolation
 - **File:** `e2e/tenant-isolation.spec.ts`

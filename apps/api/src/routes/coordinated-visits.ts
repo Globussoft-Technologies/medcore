@@ -7,6 +7,7 @@ import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role, coordinatedVisitSchema, DEFAULT_SLOT_DURATION_MINUTES } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { auditLog } from "../middleware/audit";
 import { onAppointmentBooked, onAppointmentCancelled } from "../services/notification-triggers";
 
@@ -73,6 +74,8 @@ async function computeAvailableSlots(doctorId: string, date: Date): Promise<Slot
 }
 
 // POST /api/v1/coordinated-visits — create a visit + back-to-back appointments
+// #511 audit: STAFF-ONLY — authorize() excludes Role.PATIENT, so a patient
+// cannot self-create a coordinated visit on someone else's behalf.
 router.post(
   "/",
   authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR),
@@ -173,6 +176,10 @@ router.post(
 );
 
 // GET /api/v1/coordinated-visits — list (filter by patientId)
+// #511 audit: VERIFIED-SAFE — for PATIENT callers the where-clause is
+// force-overridden to their own patient.id, so any ?patientId=<other>
+// query param they pass is ignored. Staff roles see filtered or all rows
+// per the query.
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { patientId } = req.query;
@@ -207,6 +214,12 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // GET /api/v1/coordinated-visits/:id
+// #511 BOLA fix: previously any authenticated PATIENT could fetch any
+// coordinated-visit row by UUID. CoordinatedVisit has a single `patientId`
+// (one patient seeing multiple doctors back-to-back — not a multi-patient
+// group), so strict patient-self ownership is the correct contract.
+// Staff roles are unaffected (assertPatientOwnsResource is a no-op for
+// non-PATIENT callers).
 router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const visit = await prisma.coordinatedVisit.findUnique({
@@ -225,6 +238,7 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
         .json({ success: false, data: null, error: "Coordinated visit not found" });
       return;
     }
+    if (!(await assertPatientOwnsResource(req, res, visit.patientId))) return;
     res.json({ success: true, data: visit, error: null });
   } catch (err) {
     next(err);
@@ -253,16 +267,12 @@ router.patch(
         return;
       }
 
-      // Patients can only cancel their own
-      if (req.user!.role === Role.PATIENT) {
-        const self = await prisma.patient.findUnique({
-          where: { userId: req.user!.userId },
-        });
-        if (!self || self.id !== visit.patientId) {
-          res.status(403).json({ success: false, data: null, error: "Forbidden" });
-          return;
-        }
-      }
+      // #511 audit: VERIFIED-SAFE — refactored hand-rolled inline check to
+      // assertPatientOwnsResource for drift prevention. CoordinatedVisit has
+      // a single owning patientId, so strict patient-self semantics apply
+      // (cancelling a coordinated visit cancels all member appointments —
+      // only the owning patient or staff may do so).
+      if (!(await assertPatientOwnsResource(req, res, visit.patientId))) return;
 
       const toCancel = visit.appointments.filter(
         (a) => !["CANCELLED", "COMPLETED", "NO_SHOW"].includes(a.status)

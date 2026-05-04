@@ -51,6 +51,8 @@ These were surfaced during recent fanout waves and bit multiple agents. Codified
 
 10. **Next.js renders `<div role="alert" id="__next-route-announcer__">` globally.** Any `getByRole('alert')` will hit it. Use `[role="alert"]:not(#__next-route-announcer__)` instead. Repo-wide sweep already done (`f44c9a0`).
 
+11. **`EntityPicker` echoes `id` onto each row's `<li>` as `data-entity-id`.** Best selector pattern for picking a SPECIFIC seeded row is `[data-testid="<picker>-option"][data-entity-id="${entity.id}"]` — exact lock-on, no name-collision risk. Fallback: `getByTestId("<picker>-option").filter({ hasText: name })` when only the display name is known. See `9d7391a` (prescriptions/new spec) + `2823d9c` (payment-plans fix) for canonical examples. Updates extension of TODO C3.
+
 ### Doc + commit conventions
 
 11. **NO `Co-Authored-By: Claude` trailer in commit messages** — forbidden by user's global CLAUDE.md.

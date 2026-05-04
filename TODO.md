@@ -72,6 +72,28 @@ is independently shippable. Full per-session history lives under
 > Any authenticated user (incl. PATIENT) could fetch any patient's
 > chart by UUID. **Fixed in same commit**: helper applied + 3 new
 > regression tests in `cross-patient-rbac.test.ts`.
+>
+> **2026-05-05 post-fix audit (cron tick)**: ran a naive grep across
+> `apps/api/src/routes/*.ts` for `/:id`-shaped handlers without
+> per-handler `authorize()` AND without `assertPatientOwnsResource`.
+> Surfaced **112 candidate handlers** across ~28 route files. Filed as
+> [#511](https://github.com/Globussoft-Technologies/medcore/issues/511)
+> (HIGH severity). Spot-check suggests 30-50 are likely real BOLA / IDOR
+> risks (admissions sub-resources at `/:id/{discharge-readiness,vitals,
+> bill,intake-output,mar,los-prediction,belongings,discharge-summary-pdf}`,
+> antenatal cases / trimester / ultrasound / postnatal-visits, ai-adherence
+> /coaching/scribe/triage/report-explainer, bloodbank requests/screening/
+> eligibility/deferrals, chat-room messages/read/participants/pin).
+> Remaining 60-80 are false positives (router-level mounts, in-handler
+> filtering, admin-only paths). **Next-cycle work**: triage in batches
+> by route file via `/medcore-fanout`; per-handler verify then apply
+> `assertPatientOwnsResource` OR `authorize(...)` excluding PATIENT;
+> extend `cross-patient-rbac.test.ts` per closure.
+>
+> Plus CLAUDE.md gotcha #11 added: `EntityPicker` echoes `id` onto each
+> row's `<li>` as `data-entity-id` — best selector for exact-row
+> lock-on is `[data-testid="<picker>-option"][data-entity-id="${entity.id}"]`
+> (canonical examples in `9d7391a` and `2823d9c`).
 
 ---
 

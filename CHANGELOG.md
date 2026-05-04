@@ -12,6 +12,43 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 #511 long-tail wave (5-agent fanout via `/medcore-bola-sweep`) — 15 real BOLA fixes + 39 verified-safe refactors across 5 more route files.**
+  Cron-driven follow-up to the morning's 5-agent fanout. Used the new
+  `/medcore-bola-sweep` skill (built earlier this cycle) to standardize
+  the verdict matrix + per-route test file isolation. `7bc72c7` ehr
+  (12 handlers refactored from a parallel local `assertPatientAccess`
+  helper onto the canonical `assertPatientOwnsResource`; 1 PATCHED
+  `GET /documents/:id` resolves Document → patientId; 39 test cases).
+  `3d501f0` surgery (4 fixes — 2 PATCHED A3 add-parent-fetch on
+  `/:id/anesthesia-record` + `/:id/observations`; 2 STAFF-ONLY on
+  OT analytics endpoints; 10 tests). `dafad04` referrals + growth
+  (9 PATCHED + 2 STAFF-ONLY; **worst single finding of the day**:
+  growth `POST /:id/feeding` had PATIENT in `authorize()` with NO
+  per-row check — cross-tenant PHI **write** vector; 32 tests).
+  `b183fab` telemedicine (4 PATCHED action handlers — `PATCH
+  /:id/join`, `/tech-issues`, `GET /:id/messages`, `POST /:id/messages`
+  — plus 5 refactors of correct hand-rolled checks onto canonical;
+  12 tests). `95cdc13` appointments + waitlist (**second-worst**:
+  `PATCH /:id/reschedule` was an undisclosed BOLA, PATIENT in
+  `authorize()` with zero per-row check; any patient could reschedule
+  any appointment; not in audit-flagged list — extra-grep find;
+  `/group/:groupId` correctly given membership-of-group check rather
+  than strict patient-self since group appointments are coordinated
+  visits where co-members SHOULD see roster; 14 tests).
+  Combined with the morning's wave (admissions / antenatal / ai-
+  adherence-coaching / ai-scribe-triage-explainer / bloodbank): 34
+  real BOLA fixes + 45 verified-safe across 10 route files,
+  ~120 new test cases. Issue #511 substantially closed; long tail
+  ~25 lower-priority routes for future cycle.
+- **`/medcore-bola-sweep` skill** (`6dd9705`) — codified the BOLA
+  audit + fix workflow from the morning's 5-agent wave. Verdict
+  matrix (PATCHED A1 direct-FK / A2 user-via-Patient-relation /
+  A3 must-add-parent-fetch / VERIFIED-SAFE / STAFF-ONLY-via-authorize),
+  per-route test file isolation convention, anti-patterns observed.
+  CLAUDE.md gotchas #12 + #13 added (parent-fetch-required for
+  `:childId` URLs; non-patient resources use `authorize()` not the
+  helper). Settings broadened with literal `.claude/skills/**`
+  patterns matching the user-supplied screenshot.
 - **2026-05-05 #511 BOLA-closure wave — 5-agent fanout, 19 real gaps patched + 6 verified-safe across 5 route files.**
   After Issue #511 was filed (112 candidate handlers from a naive
   audit grep), the cron-driven workflow dispatched 5 agents in

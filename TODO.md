@@ -101,11 +101,53 @@ is independently shippable. Full per-session history lives under
 > repeatable pattern; new skill at `.claude/skills/medcore-bola-sweep/SKILL.md`
 > captures the verdict matrix (PATCHED A1/A2/A3 / VERIFIED-SAFE / STAFF-
 > ONLY) and the per-route-test-file isolation convention. Pairs with
-> `/medcore-fanout` for the long-tail #511 closures (~80 handlers
-> remaining in appointments / billing / ehr / immunization / lab /
-> pharmacy / insurance-claims clusters). Also broadened `.claude/settings.json`
-> with absolute-Windows-path globs for `.claude/skills/**` to silence
-> the popup loop on directory creation.
+> `/medcore-fanout` for the long-tail #511 closures.
+>
+> **2026-05-05 #511 long-tail wave (5-agent fanout via `/medcore-bola-sweep`)**:
+> Closed another 5 route files — **15 real BOLA fixes + 39 verified-safe
+> refactors** (drift-prevention onto canonical helper).
+> - `7bc72c7` ehr — 12 audit-flagged handlers were a 12/12 false-positive
+>   on real BOLA but had a parallel local helper `assertPatientAccess`
+>   identical to canonical. Refactored 13 call-sites onto canonical;
+>   deleted local helper. Plus 1 PATCHED A1: `GET /documents/:id` now
+>   resolves Document → patientId. 39-case test file.
+> - `3d501f0` surgery — 4 fixes (2 PATCHED A3 add-parent-fetch on
+>   `/:id/anesthesia-record` + `/:id/observations`; 2 STAFF-ONLY on
+>   `/ots/:id/utilization` + `/turnaround` analytics). 19 verified-safe
+>   were already gated by per-route `authorize()`.
+> - `dafad04` referrals + growth — 9 PATCHED + 2 STAFF-ONLY across
+>   16 handlers. **Worst surprise**: growth `POST /:id/feeding` had
+>   PATIENT in `authorize()` with NO per-row check — **PATIENT-A could
+>   write feeding logs against PATIENT-B's record (cross-tenant PHI
+>   write)**. Two `/patient/:id/milestones` handlers exist with
+>   different param names; second is dead code via Express first-match
+>   but patched both for defense-in-depth.
+> - `b183fab` telemedicine — 4 PATCHED (`PATCH /:id/join`,
+>   `/tech-issues`, `GET /:id/messages`, `POST /:id/messages`) + 5
+>   refactors onto canonical helper. `tech-issues` was verdict A3.
+> - `95cdc13` appointments + waitlist — 3 PATCHED + 3 refactors.
+>   **Worst surprise**: `PATCH /:id/reschedule` was a real undisclosed
+>   BOLA — PATIENT was in `authorize()` for self-service reschedule
+>   but ZERO per-row check; any PATIENT could reschedule any
+>   appointment. Not in the audit-flagged list — extra-grep find.
+>   `/group/:groupId` got membership-of-group check (correct semantic:
+>   group appts are coordinated visits, co-members SHOULD see roster).
+>   `calendar.ics` is publicly-shareable post-issue, gate must be at
+>   issuance — refactored to canonical helper.
+>
+> **Net across both #511 waves today**: 34 real BOLA fixes + 45
+> verified-safe-or-refactored across 10 route files; ~120 new test
+> cases. Issue #511 substantially closed. Long tail (~25 lower-priority
+> routes: agent-console / ai-admin / ai-bill-explainer / ai-knowledge /
+> analytics / chat / controlled-substances / coordinated-visits /
+> doctors / hr-ops / lab / leaves / med-reconciliation / medicines /
+> notifications / packages / patient-data-export / payment-plans /
+> pharmacy / preauth / scheduled-reports / shifts / tenants / uploads)
+> remains for future cycle. **Also broadened `.claude/settings.json`**
+> with the literal `.claude/skills/**` patterns (per user-supplied
+> screenshot) — `Read/Edit/Write(.claude/skills/**)`,
+> `Bash(.claude/skills/*)`, `./.claude/skills/**` variants — alongside
+> the absolute-Windows-path forms already in place.
 >
 > **2026-05-05 #511 BOLA-closure wave (5-agent fanout)**: After filing
 > #511 with 112 candidate handlers, dispatched 5 agents in parallel —

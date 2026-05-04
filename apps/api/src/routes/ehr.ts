@@ -20,38 +20,14 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+// #511: replaced this file's hand-rolled `assertPatientAccess` helper
+// (functionally identical signature) with the canonical
+// `assertPatientOwnsResource` to prevent drift. See
+// `apps/api/src/middleware/patient-self-only.ts`.
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 
 const router = Router();
 router.use(authenticate);
-
-// ───────────────────────────────────────────────────────
-// Helper: verify the current user may access a given patientId
-// Patients can only access their own record. Staff can access any.
-// ───────────────────────────────────────────────────────
-async function assertPatientAccess(
-  req: Request,
-  res: Response,
-  patientId: string
-): Promise<boolean> {
-  if (!req.user) {
-    res.status(401).json({ success: false, data: null, error: "Unauthorized" });
-    return false;
-  }
-
-  if (req.user.role === "PATIENT") {
-    const patient = await prisma.patient.findUnique({
-      where: { id: patientId },
-      select: { userId: true },
-    });
-    if (!patient || patient.userId !== req.user.userId) {
-      res
-        .status(403)
-        .json({ success: false, data: null, error: "Forbidden" });
-      return false;
-    }
-  }
-  return true;
-}
 
 // Resolve patientId from an existing record of a given entity, so we
 // can apply the same access check on non-list routes.
@@ -111,7 +87,8 @@ router.get(
   "/patients/:patientId/allergies",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      if (!(await assertPatientAccess(req, res, req.params.patientId))) return;
+      // #511 audit: VERIFIED-SAFE — canonical helper (was hand-rolled assertPatientAccess pre-refactor)
+      if (!(await assertPatientOwnsResource(req, res, req.params.patientId))) return;
       const allergies = await prisma.patientAllergy.findMany({
         where: { patientId: req.params.patientId },
         orderBy: { notedAt: "desc" },
@@ -188,7 +165,8 @@ router.get(
   "/patients/:patientId/conditions",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      if (!(await assertPatientAccess(req, res, req.params.patientId))) return;
+      // #511 audit: VERIFIED-SAFE — canonical helper (was hand-rolled assertPatientAccess pre-refactor)
+      if (!(await assertPatientOwnsResource(req, res, req.params.patientId))) return;
       const conditions = await prisma.chronicCondition.findMany({
         where: { patientId: req.params.patientId },
         orderBy: { createdAt: "desc" },
@@ -306,7 +284,8 @@ router.get(
   "/patients/:patientId/family-history",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      if (!(await assertPatientAccess(req, res, req.params.patientId))) return;
+      // #511 audit: VERIFIED-SAFE — canonical helper (was hand-rolled assertPatientAccess pre-refactor)
+      if (!(await assertPatientOwnsResource(req, res, req.params.patientId))) return;
       const rows = await prisma.familyHistory.findMany({
         where: { patientId: req.params.patientId },
       });
@@ -365,7 +344,8 @@ router.get(
   "/patients/:patientId/immunizations",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      if (!(await assertPatientAccess(req, res, req.params.patientId))) return;
+      // #511 audit: VERIFIED-SAFE — canonical helper (was hand-rolled assertPatientAccess pre-refactor)
+      if (!(await assertPatientOwnsResource(req, res, req.params.patientId))) return;
       const rows = await prisma.immunization.findMany({
         where: { patientId: req.params.patientId },
         orderBy: { dateGiven: "desc" },
@@ -381,7 +361,8 @@ router.get(
   "/patients/:patientId/immunizations/due",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      if (!(await assertPatientAccess(req, res, req.params.patientId))) return;
+      // #511 audit: VERIFIED-SAFE — canonical helper (was hand-rolled assertPatientAccess pre-refactor)
+      if (!(await assertPatientOwnsResource(req, res, req.params.patientId))) return;
       const now = new Date();
       const rows = await prisma.immunization.findMany({
         where: {
@@ -462,7 +443,8 @@ router.get(
   "/patients/:patientId/immunizations/schedule",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      if (!(await assertPatientAccess(req, res, req.params.patientId))) return;
+      // #511 audit: VERIFIED-SAFE — canonical helper (was hand-rolled assertPatientAccess pre-refactor)
+      if (!(await assertPatientOwnsResource(req, res, req.params.patientId))) return;
       const { filter = "month" } = req.query as Record<string, string>;
 
       const rows = await prisma.immunization.findMany({
@@ -516,7 +498,8 @@ router.get(
   "/patients/:patientId/immunizations/recommended",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      if (!(await assertPatientAccess(req, res, req.params.patientId))) return;
+      // #511 audit: VERIFIED-SAFE — canonical helper (was hand-rolled assertPatientAccess pre-refactor)
+      if (!(await assertPatientOwnsResource(req, res, req.params.patientId))) return;
       const patient = await prisma.patient.findUnique({
         where: { id: req.params.patientId },
         select: { dateOfBirth: true, gender: true },
@@ -671,7 +654,8 @@ router.get(
   "/patients/:patientId/documents",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      if (!(await assertPatientAccess(req, res, req.params.patientId))) return;
+      // #511 audit: VERIFIED-SAFE — canonical helper (was hand-rolled assertPatientAccess pre-refactor)
+      if (!(await assertPatientOwnsResource(req, res, req.params.patientId))) return;
       const docs = await prisma.patientDocument.findMany({
         where: { patientId: req.params.patientId },
         select: {
@@ -749,7 +733,8 @@ router.get(
           .json({ success: false, data: null, error: "Document not found" });
         return;
       }
-      if (!(await assertPatientAccess(req, res, doc.patientId))) return;
+      // #511 audit: PATCHED A1 — /documents/:id is doc-keyed; resolved patientId via Document.patientId then gated through canonical helper.
+      if (!(await assertPatientOwnsResource(req, res, doc.patientId))) return;
 
       const filename = doc.filePath.split(/[\\/]/).pop() || "";
       const downloadUrl = `/api/v1/uploads/${encodeURIComponent(filename)}`;
@@ -803,7 +788,8 @@ router.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const patientId = req.params.patientId;
-      if (!(await assertPatientAccess(req, res, patientId))) return;
+      // #511 audit: VERIFIED-SAFE — canonical helper (was hand-rolled assertPatientAccess pre-refactor)
+      if (!(await assertPatientOwnsResource(req, res, patientId))) return;
 
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -875,7 +861,8 @@ router.get(
   "/patients/:patientId/advance-directives",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      if (!(await assertPatientAccess(req, res, req.params.patientId))) return;
+      // #511 audit: VERIFIED-SAFE — canonical helper (was hand-rolled assertPatientAccess pre-refactor)
+      if (!(await assertPatientOwnsResource(req, res, req.params.patientId))) return;
       const includeInactive = req.query.includeInactive === "true";
       const rows = await prisma.advanceDirective.findMany({
         where: {
@@ -898,7 +885,8 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const patientId = req.params.patientId;
-      if (!(await assertPatientAccess(req, res, patientId))) return;
+      // #511 audit: VERIFIED-SAFE — canonical helper (was hand-rolled assertPatientAccess pre-refactor)
+      if (!(await assertPatientOwnsResource(req, res, patientId))) return;
       const body = req.body;
       const created = await prisma.advanceDirective.create({
         data: {
@@ -1001,7 +989,8 @@ router.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const patientId = req.params.patientId;
-      if (!(await assertPatientAccess(req, res, patientId))) return;
+      // #511 audit: VERIFIED-SAFE — canonical helper (was hand-rolled assertPatientAccess pre-refactor)
+      if (!(await assertPatientOwnsResource(req, res, patientId))) return;
 
       const activeOnly = req.query.activeOnly !== "false";
       const typeFilter = req.query.type as string | undefined;

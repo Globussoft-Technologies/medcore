@@ -314,6 +314,10 @@ router.get(
         return;
       }
 
+      // Issue #511 (BOLA / CWE-285): PATIENT-A must not be able to read
+      // PATIENT-B's discharge-readiness checklist. Non-PATIENT roles pass.
+      if (!(await assertPatientOwnsResource(req, res, admission.patientId))) return;
+
       // Outstanding bills
       const pendingInvoices = await prisma.invoice.findMany({
         where: {
@@ -631,6 +635,19 @@ router.get(
   "/:id/vitals",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Issue #511 (BOLA / CWE-285): load the parent admission so we can
+      // verify PATIENT ownership before exposing the vitals stream.
+      // Non-PATIENT roles pass through.
+      const admission = await prisma.admission.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, patientId: true },
+      });
+      if (!admission) {
+        res.status(404).json({ success: false, data: null, error: "Admission not found" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, admission.patientId))) return;
+
       const vitals = await prisma.ipdVitals.findMany({
         where: { admissionId: req.params.id },
         orderBy: { recordedAt: "desc" },
@@ -655,6 +672,10 @@ router.get(
         res.status(404).json({ success: false, data: null, error: "Admission not found" });
         return;
       }
+
+      // Issue #511 (BOLA / CWE-285): bills expose financial detail —
+      // PATIENT-A must not be able to fetch PATIENT-B's running bill.
+      if (!(await assertPatientOwnsResource(req, res, admission.patientId))) return;
 
       const startMs = new Date(admission.admittedAt).getTime();
       const endMs = admission.dischargedAt
@@ -751,6 +772,18 @@ router.get(
   "/:id/intake-output",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Issue #511 (BOLA / CWE-285): load parent admission for ownership
+      // gate before exposing per-day intake/output rows.
+      const admission = await prisma.admission.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, patientId: true },
+      });
+      if (!admission) {
+        res.status(404).json({ success: false, data: null, error: "Admission not found" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, admission.patientId))) return;
+
       const { date } = req.query;
       const where: Record<string, unknown> = { admissionId: req.params.id };
       if (date) {
@@ -797,12 +830,16 @@ router.get(
       const { date } = req.query;
       const admission = await prisma.admission.findUnique({
         where: { id: req.params.id },
-        select: { id: true, admissionNumber: true, status: true },
+        select: { id: true, admissionNumber: true, status: true, patientId: true },
       });
       if (!admission) {
         res.status(404).json({ success: false, data: null, error: "Admission not found" });
         return;
       }
+
+      // Issue #511 (BOLA / CWE-285): MAR rows enumerate medications and
+      // their administration history — must be patient-owner-gated.
+      if (!(await assertPatientOwnsResource(req, res, admission.patientId))) return;
 
       const dateStart = date ? new Date(date as string) : new Date();
       dateStart.setHours(0, 0, 0, 0);
@@ -972,6 +1009,10 @@ router.get(
         return;
       }
 
+      // Issue #511 (BOLA / CWE-285): LOS prediction reveals diagnosis +
+      // expected stay length — leak vector across patients.
+      if (!(await assertPatientOwnsResource(req, res, admission.patientId))) return;
+
       // Find similar historical cases (same ward type, similar keywords in diagnosis)
       const keywords = (admission.diagnosis || admission.reason || "")
         .toLowerCase()
@@ -1109,6 +1150,19 @@ router.get(
   "/:id/belongings",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Issue #511 (BOLA / CWE-285): valuables list — load the parent
+      // admission first so we can verify PATIENT ownership before
+      // returning the belongings record.
+      const admission = await prisma.admission.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, patientId: true },
+      });
+      if (!admission) {
+        res.status(404).json({ success: false, data: null, error: "Admission not found" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, admission.patientId))) return;
+
       const rec = await prisma.patientBelongings.findUnique({
         where: { admissionId: req.params.id },
       });
@@ -1346,6 +1400,19 @@ router.get(
   "/:id/discharge-summary-pdf",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Issue #511 (BOLA / CWE-285): the PDF/HTML discharge summary
+      // contains the full clinical narrative — gate on PATIENT ownership
+      // before invoking the generator. Non-PATIENT roles pass through.
+      const admission = await prisma.admission.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, patientId: true },
+      });
+      if (!admission) {
+        res.status(404).json({ success: false, data: null, error: "Admission not found" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, admission.patientId))) return;
+
       // `?format=pdf` -> real PDF, default -> legacy HTML print view.
       if (req.query.format === "pdf") {
         const buffer = await generateDischargeSummaryPDFBuffer(req.params.id);

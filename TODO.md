@@ -316,6 +316,29 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 8 (2-agent fanout — long-tail closure)**:
+> 6 long-tail routes closed in a single cron tick — **2 real BOLA fixes
+> + 53 verified-safe handlers across 6 files**. Lane A (`81cf8b4`):
+> agent-console (5 verified-safe via router-level `authorize(RECEPTION,
+> ADMIN)`), ai-admin (4 verified-safe via `authorize(ADMIN)` super-user
+> only), analytics (28 verified-safe via `authorize(ADMIN, RECEPTION,
+> DOCTOR)` excluding PATIENT). Lane B (`33b02c6`): chat — **1 real BOLA**
+> on `POST /rooms/:id/typing` (was missing the participant + ADMIN-bypass
+> check that every other `/rooms/:id/*` handler had; any authed user
+> could spam typing events into rooms by guessing IDs); doctors —
+> **1 real BOLA**: `GET /` catalog leaked `user.email + user.phone` for
+> every doctor to PATIENT callers (2nd instance of the eager-include leak
+> pattern after `packages.ts` wave 5 — pattern is now RIPE for promotion;
+> fix branched projection by role); controlled-substances (4 verified-
+> safe via router-level `authorize(ADMIN, PHARMACIST, DOCTOR)`). 5 new
+> tests across 2 new test files.
+>
+> **Today's running totals across all 8 #511 waves**: **68 real BOLA
+> fixes + 141 verified-safe across 30 route files; ~242 new test cases.**
+> Long tail down from ~11 to 6 routes (hr-ops, leaves, medicines,
+> scheduled-reports, shifts, tenants — all expected admin/staff-only,
+> closure cycle ~1 more cron tick).
+>
 > **2026-05-05 cron-tick CI-unblock wave (regression fix)**: `a5a6224`
 > diagnosed test.yml on `dbf45d4` (a docs-only commit, no code changed)
 > failing 6 tests across 4 files. Three independent regressions, each

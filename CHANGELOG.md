@@ -12,6 +12,24 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 8 — long-tail BOLA closure (2-agent fanout, 6 routes).**
+  Lane A (`81cf8b4`) closed agent-console + ai-admin + analytics — all
+  37 handlers verified-safe via router-level `authorize()` mounts that
+  exclude PATIENT (RECEPTION+ADMIN, ADMIN, ADMIN+RECEPTION+DOCTOR
+  respectively). Lane B (`33b02c6`) closed chat + controlled-substances
+  + doctors — 2 real BOLAs found: (1) **chat `POST /rooms/:id/typing`**
+  was missing the participant + ADMIN-bypass check that every other
+  `/rooms/:id/*` handler had; any authed user could spam typing events
+  into rooms by guessing IDs. (2) **doctors `GET /` catalog** leaked
+  `user.email + user.phone` for every doctor to PATIENT callers — 2nd
+  instance of the eager-include leak pattern after `packages.ts` wave 5,
+  fix branched the projection by role (staff get full include, PATIENT
+  gets minimal `name + speciality` slot). controlled-substances was
+  router-level safe (`authorize(ADMIN, PHARMACIST, DOCTOR)` excludes
+  PATIENT). 5 new tests in 2 new files (cross-patient-chat,
+  cross-patient-doctors). CLAUDE.md Cron Learnings: "eager-include
+  leak in catalog endpoints" bullet bumped to 2 instances — **RIPE
+  for promotion** (identical fix pattern across both finds).
 - **2026-05-05 cron-tick CI-unblock wave — 3 regression fixes from today's BOLA waves.**
   `a5a6224` diagnosed `dbf45d4`'s `test.yml` (a docs-only commit, no code
   changed) failing 6 tests across 4 files. Three independent regressions:

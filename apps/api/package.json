@@ -23,7 +23,7 @@
     "cors": "^2.8.5",
     "dicom-parser": "^1.8.21",
     "expo-server-sdk": "^6.1.0",
-    "express": "^4.21.0",
+    "express": "^5.2.1",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "langfuse": "^3.38.20",

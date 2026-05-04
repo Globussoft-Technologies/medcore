@@ -94,6 +94,54 @@ describeIfDB("Users API (integration)", () => {
     expect(res.status).toBe(400);
   });
 
+  // ─── Issue #500 regression: profile Save validation ────────────────
+  //
+  // Bug: Settings → Profile (and the standalone /dashboard/profile) used
+  // to silently accept empty Full Name and non-numeric / too-short Phone.
+  // The shared `updateProfileSchema` was hardened (issues #138/#392/#393)
+  // and `PATCH /api/v1/auth/me` runs it via the `validate` middleware,
+  // but no integration test pinned the rejection contract — so a future
+  // schema regression to `.optional()` without `.min(1)` would slip past
+  // CI. These four cases lock the contract: server is the security
+  // boundary, client validation is a UX nicety on top.
+  it("PATCH /auth/me rejects empty name (#500)", async () => {
+    const res = await request(app)
+      .patch("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ name: "" });
+    expect(res.status).toBe(400);
+  });
+
+  it("PATCH /auth/me rejects non-numeric phone (#500)", async () => {
+    const res = await request(app)
+      .patch("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ phone: "abc" });
+    expect(res.status).toBe(400);
+  });
+
+  it("PATCH /auth/me rejects too-short phone (#500)", async () => {
+    const res = await request(app)
+      .patch("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ phone: "12345" });
+    expect(res.status).toBe(400);
+  });
+
+  it("PATCH /auth/me persists valid name + phone (#500 happy path)", async () => {
+    const res = await request(app)
+      .patch("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ name: "Valid Admin", phone: "+919876543210" });
+    expect(res.status).toBe(200);
+    const me = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(me.status).toBe(200);
+    expect(me.body.data?.name).toBe("Valid Admin");
+    expect(me.body.data?.phone).toBe("+919876543210");
+  });
+
   it("ADMIN can list staff via /shifts/staff", async () => {
     await createUserFixture({ role: "NURSE" });
     await createUserFixture({ role: "DOCTOR" });

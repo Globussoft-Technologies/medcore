@@ -12,6 +12,22 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 6 — uploads + notifications + ai-knowledge (1 BOLA + 2 verified-safe).**
+  Solo agent sweep. `c6ceca5` shipped 1 real BOLA in uploads
+  `GET /:filename` (legacy filename endpoint): any PATIENT could fetch
+  any file in UPLOAD_DIR by name including other patients' medical
+  documents. **Subtle shape**: `checkDocumentAccess` helper already
+  existed in the file (wired to `/document/:id`) but never extended
+  to the legacy `/:filename` path. Fix reverse-looks up `PatientDocument`
+  by `filePath endsWith basename` + runs the existing helper. Non-medical
+  files (avatars, signed-URL artefacts) keep legacy behaviour to avoid
+  regressing non-medical use. notifications.ts (16 handlers, all
+  self-scoped by userId or per-row gated) and ai-knowledge.ts (router-
+  level `authorize(Role.ADMIN)` — even DOCTOR denied) entirely
+  verified-safe. 15 tests. CLAUDE.md Cron Learnings: "writes-gated,
+  reads-bare" pattern bumped to 3 instances; new bullet for "eager-
+  include leak in catalog endpoints" (single instance from packages
+  wave 5; ripe-when-promoted on a 2nd instance).
 - **2026-05-05 cron-tick wave 5 — preauth + packages (5 more real BOLA fixes).**
   Single-agent sweep on the next 2 long-tail files. `3beeeaf` shipped:
   preauth `GET /` (PATIENT could list all preauths via `?patientId=`

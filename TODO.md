@@ -292,6 +292,30 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > BOLA fixes + 83 verified-safe across 21 route files; ~222 new
 > test cases.** Long tail down from ~16 to ~14 routes.
 >
+> **2026-05-05 cron-tick wave 6 (1-agent solo sweep)**: `c6ceca5`
+> uploads + notifications + ai-knowledge — **1 real BOLA + 2 files
+> entirely verified-safe**. Real find in uploads `GET /:filename`
+> (legacy filename endpoint): any authenticated PATIENT could fetch
+> any file in UPLOAD_DIR by name — including another patient's medical
+> document. **Subtle shape**: `checkDocumentAccess` helper already
+> existed in the same file (wired to the modern `/document/:id`
+> endpoint) but was never extended to the legacy `/:filename` path.
+> Fix reverse-looks up matching `PatientDocument` by filePath
+> `endsWith` basename + runs the existing helper when a row matches;
+> non-medical files (avatars, signed-URL artefacts) keep legacy
+> behaviour. notifications.ts (16 handlers): all PATIENT-reachable
+> ones self-scoped by userId; admin surfaces gated. ai-knowledge.ts:
+> router-level `authorize(Role.ADMIN)` — even DOCTOR denied;
+> admin-only RAG curation surface. 15 tests.
+>
+> **Today's running totals across all 6 #511 waves**: **66 real
+> BOLA fixes + 88 verified-safe across 24 route files; ~237 new
+> test cases.** Long tail down from ~14 to ~11 routes (agent-console,
+> ai-admin, analytics, chat, controlled-substances, doctors, hr-ops,
+> leaves, medicines, scheduled-reports, shifts, tenants — most are
+> admin/staff-only). #511 effectively at the diminishing-returns
+> tail.
+>
 > **2026-05-05 #511 BOLA-closure wave (5-agent fanout)**: After filing
 > #511 with 112 candidate handlers, dispatched 5 agents in parallel —
 > one per route-file lane. Results: **19 real BOLA gaps patched + 9

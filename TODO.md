@@ -6,7 +6,25 @@ is independently shippable. Full per-session history lives under
 
 > Updated: 2026-05-05 evening (post **fix-up wave (11 commits) + 5 skills + 7-agent Cluster 1+2 fanout (7 commits)**).
 > Latest session handoff: [`docs/archive/SESSION_SNAPSHOT_2026-05-04.md`](docs/archive/SESSION_SNAPSHOT_2026-05-04.md) (rolling forward; new snapshot at next session boundary).
-> HEAD on `main` = `3308d8f`. **Two consecutive critical-issue waves shipped today.**
+> HEAD on `main` = `5457ffb`. **Five consecutive issue-closure waves shipped today: 25 GitHub issues closed.**
+>
+> **Wave A (criticals)**: #473 #474 #475 #476 #483 — security helmet, mass-assignment, cross-patient RBAC, PII redaction, identity-binding tests. Plus `apps/api/src/test/helpers/security-assertions.ts` (6 adversarial-vector helpers) + `docs/TEST_PLAN.md` §6.5.
+>
+> **Wave B (next-priority)**: #478 #479 #480 #489 #491 #500 — anti-enumeration on /register, login rate-limit, billing comma-status, XSS sanitization, past-date booking, profile validation regression tests.
+>
+> **Wave C (UX/data)**: #485 #487 #490 #493 #497 #499 #504 #505 #508 — theme toggle, form-error humanization, forgot-password hardening, seed data integrity, dashboard contrast, theme aria-pressed.
+>
+> **Wave D (a11y/feedback)**: #484 #486 #492 #494 #495 #501 #502 — sidebar overlap, login toast text, modal contrast, self-register feedback, patient detail contrast, forbidden access feedback, tour persistence.
+>
+> **Wave E (RBAC + visual)**: #507 #509 — wards bed-occupancy color logic + 11-page page-level VIEW_ALLOWED sweep with 49 new rbac-matrix.spec rows.
+>
+> Plus #459 administratively closed (all surfaced drifts resolved across `0646b0b`/`d5a4fef`/`75a5ccc`).
+>
+> **Open: 5 architectural follow-ups** — #456 AuditLog tenantId (schema mig), #457 Tenant FK SetNull (schema mig), #458 HTML5 constraints (19/37 forms remain in less-trafficked pages), #477 JWT→httpOnly cookies (architectural), #482 JWT HS256→RS256 (key rollover plan needed). All require single-thread treatment, not fanout.
+
+---
+
+## Earlier today: 11 issues closed across waves A+B (kept for log)
 >
 > **Wave A** (5-agent, 5 issues): `b6601ad` (#473 mass-assignment), `66bb6d2` (#474 cross-patient — 11 routes / 29 tests), `bd7785a` (#475 helmet + 7 tests), `5f2fa2a` (#476 visitor PII redaction + 7 tests), `b6601ad` (#483 login identity-binding — false positive, defensive test added). **Plus** `apps/api/src/test/helpers/security-assertions.ts` (6 adversarial-vector helpers) + `docs/TEST_PLAN.md` §6.5 codifying the six categories.
 >

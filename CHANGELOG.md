@@ -11,6 +11,34 @@ test-coverage closure across §A-§E gaps, Playwright stabilization
 across Chromium + WebKit, and the local-first test workflow.
 
 ### Added
+- **2026-05-05 waves C+D+E — 14 more GitHub issues closed across 3 fanouts.**
+  Wave C (5 agents — UX/data integrity): `0903747` (#493 forgot/reset-password
+  anti-enumeration parity + strongPassword on reset), `1ef5741` (#485 + #508
+  theme toggle actually flips + aria-pressed updates; root cause was missing
+  explicit `type="button"` causing form-submit reload before render), `39fc1b0`
+  (#504 + #505 dashboard QuickAction tile + section-label contrast WCAG 2.1
+  AA), `b1db706` (#487 + #490 form-error humanization — Zod codes mapped to
+  human messages, "required" no longer fires for wrong-type, "valid UUID"
+  jargon hidden), `43f8fe7` (#497 + #499 seed-data integrity — Aarav age
+  3-days→5-years, MR numbering contiguous from MR000036 instead of MR009000
+  jump, 13 seed-validity assertions). Wave D (5 agents — a11y/feedback):
+  `f7ebcc3` (#486 sidebar Sign Out 2-row footer no longer overlaps Quick
+  Actions), `25273ce` (#484 + #501 login distinguishes invalid-creds toast
+  from session-expired; billing role-gate now redirects to
+  `/dashboard/not-authorized?from=...` instead of silent /dashboard bounce),
+  `2805b9a` (#492 + #495 Lab Order modal + Patient detail header contrast
+  pass; bonus htmlFor on orphaned Notes label), `630183d` (#502 tour-skip
+  persists via `medcore_tour_completed_v1` localStorage key; root cause was
+  `markOnboardingSkipped(userId)` no-op when userId undefined at click-time),
+  `9142824` (#494 self-register surfaces server validation errors via
+  improved field-error helper from b1db706 + 502/network retry banner).
+  Wave E (2 agents): `5252c57` (#507 wards bed-occupancy color matches
+  numeric count; root cause was flexbox `flex-shrink: 1` collapsing declared
+  width-percent values, plus missing MAINTENANCE segment), `5457ffb` (#509
+  page-level VIEW_ALLOWED guards added to 11 routes — pharmacy, refunds,
+  admissions, medicines, visitors, duty-roster, scribe, discount-approvals,
+  preauth, purchase-orders, ai-radiology — with 49 new rbac-matrix.spec
+  rows).
 - **2026-05-05 next-issues 4-agent fanout — 6 more GitHub issues closed.**
   Wave-B closing the next-priority cluster after the wave-A criticals
   shipped: `74e28f6` (auth-hardening — #480 anti-enumeration on

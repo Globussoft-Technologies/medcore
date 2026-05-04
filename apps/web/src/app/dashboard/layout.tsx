@@ -4,7 +4,6 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
-import { useThemeStore } from "@/lib/theme";
 import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { DialogProvider } from "@/lib/use-dialog";
@@ -17,6 +16,7 @@ import {
   resetTour,
 } from "@/components/OnboardingTour";
 import { LanguageDropdown } from "@/components/LanguageDropdown";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   LayoutDashboard,
   Calendar,
@@ -69,8 +69,6 @@ import {
   Megaphone,
   CalendarOff,
   ShieldAlert,
-  Sun,
-  Moon,
   Keyboard,
   Menu,
   Settings as SettingsIcon,
@@ -337,9 +335,6 @@ export default function DashboardLayout({
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const resolvedTheme = useThemeStore((s) => s.resolved);
-  const toggleTheme = useThemeStore((s) => s.toggle);
-
   // Track multi-key sequences (e.g. "g h" for go home)
   const seqRef = useRef<{ key: string; ts: number } | null>(null);
 
@@ -855,26 +850,12 @@ export default function DashboardLayout({
             instanceId="mc-lang-sidebar"
             className="text-slate-700 dark:text-gray-300"
           />
-          <button
-            onClick={toggleTheme}
-            aria-label={
-              resolvedTheme === "dark"
-                ? t("common.lightMode")
-                : t("common.darkMode")
-            }
-            title={
-              resolvedTheme === "dark"
-                ? t("common.lightMode")
-                : t("common.darkMode")
-            }
-            className="rounded-lg p-2 text-slate-700 transition hover:bg-sidebar-hover hover:text-slate-900 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none dark:text-gray-300 dark:hover:text-white"
-          >
-            {resolvedTheme === "dark" ? (
-              <Sun size={18} aria-hidden="true" />
-            ) : (
-              <Moon size={18} aria-hidden="true" />
-            )}
-          </button>
+          {/* Issue #485 + #508: theme toggle extracted into its own
+              component. Inlined version was missing both `type="button"`
+              (could submit if ever wrapped in a form) and `aria-pressed`
+              (screen readers couldn't observe state change). See
+              `@/components/ThemeToggle.tsx` for the full rationale. */}
+          <ThemeToggle />
           <button
             onClick={() => setShortcutsOpen(true)}
             aria-label={t("common.shortcuts")}

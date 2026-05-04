@@ -504,15 +504,30 @@ export default function PatientDetailPage() {
         </div>
       )}
 
-      {/* Patient Info Card */}
-      <div className="mb-4 rounded-xl bg-white p-6 shadow-sm">
+      {/* Patient Info Card
+          Issue #495: the demographic header (name, age, phone, email,
+          address, KPI tile labels) was rendering ~3:1 against the dark
+          card surface because the entire card and every paragraph used
+          plain `text-gray-400` / no-color classes with zero `dark:`
+          variants. Promote name/values to `text-gray-900 dark:text-gray-100`
+          and labels to `text-gray-600 dark:text-gray-300` so every line
+          clears WCAG 2.1 AA (4.5:1 normal, 3:1 large) in both modes. */}
+      <div
+        data-testid="patient-detail-header"
+        className="mb-4 rounded-xl bg-white p-6 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100"
+      >
         <div className="flex items-start gap-6">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
-            <User size={28} className="text-primary" />
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 dark:bg-primary/20">
+            <User size={28} className="text-primary" aria-hidden="true" />
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold">{patient.user.name}</h1>
+              <h1
+                data-testid="patient-detail-name"
+                className="text-2xl font-bold text-gray-900 dark:text-gray-100"
+              >
+                {patient.user.name}
+              </h1>
               <span className="rounded-full bg-primary/10 px-3 py-0.5 font-mono text-sm font-medium text-primary">
                 {patient.mrNumber}
               </span>
@@ -618,37 +633,40 @@ export default function PatientDetailPage() {
                 <Printer size={13} /> Fitness Cert
               </button>
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-4">
+            <div
+              data-testid="patient-detail-demographics"
+              className="mt-3 grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-4"
+            >
               {patient.age != null && (
                 <div>
-                  <p className="text-xs text-gray-400">Age</p>
-                  <p className="text-sm font-medium">{patient.age} yrs</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-300">Age</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{patient.age} yrs</p>
                 </div>
               )}
               <div>
-                <p className="text-xs text-gray-400">Gender</p>
-                <p className="text-sm font-medium">{patient.gender}</p>
+                <p className="text-xs text-gray-600 dark:text-gray-300">Gender</p>
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{patient.gender}</p>
               </div>
               {patient.bloodGroup && (
                 <div>
-                  <p className="text-xs text-gray-400">Blood Group</p>
-                  <p className="text-sm font-medium">{patient.bloodGroup}</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-300">Blood Group</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{patient.bloodGroup}</p>
                 </div>
               )}
               <div className="flex items-center gap-1.5">
-                <Phone size={13} className="text-gray-400" />
-                <p className="text-sm">{patient.user.phone}</p>
+                <Phone size={13} className="text-gray-600 dark:text-gray-300" aria-hidden="true" />
+                <p className="text-sm text-gray-900 dark:text-gray-100">{patient.user.phone}</p>
               </div>
               {patient.user.email && (
                 <div className="flex items-center gap-1.5">
-                  <Mail size={13} className="text-gray-400" />
-                  <p className="text-sm">{patient.user.email}</p>
+                  <Mail size={13} className="text-gray-600 dark:text-gray-300" aria-hidden="true" />
+                  <p className="text-sm text-gray-900 dark:text-gray-100">{patient.user.email}</p>
                 </div>
               )}
               {patient.insuranceProvider && (
                 <div>
-                  <p className="text-xs text-gray-400">Insurance</p>
-                  <p className="text-sm font-medium">
+                  <p className="text-xs text-gray-600 dark:text-gray-300">Insurance</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                     {patient.insuranceProvider}
                     {patient.insuranceId ? ` (${patient.insuranceId})` : ""}
                   </p>
@@ -656,8 +674,8 @@ export default function PatientDetailPage() {
               )}
               {patient.address && (
                 <div className="col-span-2">
-                  <p className="text-xs text-gray-400">Address</p>
-                  <p className="text-sm">{patient.address}</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-300">Address</p>
+                  <p className="text-sm text-gray-900 dark:text-gray-100">{patient.address}</p>
                 </div>
               )}
             </div>
@@ -1024,17 +1042,25 @@ function StatCard({
   value: string;
   tone: "blue" | "green" | "gray" | "orange" | "indigo" | "red";
 }) {
+  // Issue #495: pre-fix labels carried `opacity-70` which knocked the
+  // "Total Spent" / "Upcoming" titles to ~3:1 against the tinted bg-*-50
+  // surfaces. Drop the opacity, pin to AA-passing tone-700 in light mode
+  // and tone-200 in dark mode (>= 4.5:1 against the matching tinted/dark
+  // backgrounds).
   const tones: Record<string, string> = {
-    blue: "bg-blue-50 text-blue-700",
-    green: "bg-green-50 text-green-700",
-    gray: "bg-gray-50 text-gray-700",
-    orange: "bg-orange-50 text-orange-700",
-    indigo: "bg-indigo-50 text-indigo-700",
-    red: "bg-red-50 text-red-700",
+    blue: "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200",
+    green: "bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-200",
+    gray: "bg-gray-50 text-gray-700 dark:bg-gray-700/50 dark:text-gray-200",
+    orange: "bg-orange-50 text-orange-700 dark:bg-orange-900/30 dark:text-orange-200",
+    indigo: "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-200",
+    red: "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-200",
   };
   return (
-    <div className={`rounded-lg p-3 ${tones[tone]}`}>
-      <p className="text-xs opacity-70">{label}</p>
+    <div
+      data-testid="patient-stat-card"
+      className={`rounded-lg p-3 ${tones[tone]}`}
+    >
+      <p className="text-xs font-medium">{label}</p>
       <p className="text-lg font-bold">{value}</p>
     </div>
   );

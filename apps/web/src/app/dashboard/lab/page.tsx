@@ -628,18 +628,25 @@ function NewOrderModal({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      data-testid="lab-new-order-modal"
+    >
       <form
         onSubmit={submit}
-        className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl"
+        className="w-full max-w-2xl rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
       >
-        <h2 className="mb-4 text-lg font-semibold">New Lab Order</h2>
+        <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">
+          New Lab Order
+        </h2>
 
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-medium">Patient</label>
+            <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-gray-100">
+              Patient
+            </label>
             {selectedPatient ? (
-              <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2 text-sm">
+              <div className="flex items-center justify-between rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100">
                 <span>
                   <strong>{selectedPatient.user.name}</strong> ·{" "}
                   {selectedPatient.mrNumber}
@@ -647,7 +654,7 @@ function NewOrderModal({
                 <button
                   type="button"
                   onClick={() => setSelectedPatient(null)}
-                  className="text-xs text-red-600"
+                  className="text-xs font-medium text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                 >
                   Change
                 </button>
@@ -658,10 +665,10 @@ function NewOrderModal({
                   placeholder="Search patient"
                   value={patientSearch}
                   onChange={(e) => setPatientSearch(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder:text-gray-400"
                 />
                 {patientResults.length > 0 && (
-                  <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white shadow-sm">
+                  <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-gray-300 bg-white shadow-sm dark:border-gray-600 dark:bg-gray-700">
                     {patientResults.map((p) => (
                       <button
                         key={p.id}
@@ -670,7 +677,7 @@ function NewOrderModal({
                           setSelectedPatient(p);
                           setPatientResults([]);
                         }}
-                        className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50"
+                        className="block w-full px-3 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-600"
                       >
                         <strong>{p.user.name}</strong> · {p.mrNumber}
                       </button>
@@ -682,7 +689,7 @@ function NewOrderModal({
             {fieldErrors.patientId && (
               <p
                 data-testid="error-lab-patient"
-                className="mt-1 text-xs text-red-600"
+                className="mt-1 text-xs text-red-700 dark:text-red-400"
               >
                 {fieldErrors.patientId}
               </p>
@@ -690,29 +697,41 @@ function NewOrderModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium">Tests</label>
+            <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-gray-100">
+              Tests
+            </label>
             {fieldErrors.testIds && (
               <p
                 data-testid="error-lab-tests"
-                className="mb-1 text-xs text-red-600"
+                className="mb-1 text-xs text-red-700 dark:text-red-400"
               >
                 {fieldErrors.testIds}
               </p>
             )}
-            <div className="max-h-64 overflow-y-auto rounded-lg border p-3">
+            {/* Issue #492: test labels were `text-sm` with no explicit color
+                so they inherited the form's default ~`text-gray-600`-ish hue
+                which fell below WCAG 2.1 AA (4.5:1) on the white modal
+                surface. Promote labels to `text-gray-900 dark:text-gray-100`
+                (~16:1 / ~14:1) so every test label and category header is
+                solidly readable in both modes. */}
+            <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-300 p-3 dark:border-gray-600">
               {Object.keys(grouped).length === 0 ? (
-                <p className="text-sm text-gray-500">Loading tests...</p>
+                <p className="text-sm text-gray-700 dark:text-gray-300">Loading tests...</p>
               ) : (
                 Object.entries(grouped).map(([cat, list]) => (
                   <div key={cat} className="mb-3">
-                    <h4 className="mb-1 text-xs font-semibold uppercase text-gray-500">
+                    <h4
+                      data-testid="lab-order-category-header"
+                      className="mb-1 text-xs font-semibold uppercase text-gray-700 dark:text-gray-200"
+                    >
                       {cat}
                     </h4>
                     <div className="grid grid-cols-2 gap-1">
                       {list.map((t) => (
                         <label
                           key={t.id}
-                          className="flex items-center gap-2 text-sm"
+                          data-testid="lab-order-test-label"
+                          className="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100"
                         >
                           <input
                             type="checkbox"
@@ -738,7 +757,9 @@ function NewOrderModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium">Priority</label>
+            <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-gray-100">
+              Priority
+            </label>
             <div className="flex gap-2">
               {(["ROUTINE", "URGENT", "STAT"] as const).map((p) => (
                 <label
@@ -746,11 +767,11 @@ function NewOrderModal({
                   className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${
                     priority === p
                       ? p === "STAT"
-                        ? "border-red-600 bg-red-50 text-red-800"
+                        ? "border-red-600 bg-red-50 text-red-800 dark:border-red-500 dark:bg-red-900/30 dark:text-red-200"
                         : p === "URGENT"
-                        ? "border-orange-500 bg-orange-50 text-orange-800"
-                        : "border-primary bg-primary/10 text-primary"
-                      : "border-gray-300 text-gray-600 hover:bg-gray-50"
+                        ? "border-orange-500 bg-orange-50 text-orange-800 dark:border-orange-500 dark:bg-orange-900/30 dark:text-orange-200"
+                        : "border-primary bg-primary/10 text-primary dark:bg-primary/20"
+                      : "border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
                   }`}
                 >
                   <input
@@ -766,26 +787,32 @@ function NewOrderModal({
               ))}
             </div>
             {priority === "STAT" && (
-              <p className="mt-1 text-xs text-red-700">
+              <p className="mt-1 text-xs text-red-700 dark:text-red-400">
                 STAT orders notify the lab team immediately.
               </p>
             )}
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium">Notes</label>
+            <label
+              htmlFor="lab-order-notes"
+              className="mb-1 block text-sm font-medium text-gray-900 dark:text-gray-100"
+            >
+              Notes
+            </label>
             <textarea
+              id="lab-order-notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
-              className={`w-full rounded-lg border px-3 py-2 text-sm ${
-                fieldErrors.notes ? "border-red-500 bg-red-50" : ""
+              className={`w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder:text-gray-400 ${
+                fieldErrors.notes ? "border-red-500 bg-red-50 dark:bg-red-900/20" : ""
               }`}
             />
             {fieldErrors.notes && (
               <p
                 data-testid="error-lab-notes"
-                className="mt-1 text-xs text-red-600"
+                className="mt-1 text-xs text-red-700 dark:text-red-400"
               >
                 {fieldErrors.notes}
               </p>
@@ -794,10 +821,15 @@ function NewOrderModal({
         </div>
 
         <div className="mt-5 flex justify-end gap-2">
+          {/* Issue #492: bare `border` + no foreground color let the Cancel
+              button render in browser default `ButtonText` (~#909090 in some
+              themes) — well below AA on white. Pin foreground + paired
+              dark-mode classes so it stays readable in both modes. */}
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border px-4 py-2 text-sm"
+            data-testid="lab-order-cancel-btn"
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600"
           >
             Cancel
           </button>

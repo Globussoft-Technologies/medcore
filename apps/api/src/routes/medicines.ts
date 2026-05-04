@@ -21,6 +21,16 @@ import {
 const router = Router();
 router.use(authenticate);
 
+// #511 audit (2026-05-05, cron-tick): all handlers verified safe.
+// Medicine is a CATALOG resource — no patientId FK, no patient-bearing
+// relations on the eager-include shapes (inventoryItems is SKU/pricing/
+// expiry, not patient PII). Reads are open to all authed users (browsing
+// dose info, leaflets, generic alternatives is a legitimate PATIENT use
+// case). Writes are gated `authorize(Role.ADMIN, Role.DOCTOR)` for create/
+// update and `authorize(Role.ADMIN)` for delete + drug-interaction edits.
+// No /:id handler reaches a patient-keyed row, so assertPatientOwnsResource
+// does not apply (verdict: VERIFIED-SAFE per /medcore-bola-sweep §B).
+
 // GET /api/v1/medicines — list medicines with search/category filters
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {

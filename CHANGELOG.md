@@ -12,6 +12,24 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 11 — E2E coverage backlog (communications + analytics-reports).**
+  Lane A (`b921bca`) shipped `e2e/notifications-delivery.spec.ts`
+  (7 cases) + `e2e/notification-templates.spec.ts` (7 cases) — both
+  pages ADMIN-only via `useEffect` router.push redirect; same shape as
+  `broadcasts.spec.ts`. Lane B (`342851c`) shipped
+  `e2e/reports-scheduled.spec.ts` (7 cases) + `e2e/analytics-reports
+  .spec.ts` (6 cases). **Notable find**: `/dashboard/reports/scheduled`
+  vs `/dashboard/scheduled-reports` dedup question (open in the
+  backlog since the audit was written) is RESOLVED — the former is a
+  client-side redirect (Issue #80 compat shim) onto the latter. Plus
+  `6ab4d4c` fixed an in-flight test regression in
+  `cross-patient-ehr.test.ts` (`type: "REPORT"` in fixture data; the
+  Prisma `DocumentType` enum has no `REPORT` member, only `LAB_REPORT`/
+  IMAGING/DISCHARGE_SUMMARY/CONSENT/INSURANCE/REFERRAL_LETTER/ID_PROOF/
+  OTHER; vitest was silently skipping all 36 tests because the beforeAll
+  Prisma error coerced them to "skipped" while marking the test FILE
+  as failed — masked in earlier-wave test.yml summaries). 27 new E2E
+  tests × 2 projects = 54 listed cases.
 - **2026-05-05 cron-tick wave 10 — E2E coverage backlog pivot (4 new specs, 26 new tests).**
   After #511 long-tail closed, the cron pivoted to `docs/E2E_COVERAGE_
   BACKLOG.md` §2 zero-coverage routes. Lane A (`9802de0`) shipped

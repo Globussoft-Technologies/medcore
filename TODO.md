@@ -316,6 +316,36 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 11 (2-agent E2E fanout — communications + analytics-reports backlog)**:
+> 4 more E2E specs scaffolded across 2 lanes. Lane A (`b921bca`):
+> `e2e/notifications-delivery.spec.ts` (7 cases — ADMIN delivery-status
+> table + 4-filter visibility + status=FAILED filter wiring + Refresh
+> re-fetch + READ+PUSH empty-or-settled + DOCTOR/NURSE/PATIENT bounces)
+> + `e2e/notification-templates.spec.ts` (7 cases — ADMIN matrix render
+> with 13 type rows × 4 channel headers + Add-Edit modal w/ DEFAULT_BODIES
+> pre-fill + EMAIL-only Subject conditional + POST-or-PUT save round-trip
+> + 3 RBAC bounces). Lane B (`342851c`): `e2e/reports-scheduled.spec.ts`
+> (7 cases — backlog §9 dedup question RESOLVED: `/reports/scheduled` is
+> a client-side redirect (Issue #80 compat shim) onto canonical
+> `/scheduled-reports`; spec covers both via the redirect; tabs/run-history/
+> delivery-visibility table + empty-name React-owned validation (#458)
+> + 3 bounces) + `e2e/analytics-reports.spec.ts` (6 cases — ADMIN Report
+> Builder 5-tile matrix + type-switch contract Revenue→Appointments +
+> CSV download canonical filename pin + empty-state with disabled
+> CSV/JSON + 2 bounces).
+>
+> **27 new E2E tests across 4 spec files** (×2 Playwright projects =
+> 54 listed cases). Backlog §2.5 + §2.6 fully closed. **Notable find**:
+> reports/scheduled vs scheduled-reports duplication question that's been
+> open in the backlog since the audit was written is RESOLVED — they're
+> not two distinct routes; the former is a shim redirecting to the latter
+> per Issue #80. Plus `6ab4d4c` fixed an in-flight test regression
+> (cross-patient-ehr.test.ts had `type: "REPORT"` in fixture data;
+> DocumentType enum has no REPORT member; vitest had been silently
+> skipping all 36 tests because the beforeAll Prisma error caused vitest
+> to coerce them to "skipped" status while marking the test FILE as
+> failed — masked in earlier-wave test.yml summaries).
+>
 > **2026-05-05 cron-tick wave 10 (2-agent E2E fanout — pivot to coverage backlog after #511 close)**:
 > #511 long-tail done → pivoted to `docs/E2E_COVERAGE_BACKLOG.md` §2 zero-
 > coverage routes. 4 specs scaffolded across 2 lanes. Lane A (`9802de0`):

@@ -155,6 +155,34 @@ EOF
 - **Don't apply `assertPatientOwnsResource` to non-patient resources.** BloodDonor (no Patient link), AuditLog (system), system-config — these are staff-only via `authorize()`, not patient-self.
 - **Don't write generic "is patient" checks inline if the helper already exists** — drift over time is the real cost. Refactor to the canonical helper for consistency, even if the existing inline check is correct today.
 
+## Expanded audit criterion (added 2026-05-05)
+
+**The original audit grep (handlers with NO `authorize()` call) misses a SECOND class of BOLA bug:** handlers that DO have `authorize(...)` BUT include `Role.PATIENT` in the role list AND don't add a per-row ownership check. These bypassed the original audit because the handler "looks gated."
+
+Two real instances surfaced in the long-tail wave:
+
+- `appointments.ts PATCH /:id/reschedule` — `authorize(...)` allowed PATIENT for self-service reschedule, but no per-row check. **Any PATIENT could reschedule any appointment.**
+- `growth.ts POST /:id/feeding` — `authorize(...)` allowed PATIENT, but no per-row check. **PATIENT-A could write feeding logs against PATIENT-B's record (cross-tenant PHI write).**
+
+Both were extra-grep finds by alert agents.
+
+**For ANY handler with `Role.PATIENT` in the authorize() list AND a row-keyed param (`:id`, `:patientId`, `:invoiceId`, `:scheduleId`, `:consultationId`, `:appointmentId`, `:sessionId`, etc.) — verify per-row ownership.** Either:
+
+1. The handler scopes its Prisma query to `req.user.patientId` (e.g., `where: { patientId: req.user.patientId }`) — verified-safe.
+2. The handler calls `assertPatientOwnsResource(req, res, parent.user.id)` after loading the parent — verified-safe.
+3. The handler uses `getCallerPatient(req)` for self-self surfaces (no row id needed) — verified-safe.
+4. **None of the above → real BOLA gap, apply the helper or scope the query.**
+
+### Discovery grep for this criterion
+
+```bash
+grep -lE "authorize\([^)]*Role\.PATIENT" apps/api/src/routes/*.ts
+```
+
+Returns the universe of files to audit under the expanded criterion. As of 2026-05-05 there are 17 such files. Many already swept; check `/medcore-bola-sweep` previous-wave commit history before running redundantly.
+
+For each file, scan every handler (not just `/:id` ones) — the expanded criterion applies to any PATIENT-allowed surface that operates on rows.
+
 ## Concurrency safety in /medcore-fanout
 
 When invoked by `/medcore-fanout` (one agent per route file):

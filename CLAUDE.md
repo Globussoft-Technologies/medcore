@@ -57,6 +57,8 @@ These were surfaced during recent fanout waves and bit multiple agents. Codified
 
 13. **BOLA sweep — non-patient resources go through `authorize(...)`, NOT the helper.** `BloodDonor` has no `User`/`Patient` link; `AuditLog` is system-wide; admin routes don't gate per-row. For these, use `authorize(Role.ADMIN, Role.DOCTOR, ...)` matching the file's other staff-only handlers. Don't try to force `assertPatientOwnsResource` onto a non-patient resource. The `/medcore-bola-sweep` skill calls this "verdict C — STAFF-ONLY". Codebase precedent: `a7bfc8c` for `BloodDonor` sub-resources.
 
+14. **`authorize(...)` containing `Role.PATIENT` does NOT exempt the handler from per-row checks.** The original BOLA audit (#511) only flagged handlers WITHOUT any `authorize()`. Two later finds — `appointments.ts PATCH /:id/reschedule` and `growth.ts POST /:id/feeding` — were handlers that DID have `authorize()` BUT included PATIENT and skipped per-row scoping. Result: any PATIENT could reschedule any appointment / write feeding logs against any patient. **For every handler with `Role.PATIENT` in `authorize()` AND a row-keyed param**, verify one of: (a) Prisma `where: { patientId: req.user.patientId }` self-scope, (b) `assertPatientOwnsResource(req, res, parent.user.id)` post-load, (c) `getCallerPatient(req)` for self-self surfaces. None → real BOLA. Discovery grep: `grep -lE "authorize\([^)]*Role\.PATIENT" apps/api/src/routes/*.ts`. The `/medcore-bola-sweep` skill's "Expanded audit criterion" section codifies this.
+
 ### Doc + commit conventions
 
 11. **NO `Co-Authored-By: Claude` trailer in commit messages** — forbidden by user's global CLAUDE.md.

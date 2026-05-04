@@ -142,8 +142,8 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - `/dashboard/agent-console` — AI agent monitoring
 
 ### 2.9 Account & Profile
-- `/dashboard/profile` — profile view/edit
-- `/dashboard/account` — email/password/2FA
+- ~~`/dashboard/profile` — profile view/edit~~ ✅ closed (6 tests; ADMIN/DOCTOR/PATIENT happy paths + universal-access route-shape pin (no VIEW_ALLOWED, no redirect) + Change-Password modal structural contract + Issue #458 React-owned noValidate "Passwords do not match" inline-error gate with no POST; `e2e/profile.spec.ts` — destructive password-mutation/2FA-enroll flows intentionally skipped to avoid poisoning shared seed)
+- ~~`/dashboard/account` — email/password/2FA~~ ✅ closed (bundled in `e2e/profile.spec.ts` — `/dashboard/account` is a thin server-component `redirect("/dashboard/profile")` alias from Issue #303; redirect-contract test pins the alias)
 - `/dashboard/workspace` — workspace config (smoke-visited)
 - `/dashboard/workstation` — task assignment (RBAC-only tested)
 

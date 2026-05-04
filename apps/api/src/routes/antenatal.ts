@@ -20,6 +20,7 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { generateBirthCertificateHTML } from "../services/pdf";
 
 const router = Router();
@@ -351,6 +352,10 @@ router.get(
           .json({ success: false, data: null, error: "ANC case not found" });
         return;
       }
+      // Issue #511 BOLA sweep: handler has no authorize() gate, so PATIENT
+      // role can hit it. Verify the caller owns this ANC case (i.e. is the
+      // patient whose pregnancy this is). Staff roles always pass.
+      if (!(await assertPatientOwnsResource(req, res, c.patientId))) return;
       res.json({ success: true, data: c, error: null });
     } catch (err) {
       next(err);
@@ -527,6 +532,10 @@ router.get(
         res.status(404).json({ success: false, data: null, error: "ANC case not found" });
         return;
       }
+      // Issue #511 BOLA sweep: handler has no authorize() gate. Reveals
+      // gestational status (LMP-derived) of any ANC case to any
+      // authenticated PATIENT. Verify ownership before responding.
+      if (!(await assertPatientOwnsResource(req, res, c.patientId))) return;
       const weeks = weeksSinceLMP(c.lmpDate);
       const trimester = trimesterFromWeeks(weeks);
       const suggestedNext = nextVisitFromWeeks(weeks, new Date());
@@ -667,6 +676,21 @@ router.get(
   "/cases/:id/ultrasound",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Issue #511 BOLA sweep: handler has no authorize() gate. USG
+      // records are PHI keyed by ancCaseId — without this check, a
+      // PATIENT-role caller could enumerate any other patient's
+      // ultrasound history. Look up the parent ANC case to resolve
+      // patientId, then assert ownership for PATIENT callers.
+      const c = await prisma.antenatalCase.findUnique({
+        where: { id: req.params.id },
+        select: { patientId: true },
+      });
+      if (!c) {
+        res.status(404).json({ success: false, data: null, error: "ANC case not found" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, c.patientId))) return;
+
       const rows = await prisma.ultrasoundRecord.findMany({
         where: { ancCaseId: req.params.id },
         orderBy: { scanDate: "desc" },
@@ -759,11 +783,18 @@ router.get(
     try {
       const p = await prisma.partograph.findUnique({
         where: { id: req.params.id },
+        include: { ancCase: { select: { patientId: true } } },
       });
       if (!p) {
         res.status(404).json({ success: false, data: null, error: "Partograph not found" });
         return;
       }
+      // Issue #511 BOLA sweep: handler has no authorize() gate. Partograph
+      // = labour observations (cervical dilation, FHR, contractions) — PHI
+      // bound to a specific delivery via ancCaseId → AntenatalCase → patient.
+      // Resolve and assert ownership for PATIENT callers before returning
+      // the raw observations + WHO chart.
+      if (!(await assertPatientOwnsResource(req, res, p.ancCase?.patientId))) return;
 
       // WHO Alert / Action lines for cervical dilation (active phase: starts at 4cm)
       // Alert: 1cm/hour. Action: Alert + 4 hours offset.
@@ -1024,6 +1055,20 @@ router.get(
   "/cases/:id/postnatal-visits",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Issue #511 BOLA sweep: handler has no authorize() gate. Postnatal
+      // visits are PHI keyed by ancCaseId (mother BP, lochia, mental
+      // health, baby exam). Resolve parent ANC case → patientId and
+      // assert ownership for PATIENT callers before listing.
+      const c = await prisma.antenatalCase.findUnique({
+        where: { id: req.params.id },
+        select: { patientId: true },
+      });
+      if (!c) {
+        res.status(404).json({ success: false, data: null, error: "ANC case not found" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, c.patientId))) return;
+
       const rows = await prisma.postnatalVisit.findMany({
         where: { ancCaseId: req.params.id },
         orderBy: { weekPostpartum: "asc" },
@@ -1058,6 +1103,23 @@ router.get(
   "/cases/:id/birth-certificate",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Issue #511 BOLA sweep: handler has no authorize() gate. Birth
+      // certificate HTML is the most-sensitive output of this whole
+      // module — patient name, baby name/sex/weight, doctor name, hospital
+      // letterhead. Resolve the ANC case first to assert ownership for
+      // PATIENT callers; staff roles always pass through.
+      const c = await prisma.antenatalCase.findUnique({
+        where: { id: req.params.id },
+        select: { patientId: true },
+      });
+      if (!c) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "ANC case not found" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, c.patientId))) return;
+
       const html = await generateBirthCertificateHTML(req.params.id);
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);

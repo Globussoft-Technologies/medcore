@@ -137,8 +137,8 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 
 ### 2.8 AI features
 - ~~`/dashboard/ai-kpis` — KPI dashboard configuration~~ ✅ closed 2026-05-05 by `e2e/ai-kpis.spec.ts` (7 cases; ADMIN chrome + Feature1 cards + Feature2 cards w/ unavailable card pin + CSV export tab + PATIENT/DOCTOR admin-gate + error banner)
-- `/dashboard/ai-booking` — AI-assisted booking
-- `/dashboard/ai-fraud` — fraud-case investigation (smoke-visited)
+- ~~`/dashboard/ai-booking` — AI-assisted booking~~ ✅ closed 2026-05-05 by `e2e/ai-booking.spec.ts` (5 cases; PATIENT pre-chat selector chrome + Child→dependent-id reveal + Start→POST /ai/triage/start with stubbed greeting + symptom-chips + DOCTOR universal-access pin (no VIEW_ALLOWED gate) + 400-error-envelope toast path)
+- ~~`/dashboard/ai-fraud` — fraud-case investigation (smoke-visited)~~ ✅ closed 2026-05-05 by `e2e/ai-fraud.spec.ts` (6 cases; ADMIN chrome + filters + Run-Scan + scan-window + row/expand contract + RECEPTION-can-read-but-no-CTA + PATIENT/DOCTOR inline Restricted placeholder (admin-gate-placeholder archetype, page.tsx:478) + empty-state)
 - `/dashboard/agent-console` — AI agent monitoring
 
 ### 2.9 Account & Profile

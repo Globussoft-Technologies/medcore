@@ -407,17 +407,17 @@ filename and the core scenarios it should cover.
   - Purchase order creation → receive → stock incremented
   - Consumption trend visible per medicine
 
-### P4 — Doctor full chart review
-- **File:** `e2e/doctor-chart-review.spec.ts`
-- **Why:** Diagnostic quality depends on complete chart visibility
-- **Scenarios:**
+### ~~P4 — Doctor full chart review~~ ✅ closed (`e2e/doctor-chart-review.spec.ts`, 6 cases — DOCTOR full 8-tab strip + Allergy WRITE flow with POST body shape pin via page.route stub + Allergy form NEGATIVE (empty allergen → toast, no POST) + Lab Results TrendSparkline `<svg>` rendering for HbA1c (stubs `/lab-orders` + `/lab/results/trends`) + Documents IMAGING-group heading + X-ray row when IMAGING-typed doc exists (stubbed) + Caregiver/family CRUD via FamilyLinksSection Add-Family-Member CTA opening LinkFamilyModal with relationship select. Deliberately disjoint from `e2e/patients-id.spec.ts` (which pins read-side empty-state paths + RBAC asymmetry). Deferred — UI not shipped: (a) "active medication list with start/stop dates" — the `prescription.items` type at page.tsx:98-105 carries dosage/frequency/duration only; no start/stop columns surface in the UI; (b) "medication reconciliation across encounters" — no encounter-spanning reconciliation surface exists in the chart today; (c) image-viewer interaction — the Documents IMAGING group exposes a Download CTA but no inline viewer.)
+- ~~**File:** `e2e/doctor-chart-review.spec.ts`~~
+- ~~**Why:** Diagnostic quality depends on complete chart visibility~~
+- ~~**Scenarios:**
   - Doctor opens `/dashboard/patients/[id]` → sees demographics, allergies, problem list
   - Imaging panel shows prior X-rays / ultrasounds with viewer
   - Lab history with trend charts (e.g. HbA1c over time)
   - Active medication list with start/stop dates
   - Allergy entry: add severity, type, reaction
   - Medication reconciliation across encounters
-  - Caregiver / family contact CRUD
+  - Caregiver / family contact CRUD~~
 
 ### P5 — Admission → MAR → Discharge end-to-end
 - **File:** `e2e/admission-discharge-flow.spec.ts`

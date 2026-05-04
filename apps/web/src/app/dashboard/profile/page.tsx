@@ -349,6 +349,17 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErrors({});
+    // Issue #458: form is noValidate; mirror HTML5 required + minLength here.
+    if (!currentPassword) {
+      setErrors({ currentPassword: "Current password is required" });
+      toast.error("Current password is required");
+      return;
+    }
+    if (!newPassword || newPassword.length < 6) {
+      setErrors({ newPassword: "Password must be at least 6 characters" });
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
     if (newPassword !== confirmPassword) {
       setErrors({ newPassword: "Passwords do not match" });
       toast.error("Passwords do not match");
@@ -408,7 +419,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <form onSubmit={submit} className="space-y-4">
+        <form onSubmit={submit} className="space-y-4" noValidate>
           <Field label="Current Password">
             <PasswordInput
               value={currentPassword}

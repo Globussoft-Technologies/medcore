@@ -394,6 +394,10 @@ function NewPlanModal({
       setError("Select an outstanding invoice");
       return;
     }
+    if (!startDate) {
+      setError("Start date is required");
+      return;
+    }
     const n = parseInt(installments, 10);
     if (!Number.isFinite(n) || n < 2 || n > 60) {
       setError("Installments must be between 2 and 60");
@@ -432,6 +436,7 @@ function NewPlanModal({
         onSubmit={submit}
         className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white shadow-xl"
         data-testid="new-plan-modal"
+        noValidate
       >
         <div className="flex items-center justify-between border-b px-6 py-4">
           <h2 className="text-lg font-bold">New Payment Plan</h2>

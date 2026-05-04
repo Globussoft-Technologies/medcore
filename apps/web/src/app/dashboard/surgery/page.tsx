@@ -289,6 +289,19 @@ export default function SurgeryPage() {
       toast.error("Select a patient");
       return;
     }
+    // Issue #458: form has noValidate, so React owns required-field checks.
+    if (!form.surgeonId) {
+      toast.error("Select a surgeon");
+      return;
+    }
+    if (!form.otId) {
+      toast.error("Select an operating theater");
+      return;
+    }
+    if (!form.procedure.trim()) {
+      toast.error("Procedure is required");
+      return;
+    }
     if (!form.scheduledAt) {
       toast.error("Select scheduled date/time");
       return;
@@ -666,6 +679,7 @@ export default function SurgeryPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <form
             onSubmit={submit}
+            noValidate
             className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl"
           >
             <h2 className="mb-4 text-lg font-semibold">Schedule Surgery</h2>

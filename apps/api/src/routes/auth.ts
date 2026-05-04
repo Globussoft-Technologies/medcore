@@ -16,6 +16,10 @@ import {
 import { validate } from "../middleware/validate";
 import { authenticate } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
+// Issue #456: scope per-user audit reads (/failed-logins, /my-activity)
+// through the tenant wrapper so a user never sees rows that originated in
+// another tenant — even if their userId somehow collided historically.
+import { tenantScopedPrisma } from "../services/tenant-prisma";
 import { rateLimit } from "../middleware/rate-limit";
 import {
   checkLockout,
@@ -1053,7 +1057,7 @@ router.get(
   authenticate,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const entries = await prisma.auditLog.findMany({
+      const entries = await tenantScopedPrisma.auditLog.findMany({
         where: {
           action: "LOGIN_FAILED",
           OR: [
@@ -1077,7 +1081,7 @@ router.get(
   authenticate,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const entries = await prisma.auditLog.findMany({
+      const entries = await tenantScopedPrisma.auditLog.findMany({
         where: { userId: req.user!.userId },
         orderBy: { createdAt: "desc" },
         take: 100,

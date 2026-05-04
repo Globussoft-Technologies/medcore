@@ -173,6 +173,8 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   "PatientDataExport",
   "FrontDeskCall",
   "MedicationIncident",
+  // Issue #456 (2026-05-04) — migration 20260504000002
+  "AuditLog",
 ]);
 
 /** Operations on which we INJECT `tenantId` into `args.data`. */

@@ -288,6 +288,7 @@ export default function PatientsPage() {
         <form
           onSubmit={handleCreatePatient}
           className="mb-6 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800"
+          noValidate
         >
           <h2 className="mb-4 font-semibold text-gray-900 dark:text-gray-100">
             {t("dashboard.patients.register")}

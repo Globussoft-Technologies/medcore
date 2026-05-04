@@ -425,6 +425,7 @@ export default function AntenatalPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <form
             onSubmit={submitCase}
+            noValidate
             className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl"
           >
             <h2 className="mb-4 text-lg font-semibold">New Antenatal Case</h2>

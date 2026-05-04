@@ -114,13 +114,32 @@ export default function ScheduledReportsPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
+    // Issue #458: form has noValidate, so React owns validation.
+    // Mirror the HTML5 required/min/max constraints here.
+    if (!name.trim()) {
+      toast.error("Name is required");
+      return;
+    }
+    if (!timeOfDay) {
+      toast.error("Time is required");
+      return;
+    }
+    const recipientList = recipients
+      .split(/[,\n]/)
+      .map((r) => r.trim())
+      .filter(Boolean);
+    if (recipientList.length === 0) {
+      toast.error("At least one recipient is required");
+      return;
+    }
+    if (frequency === "MONTHLY") {
+      if (!Number.isFinite(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31) {
+        toast.error("Day of month must be between 1 and 31");
+        return;
+      }
+    }
     setSubmitting(true);
     try {
-      const recipientList = recipients
-        .split(/[,\n]/)
-        .map((r) => r.trim())
-        .filter(Boolean);
-
       const body: Record<string, unknown> = {
         name,
         reportType,
@@ -234,6 +253,7 @@ export default function ScheduledReportsPage() {
       {showForm && tab === "schedules" && (
         <form
           onSubmit={handleCreate}
+          noValidate
           className="mb-6 grid grid-cols-1 gap-4 rounded-xl bg-white p-6 shadow-sm md:grid-cols-2"
         >
           <div>

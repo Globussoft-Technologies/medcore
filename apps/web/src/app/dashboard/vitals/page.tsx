@@ -379,7 +379,7 @@ export default function VitalsPage() {
         {/* Vitals form */}
         <div className="col-span-2">
           {selectedPatient ? (
-            <form onSubmit={saveVitals} className="rounded-xl bg-white p-6 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
+            <form onSubmit={saveVitals} noValidate className="rounded-xl bg-white p-6 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
               <h2 className="mb-4 font-semibold">
                 Vitals — Token #{selectedPatient.tokenNumber} ({selectedPatient.patientName})
               </h2>

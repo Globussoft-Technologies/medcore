@@ -952,6 +952,7 @@ export default function AppointmentsPage() {
                 e.preventDefault();
                 void confirmPatientIdAndBook();
               }}
+              noValidate
               className="mt-4 space-y-4"
             >
               {/* Issue #204: replaced raw text input ("Paste the Patient ID

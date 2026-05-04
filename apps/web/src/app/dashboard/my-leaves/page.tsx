@@ -78,6 +78,16 @@ export default function MyLeavesPage() {
 
   async function submitLeave(e: React.FormEvent) {
     e.preventDefault();
+    // Issue #458: form is noValidate; mirror HTML5 required attrs as JS
+    // checks so the styled inline-error UI renders.
+    const required: Record<string, string> = {};
+    if (!form.fromDate) required.fromDate = "Start date is required";
+    if (!form.toDate) required.toDate = "End date is required";
+    if (!form.reason.trim()) required.reason = "Reason is required";
+    if (Object.keys(required).length > 0) {
+      setFieldErrors(required);
+      return;
+    }
     // Client-side gate: show the same field-level message the server would
     // reject with, instead of submitting and then rendering the 400 as an
     // alert(). Matches issue #32's UX requirement.
@@ -267,6 +277,7 @@ export default function MyLeavesPage() {
           <form
             onSubmit={submitLeave}
             className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            noValidate
           >
             <h2 className="mb-4 text-lg font-semibold">Request Leave</h2>
             <div className="space-y-3">
@@ -297,11 +308,31 @@ export default function MyLeavesPage() {
                     type="date"
                     required
                     value={form.fromDate}
-                    onChange={(e) =>
-                      setForm({ ...form, fromDate: e.target.value })
-                    }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    onChange={(e) => {
+                      setForm({ ...form, fromDate: e.target.value });
+                      if (fieldErrors.fromDate) {
+                        setFieldErrors((prev) => {
+                          const next = { ...prev };
+                          delete next.fromDate;
+                          return next;
+                        });
+                      }
+                    }}
+                    aria-invalid={fieldErrors.fromDate ? true : undefined}
+                    aria-describedby={fieldErrors.fromDate ? "fromDate-error" : undefined}
+                    className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                      fieldErrors.fromDate ? "border-red-500" : ""
+                    }`}
                   />
+                  {fieldErrors.fromDate && (
+                    <p
+                      id="fromDate-error"
+                      role="alert"
+                      className="mt-1 text-xs text-red-600"
+                    >
+                      {fieldErrors.fromDate}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label htmlFor="leave-to" className="mb-1 block text-sm font-medium">
@@ -350,9 +381,31 @@ export default function MyLeavesPage() {
                   required
                   rows={3}
                   value={form.reason}
-                  onChange={(e) => setForm({ ...form, reason: e.target.value })}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  onChange={(e) => {
+                    setForm({ ...form, reason: e.target.value });
+                    if (fieldErrors.reason) {
+                      setFieldErrors((prev) => {
+                        const next = { ...prev };
+                        delete next.reason;
+                        return next;
+                      });
+                    }
+                  }}
+                  aria-invalid={fieldErrors.reason ? true : undefined}
+                  aria-describedby={fieldErrors.reason ? "reason-error" : undefined}
+                  className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                    fieldErrors.reason ? "border-red-500" : ""
+                  }`}
                 />
+                {fieldErrors.reason && (
+                  <p
+                    id="reason-error"
+                    role="alert"
+                    className="mt-1 text-xs text-red-600"
+                  >
+                    {fieldErrors.reason}
+                  </p>
+                )}
               </div>
             </div>
             <div className="mt-5 flex justify-end gap-2">

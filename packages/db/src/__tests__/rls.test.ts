@@ -98,11 +98,33 @@ interface ScopedPrisma {
   prescription: ScopedDelegate;
   invoice: ScopedDelegate;
   notification: ScopedDelegate;
+  // Issue #456 — AuditLog gained tenantId; verify scoping covers it.
+  auditLog: ScopedDelegate;
 }
 interface RawPrisma {
   tenant: {
     create: (args: unknown) => Promise<{ id: string; subdomain: string }>;
     delete: (args: unknown) => Promise<unknown>;
+  };
+  auditLog: {
+    findMany: (args?: unknown) => Promise<
+      Array<{
+        id: string;
+        tenantId: string | null;
+        userId: string | null;
+        action: string;
+      }>
+    >;
+    findUnique: (args: unknown) => Promise<
+      | {
+          id: string;
+          tenantId: string | null;
+          userId: string | null;
+          action: string;
+        }
+      | null
+    >;
+    deleteMany: (args: unknown) => Promise<{ count: number }>;
   };
   user: {
     create: (args: unknown) => Promise<{ id: string; email: string }>;
@@ -163,6 +185,8 @@ interface SeededTenant {
   prescriptionIds: string[];
   invoiceIds: string[];
   notificationIds: string[];
+  // Issue #456 — AuditLog rows seeded inside this tenant's context.
+  auditLogIds: string[];
 }
 
 let t1: SeededTenant;
@@ -312,6 +336,25 @@ async function seedTenantGraph(label: "T1" | "T2"): Promise<SeededTenant> {
       notificationIds.push(n.id);
     }
 
+    // Issue #456 — 2 audit rows scoped to this tenant. We create these
+    // through `tenantScopedPrisma.auditLog.create` (NOT the `auditLog()`
+    // middleware helper) so the test exercises the SAME injection path
+    // every other tenant-scoped model uses, isolating the regression to
+    // the `TENANT_SCOPED_MODELS` set + the create-time hook.
+    const auditLogIds: string[] = [];
+    for (let i = 0; i < 2; i += 1) {
+      const a = await tenantScopedPrisma.auditLog.create({
+        data: {
+          userId: i === 0 ? adminUser.id : doctorUser.id,
+          action: `${label}_AUDIT_PROBE_${i + 1}`,
+          entity: "Patient",
+          entityId: patientIds[i]!,
+          ipAddress: `10.0.${label === "T1" ? 1 : 2}.${i + 1}`,
+        },
+      });
+      auditLogIds.push(a.id);
+    }
+
     return {
       id: tenant.id,
       subdomain: tenant.subdomain,
@@ -324,6 +367,7 @@ async function seedTenantGraph(label: "T1" | "T2"): Promise<SeededTenant> {
       prescriptionIds: [presc.id],
       invoiceIds,
       notificationIds,
+      auditLogIds,
     };
   });
 }
@@ -347,6 +391,12 @@ async function cleanupTenantGraph(t: SeededTenant): Promise<void> {
   await prisma.appointment.deleteMany({ where: { tenantId: t.id } });
   await prisma.patient.deleteMany({ where: { tenantId: t.id } });
   await prisma.doctor.deleteMany({ where: { tenantId: t.id } });
+  // Issue #456 — purge audit rows BEFORE users so the AuditLog.userId
+  // column doesn't pin user rows. The audit FK is `ON DELETE SET NULL`
+  // so leaving them would survive cleanup, but we want a clean test DB
+  // for reruns. Scope strictly by tenantId to avoid touching unrelated
+  // rows on the shared DB.
+  await prisma.auditLog.deleteMany({ where: { tenantId: t.id } });
   // Notification.userId / etc. are gone, so users are deletable now.
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   await prisma.tenant.delete({ where: { id: t.id } }).catch(() => {
@@ -655,6 +705,116 @@ describeIntegration("Multi-tenant scoping isolation (P4 — Prisma context filte
         where: { id: { in: targetIds } },
       });
       expect(survivors).toHaveLength(targetIds.length);
+    });
+  });
+
+  // ── Issue #456: AuditLog isolation ─────────────────────────────────────
+  // The audit log is the highest-stakes leak surface in the schema —
+  // every PHI access in the platform funnels through it as an
+  // `entityId` reference plus a free-form `details` JSON. Pre-#456 the
+  // table had no `tenantId` at all, which meant any tenant ADMIN
+  // hitting GET /api/v1/audit was an effective super-admin. These
+  // cases lock in the post-fix behaviour.
+  describe("AuditLog tenant isolation (Issue #456)", () => {
+    it("T1: rows created inside T1's context carry T1's tenantId", async () => {
+      await runWithTenant(t1.id, async () => {
+        const rows = await tenantScopedPrisma.auditLog.findMany({
+          where: { id: { in: t1.auditLogIds } },
+        });
+        expect(rows).toHaveLength(t1.auditLogIds.length);
+        for (const row of rows) {
+          expect(row.tenantId).toBe(t1.id);
+        }
+      });
+    });
+
+    it("T2: scoped findMany over the audit log returns ONLY T2 rows (no T1 leakage)", async () => {
+      await runWithTenant(t2.id, async () => {
+        // Probe with an id-list straddling both tenants — a leak would
+        // surface as a T1 id in the result set.
+        const rows = await tenantScopedPrisma.auditLog.findMany({
+          where: {
+            id: { in: [...t1.auditLogIds, ...t2.auditLogIds] },
+          },
+        });
+        const seen = new Set(rows.map((r) => r.id));
+        for (const t2Id of t2.auditLogIds) expect(seen.has(t2Id)).toBe(true);
+        for (const t1Id of t1.auditLogIds) expect(seen.has(t1Id)).toBe(false);
+        for (const row of rows) expect(row.tenantId).toBe(t2.id);
+
+        // Symmetric findUnique: a T1 audit-log id must be invisible
+        // even by direct primary-key lookup.
+        const ghost = await tenantScopedPrisma.auditLog.findUnique({
+          where: { id: t1.auditLogIds[0]! },
+        });
+        expect(ghost).toBeNull();
+      });
+    });
+
+    it("Cross-tenant FK delete (tenant row) leaves audit rows in place with tenantId=NULL", async () => {
+      // Spin up a throwaway tenant + user + audit row, then delete the
+      // tenant and confirm:
+      //   (a) the audit row survives — forensic trail preservation is
+      //       the whole point of `ON DELETE SET NULL` (not CASCADE).
+      //   (b) tenantId is now NULL on that surviving row.
+      // We isolate this in its own throwaway tenant so the main t1/t2
+      // graphs (used by every other test in the file) stay untouched.
+      const prisma = await getPrisma();
+      const throwawayTenant = await prisma.tenant.create({
+        data: {
+          name: `T-ephemeral ${SUITE_SUFFIX}`,
+          subdomain: `t-ephem-${SUITE_SUFFIX}`,
+          plan: "BASIC",
+          active: true,
+        },
+      });
+      const throwawayUser = await prisma.user.create({
+        data: {
+          email: `ephem-admin-${SUITE_SUFFIX}@rls.test`,
+          name: "Ephemeral Admin",
+          phone: "9000099999",
+          passwordHash: await bcrypt.hash("rls-test-pw", 4),
+          role: "ADMIN",
+          tenantId: throwawayTenant.id,
+          isActive: true,
+        },
+      });
+      const auditRowId = await runWithTenant(throwawayTenant.id, async () => {
+        const a = await tenantScopedPrisma.auditLog.create({
+          data: {
+            userId: throwawayUser.id,
+            action: "EPHEM_PROBE",
+            entity: "Tenant",
+            entityId: throwawayTenant.id,
+          },
+        });
+        // Sanity: row was tagged with the throwaway tenantId.
+        expect(a.tenantId).toBe(throwawayTenant.id);
+        return a.id;
+      });
+
+      // First null out the user's tenantId so the user.tenantId FK
+      // doesn't block the tenant delete (Tenant→User is also SET NULL,
+      // but we delete the user explicitly afterwards anyway).
+      await prisma.user.deleteMany({
+        where: { id: throwawayUser.id },
+      });
+
+      // Now delete the tenant. ON DELETE SET NULL on audit_logs.tenantId
+      // means the audit row survives but loses its tenant binding.
+      await prisma.tenant.delete({ where: { id: throwawayTenant.id } });
+
+      const survivor = await prisma.auditLog.findUnique({
+        where: { id: auditRowId },
+      });
+      expect(survivor).not.toBeNull();
+      expect(survivor?.tenantId).toBeNull();
+      // The action field still tells us what happened — the audit
+      // record is preserved even though its tenant is gone.
+      expect(survivor?.action).toBe("EPHEM_PROBE");
+
+      // Cleanup the now-orphaned audit row.
+      await prisma.auditLog.deleteMany({ where: { id: auditRowId } });
     });
   });
 

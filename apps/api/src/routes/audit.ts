@@ -2,6 +2,15 @@ import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "@medcore/db";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+// Issue #456: audit-log reads must be tenant-scoped so a tenant's ADMIN
+// only ever sees their own forensic trail. The wrapper auto-injects
+// `where: { tenantId }` from the AsyncLocalStorage context populated by
+// `withTenantContext`. Resolver lookups (User / Patient / etc.) keep
+// using the un-scoped `prisma` because their delegates are themselves
+// already in TENANT_SCOPED_MODELS, so the same scoping is applied
+// transparently when a tenant context is bound, and skipped in the cron /
+// bootstrap path so this file behaves identically out-of-context.
+import { tenantScopedPrisma } from "../services/tenant-prisma";
 
 const router = Router();
 
@@ -258,13 +267,13 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
     const where = buildAuditWhere(req);
 
     const [logs, total] = await Promise.all([
-      prisma.auditLog.findMany({
+      tenantScopedPrisma.auditLog.findMany({
         where: where as any,
         skip,
         take,
         orderBy: { createdAt: "desc" },
       }),
-      prisma.auditLog.count({ where: where as any }),
+      tenantScopedPrisma.auditLog.count({ where: where as any }),
     ]);
 
     // Enrich with user info
@@ -331,7 +340,7 @@ router.get(
         typeof q === "string" && q.trim().length > 0 ? q.trim() : null;
 
       if (term) {
-        const candidates = await prisma.auditLog.findMany({
+        const candidates = await tenantScopedPrisma.auditLog.findMany({
           where: where as any,
           orderBy: { createdAt: "desc" },
           take: 1000,
@@ -401,13 +410,13 @@ router.get(
       // column blank for clients that hit the /search endpoint with empty
       // query (e.g. accidentally clearing the search after typing).
       const [logs, total] = await Promise.all([
-        prisma.auditLog.findMany({
+        tenantScopedPrisma.auditLog.findMany({
           where: where as any,
           skip,
           take,
           orderBy: { createdAt: "desc" },
         }),
-        prisma.auditLog.count({ where: where as any }),
+        tenantScopedPrisma.auditLog.count({ where: where as any }),
       ]);
 
       const userIds = Array.from(
@@ -464,7 +473,7 @@ router.get(
       const where = buildAuditWhere(req);
       const maxRows = 50_000;
 
-      const logs = await prisma.auditLog.findMany({
+      const logs = await tenantScopedPrisma.auditLog.findMany({
         where: where as any,
         orderBy: { createdAt: "desc" },
         take: maxRows,
@@ -531,7 +540,7 @@ router.get(
   "/retention-stats",
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
-      const logs = await prisma.auditLog.findMany({
+      const logs = await tenantScopedPrisma.auditLog.findMany({
         select: { createdAt: true },
       });
 
@@ -577,12 +586,12 @@ router.get(
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
       const [actionsRaw, users] = await Promise.all([
-        prisma.auditLog.findMany({
+        tenantScopedPrisma.auditLog.findMany({
           select: { action: true },
           distinct: ["action"],
           take: 500,
         }),
-        prisma.auditLog.findMany({
+        tenantScopedPrisma.auditLog.findMany({
           where: { userId: { not: null } },
           select: { userId: true },
           distinct: ["userId"],

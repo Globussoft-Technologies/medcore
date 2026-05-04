@@ -144,11 +144,29 @@ export default function SchedulePage() {
 
   async function handleAddSchedule(e: React.FormEvent) {
     e.preventDefault();
+    // Issue #458: form is noValidate; mirror HTML5 required for the time inputs.
+    if (!scheduleForm.startTime) {
+      toast.error("Start time is required");
+      return;
+    }
+    if (!scheduleForm.endTime) {
+      toast.error("End time is required");
+      return;
+    }
     // Issue #178: reject reverse / equal start–end before posting. The API
     // rejects this too, but pre-validating gives the user an inline reason
     // instead of a generic 400.
     if (scheduleForm.startTime >= scheduleForm.endTime) {
       toast.error("End time must be after start time");
+      return;
+    }
+    // Mirror min=0 / max=60 from the buffer input (Issue #458).
+    if (
+      !Number.isFinite(scheduleForm.bufferMinutes) ||
+      scheduleForm.bufferMinutes < 0 ||
+      scheduleForm.bufferMinutes > 60
+    ) {
+      toast.error("Buffer minutes must be between 0 and 60");
       return;
     }
     try {
@@ -169,6 +187,22 @@ export default function SchedulePage() {
 
   async function handleAddOverride(e: React.FormEvent) {
     e.preventDefault();
+    // Issue #458: form is noValidate; mirror HTML5 required for the date input
+    // and gate "modify hours" mode on a coherent start/end pair.
+    if (!overrideForm.date) {
+      toast.error("Date is required");
+      return;
+    }
+    if (!overrideForm.isBlocked) {
+      if (!overrideForm.startTime || !overrideForm.endTime) {
+        toast.error("Start and end time are required when modifying hours");
+        return;
+      }
+      if (overrideForm.startTime >= overrideForm.endTime) {
+        toast.error("End time must be after start time");
+        return;
+      }
+    }
     try {
       await api.post(`/doctors/${selectedDoctorId}/override`, {
         date: overrideForm.date,
@@ -243,6 +277,7 @@ export default function SchedulePage() {
         <form
           onSubmit={handleAddSchedule}
           className="mb-6 rounded-xl bg-white p-6 shadow-sm"
+          noValidate
         >
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-semibold">Add Schedule Slot</h2>
@@ -368,6 +403,7 @@ export default function SchedulePage() {
         <form
           onSubmit={handleAddOverride}
           className="mb-6 rounded-xl bg-white p-6 shadow-sm"
+          noValidate
         >
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-semibold">Schedule Override</h2>

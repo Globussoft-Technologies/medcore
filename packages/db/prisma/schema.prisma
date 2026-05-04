@@ -596,6 +596,10 @@ model Tenant {
   frontDeskCalls      FrontDeskCall[]
   medicationIncidents MedicationIncident[]
 
+  // ── Audit log scoping (Issue #456 — migration
+  //    20260504000002_audit_log_tenant_id) ──────────────────────────────────
+  auditLogs AuditLog[]
+
   @@map("tenants")
 }
 
@@ -1306,9 +1310,21 @@ model AuditLog {
   ipAddress String?
   createdAt DateTime @default(now())
 
+  // Issue #456 — multi-tenant scoping. Nullable initially so the
+  // backfill migration is safe and so bootstrap / system rows
+  // (login failures from unknown accounts, cron without a tenant
+  // context) can still be written. A follow-up migration tightens
+  // this to NOT NULL once the production backfill is verified.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   @@index([userId])
   @@index([entity, entityId])
   @@index([createdAt])
+  // Powers the per-tenant Audit Log dashboard (newest first within
+  // a tenant). Matches the partial index in
+  // 20260504000002_audit_log_tenant_id.
+  @@index([tenantId, createdAt(sort: Desc)])
   @@map("audit_logs")
 }
 

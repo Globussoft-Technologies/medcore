@@ -12,10 +12,20 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { auditCreate } = vi.hoisted(() => ({ auditCreate: vi.fn() }));
+const { auditCreate, getTenantIdMock } = vi.hoisted(() => ({
+  auditCreate: vi.fn(),
+  getTenantIdMock: vi.fn<() => string | undefined>(),
+}));
 
 vi.mock("@medcore/db", () => ({
   prisma: { auditLog: { create: auditCreate } },
+}));
+
+// Mock the tenant-context module so we can drive `getTenantId()` from each
+// test without setting up an AsyncLocalStorage scope. Issue #456 added this
+// dependency to the writer.
+vi.mock("../services/tenant-context", () => ({
+  getTenantId: getTenantIdMock,
 }));
 
 import { auditLog } from "./audit";
@@ -23,6 +33,10 @@ import { auditLog } from "./audit";
 beforeEach(() => {
   auditCreate.mockReset();
   auditCreate.mockResolvedValue(undefined);
+  getTenantIdMock.mockReset();
+  // Default: no tenant context (matches pre-issue-#456 behaviour for the
+  // existing assertions). Tests that exercise tenant-stamping override.
+  getTenantIdMock.mockReturnValue(undefined);
 });
 
 function makeReq(overrides: Partial<{
@@ -55,6 +69,9 @@ describe("auditLog — payload shape", () => {
         entityId: "p-1",
         details: { reason: "consultation" },
         ipAddress: "1.2.3.4",
+        // Issue #456: tenantId pulled from getTenantId(); bootstrap default
+        // is undefined → writer falls back to req.tenantId → null.
+        tenantId: null,
       },
     });
   });
@@ -135,5 +152,48 @@ describe("auditLog — error propagation", () => {
     await expect(
       auditLog(makeReq({ ip: "1.2.3.4" }), "ACT", "E"),
     ).rejects.toThrow("db down");
+  });
+});
+
+// ── Issue #456 — tenantId stamping ───────────────────────────────────────
+describe("auditLog — tenantId resolution (Issue #456)", () => {
+  it("stamps tenantId from the AsyncLocalStorage context when present", async () => {
+    getTenantIdMock.mockReturnValueOnce("tenant-A");
+    await auditLog(
+      makeReq({ user: { userId: "u-1" }, ip: "1.2.3.4" }),
+      "PATIENT_VIEW",
+      "Patient",
+      "p-1",
+    );
+    expect(auditCreate.mock.calls[0][0].data.tenantId).toBe("tenant-A");
+  });
+
+  it("falls back to req.tenantId when no ALS context is bound", async () => {
+    getTenantIdMock.mockReturnValueOnce(undefined);
+    const req = makeReq({ user: { userId: "u-1" }, ip: "1.2.3.4" });
+    req.tenantId = "tenant-from-req";
+    await auditLog(req, "ACT", "E");
+    expect(auditCreate.mock.calls[0][0].data.tenantId).toBe("tenant-from-req");
+  });
+
+  it("writes tenantId=null and warns when neither source has a value (bootstrap path)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      getTenantIdMock.mockReturnValueOnce(undefined);
+      await auditLog(makeReq({ ip: "1.2.3.4" }), "LOGIN_FAIL", "Auth");
+      expect(auditCreate.mock.calls[0][0].data.tenantId).toBeNull();
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toMatch(/tenantId missing/);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("prefers ALS context over req.tenantId when both are present", async () => {
+    getTenantIdMock.mockReturnValueOnce("from-als");
+    const req = makeReq({ user: { userId: "u-1" }, ip: "1.2.3.4" });
+    req.tenantId = "from-req";
+    await auditLog(req, "ACT", "E");
+    expect(auditCreate.mock.calls[0][0].data.tenantId).toBe("from-als");
   });
 });

@@ -347,6 +347,25 @@ function AddExpenseModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // Issue #458: form is noValidate; mirror HTML5 constraints in JS so the
+    // styled inline-error UI fires (HTML5 popups would be silent + bypass tests).
+    if (!form.amount) {
+      setError("Amount is required");
+      return;
+    }
+    const amt = parseFloat(form.amount);
+    if (!Number.isFinite(amt) || amt < 0.01) {
+      setError("Amount must be at least 0.01");
+      return;
+    }
+    if (!form.date) {
+      setError("Date is required");
+      return;
+    }
+    if (!form.description.trim()) {
+      setError("Description is required");
+      return;
+    }
     // Issue #64: stop future-dated expenses at the form layer. Backend zod
     // also enforces this, but checking here gives an instant error and a
     // testid hook for browser automation.
@@ -382,7 +401,7 @@ function AddExpenseModal({
             <X size={20} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <form onSubmit={handleSubmit} className="space-y-3" noValidate>
           <div>
             <label className="mb-1 block text-sm font-medium">Category *</label>
             <div className="grid grid-cols-4 gap-2">

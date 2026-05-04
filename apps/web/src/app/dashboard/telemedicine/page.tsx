@@ -551,6 +551,7 @@ export default function TelemedicinePage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <form
             onSubmit={submitSchedule}
+            noValidate
             className="w-full max-w-2xl rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
           >
             <h2 className="mb-4 text-lg font-semibold">Schedule Telemedicine Session</h2>

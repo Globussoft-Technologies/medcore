@@ -156,6 +156,18 @@ export default function DutyRosterPage() {
 
   async function submitAdd(e: React.FormEvent) {
     e.preventDefault();
+    if (!addForm.userId) {
+      toast.error("Select a staff member");
+      return;
+    }
+    if (!addForm.date) {
+      toast.error("Date is required");
+      return;
+    }
+    if (!addForm.startTime || !addForm.endTime) {
+      toast.error("Start and end time are required");
+      return;
+    }
     try {
       await api.post("/shifts", addForm);
       setShowAdd(false);
@@ -169,6 +181,14 @@ export default function DutyRosterPage() {
     e.preventDefault();
     if (bulkForm.userIds.length === 0) {
       toast.error("Select at least one staff member");
+      return;
+    }
+    if (!bulkForm.fromDate || !bulkForm.toDate) {
+      toast.error("From and To dates are required");
+      return;
+    }
+    if (!bulkForm.startTime || !bulkForm.endTime) {
+      toast.error("Start and end time are required");
       return;
     }
     const shifts: any[] = [];
@@ -371,6 +391,7 @@ export default function DutyRosterPage() {
           <form
             data-testid="add-shift-modal"
             onSubmit={submitAdd}
+            noValidate
             className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
           >
             <h2 className="mb-4 text-lg font-semibold">Add Shift</h2>
@@ -379,7 +400,6 @@ export default function DutyRosterPage() {
                 <label htmlFor="add-shift-staff" className="mb-1 block text-sm font-medium">Staff</label>
                 <select
                   id="add-shift-staff"
-                  required
                   value={addForm.userId}
                   onChange={(e) =>
                     setAddForm({ ...addForm, userId: e.target.value })
@@ -399,7 +419,6 @@ export default function DutyRosterPage() {
                 <input
                   id="add-shift-date"
                   type="date"
-                  required
                   value={addForm.date}
                   onChange={(e) =>
                     setAddForm({ ...addForm, date: e.target.value })
@@ -434,7 +453,6 @@ export default function DutyRosterPage() {
                   <input
                     id="add-shift-start-time"
                     type="time"
-                    required
                     value={addForm.startTime}
                     onChange={(e) =>
                       setAddForm({ ...addForm, startTime: e.target.value })
@@ -449,7 +467,6 @@ export default function DutyRosterPage() {
                   <input
                     id="add-shift-end-time"
                     type="time"
-                    required
                     value={addForm.endTime}
                     onChange={(e) =>
                       setAddForm({ ...addForm, endTime: e.target.value })
@@ -496,6 +513,7 @@ export default function DutyRosterPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <form
             onSubmit={submitBulk}
+            noValidate
             className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl"
           >
             <h2 className="mb-4 text-lg font-semibold">Bulk Schedule</h2>
@@ -533,7 +551,6 @@ export default function DutyRosterPage() {
                   <input
                     id="bulk-shift-from"
                     type="date"
-                    required
                     value={bulkForm.fromDate}
                     onChange={(e) =>
                       setBulkForm({ ...bulkForm, fromDate: e.target.value })
@@ -546,7 +563,6 @@ export default function DutyRosterPage() {
                   <input
                     id="bulk-shift-to"
                     type="date"
-                    required
                     value={bulkForm.toDate}
                     onChange={(e) =>
                       setBulkForm({ ...bulkForm, toDate: e.target.value })
@@ -582,7 +598,6 @@ export default function DutyRosterPage() {
                   <input
                     id="bulk-shift-start-time"
                     type="time"
-                    required
                     value={bulkForm.startTime}
                     onChange={(e) =>
                       setBulkForm({ ...bulkForm, startTime: e.target.value })
@@ -597,7 +612,6 @@ export default function DutyRosterPage() {
                   <input
                     id="bulk-shift-end-time"
                     type="time"
-                    required
                     value={bulkForm.endTime}
                     onChange={(e) =>
                       setBulkForm({ ...bulkForm, endTime: e.target.value })

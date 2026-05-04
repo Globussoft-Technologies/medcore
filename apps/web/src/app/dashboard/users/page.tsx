@@ -295,6 +295,7 @@ export default function UsersPage() {
       {showForm && (
         <form
           onSubmit={handleCreateUser}
+          noValidate
           className="mb-6 rounded-xl bg-white p-6 shadow-sm"
         >
           <h2 className="mb-4 font-semibold">Create Staff Account</h2>
@@ -314,7 +315,6 @@ export default function UsersPage() {
               </label>
               <input
                 id="staff-name"
-                required
                 placeholder="Full Name"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -341,7 +341,6 @@ export default function UsersPage() {
               </label>
               <input
                 id="staff-email"
-                required
                 type="email"
                 placeholder="Email"
                 value={form.email}
@@ -369,9 +368,7 @@ export default function UsersPage() {
               </label>
               <input
                 id="staff-phone"
-                required
                 inputMode="tel"
-                pattern="^\+?\d{10,15}$"
                 placeholder="10-15 digits, e.g. 9876543210"
                 value={form.phone}
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
@@ -398,9 +395,7 @@ export default function UsersPage() {
               </label>
               <PasswordInput
                 id="staff-password"
-                required
                 placeholder="Password"
-                minLength={8}
                 autoComplete="new-password"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
@@ -585,6 +580,7 @@ export default function UsersPage() {
         >
           <form
             onSubmit={saveEdit}
+            noValidate
             className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
           >
             <h3 className="mb-4 text-lg font-semibold">Edit {editing.name}</h3>

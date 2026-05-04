@@ -85,6 +85,10 @@ export default function LeaveManagementPage() {
   async function handleRejectSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!rejectId) return;
+    if (!rejectReason.trim()) {
+      toast.error("Rejection reason is required");
+      return;
+    }
     try {
       await api.patch(`/leaves/${rejectId}/reject`, {
         rejectionReason: rejectReason,
@@ -277,6 +281,7 @@ export default function LeaveManagementPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <form
             onSubmit={handleRejectSubmit}
+            noValidate
             className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
           >
             <h2 className="mb-4 text-lg font-semibold">Reject Leave Request</h2>
@@ -285,7 +290,6 @@ export default function LeaveManagementPage() {
                 Rejection Reason
               </label>
               <textarea
-                required
                 rows={3}
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}

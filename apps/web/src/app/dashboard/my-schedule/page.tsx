@@ -128,6 +128,14 @@ export default function MySchedulePage() {
 
   async function submitLeave(e: React.FormEvent) {
     e.preventDefault();
+    if (!leaveForm.fromDate || !leaveForm.toDate) {
+      toast.error("From and To dates are required");
+      return;
+    }
+    if (!leaveForm.reason.trim()) {
+      toast.error("Reason is required");
+      return;
+    }
     try {
       await api.post("/leaves", leaveForm);
       setShowLeaveModal(false);
@@ -298,6 +306,7 @@ export default function MySchedulePage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <form
             onSubmit={submitLeave}
+            noValidate
             className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
           >
             <h2 className="mb-4 text-lg font-semibold">Request Leave</h2>
@@ -326,7 +335,6 @@ export default function MySchedulePage() {
                   <label className="mb-1 block text-sm font-medium">From</label>
                   <input
                     type="date"
-                    required
                     value={leaveForm.fromDate}
                     onChange={(e) =>
                       setLeaveForm({ ...leaveForm, fromDate: e.target.value })
@@ -338,7 +346,6 @@ export default function MySchedulePage() {
                   <label className="mb-1 block text-sm font-medium">To</label>
                   <input
                     type="date"
-                    required
                     value={leaveForm.toDate}
                     onChange={(e) =>
                       setLeaveForm({ ...leaveForm, toDate: e.target.value })
@@ -350,7 +357,6 @@ export default function MySchedulePage() {
               <div>
                 <label className="mb-1 block text-sm font-medium">Reason</label>
                 <textarea
-                  required
                   rows={3}
                   value={leaveForm.reason}
                   onChange={(e) =>

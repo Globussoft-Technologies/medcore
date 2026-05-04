@@ -550,7 +550,7 @@ export default function DoctorsPage() {
               </button>
             </div>
 
-            <form onSubmit={handleCreateDoctor} className="space-y-3">
+            <form onSubmit={handleCreateDoctor} noValidate className="space-y-3">
               {createMode === "new" ? (
                 <>
                   <div>

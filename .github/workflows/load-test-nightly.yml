@@ -144,7 +144,7 @@ jobs:
         run: npm install
 
       - name: Download load-test results
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: load-test-results
           path: artifacts

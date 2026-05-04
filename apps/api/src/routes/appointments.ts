@@ -17,6 +17,7 @@ import {
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import {
   onAppointmentBooked,
   onAppointmentCancelled,
@@ -527,6 +528,11 @@ router.patch(
         return;
       }
 
+      // #511 BOLA fix: authorize() includes PATIENT for self-service
+      // reschedule, but didn't gate per-row ownership — a PATIENT could
+      // reschedule any appointment by UUID. Lock to own row.
+      if (!(await assertPatientOwnsResource(req, res, existing.patientId))) return;
+
       if (!["BOOKED", "CHECKED_IN"].includes(existing.status)) {
         res.status(400).json({
           success: false,
@@ -957,6 +963,9 @@ router.get(
 );
 
 // GET /api/v1/appointments/:id
+// #511 BOLA fix: previously any authenticated PATIENT could fetch any
+// appointment by UUID. Now gated via assertPatientOwnsResource so a
+// PATIENT only sees their own appointment row (staff roles unaffected).
 router.get(
   "/:id",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -986,6 +995,8 @@ router.get(
         res.status(404).json({ success: false, data: null, error: "Appointment not found" });
         return;
       }
+
+      if (!(await assertPatientOwnsResource(req, res, appointment.patientId))) return;
 
       res.json({ success: true, data: appointment, error: null });
     } catch (err) {
@@ -1078,16 +1089,12 @@ router.get(
         return;
       }
 
-      // Patients can only download their own
-      if (req.user!.role === Role.PATIENT) {
-        const self = await prisma.patient.findUnique({
-          where: { userId: req.user!.userId },
-        });
-        if (!self || self.id !== appointment.patientId) {
-          res.status(403).json({ success: false, data: null, error: "Forbidden" });
-          return;
-        }
-      }
+      // #511 audit: VERIFIED-SAFE — gated by assertPatientOwnsResource so a
+      // PATIENT only downloads their own .ics. .ics is a publicly-shareable
+      // format once issued, so we MUST keep the issue itself patient-self-only.
+      // Refactored from inline check to the canonical helper for drift
+      // prevention (was a hand-rolled equivalent before the #511 sweep).
+      if (!(await assertPatientOwnsResource(req, res, appointment.patientId))) return;
 
       const slotStart = appointment.slotStart ?? "09:00";
       const [sh, sm] = slotStart.split(":").map((n) => parseInt(n, 10));
@@ -1428,6 +1435,13 @@ router.patch(
 );
 
 // GET /api/v1/appointments/group/:groupId — all members
+// #511 BOLA fix: group appointments are intended for coordinated visits
+// (e.g. group therapy / family vaccination). Members of a group are
+// expected to see each other, but a non-member PATIENT must NOT be able
+// to read the roster by enumerating groupIds. We require the calling
+// PATIENT to themselves be a member of the group before we return its
+// roster. Staff roles (ADMIN/DOCTOR/RECEPTION/NURSE) bypass this check
+// — they need to see all groups for coordination.
 router.get(
   "/group/:groupId",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -1440,6 +1454,25 @@ router.get(
         },
         orderBy: { tokenNumber: "asc" },
       });
+
+      if (members.length === 0) {
+        res.status(404).json({ success: false, data: null, error: "Group not found" });
+        return;
+      }
+
+      // PATIENT membership gate: caller must be one of the member patients.
+      if (req.user!.role === Role.PATIENT) {
+        const self = await prisma.patient.findUnique({
+          where: { userId: req.user!.userId },
+          select: { id: true },
+        });
+        const isMember = !!self && members.some((m) => m.patientId === self.id);
+        if (!isMember) {
+          res.status(403).json({ success: false, data: null, error: "Forbidden" });
+          return;
+        }
+      }
+
       res.json({
         success: true,
         data: { groupId: req.params.groupId, members },

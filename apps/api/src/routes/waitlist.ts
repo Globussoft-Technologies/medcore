@@ -7,6 +7,7 @@ import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role, waitlistEntrySchema } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { auditLog } from "../middleware/audit";
 import { notifyNextInWaitlist } from "../services/waitlist";
 
@@ -26,20 +27,12 @@ router.post(
         reason?: string;
       };
 
-      // If the caller is a PATIENT, restrict them to joining for themselves only
-      if (req.user!.role === Role.PATIENT) {
-        const self = await prisma.patient.findUnique({
-          where: { userId: req.user!.userId },
-        });
-        if (!self || self.id !== patientId) {
-          res.status(403).json({
-            success: false,
-            data: null,
-            error: "Patients can only join the waitlist for themselves",
-          });
-          return;
-        }
-      }
+      // #511 audit: VERIFIED-SAFE — POST body's patientId is gated by
+      // assertPatientOwnsResource so a PATIENT can only enqueue themselves.
+      // Refactored from inline check to the canonical helper for drift
+      // prevention (the helper is the single source of truth across the
+      // codebase; previously this was a hand-rolled equivalent).
+      if (!(await assertPatientOwnsResource(req, res, patientId))) return;
 
       // Don't allow duplicate WAITING entries for same patient + doctor
       const existing = await prisma.waitlistEntry.findFirst({
@@ -128,20 +121,10 @@ router.patch(
         return;
       }
 
-      // Patients can only cancel their own
-      if (req.user!.role === Role.PATIENT) {
-        const self = await prisma.patient.findUnique({
-          where: { userId: req.user!.userId },
-        });
-        if (!self || self.id !== entry.patientId) {
-          res.status(403).json({
-            success: false,
-            data: null,
-            error: "You cannot cancel this entry",
-          });
-          return;
-        }
-      }
+      // #511 audit: VERIFIED-SAFE — gated by assertPatientOwnsResource so a
+      // PATIENT can only cancel their own waitlist entry. Refactored from
+      // inline check to the canonical helper for drift prevention.
+      if (!(await assertPatientOwnsResource(req, res, entry.patientId))) return;
 
       const updated = await prisma.waitlistEntry.update({
         where: { id: req.params.id },

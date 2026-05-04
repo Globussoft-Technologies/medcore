@@ -87,10 +87,14 @@ export default function ForgotPasswordPage() {
               Enter your email address and we will send you a reset code.
             </p>
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">
+              <label
+                htmlFor="forgot-password-email"
+                className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200"
+              >
                 Email
               </label>
               <input
+                id="forgot-password-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -116,10 +120,14 @@ export default function ForgotPasswordPage() {
               below along with your new password.
             </p>
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">
+              <label
+                htmlFor="forgot-password-code"
+                className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200"
+              >
                 Reset Code
               </label>
               <input
+                id="forgot-password-code"
                 type="text"
                 value={code}
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
@@ -130,10 +138,14 @@ export default function ForgotPasswordPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">
+              <label
+                htmlFor="forgot-password-new-password"
+                className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200"
+              >
                 New Password
               </label>
               <PasswordInput
+                id="forgot-password-new-password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 required

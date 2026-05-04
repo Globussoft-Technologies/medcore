@@ -63,6 +63,31 @@ const eslintConfig = [
       // patterns (e.g. router.refresh() inside useEffect on tab change).
       // Surface as warning so genuine misuse still shows in PR reviews.
       "react-hooks/exhaustive-deps": "warn",
+      // A2 regression guard: every <label> must be programmatically tied to
+      // its control (htmlFor+id, or wrapping the control). The 2026-05-05
+      // sweep closed ~352 label-input pairs across 76 dashboard pages; this
+      // rule keeps new code from re-introducing the bare-text pattern.
+      // Plugin ships via eslint-config-next -> eslint-plugin-jsx-a11y.
+      //
+      // Severity: 'warn' (not 'error') because the rule's static analysis
+      // cannot see through our custom form components (EntityPicker,
+      // PasswordInput, etc.) — labels pointing to those produce false
+      // positives. It also flags labels that visually caption a button
+      // group "pseudo-select" (which is intentional UX, not a bare-text
+      // a11y bug). 'warn' still surfaces every new violation in CI logs
+      // and PR reviews so genuine A2 regressions are caught early; the
+      // pre-existing FP set can be retired by either (a) wiring those
+      // custom components into `controlComponents` once their public API
+      // exposes a stable inner input id, or (b) refactoring button-group
+      // pseudo-controls to use `<fieldset><legend>` semantics. Until then,
+      // escalating to 'error' would block the build on legitimate cases.
+      "jsx-a11y/label-has-associated-control": [
+        "warn",
+        {
+          assert: "either",
+          depth: 3,
+        },
+      ],
     },
   },
 ];

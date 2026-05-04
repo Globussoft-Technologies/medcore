@@ -131,7 +131,7 @@ router.get(
       // #474 sweep applied `assertPatientOwnsResource` to 11 other /:id
       // handlers but missed this one. Closing the gap now: PATIENT
       // callers must own the row; staff roles always pass.
-      if (!(await assertPatientOwnsResource(req, res, patient.user?.id))) return;
+      if (!(await assertPatientOwnsResource(req, res, patient.id))) return;
 
       const [appointments, vitals, prescriptions] = await Promise.all([
         prisma.appointment

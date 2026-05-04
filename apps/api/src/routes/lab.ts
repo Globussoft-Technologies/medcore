@@ -548,6 +548,108 @@ router.post(
   }
 );
 
+// ───────────────────────────────────────────────────────
+// RESULT TRENDS
+// ───────────────────────────────────────────────────────
+//
+// IMPORTANT — route ordering: this and `/results/pending-verification`
+// MUST stay declared before `/results/:orderItemId` below. Express
+// matches in declaration order; if a `:orderItemId` dynamic segment
+// were registered first it would catch the literal "trends" /
+// "pending-verification" path components and the specific handlers
+// would never run (returning 404 instead). Dropped CI 2026-05-05.
+
+// RBAC (issue #90): RECEPTION excluded — clinical lab trends.
+// Issue #511 (BOLA): PATIENT must only request trends for their own
+// patientId. The query supplies patientId; assertPatientOwnsResource
+// verifies it matches the caller's Patient row before we read.
+router.get(
+  "/results/trends",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH, Role.PATIENT),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { patientId, testId, parameter } = req.query as Record<
+        string,
+        string | undefined
+      >;
+      if (!patientId) {
+        res.status(400).json({ success: false, data: null, error: "patientId required" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, patientId))) return;
+
+      const items = await prisma.labOrderItem.findMany({
+        where: {
+          order: { patientId },
+          ...(testId ? { testId } : {}),
+        },
+        include: {
+          test: { select: { name: true, unit: true } },
+          order: { select: { orderedAt: true, orderNumber: true } },
+          results: parameter ? { where: { parameter } } : true,
+        },
+        orderBy: { order: { orderedAt: "desc" } },
+        take: 50,
+      });
+
+      const points = items.flatMap((it) =>
+        it.results.map((r) => ({
+          orderedAt: it.order.orderedAt,
+          orderNumber: it.order.orderNumber,
+          testName: it.test.name,
+          parameter: r.parameter,
+          value: r.value,
+          unit: r.unit ?? it.test.unit,
+          flag: r.flag,
+        }))
+      );
+
+      res.json({ success: true, data: points, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// RBAC (issue #90): RECEPTION excluded — pending lab results worklist.
+// Must precede `/results/:orderItemId` (see route-ordering note above).
+router.get(
+  "/results/pending-verification",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.LAB_TECH),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const results = await prisma.labResult.findMany({
+        where: { verifiedAt: null },
+        orderBy: { reportedAt: "desc" },
+        take: 200,
+        include: {
+          orderItem: {
+            include: {
+              test: { select: { code: true, name: true } },
+              order: {
+                select: {
+                  id: true,
+                  orderNumber: true,
+                  patient: {
+                    select: {
+                      id: true,
+                      mrNumber: true,
+                      user: { select: { name: true } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+      res.json({ success: true, data: results, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // GET /api/v1/lab/results/:orderItemId
 // RBAC (issue #90): RECEPTION excluded — clinical lab results.
 // Issue #511 (BOLA): PATIENT must only see results for their own
@@ -967,62 +1069,6 @@ router.get(
 );
 
 // ───────────────────────────────────────────────────────
-// RESULT TRENDS
-// ───────────────────────────────────────────────────────
-
-// RBAC (issue #90): RECEPTION excluded — clinical lab trends.
-// Issue #511 (BOLA): PATIENT must only request trends for their own
-// patientId. The query supplies patientId; assertPatientOwnsResource
-// verifies it matches the caller's Patient row before we read.
-router.get(
-  "/results/trends",
-  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH, Role.PATIENT),
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const { patientId, testId, parameter } = req.query as Record<
-        string,
-        string | undefined
-      >;
-      if (!patientId) {
-        res.status(400).json({ success: false, data: null, error: "patientId required" });
-        return;
-      }
-      if (!(await assertPatientOwnsResource(req, res, patientId))) return;
-
-      const items = await prisma.labOrderItem.findMany({
-        where: {
-          order: { patientId },
-          ...(testId ? { testId } : {}),
-        },
-        include: {
-          test: { select: { name: true, unit: true } },
-          order: { select: { orderedAt: true, orderNumber: true } },
-          results: parameter ? { where: { parameter } } : true,
-        },
-        orderBy: { order: { orderedAt: "desc" } },
-        take: 50,
-      });
-
-      const points = items.flatMap((it) =>
-        it.results.map((r) => ({
-          orderedAt: it.order.orderedAt,
-          orderNumber: it.order.orderNumber,
-          testName: it.test.name,
-          parameter: r.parameter,
-          value: r.value,
-          unit: r.unit ?? it.test.unit,
-          flag: r.flag,
-        }))
-      );
-
-      res.json({ success: true, data: points, error: null });
-    } catch (err) {
-      next(err);
-    }
-  }
-);
-
-// ───────────────────────────────────────────────────────
 // LAB REPORT PAYLOAD (client generates PDF)
 // ───────────────────────────────────────────────────────
 
@@ -1200,44 +1246,6 @@ router.patch(
         console.error
       );
       res.json({ success: true, data: result, error: null });
-    } catch (err) {
-      next(err);
-    }
-  }
-);
-
-// RBAC (issue #90): RECEPTION excluded — pending lab results worklist.
-router.get(
-  "/results/pending-verification",
-  authorize(Role.ADMIN, Role.DOCTOR, Role.LAB_TECH),
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const results = await prisma.labResult.findMany({
-        where: { verifiedAt: null },
-        orderBy: { reportedAt: "desc" },
-        take: 200,
-        include: {
-          orderItem: {
-            include: {
-              test: { select: { code: true, name: true } },
-              order: {
-                select: {
-                  id: true,
-                  orderNumber: true,
-                  patient: {
-                    select: {
-                      id: true,
-                      mrNumber: true,
-                      user: { select: { name: true } },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      });
-      res.json({ success: true, data: results, error: null });
     } catch (err) {
       next(err);
     }

@@ -414,6 +414,9 @@ describeIfDB("Prescriptions API (integration)", () => {
       .send({ channel: "EMAIL" });
 
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/own/i);
+    // The post-#511 BOLA sweep refactored this handler onto the
+    // canonical `assertPatientOwnsResource`, which emits a uniform
+    // "Forbidden" envelope (was a custom message that mentioned "own").
+    expect(res.body.error).toMatch(/forbidden/i);
   });
 });

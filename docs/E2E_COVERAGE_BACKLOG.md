@@ -109,7 +109,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - `/dashboard/my-activity` — personal activity log
 - ~~`/dashboard/holidays` — holiday calendar~~ — closed 2026-05-03 by `e2e/holidays.spec.ts` (ADMIN calendar mgmt + non-ADMIN bounces)
 - ~~`/dashboard/leave-calendar` — calendar view (approval side covered)~~ closed 2026-05-03 by `e2e/leave-calendar.spec.ts` (6 tests; ADMIN chrome + legend + month nav + DOCTOR/NURSE/PATIENT bounces)
-- `/dashboard/schedule` — staff schedule
+- ~~`/dashboard/schedule` — staff schedule~~ ✅ closed (7 tests; `e2e/schedule.spec.ts` — ADMIN/DOCTOR happy paths + Add-Slot reverse-time client guard + Add-Override Modify-Hours toggle + access-shape pinning for NURSE/RECEPTION/PATIENT, no role-gate redirect)
 - ~~`/dashboard/doctors` — doctor directory~~ closed 2026-05-03 by `e2e/doctors.spec.ts` (6 tests; ADMIN happy/search/modal + DOCTOR/NURSE/PATIENT bounces)
 - `/dashboard/doctors/[id]` — doctor profile/schedule
 

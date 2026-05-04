@@ -122,7 +122,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - ~~`/dashboard/chat` — inter-department messaging~~ closed 2026-05-04 by `e2e/chat.spec.ts` (7 tests; ADMIN inbox+picker+send round-trip + DOCTOR/RECEPTION sidebar reach + PATIENT/LAB_TECH direct-URL accessibility — page has no client-side role gate, only the staff filter on `/chat/users`)
 
 ### 2.6 Analytics & Reporting
-- `/dashboard/reports` — custom report creation (only crash-regression tested)
+- ~~`/dashboard/reports` — custom report creation (only crash-regression tested)~~ ✅ closed 2026-05-05 by `e2e/reports-custom.spec.ts` (7 cases; ADMIN page chrome + tab strip + GET /billing/reports/daily first-paint + History-tab GET /analytics/report-runs first-paint AND `?type=WEEKLY_REVENUE` filter refire query-string pin + Generate-modal POST /analytics/report-runs request-body shape pin (reportType + parameters.from/to + snapshot + SUCCESS status, page.route-stubbed so no seed pollution) + Schedule-modal POST /scheduled-reports body shape pin (recipients[], active=true, dayOfWeek=1 WEEKLY axis page.tsx:250) + per-row CSV Export `page.waitForEvent('download')` contract pinning the authed-fetch+blob+anchor pattern at page.tsx:279-298 (filename `report-weekly_revenue-stub-run-1.csv`, query-string from/to from run.parameters) + RECEPTION/PATIENT REDIRECT-TO-/dashboard archetype pin (page.tsx:127-132 useEffect router.push("/dashboard") for any role !== ADMIN per Issue #90, NOT /not-authorized — 8:1 cron-learning ratio, same archetype as tenants/insurance-claims/fhir-export); the existing `e2e/reports.spec.ts` Issues #3/#26 white-screen regression spec is preserved untouched. Recurring-schedule lifecycle (real persisted POST + run-now + delete) intentionally skipped to avoid polluting shared seed across runs — owned by route-handler unit tests at apps/api/src/routes/scheduled-reports.ts)
 - ~~`/dashboard/reports/scheduled` — execution + delivery (only setup tested)~~ ✅ closed (7 tests; ADMIN deep-link → canonical redirect + GET /scheduled-reports first-paint + Run History tab GET /scheduled-reports/runs + 6-column delivery-visibility contract pin (stubbed SUCCESS+FAILED rows) + empty-name toast (Issue #458 noValidate path) + DOCTOR/PATIENT/RECEPTION bounces; `e2e/reports-scheduled.spec.ts` — also dedups `/dashboard/scheduled-reports` since `/reports/scheduled` is just a thin client-side redirect to the canonical page)
 - ~~`/dashboard/scheduled-reports` — same; verify dedup vs above~~ ✅ closed (bundled in `e2e/reports-scheduled.spec.ts` above — dedup verified: `/dashboard/reports/scheduled` is a client-side redirect (Issue #80 compat shim) onto the canonical `/dashboard/scheduled-reports` page)
 - ~~`/dashboard/analytics/reports` — analytics export~~ ✅ closed (6 tests; ADMIN heading + 5 type-tile matrix + first-paint analytics GET + type-switch contract pin (Revenue → Appointments re-fetches /analytics/appointments) + CSV download trigger contract (`<type>-report-<from>_<to>.csv` filename) + empty-state with disabled CSV/JSON buttons + DOCTOR/PATIENT bounces; `e2e/analytics-reports.spec.ts`)
@@ -432,16 +432,16 @@ filename and the core scenarios it should cover.
   - Post-discharge followup auto-scheduled
   - Length-of-stay reflected in census + analytics
 
-### P6 — Custom reports creation, scheduling, export
+### ~~P6 — Custom reports creation, scheduling, export~~ ✅ closed 2026-05-05 by `e2e/reports-custom.spec.ts` (7 cases — ADMIN forward-flow + RBAC redirect-bounce; recurring-schedule lifecycle deferred to route-handler unit tests)
 - **File:** `e2e/reports-custom.spec.ts`
 - **Why:** Hospital admins depend on reports for KPIs, compliance, budgeting
 - **Scenarios:**
-  - Create report at `/dashboard/reports` with date range + department + metric filters
-  - Save report definition for reuse
-  - Schedule recurring delivery (daily/weekly/monthly) with email recipients
-  - Execute report on demand → CSV / Excel / PDF export
-  - View execution history + failures at `/dashboard/reports/scheduled`
-  - Re-run failed schedule
+  - ~~Create report at `/dashboard/reports` with date range + department + metric filters~~ ✅ pinned via Generate modal + History-tab type-filter `?type=` query-string contract
+  - ~~Save report definition for reuse~~ ✅ pinned via Schedule modal POST /scheduled-reports body-shape (page.route-stubbed so no seed pollution)
+  - ~~Schedule recurring delivery (daily/weekly/monthly) with email recipients~~ ✅ pinned via Schedule modal (WEEKLY frequency, recipients[], dayOfWeek=1 axis)
+  - ~~Execute report on demand → CSV / Excel / PDF export~~ ✅ pinned via per-row CSV Export `page.waitForEvent('download')` (Excel/PDF deferred — page only ships CSV per CSV_EXPORT_FOR_TYPE map at page.tsx:29-34)
+  - View execution history + failures at `/dashboard/reports/scheduled` (already covered by `e2e/reports-scheduled.spec.ts` — see §2.6)
+  - Re-run failed schedule (deferred — owned by `apps/api/src/routes/scheduled-reports.ts` unit tests; lifecycle skipped to avoid persisted ScheduledReport row pollution across e2e runs)
 
 ### P7 — HR ops: leave requests, payroll, bulk user mgmt
 - **File:** `e2e/hr-operations.spec.ts`

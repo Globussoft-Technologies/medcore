@@ -15,22 +15,42 @@ declare global {
 }
 
 /**
- * Express middleware that verifies the `Authorization: Bearer <token>` header
- * and populates `req.user` with the decoded {@link AuthPayload}. Responds 401
- * when the header is absent or the token is invalid/expired.
+ * Express middleware that verifies the auth JWT and populates `req.user`
+ * with the decoded {@link AuthPayload}. Responds 401 when the token is
+ * absent, invalid, or expired.
+ *
+ * **Issue #477 (May 2026):** access tokens moved from `localStorage` →
+ * httpOnly `medcore_at` cookie. We accept both for the brief migration
+ * window:
+ *   - `req.cookies.medcore_at` (preferred — XSS-safe storage)
+ *   - `Authorization: Bearer <token>` header (legacy — still supported
+ *     so server-to-server callers, the e2e suite's `apiLogin`-and-pass-
+ *     header pattern, and any rare integration-test fixture continue to
+ *     work without rewrite)
+ *
+ * Browser clients (apps/web) send the cookie automatically once
+ * `credentials: "include"` is set. The Bearer fallback is a strict
+ * superset — when both are present, the cookie wins (more recent).
  *
  * Legacy tokens minted before the multi-tenant rollout do not carry a
  * `tenantId` claim — this middleware tolerates that and leaves `tenantId`
  * undefined. The tenant middleware treats absent tenant as pass-through.
  */
 export function authenticate(req: Request, res: Response, next: NextFunction) {
+  // Prefer cookie (XSS-safe path). Fall back to Authorization header for
+  // server-to-server + legacy clients during the migration.
+  const cookieToken = (req as Request & { cookies?: Record<string, string> })
+    .cookies?.medcore_at;
   const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
+  const headerToken = header?.startsWith("Bearer ")
+    ? header.split(" ")[1]
+    : undefined;
+  const token = cookieToken || headerToken;
+  if (!token) {
     res.status(401).json({ success: false, data: null, error: "Unauthorized" });
     return;
   }
 
-  const token = header.split(" ")[1];
   try {
     const decoded = jwt.verify(
       token,

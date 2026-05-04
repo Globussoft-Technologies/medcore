@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock the api module BEFORE importing the store.
 vi.mock("../api", () => ({
@@ -23,7 +23,17 @@ const USER = {
   name: "Alice",
   role: "DOCTOR",
 };
+// Issue #477: tokens still appear in the response body (server-to-server
+// migration window) but the store no longer reads them — the cookie
+// transport is the source of truth. The tests assert the user state is
+// updated regardless of the tokens shape.
 const TOKENS = { accessToken: "acc-1", refreshToken: "ref-1" };
+
+// Issue #477: the store now sets the in-memory `token` field to a fixed
+// sentinel string after a successful auth, since the real JWT is on the
+// httpOnly cookie. New tests assert on the sentinel (or on the truthier
+// `user` field) rather than on a real token value.
+const COOKIE_TOKEN_SENTINEL = "cookie";
 
 describe("useAuthStore", () => {
   beforeEach(() => {
@@ -33,17 +43,21 @@ describe("useAuthStore", () => {
     mockedGet.mockReset();
   });
 
-  it("login stores token and user on plain success", async () => {
+  it("login sets user state on plain success (Issue #477: no localStorage write)", async () => {
     mockedPost.mockResolvedValueOnce({
       success: true,
       data: { user: USER, tokens: TOKENS },
     });
     const res = await useAuthStore.getState().login("a@b.com", "pwd");
     expect(res.twoFactorRequired).toBeUndefined();
-    expect(window.localStorage.getItem("medcore_token")).toBe("acc-1");
-    expect(window.localStorage.getItem("medcore_refresh")).toBe("ref-1");
+    // Issue #477: token is no longer the JWT — it's a sentinel marking
+    // "logged-in via cookie". The real access token is on `medcore_at`
+    // which JS cannot read.
+    expect(useAuthStore.getState().token).toBe(COOKIE_TOKEN_SENTINEL);
     expect(useAuthStore.getState().user?.id).toBe("u1");
-    expect(useAuthStore.getState().token).toBe("acc-1");
+    // The pre-#477 keys must NOT be re-introduced by login.
+    expect(window.localStorage.getItem("medcore_token")).toBeNull();
+    expect(window.localStorage.getItem("medcore_refresh")).toBeNull();
   });
 
   it("login returns tempToken when 2FA required", async () => {
@@ -55,61 +69,70 @@ describe("useAuthStore", () => {
     expect(res.twoFactorRequired).toBe(true);
     expect(res.tempToken).toBe("temp-123");
     // Does NOT log the user in yet
-    expect(window.localStorage.getItem("medcore_token")).toBeNull();
     expect(useAuthStore.getState().user).toBeNull();
   });
 
-  it("verify2FA completes login with user + tokens", async () => {
+  it("verify2FA completes login with user (Issue #477: cookie-only)", async () => {
     mockedPost.mockResolvedValueOnce({
       success: true,
       data: { user: USER, tokens: TOKENS },
     });
     await useAuthStore.getState().verify2FA("temp-123", "123456");
     expect(useAuthStore.getState().user?.id).toBe("u1");
-    expect(window.localStorage.getItem("medcore_token")).toBe("acc-1");
+    expect(useAuthStore.getState().token).toBe(COOKIE_TOKEN_SENTINEL);
   });
 
-  it("logout clears state and localStorage", () => {
-    window.localStorage.setItem("medcore_token", "x");
-    window.localStorage.setItem("medcore_refresh", "y");
-    useAuthStore.setState({ user: USER as any, token: "x" });
-    useAuthStore.getState().logout();
+  it("logout clears state and POSTs /auth/logout to clear cookies (#477)", async () => {
+    mockedPost.mockResolvedValueOnce({ success: true, data: null });
+    useAuthStore.setState({ user: USER as any, token: COOKIE_TOKEN_SENTINEL });
+    await useAuthStore.getState().logout();
     expect(useAuthStore.getState().user).toBeNull();
     expect(useAuthStore.getState().token).toBeNull();
-    expect(window.localStorage.getItem("medcore_token")).toBeNull();
-    expect(window.localStorage.getItem("medcore_refresh")).toBeNull();
+    // Issue #477: the server-side cookie clear happens via the /auth/logout
+    // call. Without this call the browser's cookies survive and the next
+    // request would re-authenticate.
+    const logoutCall = mockedPost.mock.calls.find(
+      (c) => c[0] === "/auth/logout",
+    );
+    expect(logoutCall).toBeDefined();
   });
 
-  it("loadSession restores user when a token exists", async () => {
-    window.localStorage.setItem("medcore_token", "acc-1");
+  it("logout still clears local state if the server call rejects (#477 best-effort)", async () => {
+    mockedPost.mockRejectedValueOnce(new Error("network"));
+    useAuthStore.setState({ user: USER as any, token: COOKIE_TOKEN_SENTINEL });
+    await useAuthStore.getState().logout();
+    // Local state must be wiped regardless — cookies will eventually
+    // expire on the wire, and we don't want the user stuck logged-in
+    // visually because the network blipped.
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().token).toBeNull();
+  });
+
+  it("loadSession restores user from /auth/me (cookie auto-attached)", async () => {
     mockedGet.mockResolvedValueOnce({ success: true, data: USER });
     await useAuthStore.getState().loadSession();
     expect(useAuthStore.getState().user?.id).toBe("u1");
-    expect(useAuthStore.getState().token).toBe("acc-1");
+    expect(useAuthStore.getState().token).toBe(COOKIE_TOKEN_SENTINEL);
     expect(useAuthStore.getState().isLoading).toBe(false);
   });
 
-  it("loadSession with no token sets isLoading=false and no user", async () => {
-    await useAuthStore.getState().loadSession();
-    expect(useAuthStore.getState().user).toBeNull();
-    expect(useAuthStore.getState().isLoading).toBe(false);
-  });
-
-  it("loadSession clears invalid token when /auth/me fails", async () => {
-    window.localStorage.setItem("medcore_token", "bad");
+  it("loadSession settles unauthenticated when /auth/me 401s (Issue #477)", async () => {
+    // Issue #477: there's no localStorage gate anymore. Even with no
+    // cookie, loadSession will call /auth/me — the API returns 401 and
+    // we settle into clean unauthenticated state.
     mockedGet.mockRejectedValueOnce(new Error("401"));
     await useAuthStore.getState().loadSession();
     expect(useAuthStore.getState().user).toBeNull();
-    expect(window.localStorage.getItem("medcore_token")).toBeNull();
+    expect(useAuthStore.getState().token).toBeNull();
+    expect(useAuthStore.getState().isLoading).toBe(false);
   });
 
   // Issues #346 + #258: role-clobber defence — refuse to silently mutate
   // a cached user's role to a different role from /auth/me.
   it("refreshUser refuses to elevate role mid-session (Issues #346, #258)", async () => {
-    window.localStorage.setItem("medcore_token", "acc-1");
     useAuthStore.setState({
       user: { ...USER, role: "RECEPTION" } as any,
-      token: "acc-1",
+      token: COOKIE_TOKEN_SENTINEL,
       isLoading: false,
     });
     // Stub the window.location object — jsdom won't let us redefine
@@ -128,21 +151,19 @@ describe("useAuthStore", () => {
         data: { ...USER, role: "DOCTOR" }, // server "elevation"
       });
       await useAuthStore.getState().refreshUser();
-      // Role-clobber guard: state should be cleared and token wiped.
+      // Role-clobber guard: state should be cleared.
       expect(useAuthStore.getState().user).toBeNull();
       expect(useAuthStore.getState().token).toBeNull();
-      expect(window.localStorage.getItem("medcore_token")).toBeNull();
     } finally {
       (window as any).location = original;
     }
   });
 
   it("loadSession refuses to elevate role on app boot (Issues #346, #258)", async () => {
-    window.localStorage.setItem("medcore_token", "acc-1");
     // Pre-seed a cached RECEPTION session (e.g. from a previous tab).
     useAuthStore.setState({
       user: { ...USER, role: "RECEPTION" } as any,
-      token: "acc-1",
+      token: COOKIE_TOKEN_SENTINEL,
       isLoading: true,
     });
     mockedGet.mockResolvedValueOnce({
@@ -153,14 +174,12 @@ describe("useAuthStore", () => {
     expect(useAuthStore.getState().user).toBeNull();
     expect(useAuthStore.getState().token).toBeNull();
     expect(useAuthStore.getState().isLoading).toBe(false);
-    expect(window.localStorage.getItem("medcore_token")).toBeNull();
   });
 
   it("refreshUser still updates non-role fields when role matches", async () => {
-    window.localStorage.setItem("medcore_token", "acc-1");
     useAuthStore.setState({
       user: { ...USER, name: "Old Name" } as any,
-      token: "acc-1",
+      token: COOKIE_TOKEN_SENTINEL,
       isLoading: false,
     });
     mockedGet.mockResolvedValueOnce({
@@ -175,13 +194,13 @@ describe("useAuthStore", () => {
   // ── Issues #422 / #441 — session/role bleed defence ──────────────────
 
   it("login clears prior auth state BEFORE the request fires (#422/#441)", async () => {
-    // Pre-seed a Patient session in storage AND in-memory — the exact
-    // production state before the bleed bug fired.
-    window.localStorage.setItem("medcore_token", "patient-token");
-    window.localStorage.setItem("medcore_refresh", "patient-refresh");
+    // Pre-seed a Patient session in-memory — pre-#477 the bleed bug fired
+    // when localStorage held the previous user's token; in the cookie
+    // world the equivalent risk is in-memory state surviving an interrupted
+    // login. Same defence: clear before the request.
     useAuthStore.setState({
       user: { ...USER, id: "patient-id", role: "PATIENT" } as any,
-      token: "patient-token",
+      token: COOKIE_TOKEN_SENTINEL,
       isLoading: false,
     });
 
@@ -191,11 +210,6 @@ describe("useAuthStore", () => {
     mockedPost.mockImplementationOnce(async () => {
       const s = useAuthStore.getState();
       stateAtCallTime = { token: s.token, userId: s.user?.id };
-      // Also assert localStorage is empty at the time of the request.
-      stateAtCallTime = {
-        token: window.localStorage.getItem("medcore_token"),
-        userId: s.user?.id,
-      };
       return {
         success: true,
         data: {
@@ -210,13 +224,14 @@ describe("useAuthStore", () => {
       .login("dr.sharma@medcore.local", "doctor123");
 
     expect(stateAtCallTime).not.toBeNull();
-    // Prior token must be wiped from localStorage BEFORE the request runs.
+    // Prior token + user must be wiped from in-memory state BEFORE the
+    // request runs.
     expect(stateAtCallTime!.token).toBeNull();
+    expect(stateAtCallTime!.userId).toBeUndefined();
     // After login, the new Doctor seat is in place.
     expect(useAuthStore.getState().user?.id).toBe("doctor-id");
     expect(useAuthStore.getState().user?.role).toBe("DOCTOR");
-    expect(useAuthStore.getState().token).toBe("doctor-acc");
-    expect(window.localStorage.getItem("medcore_token")).toBe("doctor-acc");
+    expect(useAuthStore.getState().token).toBe(COOKIE_TOKEN_SENTINEL);
   });
 
   it("late /me from prior user cannot clobber a new login (#422/#441)", async () => {
@@ -224,10 +239,9 @@ describe("useAuthStore", () => {
     // the /me promise yet. While the Patient /me probe is in flight, the
     // user navigates to /login and signs in as Doctor. The late /me must
     // NOT overwrite the Doctor user.
-    window.localStorage.setItem("medcore_token", "patient-token");
     useAuthStore.setState({
       user: { ...USER, id: "patient-id", role: "PATIENT" } as any,
-      token: "patient-token",
+      token: COOKIE_TOKEN_SENTINEL,
       isLoading: false,
     });
 
@@ -263,14 +277,13 @@ describe("useAuthStore", () => {
     // Doctor seat must still be intact — no Patient bleed.
     expect(useAuthStore.getState().user?.id).toBe("doctor-id");
     expect(useAuthStore.getState().user?.role).toBe("DOCTOR");
-    expect(useAuthStore.getState().token).toBe("doctor-acc");
+    expect(useAuthStore.getState().token).toBe(COOKIE_TOKEN_SENTINEL);
   });
 
   it("refreshUser refuses to adopt a different USER-ID via /me (#422/#441)", async () => {
-    window.localStorage.setItem("medcore_token", "doctor-token");
     useAuthStore.setState({
       user: { ...USER, id: "doctor-id", role: "DOCTOR" } as any,
-      token: "doctor-token",
+      token: COOKIE_TOKEN_SENTINEL,
       isLoading: false,
     });
     const original = window.location;
@@ -291,7 +304,6 @@ describe("useAuthStore", () => {
       // Must NOT have adopted the patient identity.
       expect(useAuthStore.getState().user).toBeNull();
       expect(useAuthStore.getState().token).toBeNull();
-      expect(window.localStorage.getItem("medcore_token")).toBeNull();
     } finally {
       (window as any).location = original;
     }
@@ -334,10 +346,9 @@ describe("useAuthStore", () => {
   });
 
   it("logout invalidates an in-flight /me from the previous session (#422/#441)", async () => {
-    window.localStorage.setItem("medcore_token", "patient-token");
     useAuthStore.setState({
       user: { ...USER, id: "patient-id", role: "PATIENT" } as any,
-      token: "patient-token",
+      token: COOKIE_TOKEN_SENTINEL,
       isLoading: false,
     });
     let releaseMe: (v: unknown) => void = () => {};
@@ -348,7 +359,10 @@ describe("useAuthStore", () => {
     const refreshP = useAuthStore.getState().refreshUser();
 
     // User logs out before /me returns.
-    useAuthStore.getState().logout();
+    // Issue #477: logout is now async (POSTs /auth/logout to clear
+    // server-side cookies). Mock the call so it resolves cleanly.
+    mockedPost.mockResolvedValueOnce({ success: true, data: null });
+    await useAuthStore.getState().logout();
     expect(useAuthStore.getState().user).toBeNull();
 
     // Late /me arrives — must NOT re-seat the user.
@@ -360,5 +374,37 @@ describe("useAuthStore", () => {
 
     expect(useAuthStore.getState().user).toBeNull();
     expect(useAuthStore.getState().token).toBeNull();
+  });
+
+  // ── Issue #477 — force-logout migration ──────────────────────────────
+  //
+  // The pre-#477 localStorage keys (`medcore_token`, `medcore_refresh`)
+  // are wiped at module-load time of `../store` and again on every
+  // login/logout via `clearPersistedAuth`. The first part is a side
+  // effect at import time (executed once per process; not easily
+  // re-runnable from inside a vitest case without fighting the module
+  // loader), so we cover the second part — login + logout both wipe
+  // any stale pre-#477 keys regardless of state.
+
+  it("login wipes pre-#477 localStorage keys even if they're seeded mid-session", async () => {
+    window.localStorage.setItem("medcore_token", "stale-pre-477");
+    window.localStorage.setItem("medcore_refresh", "stale-pre-477-refresh");
+    mockedPost.mockResolvedValueOnce({
+      success: true,
+      data: { user: USER, tokens: TOKENS },
+    });
+    await useAuthStore.getState().login("a@b.com", "pwd");
+    expect(window.localStorage.getItem("medcore_token")).toBeNull();
+    expect(window.localStorage.getItem("medcore_refresh")).toBeNull();
+  });
+
+  it("logout wipes pre-#477 localStorage keys", async () => {
+    window.localStorage.setItem("medcore_token", "stale-pre-477");
+    window.localStorage.setItem("medcore_refresh", "stale-pre-477-refresh");
+    mockedPost.mockResolvedValueOnce({ success: true, data: null });
+    useAuthStore.setState({ user: USER as any, token: COOKIE_TOKEN_SENTINEL });
+    await useAuthStore.getState().logout();
+    expect(window.localStorage.getItem("medcore_token")).toBeNull();
+    expect(window.localStorage.getItem("medcore_refresh")).toBeNull();
   });
 });

@@ -18,8 +18,15 @@ import express from "express";
 import request from "supertest";
 import jwt from "jsonwebtoken";
 
-const { prismaMock } = vi.hoisted(() => ({
-  prismaMock: {
+const { prismaMock } = vi.hoisted(() => {
+  // Issue #456 (May 2026): routes/audit.ts now reads via tenantScopedPrisma
+  // (the $extends-wrapper from services/tenant-prisma.ts) so every
+  // findMany / count is auto-filtered by tenantId. The wrapper is built
+  // by calling `prisma.$extends({...})` at module-load time; a mock that
+  // doesn't expose `$extends` crashes the import chain. We add a self-
+  // returning `$extends` so `tenantScopedPrisma` resolves to the same
+  // mock object that the existing assertions hook into.
+  const mock: any = {
     auditLog: {
       findMany: vi.fn(),
       count: vi.fn(),
@@ -40,8 +47,15 @@ const { prismaMock } = vi.hoisted(() => ({
     systemConfig: {
       findUnique: vi.fn(async () => null),
     },
-  } as any,
-}));
+  };
+  // The `tenantScopedPrisma = prisma.$extends({...})` call returns a new
+  // client. For the test we collapse the wrapper — `tenantScopedPrisma`
+  // ends up referencing the SAME mock, so all the existing
+  // `prismaMock.auditLog.findMany.mockResolvedValueOnce(...)` setups still
+  // apply regardless of which client the route reaches for.
+  mock.$extends = () => mock;
+  return { prismaMock: mock };
+});
 
 vi.mock("@medcore/db", () => ({ prisma: prismaMock }));
 

@@ -18,8 +18,14 @@ describe("api client", () => {
     });
   });
 
-  it("GET attaches Authorization header when a token is stored", async () => {
-    window.localStorage.setItem("medcore_token", "tok-1");
+  it("GET sends credentials:include so the medcore_at cookie auto-attaches (#477)", async () => {
+    // Issue #477 (May 2026): JWTs moved from localStorage → httpOnly
+    // cookies. The store no longer writes `medcore_token`; auth flows
+    // via the cookie attached automatically by the browser when
+    // `credentials: "include"` is set on fetch. The Authorization
+    // header is still honoured when an explicit `token` option is
+    // passed (server-to-server callers + test fixtures), but the
+    // stored-localStorage auto-attach is gone.
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
@@ -28,9 +34,9 @@ describe("api client", () => {
     await api.get("/ping");
     expect(fetchSpy).toHaveBeenCalled();
     const init = fetchSpy.mock.calls[0][1] as RequestInit;
-    expect((init.headers as Record<string, string>).Authorization).toBe(
-      "Bearer tok-1"
-    );
+    expect(init.credentials).toBe("include");
+    // No Authorization header when no explicit token + no stored token.
+    expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
   });
 
   it("POST sends JSON body with Content-Type and stringified payload", async () => {
@@ -48,8 +54,11 @@ describe("api client", () => {
     expect(init.body).toBe(JSON.stringify({ a: 1 }));
   });
 
-  it("explicit token option overrides localStorage value", async () => {
-    window.localStorage.setItem("medcore_token", "stored");
+  it("explicit token option attaches Authorization header (server-to-server fallback)", async () => {
+    // Issue #477: stored localStorage tokens are no longer auto-attached,
+    // but the explicit `token` option still emits a Bearer header for
+    // callers that pass one explicitly (e2e fixtures, server-to-server
+    // integrations during the migration window).
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
@@ -60,6 +69,41 @@ describe("api client", () => {
     expect((init.headers as Record<string, string>).Authorization).toBe(
       "Bearer explicit"
     );
+  });
+
+  // Issue #477: every mutation (POST/PATCH/PUT/DELETE) must echo the
+  // `medcore_csrf` cookie back as `X-CSRF-Token` so the server's
+  // double-submit middleware accepts the request.
+  it("POST attaches X-CSRF-Token header from the medcore_csrf cookie (#477)", async () => {
+    // Seed the cookie via document.cookie (jsdom honours this).
+    document.cookie = "medcore_csrf=abc123-xyz; path=/";
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), { status: 200 })
+      );
+    await api.post("/thing", { a: 1 });
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>)["X-CSRF-Token"]).toBe(
+      "abc123-xyz"
+    );
+    // Cleanup so other tests don't see this cookie.
+    document.cookie =
+      "medcore_csrf=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+  });
+
+  it("GET does NOT attach X-CSRF-Token (safe method, server skips check)", async () => {
+    document.cookie = "medcore_csrf=abc123; path=/";
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), { status: 200 })
+      );
+    await api.get("/safe");
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>)["X-CSRF-Token"]).toBeUndefined();
+    document.cookie =
+      "medcore_csrf=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
   });
 
   it("error response throws Error with the server message", async () => {

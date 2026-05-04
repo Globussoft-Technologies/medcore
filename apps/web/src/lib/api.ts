@@ -6,6 +6,25 @@ interface FetchOptions extends RequestInit {
   token?: string;
 }
 
+// Issue #477 (May 2026): JWTs moved from localStorage → httpOnly cookies
+// (`medcore_at`, `medcore_rt`) so XSS can no longer exfiltrate them.
+// The server also sets a non-httpOnly `medcore_csrf` cookie that we
+// echo back as `X-CSRF-Token` on every mutation — that's the
+// double-submit defence, since cookies auto-attach.
+//
+// Read with a regex rather than splitting `document.cookie` so commas
+// in non-cookie text (extensions, polyfills) can't desync the parse.
+const CSRF_COOKIE = "medcore_csrf";
+function readCsrfToken(): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(
+    new RegExp("(?:^|; )" + CSRF_COOKIE + "=([^;]+)"),
+  );
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+const MUTATION_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
+
 /**
  * Issues #101 + #132: centralised 401 handling.
  *
@@ -29,6 +48,9 @@ function handleAuthExpired(): void {
   authExpiredHandled = true;
   if (typeof window === "undefined") return;
   try {
+    // Issue #477: cookies are cleared by the server's logout/refresh
+    // flow; this localStorage cleanup is for users who still had the
+    // pre-#477 keys around at deploy time (force-logout migration).
     localStorage.removeItem("medcore_token");
     localStorage.removeItem("medcore_refresh");
   } catch {
@@ -88,11 +110,22 @@ async function request<T>(
     ...((customHeaders as Record<string, string>) || {}),
   };
 
+  // Issue #477: the access token is on the httpOnly `medcore_at` cookie
+  // and travels automatically because we set `credentials: "include"`
+  // below. Explicit `token` arg is still honoured for server-to-server
+  // / test fixtures that pass a Bearer string directly — auth middleware
+  // accepts both during the migration.
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
-  } else if (typeof window !== "undefined") {
-    const stored = localStorage.getItem("medcore_token");
-    if (stored) headers["Authorization"] = `Bearer ${stored}`;
+  }
+
+  // Issue #477: attach CSRF header on mutations. Server's csrfProtection
+  // middleware compares this header against the `medcore_csrf` cookie
+  // and 403s on mismatch. Safe methods (GET/HEAD/OPTIONS) skip the check.
+  const method = (rest as { method?: string }).method?.toUpperCase() ?? "GET";
+  if (MUTATION_METHODS.has(method)) {
+    const csrf = readCsrfToken();
+    if (csrf) headers["X-CSRF-Token"] = csrf;
   }
 
   // Issue #377 (2026-04-26): bound every request with an AbortController
@@ -113,6 +146,11 @@ async function request<T>(
   try {
     res = await fetch(`${API_BASE}${endpoint}`, {
       headers,
+      // Issue #477: `credentials: "include"` makes the browser send the
+      // httpOnly auth cookies + the csrf cookie on every API call. CORS
+      // on the API side already allows the dashboard origin (cors() in
+      // app.ts). Without this flag the cookies never travel.
+      credentials: "include",
       ...rest,
       signal: controller.signal,
     });
@@ -185,19 +223,19 @@ export const api = {
 
 /**
  * Open an authenticated HTML print endpoint in a new window.
- * Fetches with the user's JWT, then writes the HTML response to a blank popup
- * which auto-triggers the browser print dialog.
+ *
+ * Issue #477: was reading a Bearer token from localStorage (now defunct).
+ * Now relies on the `credentials: "include"` cookie attachment — same as
+ * the rest of `api`. The popup itself doesn't navigate so cookies don't
+ * matter on `win`; we only need them on the `fetch` here. Print endpoints
+ * are GET only, so no CSRF header is required.
  */
 export async function openPrintEndpoint(endpoint: string): Promise<void> {
-  const token =
-    typeof window !== "undefined"
-      ? localStorage.getItem("medcore_token")
-      : null;
   // Open early to avoid popup blockers
   const win = window.open("", "_blank");
   try {
     const res = await fetch(`${API_BASE}${endpoint}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
     });
     const html = await res.text();
     if (win) {

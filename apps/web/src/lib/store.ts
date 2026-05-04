@@ -4,6 +4,16 @@
 // generation counter so an in-flight `/auth/me` from the previous user cannot
 // overwrite the new user. See `loginGeneration` and the staleness checks in
 // refreshUser/loadSession below.
+// Issue #477 (May 2026): JWTs moved from localStorage → httpOnly cookies
+// (`medcore_at`, `medcore_rt`) + a non-httpOnly CSRF cookie (`medcore_csrf`).
+// The store no longer reads/writes tokens from localStorage; all of that is
+// done by the server's Set-Cookie headers and the browser's automatic
+// cookie attachment via `credentials: "include"` in lib/api.ts.
+//
+// Force-logout migration: on first import after deploy, any
+// pre-#477 keys (`medcore_token` / `medcore_refresh`) in localStorage
+// are wiped. Users who were signed in pre-deploy land back on /login
+// once and re-authenticate — clean break, no half-state.
 import { create } from "zustand";
 import { api } from "./api";
 
@@ -26,6 +36,13 @@ interface LoginResult {
 
 interface AuthState {
   user: User | null;
+  /**
+   * Issue #477: kept as a "logged-in marker" only — never holds a real
+   * JWT anymore. After a successful login we set it to a sentinel
+   * "cookie" string so any caller code that gates UI on `token` keeps
+   * working without churn (the actual access token is on an httpOnly
+   * cookie that JS cannot read). New code should gate on `user` instead.
+   */
   token: string | null;
   isLoading: boolean;
   /**
@@ -50,19 +67,28 @@ interface AuthState {
     rememberMe?: boolean
   ) => Promise<LoginResult>;
   verify2FA: (tempToken: string, code: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   loadSession: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
 
+const COOKIE_TOKEN_SENTINEL = "cookie";
+
 /**
- * Issues #422 / #441: hard-clear ALL persisted auth state. Called before any
- * fresh login attempt so the new request:
- *   1. cannot accidentally attach the previous user's bearer token (api.ts
- *      falls back to localStorage when no explicit token is passed);
- *   2. cannot leave a stale token in localStorage if the new login throws
- *      mid-flight — the user must end up either fully logged-in as the new
- *      principal or fully logged-out, never a hybrid.
+ * Issue #477 force-logout migration: clear any pre-#477 localStorage
+ * keys. On a fresh deploy, users who had signed in under the localStorage
+ * scheme will land here once, get cleaned up, and bounce back to /login.
+ *
+ * Issues #422 / #441 (still relevant): a defence-in-depth wipe used
+ * before every login() / verify2FA() so the new request:
+ *   1. cannot accidentally see a stale token in localStorage (defunct
+ *      now, but kept for migration);
+ *   2. cannot leave a partial state if the new login throws — the user
+ *      must end up either fully logged-in via fresh cookies, or fully
+ *      logged-out, never a hybrid.
+ *
+ * The actual auth secrets live in httpOnly cookies that the server
+ * controls; this helper only touches localStorage.
  */
 function clearPersistedAuth(): void {
   try {
@@ -71,6 +97,14 @@ function clearPersistedAuth(): void {
   } catch {
     // localStorage may be unavailable in private mode — best-effort.
   }
+}
+
+// Issue #477: run the migration cleanup at module load, before any
+// store state is read. SSR-safe via the typeof guard. Idempotent — on
+// the second-and-later page loads after migration this is a no-op
+// because the keys are already gone.
+if (typeof window !== "undefined") {
+  clearPersistedAuth();
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -85,11 +119,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // user navigated to /login) is invalidated and cannot write back stale
     // user data after our new `set({ user })` lands.
     const generation = get().loginGeneration + 1;
-    // Wipe prior user/token from both storage AND in-memory state BEFORE
-    // making the request. This is the actual #422/#441 fix: previously, if
-    // login() threw or raced, the previous user's token sat in localStorage
-    // and the previous user's `useAuthStore.user` stayed cached, so the
-    // dashboard rendered the wrong role's shell.
+    // Wipe prior user from in-memory state BEFORE making the request. Issue
+    // #477: cookies will be replaced by the server's Set-Cookie response.
     clearPersistedAuth();
     set({
       user: null,
@@ -105,10 +136,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       password,
     };
     if (rememberMe) body.rememberMe = true;
-    // Pass an empty `token: ""` would be wrong — instead we rely on the
-    // localStorage being already cleared above, so api.ts will not attach
-    // any Authorization header. The login endpoint does not require one.
-    //
     // Issue #484: skip the global "Your session has expired" toast for the
     // login endpoint. A 401 here means "wrong credentials" — never
     // "session expired" — because the user is by definition not yet
@@ -121,6 +148,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       data:
         | {
             user: User;
+            // Tokens are still in the response body for the brief
+            // migration window — server-to-server callers and the e2e
+            // suite's `apiLogin` helper still consume them. The browser
+            // doesn't need them; the cookies are already set.
             tokens: { accessToken: string; refreshToken: string };
           }
         | { twoFactorRequired: true; tempToken: string };
@@ -133,15 +164,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return {};
     }
 
-    const data = res.data as any;
+    const data = res.data as Record<string, unknown>;
     if (data.twoFactorRequired) {
-      return { twoFactorRequired: true, tempToken: data.tempToken };
+      return {
+        twoFactorRequired: true,
+        tempToken: data.tempToken as string,
+      };
     }
 
-    const { user, tokens } = data;
-    localStorage.setItem("medcore_token", tokens.accessToken);
-    localStorage.setItem("medcore_refresh", tokens.refreshToken);
-    set({ user, token: tokens.accessToken, isLoading: false });
+    const { user } = data as { user: User };
+    // Issue #477: token is a sentinel; the real one is on the cookie.
+    set({ user, token: COOKIE_TOKEN_SENTINEL, isLoading: false });
     return {};
   },
 
@@ -168,34 +201,30 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     if (get().loginGeneration !== generation) return;
 
-    const { user, tokens } = res.data;
-    localStorage.setItem("medcore_token", tokens.accessToken);
-    localStorage.setItem("medcore_refresh", tokens.refreshToken);
-    set({ user, token: tokens.accessToken, isLoading: false });
+    const { user } = res.data;
+    // Issue #477: token sentinel only — server set the real cookie.
+    set({ user, token: COOKIE_TOKEN_SENTINEL, isLoading: false });
   },
 
   refreshUser: async () => {
-    const token = localStorage.getItem("medcore_token");
-    if (!token) return;
+    // Issue #477: no localStorage gate. /auth/me trusts the cookie to
+    // authenticate; if it's missing/expired the API returns 401 and we
+    // fall through to the catch.
+    //
     // Issues #422 / #441: snapshot the generation at start so we can
     // detect a logout/login that happened while /me was in flight and
     // discard the result instead of writing stale user data back.
     const generationAtStart = get().loginGeneration;
     try {
       // skip401Redirect: this is a background probe, not a navigation. If the
-      // token has expired we DO want the global interceptor to fire on the
+      // cookie has expired we DO want the global interceptor to fire on the
       // user's next *actual* navigation — not on an out-of-band /me poll.
       const res = await api.get<{ success: boolean; data: User }>("/auth/me", {
-        token,
         skip401Redirect: true,
       });
 
       // Issues #422 / #441: bail if the auth state changed under us.
       if (get().loginGeneration !== generationAtStart) return;
-      // Also bail if the token in localStorage has changed (e.g. a
-      // concurrent login swapped it) — writing the old user against
-      // the new token would re-introduce the bleed.
-      if (localStorage.getItem("medcore_token") !== token) return;
 
       // Issues #346 + #258: role-clobber defence. If a /me response returns
       // a different role for the same user-id we already have cached,
@@ -219,9 +248,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return;
       }
       // Issues #422 / #441: USER-ID clobber defence. If /me returns a
-      // DIFFERENT user than we have cached, the token in localStorage
-      // and the in-memory user have desynchronised — never silently
-      // adopt the server's identity. Force re-auth.
+      // DIFFERENT user than we have cached, the in-memory user has
+      // desynchronised from the cookie — never silently adopt the
+      // server's identity. Force re-auth.
       if (
         current &&
         res.data &&
@@ -240,46 +269,50 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  logout: () => {
+  logout: async () => {
     // Issues #422 / #441: bumping the generation invalidates any /me probe
     // that was in flight when the user clicked logout, so a late-arriving
     // response can't re-seat the user we just signed out.
+    //
+    // Issue #477: the actual cookie clear happens server-side via the
+    // /auth/logout endpoint's clearAuthCookies(). Without this call the
+    // browser's cookies would survive and the next request would re-
+    // authenticate. Best-effort — if the call fails (network down, server
+    // 500) we still clear local state so the user appears logged out;
+    // their cookies will eventually expire on the wire.
     clearPersistedAuth();
     set((s) => ({
       user: null,
       token: null,
       loginGeneration: s.loginGeneration + 1,
     }));
+    try {
+      await api.post("/auth/logout", undefined, { skip401Redirect: true });
+    } catch {
+      // best-effort — see comment above.
+    }
   },
 
   loadSession: async () => {
-    const token = localStorage.getItem("medcore_token");
-    if (!token) {
-      set({ isLoading: false });
-      return;
-    }
-
-    // Issues #422 / #441: snapshot the generation; if a login/logout happens
-    // while we await, the result of this app-boot probe is stale.
+    // Issue #477: no localStorage token gate. We always probe /auth/me
+    // and let the cookie answer for us. A 401 means "no valid session"
+    // and we settle into the unauthenticated state cleanly.
+    //
+    // Issues #422 / #441: snapshot the generation; if a login/logout
+    // happens while we await, the result of this app-boot probe is stale.
     const generationAtStart = get().loginGeneration;
 
     try {
       // skip401Redirect: app-boot session probe — bouncing the user to /login
-      // before they've even tried anything would be jarring. If the stored
-      // token is dead, we just clear it locally and stay on the current page;
-      // the next actual API call will trigger the proper redirect+toast.
+      // before they've even tried anything would be jarring. If the cookie
+      // is dead, we just settle in unauthenticated state; the next actual
+      // API call will trigger the proper redirect+toast.
       const res = await api.get<{ success: boolean; data: User }>("/auth/me", {
-        token,
         skip401Redirect: true,
       });
 
       // Issues #422 / #441: discard if the session changed under us.
       if (get().loginGeneration !== generationAtStart) {
-        set({ isLoading: false });
-        return;
-      }
-      if (localStorage.getItem("medcore_token") !== token) {
-        // Another tab/login wrote a different token — let that flow win.
         set({ isLoading: false });
         return;
       }
@@ -310,7 +343,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ user: null, token: null, isLoading: false });
         return;
       }
-      set({ user: res.data, token, isLoading: false });
+      // Issue #477: token sentinel only — the real one is on the cookie.
+      set({ user: res.data, token: COOKIE_TOKEN_SENTINEL, isLoading: false });
     } catch {
       clearPersistedAuth();
       set({ user: null, token: null, isLoading: false });

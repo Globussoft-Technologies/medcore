@@ -16,6 +16,10 @@ import {
 import { validate } from "../middleware/validate";
 import { authenticate } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
+// Issue #477 (May 2026): JWTs are set as httpOnly cookies + a non-httpOnly
+// CSRF cookie on login/register/refresh/2fa-verify. See
+// middleware/auth-cookies.ts for the locked attribute matrix.
+import { setAuthCookies, clearAuthCookies } from "../middleware/auth-cookies";
 // Issue #456: scope per-user audit reads (/failed-logins, /my-activity)
 // through the tenant wrapper so a user never sees rows that originated in
 // another tenant — even if their userId somehow collided historically.
@@ -449,6 +453,13 @@ router.post(
 
       auditLog(req, "USER_REGISTER", "user", user.id, { email: user.email, role: user.role }).catch(console.error);
 
+      // Issue #477: set the access + refresh + csrf cookies. Tokens stay in
+      // the response body for the brief migration window — the e2e
+      // suite's `apiLogin` helper still reads `data.tokens.accessToken`
+      // for its `Authorization: Bearer` fallback path. The cookie is
+      // what browser clients consume.
+      setAuthCookies(res, tokens, tokens.refreshTtlSeconds);
+
       res.status(201).json({
         success: true,
         data: {
@@ -594,6 +605,11 @@ router.post(
 
       auditLog(req, "AUTH_LOGIN", "user", user.id, { email: user.email }).catch(console.error);
 
+      // Issue #477: set the access + refresh + csrf cookies. The login
+      // honoured the user's `rememberMe` flag for refresh-token TTL — pass
+      // the same value through so the cookie's maxAge matches the JWT exp.
+      setAuthCookies(res, tokens, tokens.refreshTtlSeconds);
+
       res.json({
         success: true,
         data: {
@@ -680,6 +696,11 @@ router.post(
         },
       });
 
+      // Issue #477: rotate the cookies so the new access/refresh/csrf
+      // tokens replace the prior set. CSRF rotates with refresh — keeps
+      // the client's CSRF token in lockstep with the access token.
+      setAuthCookies(res, tokens, tokens.refreshTtlSeconds);
+
       res.json({ success: true, data: { tokens }, error: null });
     } catch (err) {
       next(err);
@@ -730,6 +751,11 @@ router.post(
       });
 
       auditLog(req, "AUTH_LOGOUT", "user", req.user!.userId).catch(console.error);
+
+      // Issue #477: clear all auth cookies so the next request from this
+      // browser is unauthenticated. Server-side refresh tokens are
+      // already revoked via deleteMany above.
+      clearAuthCookies(res);
 
       res.json({ success: true, data: null, error: null });
     } catch (err) {
@@ -1304,6 +1330,9 @@ router.post(
       auditLog(req, "AUTH_LOGIN", "user", user.id, { email: user.email, twoFactor: true }).catch(
         console.error
       );
+
+      // Issue #477: set cookies after 2FA verify (same as login).
+      setAuthCookies(res, tokens, tokens.refreshTtlSeconds);
 
       res.json({
         success: true,

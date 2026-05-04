@@ -18,6 +18,7 @@ if (process.env.SENTRY_DSN) {
 
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import fs from "fs";
 import path from "path";
@@ -113,6 +114,10 @@ import { errorHandler } from "./middleware/error";
 import { rateLimit } from "./middleware/rate-limit";
 import { sanitize } from "./middleware/sanitize";
 import { tenantContextMiddleware } from "./middleware/tenant";
+// Issue #477: cookie-parser populates req.cookies for the auth middleware
+// (which now reads `medcore_at`) and the CSRF guard (which compares the
+// `medcore_csrf` cookie against the X-CSRF-Token header on mutations).
+import { csrfProtection } from "./middleware/csrf";
 import { withTenantContext } from "./services/tenant-context";
 import { startRetentionScheduler } from "./services/retention-scheduler";
 import { startClaimsScheduler } from "./services/insurance-claims-scheduler";
@@ -178,10 +183,23 @@ export function buildApp() {
   app.use("/api/v1/billing", razorpayWebhookRouter);
 
   app.use(express.json());
+  // Issue #477: parse cookies BEFORE auth middleware so the cookie-based
+  // JWT lookup (medcore_at) and the CSRF guard (medcore_csrf) can both
+  // read req.cookies.
+  app.use(cookieParser());
   app.use(sanitize);
   // Rate limiting is disabled in test mode to keep tests fast & deterministic.
   if (process.env.NODE_ENV !== "test") {
     app.use(rateLimit(600, 60_000));
+  }
+  // Issue #477: CSRF protection on every mutation. Skipped on safe
+  // methods + on auth endpoints that mint the CSRF cookie (login,
+  // register, refresh, 2fa-verify, forgot/reset-password). See
+  // middleware/csrf.ts for the bypass list. Mounted AFTER cookieParser
+  // (it reads req.cookies) and BEFORE the routers so every state-
+  // changing endpoint inherits the guard for free.
+  if (process.env.NODE_ENV !== "test") {
+    app.use(csrfProtection);
   }
 
   // Multi-tenancy — resolve tenant from JWT / X-Tenant-Id header and open an

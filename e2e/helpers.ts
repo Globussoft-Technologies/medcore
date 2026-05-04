@@ -104,52 +104,86 @@ export async function apiLogin(
 }
 
 /**
- * Inject auth tokens into localStorage so the web app considers the user
- * logged in.
+ * Inject auth into the page so the web app considers the user logged in.
  *
- * Uses `addInitScript` so the tokens are written into storage BEFORE any
- * document script runs on every navigation in this page's context. This
- * is the canonical Playwright pattern for storage-based auth fixtures
- * and is the only one that works deterministically across Chromium AND
- * WebKit.
+ * **Issue #477 (May 2026):** auth moved from localStorage → httpOnly
+ * cookies (`medcore_at`, `medcore_rt`) plus a non-httpOnly `medcore_csrf`
+ * cookie. The store no longer reads localStorage tokens; loadSession()
+ * always calls `/auth/me` and the cookie is what authenticates.
  *
- * The previous implementation navigated to /login and then ran
- * `page.evaluate(() => localStorage.setItem(...))`. That works in
- * Chromium because the localStorage write is durably flushed before the
- * next navigation's script context starts. WebKit doesn't make the same
- * guarantee — the dashboard's React `useEffect` would run loadSession()
- * and read `null` from storage, the auth guard would see `user === null`
- * and immediately redirect to /login?redirect=… . That single race
- * cascaded into 121 of 246 WebKit failures on the b6efff1 release run.
+ * This helper now:
+ *   1. Adds the access cookie to the browser context so `/auth/me` and
+ *      every other API call from this page will be authenticated. The
+ *      cookie domain is derived from the API base URL.
+ *   2. Adds the CSRF cookie so the SPA's `lib/api.ts` can echo it back
+ *      on mutations (the CSRF middleware is disabled in test mode but
+ *      we set the cookie anyway so production-like fixtures work).
+ *   3. Pre-dismisses the per-role onboarding tour via localStorage so
+ *      it doesn't intercept clicks during specs.
  *
- * After this change the function NO LONGER navigates. Callers must
- * `page.goto(...)` themselves; both existing callers (loginAs in this
- * file, freshPageWithCachedAuth in fixtures.ts) already do.
+ * The function still does NOT navigate — callers must `page.goto(...)`
+ * themselves; both existing callers (loginAs in this file,
+ * freshPageWithCachedAuth in fixtures.ts) already do.
+ *
+ * @param refresh kept in the signature for backwards-compat with
+ *   existing callers (loginAs already destructures it). It's also
+ *   added as a cookie so the server's /auth/refresh path works.
  */
 export async function injectAuth(
   page: Page,
   token: string,
-  refresh: string
+  refresh: string,
 ): Promise<void> {
-  await page.addInitScript(
-    ([t, r]) => {
-      localStorage.setItem("medcore_token", t);
-      localStorage.setItem("medcore_refresh", r);
-      // Pre-dismiss onboarding tour for every role so it doesn't intercept clicks.
-      for (const role of [
-        "ADMIN",
-        "DOCTOR",
-        "NURSE",
-        "RECEPTION",
-        "PATIENT",
-        "LAB_TECH",
-        "PHARMACIST",
-      ]) {
-        localStorage.setItem(`mc_tour_${role}`, "1");
-      }
+  // Determine the cookie domain from the API base. Playwright requires
+  // either url + name or url + name on context.addCookies, but for our
+  // case cookies are scoped to the API origin.
+  const apiOrigin = new URL(API_BASE).origin;
+  // The CSRF cookie value is also a token — same shape as the server
+  // mints (32-byte hex). Matches the contract: any value is fine, the
+  // server only compares cookie === header.
+  const csrfToken = "e2e_csrf_" + Date.now().toString(36);
+
+  await page.context().addCookies([
+    {
+      name: "medcore_at",
+      value: token,
+      url: apiOrigin,
+      httpOnly: true,
+      secure: apiOrigin.startsWith("https"),
+      sameSite: "Lax",
     },
-    [token, refresh]
-  );
+    {
+      name: "medcore_rt",
+      value: refresh,
+      url: apiOrigin,
+      httpOnly: true,
+      secure: apiOrigin.startsWith("https"),
+      sameSite: "Lax",
+    },
+    {
+      name: "medcore_csrf",
+      value: csrfToken,
+      url: apiOrigin,
+      httpOnly: false,
+      secure: apiOrigin.startsWith("https"),
+      sameSite: "Lax",
+    },
+  ]);
+
+  await page.addInitScript(() => {
+    // Pre-dismiss onboarding tour for every role so it doesn't intercept clicks.
+    for (const role of [
+      "ADMIN",
+      "DOCTOR",
+      "NURSE",
+      "RECEPTION",
+      "PATIENT",
+      "LAB_TECH",
+      "PHARMACIST",
+    ]) {
+      localStorage.setItem(`mc_tour_${role}`, "1");
+    }
+  });
 }
 
 /**

@@ -12,7 +12,30 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import jwt from "jsonwebtoken";
 import { Role } from "@medcore/shared";
-import { tenantContextMiddleware } from "./tenant";
+
+// security(2026-05-04): A9 — middleware now validates the resolved
+// tenantId against a cached `prisma.tenant.findUnique` lookup. Mocking
+// the DB up front lets every existing test that doesn't care about
+// validation just hit the happy path (valid + active), while the new
+// A9 cases drive specific verdicts via `mockResolvedValueOnce`.
+const { findUniqueMock } = vi.hoisted(() => {
+  type TenantRow = { id: string; active: boolean } | null;
+  return {
+    findUniqueMock: vi.fn<(args: unknown) => Promise<TenantRow>>(
+      async () => ({ id: "default", active: true }),
+    ),
+  };
+});
+vi.mock("@medcore/db", () => ({
+  prisma: {
+    tenant: { findUnique: findUniqueMock },
+  },
+}));
+
+import {
+  tenantContextMiddleware,
+  __resetTenantValidationCacheForTests,
+} from "./tenant";
 
 const SECRET = "test-jwt-secret-do-not-use-in-prod";
 
@@ -34,10 +57,13 @@ function makeReq(overrides: Partial<{
 
 beforeEach(() => {
   process.env.JWT_SECRET = SECRET;
+  __resetTenantValidationCacheForTests();
+  findUniqueMock.mockReset();
+  findUniqueMock.mockImplementation(async () => ({ id: "default", active: true }));
 });
 
 describe("tenantContextMiddleware — header override", () => {
-  it("uses X-Tenant-Id when present, ignoring everything else", () => {
+  it("uses X-Tenant-Id when present, ignoring everything else", async () => {
     const req = makeReq({
       headers: {
         "X-Tenant-Id": "header-tenant",
@@ -49,39 +75,39 @@ describe("tenantContextMiddleware — header override", () => {
       user: { userId: "u1", email: "a@b.c", role: Role.ADMIN, tenantId: "user-tenant" },
     });
     const next = vi.fn();
-    tenantContextMiddleware(req, {} as any, next);
+    await tenantContextMiddleware(req, {} as any, next);
     expect(req.tenantId).toBe("header-tenant");
     expect(next).toHaveBeenCalledTimes(1);
   });
 
-  it("trims whitespace around the header value", () => {
+  it("trims whitespace around the header value", async () => {
     const req = makeReq({ headers: { "X-Tenant-Id": "  spaced-tenant  " } });
     const next = vi.fn();
-    tenantContextMiddleware(req, {} as any, next);
+    await tenantContextMiddleware(req, {} as any, next);
     expect(req.tenantId).toBe("spaced-tenant");
   });
 
-  it("ignores empty / whitespace-only header and falls through", () => {
+  it("ignores empty / whitespace-only header and falls through", async () => {
     const req = makeReq({ headers: { "X-Tenant-Id": "   " } });
     const next = vi.fn();
-    tenantContextMiddleware(req, {} as any, next);
+    await tenantContextMiddleware(req, {} as any, next);
     expect(req.tenantId).toBeUndefined();
     expect(next).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("tenantContextMiddleware — req.user fallback", () => {
-  it("uses req.user.tenantId when authenticate already ran", () => {
+  it("uses req.user.tenantId when authenticate already ran", async () => {
     const req = makeReq({
       user: { userId: "u1", email: "a@b.c", role: Role.DOCTOR, tenantId: "user-tenant" },
     });
     const next = vi.fn();
-    tenantContextMiddleware(req, {} as any, next);
+    await tenantContextMiddleware(req, {} as any, next);
     expect(req.tenantId).toBe("user-tenant");
     expect(next).toHaveBeenCalledTimes(1);
   });
 
-  it("prefers req.user.tenantId over JWT bearer when both present", () => {
+  it("prefers req.user.tenantId over JWT bearer when both present", async () => {
     const token = jwt.sign(
       { userId: "u1", email: "a@b.c", role: Role.ADMIN, tenantId: "jwt-tenant" },
       SECRET,
@@ -91,35 +117,35 @@ describe("tenantContextMiddleware — req.user fallback", () => {
       user: { userId: "u1", email: "a@b.c", role: Role.ADMIN, tenantId: "user-tenant" },
     });
     const next = vi.fn();
-    tenantContextMiddleware(req, {} as any, next);
+    await tenantContextMiddleware(req, {} as any, next);
     expect(req.tenantId).toBe("user-tenant");
   });
 });
 
 describe("tenantContextMiddleware — JWT decode fallback", () => {
-  it("decodes the bearer token when neither header nor req.user is present", () => {
+  it("decodes the bearer token when neither header nor req.user is present", async () => {
     const token = jwt.sign(
       { userId: "u1", email: "a@b.c", role: Role.ADMIN, tenantId: "jwt-tenant" },
       SECRET,
     );
     const req = makeReq({ headers: { Authorization: `Bearer ${token}` } });
     const next = vi.fn();
-    tenantContextMiddleware(req, {} as any, next);
+    await tenantContextMiddleware(req, {} as any, next);
     expect(req.tenantId).toBe("jwt-tenant");
     expect(next).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves tenantId undefined for a malformed bearer token (silent)", () => {
+  it("leaves tenantId undefined for a malformed bearer token (silent)", async () => {
     const req = makeReq({ headers: { Authorization: "Bearer not.a.real.jwt" } });
     const next = vi.fn();
-    tenantContextMiddleware(req, {} as any, next);
+    await tenantContextMiddleware(req, {} as any, next);
     expect(req.tenantId).toBeUndefined();
     // Critical: middleware MUST still call next so unauthenticated/cross-tenant
     // routes (e.g. /api/health) work. Auth enforcement is downstream.
     expect(next).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves tenantId undefined for an expired bearer token", () => {
+  it("leaves tenantId undefined for an expired bearer token", async () => {
     const token = jwt.sign(
       { userId: "u1", email: "a@b.c", role: Role.ADMIN, tenantId: "jwt-tenant" },
       SECRET,
@@ -127,67 +153,67 @@ describe("tenantContextMiddleware — JWT decode fallback", () => {
     );
     const req = makeReq({ headers: { Authorization: `Bearer ${token}` } });
     const next = vi.fn();
-    tenantContextMiddleware(req, {} as any, next);
+    await tenantContextMiddleware(req, {} as any, next);
     expect(req.tenantId).toBeUndefined();
     expect(next).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves tenantId undefined when the JWT carries no tenantId claim", () => {
+  it("leaves tenantId undefined when the JWT carries no tenantId claim", async () => {
     const token = jwt.sign(
       { userId: "u1", email: "a@b.c", role: Role.ADMIN }, // no tenantId
       SECRET,
     );
     const req = makeReq({ headers: { Authorization: `Bearer ${token}` } });
     const next = vi.fn();
-    tenantContextMiddleware(req, {} as any, next);
+    await tenantContextMiddleware(req, {} as any, next);
     expect(req.tenantId).toBeUndefined();
   });
 
-  it("ignores Authorization headers that aren't 'Bearer <token>'", () => {
+  it("ignores Authorization headers that aren't 'Bearer <token>'", async () => {
     const req = makeReq({ headers: { Authorization: "Basic dXNlcjpwYXNz" } });
     const next = vi.fn();
-    tenantContextMiddleware(req, {} as any, next);
+    await tenantContextMiddleware(req, {} as any, next);
     expect(req.tenantId).toBeUndefined();
     expect(next).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects tokens signed with the wrong secret", () => {
+  it("rejects tokens signed with the wrong secret", async () => {
     const token = jwt.sign(
       { userId: "u1", email: "a@b.c", role: Role.ADMIN, tenantId: "evil-tenant" },
       "different-secret",
     );
     const req = makeReq({ headers: { Authorization: `Bearer ${token}` } });
     const next = vi.fn();
-    tenantContextMiddleware(req, {} as any, next);
+    await tenantContextMiddleware(req, {} as any, next);
     expect(req.tenantId).toBeUndefined();
     expect(next).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("tenantContextMiddleware — pass-through", () => {
-  it("calls next() with no tenantId on an unauthenticated request", () => {
+  it("calls next() with no tenantId on an unauthenticated request", async () => {
     const req = makeReq();
     const next = vi.fn();
-    tenantContextMiddleware(req, {} as any, next);
+    await tenantContextMiddleware(req, {} as any, next);
     expect(req.tenantId).toBeUndefined();
     expect(next).toHaveBeenCalledTimes(1);
   });
 
-  it("never calls res.status/res.json — enforcement is downstream", () => {
+  it("never calls res.status/res.json — enforcement is downstream", async () => {
     const req = makeReq();
     const res: any = {
       status: vi.fn().mockReturnThis(),
       json: vi.fn().mockReturnThis(),
     };
     const next = vi.fn();
-    tenantContextMiddleware(req, res, next);
+    await tenantContextMiddleware(req, res, next);
     expect(res.status).not.toHaveBeenCalled();
     expect(res.json).not.toHaveBeenCalled();
   });
 });
 
 describe("tenantContextMiddleware — resolution-order precedence", () => {
-  it("header > req.user > JWT (header wins)", () => {
+  it("header > req.user > JWT (header wins)", async () => {
     const token = jwt.sign(
       { userId: "u1", email: "a@b.c", role: Role.ADMIN, tenantId: "jwt-tenant" },
       SECRET,
@@ -197,11 +223,11 @@ describe("tenantContextMiddleware — resolution-order precedence", () => {
       user: { userId: "u1", email: "a@b.c", role: Role.ADMIN, tenantId: "user-tenant" },
     });
     const next = vi.fn();
-    tenantContextMiddleware(req, {} as any, next);
+    await tenantContextMiddleware(req, {} as any, next);
     expect(req.tenantId).toBe("header-tenant");
   });
 
-  it("req.user beats JWT when header is absent", () => {
+  it("req.user beats JWT when header is absent", async () => {
     const token = jwt.sign(
       { userId: "u1", email: "a@b.c", role: Role.ADMIN, tenantId: "jwt-tenant" },
       SECRET,
@@ -211,7 +237,87 @@ describe("tenantContextMiddleware — resolution-order precedence", () => {
       user: { userId: "u1", email: "a@b.c", role: Role.ADMIN, tenantId: "user-tenant" },
     });
     const next = vi.fn();
-    tenantContextMiddleware(req, {} as any, next);
+    await tenantContextMiddleware(req, {} as any, next);
     expect(req.tenantId).toBe("user-tenant");
+  });
+});
+
+// security(2026-05-04): A9 — every test in this block exercises the
+// existence/active validation step that runs after the resolution chain
+// picks a candidate tenantId. The mock from the top of the file is
+// reset per `beforeEach`; individual tests override it with
+// `mockResolvedValueOnce` to drive the verdict they care about.
+describe("tenantContextMiddleware — A9 tenant validation", () => {
+  it("drops a header-supplied tenantId that doesn't exist in the DB", async () => {
+    findUniqueMock.mockResolvedValueOnce(null);
+    const req = makeReq({ headers: { "X-Tenant-Id": "ghost-tenant" } });
+    const next = vi.fn();
+    await tenantContextMiddleware(req, {} as any, next);
+    expect(req.tenantId).toBeUndefined();
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(findUniqueMock).toHaveBeenCalledWith({
+      where: { id: "ghost-tenant" },
+      select: { id: true, active: true },
+    });
+  });
+
+  it("drops a JWT-supplied tenantId pointing at a deactivated tenant", async () => {
+    findUniqueMock.mockResolvedValueOnce({ id: "deactivated", active: false });
+    const token = jwt.sign(
+      { userId: "u1", email: "a@b.c", role: Role.ADMIN, tenantId: "deactivated" },
+      SECRET,
+    );
+    const req = makeReq({ headers: { Authorization: `Bearer ${token}` } });
+    const next = vi.fn();
+    await tenantContextMiddleware(req, {} as any, next);
+    expect(req.tenantId).toBeUndefined();
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it("commits a candidate that exists and is active", async () => {
+    findUniqueMock.mockResolvedValueOnce({ id: "real-tenant", active: true });
+    const req = makeReq({ headers: { "X-Tenant-Id": "real-tenant" } });
+    const next = vi.fn();
+    await tenantContextMiddleware(req, {} as any, next);
+    expect(req.tenantId).toBe("real-tenant");
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it("caches the verdict — a second call with the same id does not re-query", async () => {
+    findUniqueMock.mockResolvedValueOnce({ id: "real-tenant", active: true });
+    const next1 = vi.fn();
+    await tenantContextMiddleware(
+      makeReq({ headers: { "X-Tenant-Id": "real-tenant" } }),
+      {} as any,
+      next1,
+    );
+    const next2 = vi.fn();
+    await tenantContextMiddleware(
+      makeReq({ headers: { "X-Tenant-Id": "real-tenant" } }),
+      {} as any,
+      next2,
+    );
+    // Cache hit — only the first request hit Prisma.
+    expect(findUniqueMock).toHaveBeenCalledTimes(1);
+    expect(next1).toHaveBeenCalledTimes(1);
+    expect(next2).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when the DB throws (transient blip → drop the tenantId)", async () => {
+    findUniqueMock.mockRejectedValueOnce(new Error("connection refused"));
+    const req = makeReq({ headers: { "X-Tenant-Id": "real-tenant" } });
+    const next = vi.fn();
+    await tenantContextMiddleware(req, {} as any, next);
+    expect(req.tenantId).toBeUndefined();
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT roundtrip when no candidate is resolved (no JWT, no header)", async () => {
+    const req = makeReq();
+    const next = vi.fn();
+    await tenantContextMiddleware(req, {} as any, next);
+    expect(req.tenantId).toBeUndefined();
+    expect(findUniqueMock).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledTimes(1);
   });
 });

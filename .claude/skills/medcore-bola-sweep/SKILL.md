@@ -210,3 +210,5 @@ It pairs with:
 - `80c4b89` — patients/:id fix (the canonical template)
 - `66bb6d2` — original #474 sweep (11 handlers)
 - `c87107e` `bfb52ab` `fbc898d` `96b9700` `a7bfc8c` — 5-agent #511 wave precedent
+- `7bc72c7` `3d501f0` `dafad04` `b183fab` `95cdc13` — long-tail wave precedent
+- `27eb610` `5b31ee7` `c015bd5` `1285c8f` — expanded-criterion wave precedent

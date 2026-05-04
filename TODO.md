@@ -94,6 +94,22 @@ is independently shippable. Full per-session history lives under
 > row's `<li>` as `data-entity-id` — best selector for exact-row
 > lock-on is `[data-testid="<picker>-option"][data-entity-id="${entity.id}"]`
 > (canonical examples in `9d7391a` and `2823d9c`).
+>
+> **2026-05-05 #511 BOLA-closure wave (5-agent fanout)**: After filing
+> #511 with 112 candidate handlers, dispatched 5 agents in parallel —
+> one per route-file lane. Results: **19 real BOLA gaps patched + 9
+> verified-safe** across 5 routes. Per-route results:
+> - `c87107e` admissions — 8 patches (sub-resources at `/:id/{discharge-readiness,vitals,bill,intake-output,mar,los-prediction,belongings,discharge-summary-pdf}`) + 1 verified-safe (`GET /:id` already had it from #474). 4 of 8 handlers had no parent `findUnique` at all — added one. 24 new tests.
+> - `bfb52ab` antenatal — 6/6 real gaps. 2 handlers (`/cases/:id/ultrasound`, `/cases/:id/postnatal-visits`) didn't even load the parent AntenatalCase — worst BOLA shape. 18 new tests.
+> - `fbc898d` ai-adherence + ai-coaching — naive grep was a false-positive (handlers already had inline ownership checks). Refactored 4 handlers to use `assertPatientOwnsResource` for consistency + drift-prevention. 9 new tests.
+> - `96b9700` ai-scribe + ai-triage + ai-report-explainer — 3 real gaps + 1 drift-prone refactor. **Triage DELETE was the worst**: zero pre-update validation, silent success on non-existent UUIDs. **Scribe DELETE was the most damaging vector**: JWT-only auth and wipes `transcript` + nulls `soapDraft`. 12 new tests.
+> - `a7bfc8c` bloodbank — 4/4 real gaps. `BloodRequest /:id` patient-owned (helper); `BloodDonor` sub-resources staff-only `authorize()` (PII). Bonus: flagged `GET /requests` collection as also un-authorized (cross-patient enumeration, out of scope here). 4 new regression cases.
+>
+> **Net: 25 real fixes (19 patches + 6 verified-safe-or-refactored)
+> across 5 route files, ~62 new test cases. Issue #511 substantially
+> closed; long tail (~80 candidate handlers in less-trafficked routes
+> like appointments / billing / ehr / immunization / lab / pharmacy /
+> insurance-claims) remains for a future sweep.**
 
 ---
 

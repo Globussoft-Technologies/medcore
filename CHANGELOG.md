@@ -12,6 +12,32 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 #511 BOLA-closure wave — 5-agent fanout, 19 real gaps patched + 6 verified-safe across 5 route files.**
+  After Issue #511 was filed (112 candidate handlers from a naive
+  audit grep), the cron-driven workflow dispatched 5 agents in
+  parallel — one per route-file lane. Net: **19 real BOLA / IDOR /
+  CWE-285 gaps closed + 6 verified-safe-or-refactored, ~62 new test
+  cases.** `c87107e` admissions (8 sub-resource handlers patched —
+  4 of which lacked any parent findUnique at all; 24 cross-patient
+  tests). `bfb52ab` antenatal (6/6 real gaps incl. ultrasound +
+  postnatal-visits which queried child tables directly without
+  loading the parent AntenatalCase; 18 tests). `fbc898d` ai-adherence
+  + ai-coaching (naive grep was a false-positive — handlers had inline
+  ownership checks; refactored 4 handlers to use the canonical
+  `assertPatientOwnsResource` helper for drift prevention; 9 tests).
+  `96b9700` ai-scribe + ai-triage + ai-report-explainer (3 real
+  vulnerabilities + 1 drift-prone refactor; **triage DELETE was the
+  worst** — zero pre-update validation, silent success on bad UUIDs;
+  **scribe DELETE was the most damaging** — JWT-only auth and wipes
+  `transcript` + nulls `soapDraft`; 12 tests). `a7bfc8c` bloodbank
+  (4/4 real gaps; `BloodRequest` patient-owned via helper; `BloodDonor`
+  sub-resources staff-only via `authorize()` since donors don't link to
+  Patient; 4 regression cases; bonus: flagged `GET /requests`
+  collection as also un-authorized — cross-patient enumeration,
+  scoped out for a future sweep). Issue #511 substantially closed;
+  long tail (~80 handlers in less-trafficked routes like appointments
+  / billing / ehr / immunization / lab / pharmacy / insurance-claims)
+  remains for a future sweep.
 - **2026-05-05 cron-driven E2E wave v2 (4-agent fanout) + emergency security fix.**
   Auto-pilot cron `56a0a2ec` fired again at "waiting-on-CI" and dispatched
   4-agent fanout shipping 4 more truly-uncovered routes. `531bf15`

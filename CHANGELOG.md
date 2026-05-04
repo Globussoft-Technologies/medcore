@@ -12,6 +12,21 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 13 — E2E coverage backlog (AI surfaces + compliance).**
+  Lane A (`e8c648d`) shipped `e2e/ai-booking.spec.ts` (5 cases —
+  universal-access pre-chat selector page) + `e2e/ai-fraud.spec.ts`
+  (6 cases — inline admin-gate placeholder, allow-set {ADMIN,RECEPTION}).
+  Lane B (`b155758`) shipped `e2e/insurance-claims.spec.ts` (7 cases —
+  ADMIN queue + status-filter query-string contract + row→drawer
+  timeline + RECEPTION parity + Issue #302/#458 client-guard) +
+  `e2e/audit.spec.ts` (7 cases — Issue #79 entity-canonicalisation +
+  Issue #192 entityLabel render). 25 new tests × 2 projects = 50 listed
+  cases. **5th cron-learning bullet RIPENED**: admin-gate-placeholder
+  archetype now has 2 confirmed instances (ai-kpis with dedicated
+  gate-testid + ai-fraud with reused outer-wrapper testid). Worth
+  promoting `/medcore-e2e-spec` with a 3-archetype page-shape decision
+  matrix + a `<route>-admin-gate` testid-naming recommendation for
+  new pages adopting this shape.
 - **2026-05-05 cron-tick wave 12 — E2E coverage backlog (profile + capacity-forecast + ai-kpis).**
   Lane A (`8a869c8`) shipped `e2e/profile.spec.ts` covering BOTH
   `/dashboard/profile` and the `/dashboard/account` redirect alias

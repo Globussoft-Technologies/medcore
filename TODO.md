@@ -316,6 +316,34 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 13 (2-agent E2E fanout — AI surfaces + compliance)**:
+> 4 backlog items closed across 4 spec files. Lane A (`e8c648d`):
+> `e2e/ai-booking.spec.ts` (5 cases — universal-access; pre-chat
+> "Who is this appointment for?" selector + DOCTOR/PATIENT both land;
+> staff-only Start-Consultation CTA + wire boundary `POST /ai/triage/
+> start` pinned) + `e2e/ai-fraud.spec.ts` (6 cases — **inline admin-gate
+> placeholder** — 2nd instance of the archetype after ai-kpis; gate via
+> `canRead` flag, allow-set `{ADMIN,RECEPTION}`; row + status-pill +
+> expand contract). Lane B (`b155758`): `e2e/insurance-claims.spec.ts`
+> (7 cases — ADMIN queue + status-filter `?status=` query-string contract
+> + row→drawer GET timeline + RECEPTION parity + Submit-new modal Issue
+> #302/#458 client-guard + DOCTOR/PATIENT redirect-bounce TO /dashboard
+> not /not-authorized) + `e2e/audit.spec.ts` (7 cases — ADMIN chrome +
+> entity-filter query-string contract + free-text `/audit/search`
+> endpoint switch + Issue #79 entity-canonicalisation + Issue #192
+> entityLabel render).
+>
+> **25 new E2E tests across 4 spec files** (×2 Playwright projects =
+> 50 listed cases). Backlog §2.8 + §2.12 partially closed.
+>
+> **5th cron-learning bullet RIPENED** to 2 instances — admin-gate-
+> placeholder archetype now confirmed on both ai-kpis (dedicated gate-
+> testid) and ai-fraud (reuses outer wrapper testid + textual "Restricted"
+> copy). Suggested skill promotion: extend `/medcore-e2e-spec` with a
+> 3-archetype decision matrix + a `<route>-admin-gate` testid-naming
+> recommendation for new pages adopting this shape. Cron-learning bullet
+> updated with the variation captured for the user's 24h review.
+>
 > **2026-05-05 cron-tick wave 12 (2-agent E2E fanout — profile/account + capacity-forecast + ai-kpis)**:
 > 4 backlog items closed across 3 spec files. Lane A (`8a869c8`):
 > `e2e/profile.spec.ts` — 6 cases covering BOTH `/dashboard/profile` and

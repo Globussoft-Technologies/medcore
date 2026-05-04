@@ -30,6 +30,27 @@ Key rule: **nothing else imports from `apps/api/prisma`** — the schema
 and migrations live in `packages/db` so that the mobile app, seeds,
 and standalone scripts can all share one client.
 
+**Tenant-scoping primitives also live in `packages/db`** (lifted from
+`apps/api/src/services/` on 2026-05-05 in commit `0c8ab07` — A10
+closure). Workers, cron jobs, the mobile API client, and any future
+secondary service should:
+
+```ts
+import {
+  tenantScopedPrisma,
+  runWithTenant,
+  tenantContextMiddleware,
+} from "@medcore/db";
+```
+
+This avoids crossing the `apps → packages` arrow and keeps tenant
+isolation enforced uniformly across every consumer. The
+`AsyncLocalStorage` instance is shared (do NOT instantiate a second
+ALS in `apps/api`; that silently breaks tenant propagation).
+`apps/api/src/services/tenant-prisma.ts` is now a 22-line
+back-compat re-export shim — existing import sites compile unchanged
+but new code should target `@medcore/db` directly.
+
 ---
 
 ## 2. Runtime request flow

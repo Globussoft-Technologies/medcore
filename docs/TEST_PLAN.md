@@ -190,6 +190,50 @@ npm run test:coverage
 `.github/workflows/test.yml` spins up a Postgres service container, exports
 `DATABASE_URL_TEST`, runs `prisma db push --force-reset`, then runs `npm test`.
 
+## 6.5 Adversarial-vector test categories (codified 2026-05-05)
+
+After 5 critical/high security issues (#473 mass-assignment, #474
+cross-patient leak, #475 missing security headers, #476 PII exposure,
+#483 login identity-binding) shipped past tests that asserted only
+HTTP status codes, this project codified six **adversarial-vector
+test categories**. Every new integration test for an authed or
+data-bearing endpoint should cover the relevant categories. Helpers
+live in [`apps/api/src/test/helpers/security-assertions.ts`](../apps/api/src/test/helpers/security-assertions.ts).
+
+| Category | Helper | When to apply | Example bug it would catch |
+|---|---|---|---|
+| **Mass-assignment** | `expectFieldNotMassAssigned` | Every POST/PATCH that accepts a body with privileged fields | #473: `role: "ADMIN"` injected into `/auth/register` |
+| **Identity binding** | `expectTokenIdentifies` | Every endpoint that returns a credential (login / register / refresh) | #483: login returns a token decoding to a different user |
+| **PII redaction** | `expectNoRawPII` + `expectMaskedField` | Every GET that returns rows containing Aadhaar / ID-proof / DOB / address | #476: raw Aadhaar in `/visitors/active` response |
+| **Security headers** | `expectSecurityHeaders` | At least one assertion per integration-test file (guards middleware-ordering regressions) | #475: missing CSP / HSTS / X-Frame-Options |
+| **Anti-enumeration** | `expectAntiEnumeration` | Every endpoint that signals entity existence (forgot-password / register-duplicate / forgot-username) | #480: `/auth/register` reveals which emails are registered |
+| **Cross-row access** | `expectCrossRowDenied` | Every authed GET/PATCH/DELETE on a row-keyed resource | #474: PATIENT-A reads PATIENT-B's resource |
+
+**Anti-pattern to avoid:** `expect(res.status).toBeLessThan(400)` as
+the *only* assertion in an integration test. That's a contract-of-
+existence assertion (the endpoint didn't crash), not a contract-of-
+correctness assertion. Every category above adds the missing
+correctness check for one specific class of bug.
+
+**Convention:** when adding a new authed endpoint, write its integration
+test with a checklist comment at the top:
+
+```ts
+/**
+ * Adversarial-vector coverage:
+ *   [x] mass-assignment    (privileged fields rejected/stripped)
+ *   [x] identity binding   (returned token identifies the requesting user)
+ *   [x] PII redaction      (no raw Aadhaar/ID-proof in response)
+ *   [x] security headers   (helmet headers present, x-powered-by gone)
+ *   [ ] anti-enumeration   (n/a — endpoint doesn't signal existence)
+ *   [x] cross-row access   (PATIENT-A blocked from PATIENT-B's row)
+ */
+```
+
+A reviewer scanning the file can see at a glance which vectors got
+covered and which were judged not applicable. Don't `[x]` a category
+unless an assertion exists for it.
+
 ## 7. Known gaps / future work
 
 This list reflects the post-Wave-3 audit (2026-05-02). Items in §7.1 are

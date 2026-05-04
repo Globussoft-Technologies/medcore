@@ -11,6 +11,39 @@ test-coverage closure across §A-§E gaps, Playwright stabilization
 across Chromium + WebKit, and the local-first test workflow.
 
 ### Added
+- **2026-05-05 critical-security fix wave + adversarial-vector test infra.**
+  Five critical/high GitHub issues closed via 5-agent fanout: `b6601ad`
+  (#473 mass-assignment in `/auth/register` — `registerSchema.role`
+  optional + new `resolveRegistrationRole()` helper that requires an
+  admin token to set non-PATIENT roles; preserves dashboard staff-
+  creation flow; 3 new tests verify stored role via `/auth/me`),
+  `66bb6d2` (#474 cross-patient row-level access — new
+  `assertPatientOwnsResource` middleware applied to 11 handlers
+  across 9 route files; 5 routes get per-row checks, 6 operational/
+  staff routes deny PATIENT entirely; 29 cross-patient tests),
+  `bd7785a` (#475 helmet@^8 mounted with strict CSP / HSTS /
+  X-Frame-Options DENY / X-Content-Type-Options / Referrer-Policy;
+  `X-Powered-By` removed; 7 header-assertion tests), `5f2fa2a`
+  (#476 visitor PII redaction — new `pii-redact.ts` helper masks
+  `idProofNumber` to `********1234` shape across 7 visitor response
+  sites; DB still stores full value for blacklist matching; 7 tests
+  with `JSON.stringify` raw-value needle check). #483 login wrong-
+  user investigation: source code is correct (login does
+  `findUnique` on unique email, bcrypts against that user, signs
+  token with same row); production report likely stale localStorage.
+  2 identity-binding tests added as defence in depth.
+- **Adversarial-vector test infrastructure** to prevent the whole
+  bug class from recurring silently. New
+  `apps/api/src/test/helpers/security-assertions.ts` exports 6
+  reusable assertions: `expectSecurityHeaders`, `expectNoRawPII` +
+  `expectMaskedField`, `expectTokenIdentifies`,
+  `expectFieldNotMassAssigned`, `expectAntiEnumeration`,
+  `expectCrossRowDenied`. `docs/TEST_PLAN.md` §6.5 codifies the
+  six adversarial-vector categories with a checklist comment
+  template that every new authed-endpoint integration test should
+  use. Closes the underlying habit of `expect(res.status).toBeLessThan(400)`
+  as the only assertion (the pattern that let #473/#474/#475/#476/#483
+  ship past existing tests).
 - **2026-05-05 A4/A5 fix wave (5-agent fanout) — 18 forms modernized to noValidate + React-only validation; A5 RBAC drift effectively CLOSED.**
   Per Issue #458 audit recommendation, swept the top 3 most-affected
   files plus a 4-file cluster: `d76669d` (patients/[id] — 7 sub-forms:

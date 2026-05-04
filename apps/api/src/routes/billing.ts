@@ -287,7 +287,33 @@ router.get(
 
       const where: Record<string, unknown> = {};
       if (patientId) where.patientId = patientId;
-      if (status) where.paymentStatus = status;
+      // Issue #479: the patient dashboard widget requests
+      // `?status=PENDING,PARTIAL` as a comma-separated list. Passing the
+      // literal "PENDING,PARTIAL" string straight into Prisma's
+      // `paymentStatus` (a `PaymentStatus` enum) raised an enum-validation
+      // exception that bubbled up as a 500. Match the convention already in
+      // appointments/ai-scribe routes: split on comma into a `{ in: [...] }`
+      // clause and validate each entry against the enum so unknown values
+      // surface as a clean 400 instead of crashing the handler.
+      const VALID_STATUSES = ["PENDING", "PAID", "PARTIAL", "REFUNDED"] as const;
+      if (typeof status === "string" && status.length > 0) {
+        const parts = status
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const invalid = parts.filter(
+          (s) => !VALID_STATUSES.includes(s as (typeof VALID_STATUSES)[number])
+        );
+        if (invalid.length > 0) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: `Invalid status value(s): ${invalid.join(", ")}`,
+          });
+          return;
+        }
+        where.paymentStatus = parts.length === 1 ? parts[0] : { in: parts };
+      }
       // Issue #82: support `?search=<invoiceNumber|patient name>` so the
       // EntityPicker on the Insurance Claims modal can find an invoice by
       // typing. Falls through to no-op when search is missing/empty.

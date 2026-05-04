@@ -293,4 +293,66 @@ describeIfDB("Billing API (integration)", () => {
     const res = await request(app).get("/api/v1/billing/hospital-profile");
     expect(res.status).toBe(401);
   });
+
+  // ─── GET /billing/invoices `status=` query-param edge cases (Issue #479) ───
+  //
+  // The patient dashboard widget calls
+  // `GET /api/v1/billing/invoices?mine=true&status=PENDING,PARTIAL&limit=5`
+  // and was getting a 500 because the comma-separated literal was passed
+  // straight to Prisma against a `PaymentStatus` enum column. These cases
+  // pin the contract: every plausible `status=` shape returns 200 or 4xx —
+  // never 500.
+
+  it("GET /invoices?status=PENDING accepts a single-status filter (200)", async () => {
+    const res = await request(app)
+      .get("/api/v1/billing/invoices?status=PENDING&limit=5")
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  it("GET /invoices?status=PENDING,PARTIAL accepts a comma-separated list without 500 (Issue #479)", async () => {
+    const res = await request(app)
+      .get("/api/v1/billing/invoices?mine=true&status=PENDING,PARTIAL&limit=5")
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  it("GET /invoices?status= (empty) is treated as no-filter (200)", async () => {
+    const res = await request(app)
+      .get("/api/v1/billing/invoices?status=&limit=5")
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  it("GET /invoices?status=BOGUS returns a clean 400 envelope (not 500)", async () => {
+    const res = await request(app)
+      .get("/api/v1/billing/invoices?status=BOGUS")
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toMatch(/invalid status/i);
+  });
+
+  it("GET /invoices?mine=false&status=PENDING,PARTIAL still resolves cleanly (200)", async () => {
+    const res = await request(app)
+      .get("/api/v1/billing/invoices?mine=false&status=PENDING,PARTIAL&limit=5")
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  it("GET /invoices as PATIENT with comma-separated status is the dashboard widget repro (200, never 500) (Issue #479)", async () => {
+    const patientToken = await getAuthToken("PATIENT");
+    const res = await request(app)
+      .get("/api/v1/billing/invoices?mine=true&status=PENDING,PARTIAL&limit=5")
+      .set("Authorization", `Bearer ${patientToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
 });

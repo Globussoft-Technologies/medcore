@@ -56,6 +56,29 @@ router.post(
       const overrideNoShow: boolean = Boolean(req.body.overrideNoShow);
       const dateObj = new Date(date);
 
+      // Issue #491 (2026-05-03): Zod refuses past calendar dates, but a
+      // today-dated booking with a slot start that's already elapsed
+      // (e.g. it's 14:30 and the caller asks for 09:00) was still
+      // accepted. Reject same-day past-time slots before we touch the
+      // DB. `slotId` from the booking form is HH:MM (the route comment
+      // notes this); only block when it parses as a real time so any
+      // legacy callers passing a true UUID slotId are unaffected.
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      if (date === todayStr && /^\d{2}:\d{2}$/.test(slotId)) {
+        const [sh, sm] = slotId.split(":").map(Number);
+        const slotMin = sh * 60 + sm;
+        const nowMin = now.getHours() * 60 + now.getMinutes();
+        if (slotMin < nowMin) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "Cannot book a slot in the past",
+          });
+          return;
+        }
+      }
+
       // ── No-show policy enforcement ──
       const patient = await prisma.patient.findUnique({
         where: { id: patientId },

@@ -252,6 +252,16 @@ export default function AppointmentsPage() {
   const confirm = useConfirm();
   const isPatient = user?.role === "PATIENT";
 
+  // Issue #491 (2026-05-03): every "future-date" input on this page (book a
+  // new appointment, reschedule, waitlist preferred date, recurring start,
+  // coordinated visit) needs a `min={today}` so the native date picker
+  // stops the user from selecting a past date in the first place. The
+  // backend Zod schema also rejects past dates as a defence-in-depth, but
+  // a UX guard here prevents the slot grid from rendering at all. Filter
+  // and stats inputs deliberately do *not* set this min — those are for
+  // querying historical records.
+  const todayMin = toISODate(new Date());
+
   // View toggle
   const [view, setView] = useState<ViewMode>("list");
 

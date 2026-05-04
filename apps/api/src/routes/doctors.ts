@@ -158,6 +158,27 @@ router.get(
         isAvailable: boolean;
       }> = [];
 
+      // Issue #491 (2026-05-03): if the requested date is a *past* calendar
+      // day, no slot is bookable; return an empty grid (the previous code
+      // happily rendered "09:00–20:00" for 01-01-2020). For today, drop slots
+      // whose start time has already elapsed so the patient never sees a row
+      // they can't actually book. We string-compare YYYY-MM-DD against the
+      // server's local today; the route never received timezone info from
+      // the caller, so this stays consistent with the new Zod refine.
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const reqDateStr = String(date);
+      if (reqDateStr < todayStr) {
+        res.json({
+          success: true,
+          data: { date, slots: [], blocked: false, reason: "Date is in the past" },
+          error: null,
+        });
+        return;
+      }
+      const isToday = reqDateStr === todayStr;
+      const nowMin = now.getHours() * 60 + now.getMinutes();
+
       for (const schedule of schedules) {
         const startTime = override?.startTime || schedule.startTime;
         const endTime = override?.endTime || schedule.endTime;
@@ -171,6 +192,7 @@ router.get(
         const endMinutes = endH * 60 + endM;
 
         for (let m = startMinutes; m + duration <= endMinutes; m += step) {
+          if (isToday && m < nowMin) continue;
           const slotStart = `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
           const slotEndMin = m + duration;
           const slotEnd = `${String(Math.floor(slotEndMin / 60)).padStart(2, "0")}:${String(slotEndMin % 60).padStart(2, "0")}`;

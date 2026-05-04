@@ -1,9 +1,23 @@
 import { z } from "zod";
 
+// Issue #491 (2026-05-03): the booking form let users pick `01-01-2020` and
+// the API happily wrote a row for it. We piggy-back on the existing #362
+// helper (recurring appts already do this) — compare the YYYY-MM-DD string
+// against the user's local today rather than constructing Date objects, so
+// a clerk in IST isn't tripped up by a UTC midnight boundary off-by-one.
+function isBookingDateNotPast(yyyyMmDd: string): boolean {
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  return yyyyMmDd >= todayStr;
+}
+
 export const bookAppointmentSchema = z.object({
   patientId: z.string().uuid(),
   doctorId: z.string().uuid(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
+    .refine(isBookingDateNotPast, "Appointment date must be today or later"),
   slotId: z.string().uuid(),
   notes: z.string().optional(),
 });
@@ -124,7 +138,12 @@ export const scheduleOverrideSchema = z.object({
 });
 
 export const rescheduleAppointmentSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
+  // Issue #491 (2026-05-03): same fix as bookAppointmentSchema — reject
+  // a reschedule that lands on a past calendar date.
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
+    .refine(isBookingDateNotPast, "Appointment date must be today or later"),
   slotStart: z.string().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM"),
 });
 

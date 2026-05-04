@@ -14,7 +14,11 @@ import {
 const UUID = "11111111-1111-1111-1111-111111111111";
 
 describe("bookAppointmentSchema", () => {
-  const valid = { patientId: UUID, doctorId: UUID, date: "2026-04-20", slotId: UUID };
+  // Issue #491 (2026-05-03): bookAppointmentSchema now rejects past dates,
+  // so the fixture uses a far-future YYYY-MM-DD that's safely valid no
+  // matter when the test runs (mirrors the pattern recurring already used
+  // for #362).
+  const valid = { patientId: UUID, doctorId: UUID, date: "2099-04-20", slotId: UUID };
   it("accepts a valid booking", () => {
     expect(bookAppointmentSchema.safeParse(valid).success).toBe(true);
   });
@@ -27,6 +31,15 @@ describe("bookAppointmentSchema", () => {
   it("rejects missing slotId", () => {
     const { slotId, ...rest } = valid;
     expect(bookAppointmentSchema.safeParse(rest).success).toBe(false);
+  });
+  // Issue #491: past calendar date must be rejected before slot-conflict
+  // logic ever runs (the bug let "01-01-2020" populate a slot grid).
+  it("rejects a past appointment date", () => {
+    const r = bookAppointmentSchema.safeParse({ ...valid, date: "2020-01-01" });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.some((i) => /today or later|past/i.test(i.message))).toBe(true);
+    }
   });
 });
 
@@ -50,12 +63,12 @@ describe("walkInSchema", () => {
 describe("rescheduleAppointmentSchema", () => {
   it("accepts valid date and time", () => {
     expect(
-      rescheduleAppointmentSchema.safeParse({ date: "2026-05-01", slotStart: "10:30" }).success
+      rescheduleAppointmentSchema.safeParse({ date: "2099-05-01", slotStart: "10:30" }).success
     ).toBe(true);
   });
   it("rejects bad time format", () => {
     expect(
-      rescheduleAppointmentSchema.safeParse({ date: "2026-05-01", slotStart: "10am" }).success
+      rescheduleAppointmentSchema.safeParse({ date: "2099-05-01", slotStart: "10am" }).success
     ).toBe(false);
   });
 });

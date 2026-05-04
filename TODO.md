@@ -316,6 +316,30 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick CI-unblock wave (regression fix)**: `a5a6224`
+> diagnosed test.yml on `dbf45d4` (a docs-only commit, no code changed)
+> failing 6 tests across 4 files. Three independent regressions, each
+> from today's BOLA waves: (1) **lab.ts route-shadow** — `GET
+> /results/:orderItemId` declared at line 556, the more-specific
+> `GET /results/trends` and `GET /results/pending-verification`
+> declared later were never reached because Express bound 'trends' /
+> 'pending-verification' to `:orderItemId` (404'd against the literal
+> string). Moved both static routes BEFORE the dynamic one with a
+> route-ordering note. (2) **patients.ts:134 helper-arg bug** —
+> introduced by `80c4b89` earlier today; called
+> `assertPatientOwnsResource(req, res, patient.user?.id)` passing
+> User row id where the helper expects Patient row id. Helper looked
+> up Patient WHERE id=user.id, found nothing, 403'd PATIENT-A on
+> their own chart. Fixed to pass `patient.id`. Repo-wide grep
+> confirmed no other call sites had the same shape. (3) **prescriptions
+> test:417 message brittle** — asserted `/own/i` from legacy hand-rolled
+> error string; today's #511 sweep refactored the handler onto
+> canonical helper which emits 'Forbidden'. Updated test to match
+> canonical contract. **Cron Learning bullet added**: Express
+> route-shadow + helper-arg-shape are both lightweight grep checks
+> a `/medcore-bola-sweep` post-fix-verification lane could add. Ripe
+> immediately if 1 more recurrence in long-tail.
+>
 > **2026-05-05 #511 BOLA-closure wave (5-agent fanout)**: After filing
 > #511 with 112 candidate handlers, dispatched 5 agents in parallel —
 > one per route-file lane. Results: **19 real BOLA gaps patched + 9

@@ -12,6 +12,28 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick CI-unblock wave — 3 regression fixes from today's BOLA waves.**
+  `a5a6224` diagnosed `dbf45d4`'s `test.yml` (a docs-only commit, no code
+  changed) failing 6 tests across 4 files. Three independent regressions:
+  (1) **lab.ts route-shadow** — `GET /results/:orderItemId` declared at
+  line 556 with the more-specific `GET /results/trends` and
+  `GET /results/pending-verification` declared later; Express bound the
+  literal strings 'trends' / 'pending-verification' to `:orderItemId`,
+  the static handlers never ran (404 against the literal). Moved both
+  before the dynamic route + added a route-ordering note to keep the
+  invariant after future edits. (2) **patients.ts:134 helper-arg bug**
+  introduced earlier today by `80c4b89` — called
+  `assertPatientOwnsResource(req, res, patient.user?.id)` passing the
+  User row id where the helper expects the Patient row id; helper found
+  no Patient WHERE id=user.id and 403'd PATIENT-A on their own chart.
+  Fixed to pass `patient.id`. Repo-wide grep confirmed no other call
+  sites had the same shape. (3) **prescriptions test:417** asserted
+  `/own/i` from a legacy hand-rolled error string; today's #511 sweep
+  refactored the handler onto the canonical helper which emits
+  'Forbidden'. Test updated to match canonical contract. CLAUDE.md
+  Cron Learnings: bullet added for the Express route-shadow + helper-
+  arg-shape mistakes (both are cheap grep checks a
+  `/medcore-bola-sweep` post-fix-verification lane could add).
 - **2026-05-05 cron-tick wave 6 — uploads + notifications + ai-knowledge (1 BOLA + 2 verified-safe).**
   Solo agent sweep. `c6ceca5` shipped 1 real BOLA in uploads
   `GET /:filename` (legacy filename endpoint): any PATIENT could fetch

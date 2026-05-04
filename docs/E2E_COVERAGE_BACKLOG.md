@@ -119,7 +119,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - ~~`/dashboard/broadcasts` — bulk announcement~~ closed 2026-05-03 by `e2e/broadcasts.spec.ts` (7 tests; ADMIN chrome + compose-send + audience picker + empty-form gate + DOCTOR/NURSE/PATIENT bounces)
 - `/dashboard/notification-templates` — template config
 - ~~`/dashboard/complaints` — complaint workflow~~ closed 2026-05-03 by `e2e/complaints.spec.ts` (6 tests; ADMIN chrome + modal + validation toast + tab switch + RECEPTION reach + PATIENT/LAB_TECH 403 on list)
-- `/dashboard/chat` — inter-department messaging
+- ~~`/dashboard/chat` — inter-department messaging~~ closed 2026-05-04 by `e2e/chat.spec.ts` (7 tests; ADMIN inbox+picker+send round-trip + DOCTOR/RECEPTION sidebar reach + PATIENT/LAB_TECH direct-URL accessibility — page has no client-side role gate, only the staff filter on `/chat/users`)
 
 ### 2.6 Analytics & Reporting
 - `/dashboard/reports` — custom report creation (only crash-regression tested)

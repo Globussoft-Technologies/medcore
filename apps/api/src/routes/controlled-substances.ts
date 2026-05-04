@@ -1,3 +1,8 @@
+// #511 audit (2026-05-05, cron-tick): all handlers verified safe via
+// router-level authorize(Role.ADMIN, Role.PHARMACIST, Role.DOCTOR) at line
+// below — PATIENT cannot reach any surface in this file. Schedule H/H1/X
+// register is regulated; staff-only is the correct contract (verdict C
+// applied at the router level, no per-handler patches needed).
 import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "@medcore/db";
 import { Role, controlledSubstanceSchema } from "@medcore/shared";
@@ -12,6 +17,7 @@ router.use(authenticate);
 // RECEPTION must NOT be able to read or write entries. Per-route authorize()
 // is still applied below for any tighter (e.g. audit-report = ADMIN+DOCTOR)
 // restrictions.
+// #511 audit: router-level authorize() excludes PATIENT — verified safe.
 router.use(authorize(Role.ADMIN, Role.PHARMACIST, Role.DOCTOR));
 
 // ───────────────────────────────────────────────────────

@@ -12,12 +12,25 @@ const router = Router();
 router.use(authenticate);
 
 // GET /api/v1/doctors — list all doctors
-router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
+//
+// #511 audit (2026-05-05, cron-tick): PATCHED — catalog endpoint surface.
+// PATIENTs need to read doctor profiles to pick whom to book with, so the
+// route stays PATIENT-reachable (intentional). BUT the previous shape
+// exposed `user.email` and `user.phone` of every doctor to any authed
+// user — that's HR-class PII a patient does not need to book a slot. Per
+// the `3beeeaf` precedent (eager-include leak in catalog endpoints),
+// branch the projection by caller role: PATIENTs see only `id + name +
+// isActive`; staff (ADMIN, DOCTOR, RECEPTION, NURSE, PHARMACIST) keep
+// the full email + phone for the directory page.
+router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const isPatient = req.user?.role === "PATIENT";
     const doctors = await prisma.doctor.findMany({
       include: {
         user: {
-          select: { id: true, name: true, email: true, phone: true, isActive: true },
+          select: isPatient
+            ? { id: true, name: true, isActive: true }
+            : { id: true, name: true, email: true, phone: true, isActive: true },
         },
         schedules: true,
       },
@@ -37,6 +50,7 @@ router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
 // `DoctorSchedule` that also normalises the wire shape to what the page
 // expects (slotDuration, dayOfWeek as a label so the existing UI grid keys
 // match without a Number→Name mapping in the page).
+// #511 audit: VERIFIED-SAFE — authorize() excludes PATIENT.
 router.get(
   "/:id/schedule",
   authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION, Role.NURSE),
@@ -77,6 +91,7 @@ router.get(
 );
 
 // GET /api/v1/doctors/:id/overrides — list schedule overrides
+// #511 audit: VERIFIED-SAFE — authorize() excludes PATIENT.
 router.get(
   "/:id/overrides",
   authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION, Role.NURSE),
@@ -94,6 +109,10 @@ router.get(
 );
 
 // GET /api/v1/doctors/:id/slots?date=YYYY-MM-DD — get available slots
+// #511 audit: VERIFIED-SAFE — intentional PATIENT-reachable booking
+// surface. Returns only schedule + booked-slot mask per requested date;
+// no patient-identifying data leaks (booked slots are returned as a
+// boolean `isAvailable`, never as appointment details or patient names).
 router.get(
   "/:id/slots",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -217,6 +236,7 @@ router.get(
 );
 
 // POST /api/v1/doctors/:id/schedule — set schedule
+// #511 audit: VERIFIED-SAFE — authorize() excludes PATIENT.
 router.post(
   "/:id/schedule",
   authorize(Role.ADMIN, Role.DOCTOR),
@@ -254,6 +274,7 @@ router.post(
 );
 
 // POST /api/v1/doctors/:id/override — block date or modify hours
+// #511 audit: VERIFIED-SAFE — authorize() excludes PATIENT.
 router.post(
   "/:id/override",
   authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION),

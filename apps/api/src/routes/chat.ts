@@ -21,6 +21,9 @@ const router = Router();
 router.use(authenticate);
 
 // GET /api/v1/chat/users — list other users for starting a chat
+// #511 audit: VERIFIED-SAFE — staff catalog by design (excludes PATIENT
+// rows via `role: { not: "PATIENT" }`); intentional surface for PATIENT
+// to pick a doctor/nurse to start a chat with. No row-keyed param.
 router.get(
   "/users",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -67,6 +70,8 @@ router.get(
 );
 
 // GET /api/v1/chat/rooms — list user's rooms
+// #511 audit: VERIFIED-SAFE — list scoped to caller's own ChatParticipant
+// rows (`where: { userId, leftAt: null }`); cannot fish other users' rooms.
 router.get(
   "/rooms",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -134,6 +139,9 @@ router.get(
 );
 
 // POST /api/v1/chat/rooms — create room (1-on-1 returns existing)
+// #511 audit: VERIFIED-SAFE — caller is always added to the new room as
+// a participant; `participantIds` are explicit (caller chose them); no
+// row-keyed param. Cross-role chat (DOCTOR↔PATIENT) is the design intent.
 router.post(
   "/rooms",
   validate(createChatRoomSchema),
@@ -213,6 +221,9 @@ router.post(
 );
 
 // GET /api/v1/chat/rooms/:id/messages
+// #511 audit: VERIFIED-SAFE — explicit participant check (line below) +
+// ADMIN bypass for agent-console triage (issue #189). Non-participants
+// receive 403.
 router.get(
   "/rooms/:id/messages",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -266,6 +277,7 @@ router.get(
 );
 
 // POST /api/v1/chat/rooms/:id/messages
+// #511 audit: VERIFIED-SAFE — participant check + ADMIN bypass (issue #189).
 router.post(
   "/rooms/:id/messages",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -346,6 +358,9 @@ router.post(
 );
 
 // PATCH /api/v1/chat/rooms/:id/read
+// #511 audit: VERIFIED-SAFE — Prisma compound key
+// `roomId_userId: { roomId, userId: <self> }` is implicitly self-scoped;
+// non-participants get P2025 (record not found) handled by next(err).
 router.patch(
   "/rooms/:id/read",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -363,6 +378,8 @@ router.patch(
 );
 
 // POST /api/v1/chat/rooms/:id/participants — add user (group creator only)
+// #511 audit: VERIFIED-SAFE — explicit creator-or-ADMIN check (line below);
+// rejects non-creators, group-only.
 router.post(
   "/rooms/:id/participants",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -424,6 +441,8 @@ router.post(
 );
 
 // DELETE /api/v1/chat/rooms/:id/participants/:userId
+// #511 audit: VERIFIED-SAFE — allows self-removal, room-creator removal,
+// or ADMIN; explicit 403 otherwise.
 router.delete(
   "/rooms/:id/participants/:userId",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -467,6 +486,8 @@ router.delete(
 // ═══════════════════════════════════════════════════════
 
 // POST /api/v1/chat/messages/:id/reactions — toggle a reaction
+// #511 audit: VERIFIED-SAFE — loads the message's roomId then runs the
+// same participant + ADMIN-bypass check as message GET/POST.
 router.post(
   "/messages/:id/reactions",
   validate(messageReactionSchema),
@@ -514,6 +535,7 @@ router.post(
 );
 
 // PATCH /api/v1/chat/messages/:id/pin
+// #511 audit: VERIFIED-SAFE — same participant + ADMIN-bypass pattern.
 router.patch(
   "/messages/:id/pin",
   validate(pinMessageSchema),
@@ -550,6 +572,7 @@ router.patch(
 );
 
 // GET /api/v1/chat/rooms/:id/pinned
+// #511 audit: VERIFIED-SAFE — same participant + ADMIN-bypass pattern.
 router.get(
   "/rooms/:id/pinned",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -577,6 +600,10 @@ router.get(
 );
 
 // GET /api/v1/chat/search?q=&roomId=
+// #511 audit: VERIFIED-SAFE — search scoped to caller's participating
+// room ids (`roomId: { in: ids }` from own ChatParticipant rows). Even
+// when caller passes ?roomId=<other>, that filter is applied AFTER the
+// scoping intersect implicitly via the `in` already in `where`.
 router.get(
   "/search",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -619,6 +646,7 @@ router.get(
 );
 
 // POST /api/v1/chat/channels — admin creates a department-wide channel
+// #511 audit: VERIFIED-SAFE — `authorize(Role.ADMIN)` excludes PATIENT.
 router.post(
   "/channels",
   authorize(Role.ADMIN),
@@ -674,11 +702,29 @@ router.post(
 );
 
 // POST /api/v1/chat/rooms/:id/typing — broadcast typing indicator
+//
+// #511 audit (2026-05-05, cron-tick): PATCHED — chat ACL is participant
+// membership (not patient-row ownership). Without the participant check
+// any authed user (including a PATIENT) could spam typing-indicator
+// socket events into ANY chat room they could guess the id of, leaking
+// presence and noise into staff conversations. Apply the same
+// participant + admin-bypass gate already used by every other
+// /rooms/:id/* handler in this file.
 router.post(
   "/rooms/:id/typing",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.userId;
+      const isAdmin = req.user?.role === "ADMIN";
+      const participant = await prisma.chatParticipant.findUnique({
+        where: { roomId_userId: { roomId: req.params.id, userId } },
+      });
+      if ((!participant || participant.leftAt) && !isAdmin) {
+        res
+          .status(403)
+          .json({ success: false, data: null, error: "Not a participant" });
+        return;
+      }
       const io = req.app.get("io");
       if (io) {
         io.to(`chat:${req.params.id}`).emit("chat:typing", {

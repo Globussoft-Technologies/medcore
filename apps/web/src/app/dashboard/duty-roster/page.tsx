@@ -1,11 +1,19 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Plus, Users2, CalendarDays, Trash2 } from "lucide-react";
+
+// Issue #509: page-level gate. The duty-roster UI is the staff-management
+// write surface — the mutating endpoints in apps/api/src/routes/shifts.ts
+// (POST /, POST /bulk, PATCH /:id, DELETE /:id) are all authorize(ADMIN).
+// Page previously had no gate, so PATIENT / NURSE / DOCTOR could see staff
+// schedules via the URL bar.
+const VIEW_ALLOWED = new Set(["ADMIN"]);
 
 interface StaffUser {
   id: string;
@@ -54,13 +62,25 @@ function todayKey(): string {
 }
 
 export default function DutyRosterPage() {
-  const { user } = useAuthStore();
+  const { user, isLoading } = useAuthStore();
+  const router = useRouter();
+  const pathname = usePathname();
   const confirm = useConfirm();
   const [date, setDate] = useState<string>(todayKey());
   const [staff, setStaff] = useState<StaffUser[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
   const [roleFilter, setRoleFilter] = useState<string>("ALL");
+
+  // Issue #509: redirect non-allowed roles to /dashboard/not-authorized.
+  useEffect(() => {
+    if (!isLoading && user && !VIEW_ALLOWED.has(user.role)) {
+      toast.error("Duty roster is restricted to administrators.");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/duty-roster")}`,
+      );
+    }
+  }, [user, isLoading, router, pathname]);
 
   // Add single shift modal
   const [showAdd, setShowAdd] = useState(false);

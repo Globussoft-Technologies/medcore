@@ -1,10 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { extractFieldErrors } from "@/lib/field-errors";
+import { useAuthStore } from "@/lib/store";
 import { FileCheck, Plus, X } from "lucide-react";
+
+// Issue #509: page-level gate matching API authorize() in
+// apps/api/src/routes/preauth.ts (ADMIN, RECEPTION). Page previously had no
+// gate, so NURSE / DOCTOR / PATIENT could see the insurance pre-auth queue.
+const VIEW_ALLOWED = new Set(["ADMIN", "RECEPTION"]);
 
 type Tab = "PENDING" | "APPROVED" | "REJECTED" | "ALL";
 
@@ -43,11 +50,24 @@ function fmtMoney(n: number) {
 }
 
 export default function PreAuthPage() {
+  const { user, isLoading } = useAuthStore();
+  const router = useRouter();
+  const pathname = usePathname();
   const [tab, setTab] = useState<Tab>("PENDING");
   const [rows, setRows] = useState<PreAuthRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [newOpen, setNewOpen] = useState(false);
   const [statusEdit, setStatusEdit] = useState<PreAuthRow | null>(null);
+
+  // Issue #509: redirect non-allowed roles to /dashboard/not-authorized.
+  useEffect(() => {
+    if (!isLoading && user && !VIEW_ALLOWED.has(user.role)) {
+      toast.error("Pre-authorisation is restricted to Admin and Reception.");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/preauth")}`,
+      );
+    }
+  }, [user, isLoading, router, pathname]);
 
   const load = useCallback(async () => {
     setLoading(true);

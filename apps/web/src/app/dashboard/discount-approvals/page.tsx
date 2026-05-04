@@ -2,10 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm, usePrompt } from "@/lib/use-dialog";
+import { useAuthStore } from "@/lib/store";
 import { Percent } from "lucide-react";
+
+// Issue #509: page-level gate matching API authorize() in
+// apps/api/src/routes/billing.ts on /discount-approvals (ADMIN, RECEPTION).
+// Page previously had no gate, so NURSE / DOCTOR / PATIENT could navigate
+// to /dashboard/discount-approvals and see the discount-approval queue.
+const VIEW_ALLOWED = new Set(["ADMIN", "RECEPTION"]);
 
 type Tab = "PENDING" | "APPROVED" | "REJECTED";
 
@@ -36,12 +44,25 @@ function fmtMoney(n: number) {
 }
 
 export default function DiscountApprovalsPage() {
+  const { user, isLoading } = useAuthStore();
+  const router = useRouter();
+  const pathname = usePathname();
   const confirm = useConfirm();
   const promptUser = usePrompt();
   const [tab, setTab] = useState<Tab>("PENDING");
   const [rows, setRows] = useState<ApprovalRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
+
+  // Issue #509: redirect non-allowed roles to /dashboard/not-authorized.
+  useEffect(() => {
+    if (!isLoading && user && !VIEW_ALLOWED.has(user.role)) {
+      toast.error("Discount approvals are restricted to Admin and Reception.");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/discount-approvals")}`,
+      );
+    }
+  }, [user, isLoading, router, pathname]);
 
   const load = useCallback(async () => {
     setLoading(true);

@@ -7,6 +7,7 @@
 // DICOM region-overlay rendering is deferred — see the service TODOs.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import {
   ScanLine,
   FileSearch,
@@ -20,6 +21,14 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { useTranslation } from "@/lib/i18n";
+
+// Issue #509: page-level gate matching API authorize() in
+// apps/api/src/routes/ai-radiology.ts (DOCTOR, ADMIN). The page previously
+// rendered an inline "restricted" message for non-allowed roles — but that
+// still leaks the route's existence and layout chrome. Replace the inline
+// message with a redirect to /dashboard/not-authorized so non-allowed roles
+// never see the radiology surface.
+const VIEW_ALLOWED = new Set(["ADMIN", "DOCTOR"]);
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -88,12 +97,25 @@ const CONFIDENCE_COLOR: Record<Finding["confidence"], string> = {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function AiRadiologyPage() {
-  const { user } = useAuthStore();
+  const { user, isLoading } = useAuthStore();
+  const router = useRouter();
+  const pathname = usePathname();
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>("pending");
   const [pending, setPending] = useState<RadiologyReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedReport, setSelectedReport] = useState<RadiologyReport | null>(null);
+
+  // Issue #509: redirect non-allowed roles to /dashboard/not-authorized
+  // (replaces the prior inline "restricted" message that leaked the layout).
+  useEffect(() => {
+    if (!isLoading && user && !VIEW_ALLOWED.has(user.role)) {
+      toast.error("AI Radiology drafting is restricted to doctors and administrators.");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/ai-radiology")}`,
+      );
+    }
+  }, [user, isLoading, router, pathname]);
 
   const loadPending = useCallback(async () => {
     setLoading(true);

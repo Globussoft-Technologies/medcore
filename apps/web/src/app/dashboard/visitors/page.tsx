@@ -1,12 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { Camera, Upload, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
+import { useAuthStore } from "@/lib/store";
 // Issue #92 / #162 / #163 — shared elapsed-minutes helper (year-2000 clamp).
 import { elapsedMinutes } from "@/lib/time";
+
+// Issue #509: page-level gate matching API authorize() in
+// apps/api/src/routes/visitors.ts (ADMIN, RECEPTION, DOCTOR, NURSE on reads).
+// Page had no gate, so PATIENT / LAB_TECH / PHARMACIST could see the
+// front-desk visitor pass UI via the URL bar.
+const VIEW_ALLOWED = new Set(["ADMIN", "RECEPTION", "DOCTOR", "NURSE"]);
 
 interface Visitor {
   id: string;
@@ -42,6 +50,9 @@ const PURPOSE_COLORS: Record<string, string> = {
 };
 
 export default function VisitorsPage() {
+  const { user, isLoading: authLoading } = useAuthStore();
+  const router = useRouter();
+  const pathname = usePathname();
   const confirm = useConfirm();
   const [visitors, setVisitors] = useState<Visitor[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -49,6 +60,16 @@ export default function VisitorsPage() {
   const [showModal, setShowModal] = useState(false);
   const [printVisitor, setPrintVisitor] = useState<Visitor | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Issue #509: redirect non-allowed roles to /dashboard/not-authorized.
+  useEffect(() => {
+    if (!authLoading && user && !VIEW_ALLOWED.has(user.role)) {
+      toast.error("Visitor management is restricted to front-desk and clinical roles.");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/visitors")}`,
+      );
+    }
+  }, [user, authLoading, router, pathname]);
 
   // Camera state
   const [cameraOpen, setCameraOpen] = useState(false);

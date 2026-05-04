@@ -2,12 +2,20 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { Plus, BedDouble } from "lucide-react";
 import { DataTable, Column } from "@/components/DataTable";
+
+// Issue #509: page-level gate matching API authorize() in
+// apps/api/src/routes/admissions.ts (ADMIN, DOCTOR, NURSE, RECEPTION across
+// the read endpoints). Page previously had no gate, so PATIENT / LAB_TECH /
+// PHARMACIST could navigate to /dashboard/admissions and see the admissions
+// dashboard chrome before the API rejected.
+const VIEW_ALLOWED = new Set(["ADMIN", "DOCTOR", "NURSE", "RECEPTION"]);
 // Issue #348 — shared bed-summary helper so the "no beds" guard agrees
 // with Wards/Dashboard counts.
 import { getBedSummary } from "@/lib/bed-summary";
@@ -73,12 +81,24 @@ function computeLOS(adm: Admission): number {
 }
 
 export default function AdmissionsPage() {
-  const { user } = useAuthStore();
+  const { user, isLoading } = useAuthStore();
+  const router = useRouter();
+  const pathname = usePathname();
   const { t } = useTranslation();
   const [admissions, setAdmissions] = useState<Admission[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("admitted");
   const [showModal, setShowModal] = useState(false);
+
+  // Issue #509: redirect non-allowed roles to /dashboard/not-authorized.
+  useEffect(() => {
+    if (!isLoading && user && !VIEW_ALLOWED.has(user.role)) {
+      toast.error("Admissions are restricted to clinical and reception roles.");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/admissions")}`,
+      );
+    }
+  }, [user, isLoading, router, pathname]);
 
   // Form state
   const [patientSearch, setPatientSearch] = useState("");

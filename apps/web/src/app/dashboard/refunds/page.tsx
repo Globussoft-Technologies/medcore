@@ -2,7 +2,17 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
+import { useAuthStore } from "@/lib/store";
+import { toast } from "@/lib/toast";
+
+// Issue #509: page-level gate matching API authorize() in
+// apps/api/src/routes/billing.ts (ADMIN, RECEPTION on /reports/refunds and
+// the refund-issue endpoint). Previously the page had NO gate at all, so
+// PATIENT / NURSE / DOCTOR could navigate to /dashboard/refunds and see the
+// refunds dashboard chrome before the API call returned 403.
+const VIEW_ALLOWED = new Set(["ADMIN", "RECEPTION"]);
 
 interface RefundRow {
   id: string;
@@ -38,11 +48,24 @@ function defaultTo() {
 }
 
 export default function RefundsPage() {
+  const { user, isLoading } = useAuthStore();
+  const router = useRouter();
+  const pathname = usePathname();
   const [from, setFrom] = useState(defaultFrom());
   const [to, setTo] = useState(defaultTo());
   const [rows, setRows] = useState<RefundRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+
+  // Issue #509: bounce non-allowed roles to /dashboard/not-authorized.
+  useEffect(() => {
+    if (!isLoading && user && !VIEW_ALLOWED.has(user.role)) {
+      toast.error("Refunds are restricted to Admin and Reception.");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/refunds")}`,
+      );
+    }
+  }, [user, isLoading, router, pathname]);
 
   const reversedRange = Boolean(from && to && from > to);
 

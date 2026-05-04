@@ -141,8 +141,75 @@ export const RBAC_MATRIX: RbacCase[] = [
   { role: "LAB_TECH", route: "/dashboard/feedback", outcome: { kind: "denied", redirect: "not-authorized" } },
   { role: "PHARMACIST", route: "/dashboard/feedback", outcome: { kind: "denied", redirect: "not-authorized" } },
 
-  // /dashboard/pharmacy — only RECEPTION is explicitly redirected client-side.
+  // /dashboard/pharmacy — VIEW_ALLOWED = {ADMIN, PHARMACIST, DOCTOR, NURSE}
+  // (issue #509: tightened from RECEPTION-only redirect to a full ALLOWED set
+  // so PATIENT / LAB_TECH no longer see the inventory chrome via URL bar).
   { role: "RECEPTION", route: "/dashboard/pharmacy", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "PATIENT", route: "/dashboard/pharmacy", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "LAB_TECH", route: "/dashboard/pharmacy", outcome: { kind: "denied", redirect: "not-authorized" } },
+
+  // /dashboard/refunds — VIEW_ALLOWED = {ADMIN, RECEPTION} (issue #509)
+  { role: "DOCTOR", route: "/dashboard/refunds", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "NURSE", route: "/dashboard/refunds", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "PATIENT", route: "/dashboard/refunds", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "PHARMACIST", route: "/dashboard/refunds", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "LAB_TECH", route: "/dashboard/refunds", outcome: { kind: "denied", redirect: "not-authorized" } },
+
+  // /dashboard/admissions — VIEW_ALLOWED = {ADMIN, DOCTOR, NURSE, RECEPTION} (issue #509)
+  { role: "PATIENT", route: "/dashboard/admissions", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "PHARMACIST", route: "/dashboard/admissions", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "LAB_TECH", route: "/dashboard/admissions", outcome: { kind: "denied", redirect: "not-authorized" } },
+
+  // /dashboard/medicines — VIEW_ALLOWED = {ADMIN, DOCTOR, NURSE, PHARMACIST} (issue #509)
+  { role: "PATIENT", route: "/dashboard/medicines", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "RECEPTION", route: "/dashboard/medicines", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "LAB_TECH", route: "/dashboard/medicines", outcome: { kind: "denied", redirect: "not-authorized" } },
+
+  // /dashboard/visitors — VIEW_ALLOWED = {ADMIN, RECEPTION, DOCTOR, NURSE} (issue #509)
+  { role: "PATIENT", route: "/dashboard/visitors", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "PHARMACIST", route: "/dashboard/visitors", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "LAB_TECH", route: "/dashboard/visitors", outcome: { kind: "denied", redirect: "not-authorized" } },
+
+  // /dashboard/duty-roster — VIEW_ALLOWED = {ADMIN} (issue #509)
+  { role: "DOCTOR", route: "/dashboard/duty-roster", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "NURSE", route: "/dashboard/duty-roster", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "RECEPTION", route: "/dashboard/duty-roster", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "PATIENT", route: "/dashboard/duty-roster", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "PHARMACIST", route: "/dashboard/duty-roster", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "LAB_TECH", route: "/dashboard/duty-roster", outcome: { kind: "denied", redirect: "not-authorized" } },
+
+  // /dashboard/scribe — VIEW_ALLOWED = {ADMIN, DOCTOR} (issue #509)
+  { role: "NURSE", route: "/dashboard/scribe", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "RECEPTION", route: "/dashboard/scribe", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "PATIENT", route: "/dashboard/scribe", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "PHARMACIST", route: "/dashboard/scribe", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "LAB_TECH", route: "/dashboard/scribe", outcome: { kind: "denied", redirect: "not-authorized" } },
+
+  // /dashboard/discount-approvals — VIEW_ALLOWED = {ADMIN, RECEPTION} (issue #509)
+  { role: "DOCTOR", route: "/dashboard/discount-approvals", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "NURSE", route: "/dashboard/discount-approvals", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "PATIENT", route: "/dashboard/discount-approvals", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "PHARMACIST", route: "/dashboard/discount-approvals", outcome: { kind: "denied", redirect: "not-authorized" } },
+
+  // /dashboard/preauth — VIEW_ALLOWED = {ADMIN, RECEPTION} (issue #509)
+  { role: "DOCTOR", route: "/dashboard/preauth", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "NURSE", route: "/dashboard/preauth", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "PATIENT", route: "/dashboard/preauth", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "PHARMACIST", route: "/dashboard/preauth", outcome: { kind: "denied", redirect: "not-authorized" } },
+
+  // /dashboard/purchase-orders — VIEW_ALLOWED = {ADMIN, RECEPTION, PHARMACIST} (issue #509)
+  { role: "DOCTOR", route: "/dashboard/purchase-orders", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "NURSE", route: "/dashboard/purchase-orders", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "PATIENT", route: "/dashboard/purchase-orders", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "LAB_TECH", route: "/dashboard/purchase-orders", outcome: { kind: "denied", redirect: "not-authorized" } },
+
+  // /dashboard/ai-radiology — VIEW_ALLOWED = {ADMIN, DOCTOR} (issue #509,
+  // replaces the prior inline "restricted" banner with a real redirect)
+  { role: "NURSE", route: "/dashboard/ai-radiology", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "RECEPTION", route: "/dashboard/ai-radiology", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "PATIENT", route: "/dashboard/ai-radiology", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "PHARMACIST", route: "/dashboard/ai-radiology", outcome: { kind: "denied", redirect: "not-authorized" } },
+  { role: "LAB_TECH", route: "/dashboard/ai-radiology", outcome: { kind: "denied", redirect: "not-authorized" } },
 
   // ---- Positive sanity checks (one allowed role per restricted route) ----
   { role: "DOCTOR", route: "/dashboard/patients", outcome: { kind: "allowed" } },
@@ -155,6 +222,17 @@ export const RBAC_MATRIX: RbacCase[] = [
   { role: "ADMIN", route: "/dashboard/expenses", outcome: { kind: "allowed" } },
   { role: "DOCTOR", route: "/dashboard/feedback", outcome: { kind: "allowed" } },
   { role: "PHARMACIST", route: "/dashboard/pharmacy", outcome: { kind: "allowed" } },
+  // Issue #509 positive sanity checks (one allowed role per newly-gated route).
+  { role: "ADMIN", route: "/dashboard/refunds", outcome: { kind: "allowed" } },
+  { role: "DOCTOR", route: "/dashboard/admissions", outcome: { kind: "allowed" } },
+  { role: "PHARMACIST", route: "/dashboard/medicines", outcome: { kind: "allowed" } },
+  { role: "RECEPTION", route: "/dashboard/visitors", outcome: { kind: "allowed" } },
+  { role: "ADMIN", route: "/dashboard/duty-roster", outcome: { kind: "allowed" } },
+  { role: "DOCTOR", route: "/dashboard/scribe", outcome: { kind: "allowed" } },
+  { role: "ADMIN", route: "/dashboard/discount-approvals", outcome: { kind: "allowed" } },
+  { role: "RECEPTION", route: "/dashboard/preauth", outcome: { kind: "allowed" } },
+  { role: "PHARMACIST", route: "/dashboard/purchase-orders", outcome: { kind: "allowed" } },
+  { role: "DOCTOR", route: "/dashboard/ai-radiology", outcome: { kind: "allowed" } },
 ];
 
 const NOT_AUTH_RE = new RegExp("/dashboard/not-authorized");

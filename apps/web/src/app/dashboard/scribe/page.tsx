@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
@@ -747,10 +747,28 @@ const SECTION_LABELS: Record<SectionKey, string> = {
   P: "Plan",
 };
 
+// Issue #509: page-level gate matching API authorize() in
+// apps/api/src/routes/ai-scribe.ts (DOCTOR, ADMIN). Page previously had no
+// gate, so PATIENT / NURSE / RECEPTION could see the AI Scribe SOAP-note
+// chrome via the URL bar.
+const VIEW_ALLOWED = new Set(["ADMIN", "DOCTOR"]);
+
 // ─── Main component ──────────────────────────────────────
 
 export default function ScribePage() {
-  const { token } = useAuthStore();
+  const { token, user, isLoading } = useAuthStore();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  // Issue #509: redirect non-allowed roles to /dashboard/not-authorized.
+  useEffect(() => {
+    if (!isLoading && user && !VIEW_ALLOWED.has(user.role)) {
+      toast.error("AI Scribe is restricted to doctors and administrators.");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/scribe")}`,
+      );
+    }
+  }, [user, isLoading, router, pathname]);
   // GAP-S14: tele-consult integration. When the doctor clicks "Start Ambient
   // Scribe" on the telemedicine page we jump here with ?appointmentId=... (or
   // ?patientId=...). Both params are optional; when present we auto-advance

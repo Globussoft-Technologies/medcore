@@ -1,11 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Search, Plus, Pill, X, Pencil, Trash2 } from "lucide-react";
+
+// Issue #509: page-level gate matching API authorize() in
+// apps/api/src/routes/medicines.ts (writes are ADMIN/DOCTOR; the master list
+// is operationally needed by clinical + pharmacy roles). Page previously had
+// no gate, so PATIENT / RECEPTION / LAB_TECH could read the formulary chrome
+// via the URL bar.
+const VIEW_ALLOWED = new Set(["ADMIN", "DOCTOR", "NURSE", "PHARMACIST"]);
 
 interface Medicine {
   id: string;
@@ -42,7 +50,9 @@ const CATEGORIES = [
 ];
 
 export default function MedicinesPage() {
-  const { user } = useAuthStore();
+  const { user, isLoading } = useAuthStore();
+  const router = useRouter();
+  const pathname = usePathname();
   const confirm = useConfirm();
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,6 +60,16 @@ export default function MedicinesPage() {
   const [category, setCategory] = useState("");
   const [selected, setSelected] = useState<Medicine | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+
+  // Issue #509: redirect non-allowed roles to /dashboard/not-authorized.
+  useEffect(() => {
+    if (!isLoading && user && !VIEW_ALLOWED.has(user.role)) {
+      toast.error("Medicines master is restricted to clinical and pharmacy roles.");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/medicines")}`,
+      );
+    }
+  }, [user, isLoading, router, pathname]);
   // Issue #85: edit/delete support — `editing` is the row currently being
   // edited (null = creating new); switching the modal between create/edit
   // reuses the same form fields.

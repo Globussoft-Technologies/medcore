@@ -2,10 +2,18 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
+import { useAuthStore } from "@/lib/store";
 import { ShoppingCart, Plus, X, Trash2 } from "lucide-react";
+
+// Issue #509: page-level gate matching API authorize() in
+// apps/api/src/routes/purchase-orders.ts (ADMIN, RECEPTION, PHARMACIST on
+// reads). Page previously had no gate, so NURSE / DOCTOR / PATIENT could
+// navigate to /dashboard/purchase-orders and see the procurement chrome.
+const VIEW_ALLOWED = new Set(["ADMIN", "RECEPTION", "PHARMACIST"]);
 
 interface Supplier {
   id: string;
@@ -45,11 +53,24 @@ const TABS = ["DRAFT", "PENDING", "APPROVED", "RECEIVED", "ALL"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function PurchaseOrdersPage() {
+  const { user, isLoading } = useAuthStore();
+  const router = useRouter();
+  const pathname = usePathname();
   const confirm = useConfirm();
   const [orders, setOrders] = useState<PORecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("ALL");
   const [showNew, setShowNew] = useState(false);
+
+  // Issue #509: redirect non-allowed roles to /dashboard/not-authorized.
+  useEffect(() => {
+    if (!isLoading && user && !VIEW_ALLOWED.has(user.role)) {
+      toast.error("Purchase orders are restricted to Admin, Reception and Pharmacist.");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/purchase-orders")}`,
+      );
+    }
+  }, [user, isLoading, router, pathname]);
 
   useEffect(() => {
     load();

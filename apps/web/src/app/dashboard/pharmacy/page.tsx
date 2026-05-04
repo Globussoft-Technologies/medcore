@@ -88,24 +88,30 @@ const MOVEMENT_COLORS: Record<string, string> = {
   DAMAGED: "bg-gray-100 text-gray-700",
 };
 
+// Issue #509: page-level gate matching API authorize() in
+// apps/api/src/routes/pharmacy.ts (ADMIN, PHARMACIST, DOCTOR, NURSE on the
+// inventory reads). Previously the page only redirected RECEPTION (#98), so
+// PATIENT / LAB_TECH could navigate to /dashboard/pharmacy via the URL bar
+// and see the inventory chrome before the API rejected.
+const VIEW_ALLOWED = new Set(["ADMIN", "PHARMACIST", "DOCTOR", "NURSE"]);
+
 export default function PharmacyPage() {
-  const { user } = useAuthStore();
+  const { user, isLoading } = useAuthStore();
   const router = useRouter();
   const pathname = usePathname();
   const confirm = useConfirm();
 
-  // RBAC (issue #98): RECEPTION must NOT see stock levels (or write inventory).
-  // The API now enforces 403; the UI mirrors the redirect so receptionists
-  // who land here via stale bookmarks don't get a wall of empty tables.
-  // Issue #179: target /dashboard/not-authorized so the layout chrome stays.
+  // Issue #509 (was #98): redirect any non-allowed role to the chrome-wrapped
+  // /dashboard/not-authorized page so PATIENT / LAB_TECH can no longer reach
+  // the pharmacy inventory UI by typing the URL directly.
   useEffect(() => {
-    if (user && user.role === "RECEPTION") {
+    if (!isLoading && user && !VIEW_ALLOWED.has(user.role)) {
       toast.error("Pharmacy inventory is restricted to clinical and pharmacy roles.");
       router.replace(
         `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/pharmacy")}`,
       );
     }
-  }, [user, router, pathname]);
+  }, [user, isLoading, router, pathname]);
   const [tab, setTab] = useState<Tab>("inventory");
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [movements, setMovements] = useState<Movement[]>([]);

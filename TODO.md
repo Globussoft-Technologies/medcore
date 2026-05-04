@@ -5,8 +5,8 @@ is independently shippable. Full per-session history lives under
 [`docs/archive/`](docs/archive/).
 
 > Updated: 2026-05-04 evening (post **A4 4-agent fanout + A9 single-thread + 2 new skills**).
-> Latest session handoff: [`docs/archive/SESSION_SNAPSHOT_2026-05-05.md`](docs/archive/SESSION_SNAPSHOT_2026-05-05.md) (rolling forward).
-> HEAD on `main` = `e0e1429`. **Today's wave: A4 fully closed (24 files / 30 forms) + A9 closed (tenant validation cache) + A3 doc note + A7/A8 closed earlier today + #482 only remaining open issue.**
+> Latest session handoff: [`docs/archive/SESSION_SNAPSHOT_2026-05-04-evening.md`](docs/archive/SESSION_SNAPSHOT_2026-05-04-evening.md) (rolling forward).
+> HEAD on `main` = `63855a0`. **Today's wave: A4 fully closed (24 files / 30 forms) + A9 closed (tenant validation cache) + A3 doc note + A7/A8 closed earlier today + #482 only remaining open issue.**
 >
 > **2026-05-04 Wave summary** (after this session): `90bf481` #477 cookie-CSRF migration; `a2b32b4` #456 AuditLog tenantId; `e7ca04d` #457 tenant FK Cascade + F-ABDM-1 + F-INJ-1 + AI inference audit on 9 routes; `340dd38` 2 new skills (`/medcore-ai-route-audit`, `/medcore-fanout` Mode B note); `cde1829` A9 tenant validation; `7bd9d14`/`ffe199f`/`34bb5a3`/`e0e1429` A4 fanout (24 dashboard pages, 30 forms).
 >

@@ -11,6 +11,29 @@ test-coverage closure across §A-§E gaps, Playwright stabilization
 across Chromium + WebKit, and the local-first test workflow.
 
 ### Added
+- **2026-05-04 architectural-closure session — 8 commits closing A3/A4/A7/A8/A9
+  + #457 + 4 LOW security audit items + 1 new skill.** `e7ca04d` bundled the
+  May 2026 audit follow-up: 133 tenant relations flipped from `onDelete: SetNull`
+  to `Cascade` plus idempotent migration `20260504000003_tenant_fk_cascade`
+  closing #457 (A8); per-IP rate limit (60/60s) on `POST /gateway/callback`
+  (F-ABDM-1); `sanitizeUserInput` prompt-injection guard on `ai-er-triage`,
+  `ai-letters`, `ai-chart-search`, `ai-report-explainer` (F-INJ-1); and
+  `AI_<FEATURE>_INFERENCE` audit rows (model + sizes + latency, never PHI)
+  on all 9 AI routes with PHI-hygiene-asserting tests (42 cases). `340dd38`
+  added `/medcore-ai-route-audit` skill (canonical AI route audit pattern)
+  and a Mode B (single-bundled-commit) section to `/medcore-fanout`.
+  `cde1829` closed A9: `tenantContextMiddleware` now validates the resolved
+  tenantId via cached `prisma.tenant.findUnique({ id, active: true })` (60s
+  positive / 30s negative TTL, bounded at 256 entries); non-existent or
+  deactivated tenants are silently dropped, DB blips fail closed; 6 new test
+  cases (21/21 green). `7bd9d14`/`ffe199f`/`34bb5a3`/`e0e1429` closed A4 via
+  4-agent fanout: every `<form onSubmit>` in the dashboard tree now uses
+  `noValidate` + React-side validation across 24 pages / 30 forms (clinical,
+  admin/scheduling, billing/pharmacy/lab, operations/inventory). `63855a0`
+  closed A3 with a documenting comment at `e2e/helpers.ts:528` near
+  `indianishName()` flagging the `PATIENT_NAME_REGEX` digits-rejection gotcha
+  for spec authors, and rolled the TODO architectural table (A4/A7/A8/A9
+  marked Closed with closing-commit references).
 - **2026-05-05 waves C+D+E — 14 more GitHub issues closed across 3 fanouts.**
   Wave C (5 agents — UX/data integrity): `0903747` (#493 forgot/reset-password
   anti-enumeration parity + strongPassword on reset), `1ef5741` (#485 + #508

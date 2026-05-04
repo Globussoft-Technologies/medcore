@@ -6,20 +6,20 @@
  * The audit doc calls this an "RLS policy verification" suite, but MedCore
  * does NOT use PostgreSQL Row-Level Security. Multi-tenant isolation is
  * enforced at the application layer by the Prisma `$extends` wrapper in
- * `apps/api/src/services/tenant-prisma.ts`, which auto-injects `tenantId`
- * into `where` / `data` based on the AsyncLocalStorage-bound context set by
- * `runWithTenant` (see `apps/api/src/services/tenant-context.ts`). This
- * suite is therefore a regression test for that scoping mechanism, not for
- * Postgres RLS. A leak here means PHI bleeding across tenants — treat any
- * failure as a P0 incident.
+ * `@medcore/db` (`packages/db/src/tenant-prisma.ts`), which auto-injects
+ * `tenantId` into `where` / `data` based on the AsyncLocalStorage-bound
+ * context set by `runWithTenant`. This suite is therefore a regression
+ * test for that scoping mechanism, not for Postgres RLS. A leak here
+ * means PHI bleeding across tenants — treat any failure as a P0 incident.
  *
- * Cross-package import note:
- * `tenantScopedPrisma` and `runWithTenant` live under `apps/api/`, but the
- * audit doc puts this file under `packages/db/src/__tests__/` (where the
- * scoped MODELS are defined). Importing api code from a packages test is a
- * code-organisation smell — see the report for the recommendation to lift
- * the wrapper into `@medcore/db` so `packages/*` is the single source of
- * truth for tenant scoping.
+ * A10 closed (2026-05-04): the wrapper now lives in `@medcore/db`, so we
+ * can use static imports from this test (which itself lives in
+ * `packages/db/src/__tests__/`). Earlier revisions of this file had to
+ * resolve `tenantScopedPrisma` / `runWithTenant` via string-concatenated
+ * dynamic `import()` calls to defeat TS6059 ("file is not under
+ * rootDir") because the source lived under `apps/api/`. That dynamic-
+ * import dance is gone — see commit history if you're curious about
+ * what it looked like.
  *
  * Strategy:
  *   1. Create 2 fresh tenants (T1, T2) with unique subdomains so the suite
@@ -52,28 +52,24 @@ import {
   it,
 } from "vitest";
 import bcrypt from "bcryptjs";
+import {
+  prisma as rawPrismaImpl,
+  runWithTenant,
+  tenantAsyncStorage,
+  tenantScopedPrisma as tenantScopedPrismaImpl,
+} from "@medcore/db";
 
-// ── Cross-package import note ──────────────────────────────────────────────
-// `tenantScopedPrisma`, `runWithTenant`, `tenantAsyncStorage`, and the
-// integration-test helpers (`describeIfDB`, `getPrisma`) all live under
-// `apps/api/`. The audit doc anchors this test at `packages/db/src/__tests__/`,
-// so we reach across packages with dynamic `import()` calls — a static
-// `import` would trip TS6059 ("file is not under rootDir") because
-// `packages/db/tsconfig.json` correctly limits its `rootDir` to its own
-// `src/`. Dynamic imports keep the file at the audit-mandated location AND
-// keep `npx tsc --noEmit -p packages/db/tsconfig.json` clean. The
-// architectural smell — that scoping logic lives in `apps/api` instead of
-// `@medcore/db` — is called out in the report.
+// A10 closed — `tenantScopedPrisma`, `runWithTenant`, and
+// `tenantAsyncStorage` now live in `@medcore/db` next to the
+// `TENANT_SCOPED_MODELS` set, so we can import them statically. The
+// `getPrisma` helper from `apps/api/src/test/setup` is replaced by the
+// `prisma` singleton re-exported from `@medcore/db` — which is what
+// `getPrisma` was wrapping anyway.
 //
-// All cross-package symbols are resolved once in `beforeAll` and held in
-// module-scope vars that the tests close over.
-type RunWithTenant = <T>(tenantId: string, fn: () => T) => T;
-type AsyncLocalStorage<T> = { getStore(): T | undefined };
 // `tenantScopedPrisma` is a Prisma client extension whose full type would
-// pull every model delegate into this file. We type it loosely with an
-// `id` + `tenantId` shape on returned rows — every model we touch has both
-// columns — and only access the methods we exercise. The actual PrismaClient
-// typings are still enforced inside apps/api.
+// pull every model delegate into this file's surface. We type it loosely
+// with an `id` + `tenantId` shape on returned rows — every model we touch
+// has both columns — and only access the methods we exercise.
 interface RowShape {
   id: string;
   tenantId?: string | null;
@@ -161,10 +157,19 @@ interface RawPrisma {
   };
 }
 
-let runWithTenant: RunWithTenant;
-let tenantAsyncStorage: AsyncLocalStorage<{ tenantId: string }>;
-let tenantScopedPrisma: ScopedPrisma;
-let getPrisma: () => Promise<RawPrisma>;
+// `tenantScopedPrisma` from `@medcore/db` is the real Prisma extension
+// type, but the test body deliberately uses the loose `ScopedPrisma` shape
+// declared above to avoid pulling every model delegate's full type into
+// this file. Cast once so the rest of the test body stays untouched from
+// when these symbols were dynamically imported.
+const tenantScopedPrisma = tenantScopedPrismaImpl as unknown as ScopedPrisma;
+// Likewise narrow the un-scoped `prisma` singleton to the slice of the
+// schema this suite actually exercises. Wrapping in an async getter keeps
+// the existing `await getPrisma()` call sites unchanged from when the
+// helper had to lazy-load the api app's Prisma singleton.
+async function getPrisma(): Promise<RawPrisma> {
+  return rawPrismaImpl as unknown as RawPrisma;
+}
 
 // Sync gate: vitest needs to know at describe-time whether to skip.
 const TEST_DB_AVAILABLE = !!process.env.DATABASE_URL_TEST;
@@ -407,33 +412,15 @@ async function cleanupTenantGraph(t: SeededTenant): Promise<void> {
   });
 }
 
-// `describeIfDB` would normally be imported from apps/api/src/test/setup, but
-// we keep cross-package imports out of the static graph (see header). We
-// reproduce the gate here using vitest's native `skipIf` modifier.
+// We use vitest's `skipIf` modifier to gate the whole suite on a live test
+// DB without importing the api app's `describeIfDB` helper.
 const describeIntegration = describe.skipIf(!TEST_DB_AVAILABLE);
 
 describeIntegration("Multi-tenant scoping isolation (P4 — Prisma context filter)", () => {
   beforeAll(async () => {
-    // Resolve the cross-package symbols once. We compute the import paths at
-    // runtime via string concatenation so TypeScript cannot follow them
-    // statically — that's the trick that keeps
-    // `tsc -p packages/db/tsconfig.json` clean despite the cross-package
-    // reach. Vitest still resolves them at runtime through Node module
-    // resolution exactly the same as a normal `import`.
-    const apiBase = "../../../../apps/api/src/";
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const dyn = (p: string): Promise<any> => import(/* @vite-ignore */ p);
-    const tenantContextMod = await dyn(`${apiBase}services/tenant-context`);
-    const tenantPrismaMod = await dyn(`${apiBase}services/tenant-prisma`);
-    const setupMod = await dyn(`${apiBase}test/setup`);
-    runWithTenant = tenantContextMod.runWithTenant as RunWithTenant;
-    tenantAsyncStorage =
-      tenantContextMod.tenantAsyncStorage as AsyncLocalStorage<{
-        tenantId: string;
-      }>;
-    tenantScopedPrisma = tenantPrismaMod.tenantScopedPrisma as ScopedPrisma;
-    getPrisma = setupMod.getPrisma as () => Promise<RawPrisma>;
-
+    // A10 closed — wrapper now lives in @medcore/db, no more dynamic-import
+    // dance to defeat TS6059. The static imports at the top of the file
+    // resolve everything at compile time; this hook just seeds the graph.
     [t1, t2] = await Promise.all([
       seedTenantGraph("T1"),
       seedTenantGraph("T2"),

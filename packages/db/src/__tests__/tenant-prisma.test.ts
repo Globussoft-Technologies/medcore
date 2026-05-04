@@ -11,6 +11,11 @@
  *   tenant context via `runWithTenant`, and we assert that the call that
  *   reaches the underlying mock prisma has (or does not have) the injected
  *   `tenantId`.
+ *
+ * Architectural note (A10, 2026-05-04):
+ *   This file used to live at `apps/api/src/services/tenant-prisma.test.ts`
+ *   alongside its source. The wrapper has been lifted into `@medcore/db`,
+ *   so the test moves with it and is now the canonical regression suite.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -161,7 +166,10 @@ const { mockPrisma, calls } = vi.hoisted(() => {
   return { mockPrisma, calls };
 });
 
-vi.mock("@medcore/db", () => ({ prisma: mockPrisma }));
+// `tenant-prisma.ts` reads the `prisma` singleton from `./index`, so that's
+// what we mock. Resolving the relative path through the @medcore/db alias
+// guarantees a single mock target for every consumer in the package.
+vi.mock("../index", () => ({ prisma: mockPrisma }));
 
 // Import AFTER the mock is registered so the module sees our fake prisma.
 import {
@@ -169,8 +177,8 @@ import {
   TENANT_SCOPED_MODELS,
   shouldScope,
   applyTenantScope,
-} from "./tenant-prisma";
-import { runWithTenant } from "./tenant-context";
+  runWithTenant,
+} from "../tenant-prisma";
 
 beforeEach(() => {
   calls.length = 0;

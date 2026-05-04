@@ -63,6 +63,17 @@ export function onboardingSkipKey(userId: string) {
   return `medcore_onboarding_skipped:${userId}`;
 }
 
+// Issue #502: the per-user-id skip flag relied on `userId` being defined at
+// the moment Skip was clicked. In practice the `OnboardingTour` is rendered
+// from `dashboard/layout.tsx` and `user.id` can be `undefined` for a brief
+// window during session hydration / refresh, which made `markOnboardingSkipped`
+// a no-op and let the tour reopen on the next dashboard visit even though
+// `mc_tour_<ROLE>` had been written. The v1 key is global, single-string,
+// independent of role and of user-id, so the click-to-skip path always
+// successfully persists. Legacy keys are still honoured on read for users
+// who already dismissed the tour before this fix shipped.
+export const TOUR_COMPLETED_V1_KEY = "medcore_tour_completed_v1";
+
 export function hasSkippedOnboarding(userId?: string | null): boolean {
   if (typeof window === "undefined") return false;
   if (!userId) return false;
@@ -81,8 +92,30 @@ export function clearOnboardingSkipped(userId?: string | null) {
   localStorage.removeItem(onboardingSkipKey(userId));
 }
 
+// Issue #502: read the global v1 flag. Returns true if the user has ever
+// completed or skipped the tour, regardless of role and regardless of whether
+// userId was known at the moment of skip.
+function hasCompletedTourV1(): boolean {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem(TOUR_COMPLETED_V1_KEY) === "true";
+}
+
+function markTourCompletedV1() {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(TOUR_COMPLETED_V1_KEY, "true");
+}
+
+function clearTourCompletedV1() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(TOUR_COMPLETED_V1_KEY);
+}
+
 export function hasCompletedTour(role: string, userId?: string | null): boolean {
   if (typeof window === "undefined") return true;
+  // Issue #502: the global v1 flag is the source of truth going forward; the
+  // per-user-id and per-role checks below remain only as backwards-compat
+  // for sessions that dismissed the tour before this fix landed.
+  if (hasCompletedTourV1()) return true;
   // Either an explicit Skip OR a finished tour suppresses the auto-launch.
   if (hasSkippedOnboarding(userId)) return true;
   return !!localStorage.getItem(tourStorageKey(role));
@@ -91,6 +124,10 @@ export function hasCompletedTour(role: string, userId?: string | null): boolean 
 export function markTourCompleted(role: string) {
   if (typeof window === "undefined") return;
   localStorage.setItem(tourStorageKey(role), "1");
+  // Issue #502: also write the global v1 flag so the auto-launch suppression
+  // does not depend on role-keyed storage being read with the same role on
+  // subsequent visits (which was the underlying flake mode).
+  markTourCompletedV1();
 }
 
 export function resetTour(role: string, userId?: string | null) {
@@ -99,6 +136,9 @@ export function resetTour(role: string, userId?: string | null) {
   // Clear the skip flag too so the manual "Take a tour" button can re-open
   // the dialog after a previous skip.
   clearOnboardingSkipped(userId);
+  // Issue #502: clear the v1 flag as well, otherwise the explicit "Take the
+  // tour" button in the sidebar would never be able to re-launch the tour.
+  clearTourCompletedV1();
 }
 
 export function OnboardingTour({
@@ -149,6 +189,11 @@ export function OnboardingTour({
     // tour again. Also marks the role completion flag so the legacy
     // hasCompletedTour() check passes for the same session.
     markOnboardingSkipped(userId);
+    // Issue #502: markTourCompleted now also writes the global v1 flag —
+    // this is the only path that reliably survives `userId` being undefined
+    // at click time (the user reported the tour reappearing on every
+    // /dashboard visit despite mc_tour_<role> being '1', which is exactly
+    // the symptom of `markOnboardingSkipped` being a no-op).
     markTourCompleted(role);
     onClose();
   };

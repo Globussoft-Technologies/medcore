@@ -9,7 +9,15 @@ import { Plus, Hotel, TrendingUp } from "lucide-react";
 // Issue #348 — shared bed-summary helper so Wards/Admissions/Dashboard
 // all produce identical counts regardless of which `/wards` payload
 // variant they happen to receive.
-import { summarizeBeds, getBedSummary } from "@/lib/bed-summary";
+// Issue #507 — `bedBarSegments` returns the per-status widths the
+// occupancy bar must render so colors always match the numeric counts
+// (the old inline math omitted MAINTENANCE and let flex shrink the
+// segments away from their declared widths).
+import {
+  summarizeBeds,
+  getBedSummary,
+  bedBarSegments,
+} from "@/lib/bed-summary";
 
 interface Bed {
   id: string;
@@ -249,9 +257,10 @@ export default function WardsPage() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {wards.map((ward) => {
             const c = computeCounts(ward);
-            const occupiedPct = c.total ? (c.occupied / c.total) * 100 : 0;
-            const availablePct = c.total ? (c.available / c.total) * 100 : 0;
-            const cleaningPct = c.total ? (c.cleaning / c.total) * 100 : 0;
+            // Issue #507 — delegate width math to the shared helper so
+            // the bar always sums to 100% (and so MAINTENANCE beds get
+            // their own slice instead of silently widening "available").
+            const segments = bedBarSegments(c);
             const isExpanded = expanded === ward.id;
             return (
               <div
@@ -286,19 +295,29 @@ export default function WardsPage() {
                     <span className="text-yellow-600">{c.cleaning} clean</span>
                   </div>
 
-                  {/* Progress bar */}
+                  {/* Progress bar — Issue #507. `shrink-0` is load-bearing:
+                      without it flexbox shrinks each segment away from its
+                      declared width and the colors stop matching the counts. */}
                   <div className="mt-2 flex h-2 w-full overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
                     <div
-                      className="bg-red-500"
-                      style={{ width: `${occupiedPct}%` }}
+                      className="shrink-0 bg-red-500"
+                      style={{ width: segments.occupied }}
+                      title={`${c.occupied} occupied`}
                     />
                     <div
-                      className="bg-yellow-500"
-                      style={{ width: `${cleaningPct}%` }}
+                      className="shrink-0 bg-yellow-500"
+                      style={{ width: segments.cleaning }}
+                      title={`${c.cleaning} cleaning`}
                     />
                     <div
-                      className="bg-green-500"
-                      style={{ width: `${availablePct}%` }}
+                      className="shrink-0 bg-gray-500"
+                      style={{ width: segments.maintenance }}
+                      title={`${c.maintenance} maintenance`}
+                    />
+                    <div
+                      className="shrink-0 bg-green-500"
+                      style={{ width: segments.available }}
+                      title={`${c.available} available`}
                     />
                   </div>
                 </button>

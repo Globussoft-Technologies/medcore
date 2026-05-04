@@ -79,3 +79,54 @@ export function getBedSummary(
     };
   }, { ...ZERO });
 }
+
+/**
+ * Issue #507 — the wards page progress bar laid out three flex children
+ * with `width: %` styles, but flex children inherit `flex-shrink: 1` which
+ * caused them to be shrunk away from their declared widths (so a ward with
+ * 3 occ / 7 avail rendered roughly 50/50 instead of 30/70). Worse, the
+ * MAINTENANCE category was missing entirely, so when any bed was under
+ * maintenance the segments no longer summed to 100%.
+ *
+ * `bedBarSegments` returns the per-status width strings the bar should
+ * render. It guarantees:
+ *   • each width is a number in [0, 100]
+ *   • widths sum to 100% when total > 0 (last segment absorbs rounding)
+ *   • when total === 0 every width is "0%" (no division by zero)
+ *   • when occupied >= total the bar is fully red (capped — a stale
+ *     summary that reports occupied > total must not overflow the bar)
+ */
+export interface BedBarSegments {
+  occupied: string;
+  cleaning: string;
+  maintenance: string;
+  available: string;
+}
+
+export function bedBarSegments(summary: BedSummary): BedBarSegments {
+  const total = Math.max(0, summary.total);
+  if (total === 0) {
+    return { occupied: "0%", cleaning: "0%", maintenance: "0%", available: "0%" };
+  }
+  // Allocate occupied → cleaning → maintenance in priority order, never
+  // exceeding total. Whatever's left becomes available so the four
+  // segments always sum to exactly 100%.
+  const clamp = (n: number) => Math.max(0, n);
+  let remaining = total;
+  const take = (raw: number) => {
+    const n = Math.min(remaining, clamp(raw));
+    remaining -= n;
+    return n;
+  };
+  const occ = take(summary.occupied);
+  const cln = take(summary.cleaning);
+  const mnt = take(summary.maintenance);
+  const avl = remaining;
+  const pct = (n: number) => `${(n / total) * 100}%`;
+  return {
+    occupied: pct(occ),
+    cleaning: pct(cln),
+    maintenance: pct(mnt),
+    available: pct(avl),
+  };
+}

@@ -133,10 +133,10 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - ~~`/dashboard/admissions` — admit form (list-touched only)~~ ✅ closed `65b5e0a` (`e2e/admissions.spec.ts` — 11 tests across 5 roles; route-shape correction pinned: page is fully accessible, only the "Admit Patient" CTA is role-gated; discharge is a two-modal sequence)
 - ~~`/dashboard/admissions/[id]` — admission detail, MAR progression, discharge~~ closed 2026-05-03 by `e2e/admissions-id.spec.ts` (6 tests; ADMIN chrome+running-bill + NURSE isolation/belongings + RECEPTION tab strip + PATIENT page-accessible + DOCTOR transfer-modal + ADMIN discharge two-modal force-flow)
 - ~~`/dashboard/wards` — bed assignment, transfer~~ closed 2026-05-04 by `e2e/wards.spec.ts` (7 tests; ADMIN chrome/add-ward modal/forecast tab + NURSE/RECEPTION no-CTA + PATIENT/LAB_TECH page-accessible no-CTA)
-- `/dashboard/capacity-forecast` — forecast editing (smoke-visited)
+- ~~`/dashboard/capacity-forecast` — forecast editing (smoke-visited)~~ ✅ closed 2026-05-05 by `e2e/capacity-forecast.spec.ts` (7 cases; ADMIN chrome + horizon×tab fan-out + summary/heatmap pin + NURSE allow + PATIENT page-accessible no-CTA + empty state + error banner)
 
 ### 2.8 AI features
-- `/dashboard/ai-kpis` — KPI dashboard configuration
+- ~~`/dashboard/ai-kpis` — KPI dashboard configuration~~ ✅ closed 2026-05-05 by `e2e/ai-kpis.spec.ts` (7 cases; ADMIN chrome + Feature1 cards + Feature2 cards w/ unavailable card pin + CSV export tab + PATIENT/DOCTOR admin-gate + error banner)
 - `/dashboard/ai-booking` — AI-assisted booking
 - `/dashboard/ai-fraud` — fraud-case investigation (smoke-visited)
 - `/dashboard/agent-console` — AI agent monitoring

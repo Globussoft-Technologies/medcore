@@ -43,9 +43,17 @@ describeIfDB("AI-feature regressions (2026-04-26)", () => {
   });
 
   // ── #190: register accepts PHARMACIST + LAB_TECH ─────────────────────
+  //
+  // Post-#473 (mass-assignment fix, b6601ad): self-register is locked to
+  // PATIENT regardless of the submitted role; only an admin Bearer token
+  // can mint non-PATIENT users via this endpoint. The original #190 fix
+  // was about the *zod enum* permitting these role names — that part of
+  // the contract still holds; what changed is the auth gate. So we keep
+  // the same regression markers, just with the admin token attached.
   it("#190: /auth/register accepts PHARMACIST role (was rejected by zod enum)", async () => {
     const res = await request(app)
       .post("/api/v1/auth/register")
+      .set("Authorization", `Bearer ${adminToken}`)
       .send({
         name: "Pharma Tester",
         email: `pharma_${Date.now()}@test.local`,
@@ -60,6 +68,7 @@ describeIfDB("AI-feature regressions (2026-04-26)", () => {
   it("#190: /auth/register accepts LAB_TECH role", async () => {
     const res = await request(app)
       .post("/api/v1/auth/register")
+      .set("Authorization", `Bearer ${adminToken}`)
       .send({
         name: "Lab Tester",
         email: `lab_${Date.now()}@test.local`,
@@ -77,6 +86,7 @@ describeIfDB("AI-feature regressions (2026-04-26)", () => {
     const email = `doc_${Date.now()}@test.local`;
     const res = await request(app)
       .post("/api/v1/auth/register")
+      .set("Authorization", `Bearer ${adminToken}`)
       .send({
         name: "Dr. Auto Created",
         email,

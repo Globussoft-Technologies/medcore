@@ -20,34 +20,55 @@ describeIfDB("Users API (integration)", () => {
   });
 
   it("registers a new staff user (RECEPTION)", async () => {
-    const res = await request(app).post("/api/v1/auth/register").send({
-      name: "Rita Reception",
-      email: `rita-${Date.now()}@test.local`,
-      phone: "9998887777",
-      password: "MedCoreT3st-2026",
-      role: "RECEPTION",
-    });
+    // Post-#473 (mass-assignment fix): non-PATIENT roles require an
+    // admin Bearer token via `resolveRegistrationRole(req, ...)`.
+    const res = await request(app)
+      .post("/api/v1/auth/register")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        name: "Rita Reception",
+        email: `rita-${Date.now()}@test.local`,
+        phone: "9998887777",
+        password: "MedCoreT3st-2026",
+        role: "RECEPTION",
+      });
     expect([200, 201]).toContain(res.status);
     expect(res.body.data?.user?.role).toBe("RECEPTION");
   });
 
-  it("rejects duplicate email (409)", async () => {
+  it("duplicate email is anti-enumeration safe (#480 — same envelope as new email)", async () => {
+    // Pre-#480 the duplicate path returned `409 { error: "Email already
+    // registered" }` while the new-email path returned `201 { tokens }`,
+    // letting an attacker iterate emails to learn which were registered.
+    // Post-#480 both paths return the SAME `{ status: 201, success: true,
+    // error: null }` envelope; only the `data` block differs (no tokens
+    // on the duplicate path). The 409 status assertion this test used to
+    // make would now actively *defeat* the anti-enumeration guard.
     const email = `dup-${Date.now()}@test.local`;
-    await request(app).post("/api/v1/auth/register").send({
+    const first = await request(app).post("/api/v1/auth/register").send({
       name: "First",
       email,
       phone: "9999999999",
       password: "MedCoreT3st-2026",
-      role: "NURSE",
     });
-    const res = await request(app).post("/api/v1/auth/register").send({
+    expect(first.status).toBe(201);
+    expect(first.body.success).toBe(true);
+    expect(first.body.error).toBeNull();
+
+    const second = await request(app).post("/api/v1/auth/register").send({
       name: "Second",
       email,
       phone: "9999999999",
       password: "MedCoreT3st-2026",
-      role: "NURSE",
     });
-    expect(res.status).toBe(409);
+    // Status, success flag, and error field MUST be indistinguishable —
+    // that is the whole point of the anti-enumeration contract.
+    expect(second.status).toBe(first.status);
+    expect(second.body.success).toBe(first.body.success);
+    expect(second.body.error).toBe(first.body.error);
+    // The duplicate path MUST NOT issue tokens (would silently log the
+    // attacker into the existing account otherwise).
+    expect(second.body?.data?.tokens).toBeFalsy();
   });
 
   it("rejects malformed payload (400)", async () => {
@@ -163,14 +184,22 @@ describeIfDB("Users API (integration)", () => {
   });
 
   it("persists user to DB on register (side-effect)", async () => {
+    // Post-#473: minting a non-PATIENT staff user requires an admin
+    // Bearer token. Without it the user is silently downgraded to
+    // PATIENT — the role-mismatch assertion at the bottom would catch
+    // that, but the role bug is independent of the side-effect contract
+    // we want to pin here. So pass the admin token explicitly.
     const email = `persist-${Date.now()}@test.local`;
-    await request(app).post("/api/v1/auth/register").send({
-      name: "Persist Me",
-      email,
-      phone: "9990001111",
-      password: "MedCoreT3st-2026",
-      role: "RECEPTION",
-    });
+    await request(app)
+      .post("/api/v1/auth/register")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        name: "Persist Me",
+        email,
+        phone: "9990001111",
+        password: "MedCoreT3st-2026",
+        role: "RECEPTION",
+      });
     const prisma = await getPrisma();
     const user = await prisma.user.findUnique({ where: { email } });
     expect(user).toBeTruthy();

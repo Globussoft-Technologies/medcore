@@ -18,10 +18,20 @@ import { describe, it, expect, beforeAll } from "vitest";
 import express from "express";
 import cookieParser from "cookie-parser";
 import request from "supertest";
-import { describeIfDB, getAuthToken } from "../setup";
+import { describeIfDB, resetDB } from "../setup";
 import { csrfProtection } from "../../middleware/csrf";
 
 let app: any;
+
+// Test-DB seed credentials. Earlier revisions of this file used the
+// production seed (`admin@medcore.local` / `admin123`), but
+// `apps/api/src/test/setup.ts:resetDB()` only seeds the test admin
+// below — so the prod credentials produced 401s and (because of the
+// 5/min IP gate when ENABLE_LOGIN_RATELIMIT_IN_TESTS leaks across files)
+// cascaded 429s into every later auth integration test in the same
+// vitest fork.
+const TEST_ADMIN_EMAIL = "admin@test.local";
+const TEST_ADMIN_PASSWORD = "MedCoreT3st-2026";
 
 // Helper — pull an array of Set-Cookie headers off a supertest response.
 // supertest's `res.headers["set-cookie"]` is `string | string[]` depending
@@ -44,6 +54,10 @@ function cookieValue(setCookieLine: string): string {
 
 describeIfDB("Auth cookies + CSRF (Issue #477)", () => {
   beforeAll(async () => {
+    // Belt-and-suspenders: ensure the test-DB seed admin exists even if
+    // this file runs first in the fork (no prior `resetDB()` call has
+    // populated the user yet).
+    await resetDB();
     const mod = await import("../../app");
     app = mod.app;
   });
@@ -54,7 +68,7 @@ describeIfDB("Auth cookies + CSRF (Issue #477)", () => {
     // Get a real account via the seeded admin login.
     const res = await request(app)
       .post("/api/v1/auth/login")
-      .send({ email: "admin@medcore.local", password: "admin123" });
+      .send({ email: TEST_ADMIN_EMAIL, password: TEST_ADMIN_PASSWORD });
 
     expect(res.status).toBe(200);
     const cookies = getSetCookies(res);
@@ -88,7 +102,7 @@ describeIfDB("Auth cookies + CSRF (Issue #477)", () => {
   it("a request authenticated by the medcore_at cookie alone reaches /auth/me", async () => {
     const login = await request(app)
       .post("/api/v1/auth/login")
-      .send({ email: "admin@medcore.local", password: "admin123" });
+      .send({ email: TEST_ADMIN_EMAIL, password: TEST_ADMIN_PASSWORD });
     expect(login.status).toBe(200);
     const at = findCookie(getSetCookies(login), "medcore_at");
     expect(at).toBeDefined();
@@ -101,13 +115,13 @@ describeIfDB("Auth cookies + CSRF (Issue #477)", () => {
       .set("Cookie", cookieHeader);
 
     expect(me.status).toBe(200);
-    expect(me.body?.data?.email).toBe("admin@medcore.local");
+    expect(me.body?.data?.email).toBe(TEST_ADMIN_EMAIL);
   });
 
   it("logout clears all three cookies", async () => {
     const login = await request(app)
       .post("/api/v1/auth/login")
-      .send({ email: "admin@medcore.local", password: "admin123" });
+      .send({ email: TEST_ADMIN_EMAIL, password: TEST_ADMIN_PASSWORD });
     expect(login.status).toBe(200);
     const at = findCookie(getSetCookies(login), "medcore_at")!;
     const cookieHeader = at.split(";")[0];
@@ -200,7 +214,3 @@ describeIfDB("Auth cookies + CSRF (Issue #477)", () => {
     });
   });
 });
-
-// Surface getAuthToken from setup so this file passes typecheck even if
-// other suites change their import shape — keeps the file self-contained.
-void getAuthToken;

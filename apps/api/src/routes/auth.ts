@@ -81,6 +81,22 @@ const loginLimiter = (req: Request, res: Response, next: NextFunction): void => 
   }
   _loginLimiterImpl(req, res, next);
 };
+
+/**
+ * Test-only escape hatch: reset the cached login limiter so the next
+ * request reconstructs it with the current env. Used by the `#478`
+ * regression test in `auth.test.ts` so its `afterAll` can drop the real
+ * limiter (and its accumulated 127.0.0.1 quota) before subsequent
+ * integration tests in the same vitest worker call `/auth/login`.
+ *
+ * `singleFork: true` in `vitest.config.ts` shares this module across
+ * every integration test file — without this hook, the rate-limit test's
+ * env-flag-flipped real limiter persisted as a 5/min IP gate that
+ * cascaded 429s into auth-edges / auth-session-bleed / users tests.
+ */
+export function __resetLoginLimiterForTests(): void {
+  _loginLimiterImpl = null;
+}
 const forgotPasswordLimiter =
   process.env.NODE_ENV === "test"
     ? (_: Request, __: Response, n: NextFunction) => n()

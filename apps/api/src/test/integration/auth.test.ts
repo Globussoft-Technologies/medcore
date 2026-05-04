@@ -22,7 +22,7 @@
 //   - #489 (XSS in name + age bounds on /register): payloads like
 //     `<script>` and age=-1 / age=151 must be rejected with 400 + a
 //     field-shaped error rather than persisted to the DB.
-import { it, expect, beforeAll, describe } from "vitest";
+import { it, expect, beforeAll, afterAll, describe } from "vitest";
 import request from "supertest";
 import jwt from "jsonwebtoken";
 import { describeIfDB, resetDB, TEST_DB_AVAILABLE } from "../setup";
@@ -510,18 +510,44 @@ describeIfDB("Auth API (integration)", () => {
 // its loginLimiter. The main describe block constructs the router with
 // the limiter as a no-op (test-suite-wide default), so we rebuild a fresh
 // app instance here with the env flag set.
+//
+// Cleanup nuance (vitest singleFork): the auth router caches its login
+// limiter at module scope. Once the real (non-no-op) limiter is
+// constructed inside this describe's beforeAll, the cache persists for
+// the whole worker — including subsequent integration test files that
+// share this fork (auth-edges, auth-session-bleed, users, ...). Without
+// the afterAll reset below, the real limiter's 127.0.0.1 quota
+// accumulates and cascades 429s into those files. The
+// `__resetLoginLimiterForTests` hook drops the cache so the next caller
+// rebuilds the limiter with the (now-unset) env flag → no-op middleware,
+// matching the test-suite-wide default.
 const describeRateLimit = TEST_DB_AVAILABLE ? describe : describe.skip;
 describeRateLimit("Auth API — /login rate-limit (#478)", () => {
   let rlApp: any;
 
   beforeAll(async () => {
     process.env.ENABLE_LOGIN_RATELIMIT_IN_TESTS = "true";
+    // Drop any limiter the earlier main-describe blocks may have lazily
+    // constructed (with the env flag unset → no-op). Forces the next
+    // /login request inside this describe to rebuild against env=true.
+    const auth = await import("../../routes/auth");
+    auth.__resetLoginLimiterForTests();
     // Re-import the app builder fresh so the new env var is read by the
     // route module's loginLimiter construction. `await import()` returns
     // the module-cached value, but vitest's resetModules / dynamic
     // re-import via the buildApp() factory gives us a per-test instance.
     const mod = await import("../../app");
     rlApp = mod.buildApp().app;
+  });
+
+  afterAll(async () => {
+    // Restore the test-suite-wide default for any subsequent file that
+    // shares this fork. Order: drop the env flag first, then null the
+    // cache — so the next /login call sees env=false and rebuilds a
+    // no-op limiter.
+    delete process.env.ENABLE_LOGIN_RATELIMIT_IN_TESTS;
+    const auth = await import("../../routes/auth");
+    auth.__resetLoginLimiterForTests();
   });
 
   it("returns 429 with Retry-After after 5 attempts in the same window", async () => {

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
@@ -78,15 +78,27 @@ function overdueClass(days: number) {
 export default function BillingPage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
+  const pathname = usePathname();
   const { t } = useTranslation();
 
   // Issue #89: redirect DOCTORs (or any non-allowed role) away.
+  // Issue #501: redirect to /dashboard/not-authorized (the chrome-wrapped
+  // 403 page from #179) instead of silently bouncing to /dashboard. A
+  // Nurse typing /dashboard/billing in the URL bar used to land back on
+  // the home dashboard with the toast as the only signal — the toast
+  // could be missed entirely on slower machines because router.replace
+  // unmounted the source page before it animated in. The not-authorized
+  // page renders a persistent "Access Denied" banner that names the
+  // requested route, so the bounce is no longer ambiguous. The toast is
+  // kept as a secondary cue for power users who navigate quickly.
   useEffect(() => {
     if (!isLoading && user && !BILLING_ALLOWED.has(user.role)) {
       toast.error("Billing is restricted to Admin, Reception, and Patients.");
-      router.replace("/dashboard");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/billing")}`,
+      );
     }
-  }, [user, isLoading, router]);
+  }, [user, isLoading, router, pathname]);
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [outstanding, setOutstanding] = useState<OutstandingRow[]>([]);
   const [loading, setLoading] = useState(true);

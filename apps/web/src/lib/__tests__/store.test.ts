@@ -297,6 +297,42 @@ describe("useAuthStore", () => {
     }
   });
 
+  // ── Issue #484 — login/2FA must skip the global session-expired toast ──
+  //
+  // A 401 from /auth/login means "wrong credentials" — never "session
+  // expired" — because the user is by definition unauthenticated when
+  // they call this endpoint. Before the fix, a fresh failed login fired
+  // BOTH the page-level "Invalid email or password" toast AND the
+  // global "Your session has expired" toast from lib/api.ts, leaving
+  // the user with two contradictory toasts. We assert that the third
+  // argument to api.post on /auth/login carries `skip401Redirect: true`
+  // so the global handler in api.ts is suppressed.
+
+  it("login passes skip401Redirect to api.post on /auth/login (#484)", async () => {
+    mockedPost.mockResolvedValueOnce({
+      success: true,
+      data: { user: USER, tokens: TOKENS },
+    });
+    await useAuthStore.getState().login("a@b.com", "pwd");
+    // Locate the /auth/login call and inspect its options arg.
+    const call = mockedPost.mock.calls.find((c) => c[0] === "/auth/login");
+    expect(call).toBeDefined();
+    expect(call![2]).toMatchObject({ skip401Redirect: true });
+  });
+
+  it("verify2FA passes skip401Redirect on /auth/2fa/verify-login (#484)", async () => {
+    mockedPost.mockResolvedValueOnce({
+      success: true,
+      data: { user: USER, tokens: TOKENS },
+    });
+    await useAuthStore.getState().verify2FA("temp-123", "123456");
+    const call = mockedPost.mock.calls.find(
+      (c) => c[0] === "/auth/2fa/verify-login"
+    );
+    expect(call).toBeDefined();
+    expect(call![2]).toMatchObject({ skip401Redirect: true });
+  });
+
   it("logout invalidates an in-flight /me from the previous session (#422/#441)", async () => {
     window.localStorage.setItem("medcore_token", "patient-token");
     useAuthStore.setState({

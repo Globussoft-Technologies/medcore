@@ -108,6 +108,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Pass an empty `token: ""` would be wrong — instead we rely on the
     // localStorage being already cleared above, so api.ts will not attach
     // any Authorization header. The login endpoint does not require one.
+    //
+    // Issue #484: skip the global "Your session has expired" toast for the
+    // login endpoint. A 401 here means "wrong credentials" — never
+    // "session expired" — because the user is by definition not yet
+    // authenticated. The page-level catch in `app/login/page.tsx` already
+    // surfaces "Invalid email or password." and used to fire IN ADDITION
+    // to the global session-expired toast, leaving the user with two
+    // contradictory toasts on a fresh failed login.
     const res = await api.post<{
       success: boolean;
       data:
@@ -116,7 +124,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             tokens: { accessToken: string; refreshToken: string };
           }
         | { twoFactorRequired: true; tempToken: string };
-    }>("/auth/login", body);
+    }>("/auth/login", body, { skip401Redirect: true });
 
     // Issues #422 / #441: if another login/logout happened while we awaited,
     // discard our result entirely — the user has clearly moved on, and
@@ -145,13 +153,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     clearPersistedAuth();
     set({ user: null, token: null, loginGeneration: generation });
 
+    // Issue #484: same skip — a 401 from /auth/2fa/verify-login means
+    // "wrong code" not "session expired" (the tempToken is the only
+    // thing identifying the user mid-flow), so we suppress the global
+    // session-expired toast and let the page surface a step-specific
+    // "Invalid 2FA code" message via its own catch.
     const res = await api.post<{
       success: boolean;
       data: {
         user: User;
         tokens: { accessToken: string; refreshToken: string };
       };
-    }>("/auth/2fa/verify-login", { tempToken, code });
+    }>("/auth/2fa/verify-login", { tempToken, code }, { skip401Redirect: true });
 
     if (get().loginGeneration !== generation) return;
 

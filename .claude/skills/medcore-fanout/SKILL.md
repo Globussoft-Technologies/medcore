@@ -24,6 +24,16 @@ Do NOT invoke when:
 - Tasks touch the same file or the same `package.json` / lockfile (race risk).
 - The user wants async / "fire and forget" work — bg agents are broken; explain that and suggest foreground or DIY.
 
+## Two dispatch modes
+
+Pick the mode up-front, before writing any agent prompt — the commit instructions diverge.
+
+**Mode A — per-agent commits (default).** Each agent commits + pushes its own work. Best when lanes are clean and the wave reads as N independent shippable units (e.g. four E2E specs, four route-test scaffolds). Fastest to merge; surfaces individual agent failure cleanly.
+
+**Mode B — single bundled commit.** Agents stage their changes, validate, and report back; the parent merges everything into one commit. Best when the wave reads as one logical unit — a single audit follow-up, a coordinated security migration, a refactor that's only half-meaningful in isolation. Used by the May 2026 security audit follow-up (commit `e7ca04d` — 4 agents, 1 commit covering #457 + F-ABDM-1 + F-INJ-1 + 9-route AI audit).
+
+In Mode B, the per-agent prompts must say **"do NOT commit, do NOT push — stage your files and report"**, and the parent runs the unified typecheck + impacted-test sweep + single `git commit -- <all files>` + single `git push` after the wave returns. The lane-discipline checklist still applies (non-overlapping files), but the rebase-retry loop becomes a single push at the end and the `--` scoping argument matters less.
+
 ## How to dispatch
 
 **Single message, multiple Agent tool calls in parallel.** All foreground (no `run_in_background` parameter, no `isolation: "worktree"` — both have known issues).
@@ -119,6 +129,7 @@ These bundles have been validated in past sessions. Use them as templates:
 - **E2E backlog batch**: 3-4 agents, each closing one zero-coverage route. Lanes: `e2e/<route-1>.spec.ts`, `e2e/<route-2>.spec.ts`, etc. Each may also touch `docs/E2E_COVERAGE_BACKLOG.md` (the closure-annotation line is per-route, low race risk; rebase-retry handles it).
 - **P-list test batch**: P9 (`apps/api/src/services/__snapshots__`), P3 (`apps/web/src/components/**/*.a11y.test.tsx`), P10 (`apps/api/src/services/ai/*.bench.ts`), P2 (`packages/db/src/__tests__/migrations.test.ts`).
 - **Source-fix batch**: each agent owns one route handler. Lanes: `apps/api/src/routes/<a>.ts`, `apps/api/src/routes/<b>.ts`, etc.
+- **Bundled security audit (Mode B)**: 4 agents covering tenant-FK / rate-limit / prompt-injection / per-route audit-row retrofits, all merged into one commit. Lanes: `packages/db/prisma/**`, `apps/api/src/routes/abdm.*`, `apps/api/src/routes/ai-{er-triage,letters,chart-search,report-explainer}.*`, `apps/api/src/routes/ai-{adherence,knowledge,pharmacy,predictions,transcribe}.*`. Pair Mode B with `/medcore-ai-route-audit` for the AI lanes.
 
 ## Anti-patterns observed
 

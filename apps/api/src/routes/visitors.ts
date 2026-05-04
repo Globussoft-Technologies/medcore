@@ -9,6 +9,10 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import {
+  redactVisitorPII,
+  redactVisitorListPII,
+} from "../services/pii-redact";
 
 const router = Router();
 router.use(authenticate);
@@ -123,7 +127,9 @@ router.post(
         name,
       }).catch(console.error);
 
-      res.status(201).json({ success: true, data: visitor, error: null });
+      res
+        .status(201)
+        .json({ success: true, data: redactVisitorPII(visitor), error: null });
     } catch (err) {
       next(err);
     }
@@ -176,7 +182,7 @@ router.get(
 
       res.json({
         success: true,
-        data: items,
+        data: redactVisitorListPII(items),
         error: null,
         meta: { page: parseInt(page as string), limit: take, total },
       });
@@ -201,7 +207,11 @@ router.get(
         },
         orderBy: { checkInAt: "asc" },
       });
-      res.json({ success: true, data: items, error: null });
+      res.json({
+        success: true,
+        data: redactVisitorListPII(items),
+        error: null,
+      });
     } catch (err) {
       next(err);
     }
@@ -307,7 +317,7 @@ router.patch(
         console.error
       );
 
-      res.json({ success: true, data: updated, error: null });
+      res.json({ success: true, data: redactVisitorPII(updated), error: null });
     } catch (err) {
       next(err);
     }
@@ -334,7 +344,7 @@ router.get(
           .json({ success: false, data: null, error: "Visitor not found" });
         return;
       }
-      res.json({ success: true, data: v, error: null });
+      res.json({ success: true, data: redactVisitorPII(v), error: null });
     } catch (err) {
       next(err);
     }
@@ -417,7 +427,7 @@ router.patch(
         data: { photoUrl: req.body.photoUrl },
       });
       auditLog(req, "VISITOR_PHOTO", "visitor", v.id).catch(console.error);
-      res.json({ success: true, data: v, error: null });
+      res.json({ success: true, data: redactVisitorPII(v), error: null });
     } catch (err) {
       next(err);
     }
@@ -437,7 +447,11 @@ router.get(
       const active = items.filter((v) => !v.checkOutAt).length;
       res.json({
         success: true,
-        data: { items, active, total: items.length },
+        data: {
+          items: redactVisitorListPII(items),
+          active,
+          total: items.length,
+        },
         error: null,
       });
     } catch (err) {

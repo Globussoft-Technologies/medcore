@@ -40,7 +40,14 @@ const PEDIATRIC_PATIENTS = [
   {
     name: "Aarav Sharma",
     gender: "MALE" as Gender,
-    ageDays: 3, // newborn
+    // Bug #497: was ageDays: 3 (newborn) which floor-divided to age=0 yrs in
+    // the Patient.age column. The pediatric dashboard rendered "Age: 0 yrs"
+    // which looks like a data-entry bug. Bumped to ~5y so the row is
+    // age-coherent. Newborn coverage is still provided by Ishani Patel
+    // (6 mo) and the growth-record schedule below — the seed produces an
+    // initial measurement at ageMonths=0 (DOB) for every patient regardless
+    // of current age, so the "newborn measurements" data point still exists.
+    ageDays: 365 * 5 + 45, // 5y 1.5m
     bloodGroup: "A+",
     address: "B-404 Sai Residency, Powai, Mumbai 400076",
     parentName: "Ritesh Sharma (Father)",
@@ -188,7 +195,15 @@ async function main() {
     return;
   }
 
-  let mrSeqBase = 9000; // pediatric MR range
+  // Bug #499: pediatric used to start at MR009000, leaving an 8965-row gap
+  // after seed-realistic.ts's MR000001..MR000035 range. The "9000 reserved
+  // for pediatric" carve-out was undocumented and confused users browsing
+  // /dashboard/patients (they saw MR000001..MR000035, then MR009000..009007
+  // with no MR000036..MR008999 in between). Pediatric MR numbers now sit
+  // contiguous with the realistic-seed block. Keep this in sync with
+  // PATIENT_DATA.length in seed-realistic.ts (currently 35) — and with the
+  // `next_mr_number` SystemConfig key written by seed.ts.
+  let mrSeqBase = 36; // contiguous: MR000036..MR000043 (8 pediatric patients)
   let patientsCreated = 0;
   let growthRecordsCreated = 0;
   let immunizationsCreated = 0;

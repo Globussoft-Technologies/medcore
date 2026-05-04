@@ -197,7 +197,14 @@ async function main() {
     { key: "hospital_phone", value: "+91 22 1234 5678" },
     { key: "consultation_fee", value: "500" },
     { key: "gst_percentage", value: "0" },
-    { key: "next_mr_number", value: "2" },
+    // next_mr_number must stay above every MR allocated by the seed bundle.
+    // seed.ts seeds MR000001 (Rahul Kumar). seed-realistic.ts seeds
+    // MR000001..MR000035 (idempotent upsert on user email — Rahul Kumar
+    // matches by email, so no MR collision). seed-pediatric-patients.ts then
+    // seeds MR000036..MR000043 (8 patients). So 44 is the next free number.
+    // Bug #499 regression — must keep this aligned when seed-realistic
+    // PATIENT_DATA grows or pediatric mrSeqBase changes.
+    { key: "next_mr_number", value: "44" },
     { key: "next_invoice_number", value: "1" },
   ];
 

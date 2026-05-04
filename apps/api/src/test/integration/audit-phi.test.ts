@@ -17,6 +17,7 @@ import {
   createDoctorWithToken,
   createAppointmentFixture,
 } from "../factories";
+import { waitForAuditRows } from "../helpers/audit-wait";
 
 // Mock AI services so tests don't need network access.
 vi.mock("../../services/ai/sarvam", () => ({
@@ -65,11 +66,32 @@ async function clearAuditFor(action: string) {
   await prisma.auditLog.deleteMany({ where: { action } });
 }
 
-async function findAudit(action: string, entityId?: string) {
+/**
+ * Read audit rows, polling until at least one matching row exists or
+ * `timeoutMs` elapses. Required because most route handlers fire-and-forget
+ * the audit write via `safeAudit()` (route returns 2xx before the
+ * AuditLog.create() promise resolves). See helpers/audit-wait.ts.
+ *
+ * `expectMissing: true` flips the contract — the caller asserts the row
+ * does NOT exist (used by the FHIR test, which only expects an audit row
+ * conditionally on res.status === 200). In that mode we return [] without
+ * waiting the full timeout.
+ */
+async function findAudit(
+  action: string,
+  entityId?: string,
+  opts: { expectMissing?: boolean } = {}
+) {
   const prisma = await getPrisma();
-  return prisma.auditLog.findMany({
-    where: { action, ...(entityId ? { entityId } : {}) },
-    orderBy: { createdAt: "desc" },
+  if (opts.expectMissing) {
+    return prisma.auditLog.findMany({
+      where: { action, ...(entityId ? { entityId } : {}) },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+  return waitForAuditRows(prisma, {
+    action,
+    ...(entityId ? { entityId } : {}),
   });
 }
 
@@ -244,7 +266,11 @@ describeIfDB("PHI read audit logging (integration)", () => {
     // an audit row that did NOT contain the raw identifier value.
     expect([200, 400]).toContain(res.status);
 
-    const rows = await findAudit("FHIR_SEARCH_PATIENT");
+    // On 200 we poll for the deferred audit row; on 400 the route never
+    // wrote one, so we read once (no polling) and assert the empty case.
+    const rows = await findAudit("FHIR_SEARCH_PATIENT", undefined, {
+      expectMissing: res.status !== 200,
+    });
     // When the request produced a 200, we expect an audit row.
     if (res.status === 200) {
       expect(rows.length).toBeGreaterThanOrEqual(1);

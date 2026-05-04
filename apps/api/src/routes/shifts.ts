@@ -138,6 +138,11 @@ router.post(
 );
 
 // ─── GET /shifts — list w/ filters & pagination ────────────────
+// #511 audit (2026-05-05, cron-tick): VERIFIED-SAFE. Non-ADMIN callers are
+// scoped to their own userId via the inline `where.userId = req.user!.userId`
+// guard below. StaffShift is a non-patient HR resource keyed to staff User.id;
+// PATIENTs do not own shift rows, so the worst-case PATIENT response is an
+// empty list. No cross-staff exposure possible.
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { userId, from, to, status, type } = req.query;
@@ -185,6 +190,9 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // ─── GET /shifts/my — current user's shifts for next 14 days ───
+// #511 audit (2026-05-05, cron-tick): VERIFIED-SAFE. Query is hard-scoped to
+// `req.user!.userId` — caller can only see their own shifts. PATIENTs would
+// see an empty list (no staffShift rows for PATIENT users).
 router.get("/my", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const today = new Date();
@@ -309,6 +317,10 @@ router.patch(
 );
 
 // ─── PATCH /shifts/:id/check-in ────────────────────────────────
+// #511 audit (2026-05-05, cron-tick): VERIFIED-SAFE. Inline guard at the
+// `shift.userId !== req.user!.userId && req.user!.role !== Role.ADMIN` check
+// below ensures only the shift's owning staff member or ADMIN can check in.
+// PATIENTs cannot have staffShift rows, so are 403'd by the same guard.
 router.patch("/:id/check-in", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
@@ -350,6 +362,9 @@ router.patch("/:id/check-in", async (req: Request, res: Response, next: NextFunc
 });
 
 // ─── PATCH /shifts/:id/check-out ───────────────────────────────
+// #511 audit (2026-05-05, cron-tick): VERIFIED-SAFE. Same inline guard as
+// check-in — only own-shift staff or ADMIN can check out. Non-patient HR
+// resource; PATIENT effectively excluded by the inline check.
 router.patch(
   "/:id/check-out",
   validate(checkOutShiftSchema),

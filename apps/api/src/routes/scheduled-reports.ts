@@ -17,6 +17,11 @@ import { sendEmail } from "../services/notification";
 const router = Router();
 router.use(authenticate);
 router.use(authorize(Role.ADMIN));
+// #511 audit (2026-05-05, cron-tick): all handlers verified safe via
+// router-level authorize(Role.ADMIN). PATIENT cannot reach any handler in
+// this file. Scheduled reports are admin-config only; report DEFINITIONS
+// (incl. those whose rendered output may include PHI) are never user-scoped.
+// No per-row ownership check is required at the handler level.
 
 // ── Helpers ────────────────────────────────────────────
 

@@ -110,6 +110,11 @@ async function requireSuperAdmin(
 router.use(authenticate);
 router.use(authorize(Role.ADMIN));
 router.use(requireSuperAdmin);
+// #511 audit (2026-05-05, cron-tick): all handlers verified safe via
+// router-level authorize(Role.ADMIN) + requireSuperAdmin guard. PATIENT
+// is excluded by the role check; non-default-tenant admins are excluded
+// by requireSuperAdmin. Tenant administration is super-admin-only by
+// definition — no per-row ownership check applies.
 
 // ─── Usage-stats helper ──────────────────────────────────────────────
 

@@ -395,17 +395,17 @@ filename and the core scenarios it should cover.
   - Refill request from patient → doctor approval
   - Pharmacist rejects Rx with reason → patient sees status~~
 
-### P3 — Pharmacy inventory & stock management
-- **File:** `e2e/pharmacy-inventory.spec.ts`
-- **Why:** Stockouts delay treatment; expired stock is patient safety + regulatory
-- **Scenarios:**
+### ~~P3 — Pharmacy inventory & stock management~~ ✅ closed (`e2e/pharmacy-inventory.spec.ts`, 5 cases — PHARMACIST Low-Stock tab orange-band qty + per-row "Order from Supplier" CTA via stubbed `/pharmacy/inventory?lowStock=true` + `Order from Supplier` POST stub pinning `/pharmacy/inventory/:id/order-from-supplier` URL shape and the PO-number success toast + Expiring-Soon tab pinning red (days<0) + orange (0≤days<30) `expiryColor` bands via stubbed `/pharmacy/inventory/expiring` with one already-expired and one expiring-this-week row + PHARMACIST sees Add-Stock write CTA / NURSE doesn't (canManage gate at page.tsx:136) + PATIENT bounces (page.tsx:96 VIEW_ALLOWED). Deliberately disjoint from `e2e/pharmacy.spec.ts` (tab nav + search wiring + ADMIN Valuation + RECEPTION redirect), `e2e/pharmacy-forecast.spec.ts` (consumption trend / forecast page), `e2e/medicines.spec.ts` (catalog + role matrix + ADMIN create), `e2e/purchase-orders.spec.ts` (full PO create→receive→stock pipeline). **Deferred — UI not shipped:** (a) "/dashboard/medicines catalog WITH stock levels" — medicines/page.tsx renders the catalog without on-hand columns; stock lives only on /dashboard/pharmacy. (b) "Dispense-after-expiry blocked at pharmacy" — server guard exists at apps/api/src/routes/pharmacy.ts:504 (`expiryDate: { gt: new Date() }` in the dispense transaction) but no /dispense UI exists in apps/web (grep returned 0 hits); the API guard is unit-tested elsewhere and e2e has no UI surface to drive. (c) "Stock count adjustment with reason + audit" — `POST /pharmacy/stock-adjustments` (pharmacy.ts:1064) has zero UI consumers (grep "stock-adjustments" across apps/web/src returned 0 hits); only Add-Stock / Return / Transfer modals exist as inventory-write surfaces, none of which is an arbitrary count-correction with reasonCode.)
+- ~~**File:** `e2e/pharmacy-inventory.spec.ts`~~
+- ~~**Why:** Stockouts delay treatment; expired stock is patient safety + regulatory~~
+- ~~**Scenarios:**
   - View `/dashboard/medicines` catalog with stock levels
   - Low-stock threshold triggers reorder suggestion
   - Expiring-soon medicines surfaced on pharmacy dashboard
   - Dispense-after-expiry blocked at pharmacy
   - Stock count adjustment with reason + audit
   - Purchase order creation → receive → stock incremented
-  - Consumption trend visible per medicine
+  - Consumption trend visible per medicine~~
 
 ### ~~P4 — Doctor full chart review~~ ✅ closed (`e2e/doctor-chart-review.spec.ts`, 6 cases — DOCTOR full 8-tab strip + Allergy WRITE flow with POST body shape pin via page.route stub + Allergy form NEGATIVE (empty allergen → toast, no POST) + Lab Results TrendSparkline `<svg>` rendering for HbA1c (stubs `/lab-orders` + `/lab/results/trends`) + Documents IMAGING-group heading + X-ray row when IMAGING-typed doc exists (stubbed) + Caregiver/family CRUD via FamilyLinksSection Add-Family-Member CTA opening LinkFamilyModal with relationship select. Deliberately disjoint from `e2e/patients-id.spec.ts` (which pins read-side empty-state paths + RBAC asymmetry). Deferred — UI not shipped: (a) "active medication list with start/stop dates" — the `prescription.items` type at page.tsx:98-105 carries dosage/frequency/duration only; no start/stop columns surface in the UI; (b) "medication reconciliation across encounters" — no encounter-spanning reconciliation surface exists in the chart today; (c) image-viewer interaction — the Documents IMAGING group exposes a Download CTA but no inline viewer.)
 - ~~**File:** `e2e/doctor-chart-review.spec.ts`~~

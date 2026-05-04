@@ -2215,7 +2215,7 @@ function QuickVitalsModal({
 
   return (
     <Modal title="Record Vitals" onClose={onClose} size="lg">
-      <form onSubmit={submit} className="space-y-3">
+      <form onSubmit={submit} className="space-y-3" noValidate>
         {error && (
           <div className="rounded-md bg-red-50 p-2 text-sm text-red-700">
             {error}
@@ -2881,6 +2881,10 @@ function AllergyForm({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!allergen.trim()) {
+      toast.error("Allergen is required");
+      return;
+    }
     setSaving(true);
     try {
       await api.post("/ehr/allergies", {
@@ -2899,12 +2903,11 @@ function AllergyForm({
 
   return (
     <Modal title="Add Allergy" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3">
+      <form onSubmit={submit} className="space-y-3" noValidate>
         <div>
           <label className="text-xs text-gray-600">Allergen *</label>
           <input
             className="w-full rounded-md border px-3 py-2 text-sm"
-            required
             value={allergen}
             onChange={(e) => setAllergen(e.target.value)}
           />
@@ -2980,6 +2983,10 @@ function ConditionForm({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!condition.trim()) {
+      toast.error("Condition is required");
+      return;
+    }
     setSaving(true);
     try {
       await api.post("/ehr/conditions", {
@@ -2999,7 +3006,7 @@ function ConditionForm({
 
   return (
     <Modal title="Add Chronic Condition" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3">
+      <form onSubmit={submit} className="space-y-3" noValidate>
         <Icd10Autocomplete
           condition={condition}
           icd10Code={icd10Code}
@@ -3090,6 +3097,14 @@ function FamilyForm({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!relation.trim()) {
+      toast.error("Relation is required");
+      return;
+    }
+    if (!condition.trim()) {
+      toast.error("Condition is required");
+      return;
+    }
     setSaving(true);
     try {
       await api.post("/ehr/family-history", {
@@ -3107,13 +3122,12 @@ function FamilyForm({
 
   return (
     <Modal title="Add Family History" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3">
+      <form onSubmit={submit} className="space-y-3" noValidate>
         <div>
           <label className="text-xs text-gray-600">Relation *</label>
           <input
             placeholder="Mother, Father, Sibling..."
             className="w-full rounded-md border px-3 py-2 text-sm"
-            required
             value={relation}
             onChange={(e) => setRelation(e.target.value)}
           />
@@ -3122,7 +3136,6 @@ function FamilyForm({
           <label className="text-xs text-gray-600">Condition *</label>
           <input
             className="w-full rounded-md border px-3 py-2 text-sm"
-            required
             value={condition}
             onChange={(e) => setCondition(e.target.value)}
           />
@@ -3178,6 +3191,18 @@ function ImmunizationForm({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!vaccine.trim()) {
+      toast.error("Vaccine is required");
+      return;
+    }
+    if (!dateGiven) {
+      toast.error("Date given is required");
+      return;
+    }
+    if (doseNumber && parseInt(doseNumber) < 1) {
+      toast.error("Dose # must be 1 or greater");
+      return;
+    }
     setSaving(true);
     try {
       await api.post("/ehr/immunizations", {
@@ -3200,12 +3225,11 @@ function ImmunizationForm({
 
   return (
     <Modal title="Record Immunization" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3">
+      <form onSubmit={submit} className="space-y-3" noValidate>
         <div>
           <label className="text-xs text-gray-600">Vaccine *</label>
           <input
             className="w-full rounded-md border px-3 py-2 text-sm"
-            required
             value={vaccine}
             onChange={(e) => setVaccine(e.target.value)}
           />
@@ -3215,7 +3239,6 @@ function ImmunizationForm({
             <label className="text-xs text-gray-600">Dose #</label>
             <input
               type="number"
-              min={1}
               className="w-full rounded-md border px-3 py-2 text-sm"
               value={doseNumber}
               onChange={(e) => setDose(e.target.value)}
@@ -3225,7 +3248,6 @@ function ImmunizationForm({
             <label className="text-xs text-gray-600">Date Given *</label>
             <input
               type="date"
-              required
               className="w-full rounded-md border px-3 py-2 text-sm"
               value={dateGiven}
               onChange={(e) => setDateGiven(e.target.value)}
@@ -3518,7 +3540,7 @@ function DocumentUploadForm({
 
   return (
     <Modal title="Upload Document" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3">
+      <form onSubmit={submit} className="space-y-3" noValidate>
         <div>
           <label className="text-xs text-gray-600">Type *</label>
           <select
@@ -3548,7 +3570,6 @@ function DocumentUploadForm({
           <label className="text-xs text-gray-600">File *</label>
           <input
             type="file"
-            required
             className="w-full text-sm"
             onChange={(e) => setFile(e.target.files?.[0] || null)}
           />
@@ -4529,7 +4550,6 @@ function Icd10Autocomplete({
       <label className="text-xs text-gray-600">Condition *</label>
       <input
         className="w-full rounded-md border px-3 py-2 text-sm"
-        required
         value={condition}
         onChange={(e) => {
           onConditionChange(e.target.value);
@@ -5059,6 +5079,14 @@ function AdvanceDirectiveForm({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!effectiveDate) {
+      toast.error("Effective date is required");
+      return;
+    }
+    if (!notes.trim()) {
+      toast.error("Notes are required");
+      return;
+    }
     setSaving(true);
     try {
       await api.post(`/ehr/patients/${patientId}/advance-directives`, {
@@ -5079,7 +5107,7 @@ function AdvanceDirectiveForm({
 
   return (
     <Modal title="Add Advance Directive" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3">
+      <form onSubmit={submit} className="space-y-3" noValidate>
         <div>
           <label className="text-xs text-gray-600">Type *</label>
           <select
@@ -5101,7 +5129,6 @@ function AdvanceDirectiveForm({
             <label className="text-xs text-gray-600">Effective Date *</label>
             <input
               type="date"
-              required
               value={effectiveDate}
               onChange={(e) => setEffectiveDate(e.target.value)}
               className="w-full rounded-md border px-3 py-2 text-sm"
@@ -5128,7 +5155,6 @@ function AdvanceDirectiveForm({
         <div>
           <label className="text-xs text-gray-600">Notes *</label>
           <textarea
-            required
             rows={3}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}

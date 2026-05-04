@@ -352,8 +352,9 @@ export default function OTPage() {
             </h2>
 
             <div className="mb-3">
-              <label className="mb-1 block text-sm font-medium">Name</label>
+              <label htmlFor="ot-name" className="mb-1 block text-sm font-medium">Name</label>
               <input
+                id="ot-name"
                 type="text"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
@@ -363,8 +364,9 @@ export default function OTPage() {
 
             <div className="mb-3 grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block text-sm font-medium">Floor</label>
+                <label htmlFor="ot-floor" className="mb-1 block text-sm font-medium">Floor</label>
                 <input
+                  id="ot-floor"
                   type="text"
                   value={form.floor}
                   onChange={(e) => setForm((f) => ({ ...f, floor: e.target.value }))}
@@ -372,8 +374,9 @@ export default function OTPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">Daily Rate</label>
+                <label htmlFor="ot-daily-rate" className="mb-1 block text-sm font-medium">Daily Rate</label>
                 <input
+                  id="ot-daily-rate"
                   type="number"
                   step="0.01"
                   value={form.dailyRate}
@@ -386,8 +389,9 @@ export default function OTPage() {
             </div>
 
             <div className="mb-4">
-              <label className="mb-1 block text-sm font-medium">Equipment</label>
+              <label htmlFor="ot-equipment" className="mb-1 block text-sm font-medium">Equipment</label>
               <textarea
+                id="ot-equipment"
                 value={form.equipment}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, equipment: e.target.value }))

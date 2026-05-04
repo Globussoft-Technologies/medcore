@@ -324,10 +324,11 @@ export default function FeedbackPage() {
       {/* Filters */}
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+          <label htmlFor="feedback-category" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
             Category
           </label>
           <select
+            id="feedback-category"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
             className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
@@ -341,10 +342,11 @@ export default function FeedbackPage() {
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+          <label htmlFor="feedback-from" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
             From
           </label>
           <input
+            id="feedback-from"
             type="date"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
@@ -352,10 +354,11 @@ export default function FeedbackPage() {
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+          <label htmlFor="feedback-to" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
             To
           </label>
           <input
+            id="feedback-to"
             type="date"
             value={to}
             onChange={(e) => setTo(e.target.value)}

@@ -462,10 +462,11 @@ export default function SurgeryPage() {
           the schedule to "today" or "this week" without opening a form. */}
       <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800">
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+          <label htmlFor="surgery-filter-from" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
             From
           </label>
           <input
+            id="surgery-filter-from"
             type="date"
             data-testid="surgery-filter-from"
             value={fromDate}
@@ -474,10 +475,11 @@ export default function SurgeryPage() {
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+          <label htmlFor="surgery-filter-to" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
             To
           </label>
           <input
+            id="surgery-filter-to"
             type="date"
             data-testid="surgery-filter-to"
             value={toDate}
@@ -685,7 +687,7 @@ export default function SurgeryPage() {
             <h2 className="mb-4 text-lg font-semibold">Schedule Surgery</h2>
 
             <div className="mb-4">
-              <label className="mb-1 block text-sm font-medium">Patient</label>
+              <label htmlFor="surgery-patient-search" className="mb-1 block text-sm font-medium">Patient</label>
               {selectedPatient ? (
                 <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
                   <div>
@@ -705,6 +707,7 @@ export default function SurgeryPage() {
               ) : (
                 <>
                   <input
+                    id="surgery-patient-search"
                     type="text"
                     placeholder="Search by name or phone..."
                     value={patientSearch}
@@ -738,8 +741,9 @@ export default function SurgeryPage() {
 
             <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-sm font-medium">Surgeon</label>
+                <label htmlFor="surgery-surgeon" className="mb-1 block text-sm font-medium">Surgeon</label>
                 <select
+                  id="surgery-surgeon"
                   value={form.surgeonId}
                   onChange={(e) => setForm((f) => ({ ...f, surgeonId: e.target.value }))}
                   className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -754,8 +758,9 @@ export default function SurgeryPage() {
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">Operating Theater</label>
+                <label htmlFor="surgery-ot" className="mb-1 block text-sm font-medium">Operating Theater</label>
                 <select
+                  id="surgery-ot"
                   value={form.otId}
                   onChange={(e) => setForm((f) => ({ ...f, otId: e.target.value }))}
                   className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -772,8 +777,9 @@ export default function SurgeryPage() {
             </div>
 
             <div className="mb-4">
-              <label className="mb-1 block text-sm font-medium">Procedure</label>
+              <label htmlFor="surgery-procedure" className="mb-1 block text-sm font-medium">Procedure</label>
               <textarea
+                id="surgery-procedure"
                 value={form.procedure}
                 onChange={(e) => setForm((f) => ({ ...f, procedure: e.target.value }))}
                 className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -784,8 +790,9 @@ export default function SurgeryPage() {
 
             <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div>
-                <label className="mb-1 block text-sm font-medium">Scheduled At</label>
+                <label htmlFor="schedule-surgery-at" className="mb-1 block text-sm font-medium">Scheduled At</label>
                 <input
+                  id="schedule-surgery-at"
                   type="datetime-local"
                   data-testid="schedule-surgery-at"
                   aria-invalid={!!scheduleError}
@@ -810,10 +817,11 @@ export default function SurgeryPage() {
                 )}
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">
+                <label htmlFor="schedule-surgery-duration" className="mb-1 block text-sm font-medium">
                   Duration (min)
                 </label>
                 <input
+                  id="schedule-surgery-duration"
                   type="number"
                   // Issue #53: duration must be strictly positive (matches
                   // the zod .positive() guard on scheduleSurgerySchema).
@@ -828,10 +836,11 @@ export default function SurgeryPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">
+                <label htmlFor="schedule-surgery-cost" className="mb-1 block text-sm font-medium">
                   Estimated Cost
                 </label>
                 <input
+                  id="schedule-surgery-cost"
                   type="number"
                   // Issue #53: cost is non-negative (0 allowed for pro-bono /
                   // charity cases). Mirrors zod .nonnegative() at the API.
@@ -847,10 +856,11 @@ export default function SurgeryPage() {
 
             <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-sm font-medium">
+                <label htmlFor="surgery-anaesthesiologist" className="mb-1 block text-sm font-medium">
                   Anaesthesiologist
                 </label>
                 <input
+                  id="surgery-anaesthesiologist"
                   type="text"
                   value={form.anaesthesiologist}
                   onChange={(e) =>
@@ -860,8 +870,9 @@ export default function SurgeryPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">Assistants</label>
+                <label htmlFor="surgery-assistants" className="mb-1 block text-sm font-medium">Assistants</label>
                 <input
+                  id="surgery-assistants"
                   type="text"
                   value={form.assistants}
                   onChange={(e) =>
@@ -910,8 +921,9 @@ export default function SurgeryPage() {
             </div>
 
             <div className="mb-4">
-              <label className="mb-1 block text-sm font-medium">Pre-Op Notes</label>
+              <label htmlFor="surgery-preop-notes" className="mb-1 block text-sm font-medium">Pre-Op Notes</label>
               <textarea
+                id="surgery-preop-notes"
                 value={form.preOpNotes}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, preOpNotes: e.target.value }))

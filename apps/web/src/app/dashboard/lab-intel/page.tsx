@@ -424,20 +424,22 @@ export default function LabIntelPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <label className="text-xs font-medium text-gray-500 dark:text-gray-400">
+            <label htmlFor="lab-intel-from" className="text-xs font-medium text-gray-500 dark:text-gray-400">
               From
             </label>
             <input
+              id="lab-intel-from"
               type="date"
               data-testid="lab-intel-from"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
               className="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
             />
-            <label className="text-xs font-medium text-gray-500 dark:text-gray-400">
+            <label htmlFor="lab-intel-to" className="text-xs font-medium text-gray-500 dark:text-gray-400">
               To
             </label>
             <input
+              id="lab-intel-to"
               type="date"
               data-testid="lab-intel-to"
               value={to}

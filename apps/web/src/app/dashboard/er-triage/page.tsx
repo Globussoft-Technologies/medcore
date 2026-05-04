@@ -202,10 +202,11 @@ export default function ERTriagePage() {
         <div className="grid grid-cols-1 gap-4">
           {/* Chief Complaint */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">
+            <label htmlFor="triage-chief-complaint" className="block text-xs font-medium text-gray-600 mb-1">
               Chief Complaint <span className="text-red-500">*</span>
             </label>
             <input
+              id="triage-chief-complaint"
               type="text"
               value={form.chiefComplaint}
               onChange={set("chiefComplaint")}
@@ -217,8 +218,9 @@ export default function ERTriagePage() {
           {/* Vitals row */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">BP (mmHg)</label>
+              <label htmlFor="triage-bp" className="block text-xs font-medium text-gray-600 mb-1">BP (mmHg)</label>
               <input
+                id="triage-bp"
                 type="text"
                 value={form.bp}
                 onChange={set("bp")}
@@ -227,8 +229,9 @@ export default function ERTriagePage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Pulse (bpm)</label>
+              <label htmlFor="triage-pulse" className="block text-xs font-medium text-gray-600 mb-1">Pulse (bpm)</label>
               <input
+                id="triage-pulse"
                 type="number"
                 value={form.pulse}
                 onChange={set("pulse")}
@@ -239,8 +242,9 @@ export default function ERTriagePage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Resp Rate (/min)</label>
+              <label htmlFor="triage-resp" className="block text-xs font-medium text-gray-600 mb-1">Resp Rate (/min)</label>
               <input
+                id="triage-resp"
                 type="number"
                 value={form.resp}
                 onChange={set("resp")}
@@ -251,8 +255,9 @@ export default function ERTriagePage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">SpO2 (%)</label>
+              <label htmlFor="triage-spo2" className="block text-xs font-medium text-gray-600 mb-1">SpO2 (%)</label>
               <input
+                id="triage-spo2"
                 type="number"
                 value={form.spO2}
                 onChange={set("spO2")}
@@ -263,8 +268,9 @@ export default function ERTriagePage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Temperature (°C)</label>
+              <label htmlFor="triage-temp" className="block text-xs font-medium text-gray-600 mb-1">Temperature (°C)</label>
               <input
+                id="triage-temp"
                 type="number"
                 value={form.temp}
                 onChange={set("temp")}
@@ -276,8 +282,9 @@ export default function ERTriagePage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">GCS (3–15)</label>
+              <label htmlFor="triage-gcs" className="block text-xs font-medium text-gray-600 mb-1">GCS (3–15)</label>
               <input
+                id="triage-gcs"
                 type="number"
                 value={form.gcs}
                 onChange={set("gcs")}
@@ -291,8 +298,9 @@ export default function ERTriagePage() {
 
           {/* Demographics */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Patient Age (years)</label>
+            <label htmlFor="triage-patient-age" className="block text-xs font-medium text-gray-600 mb-1">Patient Age (years)</label>
             <input
+              id="triage-patient-age"
               type="number"
               value={form.patientAge}
               onChange={set("patientAge")}
@@ -305,8 +313,9 @@ export default function ERTriagePage() {
 
           {/* Brief history */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Brief History</label>
+            <label htmlFor="triage-brief-history" className="block text-xs font-medium text-gray-600 mb-1">Brief History</label>
             <textarea
+              id="triage-brief-history"
               value={form.briefHistory}
               onChange={set("briefHistory")}
               rows={3}

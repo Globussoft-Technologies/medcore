@@ -1019,8 +1019,9 @@ export default function AppointmentsPage() {
               </button>
             </div>
             <div className="mt-4">
-              <label className="mb-1 block text-sm font-medium">New Date</label>
+              <label htmlFor="resched-new-date" className="mb-1 block text-sm font-medium">New Date</label>
               <input
+                id="resched-new-date"
                 type="date"
                 value={reschedDate}
                 onChange={(e) => {
@@ -1413,8 +1414,9 @@ export default function AppointmentsPage() {
               {isRecurring && (
                 <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
-                    <label className="mb-1 block text-sm font-medium">Frequency</label>
+                    <label htmlFor="appt-rec-frequency" className="mb-1 block text-sm font-medium">Frequency</label>
                     <select
+                      id="appt-rec-frequency"
                       value={recFrequency}
                       onChange={(e) =>
                         setRecFrequency(e.target.value as "DAILY" | "WEEKLY" | "MONTHLY")
@@ -1427,8 +1429,9 @@ export default function AppointmentsPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium">Occurrences</label>
+                    <label htmlFor="appt-rec-occurrences" className="mb-1 block text-sm font-medium">Occurrences</label>
                     <input
+                      id="appt-rec-occurrences"
                       type="number"
                       min={2}
                       max={52}
@@ -1934,8 +1937,9 @@ export default function AppointmentsPage() {
         <>
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">From</label>
+              <label htmlFor="appt-stats-from" className="mb-1 block text-xs font-medium text-gray-600">From</label>
               <input
+                id="appt-stats-from"
                 type="date"
                 value={statsFrom}
                 onChange={(e) => setStatsFrom(e.target.value)}
@@ -1943,8 +1947,9 @@ export default function AppointmentsPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">To</label>
+              <label htmlFor="appt-stats-to" className="mb-1 block text-xs font-medium text-gray-600">To</label>
               <input
+                id="appt-stats-to"
                 type="date"
                 value={statsTo}
                 onChange={(e) => setStatsTo(e.target.value)}
@@ -1952,8 +1957,9 @@ export default function AppointmentsPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">Doctor</label>
+              <label htmlFor="appt-stats-doctor" className="mb-1 block text-xs font-medium text-gray-600">Doctor</label>
               <select
+                id="appt-stats-doctor"
                 value={statsDoctor}
                 onChange={(e) => setStatsDoctor(e.target.value)}
                 className="rounded-lg border px-3 py-2 text-sm"
@@ -2144,8 +2150,9 @@ function WaitlistModal({
             ))}
           </select>
           <div>
-            <label className="text-xs text-gray-500">Preferred Date</label>
+            <label htmlFor="waitlist-pref-date" className="text-xs text-gray-500">Preferred Date</label>
             <input
+              id="waitlist-pref-date"
               type="date"
               value={preferredDate}
               onChange={(e) => setPreferredDate(e.target.value)}
@@ -2475,8 +2482,9 @@ function GroupAppointmentModal({
           </select>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-xs text-gray-500">Date</label>
+              <label htmlFor="group-appt-date" className="text-xs text-gray-500">Date</label>
               <input
+                id="group-appt-date"
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
@@ -2484,8 +2492,9 @@ function GroupAppointmentModal({
               />
             </div>
             <div>
-              <label className="text-xs text-gray-500">Slot Start</label>
+              <label htmlFor="group-appt-slot" className="text-xs text-gray-500">Slot Start</label>
               <input
+                id="group-appt-slot"
                 type="time"
                 value={slotStart}
                 onChange={(e) => setSlotStart(e.target.value)}
@@ -2585,8 +2594,9 @@ function CoordinatedVisitModal({
             className="w-full rounded-lg border px-3 py-2 text-sm"
           />
           <div>
-            <label className="text-xs text-gray-500">Visit Date</label>
+            <label htmlFor="coord-visit-date" className="text-xs text-gray-500">Visit Date</label>
             <input
+              id="coord-visit-date"
               type="date"
               value={visitDate}
               onChange={(e) => setVisitDate(e.target.value)}

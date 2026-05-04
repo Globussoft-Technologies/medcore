@@ -414,9 +414,10 @@ export default function SurgeryDetailPage() {
 
         <div className="space-y-4">
           <div>
-            <p className="mb-1 text-xs font-medium text-gray-500">Diagnosis</p>
+            <label htmlFor="surgery-detail-diagnosis" className="mb-1 block text-xs font-medium text-gray-500">Diagnosis</label>
             {editMode ? (
               <input
+                id="surgery-detail-diagnosis"
                 type="text"
                 value={notes.diagnosis}
                 onChange={(e) =>
@@ -431,9 +432,10 @@ export default function SurgeryDetailPage() {
             )}
           </div>
           <div>
-            <p className="mb-1 text-xs font-medium text-gray-500">Pre-Op Notes</p>
+            <label htmlFor="surgery-detail-preop" className="mb-1 block text-xs font-medium text-gray-500">Pre-Op Notes</label>
             {editMode ? (
               <textarea
+                id="surgery-detail-preop"
                 value={notes.preOpNotes}
                 onChange={(e) =>
                   setNotes((n) => ({ ...n, preOpNotes: e.target.value }))
@@ -448,9 +450,10 @@ export default function SurgeryDetailPage() {
             )}
           </div>
           <div>
-            <p className="mb-1 text-xs font-medium text-gray-500">Post-Op Notes</p>
+            <label htmlFor="surgery-detail-postop" className="mb-1 block text-xs font-medium text-gray-500">Post-Op Notes</label>
             {editMode ? (
               <textarea
+                id="surgery-detail-postop"
                 value={notes.postOpNotes}
                 onChange={(e) =>
                   setNotes((n) => ({ ...n, postOpNotes: e.target.value }))
@@ -935,8 +938,8 @@ function BloodAvailabilityCard({ surgeryId, canEdit }: { surgeryId: string; canE
       <h2 className="mb-3 text-sm font-semibold text-gray-700">Blood Availability Check</h2>
       <div className="mb-3 flex flex-wrap items-end gap-2">
         <div>
-          <label className="block text-xs text-gray-500">Component</label>
-          <select value={component} onChange={(e) => setComponent(e.target.value)} className="rounded-lg border px-3 py-2 text-sm">
+          <label htmlFor="blood-req-component" className="block text-xs text-gray-500">Component</label>
+          <select id="blood-req-component" value={component} onChange={(e) => setComponent(e.target.value)} className="rounded-lg border px-3 py-2 text-sm">
             <option value="WHOLE_BLOOD">Whole Blood</option>
             <option value="PACKED_RED_CELLS">Packed Red Cells</option>
             <option value="PLATELETS">Platelets</option>
@@ -945,8 +948,8 @@ function BloodAvailabilityCard({ surgeryId, canEdit }: { surgeryId: string; canE
           </select>
         </div>
         <div>
-          <label className="block text-xs text-gray-500">Units</label>
-          <input type="number" min={1} value={units} onChange={(e) => setUnits(Number(e.target.value) || 1)} className="w-24 rounded-lg border px-3 py-2 text-sm" />
+          <label htmlFor="blood-req-units" className="block text-xs text-gray-500">Units</label>
+          <input id="blood-req-units" type="number" min={1} value={units} onChange={(e) => setUnits(Number(e.target.value) || 1)} className="w-24 rounded-lg border px-3 py-2 text-sm" />
         </div>
         <label className="flex items-center gap-1 text-xs">
           <input type="checkbox" checked={autoReserve} onChange={(e) => setAutoReserve(e.target.checked)} />

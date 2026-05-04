@@ -495,8 +495,9 @@ export default function AntenatalPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Doctor</label>
+                  <label htmlFor="anc-doctor" className="mb-1 block text-sm font-medium">Doctor</label>
                   <select
+                    id="anc-doctor"
                     required
                     value={form.doctorId}
                     onChange={(e) => setForm({ ...form, doctorId: e.target.value })}
@@ -511,8 +512,9 @@ export default function AntenatalPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">LMP Date</label>
+                  <label htmlFor="anc-lmp-date" className="mb-1 block text-sm font-medium">LMP Date</label>
                   <input
+                    id="anc-lmp-date"
                     type="date"
                     required
                     // Issue #57: LMP must be in the past — set max to today.
@@ -527,8 +529,9 @@ export default function AntenatalPage() {
 
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Gravida</label>
+                  <label htmlFor="anc-gravida" className="mb-1 block text-sm font-medium">Gravida</label>
                   <input
+                    id="anc-gravida"
                     type="number"
                     // Issue #57: gravida is a positive int (min 1 — case row
                     // implies an active pregnancy). Step=1 disables decimals.
@@ -541,8 +544,9 @@ export default function AntenatalPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Parity</label>
+                  <label htmlFor="anc-parity" className="mb-1 block text-sm font-medium">Parity</label>
                   <input
+                    id="anc-parity"
                     type="number"
                     // Issue #57: parity is a non-negative int (a primigravida
                     // has parity 0).
@@ -555,10 +559,11 @@ export default function AntenatalPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Blood Group</label>
+                  <label htmlFor="anc-blood-group" className="mb-1 block text-sm font-medium">Blood Group</label>
                   {/* Issue #57: replace free-text input with the canonical
                       ABO+Rh select so the value joins the blood-bank tables. */}
                   <select
+                    id="anc-blood-group"
                     data-testid="anc-blood-group"
                     value={form.bloodGroup}
                     onChange={(e) =>
@@ -591,10 +596,11 @@ export default function AntenatalPage() {
 
               {form.isHighRisk && (
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
+                  <label htmlFor="anc-risk-factors" className="mb-1 block text-sm font-medium">
                     Risk Factors
                   </label>
                   <textarea
+                    id="anc-risk-factors"
                     value={form.riskFactors}
                     onChange={(e) =>
                       setForm({ ...form, riskFactors: e.target.value })

@@ -290,10 +290,11 @@ export default function SentimentAnalyticsPage() {
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+            <label htmlFor="sentiment-from" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
               From
             </label>
             <input
+              id="sentiment-from"
               data-testid="sentiment-from"
               type="date"
               value={from}
@@ -302,10 +303,11 @@ export default function SentimentAnalyticsPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+            <label htmlFor="sentiment-to" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
               To
             </label>
             <input
+              id="sentiment-to"
               data-testid="sentiment-to"
               type="date"
               value={to}

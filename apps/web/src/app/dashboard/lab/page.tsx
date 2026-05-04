@@ -643,7 +643,7 @@ function NewOrderModal({
 
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-gray-100">
+            <label htmlFor="lab-patient-search" className="mb-1 block text-sm font-medium text-gray-900 dark:text-gray-100">
               Patient
             </label>
             {selectedPatient ? (
@@ -663,6 +663,7 @@ function NewOrderModal({
             ) : (
               <>
                 <input
+                  id="lab-patient-search"
                   placeholder="Search patient"
                   value={patientSearch}
                   onChange={(e) => setPatientSearch(e.target.value)}

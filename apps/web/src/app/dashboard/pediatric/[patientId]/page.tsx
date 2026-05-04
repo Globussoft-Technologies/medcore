@@ -376,8 +376,9 @@ export default function PediatricDetailPage() {
           <h3 className="mb-3 font-semibold">Record Growth Measurement</h3>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             <div>
-              <label className="mb-1 block text-xs font-medium">Date</label>
+              <label htmlFor="growth-date" className="mb-1 block text-xs font-medium">Date</label>
               <input
+                id="growth-date"
                 type="date"
                 value={form.measurementDate}
                 onChange={(e) =>
@@ -387,10 +388,11 @@ export default function PediatricDetailPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium">
+              <label htmlFor="growth-age-months" className="mb-1 block text-xs font-medium">
                 Age (months)
               </label>
               <input
+                id="growth-age-months"
                 type="number"
                 data-testid="growth-age-months"
                 value={form.ageMonths}
@@ -399,8 +401,9 @@ export default function PediatricDetailPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium">Weight (kg)</label>
+              <label htmlFor="growth-weight-kg" className="mb-1 block text-xs font-medium">Weight (kg)</label>
               <input
+                id="growth-weight-kg"
                 type="number"
                 step="0.01"
                 data-testid="growth-weight-kg"
@@ -410,8 +413,9 @@ export default function PediatricDetailPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium">Height (cm)</label>
+              <label htmlFor="growth-height-cm" className="mb-1 block text-xs font-medium">Height (cm)</label>
               <input
+                id="growth-height-cm"
                 type="number"
                 step="0.1"
                 data-testid="growth-height-cm"
@@ -421,10 +425,11 @@ export default function PediatricDetailPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium">
+              <label htmlFor="growth-head-circ" className="mb-1 block text-xs font-medium">
                 Head Circ. (cm)
               </label>
               <input
+                id="growth-head-circ"
                 type="number"
                 step="0.1"
                 data-testid="growth-head-circ"
@@ -437,10 +442,11 @@ export default function PediatricDetailPage() {
             </div>
           </div>
           <div className="mt-3">
-            <label className="mb-1 block text-xs font-medium">
+            <label htmlFor="growth-milestone-notes" className="mb-1 block text-xs font-medium">
               Milestone Notes
             </label>
             <input
+              id="growth-milestone-notes"
               value={form.milestoneNotes}
               onChange={(e) =>
                 setForm({ ...form, milestoneNotes: e.target.value })
@@ -450,10 +456,11 @@ export default function PediatricDetailPage() {
             />
           </div>
           <div className="mt-3">
-            <label className="mb-1 block text-xs font-medium">
+            <label htmlFor="growth-dev-notes" className="mb-1 block text-xs font-medium">
               Developmental Notes
             </label>
             <textarea
+              id="growth-dev-notes"
               rows={2}
               value={form.developmentalNotes}
               onChange={(e) =>

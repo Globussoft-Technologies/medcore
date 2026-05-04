@@ -513,10 +513,11 @@ function TraumaScoreModal({
 
         <div className="space-y-3">
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">
+            <label htmlFor="rts-resp" className="mb-1 block text-xs font-medium text-gray-600">
               Respiratory Rate
             </label>
             <select
+              id="rts-resp"
               value={resp}
               onChange={(e) => setResp(Number(e.target.value))}
               className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -529,10 +530,11 @@ function TraumaScoreModal({
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">
+            <label htmlFor="rts-sbp" className="mb-1 block text-xs font-medium text-gray-600">
               Systolic BP
             </label>
             <select
+              id="rts-sbp"
               value={sbp}
               onChange={(e) => setSbp(Number(e.target.value))}
               className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -545,10 +547,11 @@ function TraumaScoreModal({
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">
+            <label htmlFor="rts-gcs" className="mb-1 block text-xs font-medium text-gray-600">
               Glasgow Coma Scale
             </label>
             <select
+              id="rts-gcs"
               value={gcs}
               onChange={(e) => setGcs(Number(e.target.value))}
               className="w-full rounded-lg border px-3 py-2 text-sm"

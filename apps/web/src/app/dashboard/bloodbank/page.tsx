@@ -1198,9 +1198,10 @@ function RequestModal({
         </div>
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-gray-600">Patient</label>
+            <label htmlFor="bb-req-patient" className="text-xs text-gray-600">Patient</label>
             <div className="flex gap-2">
               <input
+                id="bb-req-patient"
                 placeholder="Search patient by name / MR"
                 className="flex-1 rounded border p-2"
                 value={patientSearch}
@@ -1342,8 +1343,9 @@ function DeferralModal({
         </div>
         <div className="space-y-3">
           <div>
-            <label className="mb-1 block text-xs text-gray-600">Reason</label>
+            <label htmlFor="bb-deferral-reason" className="mb-1 block text-xs text-gray-600">Reason</label>
             <select
+              id="bb-deferral-reason"
               value={form.reason}
               onChange={(e) => setForm({ ...form, reason: e.target.value })}
               className="w-full rounded border p-2 text-sm"
@@ -1366,8 +1368,9 @@ function DeferralModal({
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-gray-600">Deferral Type</label>
+            <label htmlFor="bb-deferral-type" className="mb-1 block text-xs text-gray-600">Deferral Type</label>
             <select
+              id="bb-deferral-type"
               value={form.deferralType}
               onChange={(e) => setForm({ ...form, deferralType: e.target.value })}
               className="w-full rounded border p-2 text-sm"
@@ -1378,8 +1381,9 @@ function DeferralModal({
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="mb-1 block text-xs text-gray-600">Start Date</label>
+              <label htmlFor="bb-deferral-start" className="mb-1 block text-xs text-gray-600">Start Date</label>
               <input
+                id="bb-deferral-start"
                 type="date"
                 value={form.startDate}
                 onChange={(e) => setForm({ ...form, startDate: e.target.value })}
@@ -1387,10 +1391,11 @@ function DeferralModal({
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs text-gray-600">
+              <label htmlFor="bb-deferral-end" className="mb-1 block text-xs text-gray-600">
                 End Date {form.deferralType === "PERMANENT" ? "(N/A)" : ""}
               </label>
               <input
+                id="bb-deferral-end"
                 type="date"
                 disabled={form.deferralType === "PERMANENT"}
                 value={form.endDate}
@@ -1400,8 +1405,9 @@ function DeferralModal({
             </div>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-gray-600">Notes</label>
+            <label htmlFor="bb-deferral-notes" className="mb-1 block text-xs text-gray-600">Notes</label>
             <textarea
+              id="bb-deferral-notes"
               rows={2}
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}

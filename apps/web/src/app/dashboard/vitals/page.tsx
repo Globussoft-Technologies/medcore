@@ -435,7 +435,7 @@ export default function VitalsPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
+                  <label htmlFor="vitals-bp-systolic" className="mb-1 block text-sm font-medium">
                     BP Systolic (mmHg)
                     {baseline?.bpSystolic?.baseline != null && (
                       <span className="ml-2 text-xs font-normal text-gray-400">
@@ -444,6 +444,7 @@ export default function VitalsPage() {
                     )}
                   </label>
                   <input
+                    id="vitals-bp-systolic"
                     type="number"
                     data-testid="vitals-bp-systolic"
                     aria-invalid={!!fieldErrors.bloodPressureSystolic}
@@ -482,7 +483,7 @@ export default function VitalsPage() {
                   )}
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
+                  <label htmlFor="vitals-bp-diastolic" className="mb-1 block text-sm font-medium">
                     BP Diastolic (mmHg)
                     {baseline?.bpDiastolic?.baseline != null && (
                       <span className="ml-2 text-xs font-normal text-gray-400">
@@ -491,6 +492,7 @@ export default function VitalsPage() {
                     )}
                   </label>
                   <input
+                    id="vitals-bp-diastolic"
                     type="number"
                     data-testid="vitals-bp-diastolic"
                     aria-invalid={!!fieldErrors.bloodPressureDiastolic}
@@ -529,7 +531,7 @@ export default function VitalsPage() {
                   )}
                 </div>
                 <div>
-                  <label className="mb-1 flex items-center justify-between text-sm font-medium">
+                  <label htmlFor="vitals-temperature" className="mb-1 flex items-center justify-between text-sm font-medium">
                     <span>Temperature</span>
                     <div className="flex gap-1 text-xs">
                       <button
@@ -557,6 +559,7 @@ export default function VitalsPage() {
                     </div>
                   </label>
                   <input
+                    id="vitals-temperature"
                     type="number"
                     step="0.1"
                     data-testid="vitals-temperature"
@@ -588,10 +591,11 @@ export default function VitalsPage() {
                   )}
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
+                  <label htmlFor="vitals-pulse" className="mb-1 block text-sm font-medium">
                     Pulse Rate (bpm)
                   </label>
                   <input
+                    id="vitals-pulse"
                     type="number"
                     data-testid="vitals-pulse"
                     aria-invalid={!!fieldErrors.pulseRate}
@@ -622,10 +626,11 @@ export default function VitalsPage() {
                   )}
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
+                  <label htmlFor="vitals-spo2" className="mb-1 block text-sm font-medium">
                     SpO2 (%)
                   </label>
                   <input
+                    id="vitals-spo2"
                     type="number"
                     data-testid="vitals-spo2"
                     aria-invalid={!!fieldErrors.spO2}
@@ -656,10 +661,11 @@ export default function VitalsPage() {
                   )}
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
+                  <label htmlFor="vitals-weight" className="mb-1 block text-sm font-medium">
                     Weight (kg)
                   </label>
                   <input
+                    id="vitals-weight"
                     type="number"
                     step="0.1"
                     data-testid="vitals-weight"
@@ -691,10 +697,11 @@ export default function VitalsPage() {
                   )}
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
+                  <label htmlFor="vitals-height" className="mb-1 block text-sm font-medium">
                     Height (cm)
                   </label>
                   <input
+                    id="vitals-height"
                     type="number"
                     step="0.1"
                     data-testid="vitals-height"
@@ -729,10 +736,11 @@ export default function VitalsPage() {
 
               <div className="mt-4 grid grid-cols-2 gap-4">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
+                  <label htmlFor="vitals-resp-rate" className="mb-1 block text-sm font-medium">
                     Respiratory Rate (/min)
                   </label>
                   <input
+                    id="vitals-resp-rate"
                     type="number"
                     data-testid="vitals-resp-rate"
                     aria-invalid={!!fieldErrors.respiratoryRate}
@@ -817,8 +825,9 @@ export default function VitalsPage() {
               )}
 
               <div className="mt-4">
-                <label className="mb-1 block text-sm font-medium">Notes</label>
+                <label htmlFor="vitals-notes" className="mb-1 block text-sm font-medium">Notes</label>
                 <textarea
+                  id="vitals-notes"
                   value={form.notes}
                   onChange={(e) => setForm({ ...form, notes: e.target.value })}
                   className="w-full rounded-lg border px-3 py-2 text-sm"

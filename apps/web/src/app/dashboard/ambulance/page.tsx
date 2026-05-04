@@ -734,9 +734,10 @@ function DispatchModal({
           </select>
 
           <div>
-            <label className="text-xs text-gray-600">Patient (optional)</label>
+            <label htmlFor="ambulance-patient-search" className="text-xs text-gray-600">Patient (optional)</label>
             <div className="flex gap-2">
               <input
+                id="ambulance-patient-search"
                 placeholder="Search patient"
                 className="flex-1 rounded border p-2"
                 value={patientSearch}

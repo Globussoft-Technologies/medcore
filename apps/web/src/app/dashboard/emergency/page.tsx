@@ -701,8 +701,9 @@ export default function EmergencyPage() {
               ) : (
                 <div className="grid grid-cols-3 gap-3">
                   <div className="col-span-3">
-                    <label className="mb-1 block text-sm font-medium">Name / Label</label>
+                    <label htmlFor="er-unknown-name" className="mb-1 block text-sm font-medium">Name / Label</label>
                     <input
+                      id="er-unknown-name"
                       placeholder="e.g. John Doe, Trauma 1"
                       value={intakeForm.unknownName}
                       onChange={(e) =>
@@ -712,8 +713,9 @@ export default function EmergencyPage() {
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium">Age</label>
+                    <label htmlFor="er-unknown-age" className="mb-1 block text-sm font-medium">Age</label>
                     <input
+                      id="er-unknown-age"
                       type="number"
                       value={intakeForm.unknownAge}
                       onChange={(e) =>
@@ -723,8 +725,9 @@ export default function EmergencyPage() {
                     />
                   </div>
                   <div className="col-span-2">
-                    <label className="mb-1 block text-sm font-medium">Gender</label>
+                    <label htmlFor="er-unknown-gender" className="mb-1 block text-sm font-medium">Gender</label>
                     <select
+                      id="er-unknown-gender"
                       value={intakeForm.unknownGender}
                       onChange={(e) =>
                         setIntakeForm({ ...intakeForm, unknownGender: e.target.value })
@@ -741,8 +744,9 @@ export default function EmergencyPage() {
               )}
 
               <div>
-                <label className="mb-1 block text-sm font-medium">Arrival Mode</label>
+                <label htmlFor="er-arrival-mode" className="mb-1 block text-sm font-medium">Arrival Mode</label>
                 <select
+                  id="er-arrival-mode"
                   value={intakeForm.arrivalMode}
                   onChange={(e) =>
                     setIntakeForm({ ...intakeForm, arrivalMode: e.target.value })
@@ -757,10 +761,11 @@ export default function EmergencyPage() {
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium">
+                <label htmlFor="er-intake-complaint" className="mb-1 block text-sm font-medium">
                   Chief Complaint *
                 </label>
                 <textarea
+                  id="er-intake-complaint"
                   data-testid="er-intake-complaint"
                   rows={3}
                   value={intakeForm.chiefComplaint}

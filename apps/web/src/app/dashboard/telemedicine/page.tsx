@@ -558,7 +558,7 @@ export default function TelemedicinePage() {
 
             <div className="space-y-4">
               <div>
-                <label className="mb-1 block text-sm font-medium">Patient</label>
+                <label htmlFor="tele-patient-search" className="mb-1 block text-sm font-medium">Patient</label>
                 {selectedPatient ? (
                   <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900">
                     <span>
@@ -579,6 +579,7 @@ export default function TelemedicinePage() {
                 ) : (
                   <>
                     <input
+                      id="tele-patient-search"
                       placeholder="Search by name or MR number"
                       value={patientSearch}
                       onChange={(e) => setPatientSearch(e.target.value)}
@@ -608,8 +609,9 @@ export default function TelemedicinePage() {
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium">Doctor</label>
+                <label htmlFor="tele-doctor" className="mb-1 block text-sm font-medium">Doctor</label>
                 <select
+                  id="tele-doctor"
                   required
                   value={form.doctorId}
                   onChange={(e) => setForm({ ...form, doctorId: e.target.value })}
@@ -627,8 +629,9 @@ export default function TelemedicinePage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Date</label>
+                  <label htmlFor="tele-date" className="mb-1 block text-sm font-medium">Date</label>
                   <input
+                    id="tele-date"
                     type="date"
                     required
                     value={form.date}
@@ -641,8 +644,9 @@ export default function TelemedicinePage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Time</label>
+                  <label htmlFor="tele-time" className="mb-1 block text-sm font-medium">Time</label>
                   <input
+                    id="tele-time"
                     type="time"
                     required
                     value={form.time}
@@ -661,8 +665,9 @@ export default function TelemedicinePage() {
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium">Chief Complaint</label>
+                <label htmlFor="tele-chief-complaint" className="mb-1 block text-sm font-medium">Chief Complaint</label>
                 <textarea
+                  id="tele-chief-complaint"
                   rows={2}
                   value={form.chiefComplaint}
                   onChange={(e) =>
@@ -673,8 +678,9 @@ export default function TelemedicinePage() {
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium">Fee</label>
+                <label htmlFor="tele-fee" className="mb-1 block text-sm font-medium">Fee</label>
                 <input
+                  id="tele-fee"
                   type="number"
                   min={0}
                   step="0.01"

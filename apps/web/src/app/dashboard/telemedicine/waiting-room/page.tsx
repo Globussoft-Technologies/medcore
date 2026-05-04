@@ -213,8 +213,9 @@ export default function TelemedicineWaitingRoomPage() {
       {/* Session picker */}
       {!urlSessionId && (
         <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
-          <label className="mb-2 block text-sm font-medium">Select Session</label>
+          <label htmlFor="tele-waiting-session" className="mb-2 block text-sm font-medium">Select Session</label>
           <select
+            id="tele-waiting-session"
             value={sessionId}
             onChange={(e) => setSessionId(e.target.value)}
             className="w-full rounded-lg border px-3 py-2 text-sm"

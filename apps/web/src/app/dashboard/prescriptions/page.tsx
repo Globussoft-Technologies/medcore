@@ -558,8 +558,9 @@ export default function PrescriptionsPage() {
 
           {templates.length > 0 && (
             <div className="mb-4 flex items-center gap-2 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/30">
-              <label className="text-sm font-medium">Use Template:</label>
+              <label htmlFor="rx-template" className="text-sm font-medium">Use Template:</label>
               <select
+                id="rx-template"
                 value={selectedTemplateId}
                 onChange={(e) => {
                   setSelectedTemplateId(e.target.value);
@@ -842,8 +843,9 @@ export default function PrescriptionsPage() {
               rows={2}
             />
             <div>
-              <label className="mb-1 block text-sm">Follow-up Date</label>
+              <label htmlFor="rx-followup-date" className="mb-1 block text-sm">Follow-up Date</label>
               <input
+                id="rx-followup-date"
                 type="date"
                 value={form.followUpDate}
                 onChange={(e) => setForm({ ...form, followUpDate: e.target.value })}
@@ -873,7 +875,7 @@ export default function PrescriptionsPage() {
       {/* ── Toolbar (Issue #169): search + status + date range ──────────── */}
       <div className="mb-4 grid gap-3 rounded-xl border border-gray-200 bg-white p-3 shadow-sm md:grid-cols-12 dark:border-gray-700 dark:bg-gray-800">
         <div className="md:col-span-5">
-          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+          <label htmlFor="rx-search" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
             Search
           </label>
           <div className="relative">
@@ -883,6 +885,7 @@ export default function PrescriptionsPage() {
               className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-gray-400"
             />
             <input
+              id="rx-search"
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -894,10 +897,11 @@ export default function PrescriptionsPage() {
           </div>
         </div>
         <div className="md:col-span-3">
-          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+          <label htmlFor="rx-status" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
             Status
           </label>
           <select
+            id="rx-status"
             value={statusFilter}
             onChange={(e) =>
               setStatusFilter(e.target.value as "" | "ISSUED" | "PRINTED")
@@ -912,10 +916,11 @@ export default function PrescriptionsPage() {
           </select>
         </div>
         <div className="md:col-span-2">
-          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+          <label htmlFor="rx-date-from-input" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
             From
           </label>
           <input
+            id="rx-date-from-input"
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
@@ -925,10 +930,11 @@ export default function PrescriptionsPage() {
           />
         </div>
         <div className="md:col-span-2">
-          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+          <label htmlFor="rx-date-to-input" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
             To
           </label>
           <input
+            id="rx-date-to-input"
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
@@ -1492,8 +1498,9 @@ function RenalDoseModal({
         </p>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-gray-600">Age (years)</label>
+            <label htmlFor="renal-age" className="text-xs text-gray-600">Age (years)</label>
             <input
+              id="renal-age"
               type="number"
               value={age}
               onChange={(e) => setAge(e.target.value)}
@@ -1501,8 +1508,9 @@ function RenalDoseModal({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-600">Weight (kg)</label>
+            <label htmlFor="renal-weight" className="text-xs text-gray-600">Weight (kg)</label>
             <input
+              id="renal-weight"
               type="number"
               value={weight}
               onChange={(e) => setWeight(e.target.value)}
@@ -1510,8 +1518,9 @@ function RenalDoseModal({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-600">Creatinine (mg/dL)</label>
+            <label htmlFor="renal-creatinine" className="text-xs text-gray-600">Creatinine (mg/dL)</label>
             <input
+              id="renal-creatinine"
               type="number"
               step="0.1"
               value={creatinine}
@@ -1520,8 +1529,9 @@ function RenalDoseModal({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-600">Gender</label>
+            <label htmlFor="renal-gender" className="text-xs text-gray-600">Gender</label>
             <select
+              id="renal-gender"
               value={genderMale ? "M" : "F"}
               onChange={(e) => setGenderMale(e.target.value === "M")}
               className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"

@@ -74,7 +74,7 @@ Beyond the backlog: a parallel **non-e2e gap-closer pass** (Sessions 1, Wave A, 
 Grouped by domain. Each entry below should become a spec or be merged into an existing one.
 
 ### 2.1 Patient & Clinical
-- `/dashboard/patients` — list page (search/filter/sort/bulk actions)
+- ~~`/dashboard/patients` — list page (search/filter/sort/bulk actions)~~ ✅ closed (7 tests; ADMIN/DOCTOR/NURSE/RECEPTION view + ADMIN|RECEPTION Register CTA + Issue #427 debounced-search refetch + DataTable sort/filter/CSV aria contract + PATIENT Issue #382 bounce; `e2e/patients.spec.ts`)
 - `/dashboard/patients/[id]` — full chart from doctor's perspective (allergies, imaging, med history)
 - `/dashboard/patients/[id]/problem-list` — add/edit/delete problems
 - ~~`/dashboard/patients/register` — new patient registration form~~ ✅ closed (6 tests; `e2e/patients-register.spec.ts`)

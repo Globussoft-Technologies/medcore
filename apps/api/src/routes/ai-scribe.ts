@@ -13,6 +13,7 @@ import {
   NotificationType,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { validate } from "../middleware/validate";
 import { generateSOAPNote, translateText } from "../services/ai/sarvam";
 import { checkDrugSafety } from "../services/ai/drug-interactions";
@@ -745,10 +746,29 @@ router.get(
 );
 
 // DELETE /api/v1/ai/scribe/:sessionId — withdraw consent, purge transcript
+//
+// security(2026-05-04, issue #511): the consent-withdraw endpoint had no
+// router-level role gate AND no per-row ownership check. Any authenticated
+// user (including PATIENT) could DELETE another patient's scribe session by
+// guessing the UUID, wiping transcript + soapDraft and flipping status to
+// CONSENT_WITHDRAWN. This is OWASP API1:2023 BOLA / CWE-285. Load the
+// session first, then run `assertPatientOwnsResource` so PATIENT callers
+// can only withdraw consent on their own session; staff (DOCTOR/ADMIN)
+// pass through unconditionally.
 router.delete(
   "/:sessionId",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const session = await prisma.aIScribeSession.findUnique({
+        where: { id: req.params.sessionId },
+        select: { id: true, patientId: true },
+      });
+      if (!session) {
+        res.status(404).json({ success: false, data: null, error: "Session not found" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, session.patientId))) return;
+
       await prisma.aIScribeSession.update({
         where: { id: req.params.sessionId },
         data: {

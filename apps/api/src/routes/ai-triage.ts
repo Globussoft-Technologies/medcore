@@ -11,6 +11,7 @@ import {
   bookFromTriageSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { validate } from "../middleware/validate";
 import { checkRedFlags, buildEmergencyResponse } from "../services/ai/red-flag";
 import { runTriageTurn, extractSymptomSummary } from "../services/ai/sarvam";
@@ -338,6 +339,13 @@ router.post(
 );
 
 // GET /api/v1/ai/triage/:sessionId — get session state + doctor suggestions
+//
+// security(2026-05-04, issue #511): only `authenticate` was applied — any
+// signed-in user could fetch another patient's triage session (chief
+// complaint, symptom JSON, suggested specialties) by UUID. OWASP API1:2023
+// BOLA / CWE-285. After loading the row we now run
+// `assertPatientOwnsResource` so PATIENT callers can only see their own
+// session; staff roles pass through.
 router.get(
   "/:sessionId",
   authenticate,
@@ -350,6 +358,7 @@ router.get(
         res.status(404).json({ success: false, data: null, error: "Session not found" });
         return;
       }
+      if (!(await assertPatientOwnsResource(req, res, session.patientId))) return;
 
       // Fetch doctor suggestions if specialties are available
       let doctorSuggestions: any[] = [];
@@ -644,11 +653,25 @@ router.post(
 );
 
 // DELETE /api/v1/ai/triage/:sessionId — abandon session
+//
+// security(2026-05-04, issue #511): same BOLA gap as GET /:sessionId — a
+// patient could abandon another patient's in-flight triage session by
+// guessing the UUID. Load the row first, then enforce per-row ownership.
 router.delete(
   "/:sessionId",
   authenticate,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const session = await prisma.aITriageSession.findUnique({
+        where: { id: req.params.sessionId },
+        select: { id: true, patientId: true },
+      });
+      if (!session) {
+        res.status(404).json({ success: false, data: null, error: "Session not found" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, session.patientId))) return;
+
       await prisma.aITriageSession.update({
         where: { id: req.params.sessionId },
         data: { status: "ABANDONED" },

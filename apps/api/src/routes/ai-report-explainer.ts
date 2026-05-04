@@ -7,6 +7,7 @@ import { z } from "zod";
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { validate } from "../middleware/validate";
 import { validateUuidParams } from "../middleware/validate-params";
 import { auditLog } from "../middleware/audit";
@@ -298,17 +299,12 @@ router.get(
         return;
       }
 
-      // Authorization: patient can only view their own, doctors/admins can view any
-      if (req.user?.role === Role.PATIENT) {
-        const patient = await prisma.patient.findFirst({
-          where: { userId: req.user.userId },
-          select: { id: true },
-        });
-        if (!patient || patient.id !== explanation.patientId) {
-          res.status(403).json({ success: false, data: null, error: "Forbidden" });
-          return;
-        }
-      }
+      // security(2026-05-04, issue #511): per-row ownership check — patient
+      // may only view their own explanation. Replaced the inline lookup with
+      // the shared `assertPatientOwnsResource` helper so the BOLA contract
+      // matches the rest of the codebase (admissions, surgery, lab, telemed,
+      // prescriptions). Staff roles (DOCTOR/ADMIN) pass through unchanged.
+      if (!(await assertPatientOwnsResource(req, res, explanation.patientId))) return;
 
       safeAudit(req, "AI_LAB_EXPLANATION_READ", "LabReportExplanation", explanation.id, {
         labOrderId,

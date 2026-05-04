@@ -292,8 +292,12 @@ function AddSupplierModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setSaving(true);
     setError(null);
+    if (!form.name.trim()) {
+      setError("Name is required");
+      return;
+    }
+    setSaving(true);
     try {
       const body: Record<string, unknown> = { name: form.name };
       for (const k of [
@@ -323,12 +327,11 @@ function AddSupplierModal({
             <X size={20} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <form onSubmit={handleSubmit} noValidate className="space-y-3">
           <div>
             <label htmlFor="add-supplier-name" className="mb-1 block text-sm font-medium">Name *</label>
             <input
               id="add-supplier-name"
-              required
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               className="w-full rounded-lg border px-3 py-2 text-sm"

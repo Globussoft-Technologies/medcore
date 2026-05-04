@@ -340,8 +340,34 @@ function NewPOModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setSaving(true);
     setError(null);
+    if (!supplierId) {
+      setError("Select a supplier");
+      return;
+    }
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (!it.description.trim()) {
+        setError(`Row ${i + 1}: description is required`);
+        return;
+      }
+      const q = parseFloat(it.quantity);
+      if (!Number.isFinite(q) || q < 1) {
+        setError(`Row ${i + 1}: quantity must be at least 1`);
+        return;
+      }
+      const p = parseFloat(it.unitPrice);
+      if (!Number.isFinite(p) || p < 0.01) {
+        setError(`Row ${i + 1}: unit price must be at least 0.01`);
+        return;
+      }
+    }
+    const taxNum = parseFloat(taxPercentage);
+    if (taxPercentage !== "" && (!Number.isFinite(taxNum) || taxNum < 0 || taxNum > 100)) {
+      setError("Tax % must be between 0 and 100");
+      return;
+    }
+    setSaving(true);
     try {
       const body = {
         supplierId,
@@ -351,7 +377,7 @@ function NewPOModal({
           quantity: parseFloat(it.quantity),
           unitPrice: parseFloat(it.unitPrice),
         })),
-        taxPercentage: parseFloat(taxPercentage) || 0,
+        taxPercentage: Number.isFinite(taxNum) ? taxNum : 0,
         expectedAt: expectedAt || undefined,
         notes: notes || undefined,
       };
@@ -372,12 +398,11 @@ function NewPOModal({
             <X size={20} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} noValidate className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-sm font-medium">Supplier *</label>
               <select
-                required
                 value={supplierId}
                 onChange={(e) => setSupplierId(e.target.value)}
                 className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -445,7 +470,6 @@ function NewPOModal({
                       </td>
                       <td className="py-1 pr-2">
                         <input
-                          required
                           value={it.description}
                           onChange={(e) => updateRow(i, "description", e.target.value)}
                           className="w-full rounded border px-2 py-1 text-xs"
@@ -453,9 +477,7 @@ function NewPOModal({
                       </td>
                       <td className="py-1 pr-2">
                         <input
-                          required
                           type="number"
-                          min="1"
                           value={it.quantity}
                           onChange={(e) => updateRow(i, "quantity", e.target.value)}
                           className="w-full rounded border px-2 py-1 text-xs"
@@ -463,9 +485,7 @@ function NewPOModal({
                       </td>
                       <td className="py-1 pr-2">
                         <input
-                          required
                           type="number"
-                          min="0.01"
                           step="0.01"
                           value={it.unitPrice}
                           onChange={(e) => updateRow(i, "unitPrice", e.target.value)}
@@ -498,8 +518,6 @@ function NewPOModal({
               <label className="mb-1 block text-sm font-medium">Tax %</label>
               <input
                 type="number"
-                min="0"
-                max="100"
                 step="0.01"
                 value={taxPercentage}
                 onChange={(e) => setTaxPercentage(e.target.value)}

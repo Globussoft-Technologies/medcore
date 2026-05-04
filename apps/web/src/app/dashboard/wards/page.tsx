@@ -121,6 +121,10 @@ export default function WardsPage() {
 
   async function createWard(e: React.FormEvent) {
     e.preventDefault();
+    if (!wardForm.name.trim()) {
+      toast.error("Ward name is required");
+      return;
+    }
     try {
       await api.post("/wards", {
         name: wardForm.name,
@@ -138,6 +142,10 @@ export default function WardsPage() {
 
   async function addBed(e: React.FormEvent, wardId: string) {
     e.preventDefault();
+    if (!bedForm.bedNumber.trim()) {
+      toast.error("Bed number is required");
+      return;
+    }
     try {
       await api.post(`/wards/${wardId}/beds`, {
         bedNumber: bedForm.bedNumber,
@@ -353,10 +361,10 @@ export default function WardsPage() {
                     {showBedModal === ward.id && (
                       <form
                         onSubmit={(e) => addBed(e, ward.id)}
+                        noValidate
                         className="mt-4 flex gap-2"
                       >
                         <input
-                          required
                           placeholder="Bed Number"
                           value={bedForm.bedNumber}
                           onChange={(e) =>
@@ -394,6 +402,7 @@ export default function WardsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <form
             onSubmit={createWard}
+            noValidate
             className="w-full max-w-lg rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
           >
             <h2 className="mb-4 text-lg font-semibold">Add New Ward</h2>
@@ -402,7 +411,6 @@ export default function WardsPage() {
                 <label htmlFor="add-ward-name" className="mb-1 block text-sm font-medium">Name</label>
                 <input
                   id="add-ward-name"
-                  required
                   value={wardForm.name}
                   onChange={(e) =>
                     setWardForm({ ...wardForm, name: e.target.value })

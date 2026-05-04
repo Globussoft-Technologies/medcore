@@ -227,6 +227,18 @@ export default function AdmissionsPage() {
       toast.error("Select a patient");
       return;
     }
+    if (!form.doctorId) {
+      toast.error("Select a doctor");
+      return;
+    }
+    if (!form.bedId) {
+      toast.error("Select a bed");
+      return;
+    }
+    if (!form.reason.trim()) {
+      toast.error("Enter a reason for admission");
+      return;
+    }
     try {
       await api.post("/admissions", {
         patientId: selectedPatient.id,
@@ -445,6 +457,7 @@ export default function AdmissionsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <form
             onSubmit={submitAdmission}
+            noValidate
             className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
           >
             <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">
@@ -508,7 +521,6 @@ export default function AdmissionsPage() {
                 <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Doctor</label>
                 <select
                   aria-label="Doctor"
-                  required
                   value={form.doctorId}
                   onChange={(e) =>
                     setForm({ ...form, doctorId: e.target.value })
@@ -544,7 +556,6 @@ export default function AdmissionsPage() {
                 ) : (
                   <select
                     aria-label="Available Bed"
-                    required
                     value={form.bedId}
                     onChange={(e) => setForm({ ...form, bedId: e.target.value })}
                     data-testid="admit-bed-select"
@@ -575,7 +586,6 @@ export default function AdmissionsPage() {
                   Reason for Admission
                 </label>
                 <textarea
-                  required
                   value={form.reason}
                   onChange={(e) => setForm({ ...form, reason: e.target.value })}
                   rows={2}

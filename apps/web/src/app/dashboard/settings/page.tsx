@@ -471,6 +471,21 @@ function SecurityTab() {
   async function changePassword(e: React.FormEvent) {
     e.preventDefault();
     setPasswordErrors({});
+    if (!currentPassword) {
+      setPasswordErrors({ currentPassword: "Current password is required" });
+      toast.error("Current password is required");
+      return;
+    }
+    if (!newPassword) {
+      setPasswordErrors({ newPassword: "New password is required" });
+      toast.error("New password is required");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordErrors({ newPassword: "Password must be at least 6 characters" });
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
     if (newPassword !== confirmPassword) {
       setPasswordErrors({ newPassword: "Passwords do not match" });
       toast.error("Passwords do not match");
@@ -563,12 +578,11 @@ function SecurityTab() {
       {/* Change Password */}
       <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
         <h2 className="mb-4 text-lg font-semibold">Change Password</h2>
-        <form onSubmit={changePassword} className="grid gap-4 md:grid-cols-2">
+        <form onSubmit={changePassword} noValidate className="grid gap-4 md:grid-cols-2">
           <Field label="Current Password">
             <PasswordInput
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
-              required
               autoComplete="current-password"
               className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
             />
@@ -582,8 +596,6 @@ function SecurityTab() {
                 if (passwordErrors.newPassword)
                   setPasswordErrors((p) => ({ ...p, newPassword: "" }));
               }}
-              required
-              minLength={6}
               autoComplete="new-password"
               aria-invalid={passwordErrors.newPassword ? "true" : undefined}
               className={
@@ -606,8 +618,6 @@ function SecurityTab() {
             <PasswordInput
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-              minLength={6}
               autoComplete="new-password"
               className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
             />

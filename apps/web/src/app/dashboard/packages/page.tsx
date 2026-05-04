@@ -356,17 +356,40 @@ function AddPackageModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setSaving(true);
     setError(null);
+    if (!form.name.trim()) {
+      setError("Name is required");
+      return;
+    }
+    if (!form.services.trim()) {
+      setError("Services are required");
+      return;
+    }
+    const priceNum = parseFloat(form.price);
+    if (!Number.isFinite(priceNum) || priceNum < 1) {
+      setError("Price must be at least 1");
+      return;
+    }
+    const discountNum = form.discountPrice ? parseFloat(form.discountPrice) : NaN;
+    if (form.discountPrice && (!Number.isFinite(discountNum) || discountNum < 0)) {
+      setError("Discount price must be 0 or greater");
+      return;
+    }
+    const validityNum = parseInt(form.validityDays);
+    if (!Number.isFinite(validityNum) || validityNum < 1) {
+      setError("Validity must be at least 1 day");
+      return;
+    }
+    setSaving(true);
     try {
       const body: Record<string, unknown> = {
         name: form.name,
         services: form.services,
-        price: parseFloat(form.price),
-        validityDays: parseInt(form.validityDays),
+        price: priceNum,
+        validityDays: validityNum,
       };
       if (form.description) body.description = form.description;
-      if (form.discountPrice) body.discountPrice = parseFloat(form.discountPrice);
+      if (form.discountPrice) body.discountPrice = discountNum;
       if (form.category) body.category = form.category;
       await api.post("/packages", body);
       onSaved();
@@ -385,11 +408,10 @@ function AddPackageModal({
             <X size={20} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <form onSubmit={handleSubmit} noValidate className="space-y-3">
           <div>
             <label className="mb-1 block text-sm font-medium">Name *</label>
             <input
-              required
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -422,7 +444,6 @@ function AddPackageModal({
           <div>
             <label className="mb-1 block text-sm font-medium">Services (comma-separated) *</label>
             <textarea
-              required
               value={form.services}
               onChange={(e) => setForm({ ...form, services: e.target.value })}
               rows={3}
@@ -434,9 +455,7 @@ function AddPackageModal({
             <div>
               <label className="mb-1 block text-sm font-medium">Price *</label>
               <input
-                required
                 type="number"
-                min="1"
                 step="0.01"
                 value={form.price}
                 onChange={(e) => setForm({ ...form, price: e.target.value })}
@@ -447,7 +466,6 @@ function AddPackageModal({
               <label className="mb-1 block text-sm font-medium">Discount Price</label>
               <input
                 type="number"
-                min="0"
                 step="0.01"
                 value={form.discountPrice}
                 onChange={(e) => setForm({ ...form, discountPrice: e.target.value })}
@@ -459,7 +477,6 @@ function AddPackageModal({
             <label className="mb-1 block text-sm font-medium">Validity (days)</label>
             <input
               type="number"
-              min="1"
               value={form.validityDays}
               onChange={(e) => setForm({ ...form, validityDays: e.target.value })}
               className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -538,14 +555,26 @@ function SellPackageModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedPatient || !packageId) return;
-    setSaving(true);
     setError(null);
+    if (!packageId) {
+      setError("Select a package");
+      return;
+    }
+    if (!selectedPatient) {
+      setError("Select a patient");
+      return;
+    }
+    const amt = parseFloat(amountPaid);
+    if (!Number.isFinite(amt) || amt < 0.01) {
+      setError("Amount paid must be at least 0.01");
+      return;
+    }
+    setSaving(true);
     try {
       await api.post("/packages/purchase", {
         packageId,
         patientId: selectedPatient.id,
-        amountPaid: parseFloat(amountPaid),
+        amountPaid: amt,
       });
       onSold();
     } catch (err) {
@@ -563,11 +592,10 @@ function SellPackageModal({
             <X size={20} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <form onSubmit={handleSubmit} noValidate className="space-y-3">
           <div>
             <label className="mb-1 block text-sm font-medium">Package *</label>
             <select
-              required
               value={packageId}
               onChange={(e) => setPackageId(e.target.value)}
               className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -633,9 +661,7 @@ function SellPackageModal({
           <div>
             <label className="mb-1 block text-sm font-medium">Amount Paid *</label>
             <input
-              required
               type="number"
-              min="0.01"
               step="0.01"
               value={amountPaid}
               onChange={(e) => setAmountPaid(e.target.value)}

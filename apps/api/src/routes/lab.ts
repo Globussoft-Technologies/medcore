@@ -108,6 +108,8 @@ router.patch(
 // GET /api/v1/lab/orders?patientId=&status=
 // RBAC (issue #90): RECEPTION must NOT see lab orders / clinical data.
 // PATIENT path enforced inline below.
+// #511 audit: VERIFIED-SAFE — PATIENT branch overrides where.patientId
+// to caller's own Patient row before findMany.
 router.get(
   "/orders",
   authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH, Role.PATIENT),
@@ -548,11 +550,33 @@ router.post(
 
 // GET /api/v1/lab/results/:orderItemId
 // RBAC (issue #90): RECEPTION excluded — clinical lab results.
+// Issue #511 (BOLA): PATIENT must only see results for their own
+// lab order items. Loads the parent order to get patientId before
+// scoping via assertPatientOwnsResource.
 router.get(
   "/results/:orderItemId",
   authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const orderItem = await prisma.labOrderItem.findUnique({
+        where: { id: req.params.orderItemId },
+        select: { order: { select: { patientId: true } } },
+      });
+      if (!orderItem) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Order item not found" });
+        return;
+      }
+      if (
+        !(await assertPatientOwnsResource(
+          req,
+          res,
+          orderItem.order.patientId
+        ))
+      )
+        return;
+
       const results = await prisma.labResult.findMany({
         where: { orderItemId: req.params.orderItemId },
         orderBy: { reportedAt: "desc" },
@@ -947,6 +971,9 @@ router.get(
 // ───────────────────────────────────────────────────────
 
 // RBAC (issue #90): RECEPTION excluded — clinical lab trends.
+// Issue #511 (BOLA): PATIENT must only request trends for their own
+// patientId. The query supplies patientId; assertPatientOwnsResource
+// verifies it matches the caller's Patient row before we read.
 router.get(
   "/results/trends",
   authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH, Role.PATIENT),
@@ -960,6 +987,7 @@ router.get(
         res.status(400).json({ success: false, data: null, error: "patientId required" });
         return;
       }
+      if (!(await assertPatientOwnsResource(req, res, patientId))) return;
 
       const items = await prisma.labOrderItem.findMany({
         where: {
@@ -1025,6 +1053,9 @@ router.get(
         res.status(404).json({ success: false, data: null, error: "Lab order not found" });
         return;
       }
+
+      // Issue #511 (BOLA): PATIENT must only see report for own order.
+      if (!(await assertPatientOwnsResource(req, res, order.patientId))) return;
 
       const tatHours = order.completedAt
         ? Math.round(
@@ -1431,11 +1462,26 @@ router.get(
 
 // GET /api/v1/lab/orders/:id/pdf
 // RBAC (issue #90): RECEPTION excluded — lab report PDF.
+// Issue #511 (BOLA): PATIENT must only fetch their own lab order PDF.
+// Minimal findUnique up front so we can ownership-check before delegating
+// to the PDF generator service (which loads the row separately).
 router.get(
   "/orders/:id/pdf",
   authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const order = await prisma.labOrder.findUnique({
+        where: { id: req.params.id },
+        select: { patientId: true },
+      });
+      if (!order) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Lab order not found" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, order.patientId))) return;
+
       const html = await generateLabReportHTML(req.params.id);
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);

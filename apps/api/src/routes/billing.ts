@@ -26,6 +26,7 @@ import {
   computeLineItemTax,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { validate } from "../middleware/validate";
 // Issue #139 / #159 / #165 (2026-04-26): all revenue / outstanding / refund
 // KPIs route through ../services/revenue so dashboard, billing, reports and
@@ -276,6 +277,8 @@ router.post(
 // GET /api/v1/billing/invoices
 // RBAC (issue #89): DOCTOR must NOT see all invoices. Restricted to financial
 // roles + PATIENT (PATIENT only sees their own — handled inline below).
+// #511 audit: VERIFIED-SAFE — PATIENT branch overrides where.patientId to
+// caller's own Patient row before findMany.
 router.get(
   "/invoices",
   authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
@@ -411,7 +414,11 @@ router.get(
 
 // GET /api/v1/billing/invoices/:id
 // RBAC (issue #89): DOCTOR must NOT see invoice detail. PATIENT allowed for
-// own-record access (further checked at object level by upstream consumers).
+// own-record access only.
+// Issue #511 (BOLA): PATIENT must only fetch own invoices. The earlier
+// "further checked at object level by upstream consumers" comment did
+// not actually translate into any per-row check; assertPatientOwnsResource
+// closes the gap here so every consumer is uniformly gated.
 router.get(
   "/invoices/:id",
   authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
@@ -438,6 +445,8 @@ router.get(
         res.status(404).json({ success: false, data: null, error: "Invoice not found" });
         return;
       }
+
+      if (!(await assertPatientOwnsResource(req, res, invoice.patientId))) return;
 
       res.json({ success: true, data: invoice, error: null });
     } catch (err) {
@@ -646,6 +655,12 @@ router.post(
         return;
       }
 
+      // Issue #511 (BOLA): a PATIENT can only initiate the Razorpay
+      // pay-online flow on an invoice that belongs to them. Without
+      // this check a patient could create payment orders against a
+      // stranger's invoice and stamp razorpayOrderId on it.
+      if (!(await assertPatientOwnsResource(req, res, invoice.patientId))) return;
+
       if (invoice.paymentStatus === "PAID") {
         res.status(400).json({ success: false, data: null, error: "Invoice is already paid" });
         return;
@@ -711,6 +726,20 @@ router.post(
         });
         return;
       }
+
+      // Issue #511 (BOLA): a PATIENT can only verify Razorpay payments
+      // against their own invoice. Done BEFORE signature verification so
+      // a stranger's invoiceId always 403s on ownership and never on
+      // signature — i.e. the gate is independent of payload validity.
+      const ownerInvoice = await prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        select: { patientId: true },
+      });
+      if (!ownerInvoice) {
+        res.status(404).json({ success: false, data: null, error: "Invoice not found" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, ownerInvoice.patientId))) return;
 
       const isValid = verifyPayment(razorpayOrderId, razorpayPaymentId, razorpaySignature);
 
@@ -1547,6 +1576,8 @@ router.post(
 
 // GET /api/v1/billing/patients/:patientId/outstanding
 // RBAC (issue #89): DOCTOR excluded; PATIENT path enforced inline.
+// #511 audit: VERIFIED-SAFE — PATIENT branch explicitly compares
+// caller's own Patient.id to URL :patientId and 403s on mismatch.
 router.get(
   "/patients/:patientId/outstanding",
   authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
@@ -1910,6 +1941,8 @@ router.post(
 
 // GET /api/v1/billing/advances?patientId=
 // RBAC (issue #89): DOCTOR excluded; PATIENT path enforced inline.
+// #511 audit: VERIFIED-SAFE — PATIENT branch returns only advances scoped
+// to caller's own Patient row (via dedicated findMany on me.id).
 router.get(
   "/advances",
   authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
@@ -2304,6 +2337,7 @@ router.post(
 
 // GET /api/v1/billing/invoices/:id/tax-breakdown — GST (CGST + SGST) breakdown
 // RBAC (issue #89): DOCTOR excluded.
+// Issue #511 (BOLA): PATIENT must only fetch tax-breakdown for own invoice.
 router.get(
   "/invoices/:id/tax-breakdown",
   authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
@@ -2314,6 +2348,7 @@ router.get(
         res.status(404).json({ success: false, data: null, error: "Invoice not found" });
         return;
       }
+      if (!(await assertPatientOwnsResource(req, res, inv.patientId))) return;
       // If legacy row didn't split, derive 50/50 on the fly.
       const cg = inv.cgstAmount > 0 || inv.sgstAmount > 0
         ? inv.cgstAmount
@@ -2344,11 +2379,24 @@ router.get(
 
 // GET /api/v1/billing/invoices/:id/pdf
 // RBAC (issue #89): DOCTOR excluded.
+// Issue #511 (BOLA): PATIENT must only fetch own invoice PDF/HTML.
+// Minimal findUnique up front so we can ownership-check before delegating
+// to the PDF generator service (which loads the row separately).
 router.get(
   "/invoices/:id/pdf",
   authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const inv = await prisma.invoice.findUnique({
+        where: { id: req.params.id },
+        select: { patientId: true },
+      });
+      if (!inv) {
+        res.status(404).json({ success: false, data: null, error: "Invoice not found" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, inv.patientId))) return;
+
       // `?format=pdf` -> real PDF, default -> legacy HTML print view.
       if (req.query.format === "pdf") {
         const buffer = await generateInvoicePDFBuffer(req.params.id);

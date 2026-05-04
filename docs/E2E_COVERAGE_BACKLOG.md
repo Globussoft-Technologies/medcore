@@ -87,16 +87,16 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 ### 2.2 Inventory & Supply Chain
 - ~~`/dashboard/medicines` — medicine catalog~~ ✅ closed (ADMIN/DOCTOR/NURSE/PATIENT access matrix + ADMIN-only Add CTA + search re-fetch + ADMIN create round-trip; `e2e/medicines.spec.ts`)
 - ~~`/dashboard/pharmacy` — stock levels, reorder, expiry alerts (only landing tested)~~ ✅ deepened (tabs/search/filter coverage; `e2e/pharmacy.spec.ts`)
-- `/dashboard/purchase-orders` — PO list
-- `/dashboard/purchase-orders/[id]` — PO detail / approval
+- ~~`/dashboard/purchase-orders` — PO list~~ ✅ closed `be36db6` (`e2e/purchase-orders.spec.ts` — full DRAFT → PENDING → APPROVED → RECEIVED state machine + DRAFT → CANCELLED, 7 roles, Issue #262 RBAC API-token assertions)
+- ~~`/dashboard/purchase-orders/[id]` — PO detail / approval~~ ✅ closed `be36db6` (bundled in `e2e/purchase-orders.spec.ts` above)
 - ~~`/dashboard/assets` — equipment register~~ ✅ closed (6 tests; `e2e/assets.spec.ts`)
 - ~~`/dashboard/suppliers` — supplier directory~~ ✅ closed (ADMIN/RECEPTION happy paths + search re-fetch + Add-Supplier modal + DOCTOR/PATIENT 403 at GET /suppliers; `e2e/suppliers.spec.ts`)
-- `/dashboard/controlled-substances` — substance log entries (only page-load tested)
+- ~~`/dashboard/controlled-substances` — substance log entries (only page-load tested)~~ ✅ closed `e33ceea` (`e2e/controlled-substances.spec.ts` — 10 tests / 6 roles, PHARMACIST/DOCTOR/ADMIN allow + NURSE/RECEPTION/PATIENT deny → /not-authorized; read-only audit register, entries flow from dispense workflow)
 
 ### 2.3 Billing & Finance
 - ~~`/dashboard/billing/[id]` — line-item editing (only happy-path create tested)~~ ✅ closed (6 tests; `e2e/billing-id.spec.ts`)
 - `/dashboard/billing/patient/[patientId]` — bulk patient billing
-- `/dashboard/payment-plans` — installment plan setup
+- ~~`/dashboard/payment-plans` — installment plan setup~~ ✅ closed `be36db6` (`e2e/payment-plans.spec.ts` — 18 tests, ADMIN+RECEPTION positive + 5 staff RBAC negatives, EntityPicker option-li selector for patient picker, HTML5-vs-React noValidate fix landed in `3decc91`)
 - `/dashboard/bill-explainer` — explanation workflow (only smoke-visited)
 - ~~`/dashboard/budgets` — budget tracking~~ ✅ closed (6 tests; `e2e/budgets.spec.ts`)
 - ~~`/dashboard/expenses` — expense entry~~ ✅ closed (6 tests; `e2e/expenses.spec.ts`)
@@ -130,7 +130,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - ~~`/dashboard/queue` — queue priority/reassignment (page-load only)~~ ✅ deepened (priority/reassign + RBAC; `e2e/queue.spec.ts`)
 
 ### 2.7 Admissions & Wards
-- `/dashboard/admissions` — admit form (list-touched only)
+- ~~`/dashboard/admissions` — admit form (list-touched only)~~ ✅ closed `65b5e0a` (`e2e/admissions.spec.ts` — 11 tests across 5 roles; route-shape correction pinned: page is fully accessible, only the "Admit Patient" CTA is role-gated; discharge is a two-modal sequence)
 - ~~`/dashboard/admissions/[id]` — admission detail, MAR progression, discharge~~ closed 2026-05-03 by `e2e/admissions-id.spec.ts` (6 tests; ADMIN chrome+running-bill + NURSE isolation/belongings + RECEPTION tab strip + PATIENT page-accessible + DOCTOR transfer-modal + ADMIN discharge two-modal force-flow)
 - ~~`/dashboard/wards` — bed assignment, transfer~~ closed 2026-05-04 by `e2e/wards.spec.ts` (7 tests; ADMIN chrome/add-ward modal/forecast tab + NURSE/RECEPTION no-CTA + PATIENT/LAB_TECH page-accessible no-CTA)
 - `/dashboard/capacity-forecast` — forecast editing (smoke-visited)

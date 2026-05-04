@@ -33,7 +33,26 @@ is independently shippable. Full per-session history lives under
 > flake; schema correction `entityType` → `entity` made during build),
 > plus a new project `/CLAUDE.md` capturing 18 recurring patterns +
 > gotchas from recent fanout waves (auto-loaded into every Claude
-> session).
+> session). `7327fbd` refined the audit-row gotcha (auditLog awaited
+> middleware vs safeAudit fire-and-forget per-route wrappers) +
+> documented the A10 unlock in `docs/ARCHITECTURE.md` §1.
+>
+> **2026-05-05 cron-driven E2E wave (4-agent fanout)**: 4 truly-uncovered
+> routes closed via the auto-pilot cron at "waiting on CI" tick.
+> `70b7f7c` schedule (7 cases — ADMIN/DOCTOR weekly availability +
+> NURSE/RECEPTION/PATIENT access-shape pin), `419246c` patients
+> (7 cases — list page registry + DataTable contract + Issue #382
+> PATIENT bounce + RBAC asymmetry pinned [view ADMIN/RECEPTION/DOCTOR/
+> NURSE, Register CTA only ADMIN/RECEPTION] + bulk-actions-not-yet-wired
+> contract), `5b43356` chat (7 cases — ADMIN inbox+picker+send +
+> DOCTOR/RECEPTION sidebar reach + PATIENT/LAB_TECH direct-URL access;
+> page has no client `VIEW_ALLOWED`, server filter on `/chat/users`
+> excludes PATIENT), `cda00bc` my-leaves (6 cases — staff self-service
+> submit + reversed-date inline error + universal-route shape pin).
+> **74 new test cases × 2 projects = 148 listed tests.** Plus stale-
+> backlog cleanup: payment-plans / purchase-orders / purchase-orders-id /
+> controlled-substances / admissions all annotated as already-shipped
+> (specs landed days/weeks ago but the backlog hadn't been refreshed).
 
 ---
 

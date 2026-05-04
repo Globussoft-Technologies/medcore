@@ -12,6 +12,33 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-driven E2E wave (4-agent fanout, 74 new test cases).**
+  Auto-pilot cron `56a0a2ec` (every 15 min, jittered :03 :18 :33 :48)
+  fired at a "waiting-on-CI" tick and dispatched a 4-agent fanout to
+  ship 4 truly-uncovered E2E routes. `70b7f7c` `/dashboard/schedule`
+  (7 cases — ADMIN/DOCTOR weekly availability + Add-Slot reverse-time
+  client guard + Add-Override Modify-Hours toggle + access-shape
+  pinning for NURSE/RECEPTION/PATIENT, no role-gate redirect; uses
+  `getByLabel` since the recent A2 a11y wave linked all htmlFor/id
+  pairs). `419246c` `/dashboard/patients` (7 cases — registry list +
+  DataTable accessible-name contract + Issue #382 PATIENT bounce +
+  RBAC asymmetry pinned [view ADMIN/RECEPTION/DOCTOR/NURSE; Register
+  CTA only ADMIN/RECEPTION] + bulk-actions-not-yet-wired contract
+  flagged for next pass). `5b43356` `/dashboard/chat` (7 cases —
+  ADMIN inbox + start-chat picker → POST /chat/rooms → type-and-Send
+  → POST /rooms/:id/messages with bubble assertion + DOCTOR/RECEPTION
+  sidebar reach + PATIENT/LAB_TECH direct-URL accessibility; surfaced
+  that page has no client VIEW_ALLOWED gate at all — only server-side
+  filter `role: { not: "PATIENT" }` on GET /chat/users, plus ADMIN
+  bypass on participant gates flagged via Issue #189 reference).
+  `cda00bc` `/dashboard/my-leaves` (6 cases — DOCTOR happy-path
+  submit with timestamp-tagged unique reason + required-field client
+  guard ref Issue #458 + reversed-date inline error ref Issue #32 +
+  NURSE chrome + PATIENT route-shape pin since page is universally
+  accessible). Plus stale-backlog cleanup: payment-plans / purchase-
+  orders / purchase-orders-id / controlled-substances / admissions
+  all annotated as already-shipped in `docs/E2E_COVERAGE_BACKLOG.md`
+  (specs landed earlier but the backlog hadn't been refreshed).
 - **2026-05-05 cleanup wave — `audit-phi` flake helper + jsx-a11y regression guard + project CLAUDE.md.**
   Three small high-leverage commits closing the outstanding session-
   level findings from the prior CI-unblock wave: `9c5d989` enables

@@ -715,8 +715,12 @@ router.patch(
 
 // GET /api/v1/surgery/ots/:id/utilization?from=&to=
 // Daily utilization (hours used / available) per day in range
+// Issue #511: OT utilization is staff-ops, not a per-patient view. Match
+// the /ots/:id/schedule gate so PATIENT can't enumerate aggregate OT
+// throughput.
 router.get(
   "/ots/:id/utilization",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const from = req.query.from
@@ -806,8 +810,11 @@ router.get(
 // GET /api/v1/surgery/ots/:id/turnaround?date=YYYY-MM-DD — OT turnaround time
 // For each pair of sequential completed surgeries that day, measure gap
 // between prev.actualEndAt and next.actualStartAt
+// Issue #511: same staff-ops surface as /utilization — exposes case
+// numbers across patients, not patient-self data.
 router.get(
   "/ots/:id/turnaround",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
@@ -921,10 +928,29 @@ router.post(
 );
 
 // GET /api/v1/surgery/:id/anesthesia-record
+// Issue #511 (BOLA): handler keys directly on surgeryId — without the
+// parent fetch a PATIENT could read any surgery's anesthesia trace by
+// guessing UUIDs. Fetch parent surgery first, gate via
+// assertPatientOwnsResource, then return the record.
 router.get(
   "/:id/anesthesia-record",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const surgery = await prisma.surgery.findUnique({
+        where: { id: req.params.id },
+        select: { patientId: true },
+      });
+      if (!surgery) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Surgery not found",
+        });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, surgery.patientId)))
+        return;
+
       const record = await prisma.anesthesiaRecord.findUnique({
         where: { surgeryId: req.params.id },
       });
@@ -1111,10 +1137,28 @@ router.post(
 );
 
 // GET /api/v1/surgery/:id/observations
+// Issue #511 (BOLA): same shape as /:id/anesthesia-record — child rows
+// are keyed by surgeryId, so we must load the parent surgery and
+// assert ownership before returning the PACU observation timeline.
 router.get(
   "/:id/observations",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const surgery = await prisma.surgery.findUnique({
+        where: { id: req.params.id },
+        select: { patientId: true },
+      });
+      if (!surgery) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Surgery not found",
+        });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, surgery.patientId)))
+        return;
+
       const rows = await prisma.postOpObservation.findMany({
         where: { surgeryId: req.params.id },
         orderBy: { observedAt: "asc" },

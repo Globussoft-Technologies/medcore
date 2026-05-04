@@ -316,6 +316,37 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 18 (2-agent E2E fanout — closes §2 backlog tail + §5 P6 reports-custom)**:
+> 3 specs scaffolded; 4 backlog items closed (the final §2 tail).
+> Lane A (`0c0b2aa`): `e2e/tenants-onboarding.spec.ts` (5 cases —
+> REDIRECT-BOUNCE to `/dashboard` for non-ADMIN per Issue #90; SUPER-
+> ADMIN onboarding wizard chrome) and `e2e/visitors.spec.ts` (7 cases
+> — **REDIRECT-BOUNCE to `/dashboard/not-authorized`** per page.tsx:65-72
+> useEffect, the rare archetype variant alongside lab-intel; visitor-
+> log RECEPTION/ADMIN/DOCTOR/NURSE allow + LanguageDropdown gotcha #9
+> dodge via `select:has(option[value="Aadhaar"])` + Pharmacist/PATIENT
+> bounces). Lane B (`3123eb2`): `e2e/reports-custom.spec.ts` (7 cases —
+> deepens the existing white-screen regression `e2e/reports.spec.ts`
+> with FORWARD-FLOW Generate modal + Schedule modal + CSV-Export
+> download via `page.waitForEvent('download')`; REDIRECT to `/dashboard`
+> per Issue #90; also reveals that **RECEPTION is bounced despite the
+> render-gate at line 317 allowing it** because the useEffect runs first).
+>
+> **19 new E2E tests across 3 spec files** (×2 Playwright projects =
+> 38 listed cases). Backlog §2 zero-coverage tail effectively CLOSED;
+> §5 P6 closed. **Notable findings**: (1) backlog "department + metric
+> filters" framing for /reports was aspirational — actual surface is
+> Daily Collection / Report History tabs + Generate (ad-hoc) + Schedule
+> (recurring) modals introduced by Issue #301; (2) page uses
+> `authed-fetch + Blob + dynamic-anchor + click` download pattern that
+> `page.waitForEvent('download')` correctly captures.
+>
+> **6th cron-learning bullet updated to 12 instances at 10:2 ratio**:
+> 10 pages redirect to `/dashboard`, 2 redirect to `/dashboard/not-
+> authorized` (visitors joined lab-intel). Both target archetypes are
+> now confirmed across multiple pages. Bullet is solidly RIPE for
+> promotion to a `/medcore-e2e-spec` decision-matrix extension.
+>
 > **2026-05-05 cron-tick wave 17 (2-agent E2E fanout — admin-config + clinical schedule + bulk billing)**:
 > 4 specs scaffolded; 4 backlog items closed. Lane A (`504c48f`):
 > `e2e/workspace.spec.ts` (7 cases — DOCTOR-only personal cockpit;

@@ -12,6 +12,23 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 18 — E2E coverage §2 backlog tail CLOSED + §5 P6.**
+  Lane A (`0c0b2aa`) shipped `tenants-onboarding.spec.ts` (5 cases —
+  redirect-bounce to /dashboard) + `visitors.spec.ts` (7 cases —
+  redirect-bounce to **/dashboard/not-authorized** per page.tsx:65-72,
+  the rare archetype variant joining lab-intel as the 2nd instance).
+  Lane B (`3123eb2`) shipped `reports-custom.spec.ts` (7 cases —
+  forward-flow deepening of the white-screen-regression-only
+  `e2e/reports.spec.ts`; Generate modal POST shape + Schedule modal
+  POST shape + CSV-Export `page.waitForEvent('download')` contract).
+  19 new tests × 2 projects = 38 listed cases. **6th cron-learning
+  bullet updated to 12 instances at 10:2 ratio**: redirect-bounce
+  target `/dashboard` confirmed in 10 pages, `/dashboard/not-
+  authorized` in 2 pages (visitors joined lab-intel). Bullet now
+  solidly RIPE for promotion to `/medcore-e2e-spec`. **Notable**:
+  /dashboard/reports backlog framing "department + metric filters"
+  was aspirational — actual page is a Daily Collection / Report History
+  2-tab surface with Generate + Schedule modals (Issue #301).
 - **2026-05-05 cron-tick wave 17 — E2E coverage backlog (admin-config + clinical schedule + bulk billing).**
   Lane A (`504c48f`) shipped `workspace.spec.ts` (7 cases — DOCTOR-only
   personal cockpit; backlog phrasing was aspirational, actual surface

@@ -12,6 +12,25 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-driven #511 wave (3-agent fanout) — 13 more real BOLA fixes across 5 route files.**
+  First production firing of the post-restart cron with the no-skill-
+  edit prompt. `a54606e` patient-data-export (PII export — 2 PATCHED
+  via canonical helper + 2 VERIFIED-SAFE; DPDP Act 2023 portability
+  surface, cross-patient test asserts DOCTOR → 403 since no staff
+  read path; 8 tests). `585b757` patient-extras + med-reconciliation
+  (1 BOLA on `GET /patients/:id/ccda` — full-PHI CCDA bundle was
+  cross-patient readable; 3 staff-only closures on med-reconciliation
+  bare GETs while POST/PATCH were gated — "writes-gated, reads-bare"
+  pattern flagged for future grep; 11 tests). `4f02a2e` pharmacy +
+  payment-plans (4 pharmacy staff-only closures: `/inventory/barcode/
+  :barcode`, `/substitutes/:medicineId`, `/returns`, `/transfers`;
+  **payment-plans worst find of the batch**: `GET /` honored client-
+  supplied `?patientId=` unconditionally, server now auto-scopes to
+  caller's own Patient row for PATIENT role; plus `/:id` patched +
+  `/overdue` staff-only; 14 tests). Today's running totals across
+  all 4 #511 waves: 60 real BOLA fixes + 81 verified-safe across 19
+  route files; ~203 new test cases. Long tail down from ~21 to ~16
+  routes.
 - **2026-05-05 #511 expanded-criterion wave (4-agent fanout via `/medcore-bola-sweep`) — 13 more real BOLA fixes across 4 route files + harness defaultMode fix.**
   Cron-driven follow-up after the skill was updated with the
   "Expanded audit criterion" (handlers WITH `authorize()` containing

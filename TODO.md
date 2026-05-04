@@ -240,6 +240,36 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > packages, patient-data-export, patient-extras, payment-plans, pharmacy,
 > preauth, scheduled-reports, shifts, tenants, uploads. Future cycle.
 >
+> **2026-05-05 cron-driven #511 wave (3-agent fanout via `/medcore-bola-sweep`)**:
+> First production firing of the post-restart cron with the
+> no-skill-edit prompt. 3 agents shipped 5 route-file closures:
+> - `a54606e` patient-data-export — 2 PATCHED A1 (refactored inline
+>   checks → canonical helper for drift prevention) + 2 VERIFIED-SAFE.
+>   PII export route — DPDP Act 2023 portability artefacts; cross-
+>   patient regression test asserts DOCTOR → 403 (no legitimate staff
+>   read path; deviates from the usual staff-200 control). 8 tests.
+> - `585b757` patient-extras + med-reconciliation — **1 real BOLA**
+>   on `GET /patients/:id/ccda` (full-PHI CCDA bundle was cross-
+>   patient readable) + 3 STAFF-ONLY closures on med-reconciliation
+>   bare GETs (POST/PATCH were gated, GETs slipped through —
+>   "writes-gated, reads-bare" pattern flagged for a future grep).
+>   11 tests.
+> - `4f02a2e` pharmacy + payment-plans — **7 real BOLAs**: pharmacy
+>   had 4 ungated GETs (`/inventory/barcode/:barcode`,
+>   `/substitutes/:medicineId`, `/returns`, `/transfers`); payment-plans
+>   had **the worst find of this batch** — `GET /` honored
+>   client-supplied `?patientId=` unconditionally, so any PATIENT
+>   could enumerate any other patient's payment plans. Fix: server
+>   auto-scopes `where.patientId` to caller's own Patient row when
+>   role is PATIENT. Plus `/:id` patched A1 + `/overdue` STAFF-ONLY.
+>   14 tests.
+>
+> **Net for this cron tick**: 13 real BOLA fixes + 31 verified-safe
+> across 5 route files; 33 new test cases. **Today's running totals
+> across all 4 #511 waves**: 60 real BOLA fixes + 81 verified-safe
+> across 19 route files; ~203 new test cases. Long tail down from
+> ~21 to ~16 routes.
+>
 > **2026-05-05 #511 BOLA-closure wave (5-agent fanout)**: After filing
 > #511 with 112 candidate handlers, dispatched 5 agents in parallel —
 > one per route-file lane. Results: **19 real BOLA gaps patched + 9

@@ -171,7 +171,7 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - ~~`/dashboard/audit` — audit log filtering (light coverage)~~ ✅ closed (7 tests; ADMIN heading+Export-CSV+retention-banner+filter-cluster chrome + entity-filter `?entity=Patient` query-string pin + free-text filter `/audit` → `/audit/search` endpoint switch (page.tsx:146 / Issue #192-adjacent) + empty-state copy + Issue #79 entity canonicalisation (`patient` → `Patient`, `scheduled_report` → `ScheduledReport`) + Issue #192 entityLabel render via `audit-entity-${id}` testid + DOCTOR/PATIENT redirect-bounce-to-/dashboard (page.tsx:120, audit.ts:28 server-side gate); `e2e/audit.spec.ts` — deepens the existing single-case `admin-ops.spec.ts` audit pin)
 - `/dashboard/certifications` — staff certification tracking
 - `/dashboard/immunization-schedule` — vaccination schedule
-- `/dashboard/antenatal`, `/dashboard/antenatal/[id]` — antenatal care
+- ~~`/dashboard/antenatal`, `/dashboard/antenatal/[id]` — antenatal care~~ ✅ closed 2026-05-05 by `e2e/antenatal.spec.ts` (6 cases — DOCTOR list page chrome (heading + 4-tab cluster + 4 KPI tiles + New-ANC-Case CTA) + NURSE Issue #459-RBAC-drift CTA-visible pin (page.tsx:96-97 expanded canCreate to NURSE) + DOCTOR tab-flip query-string contract (`?isHighRisk=true&delivered=false` refire) + DOCTOR New-ANC-Case modal structural contract (anc-patient-search aria-required + anc-doctor select scoped to dodge LanguageDropdown gotcha #9 + anc-lmp-date `max=today` Issue #57 guard + anc-gravida `min=1` + anc-parity `min=0` + anc-blood-group select with A_POSITIVE option + High-Risk checkbox + Cancel teardown) + PATIENT/RECEPTION UNIVERSAL-ACCESS archetype pin (CLAUDE.md gotcha #7 archetype 3 — no `VIEW_ALLOWED`/router.replace, chrome renders, canCreate-false hides CTA)) and `e2e/antenatal-id.spec.ts` (5 cases, page-route stub fixtures — DOCTOR header chrome (caseNumber h1 + High-Risk pill + patient name/MR + Patient-Info + ANC-Summary cards + 4 always-on tabs Visits/Delivery/Partograph/ACOG-Risk) + DOCTOR ACOG-Risk tab structural pin (heading + Calculate-Score button + Hypertension/Diabetes labelled checkboxes) + DOCTOR delivered-fixture conditional surfaces (5th Postnatal-Visits tab + Print-Birth-Certificate CTA + Delivery-Details panel + Postnatal empty-state) + PATIENT BOLA-403 pass-through pin (server `assertPatientOwnsResource` antenatal.ts:355 → page sits in Loading without crash/bounce) + bad-UUID 404 no-crash pin); actual ANC-case create / visit-write / delivery-record / partograph-add lifecycle skipped because each requires a FEMALE patient + doctor + multi-step write that would pollute shared seed across runs — those write paths are owned by route-handler unit tests at apps/api/src/routes/antenatal.ts.
 - ~~`/dashboard/ambulance` — dispatch (touched in ER flow only)~~ ✅ closed `0c94cbb` (full DISPATCHED → COMPLETED lifecycle + fuel logs + RBAC)
 - `/dashboard/visitors` — visitor log
 
@@ -519,7 +519,7 @@ Group by theme — write as time/budget allows.
 
 ### Pediatric & specialty
 - `/dashboard/pediatric/[patientId]` age-specific dosing, growth charts
-- `/dashboard/antenatal/[id]` prenatal visit cadence
+- ~~`/dashboard/antenatal/[id]` prenatal visit cadence~~ ✅ closed 2026-05-05 by `e2e/antenatal-id.spec.ts` (5 cases; structural skeleton + delivered-conditional surfaces + BOLA pass-through, paired with `e2e/antenatal.spec.ts` per §2.12)
 - `/dashboard/immunization-schedule` overdue alerts
 - `/dashboard/symptom-diary` patient logging
 

@@ -155,11 +155,11 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - `/display` — public display board
 
 ### 2.11 Multi-tenant
-- `/dashboard/tenants` — tenant list (touched, no isolation verification)
+- ~~`/dashboard/tenants` — tenant list (touched, no isolation verification)~~ ✅ closed 2026-05-05 by `e2e/tenants.spec.ts` (6 cases; ADMIN page-chrome + filter-cluster wiring (search/plan/active-filter) + Create-Tenant modal structural contract + RESERVED-subdomain inline-validation gate (page.tsx:64-83, no POST fired) + DOCTOR/PATIENT REDIRECT-BOUNCE archetype (page.tsx:124-128 useEffect router.push("/dashboard") for any role !== ADMIN, NOT /not-authorized) — actual create flow skipped to avoid polluting shared seed; deeper multi-tenant data-isolation verification is separate-spec territory)
 - `/dashboard/tenants/[id]/onboarding` — onboarding flow
 
 ### 2.12 Other
-- `/dashboard/referrals` — create/accept/reject (page-load only)
+- ~~`/dashboard/referrals` — create/accept/reject (page-load only)~~ ✅ closed 2026-05-05 by `e2e/referrals.spec.ts` (7 cases; DOCTOR page-chrome + outgoing/incoming/all tab-cluster + tab-switch survives without crash + New-Referral modal structural contract (patient search input + Internal/External toggle + specialty picker + reason textarea + Create CTA) + Issue #10/#458 empty-form client-validation gate (no POST fired, "Select a patient" inline error) + ADMIN reach without doctor-tab cluster (page.tsx:284 isDoctor gate) + RECEPTION/PATIENT UNIVERSAL-ACCESS archetype (no VIEW_ALLOWED, no redirect — API gate at apps/api/src/routes/referrals.ts:35,93 is real truth, PATIENT sees empty-state)) — actual create/accept/reject lifecycle skipped because the form requires a /patients?search debounce + /doctors fetch and would pollute shared seed)
 - `/dashboard/calendar` — event creation, drag, conflict detection
 - `/dashboard/my-schedule` — shift claim, unavailability
 - ~~`/dashboard/insurance-claims` — claim submission/appeal/reconciliation (smoke only)~~ ✅ closed (7 tests; ADMIN queue chrome + Submit-new/AI-Draft/filter cluster + status-filter `?status=SUBMITTED` query-string pin + row→side-drawer GET `/claims/:id` timeline+documents render + RECEPTION RBAC parity + Submit-new empty-form Issue #302/#458 client-guard (no POST fired) + DOCTOR/PATIENT redirect-bounce-to-/dashboard archetype pin (page.tsx:138, NOT /not-authorized); `e2e/insurance-claims.spec.ts` — full lifecycle/appeal/reconcile deferred until a TPA-stub helper lands, see backlog §5 P8)

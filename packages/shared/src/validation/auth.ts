@@ -29,6 +29,24 @@ export const loginSchema = z.object({
   rememberMe: z.boolean().optional(),
 });
 
+// Issue #473 (CRITICAL, May 2026): mass-assignment privilege escalation.
+// `role` was previously a REQUIRED field that accepted ANY value from the
+// Role enum, including ADMIN. Combined with the route handler doing
+// `prisma.user.create({ data: { ..., role } })` on the unauthenticated
+// /auth/register endpoint, an attacker could POST `{ ..., role: "ADMIN" }`
+// and walk away with an admin account.
+//
+// Fix: `role` is now OPTIONAL at the schema level — patient self-registration
+// can omit it entirely. The actual authorization decision (whether a caller
+// is allowed to specify a non-PATIENT role) lives in the route handler in
+// apps/api/src/routes/auth.ts, which only honours `role` when the request
+// is authenticated as an ADMIN. Anonymous requests are always coerced to
+// PATIENT regardless of what was submitted in the body.
+//
+// The legacy admin-staff-creation flow (dashboard /users page) still POSTs
+// to /auth/register with the desired role — that path keeps working because
+// the dashboard sends a Bearer token and the handler honours the submitted
+// role for ADMIN callers. See route handler comments for the full story.
 export const registerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   email: z.string().email("Invalid email address"),
@@ -38,15 +56,18 @@ export const registerSchema = z.object({
   // packages/shared/src/types/roles.ts. PHARMACIST + LAB_TECH were
   // missing here, which silently rejected admin-created staff in
   // those roles with a confusing "Validation failed" toast.
-  role: z.enum([
-    "ADMIN",
-    "DOCTOR",
-    "RECEPTION",
-    "NURSE",
-    "PATIENT",
-    "PHARMACIST",
-    "LAB_TECH",
-  ]),
+  // Issue #473: optional — the route handler decides whether to trust it.
+  role: z
+    .enum([
+      "ADMIN",
+      "DOCTOR",
+      "RECEPTION",
+      "NURSE",
+      "PATIENT",
+      "PHARMACIST",
+      "LAB_TECH",
+    ])
+    .optional(),
 });
 
 export const changePasswordSchema = z.object({

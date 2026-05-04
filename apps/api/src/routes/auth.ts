@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { Role } from "@prisma/client";
 import { prisma } from "@medcore/db";
 import {
   loginSchema,
@@ -221,13 +222,73 @@ async function resolveRegistrationTenant(req: Request): Promise<string | null> {
   return fallback?.active ? fallback.id : null;
 }
 
+/**
+ * Issue #473 (CRITICAL, May 2026): mass-assignment role check.
+ *
+ * `/auth/register` serves two distinct callers:
+ *   1. Unauthenticated patient self-registration (the public flow).
+ *   2. Authenticated admin staff creation (the dashboard /users page).
+ *
+ * Before this fix the handler trusted `req.body.role` blindly, so the public
+ * flow could POST `{ ..., role: "ADMIN" }` and silently get an admin account.
+ * Fixed by inspecting the (optional) Bearer token here: only an authenticated
+ * ADMIN may set a non-PATIENT role. Anyone else — including unauthenticated
+ * callers, expired/invalid tokens, and any non-ADMIN role — is coerced to
+ * PATIENT regardless of what was submitted.
+ *
+ * Returns the role the new user should be created with. NEVER returns the
+ * raw `req.body.role` to the caller.
+ */
+function resolveRegistrationRole(req: Request, requestedRole: unknown): Role {
+  const PUBLIC_DEFAULT: Role = Role.PATIENT;
+  const allowedRoles: Record<string, Role> = {
+    ADMIN: Role.ADMIN,
+    DOCTOR: Role.DOCTOR,
+    RECEPTION: Role.RECEPTION,
+    NURSE: Role.NURSE,
+    PATIENT: Role.PATIENT,
+    PHARMACIST: Role.PHARMACIST,
+    LAB_TECH: Role.LAB_TECH,
+  };
+
+  // No role requested (or unknown role string) → public default.
+  if (typeof requestedRole !== "string" || !(requestedRole in allowedRoles)) {
+    return PUBLIC_DEFAULT;
+  }
+  const resolved = allowedRoles[requestedRole];
+  // Patients are always allowed to self-register as PATIENT — no auth needed.
+  if (resolved === Role.PATIENT) return Role.PATIENT;
+
+  // Anything else requires the caller to be an authenticated ADMIN.
+  // We do an in-line, best-effort token decode here (the route is otherwise
+  // unauthenticated, so we can't bolt on `authenticate` middleware without
+  // breaking the public flow). Any decode/role failure → coerce to PATIENT.
+  const header = req.headers.authorization;
+  if (!header?.startsWith("Bearer ")) return PUBLIC_DEFAULT;
+  const token = header.split(" ")[1];
+  try {
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET || "dev-secret"
+    ) as { role?: string };
+    if (decoded.role === "ADMIN") return resolved;
+  } catch {
+    // Fall through.
+  }
+  return PUBLIC_DEFAULT;
+}
+
 // POST /api/v1/auth/register
 router.post(
   "/register",
   validate(registerSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { name, email, phone, password, role } = req.body;
+      const { name, email, phone, password } = req.body;
+      // Issue #473: NEVER trust `req.body.role` directly. The resolver
+      // verifies the caller is an authenticated ADMIN before honouring a
+      // non-PATIENT role; everyone else gets PATIENT.
+      const role = resolveRegistrationRole(req, req.body.role);
 
       const existing = await prisma.user.findUnique({ where: { email } });
       if (existing) {

@@ -139,13 +139,13 @@ Grouped by domain. Each entry below should become a spec or be merged into an ex
 - ~~`/dashboard/ai-kpis` — KPI dashboard configuration~~ ✅ closed 2026-05-05 by `e2e/ai-kpis.spec.ts` (7 cases; ADMIN chrome + Feature1 cards + Feature2 cards w/ unavailable card pin + CSV export tab + PATIENT/DOCTOR admin-gate + error banner)
 - ~~`/dashboard/ai-booking` — AI-assisted booking~~ ✅ closed 2026-05-05 by `e2e/ai-booking.spec.ts` (5 cases; PATIENT pre-chat selector chrome + Child→dependent-id reveal + Start→POST /ai/triage/start with stubbed greeting + symptom-chips + DOCTOR universal-access pin (no VIEW_ALLOWED gate) + 400-error-envelope toast path)
 - ~~`/dashboard/ai-fraud` — fraud-case investigation (smoke-visited)~~ ✅ closed 2026-05-05 by `e2e/ai-fraud.spec.ts` (6 cases; ADMIN chrome + filters + Run-Scan + scan-window + row/expand contract + RECEPTION-can-read-but-no-CTA + PATIENT/DOCTOR inline Restricted placeholder (admin-gate-placeholder archetype, page.tsx:478) + empty-state)
-- `/dashboard/agent-console` — AI agent monitoring
+- ~~`/dashboard/agent-console` — AI agent monitoring~~ ✅ closed 2026-05-05 by `e2e/agent-console.spec.ts` (7 cases; ADMIN three-pane chrome + stubbed handoff row → composer/transcript/Suggest-this-doctor mount + Suggest-doctor POST + composer pre-fill + RECEPTION reach + PATIENT/DOCTOR REDIRECT-BOUNCE archetype (page.tsx:144-155 useEffect router.replace, NOT the admin-gate-placeholder shape — useEffect actively pushes to /dashboard) + empty-state)
 
 ### 2.9 Account & Profile
 - ~~`/dashboard/profile` — profile view/edit~~ ✅ closed (6 tests; ADMIN/DOCTOR/PATIENT happy paths + universal-access route-shape pin (no VIEW_ALLOWED, no redirect) + Change-Password modal structural contract + Issue #458 React-owned noValidate "Passwords do not match" inline-error gate with no POST; `e2e/profile.spec.ts` — destructive password-mutation/2FA-enroll flows intentionally skipped to avoid poisoning shared seed)
 - ~~`/dashboard/account` — email/password/2FA~~ ✅ closed (bundled in `e2e/profile.spec.ts` — `/dashboard/account` is a thin server-component `redirect("/dashboard/profile")` alias from Issue #303; redirect-contract test pins the alias)
 - `/dashboard/workspace` — workspace config (smoke-visited)
-- `/dashboard/workstation` — task assignment (RBAC-only tested)
+- ~~`/dashboard/workstation` — task assignment (RBAC-only tested)~~ ✅ closed 2026-05-05 by `e2e/workstation.spec.ts` (7 cases; NURSE chrome + four quick-action buttons + meds-due card populated + Record-Vitals deep-link with CHECKED_IN appt (Issue #432 fix at page.tsx:147-156) + Record-Vitals fallback branch with empty queue + admissions/ER populated lower panels + PATIENT/DOCTOR REDIRECT-BOUNCE archetype (page.tsx:38-42 useEffect router.replace, NOT admin-gate-placeholder shape))
 
 ### 2.10 Public / Unauthenticated
 - `/register` — public patient registration

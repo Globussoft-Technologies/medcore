@@ -20,6 +20,17 @@ import { generateLeaveLetterHTML } from "../services/pdf";
 const router = Router();
 router.use(authenticate);
 
+// #511 audit (2026-05-05, cron-tick): leaves is staff-self-service.
+// LeaveRequest.userId is a User id (not Patient id), so assertPatientOwnsResource
+// is not the right helper here — ownership is User-vs-User, mirroring the
+// `PATCH /:id/cancel` pattern. Approve/reject/calendar/pending are
+// `authorize(Role.ADMIN)` (or the calendar's staff allowlist). Reads and
+// the cancel write self-scope to `req.user!.userId` for non-ADMIN. The
+// only gap surfaced was `GET /:id/letter` — no role gate AND no ownership
+// check, leaking another staff member's leave letter (name, role, dates,
+// rejection reason) to any authed caller incl. PATIENT. Patched below
+// with the same User-id ownership check used by `/cancel`.
+
 function parseDate(s: string): Date {
   return new Date(`${s}T00:00:00.000Z`);
 }
@@ -444,10 +455,26 @@ router.get(
 );
 
 // GET /api/v1/leaves/:id/letter
+// #511 audit (2026-05-05, cron-tick): added ownership check. Previously any
+// authed user (incl. PATIENT) could fetch any staff member's leave letter
+// HTML by id, leaking name, role, dates, reason, rejectionReason. The
+// canonical pattern in this file is "owner OR admin" (see PATCH /:id/cancel).
 router.get(
   "/:id/letter",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const existing = await prisma.leaveRequest.findUnique({
+        where: { id: req.params.id },
+        select: { userId: true },
+      });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Leave request not found" });
+        return;
+      }
+      if (existing.userId !== req.user!.userId && req.user!.role !== Role.ADMIN) {
+        res.status(403).json({ success: false, data: null, error: "Forbidden" });
+        return;
+      }
       const html = await generateLeaveLetterHTML(req.params.id);
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);

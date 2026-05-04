@@ -688,8 +688,19 @@ function ReturnModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      {/*
+        Issue #458: HTML5 constraint validation (`required`, `min`, `max`) was
+        racing the React-side `toast.error` / `setFieldErrors` logic in
+        `submit()` — the browser intercepted submission before our JS guard
+        could run, so the typed validation messages never surfaced. We follow
+        the project's existing `login.tsx` / `register.tsx` precedent: turn
+        off browser validation with `noValidate` and rely on React as the
+        single source of truth. HTML5 attrs on the inputs below are stripped
+        accordingly.
+      */}
       <form
         onSubmit={submit}
+        noValidate
         className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
       >
         <h2 className="mb-4 text-lg font-bold">
@@ -710,14 +721,11 @@ function ReturnModal({
             <input
               id="pharmacy-return-qty"
               type="number"
-              min={1}
-              max={item.quantity}
               placeholder={`Quantity (max ${item.quantity})`}
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
               className="w-full rounded border px-3 py-2"
               data-testid="pharmacy-return-qty"
-              required
             />
             <p className="mt-1 text-xs text-gray-500" data-testid="pharmacy-return-onhand">
               On hand: {item.quantity}
@@ -800,13 +808,36 @@ function TransferModal({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    // Issue #458: explicit pre-flight checks now that we no longer rely on
+    // HTML5 `required` / `min` / `max`. Mirrors the server contract — both
+    // locations are required, quantity must be a positive integer not
+    // exceeding on-hand stock.
+    if (!fromLocation.trim()) {
+      toast.error("From Location is required");
+      return;
+    }
+    if (!toLocation.trim()) {
+      toast.error("To Location is required");
+      return;
+    }
+    const qty = parseInt(quantity, 10);
+    if (!Number.isFinite(qty) || qty < 1) {
+      toast.error("Quantity must be a positive whole number");
+      return;
+    }
+    if (qty > item.quantity) {
+      toast.error(
+        `Cannot transfer more than on-hand stock (${item.quantity}).`,
+      );
+      return;
+    }
     setSaving(true);
     try {
       await api.post("/pharmacy/transfers", {
         inventoryItemId: item.id,
         fromLocation,
         toLocation,
-        quantity: parseInt(quantity, 10),
+        quantity: qty,
         notes: notes || undefined,
       });
       onSaved();
@@ -819,8 +850,16 @@ function TransferModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      {/*
+        Issue #458: same `noValidate` + drop-HTML5-attrs treatment as the
+        Return modal. The TransferModal previously had no React-side
+        field-error UI, so the submit() handler now performs explicit
+        pre-flight checks (locations + quantity) — otherwise dropping
+        `required` would silently let blank submits through.
+      */}
       <form
         onSubmit={submit}
+        noValidate
         className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
       >
         <h2 className="mb-4 text-lg font-bold">
@@ -832,24 +871,19 @@ function TransferModal({
             value={fromLocation}
             onChange={(e) => setFromLocation(e.target.value)}
             className="w-full rounded border px-3 py-2"
-            required
           />
           <input
             placeholder="To Location"
             value={toLocation}
             onChange={(e) => setToLocation(e.target.value)}
             className="w-full rounded border px-3 py-2"
-            required
           />
           <input
             type="number"
-            min={1}
-            max={item.quantity}
             placeholder="Quantity"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
             className="w-full rounded border px-3 py-2"
-            required
           />
           <textarea
             placeholder="Notes (optional)"
@@ -1000,8 +1034,16 @@ function AddStockModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      {/*
+        Issue #458: AddStock already has a comprehensive `setFieldErrors` map
+        mirrored against the server zod schema (Issue #141 / #96), so the
+        HTML5 attrs were strictly redundant — and worse, racing — when a
+        client error tripped. Switch to `noValidate` and rely on the
+        existing React validation as the single source of truth.
+      */}
       <form
         onSubmit={submit}
+        noValidate
         className="w-full max-w-lg rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
       >
         <h2 className="mb-4 text-lg font-semibold">Add Stock</h2>
@@ -1074,7 +1116,6 @@ function AddStockModal({
             <div>
               <label className="mb-1 block text-sm font-medium">Batch #</label>
               <input
-                required
                 value={form.batchNumber}
                 data-testid="add-stock-batch"
                 onChange={(e) =>
@@ -1099,10 +1140,10 @@ function AddStockModal({
             <div>
               <label className="mb-1 block text-sm font-medium">Quantity</label>
               <input
-                required
                 type="number"
-                /* Issue #96: at least 1 unit per stock entry. */
-                min={1}
+                /* Issue #96 + #458: minimum-of-1 rule is enforced in the
+                   `submit()` handler via `setFieldErrors`. The HTML5 `min`
+                   attr would race that React-side error, so it's gone. */
                 step={1}
                 value={form.quantity}
                 data-testid="add-stock-quantity"
@@ -1127,8 +1168,8 @@ function AddStockModal({
               <label className="mb-1 block text-sm font-medium">Unit Cost</label>
               <input
                 type="number"
-                /* Issue #96: > 0 — a zero-cost batch breaks valuation. */
-                min={0.01}
+                /* Issue #96 + #458: > 0 enforced in `submit()`; HTML5 `min`
+                   removed to avoid racing the React-side error. */
                 step="0.01"
                 value={form.unitCost}
                 data-testid="add-stock-unit-cost"
@@ -1155,8 +1196,7 @@ function AddStockModal({
               </label>
               <input
                 type="number"
-                /* Issue #96: > 0 — billing engine never expects ₹0. */
-                min={0.01}
+                /* Issue #96 + #458: > 0 enforced in `submit()`. */
                 step="0.01"
                 value={form.sellingPrice}
                 data-testid="add-stock-selling-price"
@@ -1184,10 +1224,8 @@ function AddStockModal({
                 Expiry Date
               </label>
               <input
-                required
                 type="date"
-                /* Issue #96: HTML5 min — tomorrow. JS validation also enforces. */
-                min={tomorrow}
+                /* Issue #96 + #458: tomorrow-or-later enforced in `submit()`. */
                 value={form.expiryDate}
                 data-testid="add-stock-expiry"
                 onChange={(e) =>
@@ -1231,8 +1269,7 @@ function AddStockModal({
               </label>
               <input
                 type="number"
-                /* Issue #96: ≥ 0 (0 = "never auto-flag low stock"). */
-                min={0}
+                /* Issue #96 + #458: ≥ 0 enforced in `submit()`. */
                 step={1}
                 value={form.reorderLevel}
                 data-testid="add-stock-reorder-level"

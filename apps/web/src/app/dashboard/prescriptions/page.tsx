@@ -537,9 +537,16 @@ export default function PrescriptionsPage() {
 
       {/* Prescription form */}
       {showForm && (
+        // Issue #458: this form's only "required" props are passed to
+        // EntityPicker (which only sets `aria-required` — the bug pattern
+        // doesn't bite here) but we add `noValidate` for project-wide
+        // consistency with the Option B convention adopted on
+        // pharmacy / insurance-claims / login / register. React-side
+        // `setFormErrors` already owns validation truth.
         <form
           data-testid="rx-new-form"
           onSubmit={handleSubmit}
+          noValidate
           className="mb-6 rounded-xl bg-white p-6 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100"
         >
           <h2 className="mb-4 font-semibold">New Prescription</h2>

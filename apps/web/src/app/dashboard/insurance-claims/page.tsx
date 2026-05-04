@@ -713,6 +713,21 @@ function NewClaimModal({
       setErr("Please enter the amount claimed (in INR).");
       return;
     }
+    // Issue #458: these three fields previously relied on HTML5 `required`
+    // (Insurer select, Policy number Input, Diagnosis input). After
+    // adopting `noValidate` on the form, React-side checks own truth.
+    if (!insurer) {
+      setErr("Please pick an insurer.");
+      return;
+    }
+    if (!policy.trim()) {
+      setErr("Please enter the policy number.");
+      return;
+    }
+    if (!diagnosis.trim()) {
+      setErr("Please enter a diagnosis (ICD-10 recommended).");
+      return;
+    }
     setSubmitting(true);
     try {
       await api.post("/claims", {

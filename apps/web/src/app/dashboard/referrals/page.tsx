@@ -186,6 +186,14 @@ export default function ReferralsPage() {
         : "Select referring doctor";
     }
 
+    // Issue #458: external mode previously relied on the HTML5 `required`
+    // attr to block empty Hospital / Specialist submits, which we removed
+    // alongside `noValidate`. Mirror that check here so React owns the
+    // validation rule.
+    if (mode === "external" && !form.externalProvider.trim()) {
+      errs.externalProvider = "Hospital / specialist is required";
+    }
+
     const body: Record<string, unknown> = {
       patientId: selectedPatient?.id ?? "",
       fromDoctorId: fromDoctorId || "",
@@ -349,8 +357,19 @@ export default function ReferralsPage() {
       {/* Create modal */}
       {showCreate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          {/*
+            Issue #458: HTML5 `required` on the externalProvider input was
+            racing the React-side `setFormErrors` flow that already covers
+            patient / fromDoctorId / toDoctorId / reason validation, leaving
+            the externalProvider field with browser-only error UI that
+            doesn't match the rest of the form. Switch to `noValidate` and
+            let the React validation be the single source of truth — the
+            `submit()` function now also pre-flight-checks the
+            externalProvider field.
+          */}
           <form
             onSubmit={submit}
+            noValidate
             className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl"
           >
             <h2 className="mb-4 text-lg font-semibold">New Referral</h2>
@@ -504,9 +523,17 @@ export default function ReferralsPage() {
                     onChange={(e) =>
                       setForm((f) => ({ ...f, externalProvider: e.target.value }))
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
-                    required
+                    className={
+                      "w-full rounded-lg border px-3 py-2 text-sm " +
+                      (formErrors.externalProvider ? "border-red-500" : "")
+                    }
+                    aria-invalid={!!formErrors.externalProvider}
                   />
+                  {formErrors.externalProvider && (
+                    <p className="mt-1 text-xs text-red-600">
+                      {formErrors.externalProvider}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium">Contact</label>

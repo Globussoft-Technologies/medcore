@@ -22,22 +22,16 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 4. **Re-arm the auto-pilot cron** (durable: true is silently dropped
    on this build — crons die when the editor closes). Cron expression:
    `3,18,33,48 * * * *` (every 15 min, jittered off the :00 mark).
-   Paste this prompt verbatim:
+   Paste this prompt verbatim (canonical version — last updated
+   2026-05-05 per user direction):
 
    ```
-   If you are still in the middle of a wave means actively coding
-   things, please ignore this prompt and continue with your current
-   tasks. If you are not actively coding but waiting on CI then pick
-   the next parallel safe, high value tasks and work on them.
+   If you are still in the middle of a wave, please ignore this command and continue with your current tasks.
 
-   If we finished a wave, did we have any learnings from this wave?
-   Can we create a new skill or edit a current skill from the
-   learnings? If yes create/edit the skill and update claude.md with
-   the notes.
+   If we finished a wave, did we have any learnings from this wave? Can we create a new skill or edit a current skill from the learnings? If yes create/edit the skill and update claude.md with the notes.
 
-   Once skills is done, please update documentation and todos and
-   then, please continue with the high priority tasks and close the
-   gaps. Use the skills wherever applicable.
+   Once skills is done ,  please update documentation and todos and then,
+   Please continue with the high priority tasks and close the gaps. Use the skills whereever applicable
    ```
 
 5. **Leave editor open + step away.** The cron will fire every 15 min

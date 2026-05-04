@@ -107,6 +107,12 @@ export default function TelemedicinePage() {
   const canSchedule =
     user?.role === "ADMIN" || user?.role === "DOCTOR" || user?.role === "RECEPTION";
   const canStartEnd = user?.role === "ADMIN" || user?.role === "DOCTOR";
+  // Issue #459 (A5 RBAC drift, May 2026): server `PATCH /telemedicine/:id/
+  // rating` (telemedicine.ts:378) also accepts ADMIN, but the rating CTA is
+  // intentionally patient-only — admins shouldn't be falsifying patient
+  // satisfaction scores. The server permission exists so admins can correct
+  // a wrong rating via direct API or admin tools, not through the patient
+  // CTA. Documented client-only narrowing; do not loosen.
   const canRate = user?.role === "PATIENT";
 
   useEffect(() => {

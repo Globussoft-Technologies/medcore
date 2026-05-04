@@ -29,7 +29,12 @@ function parseDate(s: string): Date {
 // ─── HOLIDAY CALENDAR ──────────────────────────────────
 
 // GET /api/v1/hr-ops/holidays?year=
-router.get("/holidays", async (req: Request, res: Response, next: NextFunction) => {
+// Issue #459 (A5 RBAC drift, May 2026): tighten server to match the UI gate.
+// The dashboard route `/dashboard/holidays` redirects every non-ADMIN user
+// in `useEffect`, so any read by a non-admin is the result of a direct API
+// call, not a legitimate UI flow. Writes (POST/PATCH/DELETE below) are
+// already ADMIN-only — make read symmetric so the audit trail is clean.
+router.get("/holidays", authorize(Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const year = parseInt((req.query.year as string) || String(new Date().getFullYear()), 10);
     const start = new Date(`${year}-01-01T00:00:00.000Z`);

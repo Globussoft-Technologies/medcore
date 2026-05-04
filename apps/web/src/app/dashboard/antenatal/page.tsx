@@ -88,7 +88,13 @@ export default function AntenatalPage() {
     riskFactors: "",
   });
 
-  const canCreate = user?.role === "DOCTOR" || user?.role === "ADMIN";
+  // Issue #459 (A5 RBAC drift, May 2026): NURSE is allowed server-side
+  // (`POST /antenatal/cases` accepts ADMIN, DOCTOR, NURSE — see
+  // antenatal.ts:191) and antenatal is a nurse-led workflow in most clinics
+  // (visit recording, partograph, postnatal). The UI was hiding the "New
+  // case" CTA from a high-volume clinical role; align with server intent.
+  const canCreate =
+    user?.role === "DOCTOR" || user?.role === "ADMIN" || user?.role === "NURSE";
 
   useEffect(() => {
     loadCases();

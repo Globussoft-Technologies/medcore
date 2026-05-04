@@ -109,7 +109,16 @@ export default function SurgeryDetailPage() {
   const [editMode, setEditMode] = useState(false);
   const [notes, setNotes] = useState({ preOpNotes: "", postOpNotes: "", diagnosis: "" });
 
-  const canEdit = user?.role === "DOCTOR" || user?.role === "ADMIN";
+  // Issue #459 (A5 RBAC drift, May 2026): NURSE is allowed server-side on
+  // PATCH /surgery/:id and on the peri-op endpoints (preop/observations/
+  // anesthesia-record — see surgery.ts:371,613,660,968,1070). Nurses are the
+  // primary recorder for pre-op checklists and PACU observations, so the
+  // page-level Edit gate must include NURSE; otherwise the entire detail
+  // page becomes read-only for them.
+  const canEdit =
+    user?.role === "DOCTOR" ||
+    user?.role === "ADMIN" ||
+    user?.role === "NURSE";
 
   const loadSurgery = useCallback(async () => {
     setLoading(true);

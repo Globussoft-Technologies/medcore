@@ -115,7 +115,11 @@ export default function LabPage() {
     error?: string;
   }>>({});
 
-  const canOrder = user?.role === "DOCTOR";
+  // Issue #459 (A5 RBAC drift, May 2026): server `POST /lab/orders` accepts
+  // DOCTOR + ADMIN (lab.ts:243). The UI was hiding the New-Order CTA from
+  // ADMIN, blocking ad-hoc orders during admin-led workflows (e.g. front-
+  // desk add-on tests, audit reruns). Align with server intent.
+  const canOrder = user?.role === "DOCTOR" || user?.role === "ADMIN";
   const canSeeAI = user?.role === "DOCTOR" || user?.role === "ADMIN";
   // Only lab techs and admins may enter results — doctors view, never enter.
   // Mirror of the backend `authorize(LAB_TECH, ADMIN)` on POST /lab/results.

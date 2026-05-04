@@ -4,6 +4,67 @@ Next-session pickup list. Read this first, work top-to-bottom. Each item
 is independently shippable. Full per-session history lives under
 [`docs/archive/`](docs/archive/).
 
+---
+
+## ⚡ POST-RESTART CHECKLIST (read this first if you just reopened the editor)
+
+HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
+
+1. **`git pull origin main`** — picks up the new
+   `permissions.defaultMode: "acceptEdits"` setting in
+   `.claude/settings.json` (commit `ad30920`). This is the lever that
+   stops the per-edit popup loop.
+2. **Open Claude Code in the medcore folder** — fresh session reads
+   the updated settings.json from disk.
+3. **(Optional) Verify** by asking Claude to do a tiny no-op edit
+   (e.g., "add a one-line comment to the top of CLAUDE.md"). Should
+   auto-accept with no popup.
+4. **Re-arm the auto-pilot cron** (durable: true is silently dropped
+   on this build — crons die when the editor closes). Cron expression:
+   `3,18,33,48 * * * *` (every 15 min, jittered off the :00 mark).
+   Paste this prompt verbatim:
+
+   ```
+   If you are still in the middle of a wave means actively coding
+   things, please ignore this prompt and continue with your current
+   tasks. If you are not actively coding but waiting on CI then pick
+   the next parallel safe, high value tasks and work on them.
+
+   If we finished a wave, did we have any learnings from this wave?
+   Can we create a new skill or edit a current skill from the
+   learnings? If yes create/edit the skill and update claude.md with
+   the notes.
+
+   Once skills is done, please update documentation and todos and
+   then, please continue with the high priority tasks and close the
+   gaps. Use the skills wherever applicable.
+   ```
+
+5. **Leave editor open + step away.** The cron will fire every 15 min
+   and self-direct via the prompt above.
+
+### What the cron should pick up next (ordered by leverage)
+
+- **Continue #511 long-tail** (~21 unswept routes). Highest-PHI
+  candidates: `patient-data-export.ts`, `patient-extras.ts`,
+  `med-reconciliation.ts`, `pharmacy.ts`, `payment-plans.ts`. Use
+  `/medcore-bola-sweep` skill — pattern proven across 14 route files
+  today. Each agent owns one route file, writes a
+  `cross-patient-<route>.test.ts`, comments on Issue #511 with
+  verdict table.
+- **Lower-priority #511 candidates** (admin/staff-only, likely false
+  positives): `agent-console.ts`, `ai-admin.ts`, `ai-knowledge.ts`,
+  `analytics.ts`, `chat.ts`, `controlled-substances.ts`, `doctors.ts`,
+  `hr-ops.ts`, `leaves.ts`, `medicines.ts`, `notifications.ts`,
+  `packages.ts`, `preauth.ts`, `scheduled-reports.ts`, `shifts.ts`,
+  `tenants.ts`, `uploads.ts`. Skim, verify-or-document, batch.
+- **A1 product decision** still open (page-level VIEW_ALLOWED policy)
+  — needs human, not cron.
+- **#482 JWT HS256→RS256** still open — needs operational key-rollover
+  plan, not cron.
+
+---
+
 > Updated: 2026-05-05 (post **CI-unblock auth wave + 5-agent A2/A10 fanout + new /medcore-test-triage skill**).
 > Latest session handoff: [`docs/archive/SESSION_SNAPSHOT_2026-05-04-evening.md`](docs/archive/SESSION_SNAPSHOT_2026-05-04-evening.md) (rolling forward).
 > HEAD on `main` = `0c8ab07`. **Today's wave: 16 auth-integration test failures unblocked + A2 fully closed (~352 label/input pairs across 76 dashboard pages) + A10 closed (tenant-prisma lifted to `@medcore/db`) + new `/medcore-test-triage` skill codifies the per-push CI failure-cluster diagnosis playbook.**

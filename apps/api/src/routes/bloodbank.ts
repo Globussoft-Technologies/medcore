@@ -20,6 +20,7 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 
 const router = Router();
 router.use(authenticate);
@@ -668,6 +669,11 @@ router.get(
   }
 );
 
+// #511 audit: PATCHED — was missing per-patient ownership gate. BloodRequest
+// rows carry `patientId`, so any authenticated PATIENT could fetch another
+// patient's transfusion request by UUID (BOLA / OWASP API1:2023). Ownership
+// is now asserted via `assertPatientOwnsResource` after the row is loaded;
+// staff roles always pass.
 router.get(
   "/requests/:id",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -685,6 +691,7 @@ router.get(
           .json({ success: false, data: null, error: "Request not found" });
         return;
       }
+      if (!(await assertPatientOwnsResource(req, res, request.patientId))) return;
       res.json({ success: true, data: request, error: null });
     } catch (err) {
       next(err);
@@ -921,8 +928,13 @@ router.post(
   }
 );
 
+// #511 audit: PATCHED — donor screening payloads expose HIV / HCV / HBsAg /
+// syphilis / malaria results. BloodDonor has no Patient/User link, so this
+// is not a "patient-self" surface; the right gate is staff-only authorize()
+// matching every other write/read in this file.
 router.get(
   "/donations/:id/screening",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const screening = await prisma.bloodScreening.findUnique({
@@ -939,8 +951,12 @@ router.get(
 // DONOR ELIGIBILITY CHECK
 // ───────────────────────────────────────────────────────
 
+// #511 audit: PATCHED — donor eligibility leaks weight / DOB / last-donation /
+// active-deferral reasons. Donors are not patient-self entities; matching the
+// rest of the file's pattern, restrict to clinical staff who run the bank.
 router.get(
   "/donors/:id/eligibility",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const donor = await prisma.bloodDonor.findUnique({
@@ -1411,8 +1427,12 @@ router.post(
 );
 
 // GET /bloodbank/donors/:id/deferrals
+// #511 audit: PATCHED — donor deferrals expose medical-deferral reasons
+// (e.g. "tested reactive for HCV", "active TB"). Donors are not patient-self
+// entities; restrict to clinical staff per the file's standard pattern.
 router.get(
   "/donors/:id/deferrals",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const rows = await prisma.donorDeferral.findMany({

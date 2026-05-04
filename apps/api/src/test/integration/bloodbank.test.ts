@@ -1,4 +1,12 @@
 // Integration tests for bloodbank router.
+//
+// Issue #511 (BOLA sweep, 2026-05-05): four /:id handlers in this router
+// were flagged as missing per-patient or staff-only gating —
+//   - GET /requests/:id          (patient-owned, now uses assertPatientOwnsResource)
+//   - GET /donations/:id/screening (staff-only — donor PII)
+//   - GET /donors/:id/eligibility (staff-only — donor PII)
+//   - GET /donors/:id/deferrals  (staff-only — donor medical reasons)
+// Regression cases at the bottom of this file pin the new behaviour.
 import { it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
@@ -235,5 +243,139 @@ describeIfDB("BloodBank API (integration)", () => {
     expect(data.expiringSoon).toBeGreaterThanOrEqual(3);
     expect(data.expiringByBloodGroup["A_NEG"] ?? 0).toBeGreaterThanOrEqual(2);
     expect(data.expiringByBloodGroup["AB_NEG"] ?? 0).toBeGreaterThanOrEqual(1);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Issue #511 regression — BOLA / authorization gaps on 4 /:id handlers
+  // ─────────────────────────────────────────────────────────────────────
+  // GET /requests/:id had no `assertPatientOwnsResource` — PATIENT-A could
+  // read PATIENT-B's transfusion request by UUID. The donations/donors
+  // /:id sub-resources had no `authorize()` at all — any authenticated
+  // user (incl. PATIENT) could fetch donor PII (HIV/HCV/HBsAg results,
+  // weight, deferral reasons). These tests pin the new gating: PATIENT
+  // is denied where appropriate; staff still pass.
+  it("Issue #511: PATIENT cannot GET another patient's blood request (BOLA)", async () => {
+    const jwt = await import("jsonwebtoken");
+    const bcrypt = await import("bcryptjs");
+    const prisma = await getPrisma();
+
+    // Build two PATIENT users + Patient rows directly (the shared
+    // `getAuthToken("PATIENT")` only ever yields one canonical patient).
+    const mkPatient = async (label: string) => {
+      const email = `bb511_${label}_${Date.now()}_${Math.random()
+        .toString(36)
+        .slice(2, 6)}@test.local`;
+      const user = await prisma.user.create({
+        data: {
+          email,
+          name: `BB511 ${label}`,
+          phone: "9000000000",
+          passwordHash: await bcrypt.default.hash("MedCoreT3st-2026", 4),
+          role: "PATIENT" as any,
+        },
+      });
+      const p = await prisma.patient.create({
+        data: {
+          userId: user.id,
+          mrNumber: `MR-BB511-${label}-${Date.now()}`,
+          dateOfBirth: new Date("1990-01-01"),
+          gender: "MALE" as any,
+        },
+      });
+      const token = jwt.default.sign(
+        { userId: user.id, email, role: "PATIENT" },
+        process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
+        { expiresIn: "1h" }
+      );
+      return { patientId: p.id, token };
+    };
+
+    const a = await mkPatient("A");
+    const b = await mkPatient("B");
+    const patientAToken = a.token;
+    const patientBToken = b.token;
+
+    // Staff creates a blood request owned by PATIENT-B.
+    const reqB = await request(app)
+      .post("/api/v1/bloodbank/requests")
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        patientId: b.patientId,
+        bloodGroup: "O_POS",
+        component: "PACKED_RED_CELLS",
+        unitsRequested: 1,
+        reason: "Transfusion",
+        urgency: "ROUTINE",
+      });
+    expect([200, 201]).toContain(reqB.status);
+    const requestId = reqB.body.data.id as string;
+
+    // (1) PATIENT-A → PATIENT-B's request → 403 (the bug)
+    const cross = await request(app)
+      .get(`/api/v1/bloodbank/requests/${requestId}`)
+      .set("Authorization", `Bearer ${patientAToken}`);
+    expect(cross.status).toBe(403);
+
+    // (2) PATIENT-B → own request → 200 (positive control)
+    const own = await request(app)
+      .get(`/api/v1/bloodbank/requests/${requestId}`)
+      .set("Authorization", `Bearer ${patientBToken}`);
+    expect(own.status).toBe(200);
+
+    // (3) Staff → any request → 200 (RBAC unbroken)
+    const staff = await request(app)
+      .get(`/api/v1/bloodbank/requests/${requestId}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(staff.status).toBe(200);
+  });
+
+  it("Issue #511: PATIENT cannot GET donation screening (donor PII)", async () => {
+    const patientToken = await getAuthToken("PATIENT");
+    const donor = await createBloodDonorFixture();
+    const donationRes = await request(app)
+      .post("/api/v1/bloodbank/donations")
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({ donorId: donor.id });
+    const donationId = donationRes.body.data.id as string;
+
+    const denied = await request(app)
+      .get(`/api/v1/bloodbank/donations/${donationId}/screening`)
+      .set("Authorization", `Bearer ${patientToken}`);
+    expect(denied.status).toBe(403);
+
+    const allowed = await request(app)
+      .get(`/api/v1/bloodbank/donations/${donationId}/screening`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(allowed.status).toBe(200);
+  });
+
+  it("Issue #511: PATIENT cannot GET donor eligibility (donor PII)", async () => {
+    const patientToken = await getAuthToken("PATIENT");
+    const donor = await createBloodDonorFixture();
+
+    const denied = await request(app)
+      .get(`/api/v1/bloodbank/donors/${donor.id}/eligibility`)
+      .set("Authorization", `Bearer ${patientToken}`);
+    expect(denied.status).toBe(403);
+
+    const allowed = await request(app)
+      .get(`/api/v1/bloodbank/donors/${donor.id}/eligibility`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(allowed.status).toBe(200);
+  });
+
+  it("Issue #511: PATIENT cannot GET donor deferrals (donor medical history)", async () => {
+    const patientToken = await getAuthToken("PATIENT");
+    const donor = await createBloodDonorFixture();
+
+    const denied = await request(app)
+      .get(`/api/v1/bloodbank/donors/${donor.id}/deferrals`)
+      .set("Authorization", `Bearer ${patientToken}`);
+    expect(denied.status).toBe(403);
+
+    const allowed = await request(app)
+      .get(`/api/v1/bloodbank/donors/${donor.id}/deferrals`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(allowed.status).toBe(200);
   });
 });

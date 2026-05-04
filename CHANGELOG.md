@@ -12,6 +12,21 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 15 — E2E coverage backlog (dedup resolution + clinical/interop).**
+  Lane A (`443d3af`) shipped `operating-theatres.spec.ts` (5 cases) +
+  `medication-dashboard.spec.ts` (5 cases). **Two backlog dedup questions
+  RESOLVED**: (1) `/operating-theaters` AND `/operating-theatres` are
+  BOTH redirect aliases to `/dashboard/ot` (Issue #158); (2)
+  `/medication` is a redirect alias to `/medication-dashboard`
+  (Issue #136). 6 backlog items + 2 §9 Open Questions closed in one
+  spec each. Lane B (`bfe9c58`) shipped `lab-intel.spec.ts` (7 cases)
+  + `fhir-export.spec.ts` (7 cases). 24 new tests × 2 projects = 48
+  listed cases. **6th cron-learning bullet RIPENED with nuance**:
+  redirect-bounce target convention is now a 6:1 split — `/dashboard`
+  is dominant; `/dashboard/not-authorized` is the rare explicit
+  access-denied UX (Issue #179, only lab-intel). Skill extension
+  recommendation: grep page.tsx for the actual `router.push/replace`
+  target before writing the test assertion.
 - **2026-05-05 cron-tick wave 14 — E2E coverage backlog (admin/staff workflows + multi-tenant + clinical).**
   Lane A (`e9e032a`) shipped `e2e/agent-console.spec.ts` (7 cases —
   3-pane chrome + Suggest-this-doctor round-trip) + `e2e/workstation

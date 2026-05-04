@@ -316,6 +316,39 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 15 (2-agent E2E fanout — dedup resolution + clinical/interop)**:
+> 4 specs scaffolded; 6 backlog items + 2 §9 Open Questions resolved.
+> Lane A (`443d3af`): `e2e/operating-theatres.spec.ts` (5 cases) +
+> `e2e/medication-dashboard.spec.ts` (5 cases). **Two backlog dedup
+> questions RESOLVED**: (1) BOTH `/dashboard/operating-theaters` AND
+> `/dashboard/operating-theatres` are redirect aliases to canonical
+> `/dashboard/ot` (Issue #158) — already covered by `e2e/ot-surgery.
+> spec.ts`; new spec just pins the redirect contract. (2)
+> `/dashboard/medication` is a redirect alias to `/dashboard/medication-
+> dashboard` (Issue #136) — canonical is the 252-line MAR queue page.
+> Scope clarified: dashboard CHROME owned by new spec; multi-role MAR
+> ORDER FLOW remains owned by `e2e/admissions-mar.spec.ts`. Lane B
+> (`bfe9c58`): `e2e/lab-intel.spec.ts` (7 cases — DOCTOR full chrome
+> + KPI tiles + ADMIN parity + NURSE read-only banner + filter wiring
+> + empty state + LAB_TECH/PATIENT redirect-bounce; **redirect target =
+> `/dashboard/not-authorized` per Issue #179 — the rare access-denied UX
+> pattern**) + `e2e/fhir-export.spec.ts` (7 cases — ADMIN tile + patient-
+> resource happy path + `$everything` + `$export` ABDM bundles + 500
+> error envelope + DOCTOR/PATIENT redirect-bounce to `/dashboard`).
+>
+> **24 new E2E tests across 4 spec files** (×2 Playwright projects =
+> 48 listed cases). Backlog §2.7 + §2.12 + §9 mostly closed.
+>
+> **6th cron-learning bullet RIPENED with nuance**: redirect-bounce
+> target now confirmed as a 6:1 split — `/dashboard` is dominant
+> (agent-console, workstation, tenants, insurance-claims, audit,
+> fhir-export) and `/dashboard/not-authorized` is the explicit
+> access-denied UX (Issue #179, only lab-intel). CLAUDE.md gotcha #7
+> mentions only `/not-authorized`; the bullet recommends the skill
+> extension grep page.tsx for actual `router.push/replace` target before
+> assertion to avoid the brittle "always /not-authorized" default
+> AND the inverse "always /dashboard" assumption.
+>
 > **2026-05-05 cron-tick wave 14 (2-agent E2E fanout — admin/staff workflows + multi-tenant + clinical)**:
 > 4 backlog items closed across 4 spec files. Lane A (`e9e032a`):
 > `e2e/agent-console.spec.ts` (7 cases — 3-pane chrome (handoffs/chat/

@@ -316,6 +316,28 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 12 (2-agent E2E fanout — profile/account + capacity-forecast + ai-kpis)**:
+> 4 backlog items closed across 3 spec files. Lane A (`8a869c8`):
+> `e2e/profile.spec.ts` — 6 cases covering BOTH `/dashboard/profile` and
+> `/dashboard/account` (Issue #303 redirect alias pinned). **Notable**:
+> profile.tsx is NOT a tabbed surface despite the backlog's "email/
+> password/2FA" framing — page has only header card + Personal Details +
+> Change-Password modal. 2FA/notifications/sessions live on
+> `/dashboard/settings`, not /profile. profile is universal-access (every
+> authed role). Lane B (`36b6532`): `e2e/capacity-forecast.spec.ts`
+> (7 cases — 24h/48h/72h toggle + 3 resource-tab fanout to /beds//icu//ot
+> + summary-card heatmap + ADMIN/NURSE allow + PATIENT page-shape pin
+> + empty-state + error envelope) and `e2e/ai-kpis.spec.ts` (7 cases —
+> ADMIN F1 panel 7-card render + Scribe-tab swap to F2 7 cards + export-
+> tab fires `/export` + PATIENT/DOCTOR `ai-kpis-admin-gate` short-circuit
+> + error envelope). **Surfaced 5th cron-learning bullet**: ai-kpis is
+> the 3rd page-shape archetype — not redirect-bounce, not universal-access,
+> but an "admin-gate placeholder" rendered inline. Test pattern:
+> assert placeholder testid + data-panel-testids absent.
+>
+> **20 new E2E tests across 3 spec files** (×2 Playwright projects =
+> 40 listed cases). Backlog §2.7 + §2.8 + §2.9 partially closed.
+>
 > **2026-05-05 cron-tick wave 11 (2-agent E2E fanout — communications + analytics-reports backlog)**:
 > 4 more E2E specs scaffolded across 2 lanes. Lane A (`b921bca`):
 > `e2e/notifications-delivery.spec.ts` (7 cases — ADMIN delivery-status

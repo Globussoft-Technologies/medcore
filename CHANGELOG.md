@@ -12,6 +12,22 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 12 — E2E coverage backlog (profile + capacity-forecast + ai-kpis).**
+  Lane A (`8a869c8`) shipped `e2e/profile.spec.ts` covering BOTH
+  `/dashboard/profile` and the `/dashboard/account` redirect alias
+  (Issue #303). **Notable**: profile.tsx is NOT a tabbed surface
+  despite backlog framing — only header card + Personal Details +
+  Change-Password modal; 2FA/notifications/sessions live on
+  `/dashboard/settings`. Universal-access (every authed role).
+  Lane B (`36b6532`) shipped `e2e/capacity-forecast.spec.ts` (7 cases)
+  + `e2e/ai-kpis.spec.ts` (7 cases). **Cron-learning bullet added**:
+  ai-kpis surfaced a 3rd page-shape archetype — neither redirect-bounce
+  nor universal-access, but an "admin-gate placeholder" rendered
+  inline (data-testid="ai-kpis-admin-gate" replaces data panels for
+  non-ADMIN). CLAUDE.md gotcha #7 had codified only 2 archetypes;
+  the 5th cron-learning bullet recommends extending
+  `/medcore-e2e-spec` with a 3-archetype decision matrix when 1 more
+  instance recurs. 20 new tests × 2 projects = 40 listed cases.
 - **2026-05-05 cron-tick wave 11 — E2E coverage backlog (communications + analytics-reports).**
   Lane A (`b921bca`) shipped `e2e/notifications-delivery.spec.ts`
   (7 cases) + `e2e/notification-templates.spec.ts` (7 cases) — both

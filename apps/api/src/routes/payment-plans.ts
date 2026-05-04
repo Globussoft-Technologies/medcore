@@ -13,6 +13,7 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 
 const router = Router();
 router.use(authenticate);
@@ -166,7 +167,23 @@ router.get(
     try {
       const { patientId, status } = req.query as Record<string, string | undefined>;
       const where: Record<string, unknown> = {};
-      if (patientId) where.patientId = patientId;
+      // #511 audit: PATIENT callers are auto-scoped to their own patientId
+      // regardless of any client-supplied ?patientId= filter — payment plans
+      // carry financial PHI per patient. Staff roles see all rows (or filter
+      // via the query param).
+      if (req.user?.role === "PATIENT") {
+        const self = await prisma.patient.findFirst({
+          where: { userId: req.user.userId },
+          select: { id: true },
+        });
+        if (!self) {
+          res.status(403).json({ success: false, data: null, error: "Forbidden" });
+          return;
+        }
+        where.patientId = self.id;
+      } else if (patientId) {
+        where.patientId = patientId;
+      }
       if (status) where.status = status;
 
       const plans = await prisma.paymentPlan.findMany({
@@ -208,6 +225,9 @@ router.get(
 // GET /api/v1/payment-plans/overdue
 router.get(
   "/overdue",
+  // #511 audit: STAFF-ONLY — exposes overdue installments across ALL
+  // patients (financial PHI). Not a patient-facing surface.
+  authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR, Role.NURSE),
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
       const today = new Date();
@@ -334,6 +354,9 @@ router.get(
         });
         return;
       }
+      // #511 audit: PATCHED — payment plans carry financial PHI per patient.
+      // Without this, any PATIENT-A could fetch any PATIENT-B's plan by id.
+      if (!(await assertPatientOwnsResource(req, res, plan.patientId))) return;
       res.json({ success: true, data: plan, error: null });
     } catch (err) {
       next(err);

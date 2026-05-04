@@ -885,6 +885,8 @@ router.get(
 
 router.get(
   "/inventory/barcode/:barcode",
+  // #511 audit: STAFF-ONLY — exposes batch/inventory PII not relevant to PATIENT.
+  authorize(Role.ADMIN, Role.PHARMACIST, Role.DOCTOR, Role.NURSE),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const item = await prisma.inventoryItem.findFirst({
@@ -1151,6 +1153,9 @@ router.get(
 
 router.get(
   "/substitutes/:medicineId",
+  // #511 audit: STAFF-ONLY — substitute lookup exposes inventory levels +
+  // pricing per batch; not a patient-facing surface.
+  authorize(Role.ADMIN, Role.PHARMACIST, Role.DOCTOR, Role.NURSE),
   validateUuidParams(["medicineId"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -1286,6 +1291,9 @@ router.post(
 
 router.get(
   "/returns",
+  // #511 audit: STAFF-ONLY — exposes refund/return history across all
+  // patients. Pharmacy-roles only.
+  authorize(Role.ADMIN, Role.PHARMACIST, Role.NURSE),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Issue #367 (Apr 30 2026): pagination. The list previously fetched
@@ -1414,6 +1422,9 @@ router.post(
 
 router.get(
   "/transfers",
+  // #511 audit: STAFF-ONLY — exposes stock transfer history across
+  // locations; not a patient-facing surface.
+  authorize(Role.ADMIN, Role.PHARMACIST, Role.NURSE),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Issue #367 (Apr 30 2026): pagination + total count. Mirrors /returns.

@@ -12,6 +12,18 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 10 — E2E coverage backlog pivot (4 new specs, 26 new tests).**
+  After #511 long-tail closed, the cron pivoted to `docs/E2E_COVERAGE_
+  BACKLOG.md` §2 zero-coverage routes. Lane A (`9802de0`) shipped
+  `e2e/problem-list.spec.ts` (6 cases) + `e2e/my-activity.spec.ts`
+  (6 cases). Lane B (`be9bdf7`) shipped `e2e/bill-explainer.spec.ts`
+  (7 cases) + `e2e/discount-approvals.spec.ts` (7 cases). Backlog
+  annotated for the 4 closures. **Surprising finds**: (1) problem-list
+  page is currently READ-ONLY despite backlog framing as "add/edit/
+  delete" — annotated as future intent; (2) bill-explainer page renders
+  Approve CTA for RECEPTION but the POST API gate is ADMIN-only (UI/API
+  consistency gap, not a security issue). 26 new tests × 2 Playwright
+  projects = 52 listed cases.
 - **2026-05-05 cron-tick wave 9 — final long-tail BOLA closure (#511 long-tail CLOSED).**
   Lane A (`ee5dd4b` + `69086ab` + `e4a862b`) closed hr-ops + leaves +
   medicines. **1 real BOLA**: `leaves.ts GET /:id/letter` had ZERO

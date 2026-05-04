@@ -316,6 +316,30 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 10 (2-agent E2E fanout — pivot to coverage backlog after #511 close)**:
+> #511 long-tail done → pivoted to `docs/E2E_COVERAGE_BACKLOG.md` §2 zero-
+> coverage routes. 4 specs scaffolded across 2 lanes. Lane A (`9802de0`):
+> `e2e/problem-list.spec.ts` (6 cases — DOCTOR/NURSE/LAB_TECH chrome +
+> empty-state + filter query-string contract + PATIENT cross-patient
+> BOLA pin via `page.route` interception + bad-UUID empty render) and
+> `e2e/my-activity.spec.ts` (6 cases — DOCTOR feed + filter wiring +
+> empty-state + populated-feed action-filter contract + ADMIN self-scope
+> proof + universal-access pin). Lane B (`be9bdf7`): `e2e/bill-
+> explainer.spec.ts` (7 cases — ADMIN DRAFT render → Approve round-trip
+> + non-DRAFT no-CTA + PATIENT/DOCTOR no-redirect pins + Refresh re-fetch
+> contract) and `e2e/discount-approvals.spec.ts` (7 cases — ADMIN PENDING
+> row + Approve/Reject CTAs + tab-switch refetch contract + REJECTED
+> inline-reason chrome + RECEPTION read-only chrome + DOCTOR/PATIENT
+> redirect with leak guard).
+>
+> **26 new E2E tests across 4 spec files** (×2 Playwright projects =
+> 52 listed cases). Backlog annotated for closure. **Surprising find**:
+> problem-list page is currently READ-ONLY (zero write CTAs in
+> page.tsx); the backlog's "add/edit/delete" framing reflects future
+> intent — annotated in the closure note. Bill-explainer page renders
+> Approve CTA for RECEPTION but the POST API gate is ADMIN-only (UI/API
+> mismatch — minor UX consistency gap, not a security issue).
+>
 > **2026-05-05 cron-tick wave 9 (2-agent fanout — final long-tail closure, #511 long-tail effectively CLOSED)**:
 > 6 long-tail routes closed in a single cron tick — **1 real BOLA fix +
 > 46 verified-safe handlers across 6 files**. Lane A (`ee5dd4b` +

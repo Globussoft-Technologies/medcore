@@ -45,6 +45,11 @@ router.get(
   authenticate,
   authorize(Role.ADMIN, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
+    // security(2026-05-04-med): F-PRED-1 — stamp an AI-inference audit row
+    // for every batch no-show prediction. The model is logistic-regression
+    // (not Sarvam) but the security team treats every AI feature uniformly
+    // for PHI-access reconstruction.
+    const startedAt = Date.now();
     try {
       const parsedBatch = noShowBatchQuerySchema.safeParse(req.query);
       if (!parsedBatch.success) {
@@ -82,6 +87,13 @@ router.get(
           date,
           resultCount: 0,
         });
+        safeAudit(req, "AI_PREDICTIONS_INFERENCE", "Appointment", undefined, {
+          date,
+          resultCount: 0,
+          latencyMs: Date.now() - startedAt,
+          model: "logistic-regression-v1",
+          success: true,
+        });
         res.json({ success: true, data: [], error: null });
         return;
       }
@@ -118,8 +130,23 @@ router.get(
         resultCount: enriched.length,
       });
 
+      safeAudit(req, "AI_PREDICTIONS_INFERENCE", "Appointment", undefined, {
+        date,
+        resultCount: enriched.length,
+        latencyMs: Date.now() - startedAt,
+        model: "logistic-regression-v1",
+        success: true,
+      });
+
       res.json({ success: true, data: enriched, error: null });
     } catch (err) {
+      safeAudit(req, "AI_PREDICTIONS_INFERENCE", "Appointment", undefined, {
+        latencyMs: Date.now() - startedAt,
+        model: "logistic-regression-v1",
+        success: false,
+        failure: true,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
       next(err);
     }
   }
@@ -133,6 +160,8 @@ router.get(
   // security(2026-04-23-med): F-PRED-2 — reject non-UUID :appointmentId up front.
   validateUuidParams(["appointmentId"]),
   async (req: Request, res: Response, next: NextFunction) => {
+    // security(2026-05-04-med): F-PRED-1 — see batch handler above.
+    const startedAt = Date.now();
     try {
       const { appointmentId } = req.params;
 
@@ -142,8 +171,23 @@ router.get(
         riskScore: prediction.riskScore,
       });
 
+      safeAudit(req, "AI_PREDICTIONS_INFERENCE", "Appointment", appointmentId, {
+        riskScore: prediction.riskScore,
+        modelSource: prediction.source,
+        latencyMs: Date.now() - startedAt,
+        model: "logistic-regression-v1",
+        success: true,
+      });
+
       res.json({ success: true, data: prediction, error: null });
     } catch (err) {
+      safeAudit(req, "AI_PREDICTIONS_INFERENCE", "Appointment", req.params.appointmentId, {
+        latencyMs: Date.now() - startedAt,
+        model: "logistic-regression-v1",
+        success: false,
+        failure: true,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
       if (err instanceof Error && err.message.includes("not found")) {
         res.status(404).json({ success: false, data: null, error: err.message });
         return;

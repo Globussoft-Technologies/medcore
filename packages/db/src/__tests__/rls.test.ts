@@ -129,6 +129,7 @@ interface RawPrisma {
   user: {
     create: (args: unknown) => Promise<{ id: string; email: string }>;
     deleteMany: (args: unknown) => Promise<{ count: number }>;
+    findMany: (args?: unknown) => Promise<Array<{ id: string }>>;
   };
   patient: {
     findMany: (args?: unknown) => Promise<
@@ -392,10 +393,12 @@ async function cleanupTenantGraph(t: SeededTenant): Promise<void> {
   await prisma.patient.deleteMany({ where: { tenantId: t.id } });
   await prisma.doctor.deleteMany({ where: { tenantId: t.id } });
   // Issue #456 — purge audit rows BEFORE users so the AuditLog.userId
-  // column doesn't pin user rows. The audit FK is `ON DELETE SET NULL`
-  // so leaving them would survive cleanup, but we want a clean test DB
-  // for reruns. Scope strictly by tenantId to avoid touching unrelated
-  // rows on the shared DB.
+  // column doesn't pin user rows. Post-#457 the tenant FK on AuditLog
+  // is ON DELETE CASCADE, so the final `prisma.tenant.delete` below
+  // would also clear them, but we keep the explicit deleteMany for
+  // determinism on shared test databases (and because the assertion
+  // tests above may have flushed AsyncLocalStorage frames that we
+  // want to clean up regardless of cascade order).
   await prisma.auditLog.deleteMany({ where: { tenantId: t.id } });
   // Notification.userId / etc. are gone, so users are deletable now.
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });
@@ -751,14 +754,24 @@ describeIntegration("Multi-tenant scoping isolation (P4 — Prisma context filte
       });
     });
 
-    it("Cross-tenant FK delete (tenant row) leaves audit rows in place with tenantId=NULL", async () => {
-      // Spin up a throwaway tenant + user + audit row, then delete the
-      // tenant and confirm:
-      //   (a) the audit row survives — forensic trail preservation is
-      //       the whole point of `ON DELETE SET NULL` (not CASCADE).
-      //   (b) tenantId is now NULL on that surviving row.
+    it("Cross-tenant FK delete (tenant row) cascades — child PHI and audit rows are gone (Issue #457)", async () => {
+      // Spin up a throwaway tenant + 1 user + 2 patient rows + 1 audit
+      // row, then hard-delete the tenant and confirm every child row was
+      // removed by the FK cascade.
+      //
+      // Why CASCADE (not SET NULL) — Issue #457:
+      //   The ONLY caller of `prisma.tenant.delete` in the codebase is
+      //   integration test cleanup. Production never hard-deletes a
+      //   tenant — `Tenant.active = false` is the soft-deactivation path
+      //   (see /api/v1/auth/refresh which 401s on inactive tenants).
+      //   With SET NULL, surviving child rows had `tenantId = NULL` and
+      //   became invisible to `tenantScopedPrisma` (which always filters
+      //   by tenantId) but still readable through the un-scoped client.
+      //   That orphan-PHI surface is closed by switching every tenant FK
+      //   to ON DELETE CASCADE in `20260504000003_tenant_fk_cascade`.
+      //
       // We isolate this in its own throwaway tenant so the main t1/t2
-      // graphs (used by every other test in the file) stay untouched.
+      // graphs stay untouched.
       const prisma = await getPrisma();
       const throwawayTenant = await prisma.tenant.create({
         data: {
@@ -779,42 +792,81 @@ describeIntegration("Multi-tenant scoping isolation (P4 — Prisma context filte
           isActive: true,
         },
       });
-      const auditRowId = await runWithTenant(throwawayTenant.id, async () => {
-        const a = await tenantScopedPrisma.auditLog.create({
-          data: {
-            userId: throwawayUser.id,
-            action: "EPHEM_PROBE",
-            entity: "Tenant",
-            entityId: throwawayTenant.id,
-          },
-        });
-        // Sanity: row was tagged with the throwaway tenantId.
-        expect(a.tenantId).toBe(throwawayTenant.id);
-        return a.id;
+
+      // Two patient rows (PHI) and one audit row, all created inside the
+      // throwaway tenant's context so they're tagged with its tenantId.
+      const { patientIds, auditRowId } = await runWithTenant(
+        throwawayTenant.id,
+        async () => {
+          const ids: string[] = [];
+          for (let i = 1; i <= 2; i += 1) {
+            const pUser = await tenantScopedPrisma.user.create({
+              data: {
+                email: `ephem-pat${i}-${SUITE_SUFFIX}@rls.test`,
+                name: `Ephemeral Patient ${i}`,
+                phone: `90000${i}9999`,
+                passwordHash: await bcrypt.hash("rls-test-pw", 4),
+                role: "PATIENT",
+                isActive: true,
+              },
+            });
+            const p = await tenantScopedPrisma.patient.create({
+              data: {
+                userId: pUser.id,
+                mrNumber: `MR-EPHEM-${SUITE_SUFFIX}-${i}`,
+                dateOfBirth: new Date("1990-01-01"),
+                gender: "MALE",
+              },
+            });
+            ids.push(p.id);
+          }
+          const a = await tenantScopedPrisma.auditLog.create({
+            data: {
+              userId: throwawayUser.id,
+              action: "EPHEM_PROBE",
+              entity: "Tenant",
+              entityId: throwawayTenant.id,
+            },
+          });
+          // Sanity: rows were tagged with the throwaway tenantId.
+          expect(a.tenantId).toBe(throwawayTenant.id);
+          return { patientIds: ids, auditRowId: a.id };
+        },
+      );
+
+      // Pre-flight: child rows are present in the un-scoped view.
+      const beforePatients = await prisma.patient.findMany({
+        where: { id: { in: patientIds } },
       });
-
-      // First null out the user's tenantId so the user.tenantId FK
-      // doesn't block the tenant delete (Tenant→User is also SET NULL,
-      // but we delete the user explicitly afterwards anyway).
-      await prisma.user.deleteMany({
-        where: { id: throwawayUser.id },
-      });
-
-      // Now delete the tenant. ON DELETE SET NULL on audit_logs.tenantId
-      // means the audit row survives but loses its tenant binding.
-      await prisma.tenant.delete({ where: { id: throwawayTenant.id } });
-
-      const survivor = await prisma.auditLog.findUnique({
+      expect(beforePatients).toHaveLength(patientIds.length);
+      const beforeAudit = await prisma.auditLog.findUnique({
         where: { id: auditRowId },
       });
-      expect(survivor).not.toBeNull();
-      expect(survivor?.tenantId).toBeNull();
-      // The action field still tells us what happened — the audit
-      // record is preserved even though its tenant is gone.
-      expect(survivor?.action).toBe("EPHEM_PROBE");
+      expect(beforeAudit).not.toBeNull();
+      expect(beforeAudit?.tenantId).toBe(throwawayTenant.id);
 
-      // Cleanup the now-orphaned audit row.
-      await prisma.auditLog.deleteMany({ where: { id: auditRowId } });
+      // Hard-delete the tenant. With ON DELETE CASCADE on every
+      // tenant-scoped FK (Issue #457), every child row dies with it —
+      // patients, the throwaway user, AND the audit row all go away.
+      await prisma.tenant.delete({ where: { id: throwawayTenant.id } });
+
+      // Patients (PHI) — gone, not orphaned.
+      const afterPatients = await prisma.patient.findMany({
+        where: { id: { in: patientIds } },
+      });
+      expect(afterPatients).toHaveLength(0);
+
+      // Audit row — gone, not surviving with tenantId=NULL.
+      const afterAudit = await prisma.auditLog.findUnique({
+        where: { id: auditRowId },
+      });
+      expect(afterAudit).toBeNull();
+
+      // And the user that was tied to the tenant cascaded too.
+      const afterUser = await prisma.user.findMany({
+        where: { id: throwawayUser.id },
+      });
+      expect(afterUser).toHaveLength(0);
     });
   });
 

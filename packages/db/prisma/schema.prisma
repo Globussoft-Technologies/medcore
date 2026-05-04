@@ -626,7 +626,7 @@ model User {
   updatedAt            DateTime  @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   doctor                    Doctor?
   patient                   Patient?
@@ -729,7 +729,7 @@ model Doctor {
   bio             String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   user                 User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   schedules            DoctorSchedule[]
@@ -764,7 +764,7 @@ model DoctorSchedule {
   bufferMinutes       Int    @default(0) // minutes between slots
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
 
@@ -783,7 +783,7 @@ model ScheduleOverride {
   reason    String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
 
@@ -823,7 +823,7 @@ model Patient {
   pricingTier           String    @default("STANDARD")
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   user                 User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   guardian             Patient?                   @relation("PatientGuardian", fields: [guardianPatientId], references: [id])
@@ -919,7 +919,7 @@ model Appointment {
   lwbsReason String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient          Patient           @relation(fields: [patientId], references: [id])
   doctor           Doctor            @relation(fields: [doctorId], references: [id])
@@ -956,7 +956,7 @@ model PatientFamilyLink {
   createdAt        DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient        Patient @relation("PatientPrimary", fields: [patientId], references: [id], onDelete: Cascade)
   relatedPatient Patient @relation("PatientRelated", fields: [relatedPatientId], references: [id], onDelete: Cascade)
@@ -992,7 +992,7 @@ model Vitals {
   recordedAt             DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   appointment Appointment @relation(fields: [appointmentId], references: [id])
   patient     Patient     @relation(fields: [patientId], references: [id])
@@ -1012,7 +1012,7 @@ model Consultation {
   updatedAt     DateTime @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   appointment Appointment @relation(fields: [appointmentId], references: [id])
   doctor      Doctor      @relation(fields: [doctorId], references: [id])
@@ -1052,7 +1052,7 @@ model Prescription {
   updatedAt       DateTime           @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   appointment       Appointment                @relation(fields: [appointmentId], references: [id])
   patient           Patient                    @relation(fields: [patientId], references: [id])
@@ -1121,7 +1121,7 @@ model PrescriptionTemplate {
   updatedAt DateTime @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@map("prescription_templates")
@@ -1156,7 +1156,7 @@ model Invoice {
   updatedAt        DateTime      @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   appointment       Appointment        @relation(fields: [appointmentId], references: [id])
   patient           Patient            @relation(fields: [patientId], references: [id])
@@ -1223,7 +1223,7 @@ model Payment {
   refunds         Payment[] @relation("PaymentRefunds")
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   invoice Invoice @relation(fields: [invoiceId], references: [id])
 
@@ -1246,7 +1246,7 @@ model InsuranceClaim {
   resolvedAt        DateTime?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   invoice Invoice @relation(fields: [invoiceId], references: [id])
   patient Patient @relation(fields: [patientId], references: [id])
@@ -1276,7 +1276,7 @@ model Notification {
   createdAt      DateTime                   @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   user User @relation(fields: [userId], references: [id])
 
@@ -1316,7 +1316,7 @@ model AuditLog {
   // context) can still be written. A follow-up migration tightens
   // this to NOT NULL once the production backfill is verified.
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([entity, entityId])
@@ -1351,7 +1351,7 @@ model Ward {
   createdAt   DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   beds Bed[]
 
@@ -1368,7 +1368,7 @@ model Bed {
   notes     String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   ward       Ward        @relation(fields: [wardId], references: [id])
   admissions Admission[]
@@ -1412,7 +1412,7 @@ model Admission {
   updatedAt            DateTime        @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient          Patient            @relation(fields: [patientId], references: [id])
   doctor           Doctor             @relation(fields: [doctorId], references: [id])
@@ -1448,7 +1448,7 @@ model IpdVitals {
   recordedAt             DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   admission Admission @relation(fields: [admissionId], references: [id], onDelete: Cascade)
 
@@ -1473,7 +1473,7 @@ model MedicationOrder {
   createdAt    DateTime  @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   admission       Admission                  @relation(fields: [admissionId], references: [id], onDelete: Cascade)
   doctor          Doctor                     @relation(fields: [doctorId], references: [id])
@@ -1496,7 +1496,7 @@ model MedicationAdministration {
   notes             String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   medicationOrder MedicationOrder @relation(fields: [medicationOrderId], references: [id], onDelete: Cascade)
   nurse           User?           @relation(fields: [administeredBy], references: [id])
@@ -1515,7 +1515,7 @@ model NurseRound {
   performedAt DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   admission Admission @relation(fields: [admissionId], references: [id], onDelete: Cascade)
   nurse     User      @relation(fields: [nurseId], references: [id])
@@ -1537,7 +1537,7 @@ model IpdIntakeOutput {
   notes       String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   admission Admission @relation(fields: [admissionId], references: [id], onDelete: Cascade)
 
@@ -1627,7 +1627,7 @@ model InventoryItem {
   updatedAt       DateTime  @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   medicine  Medicine         @relation(fields: [medicineId], references: [id])
   movements StockMovement[]
@@ -1652,7 +1652,7 @@ model StockMovement {
   createdAt       DateTime          @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
   user          User          @relation(fields: [performedBy], references: [id])
@@ -1727,7 +1727,7 @@ model LabOrder {
   stat            Boolean       @default(false)
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient          Patient          @relation(fields: [patientId], references: [id])
   doctor           Doctor           @relation(fields: [doctorId], references: [id])
@@ -1773,7 +1773,7 @@ model LabResult {
   verifiedAt  DateTime?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   orderItem LabOrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
 
@@ -1797,7 +1797,7 @@ model PatientAllergy {
   notedAt   DateTime        @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
@@ -1818,7 +1818,7 @@ model ChronicCondition {
   updatedAt     DateTime        @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
@@ -1835,7 +1835,7 @@ model FamilyHistory {
   notes     String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
@@ -1859,7 +1859,7 @@ model Immunization {
   createdAt      DateTime  @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
@@ -1882,7 +1882,7 @@ model PatientDocument {
   createdAt  DateTime     @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient  Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
   uploader User    @relation(fields: [uploadedBy], references: [id])
@@ -1913,7 +1913,7 @@ model Referral {
   respondedAt      DateTime?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient    Patient @relation("PatientReferrals", fields: [patientId], references: [id])
   fromDoctor Doctor  @relation("ReferrerDoctor", fields: [fromDoctorId], references: [id])
@@ -1939,7 +1939,7 @@ model OperatingTheater {
   isActive  Boolean @default(true)
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   surgeries Surgery[]
 
@@ -2001,7 +2001,7 @@ model Surgery {
   updatedAt              DateTime      @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient          @relation(fields: [patientId], references: [id])
   surgeon Doctor           @relation("LeadSurgeon", fields: [surgeonId], references: [id])
@@ -2037,7 +2037,7 @@ model AnesthesiaRecord {
   updatedAt      DateTime  @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   surgery Surgery @relation(fields: [surgeryId], references: [id], onDelete: Cascade)
 
@@ -2060,7 +2060,7 @@ model PostOpObservation {
   observedBy    String
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   surgery Surgery @relation(fields: [surgeryId], references: [id], onDelete: Cascade)
 
@@ -2085,7 +2085,7 @@ model StaffShift {
   createdAt DateTime    @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -2112,7 +2112,7 @@ model LeaveRequest {
   updatedAt       DateTime    @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   user     User  @relation("LeaveOwner", fields: [userId], references: [id], onDelete: Cascade)
   approver User? @relation("LeaveApprover", fields: [approvedBy], references: [id])
@@ -2142,7 +2142,7 @@ model HealthPackage {
   updatedAt        DateTime @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   purchases PackagePurchase[]
 
@@ -2166,7 +2166,7 @@ model PackagePurchase {
   isFullyUsed     Boolean   @default(false)
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   package HealthPackage @relation(fields: [packageId], references: [id])
   patient Patient       @relation(fields: [patientId], references: [id])
@@ -2197,7 +2197,7 @@ model Supplier {
   createdAt         DateTime  @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   purchaseOrders PurchaseOrder[]
   payments       SupplierPayment[]
@@ -2229,7 +2229,7 @@ model PurchaseOrder {
   updatedAt          DateTime            @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   supplier Supplier            @relation(fields: [supplierId], references: [id])
   items    PurchaseOrderItem[]
@@ -2276,7 +2276,7 @@ model Expense {
   createdAt          DateTime            @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   user User @relation(fields: [paidBy], references: [id])
 
@@ -2338,7 +2338,7 @@ model TelemedicineSession {
   updatedAt           DateTime           @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient @relation(fields: [patientId], references: [id])
   doctor  Doctor  @relation(fields: [doctorId], references: [id])
@@ -2401,7 +2401,7 @@ model EmergencyCase {
   updatedAt         DateTime        @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient         Patient?   @relation(fields: [patientId], references: [id])
   attendingDoctor Doctor?    @relation("EmergencyAttendingDoctor", fields: [attendingDoctorId], references: [id])
@@ -2438,7 +2438,7 @@ model BloodDonor {
   updatedAt      DateTime       @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   donations BloodDonation[]
   deferrals DonorDeferral[]
@@ -2463,7 +2463,7 @@ model BloodDonation {
   createdAt      DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   donor       BloodDonor            @relation(fields: [donorId], references: [id])
   units       BloodUnit[]
@@ -2491,7 +2491,7 @@ model BloodScreening {
   passed         Boolean // overall pass/fail
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   donation BloodDonation @relation(fields: [donationId], references: [id], onDelete: Cascade)
 
@@ -2510,7 +2510,7 @@ model BloodTemperatureLog {
   notes       String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([location, recordedAt])
   @@index([tenantId])
@@ -2528,7 +2528,7 @@ model BloodCrossMatch {
   notes       String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([requestId])
   @@index([unitId])
@@ -2556,7 +2556,7 @@ model BloodUnit {
   updatedAt            DateTime        @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   donation BloodDonation? @relation(fields: [donationId], references: [id])
   requests BloodRequest[]
@@ -2584,7 +2584,7 @@ model BloodRequest {
   createdAt      DateTime       @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient     @relation(fields: [patientId], references: [id])
   units   BloodUnit[]
@@ -2616,7 +2616,7 @@ model Ambulance {
   createdAt       DateTime        @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   trips    AmbulanceTrip[]
   fuelLogs AmbulanceFuelLog[]
@@ -2637,7 +2637,7 @@ model AmbulanceFuelLog {
   notes       String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   ambulance Ambulance @relation(fields: [ambulanceId], references: [id], onDelete: Cascade)
 
@@ -2676,7 +2676,7 @@ model AmbulanceTrip {
   updatedAt        DateTime            @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   ambulance Ambulance @relation(fields: [ambulanceId], references: [id])
   patient   Patient?  @relation(fields: [patientId], references: [id])
@@ -2724,7 +2724,7 @@ model Asset {
   updatedAt           DateTime    @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   assignments AssetAssignment[]
   maintenance AssetMaintenance[]
@@ -2750,7 +2750,7 @@ model AssetTransfer {
   notes          String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
@@ -2769,7 +2769,7 @@ model AssetAssignment {
   notes      String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   asset    Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
   assignee User  @relation(fields: [assignedTo], references: [id])
@@ -2793,7 +2793,7 @@ model AssetMaintenance {
   createdAt   DateTime        @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   asset      Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
   technician User  @relation(fields: [performedBy], references: [id])
@@ -2829,7 +2829,7 @@ model AntenatalCase {
   updatedAt    DateTime  @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient         Patient            @relation(fields: [patientId], references: [id])
   doctor          Doctor             @relation(fields: [doctorId], references: [id])
@@ -2862,7 +2862,7 @@ model AncVisit {
   createdAt        DateTime     @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   ancCase AntenatalCase @relation(fields: [ancCaseId], references: [id], onDelete: Cascade)
 
@@ -2887,7 +2887,7 @@ model UltrasoundRecord {
   createdAt        DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   ancCase AntenatalCase @relation(fields: [ancCaseId], references: [id], onDelete: Cascade)
 
@@ -2917,7 +2917,7 @@ model GrowthRecord {
   createdAt          DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
@@ -2946,7 +2946,7 @@ model PatientFeedback {
   submittedAt    DateTime         @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient     Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
   appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
@@ -2984,7 +2984,7 @@ model Complaint {
   updatedAt        DateTime        @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient? @relation(fields: [patientId], references: [id])
 
@@ -3011,7 +3011,7 @@ model ChatRoom {
   updatedAt     DateTime  @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   participants ChatParticipant[]
   messages     ChatMessage[]
@@ -3030,7 +3030,7 @@ model ChatParticipant {
   lastReadAt DateTime?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   room ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
   user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -3059,7 +3059,7 @@ model ChatMessage {
   createdAt       DateTime    @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   room   ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
   sender User     @relation("MessageSender", fields: [senderId], references: [id])
@@ -3092,7 +3092,7 @@ model Visitor {
   createdAt     DateTime       @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient? @relation(fields: [patientId], references: [id])
 
@@ -3116,7 +3116,7 @@ model CreditNote {
   createdAt  DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   invoice Invoice @relation(fields: [invoiceId], references: [id])
 
@@ -3138,7 +3138,7 @@ model AdvancePayment {
   createdAt     DateTime    @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([patientId])
   @@index([tenantId])
@@ -3157,7 +3157,7 @@ model SupplierPayment {
   recordedBy String
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   supplier Supplier @relation(fields: [supplierId], references: [id])
 
@@ -3178,7 +3178,7 @@ model SupplierCatalogItem {
   createdAt    DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([supplierId])
   @@index([tenantId])
@@ -3196,7 +3196,7 @@ model Grn {
   createdAt     DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   purchaseOrder PurchaseOrder @relation(fields: [poId], references: [id])
   items         GrnItem[]
@@ -3232,7 +3232,7 @@ model VisitorBlacklist {
   createdAt     DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([idProofNumber])
   @@index([phone])
@@ -3249,7 +3249,7 @@ model ExpenseBudget {
   notes    String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([category, year, month])
   @@index([tenantId])
@@ -3266,7 +3266,7 @@ model LeaveBalance {
   carried  Float     @default(0)
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([userId, type, year])
   @@index([userId])
@@ -3283,7 +3283,7 @@ model Holiday {
   createdAt   DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([date, name])
   @@index([date])
@@ -3303,7 +3303,7 @@ model NotificationTemplate {
   updatedAt DateTime            @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([type, channel])
   @@index([tenantId])
@@ -3319,7 +3319,7 @@ model NotificationSchedule {
   updatedAt       DateTime  @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@map("notification_schedules")
@@ -3336,7 +3336,7 @@ model NotificationBroadcast {
   createdAt   DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@map("notification_broadcasts")
@@ -3356,7 +3356,7 @@ model WaitlistEntry {
   updatedAt           DateTime  @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient @relation(fields: [patientId], references: [id])
   doctor  Doctor  @relation(fields: [doctorId], references: [id])
@@ -3377,7 +3377,7 @@ model CoordinatedVisit {
   createdAt DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient      Patient       @relation(fields: [patientId], references: [id])
   appointments Appointment[] @relation("CoordinatedAppointments")
@@ -3407,7 +3407,7 @@ model AdvanceDirective {
   createdAt     DateTime  @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient @relation(fields: [patientId], references: [id])
 
@@ -3432,7 +3432,7 @@ model MedReconciliation {
   notes                String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient @relation(fields: [patientId], references: [id])
 
@@ -3453,7 +3453,7 @@ model PatientBelongings {
   createdAt    DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   admission Admission @relation(fields: [admissionId], references: [id], onDelete: Cascade)
 
@@ -3477,7 +3477,7 @@ model StaffCertification {
   updatedAt    DateTime  @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -3502,7 +3502,7 @@ model OvertimeRecord {
   createdAt     DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -3531,7 +3531,7 @@ model PaymentPlan {
   updatedAt         DateTime @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   invoice            Invoice                  @relation(fields: [invoiceId], references: [id])
   patient            Patient                  @relation(fields: [patientId], references: [id])
@@ -3554,7 +3554,7 @@ model PaymentPlanInstallment {
   reminderSentAt DateTime?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   plan PaymentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
@@ -3584,7 +3584,7 @@ model PreAuthRequest {
   notes                String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient         Patient           @relation(fields: [patientId], references: [id])
   insuranceClaims InsuranceClaim2[]
@@ -3609,7 +3609,7 @@ model DiscountApproval {
   createdAt       DateTime  @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   invoice Invoice @relation(fields: [invoiceId], references: [id])
 
@@ -3631,7 +3631,7 @@ model PharmacyReturn {
   createdAt                  DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
 
@@ -3653,7 +3653,7 @@ model StockTransfer {
   transferredAt   DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
 
@@ -3688,7 +3688,7 @@ model ControlledSubstanceEntry {
   createdAt      DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   medicine     Medicine      @relation(fields: [medicineId], references: [id])
   patient      Patient?      @relation(fields: [patientId], references: [id])
@@ -3718,7 +3718,7 @@ model LabQCEntry {
   notes         String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   test LabTest @relation(fields: [testId], references: [id])
   user User    @relation(fields: [performedBy], references: [id])
@@ -3741,7 +3741,7 @@ model SharedLink {
   createdAt    DateTime  @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([token])
   @@index([tenantId])
@@ -3766,7 +3766,7 @@ model ScheduledReport {
   createdAt  DateTime  @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   runs ReportRun[]
 
@@ -3788,7 +3788,7 @@ model ReportRun {
   snapshot          Json?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   scheduledReport ScheduledReport? @relation(fields: [scheduledReportId], references: [id])
 
@@ -3825,7 +3825,7 @@ model Partograph {
   updatedAt     DateTime  @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   ancCase AntenatalCase @relation(fields: [ancCaseId], references: [id], onDelete: Cascade)
 
@@ -3857,7 +3857,7 @@ model PostnatalVisit {
   createdAt         DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   ancCase AntenatalCase @relation(fields: [ancCaseId], references: [id], onDelete: Cascade)
 
@@ -3880,7 +3880,7 @@ model MilestoneRecord {
   createdAt  DateTime  @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient @relation(fields: [patientId], references: [id])
 
@@ -3902,7 +3902,7 @@ model FeedingLog {
   loggedBy    String
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient @relation(fields: [patientId], references: [id])
 
@@ -3923,7 +3923,7 @@ model DonorDeferral {
   recordedBy   String
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   donor BloodDonor @relation(fields: [donorId], references: [id])
 
@@ -3944,7 +3944,7 @@ model ComponentSeparation {
   notes            String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   sourceDonation BloodDonation @relation(fields: [sourceDonationId], references: [id])
 
@@ -4007,7 +4007,7 @@ model AITriageSession {
   updatedAt            DateTime       @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient     Patient?     @relation(fields: [patientId], references: [id])
   appointment Appointment? @relation(fields: [appointmentId], references: [id])
@@ -4054,7 +4054,7 @@ model AIScribeSession {
   updatedAt           DateTime       @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   appointment Appointment @relation(fields: [appointmentId], references: [id])
   doctor      Doctor      @relation(fields: [doctorId], references: [id])
@@ -4104,7 +4104,7 @@ model AdherenceSchedule {
   updatedAt      DateTime  @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   doseLogs AdherenceDoseLog[]
 
@@ -4126,7 +4126,7 @@ model AdherenceDoseLog {
   createdAt      DateTime  @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   schedule AdherenceSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
   patient  Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
@@ -4155,7 +4155,7 @@ model LabReportExplanation {
   updatedAt     DateTime  @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([patientId])
   @@index([status])
@@ -4201,7 +4201,7 @@ model AbhaLink {
   updatedAt     DateTime       @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
@@ -4226,7 +4226,7 @@ model ConsentArtefact {
   updatedAt DateTime      @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
@@ -4247,7 +4247,7 @@ model CareContext {
   createdAt      DateTime        @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
@@ -4312,7 +4312,7 @@ model InsuranceClaim2 {
   updatedAt        DateTime              @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   invoice        Invoice            @relation(fields: [billId], references: [id])
   patient        Patient            @relation(fields: [patientId], references: [id])
@@ -4516,7 +4516,7 @@ model BillExplanation {
   updatedAt    DateTime              @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
@@ -4536,7 +4536,7 @@ model PrevisitChecklist {
   updatedAt     DateTime @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
   patient     Patient     @relation(fields: [patientId], references: [id], onDelete: Cascade)
@@ -4557,7 +4557,7 @@ model SymptomDiaryEntry {
   updatedAt      DateTime  @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
@@ -4579,7 +4579,7 @@ model ChronicCarePlan {
   updatedAt            DateTime             @updatedAt
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient  Patient              @relation(fields: [patientId], references: [id], onDelete: Cascade)
   checkIns ChronicCareCheckIn[]
@@ -4599,7 +4599,7 @@ model ChronicCareCheckIn {
   thresholdsBreached Json?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   plan    ChronicCarePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
   patient Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
@@ -4621,7 +4621,7 @@ model ChronicCareAlert {
   acknowledgedAt DateTime?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   plan    ChronicCarePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
   patient Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
@@ -4648,7 +4648,7 @@ model StaffRosterProposal {
   appliedBy  String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   creator User  @relation("RosterProposalCreator", fields: [createdBy], references: [id])
   applier User? @relation("RosterProposalApplier", fields: [appliedBy], references: [id])
@@ -4677,7 +4677,7 @@ model FraudAlert {
   resolutionNote String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([status, severity])
   @@index([type])
@@ -4700,7 +4700,7 @@ model DocQAReport {
   clarityScore      Int?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   consultation Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
 
@@ -4719,7 +4719,7 @@ model FeedbackSentiment {
   analyzedAt      DateTime        @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   feedback PatientFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
 
@@ -4739,7 +4739,7 @@ model NpsDailyRollup {
   generatedAt        DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@map("nps_daily_rollup")
@@ -4765,7 +4765,7 @@ model ClaimDenialHistory {
   lastSeenAt    DateTime    @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tpaProvider, icd10Code])
   @@index([tenantId])
@@ -4805,7 +4805,7 @@ model RadiologyStudy {
   notes     String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient   @relation(fields: [patientId], references: [id])
   order   LabOrder? @relation(fields: [orderId], references: [id], onDelete: SetNull)
@@ -4836,7 +4836,7 @@ model RadiologyReport {
   approvedBy      String?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   study RadiologyStudy @relation(fields: [studyId], references: [id], onDelete: Cascade)
 
@@ -4884,7 +4884,7 @@ model PatientDataExport {
   downloadedAt DateTime?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
@@ -4925,7 +4925,7 @@ model FrontDeskCall {
   createdAt   DateTime @default(now())
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([calledAt])
@@ -4947,7 +4947,7 @@ model MedicationIncident {
   resolvedAt       DateTime?
 
   tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   patient        Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
   prescription   Prescription?    @relation(fields: [prescriptionId], references: [id], onDelete: SetNull)

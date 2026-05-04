@@ -7,6 +7,12 @@ import { validateUuidParams } from "../middleware/validate-params";
 import { auditLog } from "../middleware/audit";
 import { rateLimit } from "../middleware/rate-limit";
 import { searchPatientChart, searchCohort } from "../services/ai/chart-search";
+import { sanitizeUserInput } from "../services/ai/prompt-safety";
+
+// security(2026-05-04): F-CS-1 — model name stamped on the
+// AI_CHART_SEARCH_INFERENCE audit row so model rollouts / billing spikes are
+// observable independently of the per-route audit (which tracks hits).
+const SARVAM_MODEL = "sarvam-105b";
 
 // ── Zod schemas ────────────────────────────────────────────────────────────
 
@@ -49,17 +55,42 @@ router.post(
       const { patientId } = req.params;
       const { query, limit, documentTypes, synthesize, rerank } = req.body as z.infer<typeof patientChartSearchSchema>;
 
+      // security(2026-05-04): F-INJ-1 — defense-in-depth: chart-search.ts
+      // already sanitizes `query` inside synthesizeAnswer(), but the FTS path
+      // does not. Stripping injection markers here neutralises any "ignore
+      // previous instructions" payload before it can reach either layer.
+      const safeQuery = sanitizeUserInput(query.trim(), { maxLen: 500 });
+
+      const inferenceStartedAt = Date.now();
       const result = await searchPatientChart(
-        query.trim(),
+        safeQuery,
         patientId,
         { userId: req.user!.userId, role: req.user!.role },
         { limit, documentTypes, synthesize, rerank }
       );
 
       await auditLog(req, "AI_CHART_SEARCH_PATIENT", "Patient", patientId, {
-        query: query.slice(0, 200),
+        query: safeQuery.slice(0, 200),
         hits: result.totalHits,
       });
+
+      // security(2026-05-04): F-CS-1 — companion inference audit row. We
+      // approximate prompt size as query + per-hit content sample, since the
+      // full prompt is constructed inside synthesizeAnswer() and not surfaced.
+      auditLog(req, "AI_CHART_SEARCH_INFERENCE", "Patient", patientId, {
+        kind: "patient",
+        model: SARVAM_MODEL,
+        promptSize: safeQuery.length,
+        responseSize: (result.answer ?? "").length,
+        latencyMs: Date.now() - inferenceStartedAt,
+        hits: result.totalHits,
+        synthesized: synthesize !== false,
+      }).catch((err) =>
+        console.warn(
+          `[audit] AI_CHART_SEARCH_INFERENCE failed (non-fatal):`,
+          (err as Error)?.message ?? err
+        )
+      );
 
       res.json({ success: true, data: result, error: null });
     } catch (err) {
@@ -83,8 +114,13 @@ router.post(
       const { query, limit, documentTypes, dateFrom, dateTo, synthesize, rerank } =
         req.body as z.infer<typeof cohortSearchSchema>;
 
+      // security(2026-05-04): F-INJ-1 — sanitize the cohort query before it
+      // reaches the FTS layer + the LLM synthesiser.
+      const safeQuery = sanitizeUserInput(query.trim(), { maxLen: 500 });
+
+      const inferenceStartedAt = Date.now();
       const result = await searchCohort(
-        query.trim(),
+        safeQuery,
         { userId: req.user!.userId, role: req.user!.role },
         {
           limit,
@@ -97,10 +133,27 @@ router.post(
       );
 
       await auditLog(req, "AI_CHART_SEARCH_COHORT", "Cohort", undefined, {
-        query: query.slice(0, 200),
+        query: safeQuery.slice(0, 200),
         hits: result.totalHits,
         patientCount: result.patientIds.length,
       });
+
+      // security(2026-05-04): F-CS-1 — companion inference audit row.
+      auditLog(req, "AI_CHART_SEARCH_INFERENCE", "Cohort", undefined, {
+        kind: "cohort",
+        model: SARVAM_MODEL,
+        promptSize: safeQuery.length,
+        responseSize: (result.answer ?? "").length,
+        latencyMs: Date.now() - inferenceStartedAt,
+        hits: result.totalHits,
+        patientCount: result.patientIds.length,
+        synthesized: synthesize !== false,
+      }).catch((err) =>
+        console.warn(
+          `[audit] AI_CHART_SEARCH_INFERENCE failed (non-fatal):`,
+          (err as Error)?.message ?? err
+        )
+      );
 
       res.json({ success: true, data: result, error: null });
     } catch (err) {

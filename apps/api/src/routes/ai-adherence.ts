@@ -127,6 +127,11 @@ router.post(
   // else's prescriptionId.
   authorize(Role.DOCTOR, Role.ADMIN, Role.NURSE, Role.PHARMACIST, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
+    // security(2026-05-04-med): F-ADH-3 — stamp an AI-inference audit row for
+    // every /enroll call so the security team can reconstruct who triggered
+    // the adherence-bot pipeline (Sarvam reminder generation runs out-of-band
+    // from this schedule). NEVER log prompt content; metadata only.
+    const startedAt = Date.now();
     try {
       const { prescriptionId, reminderTimes } = req.body as {
         prescriptionId: string;
@@ -207,8 +212,23 @@ router.post(
         },
       });
 
+      safeAudit(req, "AI_ADHERENCE_INFERENCE", "AdherenceSchedule", schedule.id, {
+        prescriptionId,
+        medicationCount: medications.length,
+        latencyMs: Date.now() - startedAt,
+        model: "sarvam-105b",
+        success: true,
+      });
+
       res.status(200).json({ success: true, data: schedule, error: null });
     } catch (err) {
+      safeAudit(req, "AI_ADHERENCE_INFERENCE", "AdherenceSchedule", undefined, {
+        latencyMs: Date.now() - startedAt,
+        model: "sarvam-105b",
+        success: false,
+        failure: true,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
       next(err);
     }
   }

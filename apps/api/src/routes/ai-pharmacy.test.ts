@@ -193,6 +193,32 @@ describe("GET /api/v1/ai/pharmacy/forecast (honorable mention #11)", () => {
 
     expect(forecastInventoryMock).toHaveBeenCalledWith(30);
   });
+
+  // security audit follow-up (2026-05-04-med): F-PH-* — every forecast call
+  // must stamp an AI_PHARMACY_INFERENCE audit row with metadata only (no PHI).
+  it("writes an AI_PHARMACY_INFERENCE audit row on the success path", async () => {
+    forecastInventoryMock.mockResolvedValueOnce([
+      makeForecast({ inventoryItemId: "x-1", urgency: "OK" }),
+    ]);
+
+    const res = await request(buildApp())
+      .get("/api/v1/ai/pharmacy/forecast?days=14")
+      .set("Authorization", `Bearer ${tokenFor("PHARMACIST")}`);
+    expect(res.status).toBe(200);
+
+    const inferenceCalls = prismaMock.auditLog.create.mock.calls.filter(
+      (c: any[]) => c[0]?.data?.action === "AI_PHARMACY_INFERENCE"
+    );
+    expect(inferenceCalls.length).toBeGreaterThanOrEqual(1);
+    const details = inferenceCalls[0][0].data.details;
+    expect(details.success).toBe(true);
+    expect(details.model).toBe("sarvam-105b");
+    expect(typeof details.latencyMs).toBe("number");
+    expect(details.days).toBe(14);
+    // Never log prompt/response content.
+    expect(details).not.toHaveProperty("prompt");
+    expect(details).not.toHaveProperty("transcript");
+  });
 });
 
 describe("GET /api/v1/ai/pharmacy/forecast/:inventoryItemId (honorable mention #11)", () => {

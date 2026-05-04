@@ -1,12 +1,30 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { auditLog } from "../middleware/audit";
 import { rateLimit } from "../middleware/rate-limit";
 import {
   getASRClient,
   callWithASRFallback,
   type ASRProvider,
 } from "../services/ai/asr-providers";
+
+/**
+ * Best-effort audit wrapper: PHI audit writes must never take a transcribe
+ * response down with them. If prisma is unavailable (e.g. transient DB blip),
+ * log a warning and let the response proceed.
+ */
+function safeAudit(
+  req: Request,
+  action: string,
+  entity: string,
+  entityId: string | undefined,
+  details?: Record<string, unknown>
+): void {
+  auditLog(req, action, entity, entityId, details).catch((err) => {
+    console.warn(`[audit] ${action} failed (non-fatal):`, (err as Error)?.message ?? err);
+  });
+}
 
 const router = Router();
 router.use(authenticate);
@@ -39,6 +57,11 @@ const SUPPORTED_PROVIDERS: ASRProvider[] = ["sarvam"];
 router.post(
   "/",
   async (req: Request, res: Response, next: NextFunction) => {
+    // security(2026-05-04-med): F-TX-1 — every transcribe call hits Sarvam ASR
+    // (the only India-region provider). Stamp an AI-inference audit row so a
+    // Sarvam-bill spike can be traced back to a specific clinician token.
+    // NEVER log audio bytes or transcript content; sizes + latency only.
+    const startedAt = Date.now();
     try {
       const {
         audioBase64,
@@ -103,6 +126,17 @@ router.post(
           }
         );
 
+        safeAudit(req, "AI_TRANSCRIBE_INFERENCE", "ASRTranscript", undefined, {
+          promptBytes: audioBuffer.length,
+          responseBytes: result.transcript.length,
+          segmentCount: result.segments?.length ?? 0,
+          language: result.language ?? language,
+          provider: result.provider,
+          latencyMs: Date.now() - startedAt,
+          model: "sarvam-asr",
+          success: true,
+        });
+
         res.json({
           success: true,
           data: {
@@ -124,6 +158,15 @@ router.post(
         // transient upstream failure (502).
         const status =
           /is not configured|not yet implemented/i.test(message) ? 500 : 502;
+        safeAudit(req, "AI_TRANSCRIBE_INFERENCE", "ASRTranscript", undefined, {
+          promptBytes: audioBuffer.length,
+          language,
+          latencyMs: Date.now() - startedAt,
+          model: "sarvam-asr",
+          success: false,
+          failure: true,
+          errorMessage: message,
+        });
         res.status(status).json({ success: false, data: null, error: message });
       }
     } catch (err) {

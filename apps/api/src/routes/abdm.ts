@@ -197,10 +197,41 @@ async function verifyAbdmSignature(req: Request, res: Response, next: NextFuncti
     .json({ success: false, data: null, error: `Gateway signature invalid: ${result.reason}` });
 }
 
+// security(2026-05-04-med): F-ABDM-1 — defence-in-depth on the gateway
+// callback. The route already verifies an RS256 JWT against the ABDM
+// public JWKS via `verifyAbdmSignature`, but a compromised gateway key
+// (or a sandbox `ABDM_SKIP_VERIFY` window) would let an attacker flood
+// us and exhaust the AsyncLocalStorage / Prisma connection pool. A
+// per-IP cap of 60/min bleeds the burst off cheaply BEFORE we touch the
+// JWKS verifier. Genuine ABDM gateway callback volume per IP is well
+// below this — bursts above 60/min are by definition adversarial.
+//
+// Lazy delegate (same trick as auth.ts loginLimiter for issue #478) so
+// the abdm.test.ts regression below can flip
+// ENABLE_ABDM_RATELIMIT_IN_TESTS=true AFTER the module is imported but
+// BEFORE the first request — without it, NODE_ENV=test would otherwise
+// lock in a no-op at construction time.
+let _gatewayCallbackLimiterImpl:
+  | ((req: Request, res: Response, next: NextFunction) => void)
+  | null = null;
+const gatewayCallbackLimiter = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void => {
+  if (!_gatewayCallbackLimiterImpl) {
+    _gatewayCallbackLimiterImpl = rateLimit(60, 60_000, {
+      enableInTests: process.env.ENABLE_ABDM_RATELIMIT_IN_TESTS === "true",
+    });
+  }
+  _gatewayCallbackLimiterImpl(req, res, next);
+};
+
 // Callback webhook mounted FIRST, before the authenticate middleware,
 // so gateway callbacks (unauthenticated, signed) can reach it.
 abdmRouter.post(
   "/gateway/callback",
+  gatewayCallbackLimiter,
   verifyAbdmSignature,
   validate(callbackSchema),
   async (req: Request, res: Response, next: NextFunction) => {

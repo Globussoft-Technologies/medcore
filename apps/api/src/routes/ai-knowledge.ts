@@ -32,6 +32,11 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 
 // POST /api/v1/ai/knowledge — create or upsert a knowledge chunk
 router.post("/", async (req: Request, res: Response, next: NextFunction) => {
+  // security(2026-05-04-med): F-KB-2 — every KB write feeds the RAG retrieval
+  // path; stamp an AI-inference audit row in addition to the KB_CREATE
+  // mutation row so a Sarvam-bill spike investigation can correlate KB
+  // ingestion volume with downstream inference. NEVER log prompt content.
+  const startedAt = Date.now();
   try {
     const { documentType, title, content, tags, language, sourceId } = req.body as {
       documentType: string;
@@ -61,8 +66,25 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       tagCount: Array.isArray(tags) ? tags.length : 0,
       contentLength: content.length,
     });
+    await auditLog(req, "AI_KNOWLEDGE_INFERENCE", "KnowledgeChunk", sourceId, {
+      documentType,
+      contentBytes: content.length,
+      titleBytes: title.length,
+      latencyMs: Date.now() - startedAt,
+      model: "sarvam-105b",
+      success: true,
+    });
     res.status(201).json({ success: true, data: null, error: null });
   } catch (err) {
+    auditLog(req, "AI_KNOWLEDGE_INFERENCE", "KnowledgeChunk", undefined, {
+      latencyMs: Date.now() - startedAt,
+      model: "sarvam-105b",
+      success: false,
+      failure: true,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    }).catch((auditErr) =>
+      console.warn(`[audit] AI_KNOWLEDGE_INFERENCE failed:`, auditErr)
+    );
     next(err);
   }
 });

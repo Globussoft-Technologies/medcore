@@ -43,6 +43,12 @@ function sortForecasts(forecasts: ItemForecast[]): ItemForecast[] {
 aiPharmacyRouter.get(
   "/forecast",
   async (req: Request, res: Response, next: NextFunction) => {
+    // security(2026-05-04-med): F-PH-* — stamp an AI-inference audit row on
+    // every forecast call so a Sarvam-bill spike can be traced to the caller
+    // who triggered the (optional) `getAIInsights` LLM summary. We always
+    // stamp regardless of `withInsights` because the Holt-Winters forecast
+    // itself counts as an AI feature for security-team accounting purposes.
+    const startedAt = Date.now();
     try {
       const days = parseInt((req.query.days as string) || "30", 10) || 30;
       const urgencyFilter = req.query.urgency as string | undefined;
@@ -72,6 +78,17 @@ aiPharmacyRouter.get(
         resultCount: forecasts.length,
       });
 
+      safeAudit(req, "AI_PHARMACY_INFERENCE", "InventoryItem", undefined, {
+        days,
+        urgencyFilter: urgencyFilter ?? null,
+        withInsights,
+        resultCount: forecasts.length,
+        responseBytes: insights ? insights.length : 0,
+        latencyMs: Date.now() - startedAt,
+        model: "sarvam-105b",
+        success: true,
+      });
+
       res.json({
         success: true,
         data: {
@@ -82,6 +99,13 @@ aiPharmacyRouter.get(
         error: null,
       });
     } catch (err) {
+      safeAudit(req, "AI_PHARMACY_INFERENCE", "InventoryItem", undefined, {
+        latencyMs: Date.now() - startedAt,
+        model: "sarvam-105b",
+        success: false,
+        failure: true,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
       next(err);
     }
   }
@@ -95,6 +119,10 @@ aiPharmacyRouter.get(
   // front so prisma.findUnique doesn't have to handle malformed ids.
   validateUuidParams(["inventoryItemId"]),
   async (req: Request, res: Response, next: NextFunction) => {
+    // security(2026-05-04-med): F-PH-* — single-item forecast uses the same
+    // Holt-Winters engine as the bulk endpoint; stamp an AI-inference audit
+    // row so per-item investigations are traceable.
+    const startedAt = Date.now();
     try {
       const { inventoryItemId } = req.params;
 
@@ -133,6 +161,13 @@ aiPharmacyRouter.get(
         movementCount: movements.length,
       });
 
+      safeAudit(req, "AI_PHARMACY_INFERENCE", "InventoryItem", inventoryItemId, {
+        movementCount: movements.length,
+        latencyMs: Date.now() - startedAt,
+        model: "sarvam-105b",
+        success: true,
+      });
+
       res.json({
         success: true,
         data: {
@@ -143,6 +178,13 @@ aiPharmacyRouter.get(
         error: null,
       });
     } catch (err) {
+      safeAudit(req, "AI_PHARMACY_INFERENCE", "InventoryItem", undefined, {
+        latencyMs: Date.now() - startedAt,
+        model: "sarvam-105b",
+        success: false,
+        failure: true,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
       next(err);
     }
   }

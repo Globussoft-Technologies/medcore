@@ -10,6 +10,12 @@ import { auditLog } from "../middleware/audit";
 import { rateLimit } from "../middleware/rate-limit";
 import { validateUuidParams } from "../middleware/validate-params";
 import { assessERPatient } from "../services/ai/er-triage";
+import { sanitizeUserInput } from "../services/ai/prompt-safety";
+
+// security(2026-05-04): F-ER-3 — Sarvam model used for AI-assisted triage.
+// Stamped onto the AI_ER_TRIAGE_INFERENCE audit row so we can correlate
+// model rollouts with quality / billing changes downstream.
+const SARVAM_MODEL = "sarvam-105b";
 
 const router = Router();
 
@@ -61,6 +67,28 @@ router.post(
         return;
       }
 
+      // security(2026-05-04): F-INJ-1 — strip prompt-injection markers from
+      // every clinician-supplied free-text field before they hit the Sarvam
+      // payload. The er-triage service does NOT sanitize internally (unlike
+      // letter-generator / report-explainer / chart-search), so this route
+      // is the only choke-point.
+      const safeChiefComplaint = sanitizeUserInput(chiefComplaint.trim(), { maxLen: 2000 });
+      const safeBriefHistory =
+        typeof briefHistory === "string" && briefHistory.trim()
+          ? sanitizeUserInput(briefHistory, { maxLen: 3000 })
+          : undefined;
+      const safePatientGender =
+        typeof patientGender === "string" && patientGender.trim()
+          ? sanitizeUserInput(patientGender, { maxLen: 20 })
+          : undefined;
+
+      // Approximate prompt size up-front so the audit row has it on both the
+      // success and failure path. Cheap to compute; not PHI.
+      const promptSize =
+        safeChiefComplaint.length +
+        (safeBriefHistory?.length ?? 0) +
+        (safePatientGender?.length ?? 0);
+
       // Issue #81: previously a Sarvam outage / missing API key surfaced as
       // an opaque HTTP 500 with the auth middleware's "Unauthorized" body
       // bleeding into the toast (because the front-end retried and mid-flight
@@ -70,18 +98,36 @@ router.post(
       // score is still useful even without AI, so we DO NOT fall back to a
       // mock-AI assessment — that hides outages from clinicians.
       let assessment;
+      const inferenceStartedAt = Date.now();
       try {
         assessment = await assessERPatient({
-          chiefComplaint: chiefComplaint.trim(),
+          chiefComplaint: safeChiefComplaint,
           vitals: vitals ?? {},
           patientAge,
-          patientGender,
-          briefHistory,
+          patientGender: safePatientGender,
+          briefHistory: safeBriefHistory,
         });
       } catch (aiErr) {
         const msg =
           (aiErr as Error)?.message ?? "AI triage assistant is currently unavailable";
         console.warn(`[ai-er-triage] assessERPatient failed:`, msg);
+
+        // security(2026-05-04): F-ER-3 — audit failed inference so Sarvam
+        // outage spikes are visible in the audit log (and not just stderr).
+        auditLog(req, "AI_ER_TRIAGE_INFERENCE", "EmergencyCase", undefined, {
+          model: SARVAM_MODEL,
+          promptSize,
+          responseSize: 0,
+          latencyMs: Date.now() - inferenceStartedAt,
+          failure: true,
+          errorMessage: String(msg).slice(0, 200),
+        }).catch((err) =>
+          console.warn(
+            `[audit] AI_ER_TRIAGE_INFERENCE (failure) failed (non-fatal):`,
+            (err as Error)?.message ?? err
+          )
+        );
+
         res.status(503).json({
           success: false,
           data: null,
@@ -95,12 +141,28 @@ router.post(
       // reconstruction (and Sarvam-bill spike triage) can identify who hit the
       // paid path and how often. No PHI in details — complaint truncated.
       auditLog(req, "AI_ER_TRIAGE_ASSESS", "EmergencyCase", undefined, {
-        chiefComplaintPreview: chiefComplaint.trim().slice(0, 100),
+        chiefComplaintPreview: safeChiefComplaint.slice(0, 100),
         patientAge: patientAge ?? null,
         triageLevel: assessment.suggestedTriageLevel ?? null,
         mews: assessment.calculatedMEWS ?? null,
       }).catch((err) =>
         console.warn(`[audit] AI_ER_TRIAGE_ASSESS failed (non-fatal):`, (err as Error)?.message ?? err)
+      );
+
+      // security(2026-05-04): F-ER-3 — companion AI_<FEATURE>_INFERENCE row
+      // tracks model + sizes + latency so we can spot Sarvam-budget spikes
+      // and slow-call regressions independently of the case-state audit.
+      auditLog(req, "AI_ER_TRIAGE_INFERENCE", "EmergencyCase", undefined, {
+        model: SARVAM_MODEL,
+        promptSize,
+        responseSize: JSON.stringify(assessment).length,
+        latencyMs: Date.now() - inferenceStartedAt,
+        triageLevel: assessment.suggestedTriageLevel ?? null,
+      }).catch((err) =>
+        console.warn(
+          `[audit] AI_ER_TRIAGE_INFERENCE failed (non-fatal):`,
+          (err as Error)?.message ?? err
+        )
       );
 
       res.json({ success: true, data: assessment, error: null });
@@ -159,8 +221,19 @@ router.post(
         );
       }
 
+      // security(2026-05-04): F-INJ-1 — sanitize free-text fields pulled from
+      // the EmergencyCase row before they reach the Sarvam payload. The DB
+      // could contain pre-existing notes that already include injection
+      // markers (deliberately or copy-pasted), so the route is the right
+      // choke-point regardless of where the text originated.
+      const safeCaseComplaint = sanitizeUserInput(ec.chiefComplaint, { maxLen: 2000 });
+      const safeCaseGender = ec.patient?.gender
+        ? sanitizeUserInput(ec.patient.gender, { maxLen: 20 })
+        : undefined;
+
+      const inferenceStartedAt = Date.now();
       const assessment = await assessERPatient({
-        chiefComplaint: ec.chiefComplaint,
+        chiefComplaint: safeCaseComplaint,
         vitals: {
           bp: ec.vitalsBP ?? undefined,
           pulse: ec.vitalsPulse ?? undefined,
@@ -170,7 +243,7 @@ router.post(
           gcs: ec.glasgowComa ?? undefined,
         },
         patientAge,
-        patientGender: ec.patient?.gender ?? undefined,
+        patientGender: safeCaseGender,
       });
 
       // Optionally persist the calculated MEWS back to the case
@@ -191,6 +264,21 @@ router.post(
         mewsWrittenBack: assessment.calculatedMEWS !== null,
       }).catch((err) =>
         console.warn(`[audit] AI_ER_TRIAGE_CASE_ASSESS failed (non-fatal):`, (err as Error)?.message ?? err)
+      );
+
+      // security(2026-05-04): F-ER-3 — companion inference row with model +
+      // sizes + latency for budget / latency observability.
+      auditLog(req, "AI_ER_TRIAGE_INFERENCE", "EmergencyCase", caseId, {
+        model: SARVAM_MODEL,
+        promptSize: safeCaseComplaint.length + (safeCaseGender?.length ?? 0),
+        responseSize: JSON.stringify(assessment).length,
+        latencyMs: Date.now() - inferenceStartedAt,
+        triageLevel: assessment.suggestedTriageLevel ?? null,
+      }).catch((err) =>
+        console.warn(
+          `[audit] AI_ER_TRIAGE_INFERENCE failed (non-fatal):`,
+          (err as Error)?.message ?? err
+        )
       );
 
       res.json({ success: true, data: assessment, error: null });

@@ -12,8 +12,14 @@ import { validateUuidParams } from "../middleware/validate-params";
 import { auditLog } from "../middleware/audit";
 import { rateLimit } from "../middleware/rate-limit";
 import { explainLabReport } from "../services/ai/report-explainer";
+import { sanitizeUserInput } from "../services/ai/prompt-safety";
 import { sendNotification } from "../services/notification";
 import { NotificationType } from "@medcore/shared";
+
+// security(2026-05-04): F-REX-3 — Sarvam model used for lab-report explanation.
+// Stamped onto the AI_REPORT_EXPLAINER_INFERENCE audit row so model rollouts
+// are observable.
+const SARVAM_MODEL = "sarvam-105b";
 
 function safeAudit(
   req: Request,
@@ -83,13 +89,19 @@ router.post(
       }
 
       // 2. Flatten results from all order items
+      // security(2026-05-04): F-INJ-1 — defense-in-depth: report-explainer.ts
+      // already sanitizes each lab field internally, but the lab values come
+      // from external LIS systems so we pre-sanitize at the route boundary
+      // too. Catches injection markers before they cross the service line.
       const labResults = labOrder.items.flatMap((item) =>
         item.results.map((r) => ({
-          parameter: r.parameter,
-          value: r.value,
-          unit: r.unit ?? undefined,
-          normalRange: r.normalRange ?? undefined,
-          flag: r.flag as string,
+          parameter: sanitizeUserInput(r.parameter, { maxLen: 200 }),
+          value: sanitizeUserInput(r.value, { maxLen: 200 }),
+          unit: r.unit ? sanitizeUserInput(r.unit, { maxLen: 50 }) : undefined,
+          normalRange: r.normalRange
+            ? sanitizeUserInput(r.normalRange, { maxLen: 100 })
+            : undefined,
+          flag: sanitizeUserInput(r.flag as string, { maxLen: 40 }),
         }))
       );
 
@@ -98,13 +110,47 @@ router.post(
         return;
       }
 
+      // Approximate prompt size for the audit row — sum of every sanitized
+      // field plus a small per-row overhead. Cheap; not PHI on its own.
+      const promptSize = labResults.reduce(
+        (n, r) =>
+          n +
+          r.parameter.length +
+          r.value.length +
+          (r.unit?.length ?? 0) +
+          (r.normalRange?.length ?? 0) +
+          r.flag.length,
+        0
+      );
+
       // 3. Call AI explainer
+      const inferenceStartedAt = Date.now();
       const { explanation, flaggedValues } = await explainLabReport({
         labResults,
         patientAge: labOrder.patient.age ?? undefined,
         patientGender: labOrder.patient.gender as string | undefined,
         language,
       });
+
+      // security(2026-05-04): F-REX-3 — audit Sarvam inference with model,
+      // prompt/response sizes and latency. No PHI in the audit row.
+      safeAudit(
+        req,
+        "AI_REPORT_EXPLAINER_INFERENCE",
+        "LabOrder",
+        labOrderId,
+        {
+          model: SARVAM_MODEL,
+          promptSize,
+          responseSize:
+            (explanation?.length ?? 0) +
+            JSON.stringify(flaggedValues ?? []).length,
+          latencyMs: Date.now() - inferenceStartedAt,
+          language,
+          resultCount: labResults.length,
+          flaggedCount: (flaggedValues ?? []).length,
+        }
+      );
 
       // 4. Upsert LabReportExplanation keyed on labOrderId
       const record = await prisma.labReportExplanation.upsert({

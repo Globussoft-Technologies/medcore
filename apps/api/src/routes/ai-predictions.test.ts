@@ -224,4 +224,30 @@ describe("GET /api/v1/ai/predictions/no-show/:appointmentId (honorable mention #
     expect(res.status).toBe(500);
     expect(res.body.error).toMatch(/model file corrupt/i);
   });
+
+  // security audit follow-up (2026-05-04-med): F-PRED-1 — every no-show call
+  // must stamp an AI_PREDICTIONS_INFERENCE audit row with metadata only.
+  it("writes an AI_PREDICTIONS_INFERENCE audit row on the success path", async () => {
+    prismaMock.auditLog.create.mockClear();
+    const id = "00000000-0000-0000-0000-0000000000ee";
+    predictNoShowMock.mockResolvedValueOnce(makePrediction(id, 0.31));
+
+    const res = await request(buildApp())
+      .get(`/api/v1/ai/predictions/no-show/${id}`)
+      .set("Authorization", `Bearer ${tokenFor("DOCTOR")}`);
+    expect(res.status).toBe(200);
+
+    const inferenceCalls = prismaMock.auditLog.create.mock.calls.filter(
+      (c: any[]) => c[0]?.data?.action === "AI_PREDICTIONS_INFERENCE"
+    );
+    expect(inferenceCalls.length).toBeGreaterThanOrEqual(1);
+    const details = inferenceCalls[0][0].data.details;
+    expect(details.success).toBe(true);
+    expect(details.model).toBe("logistic-regression-v1");
+    expect(typeof details.latencyMs).toBe("number");
+    expect(details.riskScore).toBe(0.31);
+    // Never log PHI features / prompt content.
+    expect(details).not.toHaveProperty("prompt");
+    expect(details).not.toHaveProperty("features");
+  });
 });

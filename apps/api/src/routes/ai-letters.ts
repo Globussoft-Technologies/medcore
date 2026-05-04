@@ -9,6 +9,12 @@ import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
 import { rateLimit } from "../middleware/rate-limit";
 import { generateReferralLetter, generateDischargeSummary } from "../services/ai/letter-generator";
+import { sanitizeUserInput } from "../services/ai/prompt-safety";
+
+// security(2026-05-04): F-LET-2 — Sarvam model used for letter generation.
+// Stamped onto the AI_LETTERS_INFERENCE audit row so model rollouts are
+// observable independently of route-state audit rows.
+const SARVAM_MODEL = "sarvam-105b";
 
 /**
  * Best-effort audit wrapper: PHI audit writes must never take a GET response
@@ -115,19 +121,46 @@ aiLettersRouter.post(
       const patientGender: string | undefined = patient?.gender ?? undefined;
       const fromDoctorName: string = doctor?.user?.name ?? "Unknown Doctor";
 
+      // security(2026-05-04): F-INJ-1 — defense-in-depth sanitisation of the
+      // request-body free-text fields BEFORE they reach the letter generator.
+      // letter-generator.ts already sanitizes internally, but doing it here
+      // too means an injected `toSpecialty` is neutralised even if a future
+      // refactor strips the service-layer pass.
+      const safeToSpecialty = sanitizeUserInput(toSpecialty, { maxLen: 100 });
+      const safeToDoctorName = toDoctorName
+        ? sanitizeUserInput(toDoctorName, { maxLen: 100 })
+        : undefined;
+
+      const inferenceStartedAt = Date.now();
       const letter = await generateReferralLetter({
         patientName,
         patientAge,
         patientGender,
         fromDoctorName,
         fromHospital: process.env.HOSPITAL_NAME ?? "MedCore Hospital",
-        toSpecialty,
-        toDoctorName,
+        toSpecialty: safeToSpecialty,
+        toDoctorName: safeToDoctorName,
         clinicalSummary,
         relevantHistory,
         currentMedications: medications,
         urgency,
         date: formatDate(new Date()),
+      });
+
+      // security(2026-05-04): F-LET-2 — audit Sarvam inference with model,
+      // prompt/response sizes and latency for budget + perf observability.
+      // No prompt content; the route layer never sees PHI in the audit row.
+      safeAudit(req, "AI_LETTERS_INFERENCE", "AIScribeSession", scribeSessionId, {
+        kind: "referral",
+        model: SARVAM_MODEL,
+        promptSize:
+          (clinicalSummary?.length ?? 0) +
+          (relevantHistory?.length ?? 0) +
+          safeToSpecialty.length +
+          (safeToDoctorName?.length ?? 0),
+        responseSize: letter.length,
+        latencyMs: Date.now() - inferenceStartedAt,
+        urgency,
       });
 
       res.json({ success: true, data: { letter, generatedAt: new Date().toISOString() }, error: null });
@@ -194,18 +227,38 @@ aiLettersRouter.post(
       const followUpInstructions: string =
         admission.followUpInstructions ?? "To be advised by treating physician";
 
+      // security(2026-05-04): F-INJ-1 — sanitize the multi-line free-text
+      // fields the discharge summary concatenates into the Sarvam prompt.
+      // letter-generator.ts also sanitizes internally; this route-layer pass
+      // is defense-in-depth.
+      const safeAdmittingDx = sanitizeUserInput(admittingDiagnosis, { maxLen: 1000 });
+      const safeDischargeDx = sanitizeUserInput(dischargeDiagnosis, { maxLen: 1000 });
+      const safeFollowUp = sanitizeUserInput(followUpInstructions, { maxLen: 3000 });
+
+      const inferenceStartedAt = Date.now();
       const summary = await generateDischargeSummary({
         patientName,
         patientAge,
         admissionDate: formatDate(admission.admittedAt),
         dischargeDate: admission.dischargedAt ? formatDate(admission.dischargedAt) : formatDate(new Date()),
-        admittingDiagnosis,
-        dischargeDiagnosis,
+        admittingDiagnosis: safeAdmittingDx,
+        dischargeDiagnosis: safeDischargeDx,
         proceduresPerformed,
         medicationsOnDischarge,
-        followUpInstructions,
+        followUpInstructions: safeFollowUp,
         doctorName,
         hospital: process.env.HOSPITAL_NAME ?? "MedCore Hospital",
+      });
+
+      // security(2026-05-04): F-LET-2 — companion AI_LETTERS_INFERENCE row
+      // (model + sizes + latency) for the discharge generation path.
+      safeAudit(req, "AI_LETTERS_INFERENCE", "Admission", admissionId, {
+        kind: "discharge",
+        model: SARVAM_MODEL,
+        promptSize:
+          safeAdmittingDx.length + safeDischargeDx.length + safeFollowUp.length,
+        responseSize: summary.length,
+        latencyMs: Date.now() - inferenceStartedAt,
       });
 
       res.json({ success: true, data: { summary, generatedAt: new Date().toISOString() }, error: null });
@@ -266,14 +319,22 @@ aiLettersRouter.get(
       const patient = session.appointment?.patient;
       const doctor = session.appointment?.doctor;
 
+      // security(2026-05-04): F-INJ-1 — query-string fields are user-controlled;
+      // sanitize before they enter the Sarvam payload.
+      const safeToSpecialty = sanitizeUserInput(toSpecialty, { maxLen: 100 });
+      const safeToDoctorName = toDoctorName
+        ? sanitizeUserInput(toDoctorName, { maxLen: 100 })
+        : undefined;
+
+      const inferenceStartedAt = Date.now();
       const letter = await generateReferralLetter({
         patientName: patient?.user?.name ?? "Unknown Patient",
         patientAge: patient?.age ?? undefined,
         patientGender: patient?.gender ?? undefined,
         fromDoctorName: doctor?.user?.name ?? "Unknown Doctor",
         fromHospital: process.env.HOSPITAL_NAME ?? "MedCore Hospital",
-        toSpecialty,
-        toDoctorName,
+        toSpecialty: safeToSpecialty,
+        toDoctorName: safeToDoctorName,
         clinicalSummary,
         relevantHistory,
         currentMedications: medications,
@@ -283,7 +344,22 @@ aiLettersRouter.get(
 
       safeAudit(req, "AI_LETTER_READ", "AIScribeSession", scribeSessionId, {
         kind: "referral-preview",
-        toSpecialty,
+        toSpecialty: safeToSpecialty,
+        urgency,
+      });
+
+      // security(2026-05-04): F-LET-2 — preview path also fires Sarvam, so
+      // it gets a companion AI_LETTERS_INFERENCE row.
+      safeAudit(req, "AI_LETTERS_INFERENCE", "AIScribeSession", scribeSessionId, {
+        kind: "referral-preview",
+        model: SARVAM_MODEL,
+        promptSize:
+          (clinicalSummary?.length ?? 0) +
+          (relevantHistory?.length ?? 0) +
+          safeToSpecialty.length +
+          (safeToDoctorName?.length ?? 0),
+        responseSize: letter.length,
+        latencyMs: Date.now() - inferenceStartedAt,
         urgency,
       });
 

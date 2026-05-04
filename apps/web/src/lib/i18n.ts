@@ -95,6 +95,11 @@ const en: Dict = {
   "register.haveAccount": "Already have an account?",
   "register.signIn": "Sign in here",
   "register.error.generic": "Registration failed",
+  // Issue #494: separate copy for the retry-banner path (5xx / network) so we
+  // don't leak server status codes — the user just sees "Something went wrong".
+  "register.error.serverRetry":
+    "Something went wrong. Please check your connection and try again.",
+  "register.error.retry": "Retry",
 
   // Feedback
   "feedback.title": "How was your visit?",
@@ -778,6 +783,9 @@ const hi: Dict = {
   "register.haveAccount": "पहले से खाता है?",
   "register.signIn": "यहाँ साइन इन करें",
   "register.error.generic": "पंजीकरण विफल",
+  "register.error.serverRetry":
+    "कुछ गलत हो गया। कृपया अपना कनेक्शन जाँचें और फिर से प्रयास करें।",
+  "register.error.retry": "पुनः प्रयास करें",
 
   // Feedback
   "feedback.title": "आपकी यात्रा कैसी रही?",

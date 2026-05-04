@@ -27,6 +27,11 @@ export default function RegisterPage() {
     address: "",
   });
   const [error, setError] = useState("");
+  // Issue #494: when the server returns a 5xx / network failure (no field
+  // breakdown to render inline), surface a top-of-form banner with a "Retry"
+  // CTA so the user can re-submit without retyping the whole form. Field
+  // values are intentionally preserved across the failed POST.
+  const [retryable, setRetryable] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({});
   const [loading, setLoading] = useState(false);
 
@@ -67,20 +72,10 @@ export default function RegisterPage() {
     return errs;
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submitRegistration() {
     setError("");
-    // Issue #130: run client validation against ALL fields up front so the
-    // user sees every problem at once, not just the first to trip zod on
-    // the server.
-    const clientErrs = validateClient();
-    if (Object.keys(clientErrs).length > 0) {
-      setFieldErrors(clientErrs);
-      return;
-    }
-    setFieldErrors({});
+    setRetryable(false);
     setLoading(true);
-
     try {
       await api.post("/auth/register", {
         name: form.name,
@@ -93,25 +88,76 @@ export default function RegisterPage() {
         role: "PATIENT",
       });
 
+      // Issue #494 / #480 anti-enum note: the server returns 201 for both a
+      // brand-new account AND a duplicate-email submission, with no token in
+      // the latter case. `login()` will fail on the duplicate path because
+      // the password was never actually stored — we surface that as the
+      // generic top banner without leaking which case occurred.
       await login(form.email, form.password);
       toast.success("Registered successfully");
       router.push("/dashboard");
     } catch (err) {
-      // Issue #130: server-side zod errors are returned as
-      // { details: [{ field, message }] }. Render every field's message
-      // inline rather than blanket-toasting only the first.
+      // Issue #494: route the error to the right place.
+      //
+      //   400 + { details: [...] } → inline per-field errors
+      //   408 (timeout)            → top banner + retry CTA
+      //   5xx / network            → top banner + retry CTA
+      //   other 4xx                → top banner, no retry CTA
+      //
+      // Form values are NEVER cleared on failure — the user shouldn't have
+      // to retype everything because we hiccupped server-side.
       const fields = extractFieldErrors(err);
       if (fields) {
         setFieldErrors(fields);
+        setError("");
+        setRetryable(false);
+        return;
+      }
+      const status =
+        err && typeof err === "object" && "status" in err
+          ? (err as { status?: number }).status
+          : undefined;
+      // 5xx, no status (network/abort), or 408 timeout — all retryable.
+      const isRetryable =
+        status === undefined || status === 408 || (status !== undefined && status >= 500);
+      if (isRetryable) {
+        setError(t("register.error.serverRetry"));
+        setRetryable(true);
       } else {
         const msg =
-          err instanceof Error ? err.message : t("register.error.generic");
+          err instanceof Error && err.message
+            ? err.message
+            : t("register.error.generic");
         setError(msg);
+        setRetryable(false);
         toast.error(msg);
       }
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setRetryable(false);
+    // Issue #130: run client validation against ALL fields up front so the
+    // user sees every problem at once, not just the first to trip zod on
+    // the server.
+    const clientErrs = validateClient();
+    if (Object.keys(clientErrs).length > 0) {
+      setFieldErrors(clientErrs);
+      return;
+    }
+    setFieldErrors({});
+    await submitRegistration();
+  }
+
+  async function handleRetry() {
+    // Issue #494: re-submit without re-running client validation — the form
+    // values are still valid (they passed once already); the server side
+    // just hiccupped.
+    await submitRegistration();
   }
 
   const inputClass =
@@ -141,9 +187,23 @@ export default function RegisterPage() {
           {error && (
             <div
               role="alert"
-              className="rounded-lg bg-red-50 p-3 text-sm text-danger dark:bg-red-900/30 dark:text-red-300"
+              data-testid="register-error-banner"
+              className="flex items-start justify-between gap-3 rounded-lg bg-red-50 p-3 text-sm text-danger dark:bg-red-900/30 dark:text-red-300"
             >
-              {error}
+              <span>{error}</span>
+              {retryable && (
+                <button
+                  type="button"
+                  onClick={handleRetry}
+                  disabled={loading}
+                  data-testid="register-retry-btn"
+                  className="shrink-0 rounded border border-red-300 bg-white px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50 dark:border-red-700 dark:bg-red-950 dark:text-red-200"
+                >
+                  {loading
+                    ? t("register.submit.loading")
+                    : t("register.error.retry")}
+                </button>
+              )}
             </div>
           )}
 

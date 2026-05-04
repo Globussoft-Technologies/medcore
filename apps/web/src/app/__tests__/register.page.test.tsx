@@ -62,7 +62,13 @@ describe("RegisterPage", () => {
   });
 
   it("shows error on API failure", async () => {
-    apiMock.post.mockRejectedValue(new Error("Email taken"));
+    // Issue #494: a plain Error with no .status is treated as a network /
+    // retryable failure — banner copy comes from `register.error.serverRetry`,
+    // and a Retry CTA appears alongside it. (See register.servererrors for
+    // status-aware paths: 4xx field details, 5xx, 408, non-retryable 4xx.)
+    const err = new Error("Email taken") as Error & { status?: number };
+    err.status = 502;
+    apiMock.post.mockRejectedValue(err);
     const user = userEvent.setup();
     render(<RegisterPage />);
     await user.type(screen.getByLabelText(/register\.fullName/i), "Aarav");
@@ -71,7 +77,7 @@ describe("RegisterPage", () => {
     await user.type(screen.getByLabelText(/register\.password/i), "password123");
     await user.click(screen.getByRole("button", { name: /register\.submit/i }));
     await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent(/email taken/i)
+      expect(screen.getByRole("alert")).toBeInTheDocument()
     );
   });
 

@@ -316,6 +316,56 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 26 (2-agent E2E fanout — pivot to §3 deepening as NEW companion specs: ot-surgery-deep + telemedicine-deep)**:
+> 2 §3 deepening items closed via 13 cases across 2 spec files. Lane A
+> (`5ae09c4`): `e2e/ot-surgery-deep.spec.ts` (6 cases — Anesthesia
+> POST `/surgery/:id/anesthesia-record` + clinical-notes PATCH +
+> complications PATCH `/:id/complications` + PACU observations
+> POST `/:id/observations` + SSI report PATCH `/:id/ssi-report`
+> NHSN-style + RBAC contract pin per Issue #174 + Issue #474). VERIFY
+> audit: 3 of 5 §3 ot-surgery sub-scenarios DEFERRED — post-op orders
+> meds/restrictions/followup (no `/surgery/:id/orders` endpoint;
+> `postOpNotes` is free text only), swab/implant tracking (schema has
+> spongeCountCorrect booleans but no checkbox UI; implant tracking
+> has no Prisma model), OT resource conflict detection (`POST /surgery`
+> only validates OT exists + isActive at lines 199-215, no time-overlap
+> check, no conflict-detection endpoint).
+>
+> Lane B (`da3b4c3`): `e2e/telemedicine-deep.spec.ts` (7 cases —
+> Recording consent gate (consent=false → 400; true → 200) + recording
+> archive URL persistence + Followup PATCH `/followup` + post-consult
+> Rx POST with TRX-<sessionNumber> id + payment fee field survival in
+> session record + WebRTC quality proxy via `precheckDetails.bandwidthKbps
+> + userAgent` capture + cross-role + cross-patient RBAC + PATIENT
+> chrome with hidden Schedule CTA). VERIFY audit: 2 partial deferrals —
+> call-quality reconnection is purely Jitsi/WebRTC client state
+> (server proxy pinned via precheck capture); payment settlement UI
+> defers to billing-cycle/billing-patient specs (only `fee` field
+> exists at telemedicine session level).
+>
+> **NEW META-FINDING from Lane B**: telemedicine ROUTE HANDLER ships
+> 4 fully-validated, fully-authorized, fully-audit-logged endpoints
+> (recording-consent, followup, post-consult Rx, payment) with
+> regulatory weight, yet ZERO UI surfaces them. This is the
+> **"API-ahead-of-UI"** sub-pattern of the aspirational-framing
+> recurrence (also seen in waves 21+22). Updated 7th cron-learning
+> bullet recommends an "API-contract-pin" escape valve in
+> `/medcore-e2e-spec` — when the backend ships but the UI doesn't,
+> write `page.route` stub + body-shape assertion to lock the contract
+> for the future UI builder rather than fabricating selectors. Pattern:
+> "test the wire, not the widget."
+>
+> **13 new E2E tests across 2 spec files** (×2 Playwright projects =
+> 26 listed cases). 2 §3 deepening items closed (ot-surgery +
+> telemedicine).
+>
+> **VERIFY-BEFORE-SCAFFOLD discipline cumulative across waves
+> 21+22+23+24+25+26**: ~47 sub-scenarios deferred with concrete
+> evidence-citations. The 7th cron-learning bullet's discipline now
+> has both arms: deferral-with-evidence (don't write tests against
+> ghost UI) AND API-contract-pin (do test the wire when only the
+> backend ships).
+>
 > **2026-05-05 cron-tick wave 25 (2-agent E2E fanout — §4.2 mobile-responsive + §4.9 realtime)**:
 > 2 §4 cross-cutting items closed via 11 cases across 2 spec files.
 > Lane A (`40addd7`): `e2e/mobile-responsive.spec.ts` (6 cases — ADMIN

@@ -12,6 +12,23 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 26 — §3 deepening (ot-surgery-deep + telemedicine-deep) + 7th cron-learning bullet refined with API-ahead-of-UI sub-pattern.**
+  Lane A (`5ae09c4`) shipped `ot-surgery-deep.spec.ts` (6 cases —
+  anesthesia + clinical-notes + complications + PACU + SSI + RBAC).
+  Lane B (`da3b4c3`) shipped `telemedicine-deep.spec.ts` (7 cases —
+  recording consent gate + recording archive URL + followup PATCH +
+  post-consult Rx + payment fee + WebRTC quality proxy + cross-role/
+  cross-patient RBAC + PATIENT chrome). 13 new tests × 2 projects =
+  26 listed cases. **NEW meta-finding**: telemedicine route handler
+  ships 4 fully-validated/authorized/audit-logged endpoints (recording-
+  consent, followup, Rx, payment) with regulatory weight, yet ZERO
+  UI surfaces them — the "API-ahead-of-UI" sub-pattern of the
+  aspirational-framing recurrence. **7th cron-learning bullet
+  refined** with an API-contract-pin escape valve: when backend ships
+  but UI doesn't, write `page.route` stub + body-shape assertion to
+  lock the contract for the future UI builder rather than fabricating
+  selectors. Pattern: "test the wire, not the widget." Cumulative ~47
+  deferred-with-evidence sub-scenarios across 6 cron ticks.
 - **2026-05-05 cron-tick wave 25 — §4.2 mobile-responsive + §4.9 realtime.**
   Lane A (`40addd7`) shipped `mobile-responsive.spec.ts` (6 cases —
   ADMIN appointments + RECEPTION billing + DOCTOR prescriptions mobile

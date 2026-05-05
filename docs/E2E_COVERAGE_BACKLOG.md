@@ -266,11 +266,11 @@ For each spec already in the suite, the flows below are not tested and should be
 - ~~Data ownership (patient sees only own records)~~ ✅ closed (cases 1+2 — PATIENT /appointments + /prescriptions own-rows-only contract pin)
 - ~~Cross-tenant isolation (see §4.7)~~ ⚠ **deferred — multi-tenant fixtures unavailable** (per §5 P10): see structural-NOT contract beacon in case 6
 
-### edge-cases.spec.ts
-- Concurrent-edit conflict
-- Network timeout retry
-- Large-payload handling (bulk CSV, large file upload)
-- Memory / perf under repeated ops
+### ~~edge-cases.spec.ts~~ ✅ closed 2026-05-05 by `e2e/edge-cases-deep.spec.ts` (5 cases — Settings profile-photo /uploads 413 toast pin (UPLOAD_MAX_BYTES = 10 MB contract via `apps/api/src/routes/uploads.ts:30,155-162` + settings/page.tsx:282 toast surface); /uploads 408 timeout toast pin (AbortController/timeout envelope from lib/api.ts:131-167 — different surface from the /register retry-banner already covered by negative-paths.spec.ts:235-278); /uploads 400 magic-mime ALLOWED_MIMES rejection toast pin (uploads.ts:172-180); /uploads connection-aborted toast pin (route.abort → toast pipeline; locks "no auto-retry" semantic per lib/api.ts has no retry loop); Settings tab-switch×8 React-error-boundary beacon for memory/state-thrash regressions on the highest-traffic profile surface). Deferred — UI not shipped (verified BEFORE scaffold per cron-learning bullet 7): (a) **Concurrent-edit conflict** — repo-wide grep across `packages/db/prisma/schema.prisma` + `apps/api/src/routes/*.ts` for `version Int` / `@version` / `If-Match` / `If-Unmodified-Since` / `optimisticLock` returns 0 hits; the 4 `version`/`conflict` matches in routes/ are unrelated (AI-model versions / analytics conversionRate). No row-level version column exists on Patient / Appointment / Prescription / Bill / etc.; last-write-wins is the shipped semantic — no 409 contract to pin even via stub. (b) **Bulk CSV import** — repo-wide grep for `bulkImport` / `csvImport` / `parse.csv` / `papaparse` / `<input type="file" accept=".csv">` across `apps/web/src/app/dashboard` returns 0 hits; no bulk-import surface ships in the dashboard. (c) **Memory profile over 8-hour session** — explicitly classed under §4.6 Performance/load by the backlog itself; perf testing belongs in a load-test tier (k6, autocannon), not Playwright. The case-5 beacon exercises the in-scope subset (no leaked state-thrash crashes on rapid tab-switch). All deferred scenarios re-enter the backlog when matching infra ships.
+- ~~Concurrent-edit conflict~~ ⚠ **deferred — no optimistic-concurrency infrastructure shipped at any layer** (no `version` / `If-Match` / `optimisticLock` columns or headers in schema or routes)
+- ~~Network timeout retry~~ ✅ closed (cases 2+4 — /uploads 408 + connection-aborted toast pins; /register retry-banner already covered by negative-paths.spec.ts:144-278)
+- ~~Large-payload handling (bulk CSV, large file upload)~~ ✅ closed (case 1 — /uploads 413 UPLOAD_MAX_BYTES contract pin); bulk CSV ⚠ **deferred — UI not shipped**
+- ~~Memory / perf under repeated ops~~ ✅ closed (case 5 — Settings tab-switch×8 React-error-boundary beacon); 8-hour memory profile ⚠ **deferred — out of e2e scope per §4.6**
 
 ---
 

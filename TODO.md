@@ -316,6 +316,58 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 25 (2-agent E2E fanout — §4.2 mobile-responsive + §4.9 realtime)**:
+> 2 §4 cross-cutting items closed via 11 cases across 2 spec files.
+> Lane A (`40addd7`): `e2e/mobile-responsive.spec.ts` (6 cases — ADMIN
+> appointments-page mobile drawer + bottom-nav at 390×844 viewport,
+> RECEPTION billing mobile parity, DOCTOR prescriptions mobile parity,
+> PATIENT bottom-nav 5-shortcut surface with `aria-current="page"`
+> active-state pin, tap-as-click polyfill via `page.tap()` against
+> layout.tsx:917-924's onClick-only binding, DataTable mobile-card
+> switch on /dashboard/users via `md:hidden`). VERIFY audit: 3 of 6
+> §4.2 sub-scenarios DEFERRED — long-press/swipe gestures (zero
+> `onTouchStart|onTouchEnd|onTouchMove|onSwipe|longPress` hits across
+> apps/web/src), mobile-specific error states (no navigator.onLine
+> in dashboard, only /display kiosk), bottom-sheet rendering (every
+> modal in apps/web/src/components renders fixed inset-0 flex at all
+> viewports, no BottomSheet component). **Architectural finding**:
+> mobile UX is "almost entirely Tailwind-class-driven" — `md:hidden`
+> toggles, not behavior-driven. The deferred features were never
+> built, not just untested.
+>
+> Lane B (`88dfabc`): `e2e/realtime.spec.ts` (5 cases — Socket.IO
+> handshake on /dashboard/queue with `transports:["websocket"]` from
+> lib/socket.ts pinned + Issue #430 30s setInterval poll-fallback
+> regression guard + graceful WS-block degradation when Socket.IO is
+> blocked + structural-NOT pin: PATIENT bounce on /dashboard/queue
+> MUST NOT open a WS (Issue #383 guard) + structural-NOT pin: audit
+> page MUST NOT subscribe to socket). VERIFY audit: 3 of 4 §4.9
+> sub-scenarios DEFERRED — in-app notification push (notifications
+> page is REST-only; no `notification:*` socket event in apps/api/
+> src/routes; server delivers outbound SMS/WhatsApp/Email/FCM-Push
+> only), audit-log streaming for admins (audit.ts has zero `audit:*`
+> io.emit; audit page has no getSocket/EventSource), telemedicine
+> signaling per backlog header (telemedicine:* events exist but
+> signal admission/recording, not WebRTC). **Notable**: server-
+> pushed payload semantics intentionally deferred to integration-
+> layer (apps/api/src/test/integration/realtime.test.ts +
+> realtime-delivery.test.ts) — the e2e file pins TRANSPORT only,
+> avoiding Engine.IO frame-format coupling.
+>
+> **11 new E2E tests across 2 spec files** (×2 Playwright projects =
+> 22 listed cases). §4.2 + §4.9 closed.
+>
+> **VERIFY-BEFORE-SCAFFOLD discipline cumulative across waves
+> 21+22+23+24+25**: 42 sub-scenarios deferred with concrete evidence-
+> citations (page.tsx line refs, route-file absence, repo-wide grep
+> counts, type-definition narrowness). The 7th cron-learning
+> bullet's discipline is highly productive — 6 deferrals this wave
+> with 2 substantial architectural findings: (1) mobile UX is
+> Tailwind-class-only, no behavior layer for swipe/long-press/
+> bottom-sheet; (2) Socket.IO is wired for queue/emergency/ot/wards
+> /chat/agent-console but in-app notification push + audit streaming
+> are NOT shipped despite backlog asking for them.
+>
 > **2026-05-05 cron-tick wave 24 (2-agent E2E fanout — §4.8 file-operations + §4.13 i18n)**:
 > 2 §4 cross-cutting items closed via 10 cases across 2 spec files.
 > Lane A (`5dca914`): `e2e/file-operations.spec.ts` (5 cases — patient

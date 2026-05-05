@@ -12,6 +12,27 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 25 — §4.2 mobile-responsive + §4.9 realtime.**
+  Lane A (`40addd7`) shipped `mobile-responsive.spec.ts` (6 cases —
+  ADMIN appointments + RECEPTION billing + DOCTOR prescriptions mobile
+  drawer parity + PATIENT bottom-nav active-state + tap polyfill +
+  DataTable mobile-card on /users). Lane B (`88dfabc`) shipped
+  `realtime.spec.ts` (5 cases — Socket.IO queue handshake + Issue
+  #430 poll-fallback + WS-block degradation + 2 structural-NOT pins
+  for PATIENT-WS gate and audit-no-subscribe). 11 new tests × 2
+  projects = 22 listed cases. **VERIFY-BEFORE-SCAFFOLD found 6 of 10
+  sub-scenarios DEFERRED** with concrete evidence: long-press/swipe
+  (zero hits in apps/web/src), mobile error states (no online/offline
+  outside /display), bottom-sheet (no BottomSheet component, all
+  modals render fixed inset-0 flex), in-app notification push (no
+  `notification:*` socket event), audit-log streaming (audit.ts has
+  zero io.emit), telemedicine WebRTC signaling (only admission/
+  recording events). Cumulative 42 deferred-with-evidence across
+  waves 21+22+23+24+25. **Architectural findings**: (1) mobile UX
+  is Tailwind-class-only, no behavior layer for swipe/long-press/
+  bottom-sheet; (2) Socket.IO is wired for queue/emergency/ot/wards/
+  chat/agent-console but in-app notification push + audit streaming
+  are NOT shipped — backlog framing was aspirational.
 - **2026-05-05 cron-tick wave 24 — §4.8 file-operations + §4.13 i18n.**
   Lane A (`5dca914`) shipped `file-operations.spec.ts` (5 cases —
   patient document upload + ai-radiology X-ray + avatar upload + PATIENT

@@ -278,8 +278,12 @@ test.describe("Purchase Orders — /dashboard/purchase-orders (PO lifecycle + ap
     await supplierSelect.selectOption({ index: 1 }); // index 0 = "Select supplier" placeholder
 
     // Fill Description for the default first line item.
-    // The description input is required (page.tsx:427–431).
-    const descInput = page.locator('input[required]').first();
+    // page.tsx:474-478 renders the description as `<input value... onChange...>`
+    // with NO `type` attribute (defaults to text) and NO `required` attribute —
+    // validation is JS-only at line 350-351. Lock onto it via `input:not([type])`
+    // which uniquely picks out the description input(s) since every other input
+    // in the modal carries an explicit type (number, etc.).
+    const descInput = page.locator('input:not([type])').first();
     await descInput.fill("E2E Test Item — Paracetamol 500mg");
 
     // Qty is pre-filled to 1 but we set it explicitly for clarity.
@@ -885,61 +889,36 @@ test.describe("Purchase Orders — /dashboard/purchase-orders (PO lifecycle + ap
     }
   });
 
-  // ── 13. RBAC negative: DOCTOR sees empty state (API 403 → no rows) ────────
-  test("DOCTOR loads the PO page HTML but sees no orders (GET /purchase-orders returns 403 for DOCTOR)", async ({
+  // ── 13. RBAC negative: DOCTOR is redirected to /dashboard/not-authorized ──
+  // The PO page has a client-side VIEW_ALLOWED gate (page.tsx:16) that
+  // bounces any role outside {ADMIN, RECEPTION, PHARMACIST}. We assert
+  // the redirect AND verify the API gate directly.
+  test("DOCTOR is redirected to /dashboard/not-authorized — page-level VIEW_ALLOWED gate fires (and API GET /purchase-orders returns 403)", async ({
     doctorPage,
     doctorToken,
     request,
   }) => {
     const page = doctorPage;
 
-    await gotoAuthed(page, "/dashboard/purchase-orders");
-    // The page itself has no client-side RBAC gate, so no not-authorized
-    // redirect fires. The page renders but the API call fails with 403,
-    // giving an empty list.
-    // We do NOT call expectNotForbidden on the URL — just ensure no crash
-    // and that the content doesn't show real PO data.
-    await expect(
-      page.getByRole("heading", { name: /purchase orders/i }).first()
-    ).toBeVisible({ timeout: PAGE_TIMEOUT });
+    await page.goto("/dashboard/purchase-orders");
+    await page.waitForURL(/\/dashboard\/not-authorized/, { timeout: PAGE_TIMEOUT });
 
-    // The API 403 makes the list empty.
-    await expect(
-      page.locator("text=/No purchase orders found/i").first()
-    ).toBeVisible({ timeout: PAGE_TIMEOUT });
-
-    // No JS crash banner.
-    await expect(
-      page.locator("text=/Application error|Something went wrong/i")
-    ).toHaveCount(0);
-
-    // Confirm the API gate directly.
     const apiRes = await request.get(`${API_BASE}/purchase-orders`, {
       headers: { Authorization: `Bearer ${doctorToken}` },
     });
     expect(apiRes.status()).toBe(403);
   });
 
-  // ── 14. RBAC negative: NURSE sees empty state ─────────────────────────────
-  test("NURSE loads the PO page HTML but sees no orders (GET /purchase-orders returns 403 for NURSE)", async ({
+  // ── 14. RBAC negative: NURSE is redirected to /dashboard/not-authorized ───
+  test("NURSE is redirected to /dashboard/not-authorized — page-level VIEW_ALLOWED gate fires (and API GET /purchase-orders returns 403)", async ({
     nursePage,
     nurseToken,
     request,
   }) => {
     const page = nursePage;
 
-    await gotoAuthed(page, "/dashboard/purchase-orders");
-    await expect(
-      page.getByRole("heading", { name: /purchase orders/i }).first()
-    ).toBeVisible({ timeout: PAGE_TIMEOUT });
-
-    await expect(
-      page.locator("text=/No purchase orders found/i").first()
-    ).toBeVisible({ timeout: PAGE_TIMEOUT });
-
-    await expect(
-      page.locator("text=/Application error|Something went wrong/i")
-    ).toHaveCount(0);
+    await page.goto("/dashboard/purchase-orders");
+    await page.waitForURL(/\/dashboard\/not-authorized/, { timeout: PAGE_TIMEOUT });
 
     const apiRes = await request.get(`${API_BASE}/purchase-orders`, {
       headers: { Authorization: `Bearer ${nurseToken}` },
@@ -947,26 +926,16 @@ test.describe("Purchase Orders — /dashboard/purchase-orders (PO lifecycle + ap
     expect(apiRes.status()).toBe(403);
   });
 
-  // ── 15. RBAC negative: LAB_TECH sees empty state ─────────────────────────
-  test("LAB_TECH loads the PO page HTML but sees no orders (GET /purchase-orders returns 403 for LAB_TECH)", async ({
+  // ── 15. RBAC negative: LAB_TECH is redirected to /dashboard/not-authorized
+  test("LAB_TECH is redirected to /dashboard/not-authorized — page-level VIEW_ALLOWED gate fires (and API GET /purchase-orders returns 403)", async ({
     labTechPage,
     labTechToken,
     request,
   }) => {
     const page = labTechPage;
 
-    await gotoAuthed(page, "/dashboard/purchase-orders");
-    await expect(
-      page.getByRole("heading", { name: /purchase orders/i }).first()
-    ).toBeVisible({ timeout: PAGE_TIMEOUT });
-
-    await expect(
-      page.locator("text=/No purchase orders found/i").first()
-    ).toBeVisible({ timeout: PAGE_TIMEOUT });
-
-    await expect(
-      page.locator("text=/Application error|Something went wrong/i")
-    ).toHaveCount(0);
+    await page.goto("/dashboard/purchase-orders");
+    await page.waitForURL(/\/dashboard\/not-authorized/, { timeout: PAGE_TIMEOUT });
 
     const apiRes = await request.get(`${API_BASE}/purchase-orders`, {
       headers: { Authorization: `Bearer ${labTechToken}` },
@@ -974,26 +943,16 @@ test.describe("Purchase Orders — /dashboard/purchase-orders (PO lifecycle + ap
     expect(apiRes.status()).toBe(403);
   });
 
-  // ── 16. RBAC negative: PATIENT sees empty state ───────────────────────────
-  test("PATIENT loads the PO page HTML but sees no orders (GET /purchase-orders returns 403 for PATIENT)", async ({
+  // ── 16. RBAC negative: PATIENT is redirected to /dashboard/not-authorized
+  test("PATIENT is redirected to /dashboard/not-authorized — page-level VIEW_ALLOWED gate fires (and API GET /purchase-orders returns 403)", async ({
     patientPage,
     patientToken,
     request,
   }) => {
     const page = patientPage;
 
-    await gotoAuthed(page, "/dashboard/purchase-orders");
-    await expect(
-      page.getByRole("heading", { name: /purchase orders/i }).first()
-    ).toBeVisible({ timeout: PAGE_TIMEOUT });
-
-    await expect(
-      page.locator("text=/No purchase orders found/i").first()
-    ).toBeVisible({ timeout: PAGE_TIMEOUT });
-
-    await expect(
-      page.locator("text=/Application error|Something went wrong/i")
-    ).toHaveCount(0);
+    await page.goto("/dashboard/purchase-orders");
+    await page.waitForURL(/\/dashboard\/not-authorized/, { timeout: PAGE_TIMEOUT });
 
     const apiRes = await request.get(`${API_BASE}/purchase-orders`, {
       headers: { Authorization: `Bearer ${patientToken}` },

@@ -281,12 +281,7 @@ For each spec already in the suite, the flows below are not tested and should be
 - No DB-reset fixture between tests — audit-log and financial state leak across runs
 - No teardown for created records — seeded patients accumulate
 
-### 4.2 Mobile / responsive
-- `cross-cutting.spec.ts` tests mobile drawer on `/dashboard` only
-- Missing: mobile viewport for appointments, billing, prescriptions
-- Missing: touch events (tap, long-press, swipe)
-- Missing: mobile-specific error states (network degradation)
-- Missing: bottom-sheet vs. modal rendering
+### ~~4.2 Mobile / responsive~~ ✅ closed 2026-05-05 by `e2e/mobile-responsive.spec.ts` (6 cases — ADMIN mobile chrome on /dashboard/appointments (Open menu button + slide-in primary-navigation drawer + bottom-nav role-keyed shortcuts); RECEPTION mobile chrome on /dashboard/billing (drawer opens + bottom-nav `/dashboard/billing` Bills shortcut); DOCTOR mobile chrome on /dashboard/prescriptions (RX_ALLOWED non-redirect + bottom-nav Rx shortcut); PATIENT bottom-nav 5-shortcut surface pin (Home/Appts/Rx/Bills/Profile from `bottomNavByRole.PATIENT` layout.tsx:131-137 + `aria-current="page"` active-state contract); page.tap() touch-event polyfill on Open menu (no separate tap-only handler — layout.tsx:917-924 binds onClick only); DataTable mobile-card switch on /dashboard/users at 390px (visible-table count = 0 below md breakpoint per DataTable.tsx:506-507 `md:hidden` wrap)). Deferred — UI not shipped (verified BEFORE scaffold per cron-learning bullet 7): (a) **Touch events long-press / swipe** — repo-wide grep for `onTouchStart|onTouchEnd|onTouchMove|onSwipe|longPress|long-press` across `apps/web/src` returns ZERO hits; tap is exercised as click-polyfill, but long-press / swipe gestures have no handlers to test against; (b) **Mobile-specific error states (network degradation)** — `navigator.onLine` / online-event listeners exist NOWHERE in `apps/web/src` outside `/display/page.tsx` (kiosk poll-only, already covered by unit test); no dashboard route shows a mobile-specific "you are offline" banner; `lib/api.ts:177-190` throws on fetch failure and surfaces a toast at most; (c) **Bottom-sheet vs. modal rendering** — every modal under `apps/web/src/components` (ConfirmDialog, PromptDialog, KeyboardShortcutsModal, PatientEditModal, HelpPanel, OnboardingTour) renders as a centred overlay (`fixed inset-0 z-… flex items-center justify-center`) at every viewport with NO viewport-conditional bottom-sheet variant; no `BottomSheet`-named component exists in the repo. All deferred scenarios re-enter the backlog when the matching UI surfaces ship.
 
 ### 4.3 Accessibility
 - `a11y.spec.ts` runs axe on 27 pages — strong baseline

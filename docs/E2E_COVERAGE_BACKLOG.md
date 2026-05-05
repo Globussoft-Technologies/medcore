@@ -346,11 +346,7 @@ For each spec already in the suite, the flows below are not tested and should be
 
 ### ~~4.10 Print / PDF~~ ✅ closed 2026-05-05 by `e2e/print-pdf.spec.ts` (5 cases — Rx per-row Print CTA POST `/prescriptions/:id/print` audit-trigger pin + GET `/prescriptions/:id/pdf` popup; RECEPTION Print Invoice CTA → authed GET `/billing/invoices/:id/pdf`; DOCTOR Discharge Summary CTA → GET `/admissions/:id/discharge-summary-pdf` (BOLA-gated handler); DOCTOR Print Report on lab order → GET `/lab/orders/:id/pdf`; PAID watermark overlay render-pin via `derivePaymentStatus` collapse — drives the only watermarking shipped today). Deferred — UI not shipped (verified BEFORE scaffold per cron-learning bullet 7): (a) **"TEST RESULT — NOT FOR CLINICAL USE" clinical-test watermark** — string is absent from every render path under `apps/web/src` and `apps/api/src/services/pdf*`; only references are in this backlog and the system-test plan; (b) **Batch / multi-select print** — no `bulk.*print` / `selectedRows.*print` / multi-row checkbox+print pattern exists anywhere in `apps/web/src`; the only print CTAs are per-row or per-detail-page. Both deferred scenarios re-enter the backlog when the matching UI surfaces ship. Cross-cutting NOTE: pinning is via `page.waitForResponse()` not `page.waitForEvent('download')` — `openPrintEndpoint` (lib/api.ts:233) authed-fetches HTML and writes it into a popup; there is no download event to capture.
 
-### 4.11 Multi-tenant isolation
-- `admin-ops.spec.ts` touches tenants page; no isolation verification
-- Missing: data leakage test (tenant A cannot see tenant B's patients)
-- Missing: audit-log separation by tenant
-- Missing: feature-flag / plan-based gating per tenant
+### ~~4.11 Multi-tenant isolation~~ ✅ closed 2026-05-05 by `apps/api/src/test/integration/cross-tenant.test.ts` (8 cases, integration-tier with in-test Tenant A + B fixtures created in `beforeAll` so no seed pollution) + `e2e/cross-tenant-isolation.spec.ts` (3 browser-side structural beacons). See §5 P10 below for the full closure summary. The 3 missing items in this section are now covered: data leakage test ✅ (cases 1+2+3+5+6+7), audit-log separation ✅ (case 4 — both action name AND entityId checked so a future filter-widening can't silently leak), and the wire-level invariant of legacy + forged tokens being fail-closed ✅ (cases 7+8). Feature-flag / plan-based gating per tenant remains aspirational (no per-tenant feature-flag shipped yet — separate backlog item if needed).
 
 ### 4.12 Mobile app (apps/mobile)
 - Zero E2E coverage
@@ -384,9 +380,9 @@ filename and the core scenarios it should cover.
 | P7 | ✅ closed | `e2e/hr-operations.spec.ts` | `ce747a3` |
 | P8 | ✅ closed | `e2e/insurance-claims-lifecycle.spec.ts` (+ `insurance-claims.spec.ts`) | `5aeae12` (+ `b155758`) |
 | P9 | ✅ closed | `e2e/er-disposition.spec.ts` | `a809efa` |
-| P10 | ⚠ deferred — multi-tenant fixtures unavailable | (not scaffolded) | — |
+| P10 | ✅ closed (integration-tier, in-test fixtures) + e2e structural beacon | `apps/api/src/test/integration/cross-tenant.test.ts` + `e2e/cross-tenant-isolation.spec.ts` | (this commit) |
 
-**P10 — Multi-tenant data isolation:** structurally blocked. `seed-realistic.ts` carries zero `tenantId` references (single-tenant data); `tenantScopedPrisma` extension at `packages/db/src/tenant-prisma.ts` enforces RLS but no second-tenant fixture exists, so a Playwright spec cannot observe leakage. A contract beacon is pinned in `e2e/rbac-matrix-deep.spec.ts` case 6 (no `effectiveRole` / `delegatedFromUserId` / `tenantOverride` fields on `/auth/me`) so the day a multi-tenant fixture lands, this slot reopens and the fixture-driven leak tests can be authored.
+**P10 — Multi-tenant data isolation:** **CLOSED 2026-05-05** via the in-test-fixture pattern (no seed pollution). The integration test creates **two fresh Tenant rows in `beforeAll`** and asserts the full middleware chain (`tenantContextMiddleware` → `withTenantContext` → `tenantScopedPrisma`) is end-to-end correct via 8 cases: (1) GET /patients per tenant returns own rows only, (2) symmetric assertion for the other tenant, (3) URL probe across tenant boundary 404s on the other tenant's row id, (4) /audit returns own audit rows only — both `action` name AND `entityId` checked so a future filter-widening can't silently leak, (5) write auto-tags `tenantId=A` on POST /patients regardless of payload, (6) extension-layer direct assertion: `runWithTenant(A) → tenantScopedPrisma.patient.findMany()` filters by tenant + symmetric for B (catches drift in `TENANT_SCOPED_MODELS` set), (7) extension-layer create-injection: `runWithTenant(B) → tenantScopedPrisma.appointment.create({...})` auto-stamps `tenantId=B` even when payload omits it + the row is invisible to A's scope, (8) **negative paths** — legacy token (no tenantId claim) leaves `req.tenantId` undefined and falls through (no accidental binding to a default tenant) + forged tenantId claim is rejected by the A9 validation cache (fail-closed: dropped silently, request proceeds un-scoped). Companion e2e at `e2e/cross-tenant-isolation.spec.ts` adds 3 browser-side beacons: dashboard chrome MUST NOT surface a tenant badge / name / switcher (structural-NOT — fires when multi-tenant UX ships); /auth/me payload MUST carry `tenantId` field (wire-level beacon); login page MUST NOT surface a tenant-selector (structural-NOT — fires when multi-tenant login UX ships). **Critical finding surfaced during scaffold**: until this file landed, NO existing integration test exercised the three multi-tenant layers TOGETHER — `getAuthToken()` mints tenant-less JWTs and the seed admin has `tenantId=NULL`, so the suite ran with the extension fully disabled. That gap is now closed.
 
 ### ~~P1 — Billing line-item editing & credit notes~~ ✅ closed (`e2e/billing-line-items.spec.ts`, 5 cases — UI delete-with-audit-row pin (INVOICE_ITEM_DELETE entityId+details.itemId match) + quantity-change-as-replace flow (delete-then-re-add; the only production path — there is NO PATCH /items endpoint) + partial-refund modal POST body shape pinned via page.route stub + Issue Refund CTA disabled-while-reason-empty assertion + POST /credit-notes against PAID invoice 201 with CN- noteNumber + over-credit 400 guard. Deferred — UI not shipped: (a) "edit line-item quantity" via dedicated PATCH endpoint — backend has no PATCH /items so quantity-change happens via delete+re-add, which IS covered; (b) "period-locked invoice → edit blocked" — no `lockedAt` field on Invoice model; the de-facto edit lock is `paymentStatus !== "PENDING"` which is already pinned in `e2e/billing-id.spec.ts` ("RECEPTION add-line-item is forbidden once the invoice is PAID"); (c) "overpayment → credit balance carry-forward" — no UI surface; `derivePaymentStatus` only returns REFUNDED/PAID/PARTIAL/PENDING with no advance-credit field for excess payment. There is also no `/dashboard/credit-notes` web surface today — credit notes are exercised as a pure API contract pin so the next person who builds the UI has a green baseline.)
 - ~~**File:** `e2e/billing-line-items.spec.ts`~~
@@ -641,8 +637,8 @@ backlog aspiration).
 | Backlog items closed inline (§2 + §3 + §4 + §5) | ~80 |
 | Backlog items deferred-with-evidence (sub-scenarios) | ~60+ (per CHANGELOG; see §3 + §4 + §5 inline) |
 | Architectural-gap findings (deferred at any layer) | 6 (see below) |
-| P-priority slots closed (P1–P9) | 9 of 10 |
-| P-priority slots deferred (P10 only) | 1 of 10 |
+| P-priority slots closed (P1–P10) | **10 of 10** |
+| P-priority slots deferred | 0 of 10 |
 | Cross-cutting bands closed (§4) | 4.2 / 4.3 / 4.7 / 4.8 / 4.9 / 4.10 / 4.13 |
 | Open questions resolved (§9) | 3 of 6 (bloodbank/medication/scheduled-reports dedups) |
 
@@ -678,10 +674,10 @@ checkable against `git show <SHA>` in one hop.
   WhatsApp gating still mocked.
 - **§4.6 Performance** — zero performance specs (3G throttle, 1000+
   list rendering, concurrent-booking, 8h memory profile).
-- **§4.11 Multi-tenant isolation** — blocked on §5 P10 fixture work.
+- ~~**§4.11 Multi-tenant isolation**~~ ✅ closed 2026-05-05 (integration-tier in-test fixtures + e2e structural beacons — see snapshot above).
 - **§4.12 Mobile app (apps/mobile)** — zero E2E coverage; release-scope
   decision per §9 governs investment.
-- **§5 P10 — Multi-tenant data isolation** — see snapshot above.
+- ~~**§5 P10 — Multi-tenant data isolation**~~ ✅ closed 2026-05-05 — see snapshot above.
 - **§6 secondary backlog** — partially closed by the run (a11y
   deepening, antenatal/[id], notifications/templates, profile/account,
   documents-upload); other items remain open as time permits.

@@ -7,6 +7,8 @@ description: Dispatch the MedCore release.yml validation workflow on origin/main
 
 The codified release.yml validate-and-diagnose loop. Dispatches the workflow, blocks on completion (~25-40 min for full Playwright + WebKit + API tests), and returns a structured report.
 
+> **Shell note**: this skill's diagnostic commands use `gh run view --log-failed 2>&1 | grep ...` and bash here-doc syntax. **Run them via the Bash tool, not PowerShell.** On Windows PowerShell, redirecting a native exe's stderr inside a pipe wraps each line as a NativeCommandError and breaks `$?` even on exit 0 — the bash idioms below assume POSIX redirect semantics.
+
 ## When to invoke
 
 - User asks for an explicit release validation: "kick off release.yml", "validate", "run the full e2e suite".

@@ -9,6 +9,8 @@ The codified per-push **Test workflow** failure-cluster diagnosis playbook. When
 
 This skill exists because of the 2026-05-04 wave: 16 auth-integration failures across 6 files looked like 16 separate bugs. They were 5 root causes, one of which (a `_loginLimiterImpl` cache leak across `vitest.config.ts singleFork: true`) cascaded 429s into 8 unrelated tests. Diagnosed-and-fixed in ~30 min using this playbook; would have been a multi-hour rabbit-hole otherwise.
 
+> **Shell note**: this skill's diagnostic commands use `gh run view --log-failed 2>&1 | grep ...` and `grep -rln ... | while read f` constructs. **Run them via the Bash tool, not PowerShell.** On Windows PowerShell, redirecting a native exe's stderr inside a pipe wraps each line as a NativeCommandError and `while read` doesn't exist as written — the bash idioms below assume POSIX semantics.
+
 ## When to invoke
 
 - Per-push Test workflow on `origin/main` is red with 3+ failures across 2+ files.

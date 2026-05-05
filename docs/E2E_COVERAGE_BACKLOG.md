@@ -419,18 +419,18 @@ filename and the core scenarios it should cover.
   - Medication reconciliation across encounters
   - Caregiver / family contact CRUD~~
 
-### P5 — Admission → MAR → Discharge end-to-end
+### ~~P5 — Admission → MAR → Discharge end-to-end~~ ✅ closed 2026-05-05 by `e2e/admission-discharge-flow.spec.ts` (6 cases — RECEPTION admit-form POST /admissions body shape pin (patientId / doctorId / bedId / reason) via page.route stub + DOCTOR admit-orders MEDS-only POST /medication/orders body shape pin via stub (medicineId / dosage / frequency / route / startDate) + NURSE MAR skip-with-reason variant PATCH /medication/administrations/:id body shape pin (status=REFUSED + notes) covering the axis the existing admissions-mar.spec.ts can't reach pending bed seeding + DOCTOR inter-ward transfer PATCH /admissions/:id/transfer body shape pin via stub (bedId | newBedId field-name future-proofed) + DOCTOR DISCHARGE-typed med-reconciliation POST /med-reconciliation body shape pin (reconciliationType="DISCHARGE" — distinct axis from the discharge form covered in admissions.spec.ts test 8 / admissions-id.spec.ts test 7) + LIST-page LOS column post-discharge surface pin (page.tsx:336 "LOS (d)" column visibility on the Discharged tab via API force-discharge); page.route stubs short-circuit every mutating endpoint so multi-role persistence chains don't pollute the shared seed across runs. Original P5 framing's other scenarios DEFERRED with evidence per cron-learning #7 — Doctor admit-orders for "vitals frequency" + "diet" not shipped (Vitals tab has discrete-measurement form only, no frequency input; no diet-orders surface in admission detail page); explicit "continue" disposition CTA not shipped (it's the implicit no-op default — only Transfer + Discharge buttons render in the Actions panel at page.tsx:488-506); post-discharge followup auto-scheduling not shipped (admissions.ts:400-518 discharge handler only persists `followUpInstructions` as free text; no FollowUp row auto-creation, no /followups POST fired); `/dashboard/census` aggregate LOS-impact pin deferred (census page reads /admissions/census/daily for occupancy counts only, no per-admission LOS column rendered))
 - **File:** `e2e/admission-discharge-flow.spec.ts`
 - **Why:** Inpatient care drives major revenue + safety risk surface
 - **Scenarios:**
-  - Reception fills admit form → bed assignment from `/dashboard/wards`
-  - Doctor enters admit orders (meds, vitals frequency, diet)
-  - Nurse charts vitals + administers MAR (verify, dispense, skip with reason)
-  - Doctor updates disposition (continue / transfer / discharge)
-  - Inter-ward transfer with bed re-assignment
-  - Discharge summary generation with meds reconciliation
-  - Post-discharge followup auto-scheduled
-  - Length-of-stay reflected in census + analytics
+  - ~~Reception fills admit form → bed assignment from `/dashboard/wards`~~ ✅ pinned via RECEPTION admit modal POST /admissions body shape stub (patientId / doctorId / bedId / reason) — bed dropdown is sourced from /wards in-modal, not via navigation
+  - ~~Doctor enters admit orders (meds, vitals frequency, diet)~~ ✅ MEDS pinned via POST /medication/orders body shape stub; vitals-frequency + diet DEFERRED — Vitals tab has no frequency input (discrete measurements only at page.tsx:748-1083), no diet surface shipped
+  - ~~Nurse charts vitals + administers MAR (verify, dispense, skip with reason)~~ ✅ skip-with-reason pinned via REFUSED+notes PATCH stub — covers the axis admissions-mar.spec.ts (currently all-skipped pending bed seeding) cannot
+  - ~~Doctor updates disposition (continue / transfer / discharge)~~ ✅ TRANSFER + DISCHARGE pinned (transfer body shape, discharge meds-reconciliation type=DISCHARGE pinned); "continue" deferred — no explicit CTA shipped (implicit no-op default)
+  - ~~Inter-ward transfer with bed re-assignment~~ ✅ pinned via PATCH /admissions/:id/transfer body shape stub — companion specs only OPEN the modal and cancel
+  - ~~Discharge summary generation with meds reconciliation~~ ✅ MED-RECON DISCHARGE-type POST pinned via stub — discharge-summary form itself is already covered by admissions.spec.ts test 8 + admissions-id.spec.ts test 7
+  - ~~Post-discharge followup auto-scheduled~~ deferred — admissions.ts:400-518 discharge handler only persists `followUpInstructions` as free text; no FollowUp row auto-creation, no /followups POST fired (backlog framing aspirational per cron-learning #7)
+  - ~~Length-of-stay reflected in census + analytics~~ LIST-page LOS column visibility pinned (page.tsx:336); /dashboard/census aggregate-only deferred — census page reads /admissions/census/daily for occupancy counts, not per-admission LOS
 
 ### ~~P6 — Custom reports creation, scheduling, export~~ ✅ closed 2026-05-05 by `e2e/reports-custom.spec.ts` (7 cases — ADMIN forward-flow + RBAC redirect-bounce; recurring-schedule lifecycle deferred to route-handler unit tests)
 - **File:** `e2e/reports-custom.spec.ts`

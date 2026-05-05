@@ -12,6 +12,20 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 27 — §3 deepening (lab-tech-deep + patient-detail-deep).**
+  Lane A (`5c41e0c`) shipped `lab-tech-deep.spec.ts` (6 cases — heavy
+  use of API-contract-pin pattern: 4 of 5 deepening items where API
+  ships but UI doesn't (verify sign-off, repeat-test reorder, amendment
+  trail, batch results)). Lane B (`ea23a8c`) shipped `patient-detail-
+  deep.spec.ts` (6 cases — advance directives + DNR banner +
+  LIFE_THREATENING severity tier + insurance read-only + MRN merge
+  ADMIN-only + med-recon API-contract-pin). 12 new tests × 2 projects
+  = 24 listed cases. **Concrete bug shadow surfaced**: `PatientDetail`
+  TS interface declares `insuranceId` but Prisma schema field is
+  `insurancePolicyNumber` — UI at `page.tsx:671` reads a field the
+  API never returns. Real evidence of the discipline's value: the
+  pre-flight grep surfaces issues beyond test scaffolding. Cumulative
+  ~50+ deferred-or-contract-pinned sub-scenarios across 7 cron ticks.
 - **2026-05-05 cron-tick wave 26 — §3 deepening (ot-surgery-deep + telemedicine-deep) + 7th cron-learning bullet refined with API-ahead-of-UI sub-pattern.**
   Lane A (`5ae09c4`) shipped `ot-surgery-deep.spec.ts` (6 cases —
   anesthesia + clinical-notes + complications + PACU + SSI + RBAC).

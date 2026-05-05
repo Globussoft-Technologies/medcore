@@ -316,6 +316,55 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 27 (2-agent E2E fanout — §3 deepening continued: lab-tech-deep + patient-detail-deep)**:
+> 2 §3 deepening items closed via 12 cases across 2 spec files. Lane A
+> (`5c41e0c`): `e2e/lab-tech-deep.spec.ts` (6 cases — DOCTOR
+> `PATCH /lab/results/:id/verify` API-contract-pin (no Verify CTA in
+> chart UI; LAB_TECH 403 separation-of-duties from Issue #14) + delta-
+> flag escalation contract via >25% delta path (`lab.ts:422-454`,
+> `:505-525`) + repeat-test reorder API-contract-pin (no UI; "two POSTs,
+> two distinct LAB-prefixed orderNumbers") + amendment trail audit-row
+> chain (no PATCH /results/:id endpoint; recreate + double-row
+> capture is the actual contract on this build) + batch result entry
+> POST /lab/results/batch contract-pin (single-row Add Result form
+> only, no batch UI; criticalCount + atomic completion + DOCTOR 403
+> separation-of-duties) + LAB_TECH dashboard chrome anchor + route-
+> shadow regression pin per commit `a5a6224`). All 5 §3 deepening
+> items pinned at the API layer per the cron-learning-7 API-contract-
+> pin escape valve.
+>
+> Lane B (`ea23a8c`): `e2e/patient-detail-deep.spec.ts` (6 cases —
+> Advance directives write at `page.tsx:5007-5122` AdvanceDirectivesSection
+> + DnrBanner at `page.tsx:3768-3803` + LIFE_THREATENING allergy severity
+> 4th option at `page.tsx:2962-2966` (doctor-chart-review.spec.ts only
+> exercised SEVERE) + insurance read-only display at `page.tsx:666-674`
+> + MRN merge ADMIN-only CTA at `page.tsx:591-599` + MergePatientModal
+> at `:4409-4561` + medication-reconciliation API-contract-pin guarding
+> the future chart panel). VERIFY audit: 2 partial deferrals — Intolerance
+> entity (no Prisma model, only `PatientAllergy`), allergy MILD/MODERATE
+> tier display (low-value, same form/different value).
+>
+> **CONCRETE BUG SHADOW SURFACED**: `PatientDetail` TS interface declares
+> `insuranceId` but Prisma schema field is `insurancePolicyNumber`. UI
+> at `page.tsx:671` reads a field name the API never returns. Flagged
+> via Lane B spec comment but not patched (out of Lane B scope) —
+> worth a future cleanup ticket. Real evidence of the discipline's
+> value: the pre-flight grep surfaces issues beyond test scaffolding.
+>
+> **12 new E2E tests across 2 spec files** (×2 Playwright projects =
+> 24 listed cases). 2 §3 deepening items closed (lab-tech +
+> patient-detail).
+>
+> **VERIFY-BEFORE-SCAFFOLD discipline cumulative across waves
+> 21+22+23+24+25+26+27**: ~50+ sub-scenarios deferred or contract-
+> pinned with concrete evidence-citations. The 7th cron-learning
+> bullet's discipline continues to surface concrete bugs/gaps for the
+> product team. Both arms now battle-tested:
+> deferral-with-evidence + API-contract-pin (the wave-26 refinement
+> "test the wire, not the widget" was applied directly by Lane A and
+> covered all 5 lab-tech deepening items where the API ships but the
+> UI doesn't).
+>
 > **2026-05-05 cron-tick wave 26 (2-agent E2E fanout — pivot to §3 deepening as NEW companion specs: ot-surgery-deep + telemedicine-deep)**:
 > 2 §3 deepening items closed via 13 cases across 2 spec files. Lane A
 > (`5ae09c4`): `e2e/ot-surgery-deep.spec.ts` (6 cases — Anesthesia

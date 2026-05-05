@@ -316,6 +316,60 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 30 (single-lane backlog consolidation sweep — final wrap-up of 29-wave cron-driven session)**:
+> Pivoted from spec-scaffolding (diminishing returns after 29 waves) to
+> a high-leverage doc-bookkeeping sweep on `docs/E2E_COVERAGE_BACKLOG.md`.
+> Single agent (`a0fe0cc`) consolidated the backlog to honestly reflect
+> post-29-wave state.
+>
+> **§1 suite snapshot refreshed**: spec files **131** (was 40); routes-
+> with-zero-coverage **~5** (was ~40); roles **7** (unchanged); ~55 new
+> specs scaffolded across 29 waves today.
+>
+> **Backlog tally**:
+> - ~80 backlog items closed inline with spec-name + commit-SHA
+>   annotations + closure summaries
+> - ~60+ sub-scenarios deferred-with-evidence (page.tsx line refs,
+>   route-file absence, repo-wide grep counts) per the 7th cron-
+>   learning bullet's VERIFY-BEFORE-SCAFFOLD discipline
+> - **9 of 10 P-slots closed** (P1 billing-line-items, P2 prescription-
+>   lifecycle, P3 pharmacy-inventory, P4 doctor-chart-review, P5
+>   admission-discharge-flow, P6 reports-custom, P7 hr-operations,
+>   P8 insurance-claims-lifecycle, P9 er-disposition; P10 tenant-
+>   isolation deferred — multi-tenant fixtures needed)
+> - 7 of 13 §4 cross-cutting bands closed (§4.2 mobile-responsive,
+>   §4.3 a11y-deep, §4.7 negative-paths, §4.8 file-operations, §4.9
+>   realtime, §4.10 print-pdf, §4.13 i18n)
+> - 3 of 6 §9 open questions resolved (reports/scheduled vs
+>   scheduled-reports dedup, operating-theaters/theatres dedup,
+>   medication/medication-dashboard dedup)
+>
+> **6 architectural-gap findings codified** for the product team's
+> roadmap (each with grep-evidence + the spec-case where its
+> structural-NOT pin lives):
+> 1. Optimistic-concurrency infrastructure (last-write-wins systemic)
+> 2. Delegation / temporary-role-assumption (zero infra at any layer)
+> 3. Attribute-based routing (patients list does NOT self-scope by
+>    attending doctor)
+> 4. KPI threshold configuration (zero infra at any layer)
+> 5. Skip-to-content link (`<main id="main-content">` target ships
+>    but no skip link)
+> 6. Multi-step wizard keyboard nav (only static "Step 1:" labels
+>    ship, no stateful prev/next forms)
+>
+> **8 cron-learning bullets** captured in CLAUDE.md across the session,
+> 5 RIPE for skill promotion (3rd archetype admin-gate-placeholder,
+> 6th redirect-bounce target convention, 7th aspirational-backlog-
+> framing + API-ahead-of-UI sub-pattern + API-contract-pin escape
+> valve, plus 4th cross-patient test fixture/token mismatch class +
+> 5th Express route-shadow regression class).
+>
+> **Session-end summary**: 30 cron ticks, ~55 new E2E specs, 9/10
+> §5 priorities + 7/13 §4 cross-cutting closed, 6 architectural gaps
+> documented, 5 RIPE skill-promotable cron-learnings. Issue #511
+> long-tail closure (69 BOLA fixes + 187 verified-safe across 36
+> routes) and ~242 new test cases shipped earlier in the same session.
+>
 > **2026-05-05 cron-tick wave 29 (2-agent E2E fanout — §3 admin-ops-deep + §4.3 a11y-deep)**:
 > 2 deepening items closed via 10 cases across 2 spec files. Lane A
 > (`4439c56`): `e2e/admin-ops-deep.spec.ts` (5 cases — custom date-range

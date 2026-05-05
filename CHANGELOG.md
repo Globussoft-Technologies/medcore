@@ -12,6 +12,20 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 30 — backlog consolidation sweep (29-wave session wrap-up).**
+  After 29 waves of disciplined fanout shipping ~55 new E2E specs (spec
+  files 40 → 131, routes-with-zero-coverage ~40 → ~5), pivoted to a
+  single-lane backlog consolidation sweep (`a0fe0cc`). The sweep
+  refreshed §1 snapshot, annotated ~9 closure blocks across §3/§5/§9,
+  added a final tally section with the post-session state, and
+  codified 6 architectural-gap findings with grep-evidence + the
+  spec-case where each structural-NOT pin lives. **Session-end
+  summary**: 9 of 10 §5 P-priorities closed (only P10 tenant-isolation
+  remains, blocked on multi-tenant fixtures); 7 of 13 §4 cross-cutting
+  bands closed; 3 of 6 §9 open questions resolved; ~80 backlog items
+  closed inline; ~60+ sub-scenarios deferred-with-evidence; 8 cron-
+  learning bullets in CLAUDE.md (5 RIPE for skill promotion);
+  6 architectural-gap findings documented for product roadmap.
 - **2026-05-05 cron-tick wave 29 — §3 admin-ops-deep + §4.3 a11y-deep + 3 more architectural-gap findings.**
   Lane A (`4439c56`) shipped `admin-ops-deep.spec.ts` (5 cases —
   custom date-range URL contract + drill-down modal + period-over-

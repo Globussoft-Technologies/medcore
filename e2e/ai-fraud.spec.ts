@@ -125,8 +125,11 @@ test.describe("AI Fraud & Anomaly Alerts — /dashboard/ai-fraud (ADMIN/RECEPTIO
       page.locator('[data-testid="ai-fraud-status-alert-row-1"]')
     ).toBeVisible();
 
-    // Click the row to expand → details/comments row appears.
-    await row.click();
+    // Click the chevron cell (first td) to expand → details/comments
+    // row appears. Clicking the row's center can land on the status
+    // pill button (page.tsx:233 has e.stopPropagation()) and miss the
+    // row-level onClick that toggles expandedId.
+    await row.locator("td").first().click();
     await expect(
       page.locator('[data-testid="ai-fraud-details-alert-row-1"]')
     ).toBeVisible({ timeout: 5_000 });

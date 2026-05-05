@@ -8,25 +8,24 @@ is independently shippable. Full per-session history lives under
 
 ## 🏠 HOME PICKUP — handoff from 2026-05-05 night session (read this first)
 
-**Production state at handoff** (commit `ce13662` — `chore(skills): add /medcore-dependabot-triage`):
-- ✅ HEAD on `main` = `ce13662`. Working tree clean. Per-push CI green.
+**Production state at handoff** (commit `2edfbf1` — `Fixed/medcore/issue (#521)`):
+- ✅ HEAD on `main` = `2edfbf1`. Working tree clean. Per-push CI green.
 - ✅ Auto-deploy operating; `medcore.globusdemos.com` is current.
-- 5 PRs merged this evening: #571 (Sourav fixes), #662 (patch+minor group of 7), #464 (otel 2), #466 (express 5), and the `/medcore-dependabot-triage` skill commit.
+- **7 PRs merged tonight**: #571 (Sourav AI radiology fixes), #662 (patch+minor group of 7), #464 (otel 2), #466 (express 5), #471 (react 19), #467 (react-dom 19), #521 (Subhadip's 5-bug fix). Plus the `/medcore-dependabot-triage` skill commit.
+- **Open PRs: 3** (down from 9). All 3 are confirmed-red majors needing dedicated migration sessions.
 
 ### 🔥 Top priority for home pickup
 
-1. **3 PRs were running fresh CI at session end — check + merge if green:**
-   - `#471` react 18 → 19  + `#467` react-dom 18 → 19 — **must merge as a pair**, #471 first then #467 immediately after.
-   - `#521` Subhadip's 5-bug fix — I rebased + fixed the 4 appointment-test fixtures (`slotId` UUID → HH:MM per the PR's own schema change) and force-pushed `b3ffef3`. Once green, `gh pr merge 521 --squash`.
-   - **NOTE: `gh pr merge --auto` is disabled** on this repo (`enablePullRequestAutoMerge: false`). Must merge manually after CI clears.
-2. **Once react@19 (#471 + #467) lands, REMOVE `legacy-peer-deps=true`** from root `.npmrc`. The `.npmrc` was added (`19dd6a0`) as a temporary unblock for dependabot's strict ERESOLVE check; it's no longer needed once the React mismatch is gone.
-3. **3 PRs confirmed-red** (real migration work — leave open until dedicated sessions):
-   - `#469` vitest 2 → 4 — `TypeError: Cannot read properties of undefined (reading 'fetchCache')` — runner API change
-   - `#470` @prisma/client 6 → 7 — 5 jobs fail; client API surface changes
-   - `#472` eslint 9 → 10 — Lint job fails; config format migration
-4. **Watch list — merged tonight, may surface runtime issues**:
-   - `#464` otel 2 was merged by user despite API tests failing on the rebased run. If observability breaks on dev-deploy, that's the suspect.
-   - `#466` express 4 → 5 passed all CI but middleware-ordering changes are subtle. Smoke-test `/api/v1/auth/login`, `/api/v1/patients` POST, `/api/v1/billing/webhooks/razorpay` on dev if anything looks off.
+1. **`legacy-peer-deps=true` in `.npmrc` is now removable.** It was added (`19dd6a0`) to unblock dependabot's strict ERESOLVE on the react@18 ↔ RN@0.85-peers-react@19 mismatch. With react@19 + react-dom@19 now merged, the trigger is gone. **Verify before deleting**: comment `@dependabot rebase` on one of the open PRs after removing the line + pushing — if install passes, the flag was overshooting and the change is safe; if it ERESOLVEs again, restore it and document the new mismatch.
+2. **3 PRs confirmed-red — tackle as dedicated migration sessions** (suggested order, easiest → hardest):
+   - `#472` eslint 9 → 10 — Lint job fails; config-format migration (`.eslintrc` → `eslint.config.js` flat-config). Smallest blast radius (lint-only).
+   - `#470` @prisma/client 6 → 7 — 5 jobs fail; client API surface changes. Bounded (every route already uses Prisma so the surface is finite).
+   - `#469` vitest 2 → 4 — `TypeError: Cannot read properties of undefined (reading 'fetchCache')`. Largest — every test file may need updates, snapshots may need regeneration.
+3. **Watch list — merged tonight, smoke-test on dev**:
+   - `#464` otel 2 was merged by user despite its API tests failing on the rebased run. If observability breaks, that's the suspect.
+   - `#466` express 4 → 5 passed all CI; smoke `/api/v1/auth/login`, `/api/v1/patients` POST, `/api/v1/billing/webhooks/razorpay` on dev if anything looks off.
+   - `#471` + `#467` react 19 — heavy interactive pages (dashboards, modals) for hydration regressions.
+4. **Note: `gh pr merge --auto` is disabled** on this repo (`enablePullRequestAutoMerge: false`). All future PR merges must be manual after CI clears.
 
 ### 📦 New artifacts this session
 
@@ -162,9 +161,9 @@ HEAD on `main` = `4637924d` (after morning session). Working tree should be clea
 
 ---
 
-> Updated: 2026-05-05 night (post **dep-bump triage marathon — 5 PRs merged + new /medcore-dependabot-triage skill + .npmrc unblock**).
+> Updated: 2026-05-05 night (post **dep-bump triage marathon — 7 PRs merged + new /medcore-dependabot-triage skill + .npmrc unblock**).
 > Latest session handoff: [`docs/archive/SESSION_SNAPSHOT_2026-05-05-night.md`](docs/archive/SESSION_SNAPSHOT_2026-05-05-night.md) (home pickup).
-> HEAD on `main` = `ce13662`. **Tonight's wave: #571 (Sourav AI radiology fixes), #662 (patch+minor group of 7), #464 (otel 2), #466 (express 5) all merged. `.npmrc` with `legacy-peer-deps=true` added to unblock dependabot's strict ERESOLVE check on the workspace's react@18 ↔ react-native@0.85 mismatch. New skill `/medcore-dependabot-triage` codifies the playbook. 3 PRs in-flight at session end (#467, #471, #521) — check on home pickup. 3 confirmed-red majors left (#469 vitest, #470 prisma, #472 eslint) for dedicated migration sessions.**
+> HEAD on `main` = `2edfbf1`. **Tonight's full wave (7 PRs): #571 Sourav AI radiology fixes; #662 patch+minor group of 7 (turbo/aws-sdk×2/openai/rngh/zustand); #464 otel SDK 1→2 (merged by user with API tests failing); #466 express 4→5 (all CI green, surprising); #471 react 18→19 + #467 react-dom 18→19 (paired); #521 Subhadip's 5-bug fix + my appointment-test fixture rebase (UUID→HH:MM, then date today→tomorrow to dodge #491 past-time guard). `.npmrc` with `legacy-peer-deps=true` added (`19dd6a0`) to unblock dependabot strict ERESOLVE — likely removable now that react@19 lands. New skill `/medcore-dependabot-triage` codifies the playbook. 3 confirmed-red majors left for dedicated sessions: #472 eslint 9→10 (config flat-config migration), #470 prisma 6→7 (client API), #469 vitest 2→4 (runner/snapshot format).**
 >
 > **2026-05-04 Wave summary** (after this session): `90bf481` #477 cookie-CSRF migration; `a2b32b4` #456 AuditLog tenantId; `e7ca04d` #457 tenant FK Cascade + F-ABDM-1 + F-INJ-1 + AI inference audit on 9 routes; `340dd38` 2 new skills (`/medcore-ai-route-audit`, `/medcore-fanout` Mode B note); `cde1829` A9 tenant validation; `7bd9d14`/`ffe199f`/`34bb5a3`/`e0e1429` A4 fanout (24 dashboard pages, 30 forms).
 >

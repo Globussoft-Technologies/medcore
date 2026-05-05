@@ -4,16 +4,16 @@ End-of-session handoff for **home pickup**. Read this first, then [`/TODO.md`](.
 
 ## State at session end
 
-- **HEAD on `main`** = `ce13662` (`chore(skills): add /medcore-dependabot-triage`).
+- **HEAD on `main`** = `2edfbf1` (`Fixed/medcore/issue (#521)`).
 - **Working tree:** clean.
 - **Open GitHub issues: 1** — `#482` (JWT HS256 → RS256/EdDSA, blocked on operational key-rollover plan).
 - **Open architectural follow-ups: 1** — A1 (page-level `VIEW_ALLOWED` policy decision — product call).
-- **Open PRs: 6** (down from 9 at session start). 3 merged this evening; 3 still in CI; 3 confirmed-red migration items.
-- **Per-push CI on main:** green through `ce13662`. Auto-deploy operating; `medcore.globusdemos.com` is current.
+- **Open PRs: 3** (down from 9 at session start). **7 PRs merged tonight.** Remaining 3 are confirmed-red majors needing dedicated migration sessions.
+- **Per-push CI on main:** green through `2edfbf1`. Auto-deploy operating; `medcore.globusdemos.com` is current.
 
 ## What this session shipped
 
-**5 PRs merged + 1 new skill + 1 CI-infra fix.**
+**7 PRs merged + 1 new skill + 1 CI-infra fix.**
 
 | Commit | What |
 |---|---|
@@ -23,32 +23,19 @@ End-of-session handoff for **home pickup**. Read this first, then [`/TODO.md`](.
 | `6a17815` | **#464** @opentelemetry/sdk-trace-node 1.30.1 → 2.7.1 — major bump merged by user despite API tests failing on the rebased run. Worth watching for runtime regressions in observability. |
 | `7fa540c` | **#466** express 4.22.1 → 5.2.1 — major bump that **passed all 9 CI jobs** on the rebased run. Surprising, but CI is the gate; if it deploys and runs, it's good. Watch for middleware-ordering surprises. |
 | `ce13662` | **`/medcore-dependabot-triage`** new skill codifying tonight's playbook. Pairs with `/medcore-test-triage`. |
+| `d02203e` | **#471** react 18.3.1 → 19.2.5 + @types/react. All 9 CI jobs green (paired with #467). |
+| `98efa9e` | **#467** react-dom 18.3.1 → 19.2.5. Merged immediately after #471 — paired bump. All 9 CI jobs green. |
+| `2edfbf1` | **#521** Subhadip's 5-bug fix PR (lab order from admission, medication order, notifications mark-all-as-read, appointment booking validation, available-slot disabled-state). I rebased the branch onto current main + fixed the 4 appointment-test fixtures: first cycle swapped UUID→HH:MM (`b3ffef3`), second cycle moved `date: today` → `date: tomorrow` to dodge the route's `#491` past-time guard (`37e3985`). All 12 CI jobs green. |
 
-## Open PRs at session end (6)
+## Open PRs at session end (3 — all confirmed-red majors)
 
-| # | Title | State | Reason left open |
-|---|---|---|---|
-| **#467** | react-dom 18 → 19 | OPEN — fresh CI running | Must merge as a pair with #471. Both rebased after #466 merge; CI in progress. |
-| **#469** | vitest 2 → 4 | OPEN — confirmed red | `TypeError: Cannot read properties of undefined (reading 'fetchCache')` — vitest 2→4 internal API change. Real migration. |
-| **#470** | @prisma/client 6 → 7 | OPEN — confirmed red | 5 jobs fail (Lint + Type check + bundle + Web tests + API tests). Schema/client API surface changes. Real migration. |
-| **#471** | react 18 → 19 | OPEN — fresh CI running | Pair with #467; both rebased on current main; CI in progress. |
-| **#472** | eslint 9 → 10 | OPEN — confirmed red | Lint job fails — config format changes between v9 and v10. Real migration. |
-| **#521** | Subhadip's 5-bug fix | OPEN — fresh CI running | I rebased on main + fixed the 4 appointment-test fixtures (`slotId` UUID → HH:MM per the PR's own schema change). Force-pushed `b3ffef3` to `fixed/medcore/issue`. Waiting on fresh CI. |
+| # | Title | Reason left open |
+|---|---|---|
+| **#469** | vitest 2 → 4 | `TypeError: Cannot read properties of undefined (reading 'fetchCache')` — vitest 2→4 internal API change. Real migration: snapshot/runner format updates. |
+| **#470** | @prisma/client 6 → 7 | 5 jobs fail (Lint + Type check + bundle + Web tests + API tests). Schema/client API surface changes. Real migration. |
+| **#472** | eslint 9 → 10 | Lint job fails — config format changes between v9 and v10. Real migration: rewrite `.eslintrc` → `eslint.config.js` flat config. |
 
-### CI watch list (check on home pickup)
-
-```bash
-gh pr view 467 --json mergeStateStatus,state
-gh pr view 471 --json mergeStateStatus,state
-gh pr view 521 --json mergeStateStatus,state
-```
-
-If any are green / mergeStateStatus CLEAN:
-
-- **#471 + #467 are paired** — merge #471 first, then #467 immediately. `gh pr merge 471 --squash` then `gh pr merge 467 --squash`.
-- **#521 standalone** — `gh pr merge 521 --squash`.
-
-If any are still red, read `gh pr checks <N>` and decide.
+Each is a dedicated migration session. The order I'd suggest tackling them: **eslint** first (smallest blast radius, lint-only impact), then **prisma** (schema review, but all routes already use Prisma so the surface area is bounded), then **vitest** (largest — every test file may need updates, snapshots may need regeneration).
 
 ## What the dep-bump triage taught us (codified into the skill)
 
@@ -77,30 +64,32 @@ If any are still red, read `gh pr checks <N>` and decide.
 
 ```bash
 cd "<medcore checkout>"
-git pull origin main          # should fast-forward to ce13662 or beyond
+git pull origin main          # should fast-forward to 2edfbf1 or beyond
 
-# Step 1: see whether the 3 in-flight PRs cleared or stalled
-for n in 467 471 521; do
-  echo "=== #$n ==="
-  gh pr view "$n" --json mergeStateStatus,state
-  gh pr checks "$n" | head -10
-done
+# Now-relevant first action: the legacy-peer-deps=true unblock in
+# .npmrc is no longer strictly required (react@19 + react-dom@19 are
+# now landed and react-native@0.85's peer is satisfied). To verify:
+#   1. Open a fresh dependabot PR (e.g. comment `@dependabot rebase`
+#      on #469, #470, or #472) AFTER removing the line and pushing.
+#   2. If install passes → flag was overshooting and can stay removed.
+#   3. If install fails ERESOLVE again → the workspace has another
+#      hidden mismatch; restore the line and document the new conflict.
+# Don't remove blindly — verify with one PR's CI first.
 
-# Step 2a: if #471 (react) is green
-gh pr merge 471 --squash    # NOTE: --auto is disabled on this repo
-gh pr merge 467 --squash    # immediately after — must be paired with #471
+# Tackle the 3 remaining migration PRs as dedicated sessions:
+#   #472 eslint 9→10  — smallest; flat-config migration only
+#   #470 prisma 6→7   — bounded but touches every model query
+#   #469 vitest 2→4   — largest; snapshot/runner format changes
 
-# Step 2b: if #521 is green
-gh pr merge 521 --squash
+# A1 (page-level VIEW_ALLOWED policy) still needs the product decision
+# before code; ask user before starting.
 
-# Step 3: if any of #469/#470/#472 are now green (unlikely without code work),
-#         or if the user wants to start a migration session:
-#   #469 vitest 2→4: snapshot/runner API changes; many tests need rewrites
-#   #470 prisma 6→7: client API surface changes; schema review
-#   #472 eslint 9→10: config format migration
-
-# Step 4: if A1 (page-level VIEW_ALLOWED policy) is on the agenda:
-#         needs product decision before code. Ask user before starting.
+# Smoke-test express 5 + otel 2 + react 19 on dev to make sure the
+# 3 framework majors didn't break anything subtle:
+#   - https://medcore.globusdemos.com/login (admin login + dashboard load)
+#   - POST /api/v1/patients (express middleware path)
+#   - any AI route (otel SDK init)
+#   - any heavy interactive page (react 19 hydration)
 ```
 
 ## Outstanding session-level findings

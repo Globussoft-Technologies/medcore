@@ -252,13 +252,7 @@ For each spec already in the suite, the flows below are not tested and should be
 - SSO/LDAP provisioning (if applicable)
 - Password reset workflow
 
-### patient-detail.spec.ts
-- Allergy / intolerance entry + severity
-- Medication reconciliation
-- Advance directives
-- Insurance details
-- Caregiver / family contacts
-- MRN merge / duplicate resolution
+### ~~patient-detail.spec.ts~~ ✅ closed 2026-05-05 by `e2e/patient-detail-deep.spec.ts` (6 cases — DOCTOR adds LIVING_WILL advance directive via Medical Records → Advance Directives modal with POST body-shape stub `{type, effectiveDate, notes}`; DOCTOR sees page-top DNR ORDER ACTIVE banner when GET /ehr/patients/:id/advance-directives returns active DNR (page.tsx:3791-3801 conditional pinned via response stub); DOCTOR adds a LIFE_THREATENING-severity allergy (the 4th enum value that doctor-chart-review.spec.ts SEVERE-only path left un-pinned); DOCTOR sees insurance provider in patient header read-only display when GET /patients/:id carries `insuranceProvider` (page.tsx:666-674 conditional); ADMIN drives the Merge Duplicate modal end-to-end with POST /patients/:id/merge body-shape stub `{otherPatientId}` + DOCTOR companion verifies CTA is hidden (page.tsx:591 `{isAdmin && ...}` gate); Med Reconciliation API-contract-pin via direct fetch + page.route stub of GET /api/v1/med-reconciliation?patientId=). Chart-context coverage of `Allergy / intolerance entry + severity` — partially: SEVERE pinned by doctor-chart-review.spec.ts, LIFE_THREATENING pinned here. Allergy MILD/MODERATE tier-display NOT pinned (low-priority — same form, only the `value` differs). `Caregiver / family contacts` already pinned by doctor-chart-review.spec.ts. Deferred — UI not shipped (verified BEFORE scaffold per cron-learning bullet 7): (a) **Insurance EDIT on chart** — `apps/web/src/components/PatientEditModal.tsx` has zero `insurance*` references; the API PATCH /patients/:id at patients.ts:275-276 + updatePatientSchema (validation/patient.ts:48) accepts `insuranceProvider` + `insurancePolicyNumber` but no chart UI writes to it (API-ahead-of-UI; covered as read-only display pin here); (b) **Medication-reconciliation chart panel** — repo-wide grep under `apps/web/src/app/dashboard/patients/[id]/` for `/med-reconciliation` returns zero hits; the feature lives only in admissions discharge surface (already covered by admissions.spec.ts test 8). API-ahead-of-UI; covered as direct-fetch contract-pin here so the future chart panel inherits a locked read shape; (c) **"Intolerance" as separate entity** — Prisma schema grep finds NO `Intolerance` model; only `PatientAllergy` with severity enum exists. The §3 backlog phrasing is aspirational — covered insofar as the severity matrix subsumes it.
 
 ### admin-ops + calendar-roster
 - Custom date-range + export

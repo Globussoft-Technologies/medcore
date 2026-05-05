@@ -8,10 +8,7 @@
 import { it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
-import {
-  createPatientFixture,
-  createDoctorWithToken,
-} from "../factories";
+import { createPatientFixture, createDoctorWithToken } from "../factories";
 
 let app: any;
 let adminToken: string;
@@ -129,7 +126,7 @@ describeIfDB("Edge cases (integration)", () => {
       patientId: patient.id,
       doctorId: doctor.id,
       date: "2026-09-01",
-      slotId: "09:00",
+      slotId: "00000000-0000-0000-0000-000000000aaa",
     };
     const a = await request(app)
       .post("/api/v1/appointments/book")

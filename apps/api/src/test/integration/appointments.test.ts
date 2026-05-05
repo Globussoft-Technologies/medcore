@@ -23,7 +23,7 @@ describeIfDB("Appointments API (integration)", () => {
   it("books a scheduled appointment", async () => {
     const patient = await createPatientFixture();
     const doctor = await createDoctorFixture();
-    const slotId = "09:00";
+    const slotId = "550e8400-e29b-41d4-a716-446655440000";
     const today = new Date().toISOString().slice(0, 10);
     const res = await request(app)
       .post("/api/v1/appointments/book")
@@ -43,7 +43,7 @@ describeIfDB("Appointments API (integration)", () => {
   it("prevents double-booking the same slot", async () => {
     const patient = await createPatientFixture();
     const doctor = await createDoctorFixture();
-    const slotId = "10:00";
+    const slotId = "550e8400-e29b-41d4-a716-446655440001";
     const date = new Date().toISOString().slice(0, 10);
 
     const first = await request(app)

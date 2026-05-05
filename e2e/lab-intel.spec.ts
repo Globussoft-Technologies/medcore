@@ -146,8 +146,11 @@ test.describe("Lab Result Intelligence — /dashboard/lab-intel (DOCTOR/ADMIN/NU
     ).toContainText(/18\.4%/);
 
     // Critical Values table — row anchored by row testid (page.tsx:296).
+    // The page renders the testid twice (the row's <tr> AND a nested
+    // patient link <a> inside it both carry the same data-testid). Use
+    // .first() so strict-mode doesn't flag the dual match.
     await expect(
-      page.locator('[data-testid="lab-intel-row-crit-e2e-0001"]')
+      page.locator('[data-testid="lab-intel-row-crit-e2e-0001"]').first()
     ).toBeVisible();
     await expect(page.locator("body")).toContainText(/Ananya Sharma/);
 

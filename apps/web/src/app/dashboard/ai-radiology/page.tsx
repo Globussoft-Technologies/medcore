@@ -21,6 +21,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { useTranslation } from "@/lib/i18n";
+import { EntityPicker } from "@/components/EntityPicker";
 
 // Issue #509: page-level gate matching API authorize() in
 // apps/api/src/routes/ai-radiology.ts (DOCTOR, ADMIN). The page previously
@@ -41,6 +42,11 @@ interface ImageRef {
   contentType?: string;
   sizeBytes?: number;
   uploadedAt?: string;
+  /** Short-lived absolute download URL injected by the API on read paths
+   *  (`/pending-review`, `/studies/:id`). The frontend uses this directly
+   *  in the `<img src>` so a plain `<img>` tag works without sending an
+   *  Authorization header. Expires ~5 minutes after the response. */
+  signedUrl?: string;
 }
 
 interface Finding {
@@ -141,32 +147,60 @@ export default function AiRadiologyPage() {
     setLoading(false);
   }, [t]);
 
+  // Initial / tab-change load. Deps are structural only — `loadPending` is
+  // intentionally NOT a dep because its identity flips on every render
+  // (it depends on `t`, which is a fresh function each render). Listing it
+  // would refire this effect tens of times per second.
   useEffect(() => {
     if (user && (user.role === "ADMIN" || user.role === "DOCTOR")) {
       if (tab === "pending" || tab === "all") loadPending();
     }
-  }, [user, tab, loadPending]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, user?.role, tab]);
 
   // Issue #155 — bounded status-polling for non-terminal reports.
   //
   // The pending list contains reports in DRAFT / RADIOLOGIST_REVIEW. The AI
   // draft step is asynchronous (Sarvam can take 10-60s) so the radiologist
-  // expects the queue to refresh on its own once a draft completes. The
-  // earlier ad-hoc polling never had a stop condition and rate-limited the
-  // server. We now:
-  //   • Only poll when the *visible* tab is "pending" or "all" AND the list
-  //     contains at least one non-terminal (DRAFT / RADIOLOGIST_REVIEW)
-  //     report.
-  //   • Stop polling as soon as every report is in a terminal state
-  //     (FINAL / AMENDED) or once the max-attempt budget is exhausted
-  //     (60 attempts ≈ 5 min at 5s base interval).
-  //   • Use a 5s interval for the first 30s, then exponential backoff
-  //     (10s, 20s, 40s, 60s capped) so a long-running batch doesn't
-  //     hammer the API.
+  // expects the queue to refresh on its own once a draft completes.
+  //
+  // CRITICAL: the polling effect's deps must contain ONLY values whose
+  // identity tracks something the user actually changed (role, tab). Three
+  // things upstream had unstable identity per render and were collapsing
+  // the bounded scheduler into a millisecond-tight request loop:
+  //
+  //   1. `pending` — `setPending([...])` produces a new array reference on
+  //      every fetch, even with identical contents.
+  //   2. `loadPending` — `useCallback(..., [t])` re-binds whenever `t` is new.
+  //   3. `t` — `useTranslation()` returns a fresh function literal each
+  //      render (no internal memoization).
+  //
+  // We mirror all three into refs so the effect can read their *current*
+  // values without listing them as deps. Effect now depends only on
+  // `[user, tab]` (truly structural) and never thrashes on render churn.
+  //
+  // Rules:
+  //   • Only poll when tab is "pending"/"all" AND the list contains at
+  //     least one non-terminal (DRAFT / RADIOLOGIST_REVIEW) report.
+  //   • Stop as soon as every report is FINAL/AMENDED or the attempt
+  //     budget (60 ≈ 5 min) is exhausted.
+  //   • 5s for the first 6 ticks, then exponential backoff capped at 60s.
   const pollAttempts = useRef(0);
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRef = useRef<RadiologyReport[]>(pending);
+  const loadPendingRef = useRef(loadPending);
+  const tRef = useRef(t);
   useEffect(() => {
-    // Clear any prior schedule when the tab / role / list changes.
+    pendingRef.current = pending;
+  }, [pending]);
+  useEffect(() => {
+    loadPendingRef.current = loadPending;
+  }, [loadPending]);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
+  useEffect(() => {
+    // Clear any prior schedule when tab / role changes.
     if (pollTimeoutRef.current) {
       clearTimeout(pollTimeoutRef.current);
       pollTimeoutRef.current = null;
@@ -178,37 +212,32 @@ export default function AiRadiologyPage() {
     if (tab !== "pending" && tab !== "all") return;
 
     const TERMINAL: ReportStatus[] = ["FINAL", "AMENDED"];
-    const hasNonTerminal = pending.some((r) => !TERMINAL.includes(r.status));
-    if (!hasNonTerminal) return; // nothing to wait on
-
     const MAX_ATTEMPTS = 60;
     const BASE_MS = 5000;
     function nextDelay(attempt: number): number {
-      // 5s for the first 6 ticks (= 30s), then exponential backoff capped
-      // at 60s so the request rate eventually hits 1/min.
       if (attempt < 6) return BASE_MS;
-      const exp = Math.min(BASE_MS * Math.pow(2, attempt - 5), 60_000);
-      return exp;
+      return Math.min(BASE_MS * Math.pow(2, attempt - 5), 60_000);
     }
 
     function schedule() {
+      const hasNonTerminal = pendingRef.current.some(
+        (r) => !TERMINAL.includes(r.status),
+      );
+      if (!hasNonTerminal) return; // nothing to wait on; idle
+
       const attempt = pollAttempts.current;
       if (attempt >= MAX_ATTEMPTS) {
         toast.error(
-          t(
+          tRef.current(
             "radiology.poll.giveUp",
-            "Stopped checking for AI draft updates — refresh manually if needed."
-          )
+            "Stopped checking for AI draft updates — refresh manually if needed.",
+          ),
         );
         return;
       }
       pollTimeoutRef.current = setTimeout(async () => {
         pollAttempts.current = attempt + 1;
-        await loadPending();
-        // The next render will re-evaluate `pending` and decide whether
-        // to keep polling or unsubscribe. Schedule the *next* tick from
-        // here so a sequence-of-non-terminal-reports list keeps polling
-        // until it's drained.
+        await loadPendingRef.current();
         schedule();
       }, nextDelay(attempt));
     }
@@ -220,7 +249,10 @@ export default function AiRadiologyPage() {
         pollTimeoutRef.current = null;
       }
     };
-  }, [user, tab, pending, loadPending, t]);
+    // Intentionally only structural deps. `loadPending`, `t`, and `pending`
+    // are read via refs above so render-churn does NOT re-arm the schedule.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, user?.role, tab]);
 
   // Role gate — DOCTOR / ADMIN only.
   if (user && user.role !== "ADMIN" && user.role !== "DOCTOR") {
@@ -388,17 +420,29 @@ function UploadTab({ onCreated }: { onCreated: () => void }) {
 
   return (
     <form onSubmit={submit} noValidate className="max-w-2xl space-y-4 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
+      {/* Patient picker — search by name, phone, or MR number. The bare
+          UUID input was a UX bug: doctors don't know the database id of a
+          patient. Mirrors the prescriptions / appointments / payment-plans
+          patient-picker convention so the experience is consistent across
+          the dashboard (Issue #120 / repo-wide UUID-input cleanup). */}
       <div>
-        <label htmlFor="ai-radiology-patient-id" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-          {t("radiology.field.patientId", "Patient ID")} *
+        <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+          {t("radiology.field.patient", "Patient")} *
         </label>
-        <input
-          id="ai-radiology-patient-id"
-          type="text"
+        <EntityPicker
+          endpoint="/patients"
+          searchParam="search"
+          labelField="user.name"
+          subtitleField="user.phone"
+          hintField="mrNumber"
           value={patientId}
-          onChange={(e) => setPatientId(e.target.value)}
-          placeholder="patient-uuid"
-          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          onChange={(id) => setPatientId(id)}
+          searchPlaceholder={t(
+            "radiology.field.patientSearch",
+            "Search patient by name, phone or MR number...",
+          )}
+          testIdPrefix="ai-radiology-patient-picker"
+          required
         />
       </div>
 
@@ -587,14 +631,15 @@ function ReportDetailModal({
     [report.aiFindings]
   );
 
-  // First image in the study is the preview target. `key` is the relative
-  // storage path; the `/uploads/…` path is served by the API's static mount.
+  // First image in the study is the preview target. The API attaches a
+  // short-lived absolute `signedUrl` to each image on read endpoints
+  // (`/pending-review`, `/studies/:id`) so a plain <img src> works
+  // without sending an Authorization header. Falls back to null when the
+  // signer was unavailable — the preview block hides itself in that case.
   const primaryImage = Array.isArray(report.study?.images)
     ? report.study!.images![0]
     : null;
-  const primaryImageUrl = primaryImage
-    ? `/${primaryImage.key.replace(/^\/+/, "")}`
-    : null;
+  const primaryImageUrl = primaryImage?.signedUrl ?? null;
 
   async function approve() {
     if (finalText.trim().length < 10) {

@@ -292,17 +292,35 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
       // AppointmentStatus enum and threw a 500. Normalise to `{ in: […] }`
       // when a comma is present, otherwise fall through to a single
       // equality match.
+      //
+      // Validate against the canonical AppointmentStatus enum so a typo
+      // in the caller (e.g. `IN_PROGRESS` instead of `IN_CONSULTATION` —
+      // a real bug surfaced from the prescriptions appointment picker)
+      // produces a 400 with a clear list of allowed values, NOT a 500
+      // from Prisma's enum-validation layer.
+      const ALLOWED_APPT_STATUSES = new Set([
+        "BOOKED",
+        "CHECKED_IN",
+        "IN_CONSULTATION",
+        "COMPLETED",
+        "CANCELLED",
+        "NO_SHOW",
+      ]);
       const raw = String(status);
-      if (raw.includes(",")) {
-        where.status = {
-          in: raw
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean),
-        };
-      } else {
-        where.status = raw;
+      const requested = raw.includes(",")
+        ? raw.split(",").map((s) => s.trim()).filter(Boolean)
+        : [raw.trim()];
+      const invalid = requested.filter((s) => !ALLOWED_APPT_STATUSES.has(s));
+      if (invalid.length > 0) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `Invalid status value(s): ${invalid.join(", ")}. ` +
+            `Allowed: ${[...ALLOWED_APPT_STATUSES].join(", ")}`,
+        });
+        return;
       }
+      where.status = requested.length > 1 ? { in: requested } : requested[0];
     }
 
     // If patient role, only show own appointments

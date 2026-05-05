@@ -174,7 +174,10 @@ export function buildApp() {
   );
 
   // Middleware
-  app.use(cors({ origin: process.env.CORS_ORIGIN || "http://localhost:3000" }));
+  app.use(cors({
+    origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+    credentials: true,
+  }));
 
   // Razorpay webhook MUST be mounted before express.json() so the route's
   // own express.raw() middleware can read the unparsed body (HMAC verify

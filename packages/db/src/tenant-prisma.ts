@@ -29,7 +29,7 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { prisma } from "./index";
+import { prisma } from "./client";
 
 // ── AsyncLocalStorage tenant context ────────────────────────────────────────
 
@@ -271,7 +271,10 @@ const READ_WRITE_OPERATIONS = new Set<string>([
  * Return whether the Prisma-extension $allModels hook should act on a given
  * (model, operation) pair. Exported for tests.
  */
-export function shouldScope(model: string | undefined, operation: string): boolean {
+export function shouldScope(
+  model: string | undefined,
+  operation: string,
+): boolean {
   if (!model || !TENANT_SCOPED_MODELS.has(model)) return false;
   return (
     CREATE_OPERATIONS.has(operation) || READ_WRITE_OPERATIONS.has(operation)
@@ -293,9 +296,7 @@ export function applyTenantScope<A extends Record<string, unknown>>(
   if (READ_WRITE_OPERATIONS.has(operation)) {
     const existing =
       (next.where as Record<string, unknown> | undefined) ?? undefined;
-    next.where = existing
-      ? { ...existing, tenantId }
-      : { tenantId };
+    next.where = existing ? { ...existing, tenantId } : { tenantId };
   }
 
   if (CREATE_OPERATIONS.has(operation)) {

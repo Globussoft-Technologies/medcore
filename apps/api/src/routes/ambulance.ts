@@ -152,16 +152,25 @@ export async function recomputeAmbulanceStatus(
 }
 
 async function generateTripNumber(): Promise<string> {
-  const last = await prisma.ambulanceTrip.findFirst({
-    orderBy: { createdAt: "desc" },
-    select: { tripNumber: true },
-  });
-  let next = 1;
-  if (last?.tripNumber) {
-    const m = last.tripNumber.match(/TRP(\d+)/);
-    if (m) next = parseInt(m[1]) + 1;
+  // See apps/api/src/routes/bloodbank.ts:generateDonorNumber for the
+  // longer rationale. Demo data contains 'AMB-DEMO-0012' style legacy
+  // numbers that the original /TRP(\\d+)/ regex never matched, plus
+  // post-seed 'TRPNNNNNN' rows from previous E2E runs. orderBy
+  // createdAt:desc + LIMIT 1 was racing both shapes — when it returned
+  // the legacy row 'next' silently reset to 1 and collided with the
+  // existing TRP000001 row → P2002 → 500.
+  //
+  // Replace with a full scan + max(prefix-tolerant parse). Trip volumes
+  // are small enough that the linear scan is fine.
+  const rows = await prisma.ambulanceTrip.findMany({ select: { tripNumber: true } });
+  let max = 0;
+  for (const r of rows) {
+    const m = r.tripNumber?.match(/TRP-?(\d+)/);
+    if (!m) continue;
+    const n = parseInt(m[1], 10);
+    if (Number.isFinite(n) && n > max) max = n;
   }
-  return "TRP" + String(next).padStart(6, "0");
+  return "TRP" + String(max + 1).padStart(6, "0");
 }
 
 // ───────────────────────────────────────────────────────

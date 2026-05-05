@@ -424,6 +424,13 @@ router.post(
             userId: user.id,
             mrNumber,
             gender: "OTHER",
+            // The Doctor.create branch below already pins tenantId; the
+            // Patient.create did not. Without it the row is created with
+            // tenantId: null and tenantScopedPrisma filters it out for
+            // every other (tenant-scoped) caller — admins can't see new
+            // self-registered patients, telemedicine schedules 404 on
+            // them, etc.
+            tenantId,
           },
         });
 

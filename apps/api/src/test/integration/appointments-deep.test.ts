@@ -290,12 +290,16 @@ describeIfDB("Appointments API — deep edges", () => {
     const res1 = await request(app)
       .post("/api/v1/appointments/book")
       .set("Authorization", `Bearer ${reception}`)
-      .send({ patientId: patient.id, doctorId: doctor.id, date: today(), slotId: SLOT_B });
+      // PR #521: route's #491 past-time guard rejects today + early-AM
+      // slot when CI runs after that wall-clock time; use tomorrow.
+      .send({ patientId: patient.id, doctorId: doctor.id, date: daysFromNow(1), slotId: SLOT_B });
     expect([200, 201]).toContain(res1.status);
     const res2 = await request(app)
       .post("/api/v1/appointments/book")
       .set("Authorization", `Bearer ${reception}`)
-      .send({ patientId: patient.id, doctorId: doctor.id, date: today(), slotId: SLOT_B });
+      // PR #521: route's #491 past-time guard rejects today + early-AM
+      // slot when CI runs after that wall-clock time; use tomorrow.
+      .send({ patientId: patient.id, doctorId: doctor.id, date: daysFromNow(1), slotId: SLOT_B });
     expect(res2.status).toBe(409);
   });
 

@@ -23,16 +23,18 @@ describeIfDB("Appointments API (integration)", () => {
   it("books a scheduled appointment", async () => {
     const patient = await createPatientFixture();
     const doctor = await createDoctorFixture();
-    // PR #521: slotId schema is now HH:MM, not UUID.
+    // PR #521: slotId schema is now HH:MM, not UUID. The route's #491
+    // past-time guard rejects today + early-morning slot when CI runs
+    // mid-day; book for tomorrow so the guard doesn't fire.
     const slotId = "09:00";
-    const today = new Date().toISOString().slice(0, 10);
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
     const res = await request(app)
       .post("/api/v1/appointments/book")
       .set("Authorization", `Bearer ${token}`)
       .send({
         patientId: patient.id,
         doctorId: doctor.id,
-        date: today,
+        date: tomorrow,
         slotId,
         notes: "Follow-up",
       });
@@ -44,9 +46,10 @@ describeIfDB("Appointments API (integration)", () => {
   it("prevents double-booking the same slot", async () => {
     const patient = await createPatientFixture();
     const doctor = await createDoctorFixture();
-    // PR #521: slotId schema is now HH:MM, not UUID.
+    // PR #521: slotId schema is now HH:MM, not UUID. Use tomorrow so
+    // the route's #491 past-time guard doesn't fire on early slots.
     const slotId = "09:30";
-    const date = new Date().toISOString().slice(0, 10);
+    const date = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
 
     const first = await request(app)
       .post("/api/v1/appointments/book")

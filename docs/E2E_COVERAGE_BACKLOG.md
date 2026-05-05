@@ -218,11 +218,15 @@ For each spec already in the suite, the flows below are not tested and should be
 - ER discharge summary + referral
 
 ### ot-surgery.spec.ts
-- Anesthesia notes / sign-off
-- Operative report entry
-- Post-op orders (meds, restrictions, followup)
-- Swab / implant tracking (regulatory)
-- OT resource conflict detection
+- ~~Anesthesia notes / sign-off~~ ✅ closed (`e2e/ot-surgery-deep.spec.ts` — DOCTOR fills AnesthesiaCard, pins POST /:id/anesthesia-record body)
+- ~~Operative report entry~~ ✅ closed (covered as clinical-notes Edit + Complications card; pins PATCH /:id and PATCH /:id/complications). No dedicated "operative report" form ships — clinical notes + complications ARE the operative report surface.
+- ~~Post-op orders (meds, restrictions, followup)~~ ⚠ **deferred — UI not shipped**: no `/surgery/:id/orders` endpoint, no structured post-op-orders form on the detail page; `postOpNotes` is free text only (no meds/restrictions/followup-scheduling fields). Closest ship-able surface is PACU vitals card (covered separately). Reopen when the orders UI ships.
+- ~~Swab / implant tracking (regulatory)~~ ⚠ **deferred — UI not shipped**: `completeSurgerySchema` accepts `spongeCountCorrect` / `instrumentCountCorrect` / `specimenLabeled` booleans (apps/api/src/routes/surgery.ts:521-526) but no checkbox UI on detail page; implant tracking has no Prisma model. Reopen when the swab/implant UI ships.
+- ~~OT resource conflict detection~~ ⚠ **deferred — UI not shipped**: `POST /surgery` (apps/api/src/routes/surgery.ts:179) only validates OT exists + isActive (lines 199-215); no time-overlap check, no conflict-detection endpoint, no UI banner. Week calendar lists overlapping cases without warning. Reopen when conflict-detection ships.
+- (bonus) PACU observations (post-op vitals trail) ✅ closed (covered)
+- (bonus) Blood availability check ✅ closed (covered)
+- (bonus) SSI report (NHSN-style) ✅ closed (covered)
+- (bonus) RBAC contract pin (PATIENT exclusion from /surgery/ots + cross-patient surgery read) ✅ closed
 
 ### telemedicine-patient.spec.ts
 - Call quality / reconnection

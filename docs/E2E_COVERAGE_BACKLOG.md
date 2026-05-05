@@ -315,13 +315,7 @@ For each spec already in the suite, the flows below are not tested and should be
 - Missing: concurrent booking same slot
 - Missing: long-session memory leak detection
 
-### 4.7 Negative paths
-- Most specs are happy-path
-- Missing: API 500/503 retry verification
-- Missing: offline + sync-on-reconnect
-- Missing: form failure messaging (validation, duplicate, server error)
-- Missing: file-upload failures (format, size, AV scan)
-- Missing: navigate-away mid-form
+### ~~4.7 Negative paths~~ ✅ closed 2026-05-05 by `e2e/negative-paths.spec.ts` (6 cases — `/login` 401 inline alert banner, `/register` 5xx + 408 retry-CTA UX with form-values-preserved + recovery resubmit, `/dashboard/patients` 409 `existingPatient` duplicate-link CTA, `/dashboard/patients` 400 Zod-envelope `details[]` → inline per-field error spans, `/display` kiosk fetch-failure → role="status" "Offline — showing last update" banner). Deferred — UI not shipped (verified BEFORE scaffold per cron-learning bullet 7): (a) **API 503 auto-retry** — `apps/web/src/lib/api.ts:177-190` throws on 5xx with no retry loop; only page-level manual retry (covered by the register-5xx case above); (b) **Offline + sync-on-reconnect for authed forms** — `navigator.onLine` / online-event listeners exist NOWHERE in `apps/web/src` outside `/display/page.tsx` (kiosk poll-only, no write-queue); (c) **Navigate-away mid-form (`beforeunload` guard)** — repo-wide grep for `beforeunload` / `onbeforeunload` / `leaveConfirm` returns 0 hits in `apps/web/src`; (d) **File-upload format/size client rejection** — only the `accept="..."` browser-filter attribute is used; no `file.size` / `maxSize` / format-rejection JS exists in `apps/web/src/app/dashboard` upload surfaces (ai-radiology / settings / visitors); (e) **AV-scan feedback** — no UI surface renders the virus-scan verdict back to the user yet. All deferred scenarios re-enter the backlog when the matching UI surfaces ship.
 
 ### 4.8 File operations
 - Zero coverage for upload/download

@@ -63,6 +63,25 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
+// PATCH /api/v1/notifications/read-all — mark every unread notification as read for the caller
+router.patch(
+  "/read-all",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await prisma.notification.updateMany({
+        where: { userId: req.user!.userId, readAt: null },
+        data: { readAt: new Date() },
+      });
+      auditLog(req, "NOTIFICATIONS_READ_ALL", "notification", req.user!.userId, {
+        count: result.count,
+      }).catch(console.error);
+      res.json({ success: true, data: { count: result.count }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // PATCH /api/v1/notifications/:id/read — mark as read
 // #511 audit: VERIFIED-SAFE — explicit `notification.userId !== req.user.userId`
 // → 403 inline check. Notifications are user-scoped (userId, NOT patientId);
@@ -308,7 +327,7 @@ router.post(
           ) {
             // Send after quietHoursEnd
             if (sched.quietHoursEnd) {
-              const [h, m] = sched.quietHoursEnd.split(":").map((n) => parseInt(n, 10));
+              const [h, m] = sched.quietHoursEnd.split(":").map((s: string) => parseInt(s, 10));
               const d = new Date(now);
               d.setHours(h, m, 0, 0);
               if (d < now) d.setDate(d.getDate() + 1);
@@ -419,7 +438,7 @@ router.get(
         byStatus[n.deliveryStatus] = (byStatus[n.deliveryStatus] || 0) + 1;
         byChannel[n.channel] = (byChannel[n.channel] || 0) + 1;
       }
-      const readCount = all.filter((n) => n.readAt).length;
+      const readCount = all.filter((n: { readAt: Date | null }) => n.readAt).length;
       res.json({
         success: true,
         data: {

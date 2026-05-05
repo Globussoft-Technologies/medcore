@@ -288,15 +288,20 @@ describeIfDB(
     // ───────────────────────────────────────────────────────
 
     it("POST /api/v1/patients (Tenant A admin) creates a row with tenantId=A even if payload omits it — extension's create-injection contract", async () => {
-      const mr = `MR-NEW-A-${Date.now()}`;
+      // CLAUDE.md gotcha #8: PATIENT_NAME_REGEX rejects digits, so the
+      // common "...${Date.now()}" tagging shortcut produces silent 4xx.
+      // Make uniqueness via phone (10-15 digits, that field accepts) and
+      // keep the displayed name letters-only.
+      const uniquePhone = `91${Math.floor(Math.random() * 1e9)
+        .toString()
+        .padStart(8, "0")}`;
       const payload = {
-        name: `New Patient A ${Date.now() % 10_000}`,
-        phone: `91${Math.floor(Math.random() * 1e9)
-          .toString()
-          .padStart(8, "0")}`,
+        name: "Cross Tenant Test Patient A",
+        phone: uniquePhone,
         dateOfBirth: "1990-01-01",
         gender: "MALE",
-        mrNumber: mr,
+        // mrNumber is auto-generated server-side; not part of
+        // createPatientSchema.
       };
       const res = await request(app)
         .post("/api/v1/patients")
@@ -314,7 +319,9 @@ describeIfDB(
       });
       expect(row?.tenantId).toBe(tenantAId);
       expect(row?.tenantId).not.toBe(tenantBId);
-      expect(row?.mrNumber).toBe(mr);
+      // mrNumber is server-generated; assert it's present and non-empty.
+      expect(typeof row?.mrNumber).toBe("string");
+      expect((row?.mrNumber ?? "").length).toBeGreaterThan(0);
     });
 
     // ───────────────────────────────────────────────────────
@@ -324,6 +331,22 @@ describeIfDB(
     it("tenantScopedPrisma.patient.findMany() inside runWithTenant(A) returns only A's patients — extension layer alone, no HTTP", async () => {
       // Ensures TENANT_SCOPED_MODELS includes Patient and the scope wrapper
       // is firing on findMany. Catches drift in the model-set list.
+      //
+      // Sanity-check the seed first via raw prisma — if patientA/B aren't
+      // tagged correctly in the DB, the extension test below would fail
+      // for a wrong reason and we'd waste hours debugging a no-op extension.
+      const prisma = await getPrisma();
+      const seedA = await prisma.patient.findUnique({
+        where: { id: patientAId },
+        select: { tenantId: true },
+      });
+      const seedB = await prisma.patient.findUnique({
+        where: { id: patientBId },
+        select: { tenantId: true },
+      });
+      expect(seedA?.tenantId).toBe(tenantAId);
+      expect(seedB?.tenantId).toBe(tenantBId);
+
       const aRows = await runWithTenant(tenantAId, () =>
         tenantScopedPrisma.patient.findMany({ select: { id: true } })
       );
@@ -359,7 +382,8 @@ describeIfDB(
       const doctor = await prisma.doctor.create({
         data: {
           userId: docUser.id,
-          specialty: "GENERAL",
+          // Doctor schema uses `specialization` (optional), not `specialty`.
+          specialization: "General Medicine",
           tenantId: tenantBId,
         },
       });

@@ -316,6 +316,37 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick post-wave-30 (no new spec work — diminishing returns + env-side deploy failure noted)**:
+> Cron fired after the 29-wave session wrapped via wave 30 backlog
+> consolidation. State: working tree clean on `7d8bc07`. test.yml on
+> `4439c56` (wave 29 Lane A admin-ops-deep) FAILED but ONLY on the
+> "Deploy to dev server" step — all test jobs passed (API tests, Web
+> component tests, Type check, Lint, Migration, Bundle, Audit). The
+> deploy failure is **env-side**: stuck `emp-monitor-store-logs` +
+> `emp-project-client` PM2 processes from EMPCLOUD apps on the shared
+> dev server (NOT a regression from today's specs). Subsequent runs
+> on a72f92d / 7d7affb / a0fe0cc were CANCELLED by superseding pushes;
+> 7d8bc07 in_progress. **Deploy fix needs ops manual intervention** —
+> SSH to dev, `pm2 delete` the EMPCLOUD-orphaned process IDs, restart
+> medcore deploy. Not actionable from cron.
+>
+> **No new spec work this tick** — diminishing returns analysis:
+> remaining E2E backlog items are blocked by (a) multi-tenant fixtures
+> (§5 P10, §4.11), (b) E2E_FULL flag for real third-party services
+> (§4.5), (c) different repo (§4.12 mobile app), (d) out-of-scope-
+> for-e2e (§4.6 perf, true SR narration). 5 of 6 architectural-gap
+> findings already have structural-NOT beacons in shipped specs;
+> only optimistic-concurrency lacks a dedicated beacon (broader area
+> covered by wave-28 edge-cases-deep).
+>
+> **Recommendation for next user-presence session**: (1) restart the
+> EMPCLOUD-orphaned PM2 processes on dev to unblock deploys; (2) review
+> the 5 RIPE cron-learning bullets in CLAUDE.md for skill promotion to
+> `/medcore-bola-sweep` + `/medcore-e2e-spec`; (3) decide on closure
+> comment for #511 (long-tail done; 69 BOLA fixes + 187 verified-safe
+> across 36 routes); (4) consider whether multi-tenant fixtures are
+> worth standing up to unlock §5 P10 + §4.11 + cross-tenant isolation.
+>
 > **2026-05-05 cron-tick wave 30 (single-lane backlog consolidation sweep — final wrap-up of 29-wave cron-driven session)**:
 > Pivoted from spec-scaffolding (diminishing returns after 29 waves) to
 > a high-leverage doc-bookkeeping sweep on `docs/E2E_COVERAGE_BACKLOG.md`.

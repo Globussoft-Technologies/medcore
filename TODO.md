@@ -316,6 +316,53 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 24 (2-agent E2E fanout — §4.8 file-operations + §4.13 i18n)**:
+> 2 §4 cross-cutting items closed via 10 cases across 2 spec files.
+> Lane A (`5dca914`): `e2e/file-operations.spec.ts` (5 cases — patient
+> document upload (Documents tab on /dashboard/patients/[id] →
+> `POST /uploads` data-URL base64 + `POST /ehr/documents` cascade) +
+> ai-radiology X-ray upload 3-call cascade + avatar upload via /settings
+> non-medical-path + PATIENT canEdit gate + PATIENT bounce on
+> /ai-radiology). Used `setInputFiles` with synthetic 67-byte PNG /
+> 64-byte PDF buffers, all `/uploads` `page.route` fulfill-stubbed.
+> VERIFY audit: 9 of ~12 §4.8 sub-scenarios DEFERRED — bulk patient
+> CSV import (no input/CTA + no /imports endpoint), bulk Rx-template
+> (zero file inputs in /prescriptions or /medicines), lab-results
+> imaging (zero file inputs in /lab/*), Excel/.xlsx export (CSV_EXPORT
+> _FOR_TYPE map only defines CSV), virus-scan UI (server sniffs at
+> uploads.ts:170, no UI surface), inline attachment preview
+> (window.open(...), no inline component).
+> Lane B (`27149c4`): `e2e/i18n.spec.ts` (5 cases — `<select data-
+> testid="language-switcher">` interaction + localStorage `medcore_lang`
+> persistence + PATCH /auth/me preferredLanguage server sync (Issue
+> #137) + `<html lang>` reflection + UI Devanagari re-translation on
+> `hi` switch via the ~700-key Dict at lib/i18n.ts:703-1390 + default-
+> `en` initial state). VERIFY audit: 2 of 3 §4.13 sub-scenarios DEFERRED
+> — RTL layout (`Lang = "en" | "hi"` in lib/i18n.ts:5; zero matches for
+> documentElement.dir / dir="rtl" / setAttribute("dir") under
+> apps/web/src) + locale-specific date/number formatting (every
+> Intl.* / .toLocale* hard-coded `en-IN` across 11+ call-sites
+> including currency.ts, appointments.ts, display, verify/rx/[id],
+> EntityPicker, admin-console, admissions). **Architectural
+> finding**: codebase has hand-rolled Zustand i18n store (not
+> next-intl/react-i18next), no RTL plumbing despite the dropdown,
+> and locale formatting is fully hard-coded — would need an
+> `Intl.NumberFormat(lang, ...)` / `formatRelativeTime(lang, ...)`
+> wrapper lift. Worth a future story.
+>
+> **10 new E2E tests across 2 spec files** (×2 Playwright projects =
+> 20 listed cases). §4.8 + §4.13 closed.
+>
+> **VERIFY-BEFORE-SCAFFOLD discipline cumulative across waves
+> 21+22+23+24**: 36 sub-scenarios deferred with concrete evidence-
+> citations (page.tsx line refs, route-file absence, repo-wide grep
+> counts, schema/type definitions). The 7th cron-learning bullet's
+> discipline continues to surface real backlog-vs-shipped gaps —
+> 11 deferrals this wave alone, with i18n contributing 2 substantial
+> architectural gaps (RTL + locale-formatting wrapper) and file-ops
+> contributing 9 product gaps (bulk imports + virus-scan UI + inline
+> preview).
+>
 > **2026-05-05 cron-tick wave 23 (2-agent E2E fanout — pivot to §4 cross-cutting: §4.10 print-pdf + §4.7 negative-paths)**:
 > §5 P-priorities exhausted (only P10 tenant-isolation remains, needs
 > multi-tenant fixtures). Pivoted to §4 cross-cutting gaps. Lane A

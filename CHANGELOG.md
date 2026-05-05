@@ -12,6 +12,25 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 24 — §4.8 file-operations + §4.13 i18n.**
+  Lane A (`5dca914`) shipped `file-operations.spec.ts` (5 cases —
+  patient document upload + ai-radiology X-ray + avatar upload + PATIENT
+  canEdit gate + PATIENT VIEW_ALLOWED bounce). Lane B (`27149c4`)
+  shipped `i18n.spec.ts` (5 cases — language-switcher interaction +
+  localStorage persistence + PATCH /auth/me server sync (Issue #137) +
+  `<html lang>` reflection + Devanagari UI re-translation + default
+  state). 10 new tests × 2 projects = 20 listed cases. **VERIFY-
+  BEFORE-SCAFFOLD found 11 of ~15 sub-scenarios DEFERRED** with
+  concrete evidence: bulk patient/Rx CSV import (no UI), Excel export
+  (CSV-only map), virus-scan UI (server sniffs only), inline
+  attachment preview (window.open), RTL layout (Lang type =
+  "en"|"hi", no dir-set call sites), locale-specific date/number
+  formatting (every Intl.* call hard-coded en-IN). Cumulative 36
+  deferred-with-evidence sub-scenarios across waves 21+22+23+24.
+  **Architectural finding**: i18n is hand-rolled Zustand (not
+  next-intl/react-i18next); no RTL plumbing; locale formatting fully
+  hard-coded — would need an Intl.NumberFormat(lang, ...) /
+  formatRelativeTime(lang, ...) wrapper lift. Worth a future story.
 - **2026-05-05 cron-tick wave 23 — pivot to §4 cross-cutting (print-pdf + negative-paths).**
   Lane A (`611cbfc`) shipped `print-pdf.spec.ts` (5 cases — Rx + invoice +
   discharge-summary + lab-order PDF round-trips + PAID/CANCELLED/DRAFT

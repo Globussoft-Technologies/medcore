@@ -274,7 +274,11 @@ test.describe("Bulk patient billing — /dashboard/billing/patient/[patientId] (
     await expectNotForbidden(page);
 
     // Page header card falls into the no-outstanding fallback (page.tsx:226-232).
-    await expect(page.getByText(/No outstanding invoices/i)).toBeVisible({
+    // The page renders this copy in TWO places: a header summary (<p>)
+    // and an empty-state placeholder in the table area (<div>). Use
+    // .first() so strict-mode doesn't flag the dual match — visibility
+    // of either confirms the empty state.
+    await expect(page.getByText(/No outstanding invoices/i).first()).toBeVisible({
       timeout: 15_000,
     });
 

@@ -2404,7 +2404,7 @@ interface DoctorLite {
 interface Slot {
   startTime: string;
   endTime: string;
-  available: boolean;
+  isAvailable: boolean;
 }
 
 function QuickBookModal({
@@ -2516,10 +2516,10 @@ function QuickBookModal({
                 <button
                   key={s.startTime}
                   type="button"
-                  disabled={!s.available || saving}
+                  disabled={!s.isAvailable || saving}
                   onClick={() => book(s.startTime)}
                   className={`rounded-md px-2 py-2 text-xs ${
-                    s.available
+                    s.isAvailable
                       ? "border border-primary text-primary hover:bg-primary hover:text-white"
                       : "cursor-not-allowed bg-gray-100 text-gray-400"
                   }`}

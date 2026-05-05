@@ -88,6 +88,21 @@ router.post(
         instructions,
       } = req.body;
 
+      // Resolve medicineName from medicineId when the frontend omits it
+      let resolvedMedicineName: string = medicineName;
+      if (!resolvedMedicineName && medicineId) {
+        const med = await prisma.medicine.findUnique({ where: { id: medicineId }, select: { name: true } });
+        if (!med) {
+          res.status(400).json({ success: false, data: null, error: "Medicine not found" });
+          return;
+        }
+        resolvedMedicineName = med.name;
+      }
+      if (!resolvedMedicineName) {
+        res.status(400).json({ success: false, data: null, error: "medicineName or medicineId is required" });
+        return;
+      }
+
       const admission = await prisma.admission.findUnique({ where: { id: admissionId } });
       if (!admission) {
         res.status(404).json({ success: false, data: null, error: "Admission not found" });
@@ -120,7 +135,7 @@ router.post(
             admissionId,
             doctorId,
             medicineId: medicineId ?? null,
-            medicineName,
+            medicineName: resolvedMedicineName,
             dosage,
             frequency,
             route,
@@ -149,7 +164,7 @@ router.post(
 
       auditLog(req, "MEDICATION_ORDER_CREATE", "medicationOrder", order.id, {
         admissionId,
-        medicineName,
+        medicineName: resolvedMedicineName,
         dosage,
         frequency,
         scheduledDoses: scheduleTimes.length,

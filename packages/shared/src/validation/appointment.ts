@@ -18,7 +18,7 @@ export const bookAppointmentSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
     .refine(isBookingDateNotPast, "Appointment date must be today or later"),
-  slotId: z.string().uuid(),
+  slotId: z.string().regex(/^\d{2}:\d{2}$/, "slotId must be HH:MM"),
   notes: z.string().optional(),
 });
 

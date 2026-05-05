@@ -178,7 +178,7 @@ export const recordIpdVitalsSchema = z
 export const medicationOrderSchema = z.object({
   admissionId: z.string().uuid(),
   medicineId: z.string().uuid().optional(),
-  medicineName: z.string().min(1),
+  medicineName: z.string().min(1).optional(),
   dosage: z.string().min(1),
   frequency: z.string().min(1),
   route: z.string().min(1),

@@ -6,6 +6,72 @@ is independently shippable. Full per-session history lives under
 
 ---
 
+## 🔁 Workflow parity gap with `globussoft-crm` (added 2026-05-06)
+
+User audit: medcore should mirror globussoft-crm's GitHub Actions
+surface so both repos converge on the same CI/CD shape. After mapping
+equivalents, **4 workflows are missing from medcore** and need to be
+ported. medcore-only workflows (`codeql.yml`, `ai-eval-nightly.yml`,
+`load-test-nightly.yml`, `update-visual-baselines.yml`) STAY — these
+are project-specific and the user wants both repos to converge to a
+superset, not strip medcore back.
+
+Source of truth for the port: `C:\Users\Admin\gbs-projects\gbs-crm\.github\workflows\` (sibling checkout).
+
+| globussoft-crm | medcore equivalent today | Action needed |
+|---|---|---|
+| `pr-checks.yml` | `test.yml` (already runs on `pull_request`) | ✓ none |
+| `deploy.yml` | `test.yml` deploy job | ✓ none |
+| `e2e-full.yml` | `release.yml` | ✓ none (different trigger but same role) |
+| `coverage.yml` | _missing_ | **Port** |
+| `demo-monitor.yml` | _missing_ | **Port** |
+| `migration-check.yml` | _missing_ | **Port** |
+| `secret-scan.yml` | _missing_ | **Port** |
+
+### Order to port (easiest → hardest)
+
+1. **`secret-scan.yml`** — ~30 min. Pure infra, gitleaks Docker action.
+   Triggers: push + PR + weekly cron (Mondays). Needs a medcore-tuned
+   `.gitleaks.toml` allowlist for known-intentional fixture creds
+   (`admin@medcore.local`, JWT secrets in `.env.example`, etc.). Port
+   the workflow file verbatim, write the allowlist by scanning the
+   first run's findings and triaging real-vs-noise.
+
+2. **`migration-check.yml`** — ~2-3 hr. Depends on
+   `backend/scripts/check-migration-safety.js` + fixture set under
+   `backend/scripts/fixtures/migration-safety/` and `e2e/tests/migration-safety.spec.js`
+   in CRM. medcore is on Prisma too so the diff-script logic transfers
+   1:1; paths change (`backend/` → `apps/api/` + `packages/db/prisma/`)
+   and a few CRM-specific patterns (MySQL DDL parsing in particular)
+   need adapting for Postgres. **High value** — catches NOT NULL /
+   COLUMN_DROP / TYPE_NARROWING / UNIQUE_ADDITION / FK_WITHOUT_ON_DELETE
+   risks BEFORE the deploy job fires `prisma db push --accept-data-loss`.
+
+3. **`demo-monitor.yml`** — ~1-2 hr. Workflow shell is a straightforward
+   port (every-2h cron + workflow_dispatch + auto-issue-on-failure).
+   The work is writing `e2e/demo-health.spec.ts` for medcore — encode
+   the regression classes that hospital ops should catch on the demo
+   box (cross-tenant patient leak, sidebar 404s, scrub-residue from
+   prior E2E runs, ABDM webhook responding etc). CRM's spec is at
+   `e2e/tests/demo-health.spec.js` for reference shape.
+
+4. **`coverage.yml`** — ~3-4 hr. Hardest because it needs c8
+   instrumentation wired into medcore's API server (`apps/api/src/index.ts`
+   + graceful-shutdown handler that flushes V8 coverage on SIGTERM,
+   matching CRM's `server.js:gracefulShutdown`). Spec list = the
+   api-tests-fast + api-tests-integration set already in `release.yml`.
+   Postgres service container instead of MySQL. **Lower urgency** since
+   `release.yml` already runs the suite; this just adds line-coverage
+   telemetry as a workflow_dispatch report (CRM runs it every 2 weeks).
+
+### When to do this
+
+After the current E2E grind wave is fully closed (the in-flight session
+on 2026-05-06 — see "🏠 HOME PICKUP" below). The user wants both repos'
+workflow surfaces to match; this is parity work, not blocking shipping.
+
+---
+
 ## 🏠 HOME PICKUP — handoff from 2026-05-05 office (read this first)
 
 **HEAD on `main` = `9b2291a`** (`ci(release): aggressive sharding v2 — target ≤10 min total wall-clock`).

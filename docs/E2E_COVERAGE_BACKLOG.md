@@ -229,11 +229,11 @@ For each spec already in the suite, the flows below are not tested and should be
 - (bonus) RBAC contract pin (PATIENT exclusion from /surgery/ots + cross-patient surgery read) ✅ closed
 
 ### telemedicine-patient.spec.ts
-- Call quality / reconnection
-- Post-consult prescription fill / delivery
-- Followup scheduling from call end
-- Recording consent + archive
-- Remote-consult payment / settlement
+- ~~Call quality / reconnection~~ ⚠ **partially deferred — UI not shipped, reconnection is Jitsi-internal**: closest server surface is the precheck `bandwidthKbps` + `userAgent` capture on `precheckDetails` (telemedicine.ts:968-1029); the rest of call-quality / reconnection is pure Jitsi/WebRTC client state with no server-side observable. Pinned the precheck fingerprint as the closest proxy in `e2e/telemedicine-deep.spec.ts` case 5. Reopen for end-to-end if a Jitsi-mock harness ships.
+- ~~Post-consult prescription fill / delivery~~ ✅ closed (`e2e/telemedicine-deep.spec.ts` case 3 — DOCTOR /prescription POST on IN_PROGRESS session pins TRX-<sessionNumber> id + items echo; PATIENT firing same route is 403). UI surface is the basic /dashboard/scribe deep-link; no Rx-fill button on telemedicine page itself (verified by grep — only Schedule/Start/End/Cancel/Admit/Deny/Rate/Scribe CTAs ship).
+- ~~Followup scheduling from call end~~ ✅ closed (`e2e/telemedicine-deep.spec.ts` case 2 — DOCTOR PATCH /followup pins followUpScheduledAt persistence + PATIENT 403 RBAC). NO UI CTA — the strings "follow-up" / "followUp" appear only in the End Session prompt's free-text placeholder (page.tsx:268), never as a structured form field. Route handler IS shipped, pinned at API layer.
+- ~~Recording consent + archive~~ ✅ closed (`e2e/telemedicine-deep.spec.ts` case 1 — POST /recording/start consent-gate (consent=false → 400, consent=true → 200 + recordingConsent=true persisted) + POST /recording/stop archive-URL persistence (Jibri-webhook shape)). NO UI CTA — verified by grep (zero matches for /recording|consent|recordingConsent|recordingUrl/i in the telemedicine page tree). Route handlers + audit rows ARE shipped, pinned at API layer.
+- ~~Remote-consult payment / settlement~~ ⚠ **partially deferred — no dedicated settlement surface, only `fee` field**: closed at `e2e/telemedicine-deep.spec.ts` case 4 — ADMIN-supplied fee survives onto session row and PATIENT GET reflects it. NO dedicated remote-consult settlement / Razorpay-via-telemedicine surface (verified by grep — zero matches for /payment|settlement|razorpay|invoice/i scoped to telemedicine route or page tree). User-facing settlement is owned by billing-cycle and billing-patient specs (already in suite). Reopen if a tele-pay surface ships.
 
 ### admissions-mar.spec.ts
 - Admit form (reason, type, bed assignment)

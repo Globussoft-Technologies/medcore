@@ -190,11 +190,13 @@ For each spec already in the suite, the flows below are not tested and should be
 - Aging report interaction (paid/unpaid filtering)
 
 ### lab-tech.spec.ts
-- Result approval / sign-off workflow
-- Out-of-range value flagging + escalation
-- Repeat-test ordering
-- Result history / amendment trail
-- Batch result entry
+- ~~Result approval / sign-off workflow~~ ✅ closed (`e2e/lab-tech-deep.spec.ts` case 1 — DOCTOR PATCH /lab/results/:id/verify pins verifiedAt/verifiedBy persistence + LAB_RESULT_VERIFY audit row + LAB_TECH 403 RBAC). API-contract pin only — UI not shipped (verified BEFORE scaffold per cron-learning bullet 7): no Verify / Sign-off CTA on `/dashboard/lab` or `/dashboard/lab/[orderId]/page.tsx`. PATCH /lab/results/:id/verify route IS shipped (lab.ts:1229). Re-enters backlog when sign-off CTA UI ships.
+- ~~Out-of-range value flagging + escalation~~ ✅ closed (`e2e/lab-tech-deep.spec.ts` case 2 — LAB_TECH posts a 30%+ swing on same patient+test+parameter, second result row carries deltaFlag=true and order auto-completes; pins >25% delta-check from lab.ts:422-454 + auto-completion at :505-525). MIXED ship: UI flag dropdown + colored pill rendering shipped (`/dashboard/lab/[orderId]/page.tsx:485-494, :60-65`); deltaFlag rendering NOT shipped (verified by grep — `deltaFlag` is read nowhere in `apps/web/src`); escalation is server-side fire-and-forget notification only. API-contract pin locks the delta path so a future delta-banner UI has a stable contract.
+- ~~Repeat-test ordering~~ ✅ closed (`e2e/lab-tech-deep.spec.ts` case 3 — DOCTOR re-POSTs /lab/orders with same testIds, second order has DIFFERENT orderNumber but same testIds[] echoed; pins lab.ts:233-243 incremental LAB-prefix numbering). API-only: no dedicated `/repeat` route — contract is two POSTs, two distinct LAB-prefixed numbers. UI not shipped (verified — no Repeat / Re-order CTA anywhere in `apps/web/src/app/dashboard/lab`).
+- ~~Result history / amendment trail~~ ✅ closed (`e2e/lab-tech-deep.spec.ts` case 1 amendment-trail half — ADMIN reads /audit?entity=lab_result&entityId=<id> and confirms LAB_RESULT_VERIFY row landed; case 4 confirms LAB_RESULT_BATCH row; awaited auditLog() middleware so reads are race-free). NO content-amendment endpoint exists (verified by grep — no PATCH /results/:id for value mutation; only /verify); the repository's stance is "amendments = re-create the result row, audit captures both LAB_RESULT_CREATE rows". UI: lab pages display recorded-result history but NOT the audit trail (verified — no /audit read in `apps/web/src/app/dashboard/lab`).
+- ~~Batch result entry~~ ✅ closed (`e2e/lab-tech-deep.spec.ts` case 4 — LAB_TECH posts 2-row batch with one CRITICAL via POST /lab/results/batch, pins criticalCount=1 + atomic order completion + LAB_RESULT_BATCH audit row + DOCTOR 403 RBAC for separation-of-duties from issue #14). API-contract pin only — UI not shipped (verified BEFORE scaffold per cron-learning bullet 7): Add Result form on `/dashboard/lab/[orderId]/page.tsx:417-510` is SINGLE-row only; no batch / multi-row paste / CSV-import surface. POST /lab/results/batch route IS shipped (lab.ts:834).
+- (bonus) Route-shadow regression pin (case 5 — ADMIN reads /lab/results/pending-verification; the static segment must precede dynamic `:orderItemId` per commit a5a6224) ✅ closed
+- (bonus) LAB_TECH dashboard chrome sanity-anchor (case 6 — heading + Orders tab) ✅ closed
 
 ### pharmacist.spec.ts
 - Rx rejection workflows (contraindication, OOS)

@@ -250,14 +250,28 @@ router.post(
   validate(createLabOrderSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { patientId, doctorId, admissionId, testIds, notes, priority } = req.body as {
+      const { patientId, admissionId, testIds, notes, priority } = req.body as {
         patientId: string;
-        doctorId: string;
         admissionId?: string;
         testIds: string[];
         notes?: string;
         priority?: "ROUTINE" | "URGENT" | "STAT";
       };
+
+      // Resolve doctorId: prefer explicit body value (admin ordering on behalf
+      // of a doctor), fall back to the authenticated user's own Doctor record.
+      let doctorId: string = req.body.doctorId;
+      if (!doctorId) {
+        const doctor = await prisma.doctor.findUnique({
+          where: { userId: req.user!.userId },
+          select: { id: true },
+        });
+        if (!doctor) {
+          res.status(400).json({ success: false, data: null, error: "Authenticated user has no doctor profile" });
+          return;
+        }
+        doctorId = doctor.id;
+      }
 
       const orderNumber = await generateOrderNumber();
       const normalizedPriority = priority === "STAT" || priority === "URGENT" ? priority : "ROUTINE";

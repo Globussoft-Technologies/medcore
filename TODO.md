@@ -316,6 +316,50 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 23 (2-agent E2E fanout — pivot to §4 cross-cutting: §4.10 print-pdf + §4.7 negative-paths)**:
+> §5 P-priorities exhausted (only P10 tenant-isolation remains, needs
+> multi-tenant fixtures). Pivoted to §4 cross-cutting gaps. Lane A
+> (`611cbfc`): `e2e/print-pdf.spec.ts` (5 cases — Rx page Print →
+> markPrinted + window.open /pdf round-trip + invoice page Print
+> openPrintEndpoint /billing/invoices/:id/pdf + admission discharge-
+> summary-pdf + lab order /pdf + PAID/CANCELLED/DRAFT watermark
+> overlays at billing/[id]:496-517 driven by derivePaymentStatus()).
+> **VERIFY audit**: 2 of 7 §4.10 sub-scenarios DEFERRED — TEST
+> RESULT/NOT FOR CLINICAL USE clinical watermark (0 hits in render
+> code) + batch/multi-select print (0 hits, only per-row CTAs).
+> Notable: print uses `openPrintEndpoint` (lib/api.ts:233-250) authed
+> fetch + popup HTML write — NOT a browser download event, so
+> `page.waitForResponse()` is the right pin (not `waitForEvent('download')`
+> which the wave-18 reports-custom.spec.ts uses for browser downloads).
+>
+> Lane B (`f19bf5c`): `e2e/negative-paths.spec.ts` (6 cases — login
+> 401 banner + register 5xx page-level retry CTA + patients form 409
+> duplicate + patients form 400 server validation envelope + /display
+> kiosk offline banner via fetch-failure detection). **VERIFY audit**:
+> 5 of 8 §4.7 sub-scenarios DEFERRED — API 503 auto-retry (lib/api.ts
+> :177-190 throws on 5xx, no retry loop), offline+sync-on-reconnect
+> for authed forms (online/offline event listeners absent in
+> apps/web/src outside /display kiosk), beforeunload navigate-away
+> warning (0 repo-wide hits), file-upload size+format JS validation
+> (only `accept=` HTML attr, no JS guard), AV-scan feedback (no UI
+> surface).
+>
+> **11 new E2E tests across 2 spec files** (×2 Playwright projects =
+> 22 listed cases). §4.7 + §4.10 closed.
+>
+> **VERIFY-BEFORE-SCAFFOLD discipline cumulative across waves
+> 21+22+23**: 25 sub-scenarios deferred with concrete evidence-
+> citations (page.tsx line refs, route-file absence, repo-wide grep
+> counts). The discipline continues to surface real backlog-vs-shipped
+> gaps for the product team. **Architectural finding worth flagging**:
+> the codebase has NO generic API-retry / circuit-breaker / offline-
+> sync infrastructure — every page that wants retry-on-error renders
+> its own button (only /register does today). Toast vs inline-banner
+> selector divergence: toasts use `role="status"`, inline banners use
+> `role="alert"`. CLAUDE.md gotcha #10 already covers the `role="alert"`
+> + `__next-route-announcer__` clash; the `role="status"` toast convention
+> is a related selector-hygiene point not yet captured.
+>
 > **2026-05-05 cron-tick wave 22 (2-agent E2E fanout — §5 P5 admission-discharge-flow + P8 insurance-claims-lifecycle; 2nd wave applying VERIFY-BEFORE-SCAFFOLD)**:
 > 2 §5 priorities closed via 11 cases across 2 spec files. Lane A
 > (`02487e7`): `e2e/admission-discharge-flow.spec.ts` (6 cases — RECEPTION

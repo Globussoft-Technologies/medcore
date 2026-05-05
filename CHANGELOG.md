@@ -12,6 +12,24 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 23 — pivot to §4 cross-cutting (print-pdf + negative-paths).**
+  Lane A (`611cbfc`) shipped `print-pdf.spec.ts` (5 cases — Rx + invoice +
+  discharge-summary + lab-order PDF round-trips + PAID/CANCELLED/DRAFT
+  watermark overlay). Lane B (`f19bf5c`) shipped `negative-paths.spec.ts`
+  (6 cases — login 401 + register 5xx page-level retry + patients 409 +
+  patients 400 + /display offline banner). 11 new tests × 2 projects =
+  22 listed cases. **VERIFY-BEFORE-SCAFFOLD found 7 of 15 sub-scenarios
+  DEFERRED** with concrete evidence: clinical watermark + batch print
+  (no UI), 503 auto-retry (api.ts throws no retry), offline+sync-on-
+  reconnect (no online/offline listeners outside /display kiosk),
+  beforeunload mid-form warning (0 repo hits), file-size JS validation
+  (only HTML `accept=` attr), AV-scan feedback (no UI). Cumulative
+  25 deferred-with-evidence sub-scenarios across waves 21+22+23 —
+  the 7th cron-learning bullet's discipline continues to surface real
+  backlog-vs-shipped gaps. **Architectural finding**: codebase has NO
+  generic retry/circuit-breaker/offline-sync infrastructure — every
+  page that wants retry-on-error renders its own button (only /register
+  today).
 - **2026-05-05 cron-tick wave 22 — §5 P5 admission-discharge-flow + P8 insurance-claims-lifecycle.**
   Lane A (`02487e7`) shipped `admission-discharge-flow.spec.ts` (6 cases
   — RECEPTION admit-form + DOCTOR med-orders + NURSE MAR skip + Doctor

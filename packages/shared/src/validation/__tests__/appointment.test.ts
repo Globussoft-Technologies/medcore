@@ -18,7 +18,7 @@ describe("bookAppointmentSchema", () => {
   // so the fixture uses a far-future YYYY-MM-DD that's safely valid no
   // matter when the test runs (mirrors the pattern recurring already used
   // for #362).
-  const valid = { patientId: UUID, doctorId: UUID, date: "2099-04-20", slotId: UUID };
+  const valid = { patientId: UUID, doctorId: UUID, date: "2099-04-20", slotId: "09:00" };
   it("accepts a valid booking", () => {
     expect(bookAppointmentSchema.safeParse(valid).success).toBe(true);
   });

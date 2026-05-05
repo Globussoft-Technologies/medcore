@@ -82,12 +82,12 @@ jobs:
       UPDATE_VISUAL_BASELINES: "1"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version-file: ".nvmrc"
           cache: npm
@@ -239,7 +239,7 @@ jobs:
       UPDATE_VISUAL_BASELINES: "1"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 1
@@ -248,7 +248,7 @@ jobs:
           # fast-forward.
           ref: main
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version-file: ".nvmrc"
           cache: npm

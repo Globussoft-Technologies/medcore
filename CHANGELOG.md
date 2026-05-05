@@ -12,6 +12,23 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 22 — §5 P5 admission-discharge-flow + P8 insurance-claims-lifecycle.**
+  Lane A (`02487e7`) shipped `admission-discharge-flow.spec.ts` (6 cases
+  — RECEPTION admit-form + DOCTOR med-orders + NURSE MAR skip + Doctor
+  transfer/discharge + inter-ward transfer + discharge-summary med-
+  recon). Lane B (`5aeae12`) shipped `insurance-claims-lifecycle.spec.ts`
+  (5 cases — Submit + reconciliation 2-branch + denied-reason banner +
+  EntityPicker bill-picker contract). 11 new tests × 2 projects = 22
+  listed cases. **VERIFY-BEFORE-SCAFFOLD audit found 8 of 14
+  sub-scenarios DEFERRED** with concrete evidence: vitals frequency +
+  diet (no UI), post-discharge followup auto-schedule (only free-text
+  followUpInstructions persists, no /followups POST), LOS in /census
+  (occupancy counts only), claim auto-polling (drawer ?sync=1 exists
+  but no client poller), appeal flow (zero matches in page.tsx),
+  multi-policy COB (single policyNumber field), aging report (no
+  /aging route). **Cumulative 18 deferred-with-evidence sub-scenarios
+  across waves 21+22** validates the 7th cron-learning bullet's
+  VERIFY-BEFORE-SCAFFOLD discipline.
 - **2026-05-05 cron-tick wave 21 — §5 P2 prescription-lifecycle + P3 pharmacy-inventory (first wave applying VERIFY-BEFORE-SCAFFOLD discipline).**
   Lane A (`4e847d5`) shipped `prescription-lifecycle.spec.ts` (5 cases —
   DDI warning + Share-via-Email + RBAC asymmetry). Lane B (`de555e0`)

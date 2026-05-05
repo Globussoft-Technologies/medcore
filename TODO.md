@@ -316,6 +316,38 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 22 (2-agent E2E fanout — §5 P5 admission-discharge-flow + P8 insurance-claims-lifecycle; 2nd wave applying VERIFY-BEFORE-SCAFFOLD)**:
+> 2 §5 priorities closed via 11 cases across 2 spec files. Lane A
+> (`02487e7`): `e2e/admission-discharge-flow.spec.ts` (6 cases — RECEPTION
+> admit-form + bed picker; DOCTOR meds order POST shape; NURSE MAR
+> skip-with-reason REFUSED+notes PATCH stub; Doctor disposition transfer
+> + discharge; inter-ward transfer modal; discharge-summary med-recon
+> POST). VERIFY audit: 4 of 8 P5 sub-scenarios DEFERRED with evidence —
+> vitals frequency + diet (no UI surface), continue disposition (no
+> explicit CTA, implicit no-op default), post-discharge followup
+> auto-schedule (admissions.ts:400-518 only persists followUpInstructions
+> as free text, no /followups POST), LOS in /dashboard/census aggregate
+> (census reads occupancy counts only, not per-admission LOS).
+> Lane B (`5aeae12`): `e2e/insurance-claims-lifecycle.spec.ts` (5 cases —
+> Submit claim POST shape; status timeline (auto-polling deferred);
+> reconcile billed vs approved 2 branches; deniedReason red-banner pin;
+> claim-bill-picker EntityPicker contract). VERIFY audit: 4 of 6 P8
+> sub-scenarios DEFERRED with evidence — auto-polling (drawer
+> ?sync=1 exists but no client poller); appeal flow (zero /appeal
+> matches in page.tsx, only /:id/cancel + /reconcile shipped); multi-
+> policy COB (single policyNumber field, no primary/secondary schema);
+> aging report (no /aging route, only in-list status filter ships).
+>
+> **11 new E2E tests across 2 spec files** (×2 Playwright projects =
+> 22 listed cases). §5 P5 + P8 closed.
+>
+> **VERIFY-BEFORE-SCAFFOLD discipline cumulative result across waves
+> 21+22**: 18 sub-scenarios deferred with concrete evidence-citations
+> (grep counts, page.tsx line refs, route-file absence proofs) rather
+> than fabricated tests. The 7th cron-learning bullet's discipline is
+> highly productive — surfaces real backlog-vs-shipped gaps for the
+> product team while keeping the test suite tied to actual UI.
+>
 > **2026-05-05 cron-tick wave 21 (2-agent E2E fanout — §5 P2 prescription-lifecycle + P3 pharmacy-inventory; first wave applying the 7th cron-learning bullet's VERIFY-BEFORE-SCAFFOLD discipline)**:
 > 2 §5 priorities closed via 10 cases across 2 spec files. Lane A
 > (`4e847d5`): `e2e/prescription-lifecycle.spec.ts` (5 cases — DDI

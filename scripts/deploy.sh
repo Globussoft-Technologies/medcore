@@ -193,8 +193,29 @@ pm2 restart medcore-api medcore-web --update-env
 sleep 3
 
 echo "=== 8. Verifying ==="
-curl -sf http://localhost:4100/api/health && echo " API OK" || { echo " API FAILED"; exit 1; }
-curl -sf http://localhost:3200 > /dev/null && echo "Web OK" || { echo "Web FAILED"; exit 1; }
+# Retry loop: the dev box runs ~30 PM2 processes for several apps; under
+# load `pm2 restart` + 3s sleep is sometimes too tight for medcore-api to
+# bind :4100 before the curl fires. Single-shot was the root cause of
+# 4 consecutive 'API FAILED' deploy-step failures observed 2026-05-05.
+api_ok=0
+for attempt in 1 2 3 4 5; do
+    if curl -sf -m 5 http://localhost:4100/api/health > /dev/null; then
+        echo " API OK (attempt $attempt)"; api_ok=1; break
+    fi
+    echo " API not ready (attempt $attempt/5), retrying in 5s..."
+    sleep 5
+done
+[ "$api_ok" -eq 1 ] || { echo " API FAILED after 5 retries"; exit 1; }
+
+web_ok=0
+for attempt in 1 2 3 4 5; do
+    if curl -sf -m 5 http://localhost:3200 > /dev/null; then
+        echo "Web OK (attempt $attempt)"; web_ok=1; break
+    fi
+    echo "Web not ready (attempt $attempt/5), retrying in 5s..."
+    sleep 5
+done
+[ "$web_ok" -eq 1 ] || { echo "Web FAILED after 5 retries"; exit 1; }
 
 pm2 save
 echo "=== Deployment complete (previous SHA recorded at /tmp/medcore-prev-sha) ==="

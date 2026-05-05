@@ -183,6 +183,106 @@ Returns the universe of files to audit under the expanded criterion. As of 2026-
 
 For each file, scan every handler (not just `/:id` ones) — the expanded criterion applies to any PATIENT-allowed surface that operates on rows.
 
+## Catalog endpoint eager-include leak audit (added 2026-05-05 — wave 8 + wave 17)
+
+**Pattern**: a non-patient resource (no direct `patientId` FK on the row itself) ships a route handler that eagerly includes a patient-bearing relation, leaking PII to PATIENT callers who legitimately reach the endpoint as a "catalog" surface.
+
+Two confirmed instances:
+
+- `apps/api/src/routes/packages.ts GET /:id` — `HealthPackage` is the catalog row (no `patientId` FK), but the handler did `include: { purchases: { patient: { user } } }` exposing up-to-10 purchaser identities (name + phone) to ANY PATIENT hitting the catalog detail.
+- `apps/api/src/routes/doctors.ts GET /` — `Doctor` is the staff-catalog row (PATIENT can browse for booking), but the handler eagerly returned `user.email + user.phone` for every doctor — booking-surface need vs. PII shape mismatch.
+
+**Discovery grep**:
+
+```bash
+grep -nE "include:\s*\{[^}]*purchases|include:\s*\{[^}]*user:|include:\s*\{[^}]*patient:" apps/api/src/routes/*.ts
+```
+
+Returns include shapes worth auditing. For each match, ask: "if a PATIENT hits this endpoint, what user/patient PII does this include() expose?"
+
+**Fix pattern (identical across both instances)**:
+
+```ts
+// Branch the projection by role: full include for staff, minimal for PATIENT.
+const isStaff = req.user!.role !== "PATIENT";
+const data = await prisma.<model>.findUnique({
+  where: { id: req.params.id },
+  ...(isStaff
+    ? { include: { purchases: { include: { patient: { include: { user: true } } } } } }
+    : { include: { /* only catalog fields, no patient-bearing relations */ } }),
+});
+```
+
+**When to apply this lens**: any time you sweep a route file where:
+- The primary resource has NO `patientId` FK on its own row (catalog/master-data shape), AND
+- PATIENT is in the `authorize()` list for the GET handler (or no `authorize()` at all), AND
+- The handler's `include` block reaches into a patient-bearing relation
+
+If all three are true, audit the include shape against role.
+
+## Post-fix verification grep (added 2026-05-05 — wave 7 CI-unblock learning)
+
+**Why this exists**: the BOLA-closure waves on 2026-05-05 shipped 69 real fixes, but 3 bug shapes slipped past the per-agent commit and were caught only by the next push's `test.yml`. Two of the three were cheap-grep-detectable. Adding this as a final pre-doc-roll step would have flagged them at fanout-end.
+
+**Run BOTH greps before the doc-roll commit** in any /medcore-bola-sweep wave:
+
+### (i) Express route-shadow regression class
+
+When you add or modify a route file, verify static-segment routes are declared BEFORE dynamic-segment siblings of the same prefix:
+
+```bash
+# For each /<prefix>/:id-shaped handler in the file, check that all
+# /<prefix>/<literal-name> handlers appear earlier in the file. Express
+# matches in declaration order — declaring `/results/:orderItemId` before
+# `/results/trends` will silently 404 the latter forever.
+awk '/^router\.(get|post|patch|delete|put)\("/{print NR, $0}' apps/api/src/routes/<route>.ts
+```
+
+Read the output: any literal route declared AFTER a dynamic sibling of the same prefix is shadowed.
+
+Real instance: commit `a5a6224` had to fix `apps/api/src/routes/lab.ts` where `GET /results/:orderItemId` (line 556) was shadowing `GET /results/trends` (line 977 originally) and `GET /results/pending-verification` (line 1211 originally) — both static handlers returned 404 against any literal path component bound to `:orderItemId`.
+
+### (ii) `assertPatientOwnsResource` arg-shape verification
+
+Every call site MUST pass the **Patient row's id** (i.e. `Patient.id`), NOT the User row's id:
+
+```bash
+grep -nE "assertPatientOwnsResource\(req,\s*res,\s*[^)]+\)" apps/api/src/routes/*.ts
+```
+
+Read each match. The 3rd argument should be one of:
+- A `.patientId` field-access (canonical: `resource.patientId`, `existing.patientId`, `parent.patientId`, etc.)
+- A direct `req.params.<patientId-param>` (e.g., `req.params.patientId` for handlers keyed on patientId)
+- A `.id` access on a freshly-loaded `prisma.patient` row (i.e., `patient.id` where `patient` came from `findUnique`)
+
+The arg-shape ANTI-pattern: `.userId` or `.user.id` or `.user?.id`. The helper queries `prisma.patient.findUnique({ where: { id: <arg> }})` — passing a User row's id will never match and will 403 PATIENT-A on their own chart (real bug shipped in commit `80c4b89`, fixed in `a5a6224`).
+
+Run both greps after the route-handler edits but BEFORE the doc-roll commit. Both checks are cheap and catch the two paper-cut classes that recur most often.
+
+## Inverse pattern: "writes-gated, reads-bare" audit (added 2026-05-05 — wave 5)
+
+**Pattern**: a route file has `authorize(...)` on POST/PATCH/DELETE handlers but the corresponding GET handlers slipped through without gating. The audit grep catches "no authorize() at all" but misses files where SOME handlers are gated.
+
+Three confirmed instances surfaced in waves 5+:
+
+- `apps/api/src/routes/pharmacy.ts` — 4 GET handlers without `authorize()` while POST/PATCH were gated
+- `apps/api/src/routes/med-reconciliation.ts` — 3 GETs bare while writes were gated
+- `apps/api/src/routes/preauth.ts` — `GET /` honored client-supplied `?patientId=` query bypass while writes were gated
+
+**Discovery grep**: for each route file, list GET handlers and check whether they have a per-handler `authorize()` AND whether the file has at least one OTHER `authorize()` call somewhere (selective-gating signal):
+
+```bash
+# List GET handlers per file:
+grep -nE "router\.get\(" apps/api/src/routes/<route>.ts
+
+# Count authorize() calls in the file:
+grep -c "authorize(" apps/api/src/routes/<route>.ts
+```
+
+If GET handlers > 0 AND total `authorize(` > 0 AND the GET handlers themselves don't include `authorize(` on their own line — that's the selective-gating signal. Audit each bare GET.
+
+**Caveat**: naive grep produces ~50% false positives — already-helper-applied handlers don't match the `authorize(` pattern but ARE gated via inline `req.user.patientId` self-scope or `assertPatientOwnsResource()` post-load. Confirm before patching.
+
 ## Concurrency safety in /medcore-fanout
 
 When invoked by `/medcore-fanout` (one agent per route file):

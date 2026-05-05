@@ -12,6 +12,20 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 29 — §3 admin-ops-deep + §4.3 a11y-deep + 3 more architectural-gap findings.**
+  Lane A (`4439c56`) shipped `admin-ops-deep.spec.ts` (5 cases —
+  custom date-range URL contract + drill-down modal + period-over-
+  period delta + KPI threshold structural-NOT beacon + on-page CSV
+  download). Lane B (`7d7affb`) shipped `a11y-deep.spec.ts` (5 cases —
+  keyboard date-picker + high-contrast emulation + 150% font-scale +
+  skip-to-content structural-NOT beacon + aria-live region wiring).
+  10 new tests × 2 projects = 20 listed cases. **3 new architectural-
+  gap findings**: (1) NO KPI threshold infrastructure (0 hits across
+  schema+API+web for KpiThreshold|alertThreshold etc.); (2) NO skip-
+  to-content link in dashboard layout despite `<main id="main-content">`
+  target; (3) NO multi-step wizard anywhere — only static "Step 1:"
+  labels, no stateful prev/next forms. Cumulative ~60+ deferred-or-
+  contract-pinned sub-scenarios across 9 cron ticks.
 - **2026-05-05 cron-tick wave 28 — §3 deepening (rbac-matrix-deep + edge-cases-deep) + 3 architectural-gap findings.**
   Lane A (`5da5672`) shipped `rbac-matrix-deep.spec.ts` (6 cases —
   PATIENT data-ownership self-scope on appointments + prescriptions,

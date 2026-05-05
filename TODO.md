@@ -316,6 +316,57 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 29 (2-agent E2E fanout — §3 admin-ops-deep + §4.3 a11y-deep)**:
+> 2 deepening items closed via 10 cases across 2 spec files. Lane A
+> (`4439c56`): `e2e/admin-ops-deep.spec.ts` (5 cases — custom date-range
+> URL contract `?from=&to=` via Preset+From/To inputs at analytics
+> page.tsx:1037-1088 + drill-down DrillDownModal on Doctor Performance
+> row click at page.tsx:2208 + period-over-period compareMode toggle
+> wires `?compareMode=previous_period` to /analytics/overview returning
+> {current, previous, deltaPercent, previousRange} delta-badge
+> rendering + KPI threshold configuration structural-NOT beacon (NOT
+> shipped at any layer — 0 hits for KpiThreshold|alertThreshold|
+> setThreshold|threshold-config across Prisma + API + web) + on-page
+> Revenue CSV download trigger via `page.waitForEvent('download')`
+> distinct from analytics-reports/reports-custom specs).
+>
+> Lane B (`7d7affb`): `e2e/a11y-deep.spec.ts` (5 cases — keyboard-only
+> date-picker nav (8x `<input type="date">` on /dashboard/appointments,
+> #appt-book-date inside [data-testid="appt-book-panel"] ADMIN/
+> RECEPTION gated) + high-contrast mode via `page.emulateMedia({
+> forcedColors: "active" })` checks critical CTAs survive bg-collapse
+> + font-scale 150% via `page.addStyleTag({ content: "html {
+> font-size: 24px !important; }" })` checks no overflow + skip-to-
+> content structural-NOT beacon (`<main id="main-content">` ships at
+> layout.tsx:911 but ZERO `[Ss]kip.to.[Cc]ontent` matches in apps/web/
+> src — fires the day a skip link ships) + aria-live region wiring
+> verification on Toast.tsx:43 + dashboard/layout.tsx:630). Deferred
+> with rationale: true SR voice synthesis is NA-in-Playwright (belongs
+> in manual QA), multi-step wizard UI not shipped (only static
+> "Step 1:" labels, no stateful prev/next).
+>
+> **NEW ARCHITECTURAL FINDINGS** (concrete gaps documented for the
+> product team):
+> - **No KPI threshold infrastructure** — repo-wide grep for
+>   `KpiThreshold|kpiThreshold|alertThreshold|setThreshold|threshold-
+>   config|kpi-config` returns 0 hits across Prisma schema + API +
+>   web. Structural-NOT beacon added.
+> - **No skip-to-content link** anywhere in the dashboard layout
+>   despite `<main id="main-content">` being available as the target.
+>   Structural-NOT beacon fires the day a skip link ships.
+> - **No multi-step wizard ships** in the dashboard — only static
+>   step labels (e.g. "Step 1:" text in purchase-orders/[id]) — no
+>   stateful prev/next form anywhere.
+>
+> **10 new E2E tests across 2 spec files** (×2 Playwright projects =
+> 20 listed cases). 2 deepening items closed (admin-ops + a11y).
+>
+> **VERIFY-BEFORE-SCAFFOLD discipline cumulative across waves
+> 21+22+23+24+25+26+27+28+29**: ~60+ sub-scenarios deferred or
+> contract-pinned with concrete evidence-citations. Wave 29 adds 3
+> more architectural-gap findings (KPI threshold / skip-link /
+> multi-step wizard) for the product team's roadmap.
+>
 > **2026-05-05 cron-tick wave 28 (2-agent E2E fanout — §3 deepening: rbac-matrix-deep + edge-cases-deep)**:
 > 2 §3 deepening items closed via 11 cases across 2 spec files. Lane A
 > (`5da5672`): `e2e/rbac-matrix-deep.spec.ts` (6 cases — PATIENT

@@ -25,12 +25,14 @@ describe("ToastContainer", () => {
     expect(screen.getByRole("status")).toBeInTheDocument();
   });
 
-  it("toast.error shows an error toast with red border class", () => {
+  it("toast.error shows an error toast with red border class and role=alert", () => {
     render(<ToastContainer />);
     act(() => {
       toast.error("Oops");
     });
-    const toastEl = screen.getByRole("status");
+    // Error toasts use role="alert" (assertive) so screen readers
+    // interrupt the current utterance — see Toast.tsx logic.
+    const toastEl = screen.getByRole("alert");
     expect(toastEl.className).toContain("border-red-500");
   });
 
@@ -84,8 +86,16 @@ describe("ToastContainer", () => {
     expect(screen.getByRole("status")).toBeInTheDocument();
   });
 
-  it("renders nothing when there are no toasts", () => {
+  it("renders the empty aria-live wrapper even when there are no toasts", () => {
+    // The container always mounts so SR users have a stable live-region
+    // in the DOM (a region that mounts at the same instant a toast
+    // fires can lose the announcement on slower screen readers).
+    // Inner toast list is still empty when toasts.length === 0.
     const { container } = render(<ToastContainer />);
-    expect(container.firstChild).toBeNull();
+    expect(container.firstChild).not.toBeNull();
+    const wrapper = container.firstChild as HTMLElement;
+    expect(wrapper.getAttribute("aria-live")).toBe("polite");
+    expect(wrapper.getAttribute("aria-atomic")).toBe("true");
+    expect(wrapper.children.length).toBe(0);
   });
 });

@@ -1,23 +1,9 @@
-import { PrismaClient } from "@prisma/client";
-
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
-};
-
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log:
-      process.env.NODE_ENV === "development"
-        ? ["query", "error", "warn"]
-        : ["error"],
-  });
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
-}
-
-export { PrismaClient };
+// `prisma` lives in its own module to break the circular import between
+// this file and `./tenant-prisma`. The cycle was: index.ts → tenant-prisma.ts
+// → index.ts (for `prisma`), and tenant-prisma.ts calls `prisma.$extends()`
+// synchronously at module load — which TDZ-crashes under tsx/CJS.
+export { prisma } from "./client";
+export { PrismaClient } from "@prisma/client";
 export * from "@prisma/client";
 
 // Shared helpers used by both seed scripts and data-correction scripts.

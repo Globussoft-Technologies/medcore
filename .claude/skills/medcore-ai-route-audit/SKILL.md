@@ -196,6 +196,7 @@ After applying the contract, report (under 150 words):
 
 ## Cross-references
 
+- **Pairing with `/medcore-bola-sweep`**: when an `ai-*.ts` file is on the BOLA-sweep candidate list AND needs an audit-row + sanitiser pass, **run `/medcore-bola-sweep` FIRST**. BOLA fixes can force a parent-fetch refactor (verdict A3) that moves the audit-row site — re-anchoring the inference call site after the helper insertion is cheaper than redoing both passes against a moved `req.user!.userId`. Documented composition order: bola-sweep → ai-route-audit → route-test.
 - Canonical implementation: [`apps/api/src/routes/ai-letters.ts`](../../../../apps/api/src/routes/ai-letters.ts) (3 inference call sites, 1 read row).
 - Canonical test: [`apps/api/src/routes/ai-letters.test.ts`](../../../../apps/api/src/routes/ai-letters.test.ts).
 - Sanitiser: [`apps/api/src/services/ai/prompt-safety.ts`](../../../../apps/api/src/services/ai/prompt-safety.ts).

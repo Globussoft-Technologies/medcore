@@ -338,13 +338,7 @@ For each spec already in the suite, the flows below are not tested and should be
 - Missing: live queue updates
 - Missing: audit-log streaming for admins
 
-### 4.10 Print / PDF
-- Zero coverage
-- Missing: Rx print-to-PDF
-- Missing: invoice/bill print layout
-- Missing: medical certificate / discharge summary print
-- Missing: batch print
-- Missing: print watermarking ("TEST RESULT — NOT FOR CLINICAL USE")
+### ~~4.10 Print / PDF~~ ✅ closed 2026-05-05 by `e2e/print-pdf.spec.ts` (5 cases — Rx per-row Print CTA POST `/prescriptions/:id/print` audit-trigger pin + GET `/prescriptions/:id/pdf` popup; RECEPTION Print Invoice CTA → authed GET `/billing/invoices/:id/pdf`; DOCTOR Discharge Summary CTA → GET `/admissions/:id/discharge-summary-pdf` (BOLA-gated handler); DOCTOR Print Report on lab order → GET `/lab/orders/:id/pdf`; PAID watermark overlay render-pin via `derivePaymentStatus` collapse — drives the only watermarking shipped today). Deferred — UI not shipped (verified BEFORE scaffold per cron-learning bullet 7): (a) **"TEST RESULT — NOT FOR CLINICAL USE" clinical-test watermark** — string is absent from every render path under `apps/web/src` and `apps/api/src/services/pdf*`; only references are in this backlog and the system-test plan; (b) **Batch / multi-select print** — no `bulk.*print` / `selectedRows.*print` / multi-row checkbox+print pattern exists anywhere in `apps/web/src`; the only print CTAs are per-row or per-detail-page. Both deferred scenarios re-enter the backlog when the matching UI surfaces ship. Cross-cutting NOTE: pinning is via `page.waitForResponse()` not `page.waitForEvent('download')` — `openPrintEndpoint` (lib/api.ts:233) authed-fetches HTML and writes it into a popup; there is no download event to capture.
 
 ### 4.11 Multi-tenant isolation
 - `admin-ops.spec.ts` touches tenants page; no isolation verification

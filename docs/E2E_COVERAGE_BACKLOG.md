@@ -340,10 +340,10 @@ For each spec already in the suite, the flows below are not tested and should be
 - Missing: biometric auth (if implemented)
 
 ### 4.13 Internationalization
-- Zero coverage
-- Missing: language switching + persistence
-- Missing: RTL layout (Arabic, Hindi if supported)
-- Missing: locale-specific date/time/number formatting
+- ~~Zero coverage~~ ✅ closed in part (5 cases; `e2e/i18n.spec.ts`) — language switching + persistence + UI re-translation are pinned for the dashboard layout's `<LanguageDropdown>` (PATIENT lane: default `en`, switch to `hi` flips `<html lang>` + writes `localStorage["medcore_lang"]` + fires PATCH `/auth/me { preferredLanguage: "hi" }` + re-renders sidebar nav in Devanagari, survives reload, en↔hi round-trip).
+- ~~Missing: language switching + persistence~~ ✅ closed (see above)
+- ~~Missing: RTL layout (Arabic, Hindi if supported)~~ Deferred — UI not shipped. `Lang = "en" | "hi"` is the entire union (`apps/web/src/lib/i18n.ts:5`); no Arabic/Urdu/Hebrew. Zero `dir="rtl"` / `documentElement.dir` / `setAttribute("dir"…)` matches under `apps/web/src` — the i18n store only writes `<html lang>`, never `dir` (`lib/i18n.ts:1402-1413`). `i18n.spec.ts` includes a "no `dir='rtl'` for hi" assertion that pins the current ship state so a future RTL PR forces this test updated.
+- ~~Missing: locale-specific date/time/number formatting~~ Deferred — UI not shipped. Every `Intl.*` / `.toLocaleString` / `.toLocaleDateString` call site is hard-coded to `"en-IN"` and does NOT read `useTranslation().lang`. Confirmed call-sites: `apps/web/src/lib/currency.ts:22`, `apps/web/src/lib/appointments.ts:19`, `apps/web/src/app/display/page.tsx:125,132,140`, `apps/web/src/app/verify/rx/[id]/page.tsx:104`, `apps/web/src/components/EntityPicker.tsx:65`, `apps/web/src/app/dashboard/admin-console/page.tsx:427,509,544,555,708`, `apps/web/src/app/dashboard/admissions/page.tsx:313`. Switching to `hi` does NOT change date/number formatting today — there is no contract to test until a locale-aware formatter helper lands.
 
 ---
 

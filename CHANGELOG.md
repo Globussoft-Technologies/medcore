@@ -12,6 +12,22 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
+- **2026-05-05 cron-tick wave 21 — §5 P2 prescription-lifecycle + P3 pharmacy-inventory (first wave applying VERIFY-BEFORE-SCAFFOLD discipline).**
+  Lane A (`4e847d5`) shipped `prescription-lifecycle.spec.ts` (5 cases —
+  DDI warning + Share-via-Email + RBAC asymmetry). Lane B (`de555e0`)
+  shipped `pharmacy-inventory.spec.ts` (5 cases — Low-Stock + Expiring-
+  Soon + canManage gate). 10 new tests × 2 projects = 20 listed cases.
+  **The 7th cron-learning bullet worked as designed**: 10 sub-scenarios
+  across both lanes were DEFERRED with explicit evidence-citations
+  (page.tsx line refs OR route-file absence proofs), preventing
+  fabricated tests against ghost UI. P2 deferred: drug-allergy warning
+  (no UI), edit-existing-Rx (no endpoint), cancel-Rx (no endpoint),
+  patient refill request (excludes PATIENT in API), pharmacist
+  rejection (no endpoint). P3 deferred: catalog (covered elsewhere),
+  dispense-after-expiry (server-side only, no UI), stock-count-
+  adjustment (POST exists, 0 UI consumers), PO+consumption (owned by
+  other specs). Validates the verify-before-scaffold discipline from
+  the 7th cron-learning bullet.
 - **2026-05-05 cron-tick wave 20 — §5 P1 billing-line-items + P4 doctor-chart-review.**
   Lane A (`aaa9ad4`) shipped `doctor-chart-review.spec.ts` (6 cases —
   AllergyForm POST shape + TrendSparkline SVG + Documents IMAGING group

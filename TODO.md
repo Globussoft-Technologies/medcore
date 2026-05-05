@@ -316,6 +316,32 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 21 (2-agent E2E fanout — §5 P2 prescription-lifecycle + P3 pharmacy-inventory; first wave applying the 7th cron-learning bullet's VERIFY-BEFORE-SCAFFOLD discipline)**:
+> 2 §5 priorities closed via 10 cases across 2 spec files. Lane A
+> (`4e847d5`): `e2e/prescription-lifecycle.spec.ts` (5 cases — DDI
+> warning preview + DDI save-time gate + DOCTOR Share-via-Email POST
+> body shape + PHARMACIST queue read + DOCTOR-only Write CTA asymmetry
+> + PATIENT list self-scoping). **VERIFY-BEFORE-SCAFFOLD audit**: 6 of
+> 7 P2 sub-scenarios DEFERRED with evidence-citation — drug-allergy
+> warnings (no UI), edit-existing-Rx (no PATCH endpoint), cancel-Rx
+> (no /:id/cancel endpoint), patient refill request (POST exists but
+> excludes PATIENT — no patient-side UI), pharmacist rejection (no
+> /:id/reject endpoint).
+> Lane B (`de555e0`): `e2e/pharmacy-inventory.spec.ts` (5 cases — Low-
+> Stock tab + Order-from-Supplier POST shape + Expiring-Soon tab +
+> expiry color bands + canManage role gate). **VERIFY-BEFORE-SCAFFOLD
+> audit**: 4 of 7 P3 sub-scenarios DEFERRED — catalog (already covered
+> by medicines.spec.ts), dispense-after-expiry (server guard exists but
+> no /dispense UI), stock-count-adjustment (POST exists but 0 UI
+> consumers — grep returned 0 hits), PO+consumption (owned by
+> purchase-orders.spec.ts + pharmacy-forecast.spec.ts).
+>
+> **10 new E2E tests across 2 spec files** (×2 Playwright projects =
+> 20 listed cases). §5 P2 + P3 closed. **The 7th cron-learning
+> discipline worked**: 10 deferred sub-scenarios documented with
+> page.tsx/route-file evidence-citations rather than fabricated tests
+> against ghost UI.
+>
 > **2026-05-05 cron-tick wave 20 (2-agent E2E fanout — §5 P1 billing-line-items + P4 doctor-chart-review)**:
 > 2 §5 priorities closed via 11 cases across 2 spec files. Lane A
 > (`aaa9ad4`): `e2e/doctor-chart-review.spec.ts` (6 cases — DOCTOR

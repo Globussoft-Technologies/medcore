@@ -6,7 +6,74 @@ is independently shippable. Full per-session history lives under
 
 ---
 
-## 🏠 HOME PICKUP — handoff from 2026-05-05 night session (read this first)
+## 🏠 HOME PICKUP — handoff from 2026-05-05 office (read this first)
+
+**HEAD on `main` = `9b2291a`** (`ci(release): aggressive sharding v2 — target ≤10 min total wall-clock`).
+
+### What this session shipped (3 commits beyond the prior `c53a6b5` handoff)
+
+| Commit | What | Why |
+|---|---|---|
+| `338088b` | release.yml v1 sharding: monolith → 6 parallel jobs (3 Chromium + 3 WebKit) + new `merge-reports` job | Old monolith routinely hit the 60-min job timeout |
+| `9b2291a` | release.yml **v2 aggressive sharding**: 23 parallel jobs (8 Chromium + 8 WebKit + 4 API integration + others) | User target: ≤10 min total wall-clock for full release validation |
+| _(eslint PR)_ | PR #663 — eslint 9→10 + `next lint` → ESLint CLI flat-config migration. Lint CI green; **awaiting merge** | Closes blocked dependabot PR #472 |
+
+### In-flight at session end
+
+**Release.yml run [`25390793407`](https://github.com/Globussoft-Technologies/medcore/actions/runs/25390793407)** dispatched on `9b2291a` — 23 parallel jobs running. Early signal at handoff time:
+- ✅ Type check: 2 min
+- ✅ API tests fast (unit + contract + smoke): 2 min
+- ✅ Web component tests: 3.5 min
+- ✅ API integration shard 1/4: 3.5 min
+- ✅ API integration shard 4/4: 3.5 min
+- ⏳ Remaining 18 (mostly E2E shards) still running ~10 min in
+
+**Sharding strategy is working** — API + non-E2E gates complete in <4 min vs. old monolith. E2E shard wall-clock TBD (boot ~5-7 min + ~3-5 min test execution per shard expected).
+
+### 🔥 Top priority for home pickup
+
+1. **Check release run `25390793407` final outcome.** Bg watch `b9r6nj4gu` was active at session end. Dashboard: https://github.com/Globussoft-Technologies/medcore/actions/runs/25390793407
+   - If GREEN: total wall-clock = ship-readiness; declare release on `9b2291a`. Sharding worked.
+   - If E2E shards red: triage via `/medcore-test-triage` 5-category framework (stale-contract / cred-mismatch / cascade-poisoning / strip-vs-reject / pre-existing). Per-shard server logs are separate artifacts (`server-logs-release-chromium-shard-N` / `server-logs-release-webkit-shard-N`) — easier to identify which shard's API died.
+   - If wall-clock per shard >10 min: ship **release.yml v3** = add a build-prebuild job (build Web bundle once, shards download as artifact instead of rebuilding) + cache `~/.cache/ms-playwright` via `actions/cache`. Saves ~2-3 min per shard. Comment block at the top of release.yml documents this iteration path.
+
+2. **Loop**: dispatch `/medcore-release` → harvest failures → fix on main → re-dispatch. Per user directive: "keep fixing the bugs and running the release validation till we have a full deployment". Sharded topology makes each cycle ~10-12 min instead of ~30-60 min.
+
+3. **Merge PR #663** (eslint 10 migration) once main is green from a release validation. Lint CI is already green; the merge is mechanical.
+
+### What was NOT touched (intentionally deferred)
+
+- **Prisma 6→7 migration (PR #470)** — separate dedicated session per the previous handoff's recommendation
+- **Vitest 2→4 migration (PR #469)** — separate dedicated session
+- **A1 page-level VIEW_ALLOWED policy decision** — needs product call, not engineering
+- **`#482` JWT HS256→RS256** — operational/key-rollover plan needed
+- **`.npmrc` removability** — verified STILL REQUIRED (different conflict shape now: `apps/mobile/node_modules/react-dom@18.3.1` lingering); fix path documented in `.npmrc` comment
+
+### Cron-learnings bookkeeping
+
+CLAUDE.md "Cron learnings" section reconciled — 6 RIPE bullets moved from "Open" → "Promoted to skill" with closing-commit ref `e3166f0` (the 5 skill edits were done in the morning session but bookkeeping lagged). Only the **Cross-patient test fixture identity-mismatch** bullet stays Open (1 instance, ripe-on-2nd-recurrence).
+
+### Sharding topology reference (release.yml v2)
+
+```
+typecheck                          1 job   (~2 min observed)
+api-tests-fast                     1 job   (~2 min observed)
+api-tests-integration              4 shards (~3.5 min each)
+web-tests-full                     1 job   (~3.5 min observed)
+e2e-full (Chromium)                8 shards (~10 min target — observing)
+e2e-webkit                         8 shards (~10 min target — observing)
+merge-reports                      1 job   (~1 min, after E2E)
+release-summary                    1 job   (instant, after all)
+
+Total parallel: 23 jobs
+Wall-clock target: ≤10 min total (max(individual) + merge time)
+```
+
+If observed wall-clock per E2E shard ≤10 min → topology is locked at v2. If still over → ship v3 with build-prebuild + ms-playwright cache before bumping shards higher.
+
+---
+
+## 🏠 PRIOR HOME PICKUP — handoff from 2026-05-05 night session (kept for log)
 
 **Production state at handoff** (commit `2edfbf1` — `Fixed/medcore/issue (#521)`):
 - ✅ HEAD on `main` = `2edfbf1`. Working tree clean. Per-push CI green.

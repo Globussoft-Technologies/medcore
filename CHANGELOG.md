@@ -12,7 +12,22 @@ across Chromium + WebKit, the local-first test workflow, and the
 2026-05-05 CI-unblock + A2/A10 architectural closure.
 
 ### Added
-- **2026-05-05 cron-tick wave 27 — §3 deepening (lab-tech-deep + patient-detail-deep).**
+- **2026-05-05 cron-tick wave 28 — §3 deepening (rbac-matrix-deep + edge-cases-deep) + 3 architectural-gap findings.**
+  Lane A (`5da5672`) shipped `rbac-matrix-deep.spec.ts` (6 cases —
+  PATIENT data-ownership self-scope on appointments + prescriptions,
+  RECEPTION→/prescriptions full 403 UX chain (toast + redirect + body
+  copy + recovery anchor), PATIENT sidebar link-visibility per CLAUDE.md
+  gotcha #9, delegation/cross-tenant structural-NOT beacon). Lane B
+  (`2525574`) shipped `edge-cases-deep.spec.ts` (5 cases — 10 MB upload
+  cap 413 rejection + 30s timeout 408 mapping + abort propagation +
+  rapid-tab-switch memory-leak beacon). 11 new tests × 2 projects = 22
+  listed cases. **3 architectural-gap findings**: (1) NO optimistic-
+  concurrency infrastructure (last-write-wins systemic; concurrent-edit
+  detection deferred); (2) NO delegation/impersonation infrastructure
+  (zero hits across schema + API + web); (3) Patients list does NOT
+  self-scope by attending doctor — patients.ts:24-77 GET / runs same
+  findMany for all staff roles. Cumulative ~55+ deferred-or-contract-
+  pinned sub-scenarios across 8 cron ticks.
   Lane A (`5c41e0c`) shipped `lab-tech-deep.spec.ts` (6 cases — heavy
   use of API-contract-pin pattern: 4 of 5 deepening items where API
   ships but UI doesn't (verify sign-off, repeat-test reorder, amendment

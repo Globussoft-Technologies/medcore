@@ -316,6 +316,60 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 > admin/staff-only). #511 effectively at the diminishing-returns
 > tail.
 >
+> **2026-05-05 cron-tick wave 28 (2-agent E2E fanout — §3 deepening: rbac-matrix-deep + edge-cases-deep)**:
+> 2 §3 deepening items closed via 11 cases across 2 spec files. Lane A
+> (`5da5672`): `e2e/rbac-matrix-deep.spec.ts` (6 cases — PATIENT
+> appointments self-scope + prescriptions self-scope (response-payload
+> distinct-patient-name set ≤ 1, robust to seed name drift) +
+> RECEPTION→/dashboard/prescriptions 403 UI experience full chain
+> (toast `"Prescriptions are restricted to clinical staff."` + redirect
+> `/not-authorized?from=...` + Access-Denied body copy `"Your role
+> (RECEPTION)"` + Back-to-Dashboard recovery anchor) + PATIENT sidebar
+> link-visibility for 4 high-leakage routes (Patients/Queue/Audit Log/
+> Wards) hidden + own-routes (My Appointments/Prescriptions) sanity-
+> anchor visible (CLAUDE.md gotcha #9 sidebar-aside-scoped) + My-Queue
+> surface as the closest shipped attribute-based slice + delegation/
+> cross-tenant structural-NOT beacon).
+>
+> Lane B (`2525574`): `e2e/edge-cases-deep.spec.ts` (5 cases — 10 MB
+> upload cap rejection at uploads.ts:30 UPLOAD_MAX_BYTES + size guard
+> 413 at uploads.ts:155-162 + 30s AbortController timeout → 408 mapping
+> at lib/api.ts:131-167 with toast surface at settings/page.tsx:282 +
+> abort propagation when component unmounts mid-request + memory-leak
+> structural beacon: rapid tab-switch×8 → no React error-boundary
+> crash + Settings page chrome restored).
+>
+> **NEW ARCHITECTURAL FINDINGS** (concrete gaps documented for the
+> product team):
+> - **No optimistic-concurrency infrastructure anywhere** — repo-wide
+>   grep of schema.prisma + routes/*.ts for `version Int` / `@version`
+>   / `If-Match` / `If-Unmodified-Since` / `optimisticLock` returns 0
+>   hits. Last-write-wins is systemic. Concurrent-edit conflict
+>   detection deferred.
+> - **No delegation / impersonation infrastructure at any layer** —
+>   0 matches for `delegation` / `impersonate` / `assumeRole` /
+>   `switchUser` across apps/api/src + apps/web/src. User schema has
+>   no `effectiveRole` / `delegatedFromUserId` columns. Wave 28 spec
+>   adds a structural-NOT beacon on `/auth/me` payload that fails the
+>   day any delegation field starts shipping.
+> - **Patients list does NOT self-scope by attending doctor** —
+>   apps/api/src/routes/patients.ts:24-77 GET / runs the same
+>   `findMany` for ADMIN/DOCTOR/RECEPTION/NURSE with NO `where.doctorId`
+>   self-scope; no `attendingDoctorId` / `primaryDoctorId` Prisma
+>   field exists. Closest shipped attribute-based slice is the
+>   My-Queue surface (`layout.tsx:221` "My Queue" sidebar relabel +
+>   `/queue?doctorId=` URL).
+>
+> **11 new E2E tests across 2 spec files** (×2 Playwright projects =
+> 22 listed cases). 2 §3 deepening items closed (rbac-matrix +
+> edge-cases).
+>
+> **VERIFY-BEFORE-SCAFFOLD discipline cumulative across waves
+> 21+22+23+24+25+26+27+28**: ~55+ sub-scenarios deferred or
+> contract-pinned with concrete evidence-citations. Wave 28 adds 3
+> substantial architectural-gap findings (concurrency / delegation /
+> attribute-based-routing) for the product team's roadmap.
+>
 > **2026-05-05 cron-tick wave 27 (2-agent E2E fanout — §3 deepening continued: lab-tech-deep + patient-detail-deep)**:
 > 2 §3 deepening items closed via 12 cases across 2 spec files. Lane A
 > (`5c41e0c`): `e2e/lab-tech-deep.spec.ts` (6 cases — DOCTOR

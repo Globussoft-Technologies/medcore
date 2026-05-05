@@ -1,4 +1,5 @@
 import express, { Router, Request, Response, NextFunction } from "express";
+import crypto from "crypto";
 // Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
 // auto-injects tenantId on create and auto-filters on read for the 20
 // tenant-scoped models (see services/tenant-prisma.ts). We alias it to
@@ -910,7 +911,13 @@ router.post(
             invoiceId,
             amount: -Math.abs(amount),
             mode,
-            transactionId: `${REFUND_PREFIX}${reason}`,
+            // The transactionId column is `@unique` on the Payment model
+            // (idempotency for Razorpay-style webhook replays). Two
+            // legitimate refunds with the same reason text MUST be able
+            // to coexist on the same invoice, so suffix with a fresh
+            // UUID. Reason is preserved verbatim in the audit-log
+            // payload below — it's not the right column for ID anyway.
+            transactionId: `${REFUND_PREFIX}${reason}:${crypto.randomUUID()}`,
           },
         });
 

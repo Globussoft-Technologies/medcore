@@ -751,6 +751,12 @@ router.get(
           twoFactorEnabled: true,
           preferredLanguage: true,
           defaultLandingPage: true,
+          // Surface tenantId on /auth/me so the web client can short-
+          // circuit cross-tenant cache misses and any future tenant-
+          // aware UX (sub-domain banner, tenant-switch widget) can
+          // read the active tenant directly from the auth payload
+          // instead of decoding the JWT.
+          tenantId: true,
           doctor: true,
           patient: true,
         },

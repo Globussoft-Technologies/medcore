@@ -31,7 +31,7 @@
     "db:studio": "prisma studio"
   },
   "dependencies": {
-    "@prisma/client": "^6.5.0",
+    "@prisma/client": "^7.8.0",
     "bcryptjs": "^2.4.3"
   },
   "devDependencies": {

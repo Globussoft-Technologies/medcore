@@ -375,12 +375,23 @@ async function stubTelemedNetwork(
   );
 }
 
+// The 4 precheck tests in this file depend on a working
+// navigator.mediaDevices.getUserMedia stub. WebKit (Playwright headless)
+// does not allow Object.defineProperty on navigator.mediaDevices
+// reliably and rejects getUserMedia outright, so the page's catch branch
+// flips setCameraOk(false). Chromium runs the same tests via the
+// --use-fake-device-for-media-stream launch flag (playwright.config.ts).
+// Each precheck test below opens with `test.skip(({browserName}) =>
+// browserName === 'webkit', ...)` so the WebKit shard 11 doesn't fail
+// the whole release. Cross-role / route-shape tests at the bottom of the
+// describe don't need mediaDevices and continue to run on both browsers.
 test.describe("Telemedicine Waiting Room — /dashboard/telemedicine/waiting-room (PATIENT precheck → join → wait → deny lifecycle + cross-role access shape)", () => {
   test("PATIENT with ?sessionId= can run device test, join the waiting room, and see the 'doctor has been notified' state — full UI traversal of the precheck → WAITING transition", async ({
     browser,
     request,
     adminApi,
-  }) => {
+  }, testInfo) => {
+    testInfo.skip(testInfo.project.name === "full-webkit", "WebKit headless can't mock getUserMedia reliably; Chromium covers via --use-fake-device flag");
     // Use a fresh patient so the seeded patient1 doesn't accumulate
     // waiting-room sessions across runs.
     const fresh = await freshPatientToken(request);
@@ -441,7 +452,8 @@ test.describe("Telemedicine Waiting Room — /dashboard/telemedicine/waiting-roo
 
   test("PATIENT without ?sessionId= sees the session picker; Join button stays disabled until BOTH a session is selected AND precheck passes — precheck-gates-join contract pinned", async ({
     patientPage,
-  }) => {
+  }, testInfo) => {
+    testInfo.skip(testInfo.project.name === "full-webkit", "WebKit headless can't mock getUserMedia reliably; Chromium covers via --use-fake-device flag");
     const page = patientPage;
 
     // No `?sessionId=` query — the picker (page.tsx:213-232) should be
@@ -477,7 +489,8 @@ test.describe("Telemedicine Waiting Room — /dashboard/telemedicine/waiting-roo
     browser,
     request,
     adminApi,
-  }) => {
+  }, testInfo) => {
+    testInfo.skip(testInfo.project.name === "full-webkit", "WebKit headless can't mock getUserMedia reliably; Chromium covers via --use-fake-device flag");
     const fresh = await freshPatientToken(request);
     const doctorId = await resolveDoctorId(adminApi);
     const session = await seedTelemedSession(adminApi, {
@@ -547,7 +560,8 @@ test.describe("Telemedicine Waiting Room — /dashboard/telemedicine/waiting-roo
     browser,
     request,
     adminApi,
-  }) => {
+  }, testInfo) => {
+    testInfo.skip(testInfo.project.name === "full-webkit", "WebKit headless can't mock getUserMedia reliably; Chromium covers via --use-fake-device flag");
     const fresh = await freshPatientToken(request);
     const doctorId = await resolveDoctorId(adminApi);
     const session = await seedTelemedSession(adminApi, {

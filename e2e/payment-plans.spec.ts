@@ -243,9 +243,17 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       .first()
       .click({ timeout: 10_000 });
 
-    // -- Step 2: wait for invoice list to load, then select the invoice
+    // -- Step 2: wait for invoice list to load, then select the invoice.
+    // The <select> renders synchronously when the modal opens, but the
+    // option for the seeded invoice only lands after the
+    // GET /billing/invoices?patientId=... fetch resolves — wait for the
+    // exact <option value="..."> before calling selectOption to avoid
+    // a race that flakes on slower CI workers.
     const invoiceSelect = page.getByTestId("new-plan-invoice");
     await expect(invoiceSelect).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.locator(`[data-testid="new-plan-invoice"] option[value="${invoice.id}"]`)
+    ).toHaveCount(1, { timeout: 10_000 });
     await invoiceSelect.selectOption({ value: invoice.id });
 
     // -- Step 3: total amount infopanel renders
@@ -366,6 +374,9 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
       timeout: 10_000,
     });
+    await expect(
+      page.locator(`[data-testid="new-plan-invoice"] option[value="${invoice.id}"]`)
+    ).toHaveCount(1, { timeout: 10_000 });
     await page.getByTestId("new-plan-invoice").selectOption({ value: invoice.id });
 
     // Set installments to 1 (below minimum of 2). The input has min={2}, so
@@ -423,6 +434,9 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
       timeout: 10_000,
     });
+    await expect(
+      page.locator(`[data-testid="new-plan-invoice"] option[value="${invoice.id}"]`)
+    ).toHaveCount(1, { timeout: 10_000 });
     await page.getByTestId("new-plan-invoice").selectOption({ value: invoice.id });
 
     // 61 exceeds the maximum of 60. Bypass the input's native max={60}
@@ -475,6 +489,9 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
       timeout: 10_000,
     });
+    await expect(
+      page.locator(`[data-testid="new-plan-invoice"] option[value="${invoice.id}"]`)
+    ).toHaveCount(1, { timeout: 10_000 });
     await page.getByTestId("new-plan-invoice").selectOption({ value: invoice.id });
 
     // Fill in a negative down payment. The input has min={0}, so the browser
@@ -529,6 +546,9 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
       timeout: 10_000,
     });
+    await expect(
+      page.locator(`[data-testid="new-plan-invoice"] option[value="${invoice.id}"]`)
+    ).toHaveCount(1, { timeout: 10_000 });
     await page.getByTestId("new-plan-invoice").selectOption({ value: invoice.id });
 
     // Down payment exceeds total (page.tsx:407–410: "Down payment cannot

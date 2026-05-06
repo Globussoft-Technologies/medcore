@@ -102,13 +102,12 @@ test.describe(
         { timeout: 10_000 }
       );
 
-      // The submit button is the form's only `type="submit"` and is the
-      // first one rendered inside the registration form. Anchor on that
-      // structural relationship so it survives copy changes to the i18n key.
-      await page
-        .getByRole("button", { name: /^Register Patient$/i })
-        .last()
-        .click();
+      // Submit via the form's type="submit" button. The button copy is
+      // i18n-driven (page.tsx:454 uses t('dashboard.patients.register'))
+      // which can resolve to the literal key 'dashboard.patients.register'
+      // in some load orders, breaking a name=/^Register Patient$/ match.
+      // Anchor on type=submit + form-scope instead.
+      await page.locator('form button[type="submit"]').first().click();
 
       const resp = await createResp;
       const status = resp.status();

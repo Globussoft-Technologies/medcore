@@ -5,6 +5,13 @@ import crypto from "crypto";
 // tenant-scoped models (see services/tenant-prisma.ts). We alias it to
 // `prisma` so every existing call site keeps working without edits.
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
+// Raw prisma (no tenant scoping) for cross-tenant uniqueness probes —
+// e.g. nextSessionNumber needs to scan ALL tenants because
+// TelemedicineSession.sessionNumber is globally @unique. Filtering
+// through tenantScopedPrisma would only see the caller's tenant and
+// generate a number that's free in this tenant but already used by
+// another, triggering P2002 on insert.
+import { prisma as rawPrisma } from "@medcore/db";
 import {
   Role,
   createTelemedicineSchema,
@@ -29,16 +36,23 @@ const router = Router();
 router.use(authenticate);
 
 async function nextSessionNumber(): Promise<string> {
-  const last = await prisma.telemedicineSession.findFirst({
-    orderBy: { sessionNumber: "desc" },
+  // Use rawPrisma — sessionNumber is globally @unique on the
+  // TelemedicineSession model (not per-tenant), so we MUST scan
+  // every tenant's rows when computing the next free number.
+  // Going through the tenant-scoped client would generate a value
+  // that's free in the caller's tenant but already used by another,
+  // triggering P2002 on insert.
+  const rows = await rawPrisma.telemedicineSession.findMany({
     select: { sessionNumber: true },
   });
-  let n = 1;
-  if (last?.sessionNumber) {
-    const m = last.sessionNumber.match(/(\d+)$/);
-    if (m) n = parseInt(m[1], 10) + 1;
+  let max = 0;
+  for (const r of rows) {
+    const m = r.sessionNumber?.match(/(\d+)$/);
+    if (!m) continue;
+    const n = parseInt(m[1], 10);
+    if (Number.isFinite(n) && n > max) max = n;
   }
-  return `TEL${String(n).padStart(6, "0")}`;
+  return `TEL${String(max + 1).padStart(6, "0")}`;
 }
 
 function generateMeetingId(): string {

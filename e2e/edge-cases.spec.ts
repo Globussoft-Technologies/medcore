@@ -39,7 +39,9 @@ test.describe("Edge cases", () => {
     if (await submit.isVisible().catch(() => false)) {
       await submit.click().catch(() => undefined);
     }
-    // Expect some validation signal — aria-invalid OR visible alert text.
+    // Expect some validation signal — aria-invalid OR visible alert text
+    // OR an inline `<p data-testid="error-*">` (the dashboard's preferred
+    // accessible-form pattern; doesn't always set aria-invalid).
     // Exclude Next.js's __next-route-announcer__ (also role=alert) which is
     // present on every page and would falsely satisfy this assertion.
     const hasAlert = await page
@@ -48,7 +50,9 @@ test.describe("Edge cases", () => {
       .isVisible()
       .catch(() => false);
     const hasInvalid = (await page.locator("[aria-invalid='true']").count()) > 0;
-    expect(hasAlert || hasInvalid).toBe(true);
+    const hasInlineError =
+      (await page.locator('[data-testid^="error-"]').count()) > 0;
+    expect(hasAlert || hasInvalid || hasInlineError).toBe(true);
   });
 
   test("walk-in: missing phone field shows error state", async ({

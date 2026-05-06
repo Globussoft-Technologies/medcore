@@ -235,13 +235,11 @@ test.describe("HR Operations — /dashboard/leave-management (ADMIN approval que
     ).toBeVisible({ timeout: 10_000 });
 
     // Click Approve. handleApprove() at page.tsx:75 awaits useConfirm({title:'Approve…'})
-    // which renders a custom confirm modal — accept it.
+    // which renders ConfirmDialog with stable testids
+    // (data-testid="confirm-dialog-confirm" — see ConfirmDialog.tsx:104).
     await page.getByRole("button", { name: /approve/i }).first().click();
 
-    const confirmBtn = page
-      .getByRole("button", { name: /^(approve|confirm|yes|ok|continue)$/i })
-      .filter({ hasNot: page.locator("text=/^(reject)$/i") })
-      .last();
+    const confirmBtn = page.getByTestId("confirm-dialog-confirm");
     await expect(confirmBtn).toBeVisible({ timeout: 5_000 });
     await confirmBtn.click();
 

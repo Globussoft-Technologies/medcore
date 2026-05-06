@@ -20,8 +20,8 @@ name: Release validation
 #   - api-tests-fast                     1 job   (~5 min)
 #   - api-tests-integration              4 shards (~5 min each, parallel)
 #   - web-tests-full                     1 job   (~5 min)
-#   - e2e-full (Chromium)                8 shards (~10 min each, parallel)
-#   - e2e-webkit                         8 shards (~10 min each, parallel)
+#   - e2e-full (Chromium)                12 shards (~6 min each, parallel)
+#   - e2e-webkit                         12 shards (~6 min each, parallel)
 #   - merge-reports                      1 job   (~1 min, after E2E shards)
 #   - release-summary                    1 job   (instant, after all)
 #
@@ -222,16 +222,16 @@ jobs:
     # by file (each runner gets a non-overlapping slice). Per-shard reports
     # land as blob artifacts; the merge-reports job below stitches them
     # into a single HTML report for triage.
-    name: E2E Chromium (shard ${{ matrix.shard }}/8)
+    name: E2E Chromium (shard ${{ matrix.shard }}/12)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
-      # `fail-fast: false` so all 8 shards always complete and surface their
-      # own failure lists — cheaper to triage 8 partial reports than rerun
+      # `fail-fast: false` so all 12 shards always complete and surface their
+      # own failure lists — cheaper to triage 12 partial reports than rerun
       # to discover the later-shard failures one at a time.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     services:
       postgres:
         image: postgres:16
@@ -306,13 +306,13 @@ jobs:
       - name: Wait for API and Web
         run: npx wait-on http://localhost:4000/api/health http://localhost:3000/login --timeout 90000
 
-      - name: Run Playwright suite (shard ${{ matrix.shard }}/8)
+      - name: Run Playwright suite (shard ${{ matrix.shard }}/12)
         # `--project=full` runs every spec in e2e/ that's tagged for the
         # full tier; `--shard=N/M` deterministically partitions the file
         # list. Failures are release-blocking; fix on main and retrigger.
         # Use `--reporter=blob` so per-shard reports can be merged into a
         # single HTML report by the merge-reports job below.
-        run: npx playwright test --project=full --shard=${{ matrix.shard }}/8 --reporter=blob
+        run: npx playwright test --project=full --shard=${{ matrix.shard }}/12 --reporter=blob
 
       - name: Upload blob report (for merge)
         if: always()
@@ -340,13 +340,13 @@ jobs:
     # Sharded analogous to e2e-full above — 3 parallel runners with the
     # same `--shard=N/3` partition. WebKit historically runs slower than
     # Chromium, so the speedup matters more here.
-    name: E2E WebKit (shard ${{ matrix.shard }}/8)
+    name: E2E WebKit (shard ${{ matrix.shard }}/12)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     services:
       postgres:
         image: postgres:16
@@ -416,8 +416,8 @@ jobs:
       - name: Wait for API and Web
         run: npx wait-on http://localhost:4000/api/health http://localhost:3000/login --timeout 90000
 
-      - name: Run Playwright suite WebKit (shard ${{ matrix.shard }}/8)
-        run: npx playwright test --project=full-webkit --shard=${{ matrix.shard }}/8 --reporter=blob
+      - name: Run Playwright suite WebKit (shard ${{ matrix.shard }}/12)
+        run: npx playwright test --project=full-webkit --shard=${{ matrix.shard }}/12 --reporter=blob
 
       - name: Upload blob report (for merge)
         if: always()
@@ -491,8 +491,8 @@ jobs:
           echo "API fast (unit+contract+smoke):     ${{ needs.api-tests-fast.result }}"
           echo "API integration (4 shards):         ${{ needs.api-tests-integration.result }}"
           echo "Web tests:                          ${{ needs.web-tests-full.result }}"
-          echo "E2E Chromium (8 shards):            ${{ needs.e2e-full.result }}"
-          echo "E2E WebKit (8 shards):              ${{ needs.e2e-webkit.result }}"
+          echo "E2E Chromium (12 shards):          ${{ needs.e2e-full.result }}"
+          echo "E2E WebKit (12 shards):            ${{ needs.e2e-webkit.result }}"
           echo "Merged report:                      ${{ needs.merge-reports.result }}"
           if [ "${{ needs.typecheck.result }}" = "success" ] \
              && [ "${{ needs.api-tests-fast.result }}" = "success" ] \

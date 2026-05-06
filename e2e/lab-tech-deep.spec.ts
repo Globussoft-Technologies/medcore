@@ -105,7 +105,7 @@
  *   patched in commit a5a6224 (2026-05-05); we exercise both static segments
  *   below to keep that regression tested at the e2e layer.
  */
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_CSRF_TOKEN } from "./fixtures";
 import {
   API_BASE,
   apiGet,
@@ -230,7 +230,11 @@ async function recordResult(
   }
 ): Promise<{ id: string; deltaFlag?: boolean; flag?: string }> {
   const res = await request.post(`${API_BASE}/lab/results`, {
-    headers: { Authorization: `Bearer ${labTechToken}` },
+    headers: {
+      Authorization: `Bearer ${labTechToken}`,
+      "X-CSRF-Token": E2E_CSRF_TOKEN,
+      Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+    },
     data: body,
   });
   if (!res.ok()) {
@@ -284,7 +288,11 @@ test.describe("Lab tech deep — sign-off / out-of-range / repeat-order / amendm
     const labTechVerify = await request.patch(
       `${API_BASE}/lab/results/${result.id}/verify`,
       {
-        headers: { Authorization: `Bearer ${labTechToken}` },
+        headers: {
+          Authorization: `Bearer ${labTechToken}`,
+          "X-CSRF-Token": E2E_CSRF_TOKEN,
+          Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+        },
         data: { notes: "lab-tech attempt — must 403" },
       }
     );
@@ -297,7 +305,11 @@ test.describe("Lab tech deep — sign-off / out-of-range / repeat-order / amendm
     const verify = await request.patch(
       `${API_BASE}/lab/results/${result.id}/verify`,
       {
-        headers: { Authorization: `Bearer ${doctorToken}` },
+        headers: {
+          Authorization: `Bearer ${doctorToken}`,
+          "X-CSRF-Token": E2E_CSRF_TOKEN,
+          Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+        },
         data: { notes: "Reviewed and signed off." },
       }
     );

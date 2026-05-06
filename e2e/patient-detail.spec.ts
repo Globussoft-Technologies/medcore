@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_CSRF_TOKEN } from "./fixtures";
 import {
   API_BASE,
   expectNotForbidden,
@@ -99,7 +99,11 @@ test.describe("Patient chart drilldown (DOCTOR)", () => {
     // (POST /ehr/patients/:id/conditions) and then re-render the page to
     // assert the row surfaces.
     const conditionRes = await request.post(`${API_BASE}/ehr/conditions`, {
-      headers: { Authorization: `Bearer ${doctorToken}` },
+      headers: {
+        Authorization: `Bearer ${doctorToken}`,
+        "X-CSRF-Token": E2E_CSRF_TOKEN,
+        Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+      },
       data: {
         patientId: patient.id,
         condition: "Type 2 Diabetes Mellitus",

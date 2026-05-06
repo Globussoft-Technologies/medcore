@@ -163,6 +163,28 @@ async function mockWebRtcOk(page: Page): Promise<void> {
       // Chromium with fake-device flag — let the real getUserMedia run.
       return;
     }
+    // WebKit-specific: patch HTMLMediaElement.srcObject to silently
+    // accept anything so videoRef.current.srcObject = fakeStream doesn't
+    // throw "Overload resolution failed". The page's catch handler would
+    // otherwise flip cameraOk to false.
+    try {
+      const proto = HTMLMediaElement.prototype;
+      const desc = Object.getOwnPropertyDescriptor(proto, "srcObject");
+      if (desc && desc.configurable) {
+        Object.defineProperty(proto, "srcObject", {
+          configurable: true,
+          enumerable: desc.enumerable ?? true,
+          get(this: HTMLMediaElement) {
+            return (this as any).__shimSrcObject ?? null;
+          },
+          set(this: HTMLMediaElement, v: unknown) {
+            (this as any).__shimSrcObject = v;
+          },
+        });
+      }
+    } catch {
+      // ignore — fall through to the real assignment which may still work
+    }
     // Build a REAL MediaStream so HTMLMediaElement.srcObject doesn't
     // throw "Overload resolution failed" when the page's runPrecheck
     // does videoRef.current.srcObject = stream. WebKit's MediaStream
@@ -601,7 +623,11 @@ test.describe("Telemedicine Waiting Room — /dashboard/telemedicine/waiting-roo
     await expect(
       page.getByRole("button", { name: /waiting for doctor/i })
     ).toBeVisible();
-    await expect(page.locator("body")).not.toContainText(/admitted/i);
+    // The waiting-state copy at page.tsx legitimately mentions "admitted"
+    // ("Doctor has been notified ... you will be admitted automatically").
+    // Assert the DENY panel didn't show — match its more specific copy
+    // (Not admitted) instead of any 'admitted' substring.
+    await expect(page.locator("body")).not.toContainText(/not admitted/i);
 
     await ctx.close();
   });

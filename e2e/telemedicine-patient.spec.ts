@@ -125,6 +125,27 @@ async function mockWebRtc(page: import("@playwright/test").Page): Promise<void> 
     if (isChromium) {
       return;
     }
+    // WebKit-specific: patch HTMLMediaElement.srcObject to silently
+    // accept anything so videoRef.current.srcObject = fakeStream doesn't
+    // throw and trigger the page's catch handler.
+    try {
+      const proto = HTMLMediaElement.prototype;
+      const desc = Object.getOwnPropertyDescriptor(proto, "srcObject");
+      if (desc && desc.configurable) {
+        Object.defineProperty(proto, "srcObject", {
+          configurable: true,
+          enumerable: desc.enumerable ?? true,
+          get(this: HTMLMediaElement) {
+            return (this as any).__shimSrcObject ?? null;
+          },
+          set(this: HTMLMediaElement, v: unknown) {
+            (this as any).__shimSrcObject = v;
+          },
+        });
+      }
+    } catch {
+      // ignore
+    }
     // Build a REAL MediaStream (canvas.captureStream or new MediaStream())
     // so srcObject assignment doesn't throw on WebKit.
     const buildRealStream = () => {

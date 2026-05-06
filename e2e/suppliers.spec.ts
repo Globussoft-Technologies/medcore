@@ -167,11 +167,12 @@ test.describe("Suppliers — /dashboard/suppliers (vendor directory render + Add
       modalForm.getByText(/^\s*gst number\s*$/i)
     ).toBeVisible();
     // And the actual <input> elements exist + are interactable. The
-    // Name input is the only `required` input in the modal
-    // (page.tsx:330) so we lock it by that attribute. GST input is
-    // pinned by its font-mono class (page.tsx:378) which is unique
-    // within the modal.
-    await expect(modalForm.locator("input[required]")).toBeVisible();
+    // form was changed to noValidate (page.tsx:330) so no input
+    // carries a `required` attribute any more — validation is JS-only.
+    // Lock onto the Name input by its stable id (page.tsx:332-338).
+    // GST input is pinned by its font-mono class (page.tsx:387) which
+    // is unique within the modal.
+    await expect(modalForm.locator("#add-supplier-name")).toBeVisible();
     await expect(modalForm.locator("input.font-mono")).toBeVisible();
   });
 

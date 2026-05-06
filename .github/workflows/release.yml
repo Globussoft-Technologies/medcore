@@ -224,7 +224,8 @@ jobs:
     # into a single HTML report for triage.
     name: E2E Chromium (shard ${{ matrix.shard }}/12)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 25 min — symmetric with the WebKit budget below.
+    timeout-minutes: 25
     strategy:
       # `fail-fast: false` so all 12 shards always complete and surface their
       # own failure lists — cheaper to triage 12 partial reports than rerun
@@ -342,7 +343,11 @@ jobs:
     # Chromium, so the speedup matters more here.
     name: E2E WebKit (shard ${{ matrix.shard }}/12)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 25 min — bumped from 20 after run 21 had WebKit shard 4 hit the
+    # ceiling on 12-shard split (20m24s total). Slow shards combined with
+    # WebKit's higher per-test overhead can push past 20 min in one-off
+    # runs; 25 min gives 25% headroom.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:

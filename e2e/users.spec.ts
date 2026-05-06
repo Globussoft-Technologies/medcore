@@ -125,14 +125,11 @@ test.describe("User Management — /dashboard/users edit / deactivate / role-cha
     await expect(toggle).toContainText(/disable/i);
     await toggle.click();
 
-    // Click the danger-confirm button in the dialog. useConfirm dialogs
-    // expose either a "Confirm" / "Disable" / "Yes" button — match
-    // permissively so a copy tweak doesn't break the spec.
-    const confirmBtn = page
-      .getByRole("button", {
-        name: /^(disable|confirm|yes|ok|continue)$/i,
-      })
-      .first();
+    // Click the danger-confirm button in the dialog. ConfirmDialog exposes
+    // a stable testid 'confirm-dialog-confirm' (ConfirmDialog.tsx:104)
+    // — using that dodges the table row's own (disabled) "Disable" buttons
+    // which a getByRole regex would match first.
+    const confirmBtn = page.getByTestId("confirm-dialog-confirm");
     await expect(confirmBtn).toBeVisible({ timeout: 5_000 });
 
     const patchPromise = page.waitForResponse((r) =>

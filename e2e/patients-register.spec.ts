@@ -83,7 +83,7 @@ test.describe(
         Math.random().toString(16).slice(2, 10) +
           Date.now().toString(16).slice(-6)
       );
-      const tag = `E2eReg ${uniqSuffix}`; // digit-free, regex-safe
+      const tag = `EeReg ${uniqSuffix}`; // digit-free, regex-safe (PATIENT_NAME_REGEX rejects ANY digit incl. the '2' in 'E2eReg')
       const phone = `+9198${Math.floor(10_000_000 + Math.random() * 89_999_999)}`;
 
       await page.locator('[data-testid="patient-name"]').fill(tag);

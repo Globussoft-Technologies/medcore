@@ -77,13 +77,6 @@ export default defineConfig({
     screenshot: "only-on-failure",
     actionTimeout: 10_000,
     navigationTimeout: 20_000,
-    // Grant camera + microphone so navigator.mediaDevices.getUserMedia
-    // doesn't get a denied prompt in headless. Combined with the
-    // --use-fake-device-for-media-stream Chromium flag (added in launchOptions
-    // below), this gives every test a working fake video/audio stream
-    // without needing real hardware. WebKit doesn't support fake-device
-    // flags — those tests still rely on the JS stub in mockWebRtcOk.
-    permissions: ["camera", "microphone"],
   },
   projects: [
     {
@@ -100,12 +93,14 @@ export default defineConfig({
       name: "full",
       use: {
         ...devices["Desktop Chrome"],
+        // Chromium-only: camera+mic permissions + fake-device launch args
+        // give telemedicine precheck tests a synthetic stream without
+        // hardware. WebKit can't use these args; its tests rely on the
+        // JS stub in mockWebRtcOk. Permissions are scoped here (not on
+        // global `use`) because granting camera/mic on WebKit broke
+        // unrelated tests in run 13.
+        permissions: ["camera", "microphone"],
         launchOptions: {
-          // --use-fake-device-for-media-stream gives getUserMedia a fake
-          // video stream (synthetic green frames) and a fake mic so
-          // telemedicine precheck tests succeed without hardware.
-          // --use-fake-ui-for-media-stream auto-accepts the permission
-          // prompt, which is non-actionable in headless anyway.
           args: [
             "--use-fake-device-for-media-stream",
             "--use-fake-ui-for-media-stream",

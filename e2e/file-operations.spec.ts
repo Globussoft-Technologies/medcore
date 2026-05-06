@@ -228,8 +228,10 @@ test.describe("File Operations — patient-document upload + imaging upload + av
     });
 
     // Submit the modal. The Upload button text toggles to "Uploading..."
-    // mid-flight; click the modal's primary action by role.
-    await page.getByRole("button", { name: /^Upload$/i }).click();
+    // mid-flight. The Documents tab itself ALSO has a top-level "Upload"
+    // CTA, so a bare getByRole(/^Upload$/) is a strict-mode violation.
+    // Scope to the modal's form submit button to disambiguate.
+    await page.locator("form").getByRole("button", { name: /^Upload$/i }).click();
 
     // Wait for both stubbed POSTs to land.
     await expect
@@ -347,8 +349,15 @@ test.describe("File Operations — patient-document upload + imaging upload + av
     // The Upload Study tab (UploadTab — page.tsx:326-482).
     await page.getByRole("button", { name: /Upload Study/i }).click();
 
-    // Fill the form.
-    await page.locator("#ai-radiology-patient-id").fill(patient.id);
+    // Fill the form. Patient is an EntityPicker (testIdPrefix="ai-radiology-
+    // patient-picker", page.tsx:444) — type into the search input then click
+    // the seeded patient's option (locked by data-entity-id, CLAUDE.md
+    // gotcha #11) so the form's patientId state binds to the right row.
+    await page.getByTestId("ai-radiology-patient-picker-input").fill(patient.name.split(" ")[0]);
+    await page
+      .locator(`[data-testid="ai-radiology-patient-picker-option"][data-entity-id="${patient.id}"]`)
+      .first()
+      .click({ timeout: 10_000 });
     // Modality select scoped via known option value (CLAUDE.md gotcha #9 —
     // never use `locator("select").first()`; LanguageDropdown sits in the
     // dashboard layout). XRAY is the default; assert it's there + selected.

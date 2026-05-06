@@ -237,7 +237,10 @@ test.describe("HR Operations — /dashboard/leave-management (ADMIN approval que
     // Click Approve. handleApprove() at page.tsx:75 awaits useConfirm({title:'Approve…'})
     // which renders ConfirmDialog with stable testids
     // (data-testid="confirm-dialog-confirm" — see ConfirmDialog.tsx:104).
-    await page.getByRole("button", { name: /approve/i }).first().click();
+    // Use ^Approve$ (exact, not /approve/i) so the regex doesn't match
+    // the "Approved" tab button at page.tsx:133, which renders BEFORE
+    // the row's Approve and would be picked by .first().
+    await page.getByRole("button", { name: /^approve$/i }).first().click();
 
     const confirmBtn = page.getByTestId("confirm-dialog-confirm");
     await expect(confirmBtn).toBeVisible({ timeout: 5_000 });

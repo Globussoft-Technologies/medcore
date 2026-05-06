@@ -210,7 +210,12 @@ test.describe("Insurance Claims — lifecycle (submit / status-tracking / billed
     await modal.locator("#claim-diagnosis").fill("Acute appendicitis");
     // Diagnosis dropdown opens — close it by blurring before clicking submit.
     await modal.locator("#claim-diagnosis").press("Escape").catch(() => undefined);
-    await modal.locator("#claim-amount-claimed-inr-").fill("60000");
+    // Input id derived from label "Amount claimed (INR)" via
+    //   toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    // → 'amount-claimed-inr' (the closing /-$/ strips the trailing
+    // dash from the '(inr)' segment). The pre-fix selector had a
+    // stray trailing '-'.
+    await modal.locator("#claim-amount-claimed-inr").fill("60000");
 
     // Try to submit. If a picker selection was lost we'll surface a 0-POST
     // count and skip the body assertion (tested separately by the

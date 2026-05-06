@@ -228,19 +228,29 @@ router.get(
   }
 );
 
-// Helper: generate LAB order number
+// Helper: generate LAB order number.
+//
+// See bloodbank.ts:generateDonorNumber for the longer rationale. Demo
+// data has both 'LAB-2026-005066' (date-tagged legacy) and 'LAB000061'
+// (current) shapes — the legacy format breaks the /LAB(\\d+)/ regex
+// because of the embedded year separator. orderBy orderedAt:desc +
+// LIMIT 1 was racing both shapes; when it landed on the legacy row
+// 'next' silently reset to 1 and collided with existing LAB000001 →
+// P2002 → 500.
 async function generateOrderNumber(): Promise<string> {
-  const last = await prisma.labOrder.findFirst({
+  const rows = await prisma.labOrder.findMany({
     where: { orderNumber: { startsWith: "LAB" } },
-    orderBy: { orderedAt: "desc" },
     select: { orderNumber: true },
   });
-  let next = 1;
-  if (last?.orderNumber) {
-    const m = last.orderNumber.match(/LAB(\d+)/);
-    if (m) next = parseInt(m[1]) + 1;
+  let max = 0;
+  for (const r of rows) {
+    // Match either 'LABNNN', 'LAB-NNN', or 'LAB-YYYY-NNN' (last digit run)
+    const m = r.orderNumber?.match(/(\d+)(?!.*\d)/);
+    if (!m) continue;
+    const n = parseInt(m[1], 10);
+    if (Number.isFinite(n) && n > max) max = n;
   }
-  return "LAB" + String(next).padStart(6, "0");
+  return "LAB" + String(max + 1).padStart(6, "0");
 }
 
 // POST /api/v1/lab/orders — doctor creates order
@@ -250,14 +260,28 @@ router.post(
   validate(createLabOrderSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { patientId, doctorId, admissionId, testIds, notes, priority } = req.body as {
+      const { patientId, admissionId, testIds, notes, priority } = req.body as {
         patientId: string;
-        doctorId: string;
         admissionId?: string;
         testIds: string[];
         notes?: string;
         priority?: "ROUTINE" | "URGENT" | "STAT";
       };
+
+      // Resolve doctorId: prefer explicit body value (admin ordering on behalf
+      // of a doctor), fall back to the authenticated user's own Doctor record.
+      let doctorId: string = req.body.doctorId;
+      if (!doctorId) {
+        const doctor = await prisma.doctor.findUnique({
+          where: { userId: req.user!.userId },
+          select: { id: true },
+        });
+        if (!doctor) {
+          res.status(400).json({ success: false, data: null, error: "Authenticated user has no doctor profile" });
+          return;
+        }
+        doctorId = doctor.id;
+      }
 
       const orderNumber = await generateOrderNumber();
       const normalizedPriority = priority === "STAT" || priority === "URGENT" ? priority : "ROUTINE";

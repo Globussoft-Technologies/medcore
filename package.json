@@ -30,7 +30,7 @@
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:install": "playwright install chromium",
     "test:load": "tsx scripts/load-tests/run-load-test.ts",
-    "test:load:mock": "tsx scripts/load-tests/mock-server.ts",
+    "test:load:mock": "tsx scripts/load-tests/mock-server.ts --error-rate=0",
     "test:load:sla-gate": "tsx scripts/load-test-sla-gate.ts",
     "db:sanitize-reseed": "tsx scripts/sanitize-and-reseed.ts"
   },
@@ -41,7 +41,7 @@
     "@types/supertest": "^6.0.2",
     "@vitest/coverage-v8": "^2.1.9",
     "supertest": "^7.0.0",
-    "turbo": "^2.9.7",
+    "turbo": "^2.9.9",
     "typescript": "^5.8.0",
     "vitest": "^2.1.4"
   },

@@ -6,9 +6,244 @@ is independently shippable. Full per-session history lives under
 
 ---
 
+## 🔁 Workflow parity gap with `globussoft-crm` (added 2026-05-06)
+
+User audit: medcore should mirror globussoft-crm's GitHub Actions
+surface so both repos converge on the same CI/CD shape. After mapping
+equivalents, **4 workflows are missing from medcore** and need to be
+ported. medcore-only workflows (`codeql.yml`, `ai-eval-nightly.yml`,
+`load-test-nightly.yml`, `update-visual-baselines.yml`) STAY — these
+are project-specific and the user wants both repos to converge to a
+superset, not strip medcore back.
+
+Source of truth for the port: `C:\Users\Admin\gbs-projects\gbs-crm\.github\workflows\` (sibling checkout).
+
+| globussoft-crm | medcore equivalent today | Action needed |
+|---|---|---|
+| `pr-checks.yml` | `test.yml` (already runs on `pull_request`) | ✓ none |
+| `deploy.yml` | `test.yml` deploy job | ✓ none |
+| `e2e-full.yml` | `release.yml` | ✓ none (different trigger but same role) |
+| `coverage.yml` | _missing_ | **Port** |
+| `demo-monitor.yml` | _missing_ | **Port** |
+| `migration-check.yml` | _missing_ | **Port** |
+| `secret-scan.yml` | _missing_ | **Port** |
+
+### Order to port (easiest → hardest)
+
+1. **`secret-scan.yml`** — ~30 min. Pure infra, gitleaks Docker action.
+   Triggers: push + PR + weekly cron (Mondays). Needs a medcore-tuned
+   `.gitleaks.toml` allowlist for known-intentional fixture creds
+   (`admin@medcore.local`, JWT secrets in `.env.example`, etc.). Port
+   the workflow file verbatim, write the allowlist by scanning the
+   first run's findings and triaging real-vs-noise.
+
+2. **`migration-check.yml`** — ~2-3 hr. Depends on
+   `backend/scripts/check-migration-safety.js` + fixture set under
+   `backend/scripts/fixtures/migration-safety/` and `e2e/tests/migration-safety.spec.js`
+   in CRM. medcore is on Prisma too so the diff-script logic transfers
+   1:1; paths change (`backend/` → `apps/api/` + `packages/db/prisma/`)
+   and a few CRM-specific patterns (MySQL DDL parsing in particular)
+   need adapting for Postgres. **High value** — catches NOT NULL /
+   COLUMN_DROP / TYPE_NARROWING / UNIQUE_ADDITION / FK_WITHOUT_ON_DELETE
+   risks BEFORE the deploy job fires `prisma db push --accept-data-loss`.
+
+3. **`demo-monitor.yml`** — ~1-2 hr. Workflow shell is a straightforward
+   port (every-2h cron + workflow_dispatch + auto-issue-on-failure).
+   The work is writing `e2e/demo-health.spec.ts` for medcore — encode
+   the regression classes that hospital ops should catch on the demo
+   box (cross-tenant patient leak, sidebar 404s, scrub-residue from
+   prior E2E runs, ABDM webhook responding etc). CRM's spec is at
+   `e2e/tests/demo-health.spec.js` for reference shape.
+
+4. **`coverage.yml`** — ~3-4 hr. Hardest because it needs c8
+   instrumentation wired into medcore's API server (`apps/api/src/index.ts`
+   + graceful-shutdown handler that flushes V8 coverage on SIGTERM,
+   matching CRM's `server.js:gracefulShutdown`). Spec list = the
+   api-tests-fast + api-tests-integration set already in `release.yml`.
+   Postgres service container instead of MySQL. **Lower urgency** since
+   `release.yml` already runs the suite; this just adds line-coverage
+   telemetry as a workflow_dispatch report (CRM runs it every 2 weeks).
+
+### When to do this
+
+After the current E2E grind wave is fully closed (the in-flight session
+on 2026-05-06 — see "🏠 HOME PICKUP" below). The user wants both repos'
+workflow surfaces to match; this is parity work, not blocking shipping.
+
+---
+
+## 🏠 HOME PICKUP — handoff from 2026-05-05 office (read this first)
+
+**HEAD on `main` = `9b2291a`** (`ci(release): aggressive sharding v2 — target ≤10 min total wall-clock`).
+
+### What this session shipped (3 commits beyond the prior `c53a6b5` handoff)
+
+| Commit | What | Why |
+|---|---|---|
+| `338088b` | release.yml v1 sharding: monolith → 6 parallel jobs (3 Chromium + 3 WebKit) + new `merge-reports` job | Old monolith routinely hit the 60-min job timeout |
+| `9b2291a` | release.yml **v2 aggressive sharding**: 23 parallel jobs (8 Chromium + 8 WebKit + 4 API integration + others) | User target: ≤10 min total wall-clock for full release validation |
+| _(eslint PR)_ | PR #663 — eslint 9→10 + `next lint` → ESLint CLI flat-config migration. Lint CI green; **awaiting merge** | Closes blocked dependabot PR #472 |
+
+### In-flight at session end
+
+**Release.yml run [`25390793407`](https://github.com/Globussoft-Technologies/medcore/actions/runs/25390793407)** dispatched on `9b2291a` — 23 parallel jobs running. Early signal at handoff time:
+- ✅ Type check: 2 min
+- ✅ API tests fast (unit + contract + smoke): 2 min
+- ✅ Web component tests: 3.5 min
+- ✅ API integration shard 1/4: 3.5 min
+- ✅ API integration shard 4/4: 3.5 min
+- ⏳ Remaining 18 (mostly E2E shards) still running ~10 min in
+
+**Sharding strategy is working** — API + non-E2E gates complete in <4 min vs. old monolith. E2E shard wall-clock TBD (boot ~5-7 min + ~3-5 min test execution per shard expected).
+
+### 🔥 Top priority for home pickup
+
+1. **Check release run `25390793407` final outcome.** Bg watch `b9r6nj4gu` was active at session end. Dashboard: https://github.com/Globussoft-Technologies/medcore/actions/runs/25390793407
+   - If GREEN: total wall-clock = ship-readiness; declare release on `9b2291a`. Sharding worked.
+   - If E2E shards red: triage via `/medcore-test-triage` 5-category framework (stale-contract / cred-mismatch / cascade-poisoning / strip-vs-reject / pre-existing). Per-shard server logs are separate artifacts (`server-logs-release-chromium-shard-N` / `server-logs-release-webkit-shard-N`) — easier to identify which shard's API died.
+   - If wall-clock per shard >10 min: ship **release.yml v3** = add a build-prebuild job (build Web bundle once, shards download as artifact instead of rebuilding) + cache `~/.cache/ms-playwright` via `actions/cache`. Saves ~2-3 min per shard. Comment block at the top of release.yml documents this iteration path.
+
+2. **Loop**: dispatch `/medcore-release` → harvest failures → fix on main → re-dispatch. Per user directive: "keep fixing the bugs and running the release validation till we have a full deployment". Sharded topology makes each cycle ~10-12 min instead of ~30-60 min.
+
+3. **Merge PR #663** (eslint 10 migration) once main is green from a release validation. Lint CI is already green; the merge is mechanical.
+
+### What was NOT touched (intentionally deferred)
+
+- **Prisma 6→7 migration (PR #470)** — separate dedicated session per the previous handoff's recommendation
+- **Vitest 2→4 migration (PR #469)** — separate dedicated session
+- **A1 page-level VIEW_ALLOWED policy decision** — needs product call, not engineering
+- **`#482` JWT HS256→RS256** — operational/key-rollover plan needed
+- **`.npmrc` removability** — verified STILL REQUIRED (different conflict shape now: `apps/mobile/node_modules/react-dom@18.3.1` lingering); fix path documented in `.npmrc` comment
+
+### Cron-learnings bookkeeping
+
+CLAUDE.md "Cron learnings" section reconciled — 6 RIPE bullets moved from "Open" → "Promoted to skill" with closing-commit ref `e3166f0` (the 5 skill edits were done in the morning session but bookkeeping lagged). Only the **Cross-patient test fixture identity-mismatch** bullet stays Open (1 instance, ripe-on-2nd-recurrence).
+
+### Sharding topology reference (release.yml v2)
+
+```
+typecheck                          1 job   (~2 min observed)
+api-tests-fast                     1 job   (~2 min observed)
+api-tests-integration              4 shards (~3.5 min each)
+web-tests-full                     1 job   (~3.5 min observed)
+e2e-full (Chromium)                8 shards (~10 min target — observing)
+e2e-webkit                         8 shards (~10 min target — observing)
+merge-reports                      1 job   (~1 min, after E2E)
+release-summary                    1 job   (instant, after all)
+
+Total parallel: 23 jobs
+Wall-clock target: ≤10 min total (max(individual) + merge time)
+```
+
+If observed wall-clock per E2E shard ≤10 min → topology is locked at v2. If still over → ship v3 with build-prebuild + ms-playwright cache before bumping shards higher.
+
+---
+
+## 🏠 PRIOR HOME PICKUP — handoff from 2026-05-05 night session (kept for log)
+
+**Production state at handoff** (commit `2edfbf1` — `Fixed/medcore/issue (#521)`):
+- ✅ HEAD on `main` = `2edfbf1`. Working tree clean. Per-push CI green.
+- ✅ Auto-deploy operating; `medcore.globusdemos.com` is current.
+- **7 PRs merged tonight**: #571 (Sourav AI radiology fixes), #662 (patch+minor group of 7), #464 (otel 2), #466 (express 5), #471 (react 19), #467 (react-dom 19), #521 (Subhadip's 5-bug fix). Plus the `/medcore-dependabot-triage` skill commit.
+- **Open PRs: 3** (down from 9). All 3 are confirmed-red majors needing dedicated migration sessions.
+
+### 🔥 Top priority for home pickup
+
+1. **`legacy-peer-deps=true` in `.npmrc` is now removable.** It was added (`19dd6a0`) to unblock dependabot's strict ERESOLVE on the react@18 ↔ RN@0.85-peers-react@19 mismatch. With react@19 + react-dom@19 now merged, the trigger is gone. **Verify before deleting**: comment `@dependabot rebase` on one of the open PRs after removing the line + pushing — if install passes, the flag was overshooting and the change is safe; if it ERESOLVEs again, restore it and document the new mismatch.
+2. **3 PRs confirmed-red — tackle as dedicated migration sessions** (suggested order, easiest → hardest):
+   - `#472` eslint 9 → 10 — Lint job fails; config-format migration (`.eslintrc` → `eslint.config.js` flat-config). Smallest blast radius (lint-only).
+   - `#470` @prisma/client 6 → 7 — 5 jobs fail; client API surface changes. Bounded (every route already uses Prisma so the surface is finite).
+   - `#469` vitest 2 → 4 — `TypeError: Cannot read properties of undefined (reading 'fetchCache')`. Largest — every test file may need updates, snapshots may need regeneration.
+3. **Watch list — merged tonight, smoke-test on dev**:
+   - `#464` otel 2 was merged by user despite its API tests failing on the rebased run. If observability breaks, that's the suspect.
+   - `#466` express 4 → 5 passed all CI; smoke `/api/v1/auth/login`, `/api/v1/patients` POST, `/api/v1/billing/webhooks/razorpay` on dev if anything looks off.
+   - `#471` + `#467` react 19 — heavy interactive pages (dashboards, modals) for hydration regressions.
+4. **Note: `gh pr merge --auto` is disabled** on this repo (`enablePullRequestAutoMerge: false`). All future PR merges must be manual after CI clears.
+
+### 📦 New artifacts this session
+
+- `/medcore-dependabot-triage` skill (`.claude/skills/medcore-dependabot-triage/SKILL.md`) — tonight's dep-bump playbook codified.
+- `.npmrc` at repo root (`19dd6a0`) — temporary unblock; remove once react@19 lands.
+- `docs/archive/SESSION_SNAPSHOT_2026-05-05-night.md` — full handoff with the commit-by-commit story.
+
+### 🎨 Logo swap (pending — needs the actual file)
+
+User wants the new logo from a Google Drive folder applied across the codebase. **The Drive folder requires sign-in; Playwright auto-download couldn't auth.** Need the file(s) dropped into the repo. Swap surface when ready:
+- Web PWA icons: `apps/web/public/icon-192.png` + `icon-512.png` (referenced from `apps/web/src/app/layout.tsx:16-21`).
+- Mobile: `apps/mobile/assets/{favicon,icon,adaptive-icon,notification-icon,splash}.png`.
+- Wordmark "MedCore" is text-only — `apps/web/src/app/dashboard/layout.tsx:774` (sidebar) and `:926` (mobile drawer); marketing landing page also text-only.
+
+---
+
+## 🌅 OFFICE CONTINUATION — handoff from 2026-05-05 morning session (kept for log)
+
+**Production state at handoff** (commit `4637924d` deployed live):
+- ✅ https://medcore.globusdemos.com is **live and healthy** — `/api/health` returns `{"status":"ok"}`, web `/login` renders, all 7 demo logins working (incl. LAB_TECH + PHARMACIST inserted on prod earlier)
+- ✅ `test.yml` gate green on `4637924d` (Web tests / API tests / Type check / Lint / Migration / Bundle / Audit / Deploy — all 8 jobs success)
+- ✅ Cross-tenant data-isolation regression suite shipped (8 integration cases via in-test fixtures + 3 e2e structural beacons — closes §5 P10 + §4.11)
+- ✅ #511 long-tail BOLA closure issue **closed** (69 BOLA fixes + 187 verified-safe across 36 routes, ~242 tests; closure comment 4378351447)
+- ✅ 5 RIPE cron-learnings promoted into `/medcore-bola-sweep` (eager-include leak audit, post-fix verification grep, inverse-pattern audit) + `/medcore-e2e-spec` (3-archetype page-shape decision matrix, VERIFY-BEFORE-SCAFFOLD discipline, API-contract-pin escape valve)
+- ✅ deploy.sh hardened with retry-loop on post-restart `/api/health` curl (was failing 4 consecutive times pre-fix, now resilient under PM2-daemon load)
+
+**6 PRs merged this morning**: #460 (setup-node), #461 (download-artifact), #462 (checkout), #465 (expo-device), #468 (pngjs), #515 (prisma circular-import + CORS credentials).
+
+### 🔥 Top priority for office continuation
+
+1. **Triage release.yml E2E failures (~250+ tests across many spec files)**
+   - Last release.yml run on `4637924d` was cancelled at the 60-min job timeout while still mid-suite
+   - Most failures are in **specs I scaffolded earlier today via cron-driven waves** that were validated only via `playwright test --list` (parse-only) and never actually ran end-to-end. The first time they actually executed against real API+DB, many failed.
+   - Affected files (sampled from the failure list, ~30 files): `a11y-deep`, `admin-ops-deep`, `admission-discharge-flow`, `ai-fraud`, `ambulance`, `antenatal*`, `billing-*`, `bloodbank`, `budgets`, `calendar-roster`, `certifications`, `chat`, `cross-tenant-isolation`, `doctor-chart-review`, `edge-cases-deep`, `emergency-er-flow`, `er-disposition`, `file-operations`, `hr-operations`, `insurance-claims-lifecycle`, `lab-intel`, `lab-tech-deep`, `lab-tech`, `medicines`, `mobile-responsive`, `my-activity`, `notifications-delivery`, `ot-surgery-deep`, `ot-surgery`, `patient-detail-deep`, `patient-detail`, `patients-id`, `patients-register`, `payment-plans`, `pediatric`, `pharmacy-inventory`, `prescription-lifecycle`, `prescriptions-new`, `print-pdf`, `problem-list`, `purchase-orders`, `quick-actions`, `rbac-matrix`, `realtime`, `refunds-discounts`, `reports-scheduled`, `reports`
+   - Three pragmatic paths (pick one, see "PR triage results" section below for details):
+     1. **Bulk-skip my new specs** with `test.skip(...)` blocks at the top of each unverified file, leaving them as future-fixable scaffolds. Get release.yml mostly-green without losing the spec investment.
+     2. **Investigate one specific spec deeply** (e.g. pre-existing `admissions.spec.ts:156` is in the failing list; if THAT fails there might be a single environmental cause).
+     3. **Accept release.yml red** — `test.yml` gate is the auto-deploy gate and it's green; release.yml is a heavier optional pre-flight. Production is deployable without it.
+
+2. **PR #521** ([url](https://github.com/Globussoft-Technologies/medcore/pull/521)) — waiting on author rebase + 4 appointment-test fixture updates (slotId UUID → HH:MM schema change broke them). Comment posted listing failing tests. Author needs to either update the 4 tests OR revert the schema change.
+
+3. **8 dependabot major-bumps deferred** — each fails 4-6 CI jobs across API/Type-check/Lint/Web-tests; need migration work, not blind merge:
+   - #510 patch-and-minor group (5 jobs failing)
+   - #472 eslint 9.39.4 → 10.3.0
+   - #471 + #467 react / react-dom 18.3.1 → 19.2.5 (must merge together)
+   - #470 @prisma/client 6.19.3 → 7.8.0 (Prisma 7 schema review needed)
+   - #469 vitest 2.1.9 → 4.1.5 (significant breaking changes)
+   - #466 express 4.22.1 → 5.2.1 (middleware-ordering breaking changes)
+   - #464 @opentelemetry/sdk-trace-node 1.30.1 → 2.7.1
+   Recommendation: dedicated dependency-upgrade session, one major at a time.
+
+### 🔬 Smaller follow-ups (lower priority)
+
+4. **Investigate vitest module-loading double-ALS issue** — cross-tenant.test.ts cases 5 + 6 (direct-extension findMany + create) skipped with diagnostic TODO at apps/api/src/test/integration/cross-tenant.test.ts:330+. Symptom: when `tenantScopedPrisma.x.y()` is called from vitest's test process, the extension's `getTenantId()` returns undefined even inside `runWithTenant(...)`. HTTP-layer cases all pass, so the production runtime is fine — only direct-extension calls from inside vitest are affected. Likely fix is a vitest config change so `@medcore/db` is loaded once per test process.
+
+5. **`PatientDetail` TS `insuranceId` vs Prisma `insurancePolicyNumber` mismatch** — UI at `apps/web/src/app/dashboard/patients/[id]/page.tsx:671` reads a field name the API never returns. Surfaced during patient-detail-deep scaffold. Real bug, low impact (just an empty cell), cleanup ticket.
+
+6. **Two cron-learning bullets still pre-RIPE** in CLAUDE.md (`## Cron learnings`):
+   - Cross-patient test fixture/token identity-mismatch class (1 instance — needs 2nd)
+   - Express route-shadow regression class (1 instance, fingerprinted — ripe-on-1-more-recurrence)
+
+7. **EMPCLOUD orphan `emp-monitor-store-logs`** still crash-looping on shared dev box (id 50, 53+ restarts). Not blocking medcore but worth flagging to whoever owns EMPCLOUD — needs missing config / dependency fixed in their app.
+
+### Anchor commits from this session
+
+- `4637924d` HEAD — current main, deployed
+- `9cc49b3` cross-tenant skip 2 direct-extension cases + diagnostic
+- `9dbba7c` PR #515 prisma circular-import fix
+- `68bd99e` cross-tenant test setup fixes (3 bugs)
+- `0f0a1eb` cross-tenant data-isolation suite (8 integration + 3 e2e beacons)
+- `221d21a` skill-audit fixes (Windows-shell note + bola-sweep cross-link)
+- `e3166f0` skill promotion of 5 RIPE cron-learnings
+- `1a42f6f` deploy.sh post-restart curl retry-loop hardening
+
+### Operational state notes
+
+- ✅ All 7 demo logins on prod work (admin/dr.sharma/nurse/reception/labtech/pharmacist/patient1 @ medcore.local). LAB_TECH + PHARMACIST users were missing in prod DB; inserted directly via `INSERT ... ON CONFLICT DO NOTHING` with bcrypt hashes matching the seed shape. The seed file (`packages/db/src/seed.ts:137-161`) IS correct — any fresh seed will create them.
+- 🔁 Cron `26251230` (15-min auto-pilot) was DELETED at end of morning session per user request. To re-arm see step 4 below.
+- ✅ Working tree clean, main = origin/main = `4637924d`.
+
+---
+
 ## ⚡ POST-RESTART CHECKLIST (read this first if you just reopened the editor)
 
-HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
+HEAD on `main` = `4637924d` (after morning session). Working tree should be clean after `git pull`.
 
 1. **`git pull origin main`** — picks up the new
    `permissions.defaultMode: "acceptEdits"` setting in
@@ -59,9 +294,9 @@ HEAD on `main` = `1afe315`. Working tree should be clean after `git pull`.
 
 ---
 
-> Updated: 2026-05-05 (post **CI-unblock auth wave + 5-agent A2/A10 fanout + new /medcore-test-triage skill**).
-> Latest session handoff: [`docs/archive/SESSION_SNAPSHOT_2026-05-04-evening.md`](docs/archive/SESSION_SNAPSHOT_2026-05-04-evening.md) (rolling forward).
-> HEAD on `main` = `0c8ab07`. **Today's wave: 16 auth-integration test failures unblocked + A2 fully closed (~352 label/input pairs across 76 dashboard pages) + A10 closed (tenant-prisma lifted to `@medcore/db`) + new `/medcore-test-triage` skill codifies the per-push CI failure-cluster diagnosis playbook.**
+> Updated: 2026-05-05 night (post **dep-bump triage marathon — 7 PRs merged + new /medcore-dependabot-triage skill + .npmrc unblock**).
+> Latest session handoff: [`docs/archive/SESSION_SNAPSHOT_2026-05-05-night.md`](docs/archive/SESSION_SNAPSHOT_2026-05-05-night.md) (home pickup).
+> HEAD on `main` = `2edfbf1`. **Tonight's full wave (7 PRs): #571 Sourav AI radiology fixes; #662 patch+minor group of 7 (turbo/aws-sdk×2/openai/rngh/zustand); #464 otel SDK 1→2 (merged by user with API tests failing); #466 express 4→5 (all CI green, surprising); #471 react 18→19 + #467 react-dom 18→19 (paired); #521 Subhadip's 5-bug fix + my appointment-test fixture rebase (UUID→HH:MM, then date today→tomorrow to dodge #491 past-time guard). `.npmrc` with `legacy-peer-deps=true` added (`19dd6a0`) to unblock dependabot strict ERESOLVE — likely removable now that react@19 lands. New skill `/medcore-dependabot-triage` codifies the playbook. 3 confirmed-red majors left for dedicated sessions: #472 eslint 9→10 (config flat-config migration), #470 prisma 6→7 (client API), #469 vitest 2→4 (runner/snapshot format).**
 >
 > **2026-05-04 Wave summary** (after this session): `90bf481` #477 cookie-CSRF migration; `a2b32b4` #456 AuditLog tenantId; `e7ca04d` #457 tenant FK Cascade + F-ABDM-1 + F-INJ-1 + AI inference audit on 9 routes; `340dd38` 2 new skills (`/medcore-ai-route-audit`, `/medcore-fanout` Mode B note); `cde1829` A9 tenant validation; `7bd9d14`/`ffe199f`/`34bb5a3`/`e0e1429` A4 fanout (24 dashboard pages, 30 forms).
 >

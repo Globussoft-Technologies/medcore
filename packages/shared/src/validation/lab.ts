@@ -24,7 +24,7 @@ export const updateLabTestSchema = createLabTestSchema.partial();
 
 export const createLabOrderSchema = z.object({
   patientId: z.string().uuid(),
-  doctorId: z.string().uuid(),
+  doctorId: z.string().uuid().optional(),
   admissionId: z.string().uuid().optional(),
   testIds: z.array(z.string().uuid()).min(1, "At least one test is required"),
   notes: z.string().optional(),

@@ -424,6 +424,13 @@ router.post(
             userId: user.id,
             mrNumber,
             gender: "OTHER",
+            // The Doctor.create branch below already pins tenantId; the
+            // Patient.create did not. Without it the row is created with
+            // tenantId: null and tenantScopedPrisma filters it out for
+            // every other (tenant-scoped) caller — admins can't see new
+            // self-registered patients, telemedicine schedules 404 on
+            // them, etc.
+            tenantId,
           },
         });
 
@@ -744,6 +751,12 @@ router.get(
           twoFactorEnabled: true,
           preferredLanguage: true,
           defaultLandingPage: true,
+          // Surface tenantId on /auth/me so the web client can short-
+          // circuit cross-tenant cache misses and any future tenant-
+          // aware UX (sub-domain banner, tenant-switch widget) can
+          // read the active tenant directly from the auth payload
+          // instead of decoding the JWT.
+          tenantId: true,
           doctor: true,
           patient: true,
         },

@@ -12,11 +12,12 @@ let app: any;
 let reception: string;
 let admin: string;
 
-const SLOT_A = "550e8400-e29b-41d4-a716-446655441001";
-const SLOT_B = "550e8400-e29b-41d4-a716-446655441002";
-const SLOT_C = "550e8400-e29b-41d4-a716-446655441003";
-const SLOT_D = "550e8400-e29b-41d4-a716-446655441004";
-const SLOT_E = "550e8400-e29b-41d4-a716-446655441005";
+// PR #521: slotId schema changed from UUID to HH:MM time-string format.
+const SLOT_A = "10:00";
+const SLOT_B = "10:30";
+const SLOT_C = "11:00";
+const SLOT_D = "11:30";
+const SLOT_E = "12:00";
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -289,12 +290,16 @@ describeIfDB("Appointments API — deep edges", () => {
     const res1 = await request(app)
       .post("/api/v1/appointments/book")
       .set("Authorization", `Bearer ${reception}`)
-      .send({ patientId: patient.id, doctorId: doctor.id, date: today(), slotId: SLOT_B });
+      // PR #521: route's #491 past-time guard rejects today + early-AM
+      // slot when CI runs after that wall-clock time; use tomorrow.
+      .send({ patientId: patient.id, doctorId: doctor.id, date: daysFromNow(1), slotId: SLOT_B });
     expect([200, 201]).toContain(res1.status);
     const res2 = await request(app)
       .post("/api/v1/appointments/book")
       .set("Authorization", `Bearer ${reception}`)
-      .send({ patientId: patient.id, doctorId: doctor.id, date: today(), slotId: SLOT_B });
+      // PR #521: route's #491 past-time guard rejects today + early-AM
+      // slot when CI runs after that wall-clock time; use tomorrow.
+      .send({ patientId: patient.id, doctorId: doctor.id, date: daysFromNow(1), slotId: SLOT_B });
     expect(res2.status).toBe(409);
   });
 

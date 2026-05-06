@@ -113,13 +113,11 @@ test.describe("Admin Ops DEEP — /dashboard/analytics (custom date-range + dril
     // Wait for the initial paint to settle. The default preset is last30 so
     // the first GET fires with a today-30d window — we don't assert on that;
     // we wait for it to land before clicking Custom so we're not racing the
-    // mount-time fetch.
-    await page.waitForResponse(
-      (r) =>
-        r.url().includes("/api/v1/analytics/overview") &&
-        r.request().method() === "GET",
-      { timeout: 15_000 }
-    );
+    // mount-time fetch. Use networkidle instead of waitForResponse — on the
+    // deployed server the mount-time GET often completes during gotoAuthed
+    // before the listener can register, racing the test (same shape as the
+    // notifications-delivery race fix).
+    await page.waitForLoadState("networkidle", { timeout: 15_000 });
 
     // The Preset <select> is uniquely identifiable by its option value
     // "custom" — the page's other <select> (Comparison toggle uses <button>

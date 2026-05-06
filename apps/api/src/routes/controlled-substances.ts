@@ -26,16 +26,22 @@ router.use(authorize(Role.ADMIN, Role.PHARMACIST, Role.DOCTOR));
 
 async function generateEntryNumber(tx?: typeof prisma): Promise<string> {
   const client = tx ?? prisma;
-  const last = await client.controlledSubstanceEntry.findFirst({
-    orderBy: { createdAt: "desc" },
+  // See bloodbank.ts:generateDonorNumber for the longer rationale.
+  // orderBy createdAt:desc + LIMIT 1 races the inevitable mixed-format
+  // legacy seed rows (`CSR-YYYY-NNNN`, `CSR000001`, etc.) — when the
+  // top row's regex doesn't match, `next` resets to 1 and collides
+  // with an existing entry on the @unique entryNumber.
+  const rows = await client.controlledSubstanceEntry.findMany({
     select: { entryNumber: true },
   });
-  let next = 1;
-  if (last?.entryNumber) {
-    const m = last.entryNumber.match(/CSR(\d+)/);
-    if (m) next = parseInt(m[1]) + 1;
+  let max = 0;
+  for (const r of rows) {
+    const m = r.entryNumber?.match(/(\d+)(?!.*\d)/);
+    if (!m) continue;
+    const n = parseInt(m[1], 10);
+    if (Number.isFinite(n) && n > max) max = n;
   }
-  return "CSR" + String(next).padStart(6, "0");
+  return "CSR" + String(max + 1).padStart(6, "0");
 }
 
 /**

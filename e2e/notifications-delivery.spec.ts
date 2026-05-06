@@ -82,14 +82,11 @@ test.describe("Notification Delivery — /dashboard/notifications/delivery (ADMI
       page.getByRole("heading", { name: /notification delivery status/i })
     ).toBeVisible({ timeout: 15_000 });
 
-    // Wait for the initial unfiltered load to settle so we don't race
-    // it with the filter-driven reload below.
-    await page.waitForResponse(
-      (r) =>
-        r.url().includes("/api/v1/notifications/delivery") &&
-        r.request().method() === "GET",
-      { timeout: 15_000 }
-    );
+    // The initial unfiltered GET typically fires during the heading-render
+    // window above; rather than racing waitForResponse against it, wait for
+    // the network to settle. Any subsequent GET we set up below is then
+    // unambiguously the filter-driven re-fetch.
+    await page.waitForLoadState("networkidle", { timeout: 15_000 });
 
     // Watch for the filtered re-fetch — page.tsx:47-67 re-runs `load`
     // whenever any filter state changes, and serializes status into the
@@ -122,14 +119,10 @@ test.describe("Notification Delivery — /dashboard/notifications/delivery (ADMI
       page.getByRole("heading", { name: /notification delivery status/i })
     ).toBeVisible({ timeout: 15_000 });
 
-    // Drain the initial load so the next response we await is the
-    // refresh-driven one.
-    await page.waitForResponse(
-      (r) =>
-        r.url().includes("/api/v1/notifications/delivery") &&
-        r.request().method() === "GET",
-      { timeout: 15_000 }
-    );
+    // The initial fetch typically completes during the heading-render
+    // window. Wait for networkidle instead of trying to capture it — that
+    // avoids the listener-after-request race that flakes on fast pages.
+    await page.waitForLoadState("networkidle", { timeout: 15_000 });
 
     const refreshPromise = page.waitForResponse(
       (r) =>
@@ -155,13 +148,10 @@ test.describe("Notification Delivery — /dashboard/notifications/delivery (ADMI
     ).toBeVisible({ timeout: 15_000 });
 
     // Wait for initial load so the next two filter responses are the
-    // ones triggered by our selectOption calls.
-    await page.waitForResponse(
-      (r) =>
-        r.url().includes("/api/v1/notifications/delivery") &&
-        r.request().method() === "GET",
-      { timeout: 15_000 }
-    );
+    // ones triggered by our selectOption calls. Use networkidle instead
+    // of waitForResponse — listener-after-request races flake on fast
+    // pages.
+    await page.waitForLoadState("networkidle", { timeout: 15_000 });
 
     await page.locator("#notif-delivery-status").selectOption("READ");
     await page.waitForResponse(

@@ -435,8 +435,19 @@ export async function apiPost(
   path: string,
   body: unknown
 ) {
+  // Issue #477 follow-up: when NODE_ENV=production (release.yml E2E shards),
+  // the CSRF middleware enforces double-submit. Mirror the cookie+header on
+  // every helper-driven POST. Token value is arbitrary — middleware only
+  // compares cookie===header. Constant value chosen for determinism so
+  // failed-test artefacts don't leak per-run secrets. Same shape as
+  // `e2e/fixtures.ts:E2E_CSRF_TOKEN`.
+  const csrfTok = "e2e-csrf-fixture-token";
   const res = await request.post(`${API_BASE}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-CSRF-Token": csrfTok,
+      Cookie: `medcore_csrf=${csrfTok}`,
+    },
     data: body,
   });
   return { status: res.status(), body: res.ok() ? await res.json() : null };

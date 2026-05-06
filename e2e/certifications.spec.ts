@@ -136,11 +136,12 @@ test.describe("Staff Certifications — /dashboard/certifications (ADMIN cert-tr
     ).toBeVisible({ timeout: 5_000 });
 
     // EntityPicker — `testIdPrefix="cert-user-picker"` (page.tsx:236).
-    // Per CLAUDE.md gotcha #11, the picker root is keyed by its prefix.
-    // The picker mounts a search input internally; we anchor on the
-    // root testid.
+    // EntityPicker doesn't emit a root testid with the bare prefix —
+    // it emits `${prefix}-input`, `${prefix}-dropdown`, etc.
+    // (components/EntityPicker.tsx:206-297). Anchor on the search
+    // input since that's always present once the modal mounts.
     await expect(
-      page.locator('[data-testid="cert-user-picker"]').first()
+      page.locator('[data-testid="cert-user-picker-input"]')
     ).toBeVisible();
 
     // 6 labelled fields — using id-anchored selectors that the page

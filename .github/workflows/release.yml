@@ -12,9 +12,27 @@ name: Release validation
 #   - Per-push runs the FAST gate (unit + contract + smoke + integration +
 #     web vitest + typecheck + RBAC matrix only). That keeps auto-deploys
 #     to dev quick.
-#   - This workflow runs the FULL Playwright suite (22 specs) on top of
-#     everything per-push runs. Slower, more flaky, only worth it on a
-#     release boundary.
+#   - This workflow runs the FULL Playwright suite (132+ specs across
+#     Chromium + WebKit) on top of everything per-push runs.
+#
+# Sharding topology (target: ≤10 min total wall-clock end-to-end):
+#   - typecheck                          1 job   (~3 min)
+#   - api-tests-fast                     1 job   (~5 min)
+#   - api-tests-integration              4 shards (~5 min each, parallel)
+#   - web-tests-full                     1 job   (~5 min)
+#   - e2e-full (Chromium)                8 shards (~10 min each, parallel)
+#   - e2e-webkit                         8 shards (~10 min each, parallel)
+#   - merge-reports                      1 job   (~1 min, after E2E shards)
+#   - release-summary                    1 job   (instant, after all)
+#
+#   Total parallel jobs: 24 (excluding merge + summary)
+#   Wall-clock: max(individual job times) + merge time ≈ 11 min
+#
+# To iterate further (if observed wall-clock > 10 min):
+#   - Bump E2E matrix to [1..10] each (20 E2E shards)
+#   - Add a build-prebuild job: build Web bundle once, upload as artifact,
+#     E2E shards download instead of re-building (saves ~1-2 min per shard)
+#   - Cache ms-playwright browsers via actions/cache (saves ~1 min boot)
 #
 # How to trigger:
 #   gh workflow run release.yml --ref main
@@ -64,10 +82,14 @@ jobs:
       - name: Type-check Web
         run: npx tsc --noEmit -p apps/web/tsconfig.json
 
-  api-tests-full:
-    name: API tests (unit + contract + smoke + integration)
+  api-tests-fast:
+    # Unit + contract + smoke tests. No real DB needed for unit/contract
+    # (they use hoisted Prisma mocks per the route-test convention); smoke
+    # bootstraps the app once. Fast — ~3-5 min wall-clock — so kept as a
+    # single job to avoid the boot-overhead-per-shard tax.
+    name: API tests (unit + contract + smoke)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16
@@ -104,8 +126,61 @@ jobs:
         run: npm run test:coverage:unit
       - name: Run smoke tests
         run: npm run test:smoke
-      - name: Run integration tests
-        run: npm run test:api
+
+  api-tests-integration:
+    # The slow integration suite — supertest against real Postgres, 285+
+    # test files. Sharded into 4 parallel runners via vitest's native
+    # --shard=N/M (deterministic file partition). Each shard gets its
+    # own Postgres service so DB state can't cascade between shards.
+    #
+    # Note: the suite uses `singleFork: true` in vitest.config.ts so test
+    # files within a shard run sequentially in one worker (per
+    # `feedback_singlefork_module_scope.md` memory). That's fine — singleFork
+    # is per-process; different shards are different processes with their
+    # own DB instances.
+    name: API integration (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: medcore
+          POSTGRES_PASSWORD: medcore
+          POSTGRES_DB: medcore_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://medcore:medcore@localhost:5432/medcore_test
+      DATABASE_URL_TEST: postgresql://medcore:medcore@localhost:5432/medcore_test
+      JWT_SECRET: ci-jwt-secret
+      JWT_REFRESH_SECRET: ci-jwt-refresh-secret
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+      - name: Install dependencies
+        run: npm install
+      - name: Generate Prisma client
+        run: npm run db:generate
+      - name: Push schema to test DB
+        run: npx prisma db push --schema packages/db/prisma/schema.prisma --force-reset --skip-generate
+      - name: Run integration tests (shard ${{ matrix.shard }}/4)
+        # vitest natively supports --shard=N/M (deterministic file partition).
+        # Routes the partition flag through `npm run test:api` via `--`.
+        run: npx vitest run apps/api/src/test/integration --shard=${{ matrix.shard }}/4
 
   web-tests-full:
     name: Web component tests
@@ -125,9 +200,38 @@ jobs:
         run: npm run test:coverage:web
 
   e2e-full:
-    name: E2E (full Playwright suite)
+    # Sharded matrix run (2026-05-05): the original monolith routinely hit
+    # the 60-min job timeout on the full 132-spec set. Sharding into 8
+    # parallel runners cuts wall-clock to ~10 min per shard while keeping
+    # the total CI-minute spend the same. Combined with e2e-webkit (also 8
+    # shards), the release.yml E2E layer is now 16 concurrent runs.
+    #
+    # Iteration history (target: ≤10 min total wall-clock for release.yml):
+    #   v1 (commit 338088b): 3 shards/browser → ~15-20 min/shard. Too slow.
+    #   v2 (this commit):    8 shards/browser → ~10 min/shard target.
+    #   v3 if still slow:    Add a build-prebuild job that builds Web once
+    #                        + uploads as artifact; E2E shards download
+    #                        instead of re-building (the `Build Web (warm
+    #                        bundle)` step is the largest per-shard fixed
+    #                        cost, duplicated 16x today).
+    #   v4 if still slow:    Cache ~/.cache/ms-playwright via actions/cache
+    #                        across shards (saves ~30s-1min per shard on
+    #                        the browser install step).
+    #
+    # Playwright's `--shard=N/M` deterministically partitions the spec set
+    # by file (each runner gets a non-overlapping slice). Per-shard reports
+    # land as blob artifacts; the merge-reports job below stitches them
+    # into a single HTML report for triage.
+    name: E2E Chromium (shard ${{ matrix.shard }}/8)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 20
+    strategy:
+      # `fail-fast: false` so all 8 shards always complete and surface their
+      # own failure lists — cheaper to triage 8 partial reports than rerun
+      # to discover the later-shard failures one at a time.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     services:
       postgres:
         image: postgres:16
@@ -202,41 +306,47 @@ jobs:
       - name: Wait for API and Web
         run: npx wait-on http://localhost:4000/api/health http://localhost:3000/login --timeout 90000
 
-      - name: Run full Playwright suite
-        # `--project=full` runs every spec in e2e/. The project flag is
-        # mandatory now that playwright.config.ts defines three tiers
-        # (smoke / regression / full); without it Playwright would run
-        # all three projects and re-execute the smoke specs three
-        # times. Failures here are release-blocking; fix on main and
-        # retrigger this workflow.
-        run: npx playwright test --project=full
+      - name: Run Playwright suite (shard ${{ matrix.shard }}/8)
+        # `--project=full` runs every spec in e2e/ that's tagged for the
+        # full tier; `--shard=N/M` deterministically partitions the file
+        # list. Failures are release-blocking; fix on main and retrigger.
+        # Use `--reporter=blob` so per-shard reports can be merged into a
+        # single HTML report by the merge-reports job below.
+        run: npx playwright test --project=full --shard=${{ matrix.shard }}/8 --reporter=blob
 
-      - name: Upload Playwright report
+      - name: Upload blob report (for merge)
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-full-report
-          path: playwright-report
-          retention-days: 30
+          name: blob-report-chromium-shard-${{ matrix.shard }}
+          path: blob-report
+          retention-days: 7
 
       - name: Upload server logs on failure
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: server-logs-release
+          name: server-logs-release-chromium-shard-${{ matrix.shard }}
           path: |
             api.log
             web.log
           retention-days: 14
 
   e2e-webkit:
-    # Same Playwright suite, executed on WebKit (Safari engine). Runs in
-    # parallel with e2e-full so wall-clock cost is bounded. Catches
+    # Same Playwright suite, executed on WebKit (Safari engine). Catches
     # Safari-specific bugs (date parsing, IndexedDB quirks, CSS rendering)
     # that Chromium-only coverage misses. CI hardening Phase 3.4.
-    name: E2E (full Playwright suite, WebKit)
+    #
+    # Sharded analogous to e2e-full above — 3 parallel runners with the
+    # same `--shard=N/3` partition. WebKit historically runs slower than
+    # Chromium, so the speedup matters more here.
+    name: E2E WebKit (shard ${{ matrix.shard }}/8)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     services:
       postgres:
         image: postgres:16
@@ -306,50 +416,95 @@ jobs:
       - name: Wait for API and Web
         run: npx wait-on http://localhost:4000/api/health http://localhost:3000/login --timeout 90000
 
-      - name: Run full Playwright suite (WebKit)
-        run: npx playwright test --project=full-webkit
+      - name: Run Playwright suite WebKit (shard ${{ matrix.shard }}/8)
+        run: npx playwright test --project=full-webkit --shard=${{ matrix.shard }}/8 --reporter=blob
 
-      - name: Upload Playwright report
+      - name: Upload blob report (for merge)
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-full-webkit-report
-          path: playwright-report
-          retention-days: 30
+          name: blob-report-webkit-shard-${{ matrix.shard }}
+          path: blob-report
+          retention-days: 7
 
       - name: Upload server logs on failure
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: server-logs-release-webkit
+          name: server-logs-release-webkit-shard-${{ matrix.shard }}
           path: |
             api.log
             web.log
           retention-days: 14
 
+  merge-reports:
+    # Stitches the 6 blob reports (3 Chromium shards + 3 WebKit shards) into
+    # one unified Playwright HTML report for triage. Runs even when shards
+    # fail (`if: always()`) so the report is always available.
+    name: Merge Playwright reports
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [e2e-full, e2e-webkit]
+    if: always()
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --include=dev
+
+      - name: Download all blob reports
+        uses: actions/download-artifact@v8
+        with:
+          path: all-blob-reports
+          pattern: blob-report-*
+          merge-multiple: true
+
+      - name: Merge reports into single HTML
+        run: npx playwright merge-reports --reporter html ./all-blob-reports
+
+      - name: Upload merged HTML report
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-merged-report
+          path: playwright-report
+          retention-days: 30
+
   release-summary:
     name: Release validation summary
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [typecheck, api-tests-full, web-tests-full, e2e-full, e2e-webkit]
+    # Matrix-job results bubble up under a single name (`needs.e2e-full.result`
+    # is `success` only when ALL 3 shards passed; `failure` if any shard
+    # failed; `cancelled` / `skipped` propagate similarly). The summary still
+    # depends on the 5 logical gates — the matrix expansion is invisible
+    # at the dependency-graph level.
+    needs: [typecheck, api-tests-fast, api-tests-integration, web-tests-full, e2e-full, e2e-webkit, merge-reports]
     if: always()
     steps:
       - name: Report
         run: |
-          echo "Typecheck:        ${{ needs.typecheck.result }}"
-          echo "API tests:        ${{ needs.api-tests-full.result }}"
-          echo "Web tests:        ${{ needs.web-tests-full.result }}"
-          echo "E2E (Chromium):   ${{ needs.e2e-full.result }}"
-          echo "E2E (WebKit):     ${{ needs.e2e-webkit.result }}"
+          echo "Typecheck:                          ${{ needs.typecheck.result }}"
+          echo "API fast (unit+contract+smoke):     ${{ needs.api-tests-fast.result }}"
+          echo "API integration (4 shards):         ${{ needs.api-tests-integration.result }}"
+          echo "Web tests:                          ${{ needs.web-tests-full.result }}"
+          echo "E2E Chromium (8 shards):            ${{ needs.e2e-full.result }}"
+          echo "E2E WebKit (8 shards):              ${{ needs.e2e-webkit.result }}"
+          echo "Merged report:                      ${{ needs.merge-reports.result }}"
           if [ "${{ needs.typecheck.result }}" = "success" ] \
-             && [ "${{ needs.api-tests-full.result }}" = "success" ] \
+             && [ "${{ needs.api-tests-fast.result }}" = "success" ] \
+             && [ "${{ needs.api-tests-integration.result }}" = "success" ] \
              && [ "${{ needs.web-tests-full.result }}" = "success" ] \
              && [ "${{ needs.e2e-full.result }}" = "success" ] \
              && [ "${{ needs.e2e-webkit.result }}" = "success" ]; then
             echo ""
-            echo "All five gates green — safe to declare a release on this SHA."
+            echo "All six gates green (incl. all 16 E2E + 4 API integration shards) — safe to declare a release on this SHA."
           else
             echo ""
             echo "One or more gates failed — fix on main, then retrigger this workflow."
+            echo "Per-shard server logs land as separate artifacts; download from the run page."
             exit 1
           fi

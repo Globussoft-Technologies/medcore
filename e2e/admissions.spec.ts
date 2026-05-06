@@ -153,42 +153,24 @@ test.describe("Admissions — list page chrome (/dashboard/admissions)", () => {
 });
 
 test.describe("Admissions — RBAC negatives on list page", () => {
-  test("PATIENT: can load the list page without not-authorized redirect; no Admit Patient button", async ({
+  // Issue #509 added a page-level VIEW_ALLOWED gate (page.tsx:18 +
+  // useEffect at :94-101) that redirects non-allowed roles to
+  // /dashboard/not-authorized. PATIENT and LAB_TECH are outside the
+  // allowlist {ADMIN, DOCTOR, NURSE, RECEPTION} so they bounce.
+  test("PATIENT: page-level VIEW_ALLOWED gate redirects to /dashboard/not-authorized", async ({
     patientPage,
   }) => {
     const page = patientPage;
-    // No redirect to /dashboard/not-authorized — all authenticated users
-    // can view the admissions list. Only the CTA is role-gated.
-    await gotoAuthed(page, "/dashboard/admissions");
-    expect(page.url()).not.toContain("/not-authorized");
-    expect(page.url()).not.toContain("/login");
-
-    await expect(
-      page.getByRole("heading", { name: /admissions/i }).first()
-    ).toBeVisible({ timeout: PAGE_TIMEOUT });
-
-    // PATIENT is NOT in canAdmit
-    await expect(
-      page.getByRole("button", { name: /admit patient/i })
-    ).toHaveCount(0);
+    await page.goto("/dashboard/admissions");
+    await page.waitForURL(/\/dashboard\/not-authorized/, { timeout: PAGE_TIMEOUT });
   });
 
-  test("LAB_TECH: can load the list page without not-authorized redirect; no Admit Patient button", async ({
+  test("LAB_TECH: page-level VIEW_ALLOWED gate redirects to /dashboard/not-authorized", async ({
     labTechPage,
   }) => {
     const page = labTechPage;
-    await gotoAuthed(page, "/dashboard/admissions");
-    expect(page.url()).not.toContain("/not-authorized");
-    expect(page.url()).not.toContain("/login");
-
-    await expect(
-      page.getByRole("heading", { name: /admissions/i }).first()
-    ).toBeVisible({ timeout: PAGE_TIMEOUT });
-
-    // LAB_TECH is NOT in canAdmit
-    await expect(
-      page.getByRole("button", { name: /admit patient/i })
-    ).toHaveCount(0);
+    await page.goto("/dashboard/admissions");
+    await page.waitForURL(/\/dashboard\/not-authorized/, { timeout: PAGE_TIMEOUT });
   });
 });
 

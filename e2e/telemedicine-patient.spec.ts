@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_CSRF_TOKEN } from "./fixtures";
 import {
   API_BASE,
   apiPost,
@@ -410,7 +410,13 @@ test.describe("Telemedicine (multi-role)", () => {
     // apiPost helper.
     const startRes = await request.patch(
       `${API_BASE}/telemedicine/${session.id}/start`,
-      { headers: { Authorization: `Bearer ${doctorToken}` } }
+      {
+        headers: {
+          Authorization: `Bearer ${doctorToken}`,
+          "X-CSRF-Token": E2E_CSRF_TOKEN,
+          Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+        },
+      }
     );
     expect(startRes.status(), "doctor starts session").toBeLessThan(400);
 
@@ -418,7 +424,11 @@ test.describe("Telemedicine (multi-role)", () => {
     const endRes = await request.patch(
       `${API_BASE}/telemedicine/${session.id}/end`,
       {
-        headers: { Authorization: `Bearer ${doctorToken}` },
+        headers: {
+          Authorization: `Bearer ${doctorToken}`,
+          "X-CSRF-Token": E2E_CSRF_TOKEN,
+          Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+        },
         data: { doctorNotes: "E2E ended" },
       }
     );

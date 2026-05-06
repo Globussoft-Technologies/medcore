@@ -5,6 +5,10 @@ import crypto from "crypto";
 // tenant-scoped models (see services/tenant-prisma.ts). We alias it to
 // `prisma` so every existing call site keeps working without edits.
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
+// rawPrisma — Invoice.invoiceNumber, CreditNote.noteNumber, and
+// AdvancePayment.receiptNumber are all GLOBAL @unique. The next-N
+// generators below MUST scan rows across every tenant.
+import { prisma as rawPrisma } from "@medcore/db";
 import {
   Role,
   createInvoiceSchema,
@@ -1799,7 +1803,7 @@ router.get(
 // ═══════════════════════════════════════════════════════
 
 async function nextCreditNoteNumber(): Promise<string> {
-  const last = await prisma.creditNote.findFirst({
+  const last = await rawPrisma.creditNote.findFirst({
     orderBy: { noteNumber: "desc" },
     select: { noteNumber: true },
   });
@@ -1901,7 +1905,7 @@ router.get(
 // ═══════════════════════════════════════════════════════
 
 async function nextAdvanceReceiptNumber(): Promise<string> {
-  const last = await prisma.advancePayment.findFirst({
+  const last = await rawPrisma.advancePayment.findFirst({
     orderBy: { receiptNumber: "desc" },
     select: { receiptNumber: true },
   });

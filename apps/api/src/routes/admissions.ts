@@ -4,6 +4,11 @@ import { Router, Request, Response, NextFunction } from "express";
 // tenant-scoped models (see services/tenant-prisma.ts). We alias it to
 // `prisma` so every existing call site keeps working without edits.
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
+// rawPrisma (un-scoped) for cross-tenant uniqueness probes —
+// Admission.admissionNumber is GLOBAL @unique, so the generator must
+// scan ALL tenants or P2002 fires on insert when another tenant has
+// already used the value.
+import { prisma as rawPrisma } from "@medcore/db";
 import {
   Role,
   admitPatientSchema,
@@ -27,7 +32,8 @@ router.use(authenticate);
 
 // Generate next admission number like IPD000001
 async function nextAdmissionNumber(): Promise<string> {
-  const last = await prisma.admission.findFirst({
+  // rawPrisma — global @unique, see import comment above.
+  const last = await rawPrisma.admission.findFirst({
     orderBy: { admissionNumber: "desc" },
     select: { admissionNumber: true },
   });

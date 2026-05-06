@@ -238,7 +238,11 @@ router.get(
 // 'next' silently reset to 1 and collided with existing LAB000001 →
 // P2002 → 500.
 async function generateOrderNumber(): Promise<string> {
-  const rows = await prisma.labOrder.findMany({
+  // orderNumber is GLOBAL @unique on LabOrder (not per-tenant), so we
+  // must scan every tenant's rows. tenantScopedPrisma would only see
+  // the caller's tenant and pick a number that's free locally but
+  // already used by another tenant → P2002 on insert.
+  const rows = await rawPrisma.labOrder.findMany({
     where: { orderNumber: { startsWith: "LAB" } },
     select: { orderNumber: true },
   });

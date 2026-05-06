@@ -1,5 +1,5 @@
 import { faker } from "@faker-js/faker";
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_CSRF_TOKEN } from "./fixtures";
 import {
   API_BASE,
   apiGet,
@@ -367,7 +367,16 @@ test.describe("Blood Bank — donor / donation / cross-match clinical flow", () 
     const approveRes = await page.request.patch(
       `${API_BASE}/bloodbank/donations/${donation.id}/approve`,
       {
-        headers: { Authorization: `Bearer ${adminToken}` },
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          // Demo deploys with NODE_ENV=production, which enables CSRF
+          // double-submit. page.request doesn't carry the
+          // medcore_csrf cookie that the adminApi fixture sets, so
+          // mutations 403 with csrf_failed. Echo the same fixture
+          // token cookie+header here.
+          "X-CSRF-Token": E2E_CSRF_TOKEN,
+          Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+        },
         data: { approved: true },
       }
     );
@@ -444,9 +453,16 @@ test.describe("Blood Bank — donor / donation / cross-match clinical flow", () 
 
     // POST /bloodbank/requests/:id/match — DOCTOR is in the authorize set
     // (bloodbank.ts:694).
+    // CSRF: see approveRes above for rationale.
     const matchRes = await page.request.post(
       `${API_BASE}/bloodbank/requests/${request.id}/match`,
-      { headers: { Authorization: `Bearer ${doctorToken}` } }
+      {
+        headers: {
+          Authorization: `Bearer ${doctorToken}`,
+          "X-CSRF-Token": E2E_CSRF_TOKEN,
+          Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+        },
+      }
     );
     expect(matchRes.status(), "match should succeed").toBe(200);
     const matchJson = await matchRes.json();
@@ -523,9 +539,16 @@ test.describe("Blood Bank — donor / donation / cross-match clinical flow", () 
       component: "PACKED_RED_CELLS",
     });
 
+    // CSRF: see approveRes above for rationale.
     const matchRes = await page.request.post(
       `${API_BASE}/bloodbank/requests/${request.id}/match`,
-      { headers: { Authorization: `Bearer ${doctorToken}` } }
+      {
+        headers: {
+          Authorization: `Bearer ${doctorToken}`,
+          "X-CSRF-Token": E2E_CSRF_TOKEN,
+          Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+        },
+      }
     );
     expect(matchRes.status()).toBe(200);
     const matchJson = await matchRes.json();
@@ -634,9 +657,16 @@ test.describe("Blood Bank — donor / donation / cross-match clinical flow", () 
     // After reservation, the matcher must NOT return this unit any more
     // (status filter is `AVAILABLE`, bloodbank.ts:712) — i.e. one
     // reservation prevents another team from also issuing the same bag.
+    // CSRF: see approveRes above for rationale.
     const matchRes = await page.request.post(
       `${API_BASE}/bloodbank/requests/${request.id}/match`,
-      { headers: { Authorization: `Bearer ${nurseToken}` } }
+      {
+        headers: {
+          Authorization: `Bearer ${nurseToken}`,
+          "X-CSRF-Token": E2E_CSRF_TOKEN,
+          Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+        },
+      }
     );
     expect(matchRes.status()).toBe(200);
     const matchJson = await matchRes.json();

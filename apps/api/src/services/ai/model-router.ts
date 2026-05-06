@@ -29,14 +29,16 @@ export interface ChatClient {
 
 function buildSarvamClient(): ChatClient {
   return new OpenAI({
-    apiKey: process.env.SARVAM_API_KEY ?? "",
+    // openai@6 throws "Missing credentials" at construction when apiKey
+    // is empty; placeholder lets the factory succeed when env is unset.
+    apiKey: process.env.SARVAM_API_KEY || "sk-medcore-placeholder",
     baseURL: "https://api.sarvam.ai/v1",
   });
 }
 
 function buildOpenAIClient(): ChatClient {
   return new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY ?? "",
+    apiKey: process.env.OPENAI_API_KEY || "sk-medcore-placeholder",
     baseURL: process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
   });
 }

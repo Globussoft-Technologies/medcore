@@ -2,7 +2,12 @@ import OpenAI from "openai";
 import { sanitizeUserInput } from "./prompt-safety";
 
 const sarvam = new OpenAI({
-  apiKey: process.env.SARVAM_API_KEY ?? "",
+  // openai@6 throws "Missing credentials" at construction when apiKey
+  // is empty. Tests run without env vars and the resulting throw fires
+  // at module-load before any test can mock it. Use a clearly labelled
+  // placeholder so the constructor succeeds; real API calls would 401
+  // if they ever fired without a real key, but tests mock those.
+  apiKey: process.env.SARVAM_API_KEY || "sk-medcore-placeholder",
   baseURL: "https://api.sarvam.ai/v1",
 });
 

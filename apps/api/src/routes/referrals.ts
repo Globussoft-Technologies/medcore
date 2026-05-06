@@ -4,6 +4,8 @@ import { Router, Request, Response, NextFunction } from "express";
 // tenant-scoped models (see services/tenant-prisma.ts). We alias it to
 // `prisma` so every existing call site keeps working without edits.
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
+// rawPrisma — Referral.referralNumber is GLOBAL @unique.
+import { prisma as rawPrisma } from "@medcore/db";
 import {
   Role,
   createReferralSchema,
@@ -19,7 +21,7 @@ router.use(authenticate);
 
 // Generate next referral number like REF000001
 async function nextReferralNumber(): Promise<string> {
-  const last = await prisma.referral.findFirst({
+  const last = await rawPrisma.referral.findFirst({
     orderBy: { referralNumber: "desc" },
     select: { referralNumber: true },
   });

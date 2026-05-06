@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_CSRF_TOKEN } from "./fixtures";
 import {
   API_BASE,
   expectNotForbidden,
@@ -176,7 +176,11 @@ test.describe("Pharmacist journeys", () => {
     // pharmacy page surfaces inventory + returns/transfers, not Rx
     // dispensing. The endpoint is what the dispensing tablet hits.)
     const res = await page.request.post(`${API_BASE}/pharmacy/dispense`, {
-      headers: { Authorization: `Bearer ${pharmacistToken}` },
+      headers: {
+        Authorization: `Bearer ${pharmacistToken}`,
+        "X-CSRF-Token": E2E_CSRF_TOKEN,
+        Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+      },
       data: { prescriptionId },
     });
     expect(

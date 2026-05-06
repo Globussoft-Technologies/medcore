@@ -58,7 +58,7 @@
  *   Lab Results tab strip OR the Issue #185 demographic-edit RBAC
  *   shows up as a test failure rather than a silent product bug.
  */
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_CSRF_TOKEN } from "./fixtures";
 import { API_BASE, expectNotForbidden, seedPatient } from "./helpers";
 
 const TAB_TIMEOUT = 15_000;
@@ -119,7 +119,11 @@ test.describe("Patient chart [id] — /dashboard/patients/[id] (DOCTOR deep pane
     // allergy entry is a separate concern.
     const allergyTag = `e2e-allergy-${Date.now()}`;
     const allergyRes = await request.post(`${API_BASE}/ehr/allergies`, {
-      headers: { Authorization: `Bearer ${doctorToken}` },
+      headers: {
+        Authorization: `Bearer ${doctorToken}`,
+        "X-CSRF-Token": E2E_CSRF_TOKEN,
+        Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+      },
       data: {
         patientId: patient.id,
         allergen: `Penicillin ${allergyTag}`,

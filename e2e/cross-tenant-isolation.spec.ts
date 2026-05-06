@@ -78,10 +78,25 @@ test.describe("Cross-tenant isolation — e2e structural beacons (2026-05-05)", 
     // Once authenticated, fetch /auth/me from the browser context so
     // cookies are sent. Confirms the access-token's tenantId claim is
     // round-tripped through login + decoded by `authenticate`.
-    const me = await page.evaluate(async () => {
-      const r = await fetch("/api/v1/auth/me", { credentials: "include" });
-      return { status: r.status, body: r.ok ? await r.json() : null };
+    // Hit the API directly via the Playwright request fixture instead
+    // of page.evaluate(fetch). Under release.yml's CI, the web origin
+    // (:3000) doesn't proxy /api/v1/* to the API (:4000), so an
+    // in-browser fetch 404s. The page.request context already carries
+    // the Bearer token from the loginAs/injectAuth helpers, which is
+    // what /auth/me's authenticate middleware actually needs.
+    const apiBase = process.env.E2E_API_URL || "http://localhost:4000/api/v1";
+    const accessToken = await page.evaluate(() =>
+      localStorage.getItem("medcore_token") ||
+      localStorage.getItem("medcore_access_token") ||
+      ""
+    );
+    const meRes = await page.request.get(`${apiBase}/auth/me`, {
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
     });
+    const me = {
+      status: meRes.status(),
+      body: meRes.ok() ? await meRes.json() : null,
+    };
     expect(me.status).toBe(200);
     // The seeded admin in dev belongs to the `default` tenant; the
     // tenantId field must be PRESENT on the payload (string, not undefined,

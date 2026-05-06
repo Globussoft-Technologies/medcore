@@ -269,17 +269,22 @@ test.describe("/register — public registration", () => {
       page.getByRole("button", { name: /register|create account|sign up/i }).click(),
     ]);
 
-    // API must return 409 Conflict for an already-registered email.
-    expect(registerRes.status()).toBe(409);
+    // Issue #480 (anti-enumeration): the duplicate-email path now returns
+    // 201 with a generic "Registration received" body — byte-identical to
+    // the new-email path's status + envelope shape, so an attacker cannot
+    // iterate emails to learn which are registered. The CLIENT renders a
+    // generic acknowledgement and stays on /register (no auto-login since
+    // the response carries no tokens). See auth.ts:370-399 for the contract.
+    expect(registerRes.status()).toBe(201);
+    const body = await registerRes.json();
+    expect(body.success).toBe(true);
+    expect(body.error).toBeNull();
+    // No tokens issued for duplicate — the body is a generic message.
+    expect(body.data?.tokens).toBeUndefined();
+    expect(body.data?.message).toMatch(/log in|registration received/i);
 
-    // The page renders an error alert (role="alert") — it must NOT navigate.
-    // Exclude Next.js's __next-route-announcer__ (also role=alert) which is
-    // injected on every page and would match before the real error alert.
-    const alert = page
-      .locator('[role="alert"]:not(#__next-route-announcer__)')
-      .first();
-    await expect(alert).toBeVisible({ timeout: 8_000 });
-    await expect(alert).toContainText(/already registered|already exist|email.*taken/i);
+    // The page must NOT navigate away — duplicate-email is silent on the
+    // anti-enumeration path, but the URL still anchors at /register.
     await expect(page).toHaveURL(/\/register/);
   });
 

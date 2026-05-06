@@ -27,11 +27,28 @@ export function errorHandler(
     return;
   }
 
+  // Surface Prisma error code + the model/operation context even in
+  // production. The message itself is generic ("Internal server error")
+  // so we don't leak schema or query strings, but the code (P2002,
+  // P2003, etc.) and the meta target tell a debugger which constraint
+  // fired. Without this, demo 500s are unreachable without SSH access
+  // to PM2 logs — every route bug becomes a "look in the API server
+  // logs" hunt.
+  type PrismaLikeError = {
+    code?: string;
+    meta?: Record<string, unknown>;
+    name?: string;
+  };
+  const e = err as PrismaLikeError;
+  const isPrismaError =
+    typeof e.code === "string" && /^P\d{4}$/.test(e.code);
   res.status(500).json({
     success: false,
     data: null,
-    error: process.env.NODE_ENV === "production"
-      ? "Internal server error"
-      : err.message,
+    error:
+      process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    ...(isPrismaError
+      ? { prismaCode: e.code, prismaMeta: e.meta ?? null }
+      : {}),
   });
 }

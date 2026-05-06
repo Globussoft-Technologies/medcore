@@ -297,11 +297,14 @@ test.describe("Pharmacy inventory & stock management — /dashboard/pharmacy dee
 
     // Toast surfaces the stub PO number — confirms the success path
     // wired through (page.tsx:217-220 calls toast.success with poNumber).
-    // We use a non-strict locator that sidesteps the global Next.js
-    // route announcer (CLAUDE.md gotcha #10).
+    // toast.success uses role="status" (Toast.tsx commit e60e8be —
+    // only error toasts use role="alert"). Match both roles to keep
+    // the assertion robust if the toast type ever changes.
     await expect(
       page
-        .locator('[role="alert"]:not(#__next-route-announcer__)')
+        .locator(
+          '[role="status"]:not([aria-busy]), [role="alert"]:not(#__next-route-announcer__)'
+        )
         .filter({ hasText: /PO-E2E-INV-001/i })
         .first()
     ).toBeVisible({ timeout: 5_000 });

@@ -163,6 +163,32 @@ async function mockWebRtcOk(page: Page): Promise<void> {
       // Chromium with fake-device flag — let the real getUserMedia run.
       return;
     }
+    // Build a REAL MediaStream so HTMLMediaElement.srcObject doesn't
+    // throw "Overload resolution failed" when the page's runPrecheck
+    // does videoRef.current.srcObject = stream. WebKit's MediaStream
+    // constructor accepts an empty array of tracks and the resulting
+    // stream IS srcObject-compatible.
+    const buildRealStream = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = 320;
+        canvas.height = 240;
+        // captureStream on a 2D canvas yields a real video track.
+        const stream =
+          (canvas as HTMLCanvasElement & {
+            captureStream?: (fps?: number) => MediaStream;
+          }).captureStream?.(1) ?? new MediaStream();
+        return stream;
+      } catch {
+        try {
+          return new MediaStream();
+        } catch {
+          // Last resort — duck-typed fake. Still better than throwing.
+          return null;
+        }
+      }
+    };
+    const realStream = buildRealStream();
     const fakeTrack = (kind: "audio" | "video") =>
       ({
         kind,
@@ -172,13 +198,26 @@ async function mockWebRtcOk(page: Page): Promise<void> {
         addEventListener: () => undefined,
         removeEventListener: () => undefined,
       }) as unknown as MediaStreamTrack;
-    const fakeStream = {
-      getTracks: () => [fakeTrack("video"), fakeTrack("audio")],
-      getVideoTracks: () => [fakeTrack("video")],
-      getAudioTracks: () => [fakeTrack("audio")],
-      addTrack: () => undefined,
-      removeTrack: () => undefined,
-    } as unknown as MediaStream;
+    const fakeStream =
+      realStream ??
+      ({
+        getTracks: () => [fakeTrack("video"), fakeTrack("audio")],
+        getVideoTracks: () => [fakeTrack("video")],
+        getAudioTracks: () => [fakeTrack("audio")],
+        addTrack: () => undefined,
+        removeTrack: () => undefined,
+      } as unknown as MediaStream);
+    // If the real-stream path gave us an empty stream (no tracks),
+    // synthesize "live" video+audio track shims so the page's
+    // `tracks.some(t => t.readyState === "live")` check passes.
+    if (realStream && realStream.getVideoTracks().length === 0) {
+      const v = fakeTrack("video");
+      const a = fakeTrack("audio");
+      // Override the methods to include our shim tracks.
+      (realStream as any).getVideoTracks = () => [v];
+      (realStream as any).getAudioTracks = () => [a];
+      (realStream as any).getTracks = () => [v, a];
+    }
     // Try whole-object replace first (works around WebKit's
     // non-configurable property guards on individual mediaDevices entries),
     // falling back to per-property defineProperty if the whole-object

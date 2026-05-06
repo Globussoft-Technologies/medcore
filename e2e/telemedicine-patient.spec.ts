@@ -125,6 +125,27 @@ async function mockWebRtc(page: import("@playwright/test").Page): Promise<void> 
     if (isChromium) {
       return;
     }
+    // Build a REAL MediaStream (canvas.captureStream or new MediaStream())
+    // so srcObject assignment doesn't throw on WebKit.
+    const buildRealStream = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = 320;
+        canvas.height = 240;
+        const stream =
+          (canvas as HTMLCanvasElement & {
+            captureStream?: (fps?: number) => MediaStream;
+          }).captureStream?.(1) ?? new MediaStream();
+        return stream;
+      } catch {
+        try {
+          return new MediaStream();
+        } catch {
+          return null;
+        }
+      }
+    };
+    const realStream = buildRealStream();
     const fakeTrack = (kind: "audio" | "video") =>
       ({
         kind,
@@ -134,13 +155,22 @@ async function mockWebRtc(page: import("@playwright/test").Page): Promise<void> 
         addEventListener: () => undefined,
         removeEventListener: () => undefined,
       }) as unknown as MediaStreamTrack;
-    const fakeStream = {
-      getTracks: () => [fakeTrack("video"), fakeTrack("audio")],
-      getVideoTracks: () => [fakeTrack("video")],
-      getAudioTracks: () => [fakeTrack("audio")],
-      addTrack: () => undefined,
-      removeTrack: () => undefined,
-    } as unknown as MediaStream;
+    const fakeStream =
+      realStream ??
+      ({
+        getTracks: () => [fakeTrack("video"), fakeTrack("audio")],
+        getVideoTracks: () => [fakeTrack("video")],
+        getAudioTracks: () => [fakeTrack("audio")],
+        addTrack: () => undefined,
+        removeTrack: () => undefined,
+      } as unknown as MediaStream);
+    if (realStream && realStream.getVideoTracks().length === 0) {
+      const v = fakeTrack("video");
+      const a = fakeTrack("audio");
+      (realStream as any).getVideoTracks = () => [v];
+      (realStream as any).getAudioTracks = () => [a];
+      (realStream as any).getTracks = () => [v, a];
+    }
     // Try whole-object replace first (WebKit), fall back to per-property
     // (Chrome). Chrome's navigator.mediaDevices is a getter that throws
     // when redefined wholesale; WebKit's per-property defineProperty

@@ -137,6 +137,32 @@ async function seedTelemedSession(
  */
 async function mockWebRtcOk(page: Page): Promise<void> {
   await page.addInitScript(() => {
+    // Skip the stub if the browser already has a working mediaDevices
+    // (Chromium with --use-fake-device-for-media-stream gives us a real
+    // MediaStream that's compatible with HTMLMediaElement.srcObject; our
+    // fake duck-typed object is NOT compatible and throws "Failed to set
+    // the 'srcObject' property" when assigned, which the page's catch
+    // block flips to setCameraOk(false) → "Camera failed").
+    //
+    // We detect "real getUserMedia" by checking if navigator.mediaDevices
+    // is the native object (its toString includes [native code]). WebKit
+    // headless rejects getUserMedia outright — for WebKit we still need
+    // the JS stub.
+    const isNativeMediaDevices =
+      "mediaDevices" in navigator &&
+      navigator.mediaDevices &&
+      // Chromium native MediaDevices.prototype.getUserMedia is a native function
+      typeof navigator.mediaDevices.getUserMedia === "function" &&
+      navigator.mediaDevices.getUserMedia.toString().includes("[native code]");
+    // Detect Chromium's fake-device launch arg by trying a real getUserMedia
+    // call up-front; if it resolves we've got a real stream and don't need
+    // to stub. We do this synchronously by checking the user agent —
+    // Chromium gets the launch flag via playwright config; WebKit doesn't.
+    const isChromium = /Chrome\//.test(navigator.userAgent) && !/Edge|Edg\//.test(navigator.userAgent);
+    if (isNativeMediaDevices && isChromium) {
+      // Chromium with fake-device flag — let the real getUserMedia run.
+      return;
+    }
     const fakeTrack = (kind: "audio" | "video") =>
       ({
         kind,

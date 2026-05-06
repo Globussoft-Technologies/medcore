@@ -115,6 +115,16 @@ async function seedTelemedSession(
  */
 async function mockWebRtc(page: import("@playwright/test").Page): Promise<void> {
   await page.addInitScript(() => {
+    // Same as mockWebRtcOk in telemedicine-waiting-room.spec.ts: skip
+    // the stub on Chromium because the browser was launched with
+    // --use-fake-device-for-media-stream, which gives us a REAL
+    // MediaStream that's compatible with HTMLMediaElement.srcObject.
+    // Our fake duck-typed stream is NOT compatible and crashes the page
+    // when assigned to srcObject.
+    const isChromium = /Chrome\//.test(navigator.userAgent) && !/Edge|Edg\//.test(navigator.userAgent);
+    if (isChromium) {
+      return;
+    }
     const fakeTrack = (kind: "audio" | "video") =>
       ({
         kind,

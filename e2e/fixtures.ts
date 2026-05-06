@@ -1,6 +1,15 @@
 import { test as base, Page, APIRequestContext, request as playwrightRequest } from "@playwright/test";
 import { apiLogin, CREDS, injectAuth, loginAs, Role, waitForAuthReady } from "./helpers";
 
+/**
+ * Static double-submit CSRF token used by every e2e-fixture API context.
+ * The CSRF middleware (apps/api/src/middleware/csrf.ts) only checks that
+ * `cookie === header`, so a fixed value is fine and avoids per-request
+ * fetching. Exported so any spec that builds its own APIRequestContext
+ * via `playwrightRequest.newContext(...)` can echo the same shape.
+ */
+export const E2E_CSRF_TOKEN = "e2e-csrf-fixture-token";
+
 type AuthedFixtures = {
   adminPage: Page;
   doctorPage: Page;
@@ -270,16 +279,40 @@ export const test = base.extend<AuthedFixtures, WorkerFixtures>({
   },
 
   // ─── Pre-authed APIRequestContext fixtures for seeding ──────────────────
+  //
+  // Issue #477 follow-up (CSRF fix, 2026-05-06):
+  // The release.yml E2E shards run the API with NODE_ENV=production, which
+  // ENABLES the double-submit CSRF middleware (apps/api/src/middleware/csrf.ts).
+  // Every state-changing request must echo a `medcore_csrf` cookie value back
+  // as `X-CSRF-Token`, or the middleware 403s with `error: "csrf_failed"`.
+  //
+  // The seed helpers (`seedPatient`, `seedAppointment`, `seedAdmission`,
+  // `seedAmbulance`, `seedDonor`, etc.) all POST through these fixtures.
+  // Setting the cookie + matching header here propagates to every helper.
+  // Token value is arbitrary — the middleware only compares cookie===header,
+  // not the contents.
+  //
+  // (When NODE_ENV=test — the api-tests-* jobs in release.yml + local dev —
+  //  the middleware is short-circuited at app.ts:204 and the headers are
+  //  silently ignored, so this fix is a no-op for those paths.)
   adminApi: async ({ adminToken }, use) => {
     const ctx = await playwrightRequest.newContext({
-      extraHTTPHeaders: { Authorization: `Bearer ${adminToken}` },
+      extraHTTPHeaders: {
+        Authorization: `Bearer ${adminToken}`,
+        "X-CSRF-Token": E2E_CSRF_TOKEN,
+        Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+      },
     });
     await use(ctx);
     await ctx.dispose();
   },
   receptionApi: async ({ receptionToken }, use) => {
     const ctx = await playwrightRequest.newContext({
-      extraHTTPHeaders: { Authorization: `Bearer ${receptionToken}` },
+      extraHTTPHeaders: {
+        Authorization: `Bearer ${receptionToken}`,
+        "X-CSRF-Token": E2E_CSRF_TOKEN,
+        Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+      },
     });
     await use(ctx);
     await ctx.dispose();

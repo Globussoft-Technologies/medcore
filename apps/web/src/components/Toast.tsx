@@ -36,8 +36,6 @@ const styles: Record<
 export function ToastContainer() {
   const { toasts, dismiss } = useToastStore();
 
-  if (!toasts.length) return null;
-
   return (
     <div
       aria-live="polite"
@@ -47,10 +45,15 @@ export function ToastContainer() {
       {toasts.map((t) => {
         const s = styles[t.kind];
         const Icon = s.icon;
+        // Error toasts use role="alert" (implicit aria-live="assertive")
+        // so screen readers interrupt the current utterance — the canonical
+        // a11y contract for failure announcements. Other kinds stay role="status"
+        // (polite) to queue behind whatever the SR is reading.
+        const role = t.kind === "error" ? "alert" : "status";
         return (
           <div
             key={t.id}
-            role="status"
+            role={role}
             className={`pointer-events-auto flex items-start gap-3 rounded-lg ${s.bg} ${s.border} p-3 shadow-lg animate-in slide-in-from-right`}
           >
             <Icon size={18} className={`mt-0.5 flex-shrink-0 ${s.iconColor}`} />

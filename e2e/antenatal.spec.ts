@@ -181,9 +181,18 @@ test.describe("Antenatal — /dashboard/antenatal (DOCTOR/NURSE primary chrome +
     await expect(doctorSelect).toBeVisible();
 
     // LMP date — Issue #57 max=today guard (page.tsx:521).
+    // The page computes todayIso in LOCAL time (page.tsx:164-170), so
+    // compute the test expectation the same way. toISOString() emits
+    // UTC and disagrees with local-date when local is one day ahead/
+    // behind UTC, which would falsify this assertion every evening
+    // IST / morning PT.
     const lmpDate = page.locator('[data-testid="anc-lmp-date"]');
     await expect(lmpDate).toBeVisible();
-    const today = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const today =
+      `${now.getFullYear()}-` +
+      `${String(now.getMonth() + 1).padStart(2, "0")}-` +
+      `${String(now.getDate()).padStart(2, "0")}`;
     await expect(lmpDate).toHaveAttribute("max", today);
 
     // Gravida (min=1, step=1 — Issue #57 page.tsx:538-539).
@@ -199,10 +208,11 @@ test.describe("Antenatal — /dashboard/antenatal (DOCTOR/NURSE primary chrome +
     // Blood-group select (Issue #57 canonical ABO+Rh tokens — page.tsx:567).
     const bloodGroup = page.locator('[data-testid="anc-blood-group"]');
     await expect(bloodGroup).toBeVisible();
-    // At least one canonical ABO+Rh option must be there — A_POSITIVE is the
-    // first canonical token from ALL_BLOOD_GROUPS in @medcore/shared.
+    // At least one canonical ABO+Rh option must be there — A_POS is the
+    // first canonical token from BLOOD_GROUPS in
+    // packages/shared/src/validation/phase4-ops.ts:3-12.
     await expect(
-      bloodGroup.locator('option[value="A_POSITIVE"]')
+      bloodGroup.locator('option[value="A_POS"]')
     ).toHaveCount(1);
 
     // High-Risk checkbox — page.tsx:585-595. The label includes the literal

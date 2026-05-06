@@ -118,7 +118,15 @@ test.describe("Budgets — /dashboard/budgets (ADMIN KPI render + Set-Budget POS
     // The realistic seeder may already populate well-known categories;
     // OTHER is unlikely to clash. Even if it does, the upsert semantics
     // on the server simply update the existing row — see expenses.ts.
-    await page.locator('select').first().selectOption("OTHER");
+    //
+    // CLAUDE.md gotcha #9: every authed dashboard layout injects a
+    // LanguageDropdown <select> with options en/hi. `.first()` was
+    // matching that select. Scope to a select that contains the
+    // OTHER option to lock onto the budget-category select.
+    await page
+      .locator('select:has(option[value="OTHER"])')
+      .first()
+      .selectOption("OTHER");
     // Use a pseudo-random amount so successive runs don't all assert on
     // the same number. The KPI tile re-renders from the GET response
     // anyway, so we don't need to read this back precisely.

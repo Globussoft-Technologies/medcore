@@ -229,7 +229,7 @@ test.describe("a11y deepening — keyboard nav / high-contrast / font-scale / ar
     expect(atomicRegions).toBeGreaterThanOrEqual(1);
   });
 
-  test("structural-NOT pin: skip-to-content link is NOT shipped — `<main id='main-content'>` is rendered (layout.tsx:911) but no `<a href='#main-content'>Skip to content</a>` anchor precedes the sidebar nav. Beacon so the day a skip link ships this case fails and forces a rewrite of the contract pin", async ({
+  test("skip-to-content link is shipped — `<a href='#main-content'>Skip to main content</a>` is rendered in the root layout (app/layout.tsx) and the `<main id='main-content'>` target exists in the dashboard layout, so keyboard users can jump past the sidebar nav with a single Tab+Enter", async ({
     adminPage,
   }) => {
     const page = adminPage;
@@ -239,21 +239,18 @@ test.describe("a11y deepening — keyboard nav / high-contrast / font-scale / ar
       timeout: 15_000,
     });
 
-    // The `<main id="main-content">` target IS present (the destination
-    // of a future skip link). Pin its existence so a regression that
-    // removes the id surfaces here, not just in some future a11y audit.
+    // The `<main id="main-content">` target — destination of the skip link.
     const mainTarget = page.locator("main#main-content");
     await expect(mainTarget).toHaveCount(1);
 
-    // Skip-link absence: scan all anchors that point to "#main-content"
-    // OR contain skip-to-main copy. Today this returns zero. The day a
-    // skip link ships, this assertion fails — forcing the test to be
-    // rewritten as a positive keyboard-reachability case (focus the
-    // skip link with Tab, press Enter, observe focus inside <main>).
-    const skipLinkByHref = page.locator('a[href="#main-content"], a[href="#main"]');
-    expect(await skipLinkByHref.count()).toBe(0);
+    // The skip link itself: anchor with href="#main-content" and the
+    // canonical "Skip to main content" copy. Asserting BOTH the href
+    // shape and the visible-text shape catches regressions that change
+    // either side independently.
+    const skipLinkByHref = page.locator('a[href="#main-content"]');
+    expect(await skipLinkByHref.count()).toBeGreaterThanOrEqual(1);
 
     const skipLinkByText = page.getByRole("link", { name: /skip( to)? (main )?content|skip nav/i });
-    expect(await skipLinkByText.count()).toBe(0);
+    expect(await skipLinkByText.count()).toBeGreaterThanOrEqual(1);
   });
 });

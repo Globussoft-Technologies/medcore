@@ -625,16 +625,20 @@ export default function PrescriptionsPage() {
               </label>
               {/* Issue #194: scope the appointment picker to *today*, the
                   selected patient, and only "live" statuses
-                  (BOOKED / CHECKED_IN / IN_PROGRESS) so the doctor sees the
-                  active visit instead of a stale "No matches" because of an
-                  off-by-one date or a CANCELLED row. The placeholder drops
-                  the "Paste UUID" wording — patients shouldn't see
-                  database concepts in clinical UI. */}
+                  (BOOKED / CHECKED_IN / IN_CONSULTATION) so the doctor sees
+                  the active visit instead of a stale "No matches" because
+                  of an off-by-one date or a CANCELLED row. The placeholder
+                  drops the "Paste UUID" wording — patients shouldn't see
+                  database concepts in clinical UI.
+                  Note: the enum value is `IN_CONSULTATION`, not the
+                  IN_PROGRESS spelling used elsewhere in the schema for
+                  Admission/EmergencyCase. Sending the wrong name 500s the
+                  /appointments list (Prisma enum validation). */}
               {form.patientId ? (
                 <EntityPicker
                   endpoint={`/appointments?patientId=${form.patientId}&date=${
                     new Date().toISOString().split("T")[0]
-                  }&status=BOOKED,CHECKED_IN,IN_PROGRESS`}
+                  }&status=BOOKED,CHECKED_IN,IN_CONSULTATION`}
                   searchParam="search"
                   labelField="slotStart"
                   subtitleField="doctor.user.name"

@@ -155,8 +155,17 @@ test.describe("AI Triage API — patient-role behaviour (issue #22)", () => {
         },
       }
     );
-    // Unauthenticated → 401 with structured body
-    expect([400, 401]).toContain(res.status());
+    // Unauthenticated → some 4xx with a structured body. The exact code
+    // depends on which middleware short-circuits first:
+    //   - 401 if auth middleware fires first (NODE_ENV=test path)
+    //   - 403 if CSRF middleware fires first (NODE_ENV=production path
+    //     against the deployed demo: cookie+header are missing →
+    //     csrf_failed before auth even runs)
+    //   - 400 if the body shape is rejected upstream
+    // We don't care which one — the contract is "always a 4xx with a
+    // structured error envelope, never a 500".
+    expect(res.status()).toBeGreaterThanOrEqual(400);
+    expect(res.status()).toBeLessThan(500);
     const body = await res.json().catch(() => ({}));
     expect(body).toHaveProperty("error");
     expect(body.success).toBe(false);

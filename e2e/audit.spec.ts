@@ -321,13 +321,20 @@ test.describe("Audit Log — /dashboard/audit (ADMIN-only forensic trail viewer;
     const page = doctorPage;
 
     await page.goto("/dashboard/audit", { waitUntil: "domcontentloaded" });
-    // Let the client-side useEffect fire its router.push.
-    await page.waitForTimeout(800);
+    // The redirect fires from a useEffect that depends on `user` from
+    // the auth store. On a slow page load the user may not be hydrated
+    // by the time a fixed waitForTimeout expires — switch to
+    // waitForURL which waits up to the timeout for the URL to change
+    // off /dashboard/audit. The matcher is a negation so any /dashboard*
+    // EXCEPT /dashboard/audit succeeds.
+    await page.waitForURL(
+      (url) => !/\/dashboard\/audit/.test(url.toString()),
+      { timeout: 10_000 }
+    );
     // Bounce target is "/dashboard" (NOT "/dashboard/not-authorized") —
     // pin the actual archetype this page uses (matches admin-ops.spec.ts'
     // existing audit-filter pin under the ADMIN role lane).
     expect(page.url()).toMatch(/\/dashboard(\/?($|\?))/);
-    expect(page.url()).not.toMatch(/\/dashboard\/audit/);
     // The page's "Access denied" placeholder also renders for any logged-in
     // non-ADMIN that races the redirect; either way the Audit Log heading
     // must NOT appear.
@@ -342,9 +349,11 @@ test.describe("Audit Log — /dashboard/audit (ADMIN-only forensic trail viewer;
     const page = patientPage;
 
     await page.goto("/dashboard/audit", { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(800);
+    await page.waitForURL(
+      (url) => !/\/dashboard\/audit/.test(url.toString()),
+      { timeout: 10_000 }
+    );
     expect(page.url()).toMatch(/\/dashboard(\/?($|\?))/);
-    expect(page.url()).not.toMatch(/\/dashboard\/audit/);
     await expect(
       page.getByRole("heading", { name: /audit log/i })
     ).toHaveCount(0);

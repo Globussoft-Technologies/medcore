@@ -171,8 +171,16 @@ export function EntityPicker({
         const params = new URLSearchParams();
         params.set(searchParam, q);
         params.set("limit", String(limit));
+        // Pre-filter endpoints (e.g. prescriptions' appointment picker scoped
+        // by patientId+date+status) already contain a `?`. A second `?` is
+        // illegal and causes Express to fold everything after the first `?`
+        // into a single query value — which produced the
+        // `status=IN_PROGRESS?search=e` enum-validation 500 surfaced from
+        // appointments.ts. Use `&` when joining onto an endpoint that
+        // already has a query string.
+        const sep = endpoint.includes("?") ? "&" : "?";
         const res = await api.get<ApiEnvelope<Record<string, unknown>>>(
-          `${endpoint}?${params.toString()}`
+          `${endpoint}${sep}${params.toString()}`
         );
         if (reqId !== lastReqId.current) return; // raced
         setResults(Array.isArray(res.data) ? res.data : []);

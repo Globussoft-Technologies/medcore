@@ -126,7 +126,8 @@ describeIfDB("Edge cases (integration)", () => {
       patientId: patient.id,
       doctorId: doctor.id,
       date: "2026-09-01",
-      slotId: "00000000-0000-0000-0000-000000000aaa",
+      // PR #521: slotId schema is now HH:MM, not UUID.
+      slotId: "14:00",
     };
     const a = await request(app)
       .post("/api/v1/appointments/book")

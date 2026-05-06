@@ -29,55 +29,59 @@ router.use(authenticate);
 // HELPERS
 // ───────────────────────────────────────────────────────
 
-async function generateDonorNumber(): Promise<string> {
-  const last = await prisma.bloodDonor.findFirst({
-    orderBy: { createdAt: "desc" },
-    select: { donorNumber: true },
-  });
-  let next = 1;
-  if (last?.donorNumber) {
-    const m = last.donorNumber.match(/BD(\d+)/);
-    if (m) next = parseInt(m[1]) + 1;
+// Compute the next sequential identifier of the form `<PREFIX>NNNNNN` by
+// scanning every existing row and taking the max numeric suffix + 1.
+//
+// Ordering by `createdAt: "desc"` and parsing only the most recent row is
+// not safe: (a) the seed data contains hyphenated `BD-0025` legacy numbers
+// that the original `BD(\d+)` regex ignored, (b) several seed rows share a
+// `createdAt` so Postgres ordering between them is undefined, and (c) any
+// non-matching latest row would silently reset `next` to 1 and collide
+// with an existing record on the @unique column → P2002 → 500.
+//
+// The dash-tolerant regex `(?:PREFIX)-?(\d+)` lets us absorb both the seed
+// and post-seed shapes without a migration. For the row counts we deal
+// with (donors / donations / units in low thousands) the linear scan is
+// far cheaper than a Postgres ORDER+LIMIT race condition was costing us.
+async function nextSequentialId(
+  rows: { id: string }[] | { number: string | null }[] | unknown[],
+  field: string,
+  prefix: string
+): Promise<number> {
+  const re = new RegExp(`${prefix}-?(\\d+)`);
+  let max = 0;
+  for (const r of rows as Record<string, unknown>[]) {
+    const v = r[field];
+    if (typeof v !== "string") continue;
+    const m = v.match(re);
+    if (!m) continue;
+    const n = parseInt(m[1], 10);
+    if (Number.isFinite(n) && n > max) max = n;
   }
+  return max + 1;
+}
+
+async function generateDonorNumber(): Promise<string> {
+  const all = await prisma.bloodDonor.findMany({ select: { donorNumber: true } });
+  const next = await nextSequentialId(all, "donorNumber", "BD");
   return "BD" + String(next).padStart(6, "0");
 }
 
 async function generateDonationUnitNumber(): Promise<string> {
-  const last = await prisma.bloodDonation.findFirst({
-    orderBy: { createdAt: "desc" },
-    select: { unitNumber: true },
-  });
-  let next = 1;
-  if (last?.unitNumber) {
-    const m = last.unitNumber.match(/BU(\d+)/);
-    if (m) next = parseInt(m[1]) + 1;
-  }
+  const all = await prisma.bloodDonation.findMany({ select: { unitNumber: true } });
+  const next = await nextSequentialId(all, "unitNumber", "BU");
   return "BU" + String(next).padStart(6, "0");
 }
 
 async function generateBloodUnitNumber(prefix = "BU"): Promise<string> {
-  const last = await prisma.bloodUnit.findFirst({
-    orderBy: { createdAt: "desc" },
-    select: { unitNumber: true },
-  });
-  let next = 1;
-  if (last?.unitNumber) {
-    const m = last.unitNumber.match(/BU(\d+)/);
-    if (m) next = parseInt(m[1]) + 1;
-  }
+  const all = await prisma.bloodUnit.findMany({ select: { unitNumber: true } });
+  const next = await nextSequentialId(all, "unitNumber", prefix);
   return prefix + String(next).padStart(6, "0");
 }
 
 async function generateRequestNumber(): Promise<string> {
-  const last = await prisma.bloodRequest.findFirst({
-    orderBy: { createdAt: "desc" },
-    select: { requestNumber: true },
-  });
-  let next = 1;
-  if (last?.requestNumber) {
-    const m = last.requestNumber.match(/BR(\d+)/);
-    if (m) next = parseInt(m[1]) + 1;
-  }
+  const all = await prisma.bloodRequest.findMany({ select: { requestNumber: true } });
+  const next = await nextSequentialId(all, "requestNumber", "BR");
   return "BR" + String(next).padStart(6, "0");
 }
 

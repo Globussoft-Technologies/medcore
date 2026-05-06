@@ -43,7 +43,7 @@ test.describe("Reports page regression (#3 / #26)", () => {
     ).toEqual([]);
   });
 
-  test("reception can open /dashboard/reports without a client-side crash", async ({
+  test("reception bounces away from /dashboard/reports — Issue #90 made the page ADMIN-only (financial KPIs no longer visible to RECEPTION)", async ({
     receptionPage,
   }) => {
     const page = receptionPage;
@@ -52,9 +52,8 @@ test.describe("Reports page regression (#3 / #26)", () => {
 
     await page.goto("/dashboard/reports", { waitUntil: "domcontentloaded" });
 
-    await expect(
-      page.getByRole("heading", { name: /billing reports/i })
-    ).toBeVisible({ timeout: 15_000 });
+    // page.tsx:128 redirects every non-ADMIN to /dashboard.
+    await page.waitForURL(/\/dashboard(\?|$|\/(?!reports))/, { timeout: 15_000 });
 
     await expect(
       page.getByText(/application error|client-side exception|something went wrong/i)

@@ -5,6 +5,7 @@ import {
   dismissTourIfPresent,
   expectNotForbidden,
   freshPatientToken,
+  injectAuth,
   stubAi,
 } from "./helpers";
 
@@ -180,22 +181,15 @@ test.describe("Telemedicine (multi-role)", () => {
     expect(session.sessionNumber).toMatch(/^TEL\d{6}$/);
 
     // Open a fresh browser context as the new patient and assert the
-    // booked session appears in the upcoming list.
+    // booked session appears in the upcoming list. Issue #477 moved
+    // JWTs from localStorage to httpOnly cookies (medcore_at/_rt) — set
+    // those via injectAuth so the page's authenticate middleware sees a
+    // valid session. Also sets medcore_csrf for mutation requests.
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
-    await page.goto("/login", { waitUntil: "domcontentloaded" });
-    await page.evaluate(
-      ([t, r]) => {
-        localStorage.setItem("medcore_token", t);
-        localStorage.setItem("medcore_refresh", r);
-      },
-      [fresh.token, fresh.refresh]
-    );
+    await injectAuth(page, fresh.token, fresh.refresh);
 
-    // Visit the telemedicine listing — the row reflects the seeded session
-    // (the spec brief asks for "appointment row reflects telemedicine type",
-    // which on this codebase means the telemedicine session row exists in
-    // the patient's upcoming list).
+    // Visit the telemedicine listing — the row reflects the seeded session.
     await page.goto("/dashboard/telemedicine");
     await expect(
       page.getByRole("heading", { name: /telemedicine/i }).first()
@@ -258,14 +252,7 @@ test.describe("Telemedicine (multi-role)", () => {
         })
     );
 
-    await page.goto("/login", { waitUntil: "domcontentloaded" });
-    await page.evaluate(
-      ([t, r]) => {
-        localStorage.setItem("medcore_token", t);
-        localStorage.setItem("medcore_refresh", r);
-      },
-      [fresh.token, fresh.refresh]
-    );
+    await injectAuth(page, fresh.token, fresh.refresh);
 
     await page.goto(
       `/dashboard/telemedicine/waiting-room?sessionId=${session.id}`
@@ -525,14 +512,7 @@ test.describe("Telemedicine (multi-role)", () => {
     // string we just wrote shows up.
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
-    await page.goto("/login", { waitUntil: "domcontentloaded" });
-    await page.evaluate(
-      ([t, r]) => {
-        localStorage.setItem("medcore_token", t);
-        localStorage.setItem("medcore_refresh", r);
-      },
-      [fresh.token, fresh.refresh]
-    );
+    await injectAuth(page, fresh.token, fresh.refresh);
 
     await page.goto("/dashboard/prescriptions");
     await expect(

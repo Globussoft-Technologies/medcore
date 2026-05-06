@@ -58,6 +58,7 @@ import {
   apiPost,
   expectNotForbidden,
   freshPatientToken,
+  injectAuth,
 } from "./helpers";
 import type { APIRequestContext, Page } from "@playwright/test";
 
@@ -271,14 +272,10 @@ test.describe("Telemedicine Waiting Room — /dashboard/telemedicine/waiting-roo
     await mockWebRtcOk(page);
     await stubTelemedNetwork(page, { sessionId: session.id });
 
-    await page.goto("/login", { waitUntil: "domcontentloaded" });
-    await page.evaluate(
-      ([t, r]) => {
-        localStorage.setItem("medcore_token", t);
-        localStorage.setItem("medcore_refresh", r);
-      },
-      [fresh.token, fresh.refresh]
-    );
+    // Issue #477 — JWTs moved from localStorage to httpOnly cookies.
+    // injectAuth sets medcore_at + medcore_rt + medcore_csrf so the
+    // dashboard layout's authenticate middleware sees a valid session.
+    await injectAuth(page, fresh.token, fresh.refresh);
 
     await page.goto(
       `/dashboard/telemedicine/waiting-room?sessionId=${session.id}`,
@@ -383,14 +380,10 @@ test.describe("Telemedicine Waiting Room — /dashboard/telemedicine/waiting-roo
         })
     );
 
-    await page.goto("/login", { waitUntil: "domcontentloaded" });
-    await page.evaluate(
-      ([t, r]) => {
-        localStorage.setItem("medcore_token", t);
-        localStorage.setItem("medcore_refresh", r);
-      },
-      [fresh.token, fresh.refresh]
-    );
+    // Issue #477 — JWTs moved from localStorage to httpOnly cookies.
+    // injectAuth sets medcore_at + medcore_rt + medcore_csrf so the
+    // dashboard layout's authenticate middleware sees a valid session.
+    await injectAuth(page, fresh.token, fresh.refresh);
 
     await page.goto(
       `/dashboard/telemedicine/waiting-room?sessionId=${session.id}`,
@@ -444,14 +437,10 @@ test.describe("Telemedicine Waiting Room — /dashboard/telemedicine/waiting-roo
     await mockWebRtcOk(page);
     await stubTelemedNetwork(page, { sessionId: session.id });
 
-    await page.goto("/login", { waitUntil: "domcontentloaded" });
-    await page.evaluate(
-      ([t, r]) => {
-        localStorage.setItem("medcore_token", t);
-        localStorage.setItem("medcore_refresh", r);
-      },
-      [fresh.token, fresh.refresh]
-    );
+    // Issue #477 — JWTs moved from localStorage to httpOnly cookies.
+    // injectAuth sets medcore_at + medcore_rt + medcore_csrf so the
+    // dashboard layout's authenticate middleware sees a valid session.
+    await injectAuth(page, fresh.token, fresh.refresh);
 
     await page.goto(
       `/dashboard/telemedicine/waiting-room?sessionId=${session.id}`,

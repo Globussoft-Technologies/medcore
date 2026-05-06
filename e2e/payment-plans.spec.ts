@@ -238,22 +238,24 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
 
     // Wait for the dropdown option to appear and click the seeded patient.
     // EntityPicker option uses onMouseDown (not onClick) so the input
-    // doesn't blur first and close the dropdown. The synthetic event from
-    // Playwright's bare click() can race the input's onBlur, closing the
-    // dropdown before mousedown fires. Use page.evaluate to dispatch the
-    // bubbling mousedown directly on the option element, then a click()
-    // for any onClick fallbacks.
+    // doesn't blur first and close the dropdown. Bare locator.click() can
+    // race the input's onBlur (closes the dropdown before mousedown fires).
+    // Synthesize a full mousedown→mouseup sequence on the SAME element so
+    // both fire deterministically before the dropdown unmounts.
     const opt = page
       .getByTestId("new-plan-patient-option")
       .filter({ hasText: patientName })
       .first();
     await opt.waitFor({ state: "visible", timeout: 10_000 });
     await opt.evaluate((el) => {
-      el.dispatchEvent(
-        new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 })
-      );
+      const rect = (el as HTMLElement).getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      const opts = { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y, view: window };
+      el.dispatchEvent(new MouseEvent("mousedown", opts));
+      el.dispatchEvent(new MouseEvent("mouseup", opts));
+      el.dispatchEvent(new MouseEvent("click", opts));
     });
-    await opt.click({ timeout: 10_000, force: true }).catch(() => undefined);
 
     // -- Step 2: wait for invoice list to load, then select the invoice.
     // The <select> renders synchronously when the modal opens, but the
@@ -379,22 +381,24 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       .first()
       .fill(patientName.split(" ")[0]);
     // EntityPicker option uses onMouseDown (not onClick) so the input
-    // doesn't blur first and close the dropdown. The synthetic event from
-    // Playwright's bare click() can race the input's onBlur, closing the
-    // dropdown before mousedown fires. Use page.evaluate to dispatch the
-    // bubbling mousedown directly on the option element, then a click()
-    // for any onClick fallbacks.
+    // doesn't blur first and close the dropdown. Bare locator.click() can
+    // race the input's onBlur (closes the dropdown before mousedown fires).
+    // Synthesize a full mousedown→mouseup sequence on the SAME element so
+    // both fire deterministically before the dropdown unmounts.
     const opt = page
       .getByTestId("new-plan-patient-option")
       .filter({ hasText: patientName })
       .first();
     await opt.waitFor({ state: "visible", timeout: 10_000 });
     await opt.evaluate((el) => {
-      el.dispatchEvent(
-        new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 })
-      );
+      const rect = (el as HTMLElement).getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      const opts = { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y, view: window };
+      el.dispatchEvent(new MouseEvent("mousedown", opts));
+      el.dispatchEvent(new MouseEvent("mouseup", opts));
+      el.dispatchEvent(new MouseEvent("click", opts));
     });
-    await opt.click({ timeout: 10_000, force: true }).catch(() => undefined);
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
       timeout: 10_000,
     });
@@ -451,22 +455,24 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       .first()
       .fill(patientName.split(" ")[0]);
     // EntityPicker option uses onMouseDown (not onClick) so the input
-    // doesn't blur first and close the dropdown. The synthetic event from
-    // Playwright's bare click() can race the input's onBlur, closing the
-    // dropdown before mousedown fires. Use page.evaluate to dispatch the
-    // bubbling mousedown directly on the option element, then a click()
-    // for any onClick fallbacks.
+    // doesn't blur first and close the dropdown. Bare locator.click() can
+    // race the input's onBlur (closes the dropdown before mousedown fires).
+    // Synthesize a full mousedown→mouseup sequence on the SAME element so
+    // both fire deterministically before the dropdown unmounts.
     const opt = page
       .getByTestId("new-plan-patient-option")
       .filter({ hasText: patientName })
       .first();
     await opt.waitFor({ state: "visible", timeout: 10_000 });
     await opt.evaluate((el) => {
-      el.dispatchEvent(
-        new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 })
-      );
+      const rect = (el as HTMLElement).getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      const opts = { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y, view: window };
+      el.dispatchEvent(new MouseEvent("mousedown", opts));
+      el.dispatchEvent(new MouseEvent("mouseup", opts));
+      el.dispatchEvent(new MouseEvent("click", opts));
     });
-    await opt.click({ timeout: 10_000, force: true }).catch(() => undefined);
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
       timeout: 10_000,
     });
@@ -518,22 +524,24 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       .first()
       .fill(patientName.split(" ")[0]);
     // EntityPicker option uses onMouseDown (not onClick) so the input
-    // doesn't blur first and close the dropdown. The synthetic event from
-    // Playwright's bare click() can race the input's onBlur, closing the
-    // dropdown before mousedown fires. Use page.evaluate to dispatch the
-    // bubbling mousedown directly on the option element, then a click()
-    // for any onClick fallbacks.
+    // doesn't blur first and close the dropdown. Bare locator.click() can
+    // race the input's onBlur (closes the dropdown before mousedown fires).
+    // Synthesize a full mousedown→mouseup sequence on the SAME element so
+    // both fire deterministically before the dropdown unmounts.
     const opt = page
       .getByTestId("new-plan-patient-option")
       .filter({ hasText: patientName })
       .first();
     await opt.waitFor({ state: "visible", timeout: 10_000 });
     await opt.evaluate((el) => {
-      el.dispatchEvent(
-        new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 })
-      );
+      const rect = (el as HTMLElement).getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      const opts = { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y, view: window };
+      el.dispatchEvent(new MouseEvent("mousedown", opts));
+      el.dispatchEvent(new MouseEvent("mouseup", opts));
+      el.dispatchEvent(new MouseEvent("click", opts));
     });
-    await opt.click({ timeout: 10_000, force: true }).catch(() => undefined);
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
       timeout: 10_000,
     });
@@ -587,22 +595,24 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       .first()
       .fill(patientName.split(" ")[0]);
     // EntityPicker option uses onMouseDown (not onClick) so the input
-    // doesn't blur first and close the dropdown. The synthetic event from
-    // Playwright's bare click() can race the input's onBlur, closing the
-    // dropdown before mousedown fires. Use page.evaluate to dispatch the
-    // bubbling mousedown directly on the option element, then a click()
-    // for any onClick fallbacks.
+    // doesn't blur first and close the dropdown. Bare locator.click() can
+    // race the input's onBlur (closes the dropdown before mousedown fires).
+    // Synthesize a full mousedown→mouseup sequence on the SAME element so
+    // both fire deterministically before the dropdown unmounts.
     const opt = page
       .getByTestId("new-plan-patient-option")
       .filter({ hasText: patientName })
       .first();
     await opt.waitFor({ state: "visible", timeout: 10_000 });
     await opt.evaluate((el) => {
-      el.dispatchEvent(
-        new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 })
-      );
+      const rect = (el as HTMLElement).getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      const opts = { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y, view: window };
+      el.dispatchEvent(new MouseEvent("mousedown", opts));
+      el.dispatchEvent(new MouseEvent("mouseup", opts));
+      el.dispatchEvent(new MouseEvent("click", opts));
     });
-    await opt.click({ timeout: 10_000, force: true }).catch(() => undefined);
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
       timeout: 10_000,
     });
@@ -695,22 +705,24 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       .first()
       .fill(patientName.split(" ")[0]);
     // EntityPicker option uses onMouseDown (not onClick) so the input
-    // doesn't blur first and close the dropdown. The synthetic event from
-    // Playwright's bare click() can race the input's onBlur, closing the
-    // dropdown before mousedown fires. Use page.evaluate to dispatch the
-    // bubbling mousedown directly on the option element, then a click()
-    // for any onClick fallbacks.
+    // doesn't blur first and close the dropdown. Bare locator.click() can
+    // race the input's onBlur (closes the dropdown before mousedown fires).
+    // Synthesize a full mousedown→mouseup sequence on the SAME element so
+    // both fire deterministically before the dropdown unmounts.
     const opt = page
       .getByTestId("new-plan-patient-option")
       .filter({ hasText: patientName })
       .first();
     await opt.waitFor({ state: "visible", timeout: 10_000 });
     await opt.evaluate((el) => {
-      el.dispatchEvent(
-        new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 })
-      );
+      const rect = (el as HTMLElement).getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      const opts = { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y, view: window };
+      el.dispatchEvent(new MouseEvent("mousedown", opts));
+      el.dispatchEvent(new MouseEvent("mouseup", opts));
+      el.dispatchEvent(new MouseEvent("click", opts));
     });
-    await opt.click({ timeout: 10_000, force: true }).catch(() => undefined);
 
     // The "no outstanding invoice" hint must render
     // (page.tsx:478–485: data-testid="new-plan-no-invoices").

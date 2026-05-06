@@ -14,7 +14,9 @@ import { holtWinters, sumForecast, type HoltWintersResult } from "./ml/holt-wint
 
 // Sarvam AI — India-region servers, DPDP-compliant
 const sarvam = new OpenAI({
-  apiKey: process.env.SARVAM_API_KEY ?? "",
+  // openai@6 throws "Missing credentials" at construction when apiKey
+  // is empty; placeholder lets module-load succeed when env is unset.
+  apiKey: process.env.SARVAM_API_KEY || "sk-medcore-placeholder",
   baseURL: "https://api.sarvam.ai/v1",
 });
 

@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_CSRF_TOKEN } from "./fixtures";
 import {
   API_BASE,
   apiGet,
@@ -196,7 +196,11 @@ test.describe("Admissions MAR — multi-role workflow", () => {
     const patchRes = await page.request.patch(
       `${API_BASE}/medication/administrations/${firstDoseId}`,
       {
-        headers: { Authorization: `Bearer ${nurseToken}` },
+        headers: {
+          Authorization: `Bearer ${nurseToken}`,
+          "X-CSRF-Token": E2E_CSRF_TOKEN,
+          Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+        },
         data: { status: "ADMINISTERED" },
       }
     );

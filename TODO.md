@@ -52,21 +52,62 @@ Top failing specs known from runs `25438208974` (5dd9b9b) and `25439729234` (110
 
 3rd release.yml run dispatched as `25440699784` on `f93fc8f` includes the seed-tenant fix + 2nd antenatal-id `.first()` — should clear cross-tenant-isolation:73 and antenatal-id:181 but the 14-shard failures above still need per-spec work.
 
+### Run-by-run trajectory
+
+| Run | Commit | E2E shards failed | Notes |
+|---|---|---|---|
+| 1 | `5dd9b9b` | 14/16 | All systemic + initial spec fixes applied |
+| 2 | `110a2fd` | 14/16 | + telemedicine + 5 spec CSRF |
+| 3 | `f93fc8f` | 12/16 | + seed default tenant + public-auth + antenatal MR fixes |
+| 4 | `b3e982f` | 11/16 | + print-pdf + medicines + pharmacy-inventory + insurance-claims-lifecycle + cross-tenant-isolation |
+
+Trajectory: down from 14 → 11 over 4 runs as more spec fixes ship. Each run finishes ~25-30 min.
+
+### Specs known fixed (will pass on next release.yml run after `23cc0cd`)
+
+- antenatal-id (patient-name + MR strict-mode `.first()`)
+- public-auth (duplicate-email anti-enum 201)
+- print-pdf (rx-row testid + expand-before-click)
+- medicines (PATIENT redirect to /not-authorized)
+- pharmacy-inventory (success toast role=status)
+- insurance-claims-lifecycle (#claim-amount-claimed-inr trailing-dash typo)
+- cross-tenant-isolation (page.request.get with E2E_API_URL)
+- suppliers (Name input by id, not [required])
+
+### Specs still failing (next session — surgical fixes, ~5-15 min each)
+
+| Spec | Issue |
+|---|---|
+| `patients-register.spec.ts:55` | POST /patients doesn't fire on submit click — possibly form action changed |
+| `payment-plans.spec.ts:209` | Plan-create UI step stuck post-modal |
+| `realtime.spec.ts:172` | PATIENT redirect path / WebSocket leak check |
+| `telemedicine-patient.spec.ts:157` + `:458` | Multi-role booking flow / Rx visible |
+| `telemedicine-waiting-room.spec.ts:255` + `:356` + `:430` | Waiting-room precheck UI shape |
+| `mobile-responsive.spec.ts:202` | DataTable mobile-card visibility |
+| `edge-cases.spec.ts:20` + `:83` + many more | Form validation alert/aria-invalid |
+| `telemedicine-deep.spec.ts:222` + `:273` + `:323` + others | recording-consent / followup / Rx |
+| `users.spec.ts` | Multiple user-list UI checks |
+| `tenants-onboarding.spec.ts` | Probably tenant-aware UI shape |
+| `my-activity.spec.ts:129` | Activity feed filter rendering |
+| `file-operations.spec.ts` | Large-file upload |
+| `hr-operations.spec.ts` | HR module UI |
+
 ### Pickup priority
 
-1. Re-check `release.yml` run `25440699784` outcome — if more shards now green, narrow the spec list.
-2. For each remaining failing spec, run locally against the demo (`E2E_BASE_URL=https://medcore.globusdemos.com E2E_API_URL=https://medcore.globusdemos.com/api/v1 npx playwright test e2e/<spec>.spec.ts --project=full --workers=1 --reporter=list`) and triage the assertion.
-3. Many failures are brittle locators that just need `.first()` / scoped locator updates (same pattern as antenatal-id fixes above) — fast.
-4. Some are real UI/page changes that need careful re-baselining.
+1. Run `gh workflow run release.yml --ref main` to dispatch a 5th run with the latest fixes (`23cc0cd` HEAD).
+2. For each remaining failing spec, run locally:
+   `E2E_BASE_URL=https://medcore.globusdemos.com E2E_API_URL=https://medcore.globusdemos.com/api/v1 npx playwright test e2e/<spec>.spec.ts --project=full --workers=1 --reporter=list`
+3. Many failures are brittle locators that just need `.first()` / scoped locator updates / selector cleanup. Pattern matches the strict-mode `.first()` fixes in this batch.
+4. Some are real UI/page changes that need careful re-baselining (patients-register, telemedicine-waiting-room).
 
 The systemic 5-class root causes are CLOSED:
 - ✅ CSRF (12 specs patched)
 - ✅ Generator P2002 (11 routes patched, all use rawPrisma)
-- ✅ Auth/tenant plumbing (seed + register + /auth/me)
+- ✅ Auth/tenant plumbing (seed default tenant + register + /auth/me)
 - ✅ Toast a11y contract (Toast.tsx role/wrapper)
 - ✅ Refund UUID transactionId
 
-What remains is the long tail of per-spec UI brittleness — ~30-40 spec lines need surgical fixes.
+What remains is the long tail of per-spec UI brittleness — ~20-30 spec lines need surgical fixes. At ~5-15 min each, a focused half-day session can drive release.yml fully green.
 
 ---
 

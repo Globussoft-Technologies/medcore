@@ -197,8 +197,10 @@ test.describe("Antenatal chart [id] — /dashboard/antenatal/[id] (DOCTOR primar
     // High-Risk pill (page.tsx:253-257).
     await expect(page.getByText(/^high risk$/i).first()).toBeVisible();
 
-    // Patient name + MR (page.tsx:264-266).
-    await expect(page.getByText(caseStub.patient.user.name)).toBeVisible();
+    // Patient name + MR (page.tsx:264-266). The page renders the name
+    // in two places (header card "<Name>" + summary "<Name> · <MR>"), so
+    // strict-mode resolves to 2 elements. .first() picks the first match.
+    await expect(page.getByText(caseStub.patient.user.name).first()).toBeVisible();
     await expect(page.getByText(/MR-ANC-E2E/i)).toBeVisible();
 
     // Patient-Info card heading (page.tsx:282).

@@ -131,25 +131,23 @@ async function mockWebRtc(page: import("@playwright/test").Page): Promise<void> 
       addTrack: () => undefined,
       removeTrack: () => undefined,
     } as unknown as MediaStream;
-    // Some Playwright Chromium builds initialise navigator.mediaDevices
-    // lazily — define it if missing, then override the bits we use.
-    if (!("mediaDevices" in navigator)) {
-      Object.defineProperty(navigator, "mediaDevices", {
-        configurable: true,
-        value: {},
-      });
-    }
-    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+    // WebKit guards individual properties on navigator.mediaDevices as
+    // non-configurable so per-property defineProperty silently fails or
+    // throws. Replace the WHOLE mediaDevices object instead — every
+    // consumer reads through navigator.mediaDevices.X each call, so the
+    // identity swap is transparent.
+    Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: () => Promise.resolve(fakeStream),
-    });
-    Object.defineProperty(navigator.mediaDevices, "enumerateDevices", {
-      configurable: true,
-      value: () =>
-        Promise.resolve([
-          { kind: "videoinput", deviceId: "fake-cam", label: "Fake Camera" },
-          { kind: "audioinput", deviceId: "fake-mic", label: "Fake Mic" },
-        ]),
+      value: {
+        getUserMedia: () => Promise.resolve(fakeStream),
+        enumerateDevices: () =>
+          Promise.resolve([
+            { kind: "videoinput", deviceId: "fake-cam", label: "Fake Camera" },
+            { kind: "audioinput", deviceId: "fake-mic", label: "Fake Mic" },
+          ]),
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      },
     });
   });
 }

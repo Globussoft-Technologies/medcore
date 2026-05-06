@@ -153,23 +153,23 @@ async function mockWebRtcOk(page: Page): Promise<void> {
       addTrack: () => undefined,
       removeTrack: () => undefined,
     } as unknown as MediaStream;
-    if (!("mediaDevices" in navigator)) {
-      Object.defineProperty(navigator, "mediaDevices", {
-        configurable: true,
-        value: {},
-      });
-    }
-    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+    // WebKit guards individual properties on navigator.mediaDevices as
+    // non-configurable, so per-property defineProperty silently fails or
+    // throws. Replace the WHOLE mediaDevices object instead — Object
+    // identity changes but every consumer reads through navigator.media-
+    // Devices.X each call, so the swap is transparent.
+    Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: () => Promise.resolve(fakeStream),
-    });
-    Object.defineProperty(navigator.mediaDevices, "enumerateDevices", {
-      configurable: true,
-      value: () =>
-        Promise.resolve([
-          { kind: "videoinput", deviceId: "fake-cam", label: "Fake Camera" },
-          { kind: "audioinput", deviceId: "fake-mic", label: "Fake Mic" },
-        ]),
+      value: {
+        getUserMedia: () => Promise.resolve(fakeStream),
+        enumerateDevices: () =>
+          Promise.resolve([
+            { kind: "videoinput", deviceId: "fake-cam", label: "Fake Camera" },
+            { kind: "audioinput", deviceId: "fake-mic", label: "Fake Mic" },
+          ]),
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      },
     });
   });
 }
@@ -181,20 +181,21 @@ async function mockWebRtcOk(page: Page): Promise<void> {
  */
 async function mockWebRtcFail(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    if (!("mediaDevices" in navigator)) {
-      Object.defineProperty(navigator, "mediaDevices", {
-        configurable: true,
-        value: {},
-      });
-    }
-    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+    // Replace the WHOLE mediaDevices object — see mockWebRtcOk for the
+    // WebKit-specific configurability rationale.
+    Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: () =>
-        Promise.reject(
-          Object.assign(new Error("Permission denied"), {
-            name: "NotAllowedError",
-          })
-        ),
+      value: {
+        getUserMedia: () =>
+          Promise.reject(
+            Object.assign(new Error("Permission denied"), {
+              name: "NotAllowedError",
+            })
+          ),
+        enumerateDevices: () => Promise.resolve([]),
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      },
     });
   });
 }

@@ -127,9 +127,11 @@ test.describe("Edge cases", () => {
     if (await phone.isVisible().catch(() => false)) {
       await phone.fill("abc");
     }
-    const submit = page
-      .getByRole("button", { name: /submit|register|save|create/i })
-      .first();
+    // Scope to form submit — the toggle button at page.tsx:277 ALSO has
+    // accessible name "Register" (same i18n key as the form's submit at
+    // page.tsx:454), so a bare getByRole(/register/i).first() picks the
+    // toggle and closes the form. Look for type=submit inside form.
+    const submit = page.locator('form button[type="submit"]').first();
     const submitVisible = await submit.isVisible().catch(() => false);
     if (!submitVisible) {
       test.skip(true, "No submit-shaped CTA on /dashboard/patients register form");

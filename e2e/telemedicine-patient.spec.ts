@@ -131,24 +131,44 @@ async function mockWebRtc(page: import("@playwright/test").Page): Promise<void> 
       addTrack: () => undefined,
       removeTrack: () => undefined,
     } as unknown as MediaStream;
-    // WebKit guards individual properties on navigator.mediaDevices as
-    // non-configurable so per-property defineProperty silently fails or
-    // throws. Replace the WHOLE mediaDevices object instead — every
-    // consumer reads through navigator.mediaDevices.X each call, so the
-    // identity swap is transparent.
-    Object.defineProperty(navigator, "mediaDevices", {
-      configurable: true,
-      value: {
-        getUserMedia: () => Promise.resolve(fakeStream),
-        enumerateDevices: () =>
+    // Try whole-object replace first (WebKit), fall back to per-property
+    // (Chrome). Chrome's navigator.mediaDevices is a getter that throws
+    // when redefined wholesale; WebKit's per-property defineProperty
+    // silently fails because individual entries are non-configurable.
+    try {
+      Object.defineProperty(navigator, "mediaDevices", {
+        configurable: true,
+        value: {
+          getUserMedia: () => Promise.resolve(fakeStream),
+          enumerateDevices: () =>
+            Promise.resolve([
+              { kind: "videoinput", deviceId: "fake-cam", label: "Fake Camera" },
+              { kind: "audioinput", deviceId: "fake-mic", label: "Fake Mic" },
+            ]),
+          addEventListener: () => undefined,
+          removeEventListener: () => undefined,
+        },
+      });
+    } catch {
+      if (!("mediaDevices" in navigator)) {
+        Object.defineProperty(navigator, "mediaDevices", {
+          configurable: true,
+          value: {},
+        });
+      }
+      Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+        configurable: true,
+        value: () => Promise.resolve(fakeStream),
+      });
+      Object.defineProperty(navigator.mediaDevices, "enumerateDevices", {
+        configurable: true,
+        value: () =>
           Promise.resolve([
             { kind: "videoinput", deviceId: "fake-cam", label: "Fake Camera" },
             { kind: "audioinput", deviceId: "fake-mic", label: "Fake Mic" },
           ]),
-        addEventListener: () => undefined,
-        removeEventListener: () => undefined,
-      },
-    });
+      });
+    }
   });
 }
 

@@ -237,11 +237,18 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
     await patientSearch.fill(patientName.split(" ")[0]);
 
     // Wait for the dropdown option to appear and click the seeded patient.
-    await page
+    // EntityPicker option uses onMouseDown (not onClick) so the input
+    // doesn't blur first and close the dropdown. WebKit headless can drop
+    // the synthetic mousedown from a bare click(). dispatchEvent fires the
+    // mousedown handler directly + we follow with click for cross-browser
+    // consistency.
+    const opt = page
       .getByTestId("new-plan-patient-option")
       .filter({ hasText: patientName })
-      .first()
-      .click({ timeout: 10_000 });
+      .first();
+    await opt.waitFor({ state: "visible", timeout: 10_000 });
+    await opt.dispatchEvent("mousedown");
+    await opt.click({ timeout: 10_000 }).catch(() => undefined);
 
     // -- Step 2: wait for invoice list to load, then select the invoice.
     // The <select> renders synchronously when the modal opens, but the
@@ -366,11 +373,18 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       .getByPlaceholder(/search patient/i)
       .first()
       .fill(patientName.split(" ")[0]);
-    await page
+    // EntityPicker option uses onMouseDown (not onClick) so the input
+    // doesn't blur first and close the dropdown. WebKit headless can drop
+    // the synthetic mousedown from a bare click(). dispatchEvent fires the
+    // mousedown handler directly + we follow with click for cross-browser
+    // consistency.
+    const opt = page
       .getByTestId("new-plan-patient-option")
       .filter({ hasText: patientName })
-      .first()
-      .click({ timeout: 10_000 });
+      .first();
+    await opt.waitFor({ state: "visible", timeout: 10_000 });
+    await opt.dispatchEvent("mousedown");
+    await opt.click({ timeout: 10_000 }).catch(() => undefined);
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
       timeout: 10_000,
     });
@@ -426,11 +440,18 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       .getByPlaceholder(/search patient/i)
       .first()
       .fill(patientName.split(" ")[0]);
-    await page
+    // EntityPicker option uses onMouseDown (not onClick) so the input
+    // doesn't blur first and close the dropdown. WebKit headless can drop
+    // the synthetic mousedown from a bare click(). dispatchEvent fires the
+    // mousedown handler directly + we follow with click for cross-browser
+    // consistency.
+    const opt = page
       .getByTestId("new-plan-patient-option")
       .filter({ hasText: patientName })
-      .first()
-      .click({ timeout: 10_000 });
+      .first();
+    await opt.waitFor({ state: "visible", timeout: 10_000 });
+    await opt.dispatchEvent("mousedown");
+    await opt.click({ timeout: 10_000 }).catch(() => undefined);
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
       timeout: 10_000,
     });
@@ -481,11 +502,18 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       .getByPlaceholder(/search patient/i)
       .first()
       .fill(patientName.split(" ")[0]);
-    await page
+    // EntityPicker option uses onMouseDown (not onClick) so the input
+    // doesn't blur first and close the dropdown. WebKit headless can drop
+    // the synthetic mousedown from a bare click(). dispatchEvent fires the
+    // mousedown handler directly + we follow with click for cross-browser
+    // consistency.
+    const opt = page
       .getByTestId("new-plan-patient-option")
       .filter({ hasText: patientName })
-      .first()
-      .click({ timeout: 10_000 });
+      .first();
+    await opt.waitFor({ state: "visible", timeout: 10_000 });
+    await opt.dispatchEvent("mousedown");
+    await opt.click({ timeout: 10_000 }).catch(() => undefined);
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
       timeout: 10_000,
     });
@@ -538,11 +566,18 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       .getByPlaceholder(/search patient/i)
       .first()
       .fill(patientName.split(" ")[0]);
-    await page
+    // EntityPicker option uses onMouseDown (not onClick) so the input
+    // doesn't blur first and close the dropdown. WebKit headless can drop
+    // the synthetic mousedown from a bare click(). dispatchEvent fires the
+    // mousedown handler directly + we follow with click for cross-browser
+    // consistency.
+    const opt = page
       .getByTestId("new-plan-patient-option")
       .filter({ hasText: patientName })
-      .first()
-      .click({ timeout: 10_000 });
+      .first();
+    await opt.waitFor({ state: "visible", timeout: 10_000 });
+    await opt.dispatchEvent("mousedown");
+    await opt.click({ timeout: 10_000 }).catch(() => undefined);
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
       timeout: 10_000,
     });
@@ -634,11 +669,18 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       .getByPlaceholder(/search patient/i)
       .first()
       .fill(patientName.split(" ")[0]);
-    await page
+    // EntityPicker option uses onMouseDown (not onClick) so the input
+    // doesn't blur first and close the dropdown. WebKit headless can drop
+    // the synthetic mousedown from a bare click(). dispatchEvent fires the
+    // mousedown handler directly + we follow with click for cross-browser
+    // consistency.
+    const opt = page
       .getByTestId("new-plan-patient-option")
       .filter({ hasText: patientName })
-      .first()
-      .click({ timeout: 10_000 });
+      .first();
+    await opt.waitFor({ state: "visible", timeout: 10_000 });
+    await opt.dispatchEvent("mousedown");
+    await opt.click({ timeout: 10_000 }).catch(() => undefined);
 
     // The "no outstanding invoice" hint must render
     // (page.tsx:478–485: data-testid="new-plan-no-invoices").

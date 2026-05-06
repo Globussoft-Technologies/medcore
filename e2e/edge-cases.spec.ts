@@ -77,7 +77,11 @@ test.describe("Edge cases", () => {
       .first()
       .isVisible()
       .catch(() => false);
-    expect(hasInvalid || hasAlert).toBe(true);
+    // The form may render an inline error <p data-testid='error-<field>'>
+    // (e.g. patients/page.tsx:341+) instead of role/aria validators.
+    const hasInlineError =
+      (await page.locator('[data-testid^="error-"]').count()) > 0;
+    expect(hasInvalid || hasAlert || hasInlineError).toBe(true);
   });
 
   test("register-patient: bad phone format surfaces an error", async ({
@@ -111,7 +115,11 @@ test.describe("Edge cases", () => {
       .first()
       .isVisible()
       .catch(() => false);
-    expect(hasInvalid || hasAlert).toBe(true);
+    // The form may render an inline error <p data-testid='error-<field>'>
+    // (e.g. patients/page.tsx:341+) instead of role/aria validators.
+    const hasInlineError =
+      (await page.locator('[data-testid^="error-"]').count()) > 0;
+    expect(hasInvalid || hasAlert || hasInlineError).toBe(true);
   });
 
   // ─── Unauth deep link ───────────────────────────────────────

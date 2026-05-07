@@ -102,9 +102,9 @@ export default function PayrollPage() {
     if (user?.role === "ADMIN") load();
   }, [user]);
 
-  async function calculate(s: Staff) {
+  async function calculate(s: Staff): Promise<boolean> {
     const cfg = settings[s.id];
-    if (!cfg) return;
+    if (!cfg) return false;
     setPending((p) => ({ ...p, [s.id]: true }));
     try {
       const [y, m] = month.split("-").map((n) => parseInt(n, 10));
@@ -118,18 +118,42 @@ export default function PayrollPage() {
         overtimeRate: parseFloat(cfg.overtimeRate) || 0,
       });
       setResults((r) => ({ ...r, [s.id]: res.data }));
+      return true;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
+      return false;
+    } finally {
+      setPending((p) => ({ ...p, [s.id]: false }));
     }
-    setPending((p) => ({ ...p, [s.id]: false }));
   }
 
+  // Issue #721 (2026-05-08): Calculate Payroll / Generate All used to
+  // fire silently — no toast on start, no count on completion. The
+  // button looked dead even though it was issuing N POSTs in the
+  // background. We now bracket the loop with a "Calculating…" toast
+  // and a final "Payroll calculated for N staff" success toast so the
+  // admin always sees progress + a definitive end-state.
   async function generateAll() {
+    if (staff.length === 0) return;
     setBulkRunning(true);
+    toast.info(`Calculating payroll for ${month}...`);
+    let ok = 0;
+    let failed = 0;
     for (const s of staff) {
-      await calculate(s);
+      const success = await calculate(s);
+      if (success) ok += 1;
+      else failed += 1;
     }
     setBulkRunning(false);
+    if (failed === 0) {
+      toast.success(`Payroll calculated for ${ok} staff.`);
+    } else if (ok === 0) {
+      toast.error(`Payroll calculation failed for all ${failed} staff.`);
+    } else {
+      toast.success(
+        `Payroll calculated for ${ok} staff (${failed} failed).`
+      );
+    }
   }
 
   function exportCSV() {

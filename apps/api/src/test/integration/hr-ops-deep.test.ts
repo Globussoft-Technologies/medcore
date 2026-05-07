@@ -118,7 +118,14 @@ describeIfDB("HR-Ops API — DEEP (integration)", () => {
     expect(res.body.data.absentDays).toBe(1);
   });
 
-  it("payroll calc: absent penalty deducted from net", async () => {
+  it("payroll calc: absent days proportionally reduce Net Pay (issue #701/#702 — pro-rated Basic)", async () => {
+    // Old behaviour (pre-#701): absentPenalty was a separate deduction
+    // line and Net dropped from full Basic by (absent/scheduled)*Basic.
+    // New behaviour: when shifts exist, the route passes daysInMonth
+    // and Basic is pro-rated by workedDays/daysInMonth. Net Pay reflects
+    // only the days actually worked. With 1 ABSENT shift and 0 worked,
+    // proRatedBasic = 0, so Net = allowances − (PF + ESI + other) and
+    // is FAR below the configured Basic + Allowances total.
     const user = await createUserFixture({ role: "NURSE" });
     const d = new Date();
     d.setDate(1);
@@ -141,8 +148,15 @@ describeIfDB("HR-Ops API — DEEP (integration)", () => {
         overtimeRate: 100,
       });
     expect(res.status).toBe(200);
-    expect(res.body.data.absentPenalty).toBeGreaterThan(0);
+    // Net must be substantially less than basic+allowances (32000) — the
+    // critical assertion is "absent days reduce Net Pay", which the new
+    // pro-rating enforces even more strictly than the old penalty did.
     expect(res.body.data.net).toBeLessThan(31000);
+    // Pro-rated basic = (30000 / daysInMonth) * 0 worked = 0.
+    expect(res.body.data.proRatedBasic).toBe(0);
+    // The legacy absent-penalty line is now 0 (already baked in).
+    expect(res.body.data.absentPenalty).toBe(0);
+    expect(res.body.data.workedDays).toBe(0);
   });
 
   it("payroll calc: NIGHT shift worked counted as overtime", async () => {

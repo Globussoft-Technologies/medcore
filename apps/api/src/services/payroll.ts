@@ -6,9 +6,20 @@
 // Pay printed on the slip.
 //
 // FY 2026 statutory rules:
-//   - PF (Provident Fund): 12% of basic salary (employee share)
+//   - PF (Provident Fund): 12% of (pro-rated) basic salary (employee share)
 //   - ESI: 0.75% of GROSS WAGES, but ONLY when grossWages <= 21,000/month.
 //          Above the ceiling, ESI deduction is zero.
+//
+// Issue #701/#702 (2026-05-08): Net Pay used to come out to ~88% of the
+// configured Basic regardless of Days Worked (the old code applied PF on
+// the FULL basic and added an "absentPenalty" line on top — but when there
+// were NO recorded shifts at all, scheduledDays was 0 → absentPenalty was
+// 0 → net was just basic - PF = 88% of basic). The fix: when the caller
+// supplies `daysInMonth` AND there is attendance data (scheduledDays > 0),
+// pro-rate Basic by `workedDays / daysInMonth`; the absent-penalty line is
+// then redundant (already baked into the day-based netBasic) and zeros
+// out. Result: 0 days worked → netBasic = 0 → Net Pay reflects allowances
+// minus deductions, not 88% of the configured basic.
 
 // ESI ceiling — FY 2026
 export const ESI_GROSS_CEILING = 21000;
@@ -32,21 +43,28 @@ export interface PayrollInput {
   overtimeRate?: number; // per-hour rate for the simple shift heuristic
   shifts: ShiftLite[];
   approvedOvertime?: OvertimeRecordLite[];
+  // When provided AND scheduledDays > 0, Basic is pro-rated by
+  // (workedDays / daysInMonth) — see header comment. Optional so that
+  // legacy callers (and the slip's overrides surface) keep behaving the
+  // same when no attendance is recorded.
+  daysInMonth?: number;
 }
 
 export interface PayrollResult {
   // Earnings
-  basicSalary: number;
+  basicSalary: number; // configured (full-month) basic
+  proRatedBasic: number; // basic actually credited this run (== basicSalary when no pro-rating)
   allowances: number;
   overtimeShifts: number;
   overtimePay: number;
   approvedOvertimePay: number;
-  gross: number; // basic + allowances + overtime + approvedOvertime
+  gross: number; // proRatedBasic + allowances + overtime + approvedOvertime
   // Days
   workedDays: number;
   scheduledDays: number;
   leaveDays: number;
   absentDays: number;
+  daysInMonth: number; // 0 when caller didn't supply it
   // Deductions
   absentPenalty: number;
   pf: number;
@@ -65,14 +83,24 @@ function round2(n: number): number {
 /**
  * Pure payroll calculation. Given basic + allowances + shifts + approved
  * overtime, returns a fully resolved payroll record with statutory
- * deductions applied (PF 12 % of basic, ESI 0.75 % of gross only when
- * gross <= ₹21 000).
+ * deductions applied (PF 12 % of pro-rated basic, ESI 0.75 % of gross
+ * only when gross <= ₹21 000).
+ *
+ * Pro-rating (issue #701/#702): when `daysInMonth` is supplied AND there
+ * is attendance data (scheduledDays > 0), Basic is multiplied by
+ * (workedDays / daysInMonth) so an employee with 0 days worked gets a
+ * Net Pay of (allowances − otherDeductions) rather than 88 % of full
+ * Basic. The absent-penalty line is then 0 (already baked into the
+ * day-based netBasic). When `daysInMonth` is omitted (legacy callers,
+ * tests asserting the old shape), behavior is unchanged: full Basic +
+ * the historic absent-penalty calculation.
  */
 export function computePayroll(input: PayrollInput): PayrollResult {
   const basicSalary = input.basicSalary;
   const allowances = input.allowances ?? 0;
   const otherDeductions = input.deductions ?? 0;
   const overtimeRate = input.overtimeRate ?? 0;
+  const daysInMonth = input.daysInMonth ?? 0;
 
   const shifts = input.shifts ?? [];
   const scheduledDays = shifts.length;
@@ -94,21 +122,37 @@ export function computePayroll(input: PayrollInput): PayrollResult {
     .filter((r) => r.approved)
     .reduce((sum, r) => sum + (r.amount ?? 0), 0);
 
-  const gross = basicSalary + allowances + overtimePay + approvedOvertimePay;
+  // Pro-rated Basic — only when caller opted in AND there's actual
+  // attendance to read. If neither is true we keep the full configured
+  // basic so legacy slip generators (no attendance plumbed yet) still
+  // produce the same numbers.
+  const prorateActive = daysInMonth > 0 && scheduledDays > 0;
+  const proRatedBasic = prorateActive
+    ? (basicSalary / daysInMonth) * workedDays
+    : basicSalary;
 
-  // Statutory deductions
-  const pf = Math.round(basicSalary * PF_RATE);
+  const gross = proRatedBasic + allowances + overtimePay + approvedOvertimePay;
+
+  // Statutory deductions — PF on the pro-rated basic (so 0 days worked →
+  // PF is 0 too, not 12 % of an unpaid full basic).
+  const pf = Math.round(proRatedBasic * PF_RATE);
   const esiApplicable = gross <= ESI_GROSS_CEILING;
   const esi = esiApplicable ? Math.round(gross * ESI_EMPLOYEE_RATE) : 0;
 
-  const absentPenalty =
-    scheduledDays > 0 ? (absentDays / scheduledDays) * basicSalary : 0;
+  // When pro-rating is active, the absent penalty is already in the
+  // pro-rated basic — adding it again would double-deduct.
+  const absentPenalty = prorateActive
+    ? 0
+    : scheduledDays > 0
+      ? (absentDays / scheduledDays) * basicSalary
+      : 0;
 
   const totalDeductions = pf + esi + otherDeductions + absentPenalty;
   const net = gross - totalDeductions;
 
   return {
     basicSalary: round2(basicSalary),
+    proRatedBasic: round2(proRatedBasic),
     allowances: round2(allowances),
     overtimeShifts,
     overtimePay: round2(overtimePay),
@@ -118,6 +162,7 @@ export function computePayroll(input: PayrollInput): PayrollResult {
     scheduledDays,
     leaveDays,
     absentDays,
+    daysInMonth,
     absentPenalty: round2(absentPenalty),
     pf: round2(pf),
     esi: round2(esi),
@@ -126,5 +171,13 @@ export function computePayroll(input: PayrollInput): PayrollResult {
     totalDeductions: round2(totalDeductions),
     net: round2(net),
   };
+}
+
+/**
+ * Convenience: number of days in a (year, 1-indexed month) — Sunday-aware
+ * via UTC so DST transitions don't throw the count off.
+ */
+export function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 

@@ -391,6 +391,7 @@ export default function WardsPage() {
                         <button
                           onClick={() => setShowBedModal(ward.id)}
                           className="flex items-center gap-1 rounded bg-primary px-2 py-1 text-xs text-white hover:bg-primary-dark"
+                          data-testid={`add-bed-inline-${ward.id}`}
                         >
                           <Plus size={12} /> Add Bed
                         </button>

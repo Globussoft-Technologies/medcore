@@ -119,10 +119,13 @@ describe("WardsPage", () => {
 
     const user = userEvent.setup();
 
-    // Expand the ward so the "Add Bed" button shows up.
+    // Expand the ward so the per-ward "Add Bed" button shows up. Issue #719
+    // (2026-05-08) added a top-level `add-bed-cta` button that ALSO carries
+    // the same accessible name, so scope the query to the inline per-ward
+    // testid to avoid an ambiguous role match.
     await user.click(screen.getByText(/General Ward/));
 
-    const addBedBtn = await screen.findByRole("button", { name: /add bed/i });
+    const addBedBtn = await screen.findByTestId("add-bed-inline-w1");
     await user.click(addBedBtn);
 
     // Inline form appears — type something then submit to trigger the

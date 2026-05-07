@@ -52,6 +52,13 @@ export const recordLabResultSchema = z.object({
  * text like "abc" as a numeric result silently bypasses delta-checks and
  * panic-value alerts. The router calls this AFTER `recordLabResultSchema`.
  *
+ * Issue #611 (clinical sanity): also reject biologically-impossible
+ * negative values for numeric tests. Negative values for things like
+ * Hemoglobin / Creatinine / TSH are nonsense and previously stored
+ * silently as `flag=NORMAL`. We allow negatives only when the test's
+ * own `panicLow` is itself negative (e.g. base excess, anion gap),
+ * which keeps the rule conservative.
+ *
  * Returns null on success, or { field, message } on rejection so the API
  * can emit the same field-level error shape as the zod middleware.
  */
@@ -82,7 +89,61 @@ export function validateNumericLabResult(input: {
   if (!Number.isFinite(n)) {
     return { field: "value", message: "Value must be a finite number" };
   }
+  // Issue #611: reject negatives unless the test's own panic floor is < 0
+  // (allowing tests like base excess where negative is biologically valid).
+  const allowsNegative =
+    typeof input.test.panicLow === "number" && input.test.panicLow < 0;
+  if (n < 0 && !allowsNegative) {
+    return {
+      field: "value",
+      message:
+        "Value must be ≥ 0 for this test (negative results are biologically impossible).",
+    };
+  }
   return null;
+}
+
+/**
+ * Issue #611 (clinical safety): auto-elevate the result flag based on the
+ * test's panic thresholds. A LabTech who submits `NORMAL` (or omits flag)
+ * for a value that is outside the panic range should NOT be able to bury
+ * a clinically dangerous result as Normal — the server overrides to
+ * CRITICAL. The submitted flag is only honoured when the value sits
+ * inside the panic range.
+ *
+ * Returns the effective flag the route should persist.
+ */
+export function deriveLabResultFlag(input: {
+  value: string;
+  flag?: "NORMAL" | "LOW" | "HIGH" | "CRITICAL" | null;
+  test: {
+    panicLow?: number | null;
+    panicHigh?: number | null;
+  };
+}): "NORMAL" | "LOW" | "HIGH" | "CRITICAL" {
+  const submitted = (input.flag ?? "NORMAL") as
+    | "NORMAL"
+    | "LOW"
+    | "HIGH"
+    | "CRITICAL";
+  const trimmed = input.value.trim();
+  const numeric = /^-?\d+(\.\d+)?$/;
+  if (!numeric.test(trimmed)) return submitted;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n)) return submitted;
+  if (
+    typeof input.test.panicLow === "number" &&
+    n < input.test.panicLow
+  ) {
+    return "CRITICAL";
+  }
+  if (
+    typeof input.test.panicHigh === "number" &&
+    n > input.test.panicHigh
+  ) {
+    return "CRITICAL";
+  }
+  return submitted;
 }
 
 export const labQCSchema = z.object({

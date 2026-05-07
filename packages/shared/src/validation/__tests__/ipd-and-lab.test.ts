@@ -346,9 +346,71 @@ describe("validateNumericLabResult", () => {
       })
     ).toBeNull();
   });
-  it("accepts negative and decimal numbers", () => {
+  it("accepts decimals and accepts negatives only when panicLow < 0", () => {
+    // Decimal positive is fine.
     expect(
-      validateNumericLabResult({ value: "-1.4", test: { unit: "mEq/L" } })
+      validateNumericLabResult({ value: "1.4", test: { unit: "mEq/L" } })
     ).toBeNull();
+    // Issue #611: negative values are biologically impossible for most
+    // tests — reject them unless the test's own panicLow is itself
+    // negative (e.g. base excess, anion gap).
+    const negOnPlainNumeric = validateNumericLabResult({
+      value: "-1.4",
+      test: { unit: "mEq/L" },
+    });
+    expect(negOnPlainNumeric).not.toBeNull();
+    expect(negOnPlainNumeric?.field).toBe("value");
+    expect(
+      validateNumericLabResult({
+        value: "-1.4",
+        test: { unit: "mEq/L", panicLow: -3, panicHigh: 3 },
+      })
+    ).toBeNull();
+  });
+
+  // Issue #611 (May 2026): a LabTech submitting NORMAL for a value that
+  // is outside the panic range must be overridden to CRITICAL by the
+  // server so dangerous results cannot be buried.
+  describe("deriveLabResultFlag (#611)", () => {
+    it("elevates NORMAL to CRITICAL when value is below panicLow", async () => {
+      const { deriveLabResultFlag } = await import("../lab");
+      expect(
+        deriveLabResultFlag({
+          value: "0.2",
+          flag: "NORMAL",
+          test: { panicLow: 0.6, panicHigh: 1.3 },
+        })
+      ).toBe("CRITICAL");
+    });
+    it("elevates NORMAL to CRITICAL when value is above panicHigh", async () => {
+      const { deriveLabResultFlag } = await import("../lab");
+      expect(
+        deriveLabResultFlag({
+          value: "39",
+          flag: "NORMAL",
+          test: { panicLow: 0.6, panicHigh: 5 },
+        })
+      ).toBe("CRITICAL");
+    });
+    it("retains submitted flag when value is inside panic range", async () => {
+      const { deriveLabResultFlag } = await import("../lab");
+      expect(
+        deriveLabResultFlag({
+          value: "1.0",
+          flag: "NORMAL",
+          test: { panicLow: 0.6, panicHigh: 5 },
+        })
+      ).toBe("NORMAL");
+    });
+    it("falls through for non-numeric value (cannot evaluate threshold)", async () => {
+      const { deriveLabResultFlag } = await import("../lab");
+      expect(
+        deriveLabResultFlag({
+          value: "Yellow",
+          flag: "NORMAL",
+          test: { panicLow: null, panicHigh: null },
+        })
+      ).toBe("NORMAL");
+    });
   });
 });

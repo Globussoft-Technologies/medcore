@@ -210,6 +210,7 @@ export default function LabOrderPage({
           <OrderItemCard
             key={item.id}
             item={item}
+            orderStatus={order.status}
             onSaved={load}
             userRole={user?.role ?? null}
           />
@@ -221,10 +222,12 @@ export default function LabOrderPage({
 
 function OrderItemCard({
   item,
+  orderStatus,
   onSaved,
   userRole,
 }: {
   item: LabOrderItem;
+  orderStatus: string;
   onSaved: () => void;
   userRole: string | null;
 }) {
@@ -240,8 +243,16 @@ function OrderItemCard({
   // issue #14: the ordering doctor must not enter their own values).
   // Tighten the client to match the server, mirroring the canEnterResults
   // predicate that /dashboard/lab already uses (page.tsx:122).
+  //
+  // Issue #609 (May 2026): hide the Add Result form once the order is
+  // finalised (COMPLETED) or CANCELLED. Backend now 409s the POST, but
+  // showing the form was confusing — LabTechs would type values, hit
+  // Save, and see a generic toast. Server-side guard remains the source
+  // of truth; this gates the UI for parity.
+  const isOrderFinalised =
+    orderStatus === "COMPLETED" || orderStatus === "CANCELLED";
   const canAddResults =
-    userRole === "ADMIN" || userRole === "LAB_TECH";
+    (userRole === "ADMIN" || userRole === "LAB_TECH") && !isOrderFinalised;
   const [form, setForm] = useState({
     parameter: "",
     value: "",
@@ -411,6 +422,18 @@ function OrderItemCard({
           </table>
         </div>
       )}
+
+      {/* Issue #609: surface a finalised-order notice (no form) when the
+          order is COMPLETED/CANCELLED. */}
+      {isOrderFinalised && (userRole === "ADMIN" || userRole === "LAB_TECH") ? (
+        <div
+          data-testid="lab-result-finalised-notice"
+          className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"
+        >
+          This order is finalised — new results cannot be added. Use the
+          amendment workflow if a correction is required.
+        </div>
+      ) : null}
 
       {/* Issue #255: hide Add Result form from PATIENT role. */}
       {canAddResults ? (

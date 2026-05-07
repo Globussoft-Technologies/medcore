@@ -20,9 +20,22 @@ import {
   Check,
   AlertTriangle,
   LogOut,
+  Palette,
+  Plug,
 } from "lucide-react";
 
-type Tab = "profile" | "security" | "notifications" | "preferences";
+// Issues #716/#717 (2026-05-08): admins reported four "ghost" tabs they
+// expected to see (Branding, Notifications, Security, Integrations).
+// Notifications + Security were already wired on the personal-settings
+// surface, but Branding and Integrations were missing entirely. Added
+// here as ADMIN-only tabs backed by /api/v1/settings/{branding,integrations}.
+type Tab =
+  | "profile"
+  | "security"
+  | "notifications"
+  | "preferences"
+  | "branding"
+  | "integrations";
 
 // Issue #437 (Apr 30 2026): Settings page exposed admin-only sections
 // (organization profile, user list, billing/integrations) to nurses, leaking
@@ -38,7 +51,19 @@ type Tab = "profile" | "security" | "notifications" | "preferences";
 // only and the per-role filter below will keep them hidden from everyone
 // else.
 const ALLOWED_TABS_BY_ROLE: Record<string, ReadonlyArray<Tab>> = {
-  ADMIN: ["profile", "security", "notifications", "preferences"],
+  // Issue #716: ADMIN gets the full set including Branding + Integrations.
+  // The two admin-only tabs back onto /api/v1/settings/{branding,integrations}
+  // which are themselves ADMIN-gated server-side, so leakage to other roles
+  // would only ever produce empty 403 responses anyway — but we filter at
+  // the UI layer too so non-admins don't even see the tabs.
+  ADMIN: [
+    "profile",
+    "security",
+    "notifications",
+    "preferences",
+    "branding",
+    "integrations",
+  ],
   DOCTOR: ["profile", "security", "notifications", "preferences"],
   NURSE: ["profile", "security", "notifications", "preferences"],
   RECEPTION: ["profile", "security", "notifications", "preferences"],
@@ -123,6 +148,10 @@ export default function SettingsPage() {
     { id: "security", label: "Security", icon: Shield },
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "preferences", label: "Preferences", icon: SlidersHorizontal },
+    // Issues #716/#717: admin-only — filtered out for everyone else by
+    // the per-role allowlist above.
+    { id: "branding", label: "Branding", icon: Palette },
+    { id: "integrations", label: "Integrations", icon: Plug },
   ];
   // Issue #437: filter the visible tab list down to what this role is
   // allowed to interact with. Hiding the tab in the nav AND skipping the
@@ -168,6 +197,9 @@ export default function SettingsPage() {
           {tab === "preferences" && allowed.includes("preferences") && (
             <PreferencesTab />
           )}
+          {tab === "branding" && allowed.includes("branding") && <BrandingTab />}
+          {tab === "integrations" &&
+            allowed.includes("integrations") && <IntegrationsTab />}
         </div>
       </div>
     </div>
@@ -1044,6 +1076,310 @@ function PreferencesTab() {
             {saving ? "Saving..." : "Save Preferences"}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── BRANDING ──────────────────────────────────────────
+//
+// Issues #716 / #717 (2026-05-08): the General/Branding panel was the one
+// admins reported as "missing tabs" + "saves blank Hospital Name". Both
+// land on the same tab here. Hospital Name is required client-side
+// (mirrors the Zod refine on PATCH /api/v1/settings/branding) so the user
+// gets an inline error instead of a silent blank save.
+
+interface BrandingResponse {
+  data: {
+    hospitalName: string;
+    primaryColor: string;
+    logoUrl: string;
+  };
+}
+
+function BrandingTab() {
+  const [hospitalName, setHospitalName] = useState("");
+  const [primaryColor, setPrimaryColor] = useState("");
+  const [logoUrl, setLogoUrl] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get<BrandingResponse>("/settings/branding");
+        setHospitalName(res.data.hospitalName || "");
+        setPrimaryColor(res.data.primaryColor || "");
+        setLogoUrl(res.data.logoUrl || "");
+      } catch {
+        // Ignore — keep the panel rendered with empty fields so the admin
+        // can populate from scratch.
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  async function save() {
+    // Issue #717: Hospital Name silently saved blank — reject empty
+    // BEFORE the request. Mirrors the server-side `min(1)` refine.
+    const errs: Record<string, string> = {};
+    if (!hospitalName.trim()) {
+      errs.hospitalName = "Hospital Name is required";
+    } else if (hospitalName.trim().length > 200) {
+      errs.hospitalName = "Hospital Name must be 200 characters or fewer";
+    }
+    if (
+      primaryColor.trim().length > 0 &&
+      !/^#[0-9a-fA-F]{6}$/.test(primaryColor.trim())
+    ) {
+      errs.primaryColor = "Primary color must be a hex like #1e40af";
+    }
+    setFieldErrors(errs);
+    if (Object.keys(errs).length > 0) {
+      toast.warning("Please fix the highlighted fields");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.patch("/settings/branding", {
+        hospitalName: hospitalName.trim(),
+        primaryColor: primaryColor.trim() || undefined,
+        logoUrl: logoUrl.trim() || undefined,
+      });
+      toast.success("Branding saved");
+    } catch (err) {
+      const fields = extractFieldErrors(err);
+      if (fields) {
+        setFieldErrors(fields);
+        toast.error(Object.values(fields)[0] || "Save failed");
+      } else {
+        toast.error(err instanceof Error ? err.message : "Save failed");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="rounded-xl bg-white p-6 text-sm text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
+        Loading branding…
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
+      <h2 className="mb-1 text-lg font-semibold">Branding</h2>
+      <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+        Hospital identity used across the dashboard, PDFs and notifications.
+      </p>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Hospital Name (required)">
+          <input
+            type="text"
+            value={hospitalName}
+            onChange={(e) => {
+              setHospitalName(e.target.value);
+              if (fieldErrors.hospitalName)
+                setFieldErrors((p) => ({ ...p, hospitalName: "" }));
+            }}
+            data-testid="branding-hospital-name"
+            aria-invalid={fieldErrors.hospitalName ? "true" : undefined}
+            className={
+              "w-full rounded-lg border px-3 py-2 dark:bg-gray-900 " +
+              (fieldErrors.hospitalName
+                ? "border-red-500 bg-red-50"
+                : "border-gray-300 dark:border-gray-600")
+            }
+          />
+          {fieldErrors.hospitalName && (
+            <p
+              data-testid="error-branding-hospital-name"
+              className="mt-1 text-xs text-red-600"
+            >
+              {fieldErrors.hospitalName}
+            </p>
+          )}
+        </Field>
+        <Field label="Primary Color (hex like #1e40af)">
+          <input
+            type="text"
+            value={primaryColor}
+            onChange={(e) => {
+              setPrimaryColor(e.target.value);
+              if (fieldErrors.primaryColor)
+                setFieldErrors((p) => ({ ...p, primaryColor: "" }));
+            }}
+            placeholder="#1e40af"
+            data-testid="branding-primary-color"
+            aria-invalid={fieldErrors.primaryColor ? "true" : undefined}
+            className={
+              "w-full rounded-lg border px-3 py-2 dark:bg-gray-900 " +
+              (fieldErrors.primaryColor
+                ? "border-red-500 bg-red-50"
+                : "border-gray-300 dark:border-gray-600")
+            }
+          />
+          {fieldErrors.primaryColor && (
+            <p className="mt-1 text-xs text-red-600">
+              {fieldErrors.primaryColor}
+            </p>
+          )}
+        </Field>
+        <Field label="Logo URL">
+          <input
+            type="text"
+            value={logoUrl}
+            onChange={(e) => setLogoUrl(e.target.value)}
+            placeholder="https://…"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
+          />
+        </Field>
+      </div>
+      <div className="mt-6 flex justify-end">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save Branding"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── INTEGRATIONS ──────────────────────────────────────
+//
+// Issue #716: surface the per-integration on/off toggles. The actual
+// credentials are managed via env vars + tenant-scoped SystemConfig writes
+// (handled out-of-band for now); this UI only exposes the enable flag and
+// a "configured?" indicator so admins can tell whether the wiring is in
+// place. Toggling persists to /api/v1/settings/integrations.
+
+interface IntegrationRow {
+  key: string;
+  enabled: boolean;
+  configured: boolean;
+}
+
+interface IntegrationsResponse {
+  data: { integrations: IntegrationRow[] };
+}
+
+const INTEGRATION_LABELS: Record<string, string> = {
+  sendgrid: "SendGrid (email)",
+  twilio: "Twilio (SMS / WhatsApp)",
+  razorpay: "Razorpay (payments)",
+  abdm: "ABDM (national health stack)",
+  fhir: "FHIR R4 export",
+  hl7v2: "HL7 v2 messaging",
+  sentry: "Sentry (error tracking)",
+};
+
+function IntegrationsTab() {
+  const [rows, setRows] = useState<IntegrationRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await api.get<IntegrationsResponse>("/settings/integrations");
+      setRows(res.data.integrations || []);
+    } catch {
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function toggle(key: string, enabled: boolean) {
+    const previous = rows;
+    // Optimistic update so the click feels instant.
+    setRows((prev) =>
+      prev.map((r) => (r.key === key ? { ...r, enabled } : r)),
+    );
+    try {
+      await api.patch("/settings/integrations", {
+        integrations: [{ key, enabled }],
+      });
+      toast.success(`${INTEGRATION_LABELS[key] || key} ${enabled ? "enabled" : "disabled"}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update");
+      setRows(previous);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="rounded-xl bg-white p-6 text-sm text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
+        Loading integrations…
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
+      <h2 className="mb-1 text-lg font-semibold">Integrations</h2>
+      <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+        Enable or disable third-party connectors. Credentials are managed
+        out-of-band via environment configuration.
+      </p>
+      <div className="space-y-3">
+        {rows.map((r) => (
+          <div
+            key={r.key}
+            data-testid={`integration-row-${r.key}`}
+            className="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-3 dark:border-gray-700"
+          >
+            <div>
+              <p className="text-sm font-medium">
+                {INTEGRATION_LABELS[r.key] || r.key}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {r.configured ? "Credentials present" : "Not yet configured"}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span
+                className={
+                  "rounded-full px-2 py-0.5 text-xs font-medium " +
+                  (r.enabled
+                    ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                    : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300")
+                }
+              >
+                {r.enabled ? "Enabled" : "Disabled"}
+              </span>
+              <button
+                onClick={() => toggle(r.key, !r.enabled)}
+                data-testid={`integration-toggle-${r.key}`}
+                className={
+                  "relative inline-flex h-6 w-11 items-center rounded-full transition " +
+                  (r.enabled ? "bg-primary" : "bg-gray-300 dark:bg-gray-600")
+                }
+              >
+                <span
+                  className={
+                    "inline-block h-4 w-4 transform rounded-full bg-white transition " +
+                    (r.enabled ? "translate-x-6" : "translate-x-1")
+                  }
+                />
+              </button>
+            </div>
+          </div>
+        ))}
+        {rows.length === 0 && (
+          <p className="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+            No integrations configured.
+          </p>
+        )}
       </div>
     </div>
   );

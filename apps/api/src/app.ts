@@ -88,6 +88,8 @@ import { aiChartSearchRouter } from "./routes/ai-chart-search";
 import { fhirRouter } from "./routes/fhir";
 import { abdmRouter } from "./routes/abdm";
 import { insuranceClaimsRouter } from "./routes/insurance-claims";
+import { insuranceProvidersRouter } from "./routes/insurance-providers";
+import { calendarEventsRouter } from "./routes/calendar-events";
 import { hl7v2Router } from "./routes/hl7v2";
 import { aiRadiologyRouter } from "./routes/ai-radiology";
 import { aiAdminRouter } from "./routes/ai-admin";
@@ -105,6 +107,7 @@ import { aiFraudRouter } from "./routes/ai-fraud";
 import { aiDocQaRouter } from "./routes/ai-doc-qa";
 import { aiSentimentRouter } from "./routes/ai-sentiment";
 import { tenantsRouter } from "./routes/tenants";
+import { settingsRouter } from "./routes/settings";
 import { agentConsoleRouter } from "./routes/agent-console";
 import { aiKpisRouter } from "./routes/ai-kpis";
 import { healthRouter } from "./routes/health";
@@ -285,6 +288,11 @@ export function buildApp() {
   app.use("/api/v1/fhir", fhirRouter);
   app.use("/api/v1/abdm", abdmRouter);
   app.use("/api/v1/claims", insuranceClaimsRouter);
+  // Issues #718 + #724: admin Calendar New-Event + Insurance Add-Provider
+  // CRUD. Both are simple Zod-validated tenant-scoped tables added in
+  // migration 20260508000002.
+  app.use("/api/v1/calendar-events", calendarEventsRouter);
+  app.use("/api/v1/insurance-providers", insuranceProvidersRouter);
   app.use("/api/v1/hl7v2", hl7v2Router);
   app.use("/api/v1/ai/radiology", aiRadiologyRouter);
   app.use("/api/v1/ai/admin", aiAdminRouter);
@@ -302,6 +310,7 @@ export function buildApp() {
   app.use("/api/v1/ai/doc-qa", aiDocQaRouter);
   app.use("/api/v1/ai/sentiment", aiSentimentRouter);
   app.use("/api/v1/tenants", tenantsRouter);
+  app.use("/api/v1/settings", settingsRouter);
   app.use("/api/v1/agent-console", agentConsoleRouter);
   app.use("/api/v1/ai/kpis", aiKpisRouter);
   app.use("/api/v1/patient-data-export", patientDataExportRouter);

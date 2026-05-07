@@ -366,9 +366,14 @@ describeIfDB("Prescriptions API (integration)", () => {
       .set("Authorization", `Bearer ${patientToken}`)
       .send({ channel: "WHATSAPP" });
 
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect((res.body.data.sharedVia ?? "")).toContain("WHATSAPP");
+    // Issue #242: a PATIENT can SHARE their own Rx (RBAC question, not a
+    // delivery question). WhatsApp/SMS are now intentionally 501 until Meta
+    // Cloud API is configured — recording a "Shared via WHATSAPP" success
+    // when nothing was sent would be a clinical-truth bug. The 501 still
+    // proves the patient passed authorize() + assertPatientOwnsResource() —
+    // exactly what #242 verifies. A real BOLA breach would 403/404.
+    expect(res.status).toBe(501);
+    expect(res.body.error).toMatch(/not yet available/i);
   });
 
   it("forbids a PATIENT from sharing another patient's prescription (403, issue #242)", async () => {

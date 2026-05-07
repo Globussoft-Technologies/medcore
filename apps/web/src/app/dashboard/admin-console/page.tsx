@@ -95,8 +95,21 @@ export default function AdminConsolePage() {
   const [totalDoctors, setTotalDoctors] = useState(0);
   const [refreshTick, setRefreshTick] = useState(0);
 
+  // Issue #703 (May 2026): direct-URL navigation to /dashboard/admin-console
+  // while authenticated used to force a re-login. Root cause: this useEffect
+  // (and the early-return guard below) fired before the auth store had
+  // hydrated from the server's session cookie — `user` was null on first
+  // render, the page rendered "restricted to administrators", and any
+  // adjacent redirect logic in the layout kicked the user back to /login.
+  //
+  // Fix: gate every redirect / restriction render on `!isLoading`. While the
+  // store is still resolving /auth/me, render the same skeleton the rest of
+  // the dashboard uses so we don't show a half-state. Only after isLoading
+  // clears do we evaluate the user's role. This mirrors the hydration-aware
+  // guard in /dashboard/queue/page.tsx (search "isAuthLoading").
   useEffect(() => {
-    if (!isLoading && user && user.role !== "ADMIN") {
+    if (isLoading) return;
+    if (user && user.role !== "ADMIN") {
       router.replace("/dashboard");
     }
   }, [user, isLoading, router]);
@@ -273,6 +286,24 @@ export default function AdminConsolePage() {
       setLoaded(true);
     })();
   }, [user, refreshTick]);
+
+  // Issue #703: while the auth store is still hydrating from /auth/me,
+  // render a skeleton instead of the "restricted" placeholder. Showing the
+  // restriction text on a brief flicker before the user object lands was
+  // confusing (especially on direct URL navigation) and combined with the
+  // layout's redirect-effect to bounce the admin back to /login.
+  if (isLoading) {
+    return (
+      <div
+        className="flex items-center justify-center p-12 text-sm text-gray-700"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        Loading…
+      </div>
+    );
+  }
 
   if (!user || user.role !== "ADMIN") {
     return (

@@ -30,6 +30,24 @@ import { expectAntiEnumeration } from "../helpers/security-assertions";
 
 let app: any;
 
+// Issues #706 + #713 (May 2026): public PATIENT registration now requires
+// address + emergencyContact, and the password floor is 12 characters (was 8).
+// This helper packs the registration body with the demographic fields so the
+// existing tests continue to focus on the behaviour-under-test (anti-enum,
+// identity-binding, mass-assignment) rather than re-spelling the demographic
+// boilerplate at every call site.
+const PATIENT_REGISTRATION_DEMOGRAPHICS = {
+  address: "12 Test Lane, Bengaluru 560001",
+  emergencyContact: {
+    name: "Test Kin",
+    phone: "9000000099",
+    relationship: "Sibling",
+  },
+};
+function patientBody(overrides: Record<string, unknown>) {
+  return { ...PATIENT_REGISTRATION_DEMOGRAPHICS, ...overrides };
+}
+
 describeIfDB("Auth API (integration)", () => {
   beforeAll(async () => {
     await resetDB();
@@ -53,13 +71,13 @@ describeIfDB("Auth API (integration)", () => {
   it("registers a new user as PATIENT regardless of submitted role (#473)", async () => {
     const res = await request(app)
       .post("/api/v1/auth/register")
-      .send({
+      .send(patientBody({
         name: "New User",
         email: "newuser@test.local",
         phone: "9111111111",
         password: "MedCoreT3st-2026",
         // No role submitted: should default to PATIENT.
-      });
+      }));
     expect(res.status).toBeLessThan(400);
     const accessToken = res.body?.data?.tokens?.accessToken;
     expect(accessToken).toBeTruthy();
@@ -73,13 +91,13 @@ describeIfDB("Auth API (integration)", () => {
   it("blocks role mass-assignment to ADMIN on /register (#473)", async () => {
     const res = await request(app)
       .post("/api/v1/auth/register")
-      .send({
+      .send(patientBody({
         name: "Attacker A",
         email: "attacker-admin@test.local",
         phone: "9222222222",
         password: "MedCoreT3st-2026",
         role: "ADMIN", // <-- the attack
-      });
+      }));
     // We accept either: (a) request succeeds but role is silently coerced
     // to PATIENT, or (b) request is rejected with 400. Either is safe; we
     // MUST NOT end up with role === "ADMIN" stored in the DB.
@@ -100,13 +118,13 @@ describeIfDB("Auth API (integration)", () => {
   it("blocks role mass-assignment to DOCTOR on /register (#473)", async () => {
     const res = await request(app)
       .post("/api/v1/auth/register")
-      .send({
+      .send(patientBody({
         name: "Attacker D",
         email: "attacker-doctor@test.local",
         phone: "9333333333",
         password: "MedCoreT3st-2026",
         role: "DOCTOR", // <-- different role, same vector
-      });
+      }));
     if (res.status < 400) {
       const accessToken = res.body?.data?.tokens?.accessToken;
       expect(accessToken).toBeTruthy();
@@ -160,18 +178,18 @@ describeIfDB("Auth API (integration)", () => {
 
     // Register two distinct users back-to-back so there is a realistic chance
     // of state from one bleeding into the other (#441-style closure leak).
-    await request(app).post("/api/v1/auth/register").send({
+    await request(app).post("/api/v1/auth/register").send(patientBody({
       name: "Identity A",
       email: userAEmail,
       phone: "9444444441",
       password,
-    });
-    await request(app).post("/api/v1/auth/register").send({
+    }));
+    await request(app).post("/api/v1/auth/register").send(patientBody({
       name: "Identity B",
       email: userBEmail,
       phone: "9444444442",
       password,
-    });
+    }));
 
     // Login as A.
     const res = await request(app)
@@ -252,28 +270,28 @@ describeIfDB("Auth API (integration)", () => {
   it("does not leak email registration state on /register (#480)", async () => {
     const sharedPassword = "MedCoreT3st-2026";
     // Seed an account so we have a real-existing email to probe against.
-    await request(app).post("/api/v1/auth/register").send({
+    await request(app).post("/api/v1/auth/register").send(patientBody({
       name: "Antienum Real",
       email: "antienum.real@test.local",
       phone: "9555555555",
       password: sharedPassword,
-    });
+    }));
 
     // Probe with the SAME email — duplicate path.
-    const realRes = await request(app).post("/api/v1/auth/register").send({
+    const realRes = await request(app).post("/api/v1/auth/register").send(patientBody({
       name: "Antienum Real Again",
       email: "antienum.real@test.local",
       phone: "9555555555",
       password: sharedPassword,
-    });
+    }));
 
     // Probe with a fresh email — new-email path.
-    const fakeRes = await request(app).post("/api/v1/auth/register").send({
+    const fakeRes = await request(app).post("/api/v1/auth/register").send(patientBody({
       name: "Antienum Fake",
       email: "antienum.fake@test.local",
       phone: "9555555556",
       password: sharedPassword,
-    });
+    }));
 
     // Status, success flag, and error string MUST be identical so an
     // attacker cannot distinguish the two paths.
@@ -295,12 +313,12 @@ describeIfDB("Auth API (integration)", () => {
   // validation and persisted to the DB. Post-fix: the schema rejects HTML
   // markers via containsHtmlOrScript and bounds age to [1, 150].
   it("rejects XSS payload in name on /register (#489)", async () => {
-    const res = await request(app).post("/api/v1/auth/register").send({
+    const res = await request(app).post("/api/v1/auth/register").send(patientBody({
       name: "<script>alert(1)</script>",
       email: "xss.name@test.local",
       phone: "9666666661",
       password: "MedCoreT3st-2026",
-    });
+    }));
     expect(res.status).toBe(400);
     // Field-shaped error — the schema or sanitizer surfaces a clear message.
     const errStr = JSON.stringify(res.body);
@@ -310,26 +328,26 @@ describeIfDB("Auth API (integration)", () => {
   });
 
   it("rejects negative age on /register (#489)", async () => {
-    const res = await request(app).post("/api/v1/auth/register").send({
+    const res = await request(app).post("/api/v1/auth/register").send(patientBody({
       name: "Bounded Age",
       email: "age.negative@test.local",
       phone: "9666666662",
       password: "MedCoreT3st-2026",
       age: -5,
-    });
+    }));
     expect(res.status).toBe(400);
     const errStr = JSON.stringify(res.body).toLowerCase();
     expect(errStr).toMatch(/age/);
   });
 
   it("rejects out-of-range age on /register (#489)", async () => {
-    const res = await request(app).post("/api/v1/auth/register").send({
+    const res = await request(app).post("/api/v1/auth/register").send(patientBody({
       name: "Bounded Age 2",
       email: "age.toobig@test.local",
       phone: "9666666663",
       password: "MedCoreT3st-2026",
       age: 200,
-    });
+    }));
     expect(res.status).toBe(400);
     const errStr = JSON.stringify(res.body).toLowerCase();
     expect(errStr).toMatch(/age/);
@@ -355,12 +373,12 @@ describeIfDB("Auth API (integration)", () => {
   //      logs in afterwards).
   it("does not leak email registration state on /forgot-password (#493)", async () => {
     // Seed a real account.
-    await request(app).post("/api/v1/auth/register").send({
+    await request(app).post("/api/v1/auth/register").send(patientBody({
       name: "Forgot Real",
       email: "forgot.real@test.local",
       phone: "9777777771",
       password: "MedCoreT3st-2026",
-    });
+    }));
 
     const realRes = await request(app).post("/api/v1/auth/forgot-password").send({
       email: "forgot.real@test.local",
@@ -388,12 +406,12 @@ describeIfDB("Auth API (integration)", () => {
     // Seed an account so we have a known email to probe against. We do NOT
     // request a real reset code — we want to compare the bad-code-vs-known
     // and bad-code-vs-unknown-email paths.
-    await request(app).post("/api/v1/auth/register").send({
+    await request(app).post("/api/v1/auth/register").send(patientBody({
       name: "Reset Real",
       email: "reset.real@test.local",
       phone: "9777777772",
       password: "MedCoreT3st-2026",
-    });
+    }));
 
     const realRes = await request(app).post("/api/v1/auth/reset-password").send({
       email: "reset.real@test.local",
@@ -449,6 +467,213 @@ describeIfDB("Auth API (integration)", () => {
     expect(res.body?.success).toBeFalsy();
   });
 
+  // ─── Issue #706 (registration password floor lifted from 8 → 12) ────────
+  //
+  // The shared `validatePasswordStrength` helper enforced 8 chars + letter +
+  // digit + denylist. /register now layers on a 12-char floor at the route
+  // surface so passwords that pass /change-password (8 chars) are still
+  // rejected on a public sign-up. The denylist is the existing one in
+  // `packages/shared/src/validation/security.ts` — these tests pin the bump.
+  it("rejects 8-char password on /register (#706 — 12-char floor)", async () => {
+    const res = await request(app).post("/api/v1/auth/register").send(patientBody({
+      name: "Short Pass",
+      email: "shortpw@test.local",
+      phone: "9123450001",
+      password: "Abcd1234", // 8 chars, letter+digit, NOT denylisted — used to pass
+    }));
+    expect(res.status).toBe(400);
+    const errStr = JSON.stringify(res.body).toLowerCase();
+    expect(errStr).toMatch(/password|12 characters/);
+  });
+
+  it("rejects denylisted 'password' on /register (#706 — denylist)", async () => {
+    const res = await request(app).post("/api/v1/auth/register").send(patientBody({
+      name: "Common Pass",
+      email: "commonpw@test.local",
+      phone: "9123450002",
+      password: "password", // denylist + under 12 chars
+    }));
+    expect(res.status).toBe(400);
+    expect(res.body?.success).toBeFalsy();
+  });
+
+  // ─── Issue #707 (registration age range tightened to [0, 130]) ──────────
+  it("accepts age=0 on /register (#707 — newborn)", async () => {
+    const res = await request(app).post("/api/v1/auth/register").send(patientBody({
+      name: "Newborn Patient",
+      email: "newborn.zero@test.local",
+      phone: "9123450003",
+      password: "MedCoreT3st-2026",
+      age: 0,
+    }));
+    expect(res.status).toBe(201);
+  });
+
+  it("rejects age=200 on /register (#707 — over the 130 ceiling)", async () => {
+    const res = await request(app).post("/api/v1/auth/register").send(patientBody({
+      name: "Methuselah",
+      email: "methuselah@test.local",
+      phone: "9123450004",
+      password: "MedCoreT3st-2026",
+      age: 200,
+    }));
+    expect(res.status).toBe(400);
+    const errStr = JSON.stringify(res.body).toLowerCase();
+    expect(errStr).toMatch(/age|130/);
+  });
+
+  // ─── Issue #708 (strict email format on /register) ──────────────────────
+  it.each([
+    ["abc", "no-@-or-domain"],
+    ["a@", "trailing-@"],
+    ["a@b", "no-tld"],
+    ["@b.com", "no-local-part"],
+    ["a b@c.com", "embedded-whitespace"],
+  ])("rejects malformed email %s (%s) on /register (#708)", async (email) => {
+    const res = await request(app).post("/api/v1/auth/register").send(patientBody({
+      name: "Email Edge",
+      email,
+      phone: "9123450005",
+      password: "MedCoreT3st-2026",
+    }));
+    expect(res.status).toBe(400);
+  });
+
+  // ─── Issue #712 (strict email format on /forgot-password) ───────────────
+  it("rejects malformed email on /forgot-password (#712)", async () => {
+    const res = await request(app)
+      .post("/api/v1/auth/forgot-password")
+      .send({ email: "a@b" });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects whitespace-tainted email on /forgot-password (#712)", async () => {
+    const res = await request(app)
+      .post("/api/v1/auth/forgot-password")
+      .send({ email: "a b@c.com" });
+    expect(res.status).toBe(400);
+  });
+
+  // ─── Issue #713 (PATIENT registration requires phone+address+emergency) ─
+  it("rejects PATIENT /register missing address (#713)", async () => {
+    const res = await request(app).post("/api/v1/auth/register").send({
+      name: "No Address",
+      email: "no-address@test.local",
+      phone: "9123450006",
+      password: "MedCoreT3st-2026",
+      emergencyContact: {
+        name: "Kin",
+        phone: "9000000033",
+        relationship: "Sibling",
+      },
+      // address omitted
+    });
+    expect(res.status).toBe(400);
+    const errStr = JSON.stringify(res.body).toLowerCase();
+    expect(errStr).toMatch(/address/);
+  });
+
+  it("rejects PATIENT /register missing emergencyContact (#713)", async () => {
+    const res = await request(app).post("/api/v1/auth/register").send({
+      name: "No Kin",
+      email: "no-kin@test.local",
+      phone: "9123450007",
+      password: "MedCoreT3st-2026",
+      address: "11 Test Lane, Test City",
+      // emergencyContact omitted
+    });
+    expect(res.status).toBe(400);
+    const errStr = JSON.stringify(res.body).toLowerCase();
+    expect(errStr).toMatch(/emergency/);
+  });
+
+  it("persists phone, address, and emergencyContact on PATIENT /register (#713)", async () => {
+    // Register with the full demographic block, then read back via /auth/me
+    // and Patient row to verify the values are stored, not just accepted.
+    const email = "demographics.persist@test.local";
+    const res = await request(app).post("/api/v1/auth/register").send({
+      name: "Demographics Persist",
+      email,
+      phone: "9123450008",
+      password: "MedCoreT3st-2026",
+      address: "99 Demographics Drive, Test City",
+      emergencyContact: {
+        name: "Demographics Kin",
+        phone: "9000000022",
+        relationship: "Parent",
+      },
+    });
+    expect(res.status).toBe(201);
+
+    const { getPrisma } = await import("../setup");
+    const prisma = await getPrisma();
+    const user = await prisma.user.findUnique({
+      where: { email },
+      include: { patient: true },
+    });
+    expect(user?.phone).toBe("9123450008");
+    expect(user?.patient?.address).toBe("99 Demographics Drive, Test City");
+    expect(user?.patient?.emergencyContactName).toBe("Demographics Kin");
+    expect(user?.patient?.emergencyContactPhone).toBe("9000000022");
+    expect(user?.patient?.emergencyContactRelationship).toBe("Parent");
+  });
+
+  // ─── Issue #714 (open-redirect via login `next=` parameter) ─────────────
+  //
+  // The login handler now sanitizes any `next` value supplied via body or
+  // query and echoes the safe path back as `redirectUrl`. Off-origin
+  // / protocol-relative / backslash variants collapse to "/dashboard".
+  it("collapses absolute http(s) `next` to /dashboard on /login (#714)", async () => {
+    // Seed a real user so the credential path succeeds — the sanitizer
+    // runs only on the success branch (otherwise we'd be telling
+    // un-authenticated callers where the dashboard lives).
+    const email = "redirect.absolute@test.local";
+    const password = "MedCoreT3st-2026";
+    await request(app).post("/api/v1/auth/register").send(patientBody({
+      name: "Redirect Absolute",
+      email,
+      phone: "9123450009",
+      password,
+    }));
+    const res = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email, password, next: "https://evil.example.com/harvest" });
+    expect(res.status).toBe(200);
+    expect(res.body?.data?.redirectUrl).toBe("/dashboard");
+  });
+
+  it("collapses protocol-relative `next` to /dashboard on /login (#714)", async () => {
+    const email = "redirect.protorel@test.local";
+    const password = "MedCoreT3st-2026";
+    await request(app).post("/api/v1/auth/register").send(patientBody({
+      name: "Redirect ProtoRel",
+      email,
+      phone: "9123450010",
+      password,
+    }));
+    const res = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email, password, next: "//evil.example.com/harvest" });
+    expect(res.status).toBe(200);
+    expect(res.body?.data?.redirectUrl).toBe("/dashboard");
+  });
+
+  it("preserves a same-origin relative `next` on /login (#714)", async () => {
+    const email = "redirect.relative@test.local";
+    const password = "MedCoreT3st-2026";
+    await request(app).post("/api/v1/auth/register").send(patientBody({
+      name: "Redirect Relative",
+      email,
+      phone: "9123450011",
+      password,
+    }));
+    const res = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email, password, next: "/dashboard/billing" });
+    expect(res.status).toBe(200);
+    expect(res.body?.data?.redirectUrl).toBe("/dashboard/billing");
+  });
+
   it("accepts a strong newPassword on /reset-password and rotates the password end-to-end (#493)", async () => {
     // Full flow: register → request reset code → look up code in DB →
     // submit reset with strong password → log in with the new password.
@@ -456,12 +681,12 @@ describeIfDB("Auth API (integration)", () => {
     const oldPassword = "MedCoreT3st-2026";
     const newPassword = "Sm0keSign4lDelta"; // letter+digit, 16 chars, not denylisted
 
-    await request(app).post("/api/v1/auth/register").send({
+    await request(app).post("/api/v1/auth/register").send(patientBody({
       name: "Reset Flow",
       email,
       phone: "9777777773",
       password: oldPassword,
-    });
+    }));
 
     const fp = await request(app)
       .post("/api/v1/auth/forgot-password")

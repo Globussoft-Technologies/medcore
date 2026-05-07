@@ -20,12 +20,21 @@ const EMAIL = "edge-user@test.local";
 const PASSWORD = "MedCoreT3st-2026";
 
 async function registerEdgeUser() {
+  // #473: unauthenticated registration is silently coerced to PATIENT, so
+  // we don't bother sending the RECEPTION hint anymore — and #713 then
+  // requires address + emergencyContact for that PATIENT registration to
+  // succeed.
   const res = await request(app).post("/api/v1/auth/register").send({
     name: "Edge User",
     email: EMAIL,
     phone: "9111222333",
     password: PASSWORD,
-    role: "RECEPTION",
+    address: "12 Edge Street, Test City",
+    emergencyContact: {
+      name: "Edge Kin",
+      phone: "9000000088",
+      relationship: "Sibling",
+    },
   });
   expect(res.status).toBeLessThan(400);
   return res.body.data.tokens as {

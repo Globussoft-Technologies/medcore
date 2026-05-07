@@ -805,6 +805,10 @@ model Patient {
   bloodGroup            String?
   emergencyContactName  String?
   emergencyContactPhone String?
+  // Issue #713 (May 2026): captured at public registration time alongside
+  // name/phone/address so casualty / triage staff can dial the right person
+  // without first hop-pinging the patient profile editor.
+  emergencyContactRelationship String?
   insuranceProvider     String?
   insurancePolicyNumber String?
   maritalStatus         String?

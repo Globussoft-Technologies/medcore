@@ -27,6 +27,7 @@ import { onPrescriptionReady } from "../services/notification-triggers";
 import { auditLog } from "../middleware/audit";
 import { ingestPrescription, fireAndForgetIngest } from "../services/ai/rag-ingest";
 import { sendEmail } from "../services/messaging/email";
+import { sendWhatsApp } from "../services/messaging/whatsapp";
 
 const router = Router();
 router.use(authenticate);
@@ -479,87 +480,105 @@ router.post(
       // prescription; staff already cleared the authorize() gate above.
       if (!(await assertPatientOwnsResource(req, res, existing.patientId))) return;
 
-      // Real delivery: only EMAIL is wired in this PR (SendGrid). WhatsApp/SMS
-      // are deliberately rejected with 501 — recording a "Shared via WHATSAPP"
-      // row when nothing was actually sent would be a clinical-truth bug
-      // (reception sees green toast + Rx.sharedVia=WHATSAPP, patient gets
-      // nothing). Wire them in a follow-up PR when Meta Cloud API / SMS
-      // gateway credentials are available.
-      if (channel !== "EMAIL") {
-        res.status(501).json({
-          success: false,
-          data: null,
-          error: `${channel} delivery is not yet available. Please use EMAIL.`,
-        });
-        return;
-      }
-
-      const recipient = existing.patient.user.email;
-      if (!recipient) {
-        res.status(400).json({
-          success: false,
-          data: null,
-          error: "Patient has no email on file. Add one to the patient record before sharing.",
-        });
-        return;
-      }
       // Same fallback as the QR-generation sites in pdf.ts / pdf-generator.ts
       // — keep them in lockstep so that on a live host where PUBLIC_APP_URL
-      // is unset, the QR and the email link both point at the prod domain
-      // rather than diverging (QR → prod, email → localhost).
+      // is unset, the QR, the email link, AND the WhatsApp link all point at
+      // the prod domain rather than diverging.
       const verifyBase = (process.env.PUBLIC_APP_URL || "https://medcore.globusdemos.com").replace(/\/$/, "");
       const verifyUrl = `${verifyBase}/verify/rx/${existing.id}`;
       const patientName = existing.patient.user.name;
       const doctorName = existing.doctor.user.name;
 
-      const result = await sendEmail({
-        to: recipient,
-        subject: `Your prescription from Dr. ${doctorName}`,
-        html: `
-          <div style="font-family:Segoe UI,Tahoma,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a;">
-            <h2 style="color:#4f46e5;margin:0 0 12px;">Your Prescription is Ready</h2>
-            <p>Hi ${escapeText(patientName)},</p>
-            <p>Dr. ${escapeText(doctorName)} has issued your prescription. You can view, download, and verify it via the secure link below.</p>
-            <p style="margin:24px 0;">
-              <a href="${verifyUrl}" style="background:#4f46e5;color:#fff;padding:12px 22px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block;">View Prescription</a>
-            </p>
-            <p style="font-size:12px;color:#64748b;margin-top:24px;">
-              This is an authentic prescription. The link includes a verifiable signature and is unique to you.
-            </p>
-            <p style="font-size:12px;color:#94a3b8;word-break:break-all;">
-              If the button does not work, copy this URL: ${escapeText(verifyUrl)}
-            </p>
-          </div>
-        `,
-      });
+      // Per-channel delivery. EMAIL and WHATSAPP are wired (SendGrid + Meta
+      // Cloud API). SMS still returns 501 until a gateway is integrated —
+      // recording a stub-success would be a clinical-truth bug.
+      let deliveryError: string | null = null;
+      if (channel === "EMAIL") {
+        const recipient = existing.patient.user.email;
+        if (!recipient) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "Patient has no email on file. Add one to the patient record before sharing.",
+          });
+          return;
+        }
+        const result = await sendEmail({
+          to: recipient,
+          subject: `Your prescription from Dr. ${doctorName}`,
+          html: `
+            <div style="font-family:Segoe UI,Tahoma,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a;">
+              <h2 style="color:#4f46e5;margin:0 0 12px;">Your Prescription is Ready</h2>
+              <p>Hi ${escapeText(patientName)},</p>
+              <p>Dr. ${escapeText(doctorName)} has issued your prescription. You can view, download, and verify it via the secure link below.</p>
+              <p style="margin:24px 0;">
+                <a href="${verifyUrl}" style="background:#4f46e5;color:#fff;padding:12px 22px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block;">View Prescription</a>
+              </p>
+              <p style="font-size:12px;color:#64748b;margin-top:24px;">
+                This is an authentic prescription. The link includes a verifiable signature and is unique to you.
+              </p>
+              <p style="font-size:12px;color:#94a3b8;word-break:break-all;">
+                If the button does not work, copy this URL: ${escapeText(verifyUrl)}
+              </p>
+            </div>
+          `,
+        });
+        if (!result.ok) deliveryError = `Email delivery failed: ${result.error}`;
+      } else if (channel === "WHATSAPP") {
+        const recipient = existing.patient.user.phone;
+        console.log(`[share-rx] WHATSAPP request: rxId=${existing.id} patientId=${existing.patientId} patientName="${patientName}" rawPhoneFromDB="${recipient}"`);
+        if (!recipient) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "Patient has no phone on file. Add one to the patient record before sharing via WhatsApp.",
+          });
+          return;
+        }
+        // Plain text body — Meta auto-linkifies the verify URL on the
+        // recipient's WhatsApp client. For prod outside the 24h customer
+        // service window this MUST switch to a pre-approved Utility template
+        // (see TODO(template) in services/messaging/whatsapp.ts).
+        const result = await sendWhatsApp({
+          to: recipient,
+          body: `Hi ${patientName}, Dr. ${doctorName} has issued your prescription. View it here: ${verifyUrl}`,
+        });
+        if (!result.ok) deliveryError = `WhatsApp delivery failed: ${result.error}`;
+      } else {
+        // SMS still pending a gateway integration (Twilio / MSG91 / Karix).
+        res.status(501).json({
+          success: false,
+          data: null,
+          error: `${channel} delivery is not yet available. Use EMAIL or WHATSAPP.`,
+        });
+        return;
+      }
 
-      if (!result.ok) {
+      if (deliveryError) {
         // Compliance: failed share attempts must still be auditable. Without
         // this row a reviewer / regulator cannot tell whether a prescription
         // was attempted-and-failed or never attempted at all.
         auditLog(req, "PRESCRIPTION_SHARE_FAILED", "prescription", existing.id, {
           channel,
-          error: result.error,
+          error: deliveryError,
         }).catch(console.error);
         res.status(502).json({
           success: false,
           data: null,
-          error: `Email delivery failed: ${result.error}`,
+          error: deliveryError,
         });
         return;
       }
 
-      const channels = new Set(
-        (existing.sharedVia ?? "")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean)
-      );
-      channels.add(channel);
+      // Record the MOST RECENT channel as the single source of truth — the
+      // UI badge shows "Shared via X" and accumulating "WHATSAPP,EMAIL"
+      // confused reception about what was actually used last. Audit log
+      // below preserves the full per-attempt history for compliance, so
+      // overwriting `sharedVia` doesn't lose information.
       const updated = await prisma.prescription.update({
         where: { id: req.params.id },
         data: {
-          sharedVia: Array.from(channels).join(","),
+          sharedVia: channel,
           sharedAt: new Date(),
         },
       });

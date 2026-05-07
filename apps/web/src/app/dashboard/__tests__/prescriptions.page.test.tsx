@@ -106,6 +106,27 @@ describe("PrescriptionsPage", () => {
     );
   });
 
+  it("shares via WhatsApp when the WhatsApp button is clicked", async () => {
+    const user = userEvent.setup();
+    apiMock.get.mockResolvedValue({ data: sampleRx });
+    apiMock.post.mockResolvedValue({ data: { id: "rx1", sharedVia: "WHATSAPP" } });
+
+    render(<PrescriptionsPage />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Asha Roy/).length).toBeGreaterThan(0);
+    });
+
+    await user.click(screen.getByText(/Asha Roy/i));
+    await user.click(screen.getByRole("button", { name: /share via whatsapp/i }));
+
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledWith("/prescriptions/rx1/share", {
+        channel: "WHATSAPP",
+      });
+    });
+  });
+
   // ─── Validation (Issues #9, #17) ─────────────────────────────────
   // Issue #120 replaced the raw-UUID inputs with EntityPicker. Malformed
   // UUIDs are now structurally impossible (the picker only emits IDs that

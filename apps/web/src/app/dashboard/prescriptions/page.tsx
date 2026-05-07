@@ -284,8 +284,9 @@ export default function PrescriptionsPage() {
   async function markPrinted(id: string) {
     try {
       await api.post(`/prescriptions/${id}/print`, {});
-      // Open printable view
-      window.open(`/api/v1/prescriptions/${id}/pdf`, "_blank");
+      const apiBase =
+        process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+      window.open(`${apiBase}/prescriptions/${id}/pdf`, "_blank");
       loadPrescriptions();
     } catch {
       /* noop */
@@ -1113,18 +1114,21 @@ export default function PrescriptionsPage() {
                   )}
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button
+                      type="button"
                       onClick={() => markPrinted(rx.id)}
                       className="rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
                     >
                       {rx.printed ? "Re-Print" : "Print"}
                     </button>
                     <button
+                      type="button"
                       onClick={() => shareVia(rx.id, "WHATSAPP")}
                       className="rounded-lg border px-3 py-1.5 text-xs text-green-700 hover:bg-green-50"
                     >
                       Share via WhatsApp
                     </button>
                     <button
+                      type="button"
                       onClick={() => shareVia(rx.id, "EMAIL")}
                       className="rounded-lg border px-3 py-1.5 text-xs text-blue-700 hover:bg-blue-50"
                     >

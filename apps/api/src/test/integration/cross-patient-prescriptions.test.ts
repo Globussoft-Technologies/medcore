@@ -208,11 +208,13 @@ describeIfDB("Cross-patient prescription RBAC (issue #511 — expanded BOLA)", (
     expect(res.status).toBe(403);
   });
 
-  // RBAC positive control: WhatsApp delivery is intentionally not wired
-  // (returns 501) until Meta Cloud API is configured. A 501 still proves the
-  // RBAC + ownership checks passed (got past authorize() and
+  // RBAC positive control. We use the SMS channel because it's the only
+  // channel still gated with a 501 (no provider integration yet). EMAIL and
+  // WHATSAPP are now wired and would 502 in the test env where neither
+  // SendGrid nor the Meta Cloud API are configured. The 501 here still
+  // proves the RBAC + ownership checks passed (got past authorize() and
   // assertPatientOwnsResource()) — a real BOLA breach would 403/404.
-  it("/:id/share: PATIENT-A reaches own-Rx share endpoint (501 = not yet wired) [positive control]", async () => {
+  it("/:id/share: PATIENT-A reaches own-Rx share endpoint (501 = SMS unwired) [positive control]", async () => {
     const apt = await createAppointmentFixture({ patientId: patientAId, doctorId });
     const rx = await createPrescriptionFixture({
       patientId: patientAId,
@@ -222,15 +224,14 @@ describeIfDB("Cross-patient prescription RBAC (issue #511 — expanded BOLA)", (
     const res = await request(app)
       .post(`/api/v1/prescriptions/${rx.id}/share`)
       .set("Authorization", `Bearer ${patientAToken}`)
-      .send({ channel: "WHATSAPP" });
+      .send({ channel: "SMS" });
     expect(res.status).toBe(501);
     expect(res.body.error).toMatch(/not yet available/i);
   });
 
   // Staff (DOCTOR) bypasses the patient-owns check via authorize(). Same
-  // 501-as-RBAC-pass pattern; we use WHATSAPP not EMAIL because the test env
-  // has no SendGrid key and EMAIL would 502 on delivery failure.
-  it("/:id/share: DOCTOR reaches any-Rx share endpoint (501 = not yet wired) [staff control]", async () => {
+  // 501-as-RBAC-pass pattern using SMS for the same reason as above.
+  it("/:id/share: DOCTOR reaches any-Rx share endpoint (501 = SMS unwired) [staff control]", async () => {
     const apt = await createAppointmentFixture({ patientId: patientBId, doctorId });
     const rx = await createPrescriptionFixture({
       patientId: patientBId,
@@ -240,7 +241,7 @@ describeIfDB("Cross-patient prescription RBAC (issue #511 — expanded BOLA)", (
     const res = await request(app)
       .post(`/api/v1/prescriptions/${rx.id}/share`)
       .set("Authorization", `Bearer ${doctorToken}`)
-      .send({ channel: "WHATSAPP" });
+      .send({ channel: "SMS" });
     expect(res.status).toBe(501);
   });
 });

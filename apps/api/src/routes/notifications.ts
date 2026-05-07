@@ -292,6 +292,30 @@ router.put(
 );
 
 // POST /api/v1/notifications/broadcast — admin broadcast to audience
+//
+// Issue #750 (May 2026): a single broadcast was fanning out as 50+
+// duplicate notification rows. Two compounding causes:
+//   (a) When the audience matched both SPECIFIC_USERS AND ROLE_*, a
+//       user matching both filters got TWO rows per channel (the OR
+//       de-dup at the user query worked, but operationally we still
+//       saw dups in the rare case where the audience was constructed
+//       client-side with overlapping selectors).
+//   (b) Every channel in the broadcast's `channels` array created its
+//       own row, so a 4-channel broadcast meant 4 rows in the user's
+//       inbox showing the same title + message. The user's bell badge
+//       said "4 unread" for what was really one announcement.
+//
+// Fix: stamp every broadcast-originated row with a stable
+// `dedupKey = '${broadcastId}:${userId}'` and upsert on it. The first
+// channel iteration creates the row; subsequent iterations no-op via
+// the unique-constraint upsert. The database now enforces "at most one
+// notification row per (broadcast, user)" regardless of how many
+// channels the audience selected. Side-effect: the row's `channel`
+// field reflects the FIRST channel in the broadcast's channel array
+// (the order the admin selected them in), so the inbox shows the
+// primary channel hint. Multi-channel DELIVERY (e.g. also fire EMAIL
+// and SMS through the gateway adapters) is unchanged because those
+// don't write Notification rows.
 router.post(
   "/broadcast",
   authorize(Role.ADMIN),
@@ -309,6 +333,23 @@ router.post(
       }
       if (orFilters.length > 0) where.OR = orFilters;
       const users = await prisma.user.findMany({ where, select: { id: true } });
+
+      // Issue #750: create the broadcast row FIRST so we can stamp the
+      // resulting `broadcast.id` into each Notification's `broadcastId`
+      // back-ref + `dedupKey`. Previously we created the broadcast row
+      // AFTER the per-user loop which meant the rows had no link back
+      // to their originating broadcast.
+      const broadcast = await prisma.notificationBroadcast.create({
+        data: {
+          title,
+          message,
+          audience: JSON.stringify({ ...audience, channels }),
+          // sentCount + failedCount are stamped after the loop completes.
+          sentCount: 0,
+          failedCount: 0,
+          createdBy: req.user!.userId,
+        },
+      });
 
       let sentCount = 0;
       let failedCount = 0;
@@ -335,42 +376,57 @@ router.post(
             }
           }
         }
-        for (const ch of channels) {
-          try {
-            await prisma.notification.create({
-              data: {
-                userId: u.id,
-                type: "SCHEDULE_SUMMARY",
-                channel: ch as any,
-                title,
-                message,
-                data: { broadcast: true },
-                deliveryStatus: scheduledFor ? "QUEUED" : "SENT",
-                scheduledFor,
-                sentAt: scheduledFor ? null : now,
-              },
-            });
-            sentCount++;
-          } catch (e) {
-            failedCount++;
-          }
+        // Issue #750: ONE Notification row per (broadcast, user). The
+        // `dedupKey` unique constraint collapses any subsequent retry,
+        // re-fanout, or multi-channel iteration onto the same row. The
+        // primary channel is the first one in the broadcast's channels
+        // array; multi-channel DELIVERY through gateway adapters
+        // remains a separate concern (those don't write Notification
+        // rows, only push to gateways).
+        const primaryChannel = channels[0];
+        const dedupKey = `${broadcast.id}:${u.id}`;
+        try {
+          await prisma.notification.upsert({
+            where: { dedupKey },
+            create: {
+              userId: u.id,
+              type: "SCHEDULE_SUMMARY",
+              channel: primaryChannel as any,
+              title,
+              message,
+              data: { broadcast: true, channels },
+              deliveryStatus: scheduledFor ? "QUEUED" : "SENT",
+              scheduledFor,
+              sentAt: scheduledFor ? null : now,
+              broadcastId: broadcast.id,
+              dedupKey,
+            },
+            // If a row already exists for this (broadcast, user) — e.g.
+            // an admin re-clicked the Broadcast button before the
+            // request finished — refresh the deliveryStatus + sentAt
+            // but do NOT bump createdAt (would re-mark as unread).
+            update: {
+              deliveryStatus: scheduledFor ? "QUEUED" : "SENT",
+              sentAt: scheduledFor ? null : now,
+              scheduledFor,
+            },
+          });
+          sentCount++;
+        } catch {
+          failedCount++;
         }
       }
-      const broadcast = await prisma.notificationBroadcast.create({
-        data: {
-          title,
-          message,
-          audience: JSON.stringify({ ...audience, channels }),
-          sentCount,
-          failedCount,
-          createdBy: req.user!.userId,
-        },
+
+      // Stamp the final counts on the broadcast row.
+      const finalBroadcast = await prisma.notificationBroadcast.update({
+        where: { id: broadcast.id },
+        data: { sentCount, failedCount },
       });
       auditLog(req, "NOTIFICATION_BROADCAST", "notification_broadcast", broadcast.id, {
         sentCount,
         failedCount,
       }).catch(console.error);
-      res.status(201).json({ success: true, data: broadcast, error: null });
+      res.status(201).json({ success: true, data: finalBroadcast, error: null });
     } catch (err) {
       next(err);
     }

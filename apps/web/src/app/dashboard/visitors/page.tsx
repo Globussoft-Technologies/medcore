@@ -35,7 +35,13 @@ interface Visitor {
 
 interface Stats {
   totalToday: number;
-  currentInside: number;
+  // Issue #746: the canonical /visitors-stats endpoint returns
+  // `currentlyActive` (and only that — Inside ⊆ Today by construction).
+  // We accept both names so a transient deploy where the API still
+  // returns the legacy `currentInside` (from /visitors/stats/daily) does
+  // not blank the tile. The page only displays one of the two.
+  currentlyActive?: number;
+  currentInside?: number;
   byPurpose: Record<string, number>;
 }
 
@@ -112,7 +118,12 @@ export default function VisitorsPage() {
       }
       const [listRes, statsRes] = await Promise.all([
         api.get<{ data: Visitor[] }>(endpoint),
-        api.get<{ data: Stats }>("/visitors/stats/daily"),
+        // Issue #746: use the canonical /visitors-stats endpoint shared
+        // with the admin-console card and reports page so all three
+        // surfaces always agree on "today" (Asia/Kolkata day boundary).
+        // Old `/visitors/stats/daily` used the server-host TZ which
+        // disagreed with the user's wall clock when the host ran in UTC.
+        api.get<{ data: Stats }>("/visitors-stats?period=today"),
       ]);
       // Issue #351 — coerce so a single bad payload (e.g. API returning
       // null) cannot blank the page and lock out the Check In button.
@@ -287,10 +298,15 @@ export default function VisitorsPage() {
             visitor. Tile would show 0 while the table showed 7. Derive the
             count from the actual active list so the tile and table agree.
           */}
+          {/* Issue #746: when on the Active tab, derive the count from the
+              actual visible list (so the tile and table can never
+              disagree). On the Today tab, fall back to the canonical
+              `currentlyActive` field from /visitors-stats (with a legacy
+              `currentInside` fallback for in-flight deploys). */}
           <p className="text-3xl font-bold text-green-600">
             {tab === "active"
               ? visitors.filter((v) => !v.checkOutAt).length
-              : stats?.currentInside || 0}
+              : (stats?.currentlyActive ?? stats?.currentInside ?? 0)}
           </p>
         </div>
         <div className="rounded-xl bg-white p-5 shadow-sm">

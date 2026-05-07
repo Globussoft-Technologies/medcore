@@ -94,6 +94,23 @@ export default function AdminConsolePage() {
   // employed-doctor count so the bar shows "0/12 (0%)" or "8/12 (66%)".
   const [totalDoctors, setTotalDoctors] = useState(0);
   const [refreshTick, setRefreshTick] = useState(0);
+  // Issue #744: friendly tenant identity for the header. Replaces the
+  // raw `clinicId: <uuid>` fallback the page used to surface when ops
+  // wanted to know which hospital they were looking at. We fetch from
+  // /api/v1/me/tenant (any-authed) instead of /api/v1/tenants/:id which
+  // is super-admin-only and would 403 a regular hospital admin.
+  const [tenant, setTenant] = useState<{
+    id: string;
+    name: string;
+    subdomain: string;
+    plan: string;
+    active: boolean;
+  } | null>(null);
+  // Issue #746: canonical Visitors-Today KPI shared with /dashboard/visitors
+  // and (future) /dashboard/reports — anchored to the hospital's local day
+  // (Asia/Kolkata) so all three surfaces always agree.
+  const [visitorsToday, setVisitorsToday] = useState<number>(0);
+  const [visitorsActive, setVisitorsActive] = useState<number>(0);
 
   // Issue #703 (May 2026): direct-URL navigation to /dashboard/admin-console
   // while authenticated used to force a re-login. Root cause: this useEffect
@@ -157,6 +174,8 @@ export default function AdminConsolePage() {
         roster,
         surgeriesToday,
         users,
+        tenantRes,
+        visitorStatsRes,
       ] = await Promise.all([
         fetch(
           `${process.env.NEXT_PUBLIC_API_URL?.replace("/api/v1", "") ||
@@ -192,6 +211,10 @@ export default function AdminConsolePage() {
         safe<any>(`/shifts/roster?date=${dayKey}`, { data: [] }),
         safe<any>(`/surgery?from=${fromISO}&to=${toISO}&limit=100`, { data: [] }),
         safe<any>(`/doctors`, { data: [] }),
+        // Issue #744: friendly tenant identity for the header banner.
+        safe<any>(`/me/tenant`, { data: null }),
+        // Issue #746: canonical visitor KPI for the snapshot tile.
+        safe<any>(`/visitors-stats?period=today`, { data: null }),
       ]);
 
       setApiHealth(health?.status === "ok" ? "ok" : "down");
@@ -283,6 +306,13 @@ export default function AdminConsolePage() {
       // Duty (X / total)". A 0-doctor hospital still renders sanely as 0/0
       // (0%) thanks to the guard in ResourceBar.
       setTotalDoctors(Array.isArray(users.data) ? users.data.length : 0);
+      // Issue #744: stash friendly tenant identity for the header.
+      setTenant(tenantRes?.data ?? null);
+      // Issue #746: pull the canonical totalToday + currentlyActive numbers
+      // and store them so the snapshot tile renders one source of truth.
+      const vs = visitorStatsRes?.data;
+      setVisitorsToday(typeof vs?.totalToday === "number" ? vs.totalToday : 0);
+      setVisitorsActive(typeof vs?.currentlyActive === "number" ? vs.currentlyActive : 0);
       setLoaded(true);
     })();
   }, [user, refreshTick]);
@@ -375,6 +405,24 @@ export default function AdminConsolePage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Admin Console</h1>
           <p className="text-sm text-gray-700">Command center for hospital operations</p>
+          {/* Issue #744: render tenant identity by FRIENDLY name + short
+              slug rather than the raw UUID `clinicId` that this page used
+              to surface in toast errors and debug breadcrumbs. The
+              tenantId is intentionally NOT rendered here — operators
+              identify hospitals by name; the UUID is an internal handle
+              with no meaning at this surface. */}
+          {tenant && (
+            <p
+              className="mt-1 text-xs text-gray-600"
+              data-testid="admin-console-tenant-banner"
+            >
+              <span className="font-medium text-gray-800">{tenant.name}</span>{" "}
+              <span className="font-mono">(#{tenant.subdomain})</span>
+              <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-gray-600">
+                {tenant.plan}
+              </span>
+            </p>
+          )}
         </div>
         {/* a11y: text-primary (#2563eb) on bg-primary/10 (effective ~#e9eefe
             over white) is ~4.31:1 — under WCAG AA's 4.5:1 for normal text.
@@ -534,6 +582,17 @@ export default function AdminConsolePage() {
           <Snap Icon={CheckCircle2} label="Discharges" value={overview?.discharges ?? 0} />
           <Snap Icon={Scissors} label="Surgeries" value={overview?.surgeries ?? 0} />
           <Snap Icon={Siren} label="ER Cases" value={overview?.erCases ?? 0} />
+          {/* Issue #746: Visitors-Today KPI from the canonical
+              /visitors-stats endpoint. The tile shows totalToday with the
+              currently-inside count as a sub-line so operators can see
+              both numbers at a glance and confirm Inside ⊆ Today. */}
+          <Snap
+            Icon={UserCheck}
+            label="Visitors Today"
+            value={`${visitorsToday}${visitorsActive > 0 ? ` (${visitorsActive} in)` : ""}`}
+            isString
+            data-testid="admin-console-visitors-today"
+          />
           <Snap
             Icon={TrendingUp}
             label="Revenue"
@@ -724,14 +783,16 @@ function Snap({
   label,
   value,
   isString,
+  "data-testid": testId,
 }: {
   Icon: React.ElementType;
   label: string;
   value: number | string;
   isString?: boolean;
+  "data-testid"?: string;
 }) {
   return (
-    <div className="rounded-lg bg-gray-50 p-3">
+    <div className="rounded-lg bg-gray-50 p-3" data-testid={testId}>
       <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-700">
         <Icon size={12} /> {label}
       </div>

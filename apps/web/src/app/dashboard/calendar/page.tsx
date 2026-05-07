@@ -104,6 +104,15 @@ export default function UnifiedCalendarPage() {
   // event type rather than reinventing a meta-form here.
   const [newEventDate, setNewEventDate] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Issue #749: holidays defined at /dashboard/holidays were invisible on
+  // the calendar grid. We fetch them on mount via the new public-read
+  // /api/v1/holidays endpoint (admin-managed via /hr-ops/holidays, but
+  // every authed role needs to SEE the holiday cells), bucket by
+  // YYYY-MM-DD, and render them as a tinted background cell + tooltip
+  // alongside (not instead of) any events that fall on the same date.
+  const [holidaysByDate, setHolidaysByDate] = useState<
+    Record<string, { id: string; name: string; type: string }>
+  >({});
   const canCreate =
     user?.role === "ADMIN" ||
     user?.role === "DOCTOR" ||
@@ -126,8 +135,10 @@ export default function UnifiedCalendarPage() {
       const to = fmtYmd(last);
       const collected: CalEvent[] = [];
 
-      // Appointments
-      const [appts, surg, telemed, anc, rxFollow, shifts, custom] = await Promise.all([
+      // Appointments + holidays (Issue #749: holidays surface as a
+      // separate read so the existing event-fetching code is untouched —
+      // the merge happens in the renderer via `holidaysByDate`).
+      const [appts, surg, telemed, anc, rxFollow, shifts, custom, holidays] = await Promise.all([
         safe<any>(`/appointments?from=${from}&to=${to}&limit=500`, { data: [] }),
         safe<any>(`/surgery?from=${from}&to=${to}&limit=500`, { data: [] }),
         safe<any>(`/telemedicine?from=${from}&to=${to}&limit=500`, { data: [] }),
@@ -148,6 +159,10 @@ export default function UnifiedCalendarPage() {
           : safe<any>(`/calendar-events?from=${from}&to=${to}&limit=500`, {
               data: [],
             }),
+        // Issue #749: holidays (public-read for any authed role) within
+        // the same window as the events fetch. We pass `from` and `to`
+        // so multi-month windows return correctly.
+        safe<any>(`/holidays?from=${from}&to=${to}`, { data: [] }),
       ]);
 
       for (const a of appts.data || []) {
@@ -272,8 +287,22 @@ export default function UnifiedCalendarPage() {
         });
       }
 
+      // Issue #749: bucket holidays by YYYY-MM-DD so the renderer can
+      // overlay a holiday tint + tooltip on each matching cell.
+      const holidayMap: Record<string, { id: string; name: string; type: string }> = {};
+      for (const h of holidays.data || []) {
+        if (!h.date) continue;
+        const d = parseEventDate(h.date);
+        holidayMap[fmtYmd(d)] = {
+          id: h.id,
+          name: h.name,
+          type: h.type || "PUBLIC",
+        };
+      }
+
       if (!cancelled) {
         setEvents(collected);
+        setHolidaysByDate(holidayMap);
         setLoading(false);
       }
     })();
@@ -405,6 +434,9 @@ export default function UnifiedCalendarPage() {
         )}
         {/* Issue #718: ad-hoc events surfaced in the calendar. */}
         <Legend color="bg-amber-500" Icon={CalendarIcon} label="Custom Event" />
+        {/* Issue #749: holiday cells render with a rose tint — included
+            in the legend so the visual cue is self-documenting. */}
+        <Legend color="bg-rose-200" Icon={CalendarIcon} label="Holiday" />
       </div>
 
       {loading && (
@@ -537,13 +569,36 @@ export default function UnifiedCalendarPage() {
             const ymd = fmtYmd(d);
             const dayEvents = byDate[ymd] || [];
             const isToday = ymd === todayYmd;
+            // Issue #749: overlay holiday cells with a distinct rose
+            // tint + tooltip so users see at a glance that the office
+            // is closed / no slots are bookable. The tint sits BELOW
+            // the today-highlight so the today bias still wins on a
+            // day that happens to also be a holiday.
+            const holiday = holidaysByDate[ymd];
+            const cellTint = isToday
+              ? "border-primary bg-blue-50/40"
+              : holiday
+                ? "border-rose-200 bg-rose-50/60"
+                : "border-gray-100";
             return (
               <div
                 key={i}
-                className={`min-h-[96px] rounded-lg border p-1.5 ${
-                  isToday ? "border-primary bg-blue-50/40" : "border-gray-100"
-                }`}
+                title={holiday ? `${holiday.name} (${holiday.type})` : undefined}
+                data-testid={holiday ? `cal-holiday-${ymd}` : undefined}
+                data-holiday={holiday ? holiday.name : undefined}
+                className={`min-h-[96px] rounded-lg border p-1.5 ${cellTint}`}
               >
+                {/* Issue #749: holiday badge — tiny inline label so the
+                    holiday is visible even if the user's pointer never
+                    hovers the cell to surface the tooltip. */}
+                {holiday && (
+                  <div
+                    className="mb-0.5 truncate text-[9px] font-semibold uppercase tracking-wide text-rose-700"
+                    aria-label={`Holiday: ${holiday.name}`}
+                  >
+                    {holiday.name}
+                  </div>
+                )}
                 {/* Issue #718: clicking a date cell's number opens the
                     New-Event dialog with that date pre-applied. The event
                     pills below own their own onClick (open detail), so we

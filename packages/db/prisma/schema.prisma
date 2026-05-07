@@ -1285,14 +1285,33 @@ model Notification {
   readAt         DateTime?
   createdAt      DateTime                   @default(now())
 
+  // Issue #750: a single broadcast was fanning out as 50+ duplicate
+  // notification rows when the same user matched multiple audience
+  // filters (e.g. SPECIFIC_USERS + ROLE_DOCTOR) or when the broadcast
+  // selected multiple channels — each channel created its own row, so
+  // the user saw the SAME message N times. We now stamp every
+  // broadcast-originated row with a stable `dedupKey` of the form
+  // `${broadcastId}:${userId}` and enforce uniqueness in the DB. The
+  // broadcast handler upserts on this key so subsequent channel-loop
+  // iterations collapse onto the existing row instead of inserting a
+  // dup. `broadcastId` is also stored as a back-reference for
+  // operational queries ("which broadcast triggered this row?").
+  // Both fields are nullable so non-broadcast notifications (the vast
+  // majority — appointment reminders, lab results, etc.) are
+  // unaffected.
+  broadcastId    String?
+  dedupKey       String?
+
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   user User @relation(fields: [userId], references: [id])
 
+  @@unique([dedupKey])
   @@index([userId, createdAt])
   @@index([deliveryStatus])
   @@index([tenantId])
+  @@index([broadcastId])
   @@map("notifications")
 }
 

@@ -72,6 +72,20 @@ import { paymentPlansRouter } from "./routes/payment-plans";
 import { preauthRouter } from "./routes/preauth";
 import { medReconciliationRouter } from "./routes/med-reconciliation";
 import { scheduledReportsRouter } from "./routes/scheduled-reports";
+// Issue #744: friendly tenant resolver for the dashboard chrome (so the
+// admin-console can render tenant.name/subdomain instead of raw clinicId
+// UUID strings, without granting non-super-admins access to the
+// super-admin-only /tenants endpoints).
+import { meTenantRouter } from "./routes/me-tenant";
+// Issue #746: canonical "today" visitor stats endpoint, anchored to the
+// hospital's local-day boundary (Asia/Kolkata). Adds a single source-of-
+// truth so the admin-console card, the visitors page tile, and the
+// reports page all agree on the same KPI.
+import { visitorsStatsRouter } from "./routes/visitors-stats";
+// Issue #749: public read-only holidays endpoint so the calendar grid
+// can render holiday cells for every authed role (the existing
+// /api/v1/hr-ops/holidays endpoint is admin-only).
+import { holidaysRouter } from "./routes/holidays";
 import { patientExtrasRouter } from "./routes/patient-extras";
 import { usersRouter } from "./routes/users";
 import { aiTriageRouter } from "./routes/ai-triage";
@@ -273,6 +287,13 @@ export function buildApp() {
   app.use("/api/v1/payment-plans", paymentPlansRouter);
   app.use("/api/v1/preauth", preauthRouter);
   app.use("/api/v1/scheduled-reports", scheduledReportsRouter);
+  // Issue #744: caller-scoped tenant info; any authenticated role.
+  app.use("/api/v1/me", meTenantRouter);
+  // Issue #746: canonical "Visitors-Today" KPI shared by admin-console,
+  // visitors page, and reports page (Asia/Kolkata day boundary).
+  app.use("/api/v1/visitors-stats", visitorsStatsRouter);
+  // Issue #749: read-only holidays for the calendar grid (any authed role).
+  app.use("/api/v1/holidays", holidaysRouter);
   app.use("/api/v1/marketing", marketingRouter);
   app.use("/api/v1/ai/triage", aiTriageRouter);
   app.use("/api/v1/ai/scribe", aiScribeRouter);

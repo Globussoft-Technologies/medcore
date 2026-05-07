@@ -29,5 +29,6 @@ export * from "./types/ai";
 export * from "./validation/ai";
 export * from "./i18n/triage-symptom-chips";
 export * from "./validation/marketing";
+export * from "./validation/admin-calendar";
 export * from "./abo-compatibility";
 export * from "./validation/security";

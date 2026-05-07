@@ -21,6 +21,7 @@ import {
   Baby,
   Users as UsersIcon,
   Stethoscope,
+  Plus,
 } from "lucide-react";
 
 interface CalEvent {
@@ -35,7 +36,8 @@ interface CalEvent {
     | "telemedicine"
     | "anc"
     | "followup"
-    | "shift";
+    | "shift"
+    | "custom";
   href: string;
   color: string;
   raw?: any;
@@ -91,6 +93,21 @@ export default function UnifiedCalendarPage() {
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<CalEvent | null>(null);
+  // Issue #718: New-Event dialog. The calendar previously had no create
+  // affordance — neither a "+ New Event" toolbar button nor click-to-create
+  // on date cells. Both are now wired. Because the calendar surfaces six
+  // different event archetypes (appointment / surgery / telemed / ANC /
+  // follow-up / shift), the dialog is a category picker that deep-links
+  // into the matching dashboard page with the chosen date pre-applied via
+  // query param. Each downstream page already exposes an Add/Schedule
+  // dialog, so this routes the user to the form that actually owns the
+  // event type rather than reinventing a meta-form here.
+  const [newEventDate, setNewEventDate] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const canCreate =
+    user?.role === "ADMIN" ||
+    user?.role === "DOCTOR" ||
+    user?.role === "RECEPTION";
 
   // compute month bounds (also used as the data-fetch window for week/day —
   // we always pull a full month and let the renderer slice it, which keeps
@@ -110,7 +127,7 @@ export default function UnifiedCalendarPage() {
       const collected: CalEvent[] = [];
 
       // Appointments
-      const [appts, surg, telemed, anc, rxFollow, shifts] = await Promise.all([
+      const [appts, surg, telemed, anc, rxFollow, shifts, custom] = await Promise.all([
         safe<any>(`/appointments?from=${from}&to=${to}&limit=500`, { data: [] }),
         safe<any>(`/surgery?from=${from}&to=${to}&limit=500`, { data: [] }),
         safe<any>(`/telemedicine?from=${from}&to=${to}&limit=500`, { data: [] }),
@@ -123,6 +140,14 @@ export default function UnifiedCalendarPage() {
         user.role === "ADMIN"
           ? safe<any>(`/shifts?from=${from}&to=${to}&limit=1000`, { data: [] })
           : Promise.resolve({ data: [] }),
+        // Issue #718: ad-hoc admin events (training, closures, etc.).
+        // Open to every authed staff role on the API; PATIENT just gets
+        // an empty list because the route doesn't authorize them.
+        user.role === "PATIENT"
+          ? Promise.resolve({ data: [] })
+          : safe<any>(`/calendar-events?from=${from}&to=${to}&limit=500`, {
+              data: [],
+            }),
       ]);
 
       for (const a of appts.data || []) {
@@ -229,6 +254,23 @@ export default function UnifiedCalendarPage() {
           raw: sh,
         });
       }
+      // Issue #718: ad-hoc admin events created via the New-Event dialog.
+      for (const ev of custom.data || []) {
+        const start = new Date(ev.startAt);
+        collected.push({
+          id: `custom-${ev.id}`,
+          date: fmtYmd(start),
+          time: start.toISOString().substring(11, 16),
+          title: ev.title,
+          subtitle: ev.category
+            ? `${String(ev.category).replace(/_/g, " ").toLowerCase()}${ev.description ? ` · ${ev.description}` : ""}`
+            : ev.description || undefined,
+          type: "custom",
+          href: `/dashboard/calendar`,
+          color: ev.color || "bg-amber-500",
+          raw: ev,
+        });
+      }
 
       if (!cancelled) {
         setEvents(collected);
@@ -238,7 +280,9 @@ export default function UnifiedCalendarPage() {
     return () => {
       cancelled = true;
     };
-  }, [cursor, user]);
+    // refreshKey is bumped after a successful New-Event POST so the
+    // calendar re-fetches and renders the just-created row.
+  }, [cursor, user, refreshKey]);
 
   // Group events by date
   const byDate = useMemo(() => {
@@ -335,6 +379,17 @@ export default function UnifiedCalendarPage() {
               Today
             </button>
           </div>
+          {canCreate && (
+            <button
+              type="button"
+              data-testid="cal-new-event"
+              aria-label="New Event"
+              onClick={() => setNewEventDate(todayYmd)}
+              className="flex min-h-[40px] items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark"
+            >
+              <Plus size={16} aria-hidden="true" /> New Event
+            </button>
+          )}
         </div>
       </div>
 
@@ -348,6 +403,8 @@ export default function UnifiedCalendarPage() {
         {user?.role === "ADMIN" && (
           <Legend color="bg-gray-500" Icon={UsersIcon} label="Shifts" />
         )}
+        {/* Issue #718: ad-hoc events surfaced in the calendar. */}
+        <Legend color="bg-amber-500" Icon={CalendarIcon} label="Custom Event" />
       </div>
 
       {loading && (
@@ -487,13 +544,32 @@ export default function UnifiedCalendarPage() {
                   isToday ? "border-primary bg-blue-50/40" : "border-gray-100"
                 }`}
               >
-                <div
-                  className={`mb-1 text-[11px] font-semibold ${
-                    isToday ? "text-primary" : "text-gray-500"
-                  }`}
-                >
-                  {d.getDate()}
-                </div>
+                {/* Issue #718: clicking a date cell's number opens the
+                    New-Event dialog with that date pre-applied. The event
+                    pills below own their own onClick (open detail), so we
+                    keep the create affordance scoped to the date label
+                    instead of the whole cell to avoid stealing clicks. */}
+                {canCreate ? (
+                  <button
+                    type="button"
+                    data-testid={`cal-cell-${ymd}`}
+                    aria-label={`New event on ${d.toLocaleDateString("en-IN", { day: "numeric", month: "long" })}`}
+                    onClick={() => setNewEventDate(ymd)}
+                    className={`mb-1 block text-[11px] font-semibold hover:underline ${
+                      isToday ? "text-primary" : "text-gray-500"
+                    }`}
+                  >
+                    {d.getDate()}
+                  </button>
+                ) : (
+                  <div
+                    className={`mb-1 text-[11px] font-semibold ${
+                      isToday ? "text-primary" : "text-gray-500"
+                    }`}
+                  >
+                    {d.getDate()}
+                  </div>
+                )}
                 <div className="space-y-0.5">
                   {dayEvents.slice(0, 3).map((e) => (
                     <button
@@ -573,6 +649,275 @@ export default function UnifiedCalendarPage() {
           </div>
         </div>
       )}
+
+      {/* Issue #718: New-Event dialog. */}
+      {newEventDate && canCreate && (
+        <NewEventDialog
+          initialDate={newEventDate}
+          onClose={() => setNewEventDate(null)}
+          onCreated={() => {
+            setNewEventDate(null);
+            setRefreshKey((k) => k + 1);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Issue #718: New-Event dialog. Title + start + end + category + color
+// hint. End must strictly exceed start (mirrors the server-side Zod
+// schema in @medcore/shared so we avoid a 400 round-trip). Category is
+// fixed to the curated list — same enum the server validates against.
+const NEW_EVENT_CATEGORIES = [
+  { value: "TRAINING", label: "Training" },
+  { value: "CLOSURE", label: "Closure" },
+  { value: "TOWN_HALL", label: "Town Hall" },
+  { value: "MAINTENANCE", label: "Maintenance" },
+  { value: "MARKETING", label: "Marketing" },
+  { value: "OTHER", label: "Other" },
+] as const;
+
+const NEW_EVENT_COLORS = [
+  { value: "bg-amber-500", label: "Amber" },
+  { value: "bg-sky-500", label: "Sky" },
+  { value: "bg-violet-500", label: "Violet" },
+  { value: "bg-rose-500", label: "Rose" },
+  { value: "bg-emerald-500", label: "Emerald" },
+  { value: "bg-slate-500", label: "Slate" },
+] as const;
+
+function NewEventDialog({
+  initialDate,
+  onClose,
+  onCreated,
+}: {
+  initialDate: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [category, setCategory] =
+    useState<(typeof NEW_EVENT_CATEGORIES)[number]["value"]>("OTHER");
+  const [date, setDate] = useState(initialDate);
+  const [startTime, setStartTime] = useState("09:00");
+  const [endTime, setEndTime] = useState("10:00");
+  const [color, setColor] = useState<string>(NEW_EVENT_COLORS[0].value);
+  const [description, setDescription] = useState("");
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const errs: Record<string, string> = {};
+    const trimmed = title.trim();
+    if (trimmed.length < 2) errs.title = "Title must be at least 2 characters";
+    if (!date) errs.date = "Date is required";
+    if (!startTime) errs.startTime = "Start time is required";
+    if (!endTime) errs.endTime = "End time is required";
+    // End-must-be-after-start: gate locally so we don't roundtrip a 400.
+    const startISO = date && startTime ? `${date}T${startTime}:00` : "";
+    const endISO = date && endTime ? `${date}T${endTime}:00` : "";
+    const start = Date.parse(startISO);
+    const end = Date.parse(endISO);
+    if (Number.isFinite(start) && Number.isFinite(end) && end <= start) {
+      errs.endTime = "End must be after start";
+    }
+    setErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+
+    setSubmitting(true);
+    try {
+      await api.post("/calendar-events", {
+        title: trimmed,
+        category,
+        startAt: new Date(startISO).toISOString(),
+        endAt: new Date(endISO).toISOString(),
+        color,
+        description: description.trim() || undefined,
+      });
+      onCreated();
+    } catch (err) {
+      setErrors({
+        _: err instanceof Error ? err.message : "Could not create event",
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="cal-new-event-title"
+      data-testid="cal-new-event-modal"
+    >
+      <form
+        onSubmit={submit}
+        noValidate
+        className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h2 id="cal-new-event-title" className="text-lg font-semibold">
+            New Event
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded p-1 text-gray-500 hover:bg-gray-100"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label htmlFor="cal-new-event-title-input" className="block text-xs font-medium">
+              Title
+            </label>
+            <input
+              id="cal-new-event-title-input"
+              data-testid="cal-new-event-title-input"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
+                errors.title ? "border-red-500" : "border-gray-200"
+              }`}
+            />
+            {errors.title && (
+              <p className="mt-1 text-xs text-red-600">{errors.title}</p>
+            )}
+          </div>
+          <div>
+            <label htmlFor="cal-new-event-category" className="block text-xs font-medium">
+              Category
+            </label>
+            <select
+              id="cal-new-event-category"
+              data-testid="cal-new-event-category"
+              value={category}
+              onChange={(e) =>
+                setCategory(
+                  e.target.value as (typeof NEW_EVENT_CATEGORIES)[number]["value"]
+                )
+              }
+              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+            >
+              {NEW_EVENT_CATEGORIES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="cal-new-event-date" className="block text-xs font-medium">
+              Date
+            </label>
+            <input
+              id="cal-new-event-date"
+              data-testid="cal-new-event-date"
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
+                errors.date ? "border-red-500" : "border-gray-200"
+              }`}
+            />
+            {errors.date && (
+              <p className="mt-1 text-xs text-red-600">{errors.date}</p>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label htmlFor="cal-new-event-start" className="block text-xs font-medium">
+                Start
+              </label>
+              <input
+                id="cal-new-event-start"
+                data-testid="cal-new-event-start"
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
+                  errors.startTime ? "border-red-500" : "border-gray-200"
+                }`}
+              />
+            </div>
+            <div>
+              <label htmlFor="cal-new-event-end" className="block text-xs font-medium">
+                End
+              </label>
+              <input
+                id="cal-new-event-end"
+                data-testid="cal-new-event-end"
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
+                  errors.endTime ? "border-red-500" : "border-gray-200"
+                }`}
+              />
+              {errors.endTime && (
+                <p className="mt-1 text-xs text-red-600">{errors.endTime}</p>
+              )}
+            </div>
+          </div>
+          <div>
+            <label htmlFor="cal-new-event-color" className="block text-xs font-medium">
+              Color
+            </label>
+            <select
+              id="cal-new-event-color"
+              data-testid="cal-new-event-color"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+            >
+              {NEW_EVENT_COLORS.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="cal-new-event-description" className="block text-xs font-medium">
+              Description (optional)
+            </label>
+            <textarea
+              id="cal-new-event-description"
+              data-testid="cal-new-event-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+            />
+          </div>
+          {errors._ && (
+            <p className="text-xs text-red-600">{errors._}</p>
+          )}
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-gray-200 px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={submitting}
+            data-testid="cal-new-event-save"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {submitting ? "Saving..." : "Create"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

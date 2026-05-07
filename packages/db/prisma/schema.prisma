@@ -507,6 +507,9 @@ model Tenant {
   staffCertifications       StaffCertification[]
   overtimeRecords           OvertimeRecord[]
   holidays                  Holiday[]
+  // Issues #718 + #724: admin-managed calendar events + onboarded TPAs.
+  calendarEvents            CalendarEvent[]
+  insuranceProviders        InsuranceProvider[]
   beds                      Bed[]
   wards                     Ward[]
   chatRooms                 ChatRoom[]
@@ -662,6 +665,9 @@ model User {
   // ── 2026-05-03 migration (witness signature + Rx status) ─────────────
   controlledSubstanceWitnessing ControlledSubstanceEntry[] @relation("ControlledSubstanceWitness")
   prescriptionsRejected         Prescription[]              @relation("PrescriptionRejectedBy")
+
+  // ── Issue #718 (calendar events created by admins) ───────────────────
+  calendarEventsCreated CalendarEvent[]
 
   @@index([email])
   @@index([phone])
@@ -3293,6 +3299,57 @@ model Holiday {
   @@index([date])
   @@index([tenantId])
   @@map("holidays")
+}
+
+/// Issue #718: lightweight admin-managed calendar events (training,
+/// closures, town-halls, marketing campaigns, etc.) that don't fit the
+/// existing appointment/surgery/telemedicine archetypes already plotted on
+/// /dashboard/calendar. Single-row time range, optional color hint, free-
+/// text title + category. The frontend's New-Event dialog POSTs here.
+model CalendarEvent {
+  id          String   @id @default(uuid())
+  title       String
+  category    String   @default("OTHER")
+  startAt     DateTime
+  endAt       DateTime
+  color       String?
+  description String?
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([startAt])
+  @@index([endAt])
+  @@index([tenantId])
+  @@map("calendar_events")
+}
+
+/// Issue #724: insurance partners that the hospital has onboarded for
+/// pre-auth and claims. The legacy `INDIAN_INSURERS` constant is the
+/// curated dropdown used inside InsuranceClaim2; this table backs the
+/// admin Insurance Providers page so new TPAs can be onboarded from UI.
+model InsuranceProvider {
+  id              String   @id @default(uuid())
+  name            String
+  code            String   @unique
+  contactPerson   String?
+  contactEmail    String?
+  contactPhone    String?
+  coverageDetails String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([name])
+  @@index([tenantId])
+  @@map("insurance_providers")
 }
 
 model NotificationTemplate {

@@ -103,11 +103,25 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
   }
 }
 
+// Generates the plain-text fallback that ships alongside the HTML body so
+// spam filters score the email better. NOT a security boundary — the HTML
+// content we send is constructed by us, not user-supplied. But CodeQL
+// flagged the single-pass replace as "incomplete multi-character
+// sanitization" because a nested payload like `<scr<script>ipt>` survives
+// one pass of `<script>...</script>` removal and re-emerges as a real tag.
+// We therefore loop until the regexes converge, which guarantees no
+// matched-pattern remnants regardless of nesting.
 function stripHtml(html: string): string {
-  return html
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<[^>]+>/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const blockTags = /<(style|script|noscript|iframe|object|embed)[\s\S]*?<\/\1>/gi;
+  let prev: string;
+  let next = html;
+  do {
+    prev = next;
+    next = next.replace(blockTags, "");
+  } while (next !== prev);
+  do {
+    prev = next;
+    next = next.replace(/<[^>]+>/g, "");
+  } while (next !== prev);
+  return next.replace(/\s+/g, " ").trim();
 }

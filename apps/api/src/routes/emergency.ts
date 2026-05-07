@@ -4,6 +4,8 @@ import { Router, Request, Response, NextFunction } from "express";
 // tenant-scoped models (see services/tenant-prisma.ts). We alias it to
 // `prisma` so every existing call site keeps working without edits.
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
+// rawPrisma — EmergencyCase.caseNumber is GLOBAL @unique.
+import { prisma as rawPrisma } from "@medcore/db";
 import {
   Role,
   createEmergencyCaseSchema,
@@ -23,7 +25,7 @@ const router = Router();
 router.use(authenticate);
 
 async function nextCaseNumber(): Promise<string> {
-  const last = await prisma.emergencyCase.findFirst({
+  const last = await rawPrisma.emergencyCase.findFirst({
     orderBy: { caseNumber: "desc" },
     select: { caseNumber: true },
   });

@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_CSRF_TOKEN } from "./fixtures";
 import {
   API_BASE,
   apiGet,
@@ -187,7 +187,11 @@ test.describe("OT surgery flow — admin schedules → nurse pre-op → doctor r
     const preop = await page.request.patch(
       `${API_BASE}/surgery/${surgeryId}/preop`,
       {
-        headers: { Authorization: `Bearer ${adminToken}` },
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          "X-CSRF-Token": E2E_CSRF_TOKEN,
+          Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+        },
         data: {
           consentSigned: true,
           npoSince: npoIso,
@@ -229,7 +233,11 @@ test.describe("OT surgery flow — admin schedules → nurse pre-op → doctor r
     const complete = await page.request.patch(
       `${API_BASE}/surgery/${surgeryId}/complete`,
       {
-        headers: { Authorization: `Bearer ${doctorToken}` },
+        headers: {
+          Authorization: `Bearer ${doctorToken}`,
+          "X-CSRF-Token": E2E_CSRF_TOKEN,
+          Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+        },
         data: {
           postOpNotes: "E2E completion — vitals stable, transferred to PACU.",
           diagnosis: "K35.80 — Acute appendicitis (E2E)",
@@ -365,7 +373,11 @@ test.describe("OT surgery flow — admin schedules → nurse pre-op → doctor r
     const caseNumber: string = sx.body.data.caseNumber;
 
     // Satisfy pre-op + start + complete in three API hops.
-    const headers = { Authorization: `Bearer ${adminToken}` };
+    const headers = {
+      Authorization: `Bearer ${adminToken}`,
+      "X-CSRF-Token": E2E_CSRF_TOKEN,
+      Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+    };
     const npoIso = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
     const preop = await page.request.patch(
       `${API_BASE}/surgery/${surgeryId}/preop`,

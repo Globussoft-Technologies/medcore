@@ -10,16 +10,36 @@ function hashPassword(password: string): string {
 async function main() {
   console.log("Seeding database...");
 
+  // Create the default tenant first. Multi-tenancy is plumbed through
+  // every authed request: User.tenantId becomes the JWT 'tenantId'
+  // claim, which tenantScopedPrisma uses to filter every read+write.
+  // Without this seed row, all seeded users would land with
+  // tenantId=null and several E2E specs fail (cross-tenant-isolation
+  // wire-level beacon, /auth/me tenantId surfacing, any test that
+  // asserts cross-tenant isolation behaviours).
+  const defaultTenant = await prisma.tenant.upsert({
+    where: { subdomain: "default" },
+    update: {},
+    create: {
+      name: "MedCore Default",
+      subdomain: "default",
+      active: true,
+    },
+  });
+  console.log("Created tenant:", defaultTenant.subdomain);
+  const tenantId = defaultTenant.id;
+
   // Create Admin
   const admin = await prisma.user.upsert({
     where: { email: "admin@medcore.local" },
-    update: {},
+    update: { tenantId },
     create: {
       email: "admin@medcore.local",
       phone: "9999900000",
       name: "System Admin",
       passwordHash: hashPassword("admin123"),
       role: Role.ADMIN,
+      tenantId,
     },
   });
   console.log("Created admin:", admin.email);
@@ -52,23 +72,25 @@ async function main() {
   for (const doc of doctorsData) {
     const user = await prisma.user.upsert({
       where: { email: doc.email },
-      update: {},
+      update: { tenantId },
       create: {
         email: doc.email,
         phone: doc.phone,
         name: doc.name,
         passwordHash: hashPassword("doctor123"),
         role: Role.DOCTOR,
+        tenantId,
       },
     });
 
     const doctor = await prisma.doctor.upsert({
       where: { userId: user.id },
-      update: {},
+      update: { tenantId },
       create: {
         userId: user.id,
         specialization: doc.specialization,
         qualification: doc.qualification,
+        tenantId,
       },
     });
 
@@ -104,13 +126,14 @@ async function main() {
   // Create Reception
   const reception = await prisma.user.upsert({
     where: { email: "reception@medcore.local" },
-    update: {},
+    update: { tenantId },
     create: {
       email: "reception@medcore.local",
       phone: "9999900010",
       name: "Front Desk",
       passwordHash: hashPassword("reception123"),
       role: Role.RECEPTION,
+      tenantId,
     },
   });
   console.log("Created reception:", reception.email);
@@ -118,13 +141,14 @@ async function main() {
   // Create Nurse
   const nurse = await prisma.user.upsert({
     where: { email: "nurse@medcore.local" },
-    update: {},
+    update: { tenantId },
     create: {
       email: "nurse@medcore.local",
       phone: "9999900020",
       name: "Nurse Anita",
       passwordHash: hashPassword("nurse123"),
       role: Role.NURSE,
+      tenantId,
     },
   });
   console.log("Created nurse:", nurse.email);
@@ -136,26 +160,28 @@ async function main() {
   // smoke groups (/dashboard/profile and /dashboard/account).
   const labtech = await prisma.user.upsert({
     where: { email: "labtech@medcore.local" },
-    update: {},
+    update: { tenantId },
     create: {
       email: "labtech@medcore.local",
       phone: "9999900030",
       name: "Lab Tech Suresh",
       passwordHash: hashPassword("labtech123"),
       role: Role.LAB_TECH,
+      tenantId,
     },
   });
   console.log("Created lab tech:", labtech.email);
 
   const pharmacist = await prisma.user.upsert({
     where: { email: "pharmacist@medcore.local" },
-    update: {},
+    update: { tenantId },
     create: {
       email: "pharmacist@medcore.local",
       phone: "9999900040",
       name: "Pharmacist Vikram",
       passwordHash: hashPassword("pharmacist123"),
       role: Role.PHARMACIST,
+      tenantId,
     },
   });
   console.log("Created pharmacist:", pharmacist.email);
@@ -166,19 +192,20 @@ async function main() {
   // `patient1@medcore.local / patient123` for the PATIENT role.
   const patientUser = await prisma.user.upsert({
     where: { email: "patient1@medcore.local" },
-    update: {},
+    update: { tenantId },
     create: {
       email: "patient1@medcore.local",
       phone: "9876543210",
       name: "Rahul Kumar",
       passwordHash: hashPassword("patient123"),
       role: Role.PATIENT,
+      tenantId,
     },
   });
 
   await prisma.patient.upsert({
     where: { userId: patientUser.id },
-    update: {},
+    update: { tenantId },
     create: {
       userId: patientUser.id,
       mrNumber: "MR000001",
@@ -186,6 +213,7 @@ async function main() {
       age: 35,
       address: "123 Main Street, Mumbai",
       bloodGroup: "B+",
+      tenantId,
     },
   });
   console.log("Created patient:", patientUser.name);

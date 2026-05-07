@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_CSRF_TOKEN } from "./fixtures";
 import {
   API_BASE,
   apiGet,
@@ -293,7 +293,11 @@ test.describe("Insurance pre-authorization", () => {
     const approve = await request.patch(
       `${API_BASE}/preauth/${created.id}/status`,
       {
-        headers: { Authorization: `Bearer ${receptionToken}` },
+        headers: {
+          Authorization: `Bearer ${receptionToken}`,
+          "X-CSRF-Token": E2E_CSRF_TOKEN,
+          Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+        },
         data: {
           status: "APPROVED",
           approvedAmount: 45000,

@@ -30,10 +30,33 @@ import { notifyNextInWaitlist } from "../services/waitlist";
 const router = Router();
 router.use(authenticate);
 
-// Helper: get next token number for a doctor on a date
+// Helper: get next token number for a doctor on a date.
+//
+// `Appointment.date` is `@db.Date` (postgres DATE — no time). Filtering
+// by `date: { gte: midnight, lt: nextMidnight }` rather than equality
+// avoids two failure modes that were producing P2002 unique-violation
+// 500s on demo:
+//
+//   1. The caller's `today` was constructed with setHours(0,0,0,0) in
+//      LOCAL time (e.g. 2026-05-06T00:00 IST = 2026-05-05T18:30Z). The
+//      seed/existing rows were inserted with a different local
+//      timezone alignment, so an exact-equality match returned null
+//      and tokenNumber reset to 1 — colliding with the existing
+//      (doctorId, date, 1) row on the @@unique index.
+//   2. Even when timezones match, postgres' DATE → ISO round-trip can
+//      land at 23:00 of the prior day if the connection's timezone is
+//      shifted, again missing equality.
+//
+// A range filter on the *day boundary* normalizes both: any row whose
+// stored date falls inside that 24h window is captured regardless of
+// how the timestamp was originally injected.
 async function getNextToken(doctorId: string, date: Date): Promise<number> {
+  const dayStart = new Date(date);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setDate(dayEnd.getDate() + 1);
   const last = await prisma.appointment.findFirst({
-    where: { doctorId, date },
+    where: { doctorId, date: { gte: dayStart, lt: dayEnd } },
     orderBy: { tokenNumber: "desc" },
   });
   return (last?.tokenNumber ?? 0) + 1;

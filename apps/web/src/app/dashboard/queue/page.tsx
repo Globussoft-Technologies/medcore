@@ -110,6 +110,14 @@ export default function QueuePage() {
   }
 
   useEffect(() => {
+    // Issue #383 follow-up: gate socket connect + display fetch on
+    // QUEUE_ALLOWED so non-staff (PATIENT) doesn't open a live queue
+    // WebSocket on a brief mount-flicker before the role-redirect
+    // useEffect above fires. e2e/realtime.spec.ts pins this contract:
+    // PATIENT visiting /dashboard/queue must NOT establish a queue WS.
+    if (isAuthLoading) return;
+    if (user && !QUEUE_ALLOWED.has(user.role)) return;
+
     loadDisplay();
 
     const socket = getSocket();
@@ -145,7 +153,7 @@ export default function QueuePage() {
       socket.disconnect();
       clearInterval(pollId);
     };
-  }, [selectedDoctor]);
+  }, [selectedDoctor, isAuthLoading, user]);
 
   async function loadDisplay() {
     try {

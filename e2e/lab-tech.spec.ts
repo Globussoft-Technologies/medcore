@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_CSRF_TOKEN } from "./fixtures";
 import {
   API_BASE,
   expectNotForbidden,
@@ -226,7 +226,13 @@ test.describe("LAB_TECH end-to-end", () => {
     // labTechToken so this exercises the LAB_TECH-only POST /lab/results
     // RBAC path.
     const resultRes = await page.request.post(`${API_BASE}/lab/results`, {
-      headers: { Authorization: `Bearer ${labTechToken}` },
+      headers: {
+        Authorization: `Bearer ${labTechToken}`,
+        // Demo runs NODE_ENV=production with CSRF double-submit; page.request
+        // doesn't carry the cookie the *Api fixture sets.
+        "X-CSRF-Token": E2E_CSRF_TOKEN,
+        Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+      },
       data: {
         orderItemId: order.items[0].id,
         parameter: testRow!.name,

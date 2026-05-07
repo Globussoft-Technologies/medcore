@@ -121,14 +121,14 @@ const SYNTHETIC_PDF = Buffer.from(
 test.describe("File Operations — patient-document upload + imaging upload + avatar upload + RBAC bounces (closes E2E backlog §4.8)", () => {
   test("DOCTOR opens Documents tab on a seeded patient, uploads a PDF lab report via Modal: POST /uploads body shape pinned (filename + base64Content + patientId + type='LAB_REPORT'), then POST /ehr/documents body shape pinned (filePath + fileSize + mimeType)", async ({
     doctorPage,
-    request,
+    receptionApi,
   }) => {
     const page = doctorPage;
 
-    // Seed a fresh patient via the API so we have a real :id route to land
-    // on. Name uses indianishName() (no Date.now() digits — CLAUDE.md
-    // selector-hygiene #8 PATIENT_NAME_REGEX rejects digits in name).
-    const patient = await seedPatient(request);
+    // Seed a fresh patient via receptionApi (auth + CSRF baked in via
+    // fixtures.ts). The raw `request` fixture lacks both, so a POST to
+    // /patients 403s on csrf_failed under NODE_ENV=production.
+    const patient = await seedPatient(receptionApi);
 
     // Stub /uploads POST. The web client reads the file as a data URL via
     // FileReader, splits on "," and posts the second half — pin both halves.
@@ -228,8 +228,10 @@ test.describe("File Operations — patient-document upload + imaging upload + av
     });
 
     // Submit the modal. The Upload button text toggles to "Uploading..."
-    // mid-flight; click the modal's primary action by role.
-    await page.getByRole("button", { name: /^Upload$/i }).click();
+    // mid-flight. The Documents tab itself ALSO has a top-level "Upload"
+    // CTA, so a bare getByRole(/^Upload$/) is a strict-mode violation.
+    // Scope to the modal's form submit button to disambiguate.
+    await page.locator("form").getByRole("button", { name: /^Upload$/i }).click();
 
     // Wait for both stubbed POSTs to land.
     await expect
@@ -260,11 +262,11 @@ test.describe("File Operations — patient-document upload + imaging upload + av
 
   test("DOCTOR uploads an X-ray on /dashboard/ai-radiology Upload Study tab: POST /uploads with type='RADIOLOGY' + per-file imageKeys[] handoff to POST /ai/radiology/studies (modality, bodyPart, imageKeys), then /draft kick-off — pin the 3-call sequence", async ({
     doctorPage,
-    request,
+    receptionApi,
   }) => {
     const page = doctorPage;
 
-    const patient = await seedPatient(request);
+    const patient = await seedPatient(receptionApi);
 
     let uploadBody: Record<string, unknown> | null = null;
     await page.route(/\/api\/v1\/uploads(\?|$)/, async (route) => {
@@ -347,8 +349,15 @@ test.describe("File Operations — patient-document upload + imaging upload + av
     // The Upload Study tab (UploadTab — page.tsx:326-482).
     await page.getByRole("button", { name: /Upload Study/i }).click();
 
-    // Fill the form.
-    await page.locator("#ai-radiology-patient-id").fill(patient.id);
+    // Fill the form. Patient is an EntityPicker (testIdPrefix="ai-radiology-
+    // patient-picker", page.tsx:444) — type into the search input then click
+    // the seeded patient's option (locked by data-entity-id, CLAUDE.md
+    // gotcha #11) so the form's patientId state binds to the right row.
+    await page.getByTestId("ai-radiology-patient-picker-input").fill(patient.name.split(" ")[0]);
+    await page
+      .locator(`[data-testid="ai-radiology-patient-picker-option"][data-entity-id="${patient.id}"]`)
+      .first()
+      .click({ timeout: 10_000 });
     // Modality select scoped via known option value (CLAUDE.md gotcha #9 —
     // never use `locator("select").first()`; LanguageDropdown sits in the
     // dashboard layout). XRAY is the default; assert it's there + selected.

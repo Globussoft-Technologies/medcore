@@ -127,34 +127,17 @@ test.describe("Medicines — /dashboard/medicines (ADMIN/DOCTOR/NURSE/PATIENT re
     ).toBeVisible({ timeout: 5_000 });
   });
 
-  test("PATIENT can load /dashboard/medicines (no role-redirect gate) but sees neither Add, Edit, nor Delete CTAs", async ({
+  test("PATIENT is redirected away from /dashboard/medicines — page.tsx:16 VIEW_ALLOWED is {ADMIN,DOCTOR,NURSE,PHARMACIST}; PATIENT bounces to /dashboard/not-authorized", async ({
     patientPage,
   }) => {
     const page = patientPage;
     await page.goto("/dashboard/medicines", {
       waitUntil: "domcontentloaded",
     });
-    // page.tsx has no RBAC redirect, so PATIENT must NOT bounce to
-    // /dashboard/not-authorized — admissions-style "fully accessible
-    // page, role-gated CTAs only" pattern.
-    await expectNotForbidden(page);
-
-    await expect(
-      page.getByRole("heading", { name: /^medicines$/i }).first()
-    ).toBeVisible({ timeout: 15_000 });
-
-    await page.waitForTimeout(1200);
-
-    // None of the mutate CTAs should render for PATIENT.
-    await expect(
-      page.getByRole("button", { name: /add medicine/i })
-    ).toHaveCount(0);
-    await expect(
-      page.locator('[data-testid="medicine-edit"]')
-    ).toHaveCount(0);
-    await expect(
-      page.locator('[data-testid="medicine-delete"]')
-    ).toHaveCount(0);
+    // page.tsx:65-72 redirects every role outside VIEW_ALLOWED. The
+    // pre-fix test premise ("no role-redirect gate") was wrong — the
+    // gate IS shipped on this page. Match it.
+    await page.waitForURL(/\/dashboard\/not-authorized/, { timeout: 15_000 });
   });
 
   test("NURSE can load /dashboard/medicines (no role-redirect gate) but sees no mutate CTAs (canEdit and canDelete both false)", async ({

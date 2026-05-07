@@ -104,7 +104,7 @@
  *   ("call quality / reconnection") is fundamentally not a server
  *   surface, so we pin the precheck fingerprint as the closest proxy.
  */
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_CSRF_TOKEN } from "./fixtures";
 import {
   API_BASE,
   apiGet,
@@ -188,7 +188,15 @@ async function startSession(
   sessionId: string
 ): Promise<void> {
   const res = await request.patch(`${API_BASE}/telemedicine/${sessionId}/start`, {
-    headers: { Authorization: `Bearer ${doctorToken}` },
+    headers: {
+      Authorization: `Bearer ${doctorToken}`,
+      // Demo + release.yml run with NODE_ENV=production where CSRF
+      // double-submit is enforced. The plain `request` fixture
+      // doesn't carry the medcore_csrf cookie that adminApi/receptionApi
+      // set, so mutations 403 with csrf_failed.
+      "X-CSRF-Token": E2E_CSRF_TOKEN,
+      Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+    },
   });
   if (!res.ok()) {
     throw new Error(
@@ -208,7 +216,11 @@ async function endSession(
   doctorNotes?: string
 ): Promise<void> {
   const res = await request.patch(`${API_BASE}/telemedicine/${sessionId}/end`, {
-    headers: { Authorization: `Bearer ${doctorToken}` },
+    headers: {
+      Authorization: `Bearer ${doctorToken}`,
+      "X-CSRF-Token": E2E_CSRF_TOKEN,
+      Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+    },
     data: { doctorNotes: doctorNotes ?? "E2E ended" },
   });
   if (!res.ok()) {
@@ -291,7 +303,11 @@ test.describe("Telemedicine deep — recording-consent / followup / Rx / payment
     const res = await request.patch(
       `${API_BASE}/telemedicine/${session.id}/followup`,
       {
-        headers: { Authorization: `Bearer ${doctorToken}` },
+        headers: {
+          Authorization: `Bearer ${doctorToken}`,
+          "X-CSRF-Token": E2E_CSRF_TOKEN,
+          Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+        },
         data: { followUpScheduledAt: followUpAt },
       }
     );
@@ -310,7 +326,11 @@ test.describe("Telemedicine deep — recording-consent / followup / Rx / payment
     const patientRes = await request.patch(
       `${API_BASE}/telemedicine/${session.id}/followup`,
       {
-        headers: { Authorization: `Bearer ${fresh.token}` },
+        headers: {
+          Authorization: `Bearer ${fresh.token}`,
+          "X-CSRF-Token": E2E_CSRF_TOKEN,
+          Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+        },
         data: { followUpScheduledAt: followUpAt },
       }
     );

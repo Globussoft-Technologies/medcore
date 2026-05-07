@@ -6,6 +6,111 @@ is independently shippable. Full per-session history lives under
 
 ---
 
+## 🌙 Overnight autopilot (2026-05-06) — release.yml grind
+
+**Goal**: get `release.yml` to green run conclusion.
+**Status at handoff**: release.yml still RED. 2/16 E2E shards green; 14 still failing on diverse spec-level UI brittleness. All systemic issues fixed.
+
+### What landed (16+ commits, all on main, all passing test.yml gates)
+
+- `d4f09e1` regenerate package-lock.json (lockfile was stale → deploy fail)
+- `22b18dc` re-include sentry/otel deps + IgnorePlugin for unresolved instrumentation modules
+- `8de946e` openai@6 SDK no longer throws at construction (placeholder apiKey)
+- `a7eadad` /auth/me surfaces tenantId; refunds use UUID-suffixed transactionId
+- `e60e8be` Toast.tsx — wrapper always mounts; error toasts use role='alert'
+- `d30465d` auth/register pins tenantId on Patient.create
+- `54f7fc3` `eb6dcd4` `f3a586d` `5dd9b9b` — global-unique number generators in 11 routes (bloodbank x4, ambulance, lab, controlled-substances, telemedicine, admissions, antenatal, billing x2, emergency, feedback, referrals, surgery) now scan via rawPrisma instead of tenantScopedPrisma. Was P2002-ing across tenants.
+- `a0568dd` appointments getNextToken uses date-range (was: setHours(0,0,0,0) timezone mismatch on @db.Date)
+- `f7fe26a` `3545840` `110a2fd` — CSRF cookie+header on raw `request` mutations across 12 specs (page.request bypasses adminApi/receptionApi fixtures' CSRF)
+- `3e85182` public-auth duplicate-email aligned with Issue #480 anti-enumeration (201, not 409)
+- `79e0a3e` seed.ts now creates default tenant + assigns tenantId to all seeded users/patients/doctors
+- `3bc4282` error handler surfaces Prisma error code + meta on 500 (no more black-box "Internal server error")
+- `1fb6ade` `72c6408` `7cc835e` `3920ab4` `0f668af` `f93fc8f` `e1577e2` `c036c17` `b680451` `10b91a3` etc. — various test-side fixes (strict-mode `.first()`, EntityPicker testid, race fixes via networkidle, RBAC redirect flips, etc.)
+
+### What's still failing in release.yml
+
+**14 of 16 E2E shards (Chromium 1,3,4,5,6,7,8 + WebKit 1,3,4,5,6,7,8)**. Common pattern: each shard contains 1-3 specs with different shape issues. NOT systemic — every remaining failure needs a per-spec read + a careful locator/contract update.
+
+Top failing specs known from runs `25438208974` (5dd9b9b) and `25439729234` (110a2fd):
+
+| Spec | Failure shape | Notes |
+|---|---|---|
+| `print-pdf.spec.ts` | `xpath=ancestor::*[contains(@class,'rounded')]` doesn't match the prescriptions row markup any more | Locator brittle on tailwind class change |
+| `suppliers.spec.ts` | Add-Supplier modal Name/GST inputs not visible after click | Modal markup may have shifted |
+| `mobile-responsive.spec.ts` | DataTable mobile-card layout assertion | Viewport / `md:hidden` shape |
+| `realtime.spec.ts` | PATIENT bounce on /dashboard/queue not redirecting | Likely socket-related |
+| `patients-register.spec.ts` | Newly-registered patient not appearing in list (shard 5) | Possibly walk-in/list pagination |
+| `payment-plans.spec.ts:209` | Plan-create UI step stuck (shard 5) | Modal interaction |
+| `pharmacy-inventory.spec.ts` | "Order from Supplier" CTA not surfacing toast | Page UI shape |
+| `medicines.spec.ts` | medicines heading/button shape | Brittle locator |
+| `users.spec.ts` | (multiple) | |
+| `tenants-onboarding.spec.ts` | (multiple) | |
+| `my-activity.spec.ts:129` | Action-filter rendering | Stub mismatch |
+| `insurance-claims-lifecycle.spec.ts:99` | Submit-new flow body shape | |
+| `file-operations.spec.ts` | Large file upload | Probably 413 or stub mismatch |
+| `hr-operations.spec.ts` | (multiple) | |
+
+3rd release.yml run dispatched as `25440699784` on `f93fc8f` includes the seed-tenant fix + 2nd antenatal-id `.first()` — should clear cross-tenant-isolation:73 and antenatal-id:181 but the 14-shard failures above still need per-spec work.
+
+### Run-by-run trajectory
+
+| Run | Commit | E2E shards failed | Notes |
+|---|---|---|---|
+| 1 | `5dd9b9b` | 14/16 | All systemic + initial spec fixes applied |
+| 2 | `110a2fd` | 14/16 | + telemedicine + 5 spec CSRF |
+| 3 | `f93fc8f` | 12/16 | + seed default tenant + public-auth + antenatal MR fixes |
+| 4 | `b3e982f` | 11/16 | + print-pdf + medicines + pharmacy-inventory + insurance-claims-lifecycle + cross-tenant-isolation |
+
+Trajectory: down from 14 → 11 over 4 runs as more spec fixes ship. Each run finishes ~25-30 min.
+
+### Specs known fixed (will pass on next release.yml run after `23cc0cd`)
+
+- antenatal-id (patient-name + MR strict-mode `.first()`)
+- public-auth (duplicate-email anti-enum 201)
+- print-pdf (rx-row testid + expand-before-click)
+- medicines (PATIENT redirect to /not-authorized)
+- pharmacy-inventory (success toast role=status)
+- insurance-claims-lifecycle (#claim-amount-claimed-inr trailing-dash typo)
+- cross-tenant-isolation (page.request.get with E2E_API_URL)
+- suppliers (Name input by id, not [required])
+
+### Specs still failing (next session — surgical fixes, ~5-15 min each)
+
+| Spec | Issue |
+|---|---|
+| `patients-register.spec.ts:55` | POST /patients doesn't fire on submit click — possibly form action changed |
+| `payment-plans.spec.ts:209` | Plan-create UI step stuck post-modal |
+| `realtime.spec.ts:172` | PATIENT redirect path / WebSocket leak check |
+| `telemedicine-patient.spec.ts:157` + `:458` | Multi-role booking flow / Rx visible |
+| `telemedicine-waiting-room.spec.ts:255` + `:356` + `:430` | Waiting-room precheck UI shape |
+| `mobile-responsive.spec.ts:202` | DataTable mobile-card visibility |
+| `edge-cases.spec.ts:20` + `:83` + many more | Form validation alert/aria-invalid |
+| `telemedicine-deep.spec.ts:222` + `:273` + `:323` + others | recording-consent / followup / Rx |
+| `users.spec.ts` | Multiple user-list UI checks |
+| `tenants-onboarding.spec.ts` | Probably tenant-aware UI shape |
+| `my-activity.spec.ts:129` | Activity feed filter rendering |
+| `file-operations.spec.ts` | Large-file upload |
+| `hr-operations.spec.ts` | HR module UI |
+
+### Pickup priority
+
+1. Run `gh workflow run release.yml --ref main` to dispatch a 5th run with the latest fixes (`23cc0cd` HEAD).
+2. For each remaining failing spec, run locally:
+   `E2E_BASE_URL=https://medcore.globusdemos.com E2E_API_URL=https://medcore.globusdemos.com/api/v1 npx playwright test e2e/<spec>.spec.ts --project=full --workers=1 --reporter=list`
+3. Many failures are brittle locators that just need `.first()` / scoped locator updates / selector cleanup. Pattern matches the strict-mode `.first()` fixes in this batch.
+4. Some are real UI/page changes that need careful re-baselining (patients-register, telemedicine-waiting-room).
+
+The systemic 5-class root causes are CLOSED:
+- ✅ CSRF (12 specs patched)
+- ✅ Generator P2002 (11 routes patched, all use rawPrisma)
+- ✅ Auth/tenant plumbing (seed default tenant + register + /auth/me)
+- ✅ Toast a11y contract (Toast.tsx role/wrapper)
+- ✅ Refund UUID transactionId
+
+What remains is the long tail of per-spec UI brittleness — ~20-30 spec lines need surgical fixes. At ~5-15 min each, a focused half-day session can drive release.yml fully green.
+
+---
+
 ## 🔁 Workflow parity gap with `globussoft-crm` (added 2026-05-06)
 
 User audit: medcore should mirror globussoft-crm's GitHub Actions

@@ -8,6 +8,8 @@ import jwt from "jsonwebtoken";
 // `feedbackRouter.use(authenticate)`; for those unauthenticated requests no
 // tenant is in AsyncLocalStorage, so the extension behaves as a pass-through.
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
+// rawPrisma — Complaint.ticketNumber is GLOBAL @unique.
+import { prisma as rawPrisma } from "@medcore/db";
 import {
   Role,
   createFeedbackSchema,
@@ -262,7 +264,7 @@ complaintsRouter.use(authenticate);
 // resumes whether the most recent ticket was legacy `CMPnnnnnn`,
 // seed-style `COMP-YYYY-nnnnn`, or the new canonical form.
 async function nextTicketNumber(): Promise<string> {
-  const last = await prisma.complaint.findFirst({
+  const last = await rawPrisma.complaint.findFirst({
     orderBy: { ticketNumber: "desc" },
     select: { ticketNumber: true },
   });

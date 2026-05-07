@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_CSRF_TOKEN } from "./fixtures";
 import {
   API_BASE,
   expectNotForbidden,
@@ -196,7 +196,11 @@ test.describe("DOCTOR scribe flow", () => {
     // testid for the per-appointment "start" button; using the API mirrors
     // what the consent modal's confirm click does (POST /ai/scribe/start).
     const startRes = await request.post(`${API_BASE}/ai/scribe/start`, {
-      headers: { Authorization: `Bearer ${doctorToken}` },
+      headers: {
+        Authorization: `Bearer ${doctorToken}`,
+        "X-CSRF-Token": E2E_CSRF_TOKEN,
+        Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+      },
       data: {
         appointmentId: appt.id,
         consentObtained: true,
@@ -216,7 +220,11 @@ test.describe("DOCTOR scribe flow", () => {
     const txRes = await request.post(
       `${API_BASE}/ai/scribe/${scribeSessionId}/transcript`,
       {
-        headers: { Authorization: `Bearer ${doctorToken}` },
+        headers: {
+          Authorization: `Bearer ${doctorToken}`,
+          "X-CSRF-Token": E2E_CSRF_TOKEN,
+          Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+        },
         data: {
           entries: [
             {

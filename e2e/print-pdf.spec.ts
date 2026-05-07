@@ -161,15 +161,18 @@ test.describe("Print / PDF surfaces — cross-cutting coverage of the four shipp
     await gotoAuthed(page, "/dashboard/prescriptions");
     await expectNotForbidden(page);
 
-    // Wait for the stubbed row to land — the diagnosis text is unique to our
-    // fulfilled response so it lock-on's specifically to this row.
-    const printBtn = page
-      .locator("text=/Acute pharyngitis/")
-      .first()
-      .locator("xpath=ancestor::*[contains(@class,'rounded')][1]")
-      .getByRole("button", { name: /^Print$/ })
-      .first();
-    await expect(printBtn).toBeVisible({ timeout: 15_000 });
+    // The page renders each prescription as a collapsed card with
+    // data-testid='rx-row-<id>' (page.tsx:1043-1073). The Print button
+    // is INSIDE the expanded section (page.tsx:1075-1119) and is only
+    // mounted once the row's <button> wrapper is clicked. So:
+    //   1. Locate the row via testid (stable, no class-name churn)
+    //   2. Click to expand
+    //   3. Then locate the Print button within the row
+    const row = page.locator(`[data-testid="rx-row-${stubbedRxId}"]`);
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await row.locator("button").first().click();
+    const printBtn = row.getByRole("button", { name: /^Print$/ });
+    await expect(printBtn).toBeVisible({ timeout: 5_000 });
 
     // Pin the POST /:id/print contract — this is the audit-trigger path.
     const postPromise = page.waitForResponse(

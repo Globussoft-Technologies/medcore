@@ -4,6 +4,9 @@ import { Router, Request, Response, NextFunction } from "express";
 // tenant-scoped models (see services/tenant-prisma.ts). We alias it to
 // `prisma` so every existing call site keeps working without edits.
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
+// rawPrisma — AntenatalCase.caseNumber is GLOBAL @unique; generator
+// must scan all tenants to avoid P2002 across tenant boundaries.
+import { prisma as rawPrisma } from "@medcore/db";
 import {
   Role,
   createAncCaseSchema,
@@ -28,7 +31,7 @@ router.use(authenticate);
 
 // Generate next ANC case number like ANC000001
 async function nextAncCaseNumber(): Promise<string> {
-  const last = await prisma.antenatalCase.findFirst({
+  const last = await rawPrisma.antenatalCase.findFirst({
     orderBy: { caseNumber: "desc" },
     select: { caseNumber: true },
   });

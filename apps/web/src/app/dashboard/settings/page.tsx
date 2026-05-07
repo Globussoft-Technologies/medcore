@@ -876,9 +876,15 @@ function NotificationsTab() {
       await api.put("/notifications/preferences", {
         preferences: updated.map((p) => ({ channel: p.channel, enabled: p.enabled })),
       });
-      toast.success("Preferences saved");
+      // Issue #658: previously fired "Preferences saved" — users
+      // reported that toggling a single channel returned a vague
+      // confirmation that didn't name what changed. Per-channel
+      // wording surfaces the specific update.
+      toast.success(
+        `${enabled ? "Enabled" : "Disabled"} ${channel} notifications`,
+      );
     } catch {
-      toast.error("Failed to save");
+      toast.error("Failed to save notification preference");
     }
   }
 

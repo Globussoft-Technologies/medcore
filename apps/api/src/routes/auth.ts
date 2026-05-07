@@ -14,6 +14,7 @@ import {
   updateProfileSchema,
   sanitizeUserInput,
   isCommonPassword,
+  containsHtmlOrScript,
 } from "@medcore/shared";
 import { validate } from "../middleware/validate";
 import { authenticate } from "../middleware/auth";
@@ -361,6 +362,33 @@ const strictEmail = z
 // already used by `updateProfileSchema` for /auth/me phone updates.
 const PHONE_REGEX = /^[+]?[\d\s-]{10,15}$/;
 
+// Issues #284, #666, #686, #667, #687 (May 2026): Add Staff User name field
+// accepted SQL-injection-style (`Robert'); DROP TABLE--`, `1' OR '1'='1`) and
+// raw `<script>` payloads. The shared `registerSchema` already refines against
+// `containsHtmlOrScript`, which catches HTML/script vectors but PASSES strings
+// like `Robert'); DROP TABLE--` because none of the XSS patterns match. We
+// layer a strict character-class regex on top so only letters (Latin +
+// Devanagari per CLAUDE.md gotcha #8), whitespace, and the three punctuation
+// marks legitimate names actually use (".", "-", "'") are accepted. This
+// rejects digits, parentheses, semicolons, equals signs, asterisks, and every
+// other character common in injection payloads. The `containsHtmlOrScript`
+// refine stays in force as defence in depth (it would catch `&lt;script&gt;`
+// HTML-entity smuggling, which the regex would also reject — belt + braces).
+const PATIENT_NAME_REGEX = /^[A-Za-zऀ-ॿ\s.\-']{1,100}$/;
+const strictStaffName = z
+  .string()
+  .trim()
+  .min(2, "Name must be at least 2 characters")
+  .max(100, "Name must be at most 100 characters")
+  .regex(
+    PATIENT_NAME_REGEX,
+    "Name contains invalid characters — letters, spaces, '.', '-' and \"'\" only"
+  )
+  .refine((v) => !containsHtmlOrScript(v), {
+    message:
+      "Name contains characters that aren't allowed (e.g. < > or HTML tags)",
+  });
+
 // Issue #706: bump the floor from 8 to 12 characters at the registration
 // surface specifically. Login still accepts the legacy 6-char rule (so
 // pre-#266 accounts can sign in to change their password); /change-password
@@ -405,8 +433,16 @@ const emergencyContactSchema = z.object({
 // Issues #706, #707, #708, #713 composed: the strict register schema. We
 // `extend()` the shared `registerSchema` so existing rules (XSS-in-name,
 // role enum, etc.) stay in force, and overlay the tightened fields.
+//
+// Issues #284, #666, #686, #667, #687 (May 2026): the staff-creation form
+// (Add Staff User on /dashboard/users) POSTs to this same /auth/register
+// endpoint with a Bearer admin token. We replace the `name` field with the
+// strict regex-based `strictStaffName` so SQL-injection-style payloads
+// (`Robert'); DROP TABLE--`, `1' OR '1'='1`) and `<script>...</script>` XSS
+// vectors are rejected with a 400 BEFORE they ever touch prisma.user.create.
 const strictRegisterSchema = registerSchema
   .extend({
+    name: strictStaffName,
     email: strictEmail,
     phone: z
       .string()
@@ -438,6 +474,33 @@ const strictRegisterSchema = registerSchema
 // the existing `forgotPasswordSchema` shape (which only carries `email`).
 const strictForgotPasswordSchema = forgotPasswordSchema.extend({
   email: strictEmail,
+});
+
+// Issue #623 (May 2026): Pharmacist (and every other authed role)'s
+// /auth/change-password used `strongPassword` (>=8 chars + letter/digit +
+// denylist) for the new password. This was only marginally stronger than the
+// 6-char floor a few users reported being able to set, and well below the
+// 12-char floor /register now requires for new accounts. The bug report
+// surfaced two related concerns:
+//
+//   1. The new-password rule was too loose for clinical roles with PHI access.
+//      Trivially weak passphrases (`abcdef`, `password1`, `qwerty12`) could be
+//      set on the change-password surface even after the 12-char floor lifted
+//      on /register.
+//   2. The handler ran the bcrypt check on `currentPassword` BEFORE the new
+//      password was validated, so a user submitting (wrong-current, weak-new)
+//      saw "Current password is incorrect" — masking the more actionable
+//      "New password is too weak" message.
+//
+// Fix: extend the shared `changePasswordSchema` with the same
+// `strictRegisterPassword` rule the /register surface uses. Zod's `validate(…)`
+// middleware runs BEFORE the route handler, so a weak new password is now
+// rejected with the field-shaped 400 first — before any bcrypt comparison —
+// regardless of whether the current password is right or wrong. (The handler
+// itself does not need re-ordering because Zod already runs first; we keep
+// the bcrypt-then-update flow downstream of the schema gate.)
+const strictChangePasswordSchema = changePasswordSchema.extend({
+  newPassword: strictRegisterPassword,
 });
 
 // Issue #714: zod 3.x strips unknown keys by default. Extend the imported
@@ -1175,10 +1238,20 @@ router.post(
 );
 
 // POST /api/v1/auth/change-password (authenticated)
+//
+// Issue #623 (May 2026): clinical roles (Pharmacist reported, but the rule
+// is now tenant-wide) could change to a 6-char or denylisted password
+// because the schema only enforced `strongPassword` (>=8). We swap to
+// `strictChangePasswordSchema` which uses `strictRegisterPassword` (>=12 +
+// letter + digit + denylist). Zod runs as middleware BEFORE this handler,
+// so a weak `newPassword` is rejected at the schema layer first — the
+// caller never reaches the bcrypt-compare branch and never sees the
+// misleading "Current password is incorrect" when their actual error is a
+// weak new password.
 router.post(
   "/change-password",
   authenticate,
-  validate(changePasswordSchema),
+  validate(strictChangePasswordSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { currentPassword, newPassword } = req.body;

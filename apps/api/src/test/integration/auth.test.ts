@@ -342,7 +342,7 @@ describeIfDB("Auth API (integration)", () => {
 
   it("rejects out-of-range age on /register (#489)", async () => {
     const res = await request(app).post("/api/v1/auth/register").send(patientBody({
-      name: "Bounded Age 2",
+      name: "Bounded Age Two",
       email: "age.toobig@test.local",
       phone: "9666666663",
       password: "MedCoreT3st-2026",
@@ -778,6 +778,185 @@ describeIfDB("Auth API (integration)", () => {
       .send({ email, password: newPassword });
     expect(loginNew.status).toBe(200);
     expect(loginNew.body?.data?.tokens?.accessToken).toBeTruthy();
+  });
+
+  // ─── Issues #284, #666, #686 (Add Staff name — SQL-injection vector) ────
+  //
+  // The Add Staff form on /dashboard/users POSTs to /auth/register with a
+  // Bearer admin token (so resolveRegistrationRole honours the non-PATIENT
+  // role from the body). Pre-fix, the schema-level `name` field only
+  // refined against `containsHtmlOrScript`, which catches `<script>` but
+  // NOT SQL-style payloads like `Robert'); DROP TABLE--` or `1' OR '1'='1`.
+  // Those strings persisted to the DB unchanged. The strict regex in
+  // `strictRegisterSchema` now rejects any character outside the canonical
+  // letters-spaces-".-'" set.
+  it("#284 rejects SQL-injection payload `Robert'); DROP TABLE--` in name on /register", async () => {
+    const adminLogin = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: "admin@test.local", password: "MedCoreT3st-2026" });
+    const adminBearer = adminLogin.body?.data?.tokens?.accessToken;
+
+    const res = await request(app)
+      .post("/api/v1/auth/register")
+      .set("Authorization", `Bearer ${adminBearer}`)
+      .send(patientBody({
+        name: "Robert'); DROP TABLE--",
+        email: "sqli.bobby@test.local",
+        phone: "9123460001",
+        password: "MedCoreT3st-2026",
+        role: "NURSE",
+      }));
+    expect(res.status).toBe(400);
+    const errStr = JSON.stringify(res.body).toLowerCase();
+    expect(errStr).toMatch(/name|invalid|character/);
+    // Critical: no token issued; no user created.
+    expect(res.body?.data?.tokens).toBeFalsy();
+  });
+
+  it("#666 rejects SQL-tautology payload `1' OR '1'='1` in name on /register", async () => {
+    const adminLogin = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: "admin@test.local", password: "MedCoreT3st-2026" });
+    const adminBearer = adminLogin.body?.data?.tokens?.accessToken;
+
+    const res = await request(app)
+      .post("/api/v1/auth/register")
+      .set("Authorization", `Bearer ${adminBearer}`)
+      .send(patientBody({
+        name: "1' OR '1'='1",
+        email: "sqli.tauto@test.local",
+        phone: "9123460002",
+        password: "MedCoreT3st-2026",
+        role: "DOCTOR",
+      }));
+    expect(res.status).toBe(400);
+    const errStr = JSON.stringify(res.body).toLowerCase();
+    expect(errStr).toMatch(/name|invalid|character/);
+    expect(res.body?.data?.tokens).toBeFalsy();
+  });
+
+  // ─── Issues #667, #687 (Add Staff name — XSS payload) ──────────────────
+  //
+  // `<script>alert(1)</script>` was previously caught by the
+  // `containsHtmlOrScript` refine — but only because of the `<` / `>`. The
+  // strict regex catches it via the same character-class check that catches
+  // SQL injection. Defence in depth: BOTH rules reject it.
+  it("#667 rejects `<script>alert(1)</script>` in staff name on /register", async () => {
+    const adminLogin = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: "admin@test.local", password: "MedCoreT3st-2026" });
+    const adminBearer = adminLogin.body?.data?.tokens?.accessToken;
+
+    const res = await request(app)
+      .post("/api/v1/auth/register")
+      .set("Authorization", `Bearer ${adminBearer}`)
+      .send(patientBody({
+        name: "<script>alert(1)</script>",
+        email: "xss.staff.script@test.local",
+        phone: "9123460003",
+        password: "MedCoreT3st-2026",
+        role: "PHARMACIST",
+      }));
+    expect(res.status).toBe(400);
+    const errStr = JSON.stringify(res.body).toLowerCase();
+    expect(errStr).toMatch(/name|invalid|character|html|tag/);
+    expect(res.body?.data?.tokens).toBeFalsy();
+  });
+
+  // ─── Issue #623 (change-password — validate new-password BEFORE current) ─
+  //
+  // Pharmacist (and every other authed role) reported that submitting a
+  // weak new password with a wrong current password returned "Current
+  // password is incorrect" — masking the more actionable "new password is
+  // too weak" message. Fix: extend `changePasswordSchema` so the schema's
+  // `strictRegisterPassword` rule (>=12 + letter + digit + denylist) runs
+  // BEFORE the bcrypt-compare branch in the route handler. Zod's
+  // `validate(...)` middleware runs first — so a weak new password is
+  // rejected with a field-shaped 400 regardless of whether the current
+  // password is right or wrong. The error message is about the NEW
+  // password, not "Current password is incorrect".
+  it("#623 rejects weak newPassword (6-char) on /auth/change-password BEFORE checking current", async () => {
+    // Register a fresh user so we have a valid bearer + a known current
+    // password to NOT match.
+    const reg = await request(app).post("/api/v1/auth/register").send(patientBody({
+      name: "Change Pwd Weak",
+      email: "change.pwd.weak@test.local",
+      phone: "9123460004",
+      password: "MedCoreT3st-2026",
+    }));
+    expect(reg.status).toBe(201);
+    const accessToken = reg.body?.data?.tokens?.accessToken;
+    expect(accessToken).toBeTruthy();
+
+    // Submit (deliberately wrong current, weak new). Pre-fix: the response
+    // was "Current password is incorrect". Post-fix: the schema rejects
+    // the weak newPassword first.
+    const res = await request(app)
+      .post("/api/v1/auth/change-password")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        currentPassword: "definitely-not-the-real-one",
+        newPassword: "abcdef", // 6 chars — under the 12-char floor
+      });
+    expect(res.status).toBe(400);
+    const errStr = JSON.stringify(res.body).toLowerCase();
+    // The message must reference the new password's weakness, NOT
+    // "current password is incorrect".
+    expect(errStr).toMatch(/password|12 characters|too weak|too common/);
+    expect(errStr).not.toMatch(/current password is incorrect/);
+  });
+
+  it("#623 rejects denylisted newPassword on /auth/change-password BEFORE checking current", async () => {
+    const reg = await request(app).post("/api/v1/auth/register").send(patientBody({
+      name: "Change Pwd Common",
+      email: "change.pwd.common@test.local",
+      phone: "9123460005",
+      password: "MedCoreT3st-2026",
+    }));
+    expect(reg.status).toBe(201);
+    const accessToken = reg.body?.data?.tokens?.accessToken;
+
+    const res = await request(app)
+      .post("/api/v1/auth/change-password")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        currentPassword: "definitely-not-the-real-one",
+        newPassword: "password1234", // denylist + would-be-12-char
+      });
+    expect(res.status).toBe(400);
+    const errStr = JSON.stringify(res.body).toLowerCase();
+    expect(errStr).not.toMatch(/current password is incorrect/);
+  });
+
+  it("#623 still accepts a strong newPassword (with the correct current) on /auth/change-password", async () => {
+    // Sanity: the strict schema doesn't break the happy path.
+    const oldPassword = "MedCoreT3st-2026";
+    const newPassword = "Cr0ssr0adsCipher!"; // 17 chars, letter+digit, not denylisted
+
+    const reg = await request(app).post("/api/v1/auth/register").send(patientBody({
+      name: "Change Pwd Happy",
+      email: "change.pwd.happy@test.local",
+      phone: "9123460006",
+      password: oldPassword,
+    }));
+    expect(reg.status).toBe(201);
+    const accessToken = reg.body?.data?.tokens?.accessToken;
+
+    const res = await request(app)
+      .post("/api/v1/auth/change-password")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        currentPassword: oldPassword,
+        newPassword,
+      });
+    expect(res.status).toBe(200);
+    expect(res.body?.success).toBe(true);
+
+    // The new password must log in.
+    const loginNew = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: "change.pwd.happy@test.local", password: newPassword });
+    expect(loginNew.status).toBe(200);
   });
 });
 

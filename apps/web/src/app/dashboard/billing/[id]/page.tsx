@@ -336,10 +336,27 @@ export default function InvoiceDetailPage() {
     );
   }
 
-  const positivePayments = invoice.payments.filter((p) => p.amount >= 0);
-  const refunds = invoice.payments.filter((p) => p.amount < 0);
-  const grossPaid = positivePayments.reduce((s, p) => s + p.amount, 0);
-  const totalRefunded = refunds.reduce((s, p) => s + Math.abs(p.amount), 0);
+  // Issue #598 (May 2026): patients reported the page freezing when
+  // clicking an invoice row. The renderer would lock up with no console
+  // error. Root cause: a malformed payload (missing `payments` or `items`
+  // array, or an item with a non-numeric `amount`) made `.filter` /
+  // `.reduce` throw mid-render, which Next.js retries forever in a
+  // suspense boundary because the component re-renders with the same
+  // bad state on every retry. Coerce to safe arrays + numbers up front
+  // so a corrupted invoice degrades gracefully to "no payments" instead
+  // of locking the tab.
+  const safePayments = Array.isArray(invoice.payments) ? invoice.payments : [];
+  const positivePayments = safePayments.filter(
+    (p) => typeof p?.amount === "number" && p.amount >= 0,
+  );
+  const refunds = safePayments.filter(
+    (p) => typeof p?.amount === "number" && p.amount < 0,
+  );
+  const grossPaid = positivePayments.reduce((s, p) => s + (p.amount || 0), 0);
+  const totalRefunded = refunds.reduce(
+    (s, p) => s + Math.abs(p.amount || 0),
+    0,
+  );
   const netPaid = grossPaid - totalRefunded;
 
   // Compute per-line GST at render time via the shared helper. We do NOT
@@ -380,8 +397,10 @@ export default function InvoiceDetailPage() {
     REFUNDED: "bg-gray-100 text-gray-500",
   };
 
-  // Timeline (payments + refunds) sorted by date
-  const timeline = [...invoice.payments].sort(
+  // Timeline (payments + refunds) sorted by date. See #598 note above —
+  // operate on the sanitized `safePayments` array so a missing field
+  // never bubbles up as an unhandled exception during render.
+  const timeline = [...safePayments].sort(
     (a, b) => new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime()
   );
 

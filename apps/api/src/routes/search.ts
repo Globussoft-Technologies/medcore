@@ -54,6 +54,20 @@ router.get(
       const role = req.user!.role as Role;
       const userId = req.user!.userId;
 
+      // Issue #612 (May 2026): the global search palette returned the full
+      // appointment history — every doctor, every status — to PHARMACIST
+      // users. Pharmacists only need dispense-relevant info: the patient
+      // (name + MR) and active prescriptions. Whitelist the allowed
+      // entity types per role so any future caller can't expand the
+      // pharmacist surface by passing `?types=appointments,...`.
+      const ROLE_ALLOWED_TYPES: Record<string, readonly SearchType[]> = {
+        PHARMACIST: ["patients", "prescriptions", "labels"],
+      };
+      const allowedForRole = ROLE_ALLOWED_TYPES[role as string];
+      const requestedScoped = allowedForRole
+        ? requested.filter((t) => allowedForRole.includes(t))
+        : requested;
+
       // Resolve scope ids upfront
       let patientId: string | null = null;
       let doctorId: string | null = null;
@@ -77,7 +91,7 @@ router.get(
 
       // ── Patients ─────────────────────────────────────────
       if (
-        requested.includes("patients") &&
+        requestedScoped.includes("patients") &&
         role !== Role.PATIENT // patients don't search patients
       ) {
         const patients = await prisma.patient.findMany({
@@ -100,14 +114,16 @@ router.get(
             id: p.id,
             title: p.user?.name || p.mrNumber,
             subtitle: `${p.mrNumber} · ${p.gender}${p.age ? ` · ${p.age}y` : ""}`,
-            meta: p.user?.phone || "",
+            // Issue #612: PHARMACIST does not need the patient's phone in
+            // the search palette (PII minimisation, paired with #599).
+            meta: role === Role.PHARMACIST ? "" : (p.user?.phone || ""),
             href: `/dashboard/patients/${p.id}`,
           });
         }
       }
 
       // ── Appointments ─────────────────────────────────────
-      if (requested.includes("appointments")) {
+      if (requestedScoped.includes("appointments")) {
         const where: any = {
           OR: [
             { notes: ci },
@@ -144,7 +160,7 @@ router.get(
       }
 
       // ── Invoices ─────────────────────────────────────────
-      if (requested.includes("invoices")) {
+      if (requestedScoped.includes("invoices")) {
         const where: any = {
           OR: [
             { invoiceNumber: ci },
@@ -177,7 +193,7 @@ router.get(
       }
 
       // ── Prescriptions ────────────────────────────────────
-      if (requested.includes("prescriptions")) {
+      if (requestedScoped.includes("prescriptions")) {
         const where: any = {
           OR: [
             { diagnosis: ci },
@@ -212,7 +228,7 @@ router.get(
       }
 
       // ── Admissions ───────────────────────────────────────
-      if (requested.includes("admissions")) {
+      if (requestedScoped.includes("admissions")) {
         const where: any = {
           OR: [
             { admissionNumber: ci },
@@ -248,7 +264,7 @@ router.get(
       }
 
       // ── Surgeries ────────────────────────────────────────
-      if (requested.includes("surgeries")) {
+      if (requestedScoped.includes("surgeries")) {
         const where: any = {
           OR: [
             { caseNumber: ci },
@@ -284,7 +300,7 @@ router.get(
       }
 
       // ── Lab orders ───────────────────────────────────────
-      if (requested.includes("lab")) {
+      if (requestedScoped.includes("lab")) {
         const where: any = {
           OR: [
             { orderNumber: ci },
@@ -324,7 +340,7 @@ router.get(
       }
 
       // ── Static labels: quick module navigation ──────────
-      if (requested.includes("labels")) {
+      if (requestedScoped.includes("labels")) {
         const labels: Array<{ label: string; href: string; roles?: Role[] }> = [
           { label: "Appointments", href: "/dashboard/appointments" },
           { label: "Patients", href: "/dashboard/patients", roles: [Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION] },

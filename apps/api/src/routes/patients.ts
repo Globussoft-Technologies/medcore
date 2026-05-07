@@ -97,8 +97,16 @@ function maskPlaceholderEmail<T extends { email?: string | null } | null | undef
 }
 
 // GET /api/v1/patients/:id
+// Issue #599 (May 2026): the previous handler was authenticated-only,
+// allowing any role with a valid JWT to fetch the full patient chart
+// (PII, address, blood group, insurance, emergency contacts). PHARMACIST
+// is locked out of the /dashboard/patients UI but the endpoint was
+// returning 200 with the raw record — UI-only RBAC. Add explicit role
+// gate matching the list endpoint above. PATIENT is allowed but still
+// goes through assertPatientOwnsResource for per-row scoping.
 router.get(
   "/:id",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION, Role.NURSE, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Issue #170 (Apr 2026): previously a single `findUnique` with a
@@ -223,6 +231,52 @@ router.post(
         }
       }
 
+      // Issue #595 (May 2026): the email column on User is `@unique` at
+      // the DB layer, but a Prisma P2002 surfacing as a generic 500 gave
+      // reception no actionable hint. Mirror the phone pre-check above:
+      // when a real email is supplied (i.e. not the auto-generated walk-in
+      // placeholder), look up an existing patient by email and surface
+      // the matching MR number with a 409 so the form can offer a "use
+      // existing patient" CTA instead of a confusing crash.
+      if (typeof data.email === "string" && data.email.trim().length > 0) {
+        const trimmed = data.email.trim().toLowerCase();
+        if (
+          !PLACEHOLDER_EMAIL_RE.test(trimmed) &&
+          !trimmed.endsWith("@medcore.invalid")
+        ) {
+          const existingByEmail = await prisma.patient.findFirst({
+            where: {
+              mergedIntoId: null,
+              user: { email: { equals: trimmed, mode: "insensitive" } },
+            },
+            select: {
+              id: true,
+              mrNumber: true,
+              user: { select: { name: true } },
+            },
+          });
+          if (existingByEmail) {
+            res.status(409).json({
+              success: false,
+              data: null,
+              error: `A patient with this email is already registered (MR: ${existingByEmail.mrNumber}).`,
+              details: [
+                {
+                  field: "email",
+                  message: `Already registered as ${existingByEmail.user?.name ?? "patient"} (MR: ${existingByEmail.mrNumber}).`,
+                },
+              ],
+              existingPatient: {
+                id: existingByEmail.id,
+                mrNumber: existingByEmail.mrNumber,
+                name: existingByEmail.user?.name ?? null,
+              },
+            });
+            return;
+          }
+        }
+      }
+
       // Auto-generate MR number
       const config = await prisma.systemConfig.findUnique({
         where: { key: "next_mr_number" },
@@ -317,6 +371,66 @@ router.patch(
       if (!patient) {
         res.status(404).json({ success: false, data: null, error: "Patient not found" });
         return;
+      }
+
+      // Issues #595 / #596 (May 2026): the Edit Patient form let staff
+      // change a patient's email or phone to one that another active
+      // record already used. The DB has `@unique` on User.email, so the
+      // write would 500 with a Prisma P2002; phone has no unique
+      // constraint so the duplicate would persist silently and break
+      // every "lookup by phone" workflow. Mirror the create-side
+      // pre-checks: when the new value differs from the patient's
+      // current value, look up any OTHER active patient using it and
+      // return a structured 409 so the form can show inline.
+      if (typeof email === "string" && email.trim().length > 0) {
+        const trimmed = email.trim().toLowerCase();
+        const dupEmail = await prisma.patient.findFirst({
+          where: {
+            mergedIntoId: null,
+            id: { not: req.params.id },
+            user: { email: { equals: trimmed, mode: "insensitive" } },
+          },
+          select: { mrNumber: true, user: { select: { name: true } } },
+        });
+        if (dupEmail) {
+          res.status(409).json({
+            success: false,
+            data: null,
+            error: `Another patient with this email is already registered (MR: ${dupEmail.mrNumber}).`,
+            details: [
+              {
+                field: "email",
+                message: `Already registered as ${dupEmail.user?.name ?? "patient"} (MR: ${dupEmail.mrNumber}).`,
+              },
+            ],
+          });
+          return;
+        }
+      }
+      if (typeof phone === "string" && phone.trim().length > 0) {
+        const trimmedPhone = phone.trim();
+        const dupPhone = await prisma.patient.findFirst({
+          where: {
+            mergedIntoId: null,
+            id: { not: req.params.id },
+            user: { phone: trimmedPhone },
+          },
+          select: { mrNumber: true, user: { select: { name: true } } },
+        });
+        if (dupPhone) {
+          res.status(409).json({
+            success: false,
+            data: null,
+            error: `Another patient with this phone is already registered (MR: ${dupPhone.mrNumber}).`,
+            details: [
+              {
+                field: "phone",
+                message: `Already registered as ${dupPhone.user?.name ?? "patient"} (MR: ${dupPhone.mrNumber}).`,
+              },
+            ],
+          });
+          return;
+        }
       }
 
       // Defence-in-depth: MR number is never editable via PATCH. The Zod

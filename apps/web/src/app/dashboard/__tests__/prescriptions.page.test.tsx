@@ -33,7 +33,7 @@ const sampleRx = [
     printed: false,
     patient: { id: "p1", mrNumber: "MR-1", user: { name: "Asha Roy" } },
     doctor: { id: "d1", user: { name: "Dr. Singh" } },
-    medicines: [{ medicineName: "Paracetamol", dosage: "500mg", frequency: "BID", duration: "5d" }],
+    items: [{ medicineName: "Paracetamol", dosage: "500mg", frequency: "BID", duration: "5d" }],
     diagnosis: "Fever",
     advice: "Rest",
   },
@@ -43,7 +43,7 @@ const sampleRx = [
     printed: true,
     patient: { id: "p2", mrNumber: "MR-2", user: { name: "Bhuvan Das" } },
     doctor: { id: "d1", user: { name: "Dr. Singh" } },
-    medicines: [{ medicineName: "Ibuprofen", dosage: "400mg", frequency: "TID", duration: "3d" }],
+    items: [{ medicineName: "Ibuprofen", dosage: "400mg", frequency: "TID", duration: "3d" }],
     diagnosis: "Pain",
     advice: "",
   },
@@ -104,6 +104,27 @@ describe("PrescriptionsPage", () => {
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: /prescriptions/i })).toBeInTheDocument()
     );
+  });
+
+  it("shares via WhatsApp when the WhatsApp button is clicked", async () => {
+    const user = userEvent.setup();
+    apiMock.get.mockResolvedValue({ data: sampleRx });
+    apiMock.post.mockResolvedValue({ data: { id: "rx1", sharedVia: "WHATSAPP" } });
+
+    render(<PrescriptionsPage />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Asha Roy/).length).toBeGreaterThan(0);
+    });
+
+    await user.click(screen.getByText(/Asha Roy/i));
+    await user.click(screen.getByRole("button", { name: /share via whatsapp/i }));
+
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledWith("/prescriptions/rx1/share", {
+        channel: "WHATSAPP",
+      });
+    });
   });
 
   // ─── Validation (Issues #9, #17) ─────────────────────────────────

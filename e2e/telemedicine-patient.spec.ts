@@ -5,6 +5,7 @@ import {
   dismissTourIfPresent,
   expectNotForbidden,
   freshPatientToken,
+  injectAuth,
   stubAi,
 } from "./helpers";
 
@@ -114,6 +115,58 @@ async function seedTelemedSession(
  */
 async function mockWebRtc(page: import("@playwright/test").Page): Promise<void> {
   await page.addInitScript(() => {
+    // Same as mockWebRtcOk in telemedicine-waiting-room.spec.ts: skip
+    // the stub on Chromium because the browser was launched with
+    // --use-fake-device-for-media-stream, which gives us a REAL
+    // MediaStream that's compatible with HTMLMediaElement.srcObject.
+    // Our fake duck-typed stream is NOT compatible and crashes the page
+    // when assigned to srcObject.
+    const isChromium = /Chrome\//.test(navigator.userAgent) && !/Edge|Edg\//.test(navigator.userAgent);
+    if (isChromium) {
+      return;
+    }
+    // WebKit-specific: patch HTMLMediaElement.srcObject to silently
+    // accept anything so videoRef.current.srcObject = fakeStream doesn't
+    // throw and trigger the page's catch handler.
+    try {
+      const proto = HTMLMediaElement.prototype;
+      const desc = Object.getOwnPropertyDescriptor(proto, "srcObject");
+      if (desc && desc.configurable) {
+        Object.defineProperty(proto, "srcObject", {
+          configurable: true,
+          enumerable: desc.enumerable ?? true,
+          get(this: HTMLMediaElement) {
+            return (this as any).__shimSrcObject ?? null;
+          },
+          set(this: HTMLMediaElement, v: unknown) {
+            (this as any).__shimSrcObject = v;
+          },
+        });
+      }
+    } catch {
+      // ignore
+    }
+    // Build a REAL MediaStream (canvas.captureStream or new MediaStream())
+    // so srcObject assignment doesn't throw on WebKit.
+    const buildRealStream = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = 320;
+        canvas.height = 240;
+        const stream =
+          (canvas as HTMLCanvasElement & {
+            captureStream?: (fps?: number) => MediaStream;
+          }).captureStream?.(1) ?? new MediaStream();
+        return stream;
+      } catch {
+        try {
+          return new MediaStream();
+        } catch {
+          return null;
+        }
+      }
+    };
+    const realStream = buildRealStream();
     const fakeTrack = (kind: "audio" | "video") =>
       ({
         kind,
@@ -123,33 +176,60 @@ async function mockWebRtc(page: import("@playwright/test").Page): Promise<void> 
         addEventListener: () => undefined,
         removeEventListener: () => undefined,
       }) as unknown as MediaStreamTrack;
-    const fakeStream = {
-      getTracks: () => [fakeTrack("video"), fakeTrack("audio")],
-      getVideoTracks: () => [fakeTrack("video")],
-      getAudioTracks: () => [fakeTrack("audio")],
-      addTrack: () => undefined,
-      removeTrack: () => undefined,
-    } as unknown as MediaStream;
-    // Some Playwright Chromium builds initialise navigator.mediaDevices
-    // lazily — define it if missing, then override the bits we use.
-    if (!("mediaDevices" in navigator)) {
+    const fakeStream =
+      realStream ??
+      ({
+        getTracks: () => [fakeTrack("video"), fakeTrack("audio")],
+        getVideoTracks: () => [fakeTrack("video")],
+        getAudioTracks: () => [fakeTrack("audio")],
+        addTrack: () => undefined,
+        removeTrack: () => undefined,
+      } as unknown as MediaStream);
+    if (realStream && realStream.getVideoTracks().length === 0) {
+      const v = fakeTrack("video");
+      const a = fakeTrack("audio");
+      (realStream as any).getVideoTracks = () => [v];
+      (realStream as any).getAudioTracks = () => [a];
+      (realStream as any).getTracks = () => [v, a];
+    }
+    // Try whole-object replace first (WebKit), fall back to per-property
+    // (Chrome). Chrome's navigator.mediaDevices is a getter that throws
+    // when redefined wholesale; WebKit's per-property defineProperty
+    // silently fails because individual entries are non-configurable.
+    try {
       Object.defineProperty(navigator, "mediaDevices", {
         configurable: true,
-        value: {},
+        value: {
+          getUserMedia: () => Promise.resolve(fakeStream),
+          enumerateDevices: () =>
+            Promise.resolve([
+              { kind: "videoinput", deviceId: "fake-cam", label: "Fake Camera" },
+              { kind: "audioinput", deviceId: "fake-mic", label: "Fake Mic" },
+            ]),
+          addEventListener: () => undefined,
+          removeEventListener: () => undefined,
+        },
+      });
+    } catch {
+      if (!("mediaDevices" in navigator)) {
+        Object.defineProperty(navigator, "mediaDevices", {
+          configurable: true,
+          value: {},
+        });
+      }
+      Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+        configurable: true,
+        value: () => Promise.resolve(fakeStream),
+      });
+      Object.defineProperty(navigator.mediaDevices, "enumerateDevices", {
+        configurable: true,
+        value: () =>
+          Promise.resolve([
+            { kind: "videoinput", deviceId: "fake-cam", label: "Fake Camera" },
+            { kind: "audioinput", deviceId: "fake-mic", label: "Fake Mic" },
+          ]),
       });
     }
-    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
-      configurable: true,
-      value: () => Promise.resolve(fakeStream),
-    });
-    Object.defineProperty(navigator.mediaDevices, "enumerateDevices", {
-      configurable: true,
-      value: () =>
-        Promise.resolve([
-          { kind: "videoinput", deviceId: "fake-cam", label: "Fake Camera" },
-          { kind: "audioinput", deviceId: "fake-mic", label: "Fake Mic" },
-        ]),
-    });
   });
 }
 
@@ -180,22 +260,15 @@ test.describe("Telemedicine (multi-role)", () => {
     expect(session.sessionNumber).toMatch(/^TEL\d{6}$/);
 
     // Open a fresh browser context as the new patient and assert the
-    // booked session appears in the upcoming list.
+    // booked session appears in the upcoming list. Issue #477 moved
+    // JWTs from localStorage to httpOnly cookies (medcore_at/_rt) — set
+    // those via injectAuth so the page's authenticate middleware sees a
+    // valid session. Also sets medcore_csrf for mutation requests.
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
-    await page.goto("/login", { waitUntil: "domcontentloaded" });
-    await page.evaluate(
-      ([t, r]) => {
-        localStorage.setItem("medcore_token", t);
-        localStorage.setItem("medcore_refresh", r);
-      },
-      [fresh.token, fresh.refresh]
-    );
+    await injectAuth(page, fresh.token, fresh.refresh);
 
-    // Visit the telemedicine listing — the row reflects the seeded session
-    // (the spec brief asks for "appointment row reflects telemedicine type",
-    // which on this codebase means the telemedicine session row exists in
-    // the patient's upcoming list).
+    // Visit the telemedicine listing — the row reflects the seeded session.
     await page.goto("/dashboard/telemedicine");
     await expect(
       page.getByRole("heading", { name: /telemedicine/i }).first()
@@ -258,14 +331,7 @@ test.describe("Telemedicine (multi-role)", () => {
         })
     );
 
-    await page.goto("/login", { waitUntil: "domcontentloaded" });
-    await page.evaluate(
-      ([t, r]) => {
-        localStorage.setItem("medcore_token", t);
-        localStorage.setItem("medcore_refresh", r);
-      },
-      [fresh.token, fresh.refresh]
-    );
+    await injectAuth(page, fresh.token, fresh.refresh);
 
     await page.goto(
       `/dashboard/telemedicine/waiting-room?sessionId=${session.id}`
@@ -525,14 +591,7 @@ test.describe("Telemedicine (multi-role)", () => {
     // string we just wrote shows up.
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
-    await page.goto("/login", { waitUntil: "domcontentloaded" });
-    await page.evaluate(
-      ([t, r]) => {
-        localStorage.setItem("medcore_token", t);
-        localStorage.setItem("medcore_refresh", r);
-      },
-      [fresh.token, fresh.refresh]
-    );
+    await injectAuth(page, fresh.token, fresh.refresh);
 
     await page.goto("/dashboard/prescriptions");
     await expect(

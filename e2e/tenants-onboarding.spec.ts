@@ -30,7 +30,7 @@
  *   apps/api/src/routes/tenants.ts.
  */
 import { test, expect } from "./fixtures";
-import { dismissTourIfPresent, expectNotForbidden, gotoAuthed } from "./helpers";
+import { API_BASE, dismissTourIfPresent, expectNotForbidden, gotoAuthed } from "./helpers";
 
 test.describe("Tenant onboarding — /dashboard/tenants/[id]/onboarding (ADMIN super-admin checklist + non-ADMIN redirect-bounce-to-/dashboard)", () => {
   test("ADMIN lands on the onboarding checklist for the seeded `default` tenant — heading + back link + progress bar + 6 ordered steps render", async ({
@@ -42,7 +42,7 @@ test.describe("Tenant onboarding — /dashboard/tenants/[id]/onboarding (ADMIN s
     // Resolve the seeded default tenant's id via the API (the [id] segment
     // is dynamic; the seed always provisions a `default` tenant per
     // packages/db/src/seed-realistic.ts).
-    const tenantsRes = await adminApi.get("/tenants");
+    const tenantsRes = await adminApi.get(`${API_BASE}/tenants`);
     expect(tenantsRes.ok()).toBeTruthy();
     const tenantsJson = await tenantsRes.json();
     const list: Array<{ id: string; subdomain: string }> =
@@ -96,7 +96,7 @@ test.describe("Tenant onboarding — /dashboard/tenants/[id]/onboarding (ADMIN s
     adminApi,
   }) => {
     const page = adminPage;
-    const tenantsRes = await adminApi.get("/tenants");
+    const tenantsRes = await adminApi.get(`${API_BASE}/tenants`);
     const tenantsJson = await tenantsRes.json();
     const list: Array<{ id: string; subdomain: string }> =
       tenantsJson.data ?? tenantsJson;

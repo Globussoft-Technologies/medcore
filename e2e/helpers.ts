@@ -585,7 +585,16 @@ export async function seedPatient(
   opts: { name?: string } = {}
 ): Promise<SeedPatientResult> {
   const name = opts.name ?? indianishName();
+  // Always send CSRF cookie+header. The fixture-provided adminApi/
+  // receptionApi already carry these via fixtures.ts, but if a spec
+  // accidentally passes the raw `request` fixture, the POST would
+  // 403 with csrf_failed under NODE_ENV=production. Belt+braces.
+  const csrfTok = "e2e-csrf-fixture-token";
   const res = await api.post(`${API_BASE}/patients`, {
+    headers: {
+      "X-CSRF-Token": csrfTok,
+      Cookie: `medcore_csrf=${csrfTok}`,
+    },
     data: {
       name,
       age: 30 + Math.floor(Math.random() * 30),

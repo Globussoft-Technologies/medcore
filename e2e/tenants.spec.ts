@@ -84,15 +84,17 @@ test.describe("Tenants admin — /dashboard/tenants (ADMIN super-admin chrome + 
 
     // Body either renders the table or the empty-state — both are
     // valid no-error states. We just want zero crash + zero forbidden.
+    // 15s timeout (was 8s) so WebKit's slower hydration on shard 11 has
+    // enough time to render either the table or the empty-state.
     const tableOrEmpty = await Promise.race([
       page
         .locator('[data-testid="tenants-table"]')
-        .waitFor({ state: "visible", timeout: 8_000 })
+        .waitFor({ state: "visible", timeout: 15_000 })
         .then(() => "table" as const)
         .catch(() => null),
       page
         .locator('[data-testid="tenants-empty"]')
-        .waitFor({ state: "visible", timeout: 8_000 })
+        .waitFor({ state: "visible", timeout: 15_000 })
         .then(() => "empty" as const)
         .catch(() => null),
     ]);

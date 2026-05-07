@@ -83,7 +83,7 @@ test.describe(
         Math.random().toString(16).slice(2, 10) +
           Date.now().toString(16).slice(-6)
       );
-      const tag = `E2eReg ${uniqSuffix}`; // digit-free, regex-safe
+      const tag = `EeReg ${uniqSuffix}`; // digit-free, regex-safe (PATIENT_NAME_REGEX rejects ANY digit incl. the '2' in 'E2eReg')
       const phone = `+9198${Math.floor(10_000_000 + Math.random() * 89_999_999)}`;
 
       await page.locator('[data-testid="patient-name"]').fill(tag);
@@ -102,13 +102,12 @@ test.describe(
         { timeout: 10_000 }
       );
 
-      // The submit button is the form's only `type="submit"` and is the
-      // first one rendered inside the registration form. Anchor on that
-      // structural relationship so it survives copy changes to the i18n key.
-      await page
-        .getByRole("button", { name: /^Register Patient$/i })
-        .last()
-        .click();
+      // Submit via the form's type="submit" button. The button copy is
+      // i18n-driven (page.tsx:454 uses t('dashboard.patients.register'))
+      // which can resolve to the literal key 'dashboard.patients.register'
+      // in some load orders, breaking a name=/^Register Patient$/ match.
+      // Anchor on type=submit + form-scope instead.
+      await page.locator('form button[type="submit"]').first().click();
 
       const resp = await createResp;
       const status = resp.status();

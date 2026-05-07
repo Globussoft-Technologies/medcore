@@ -91,7 +91,22 @@ export default defineConfig({
     },
     {
       name: "full",
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        ...devices["Desktop Chrome"],
+        // Chromium-only: camera+mic permissions + fake-device launch args
+        // give telemedicine precheck tests a synthetic stream without
+        // hardware. WebKit can't use these args; its tests rely on the
+        // JS stub in mockWebRtcOk. Permissions are scoped here (not on
+        // global `use`) because granting camera/mic on WebKit broke
+        // unrelated tests in run 13.
+        permissions: ["camera", "microphone"],
+        launchOptions: {
+          args: [
+            "--use-fake-device-for-media-stream",
+            "--use-fake-ui-for-media-stream",
+          ],
+        },
+      },
       // Everything in e2e/ — this is what release.yml runs.
       testMatch: "**/*.spec.ts",
     },

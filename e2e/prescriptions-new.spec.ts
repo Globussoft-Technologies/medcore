@@ -136,7 +136,13 @@ test.describe("Prescriptions — /dashboard/prescriptions/new (Rx creation FORM 
     // endpoint is pre-filtered (minQueryLength=0 per page.tsx:652) so the
     // dropdown shows today's BOOKED list on focus.
     const apptSearch = page.getByTestId("rx-appointment-picker-input");
+    // WebKit headless can drop the focus event from a bare click(); type
+    // a single space then clear to deterministically fire onChange + onFocus
+    // and open the dropdown (minQueryLength=0 → fetch fires on open).
     await apptSearch.click();
+    await apptSearch.focus();
+    await apptSearch.fill(" ");
+    await apptSearch.fill("");
     // Empty-string fill is enough — the pre-filter URL already narrows to
     // today + this patient + live statuses. Wait for the option list to
     // render and click the seeded appointment by its data-entity-id (the

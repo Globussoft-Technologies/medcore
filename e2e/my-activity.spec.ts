@@ -168,12 +168,17 @@ test.describe("My Activity — /dashboard/my-activity (self-scoped audit feed; u
     await expectNotForbidden(page);
 
     // Both stubbed action labels render in the feed. The render shape at
-    // page.tsx:91-93 puts the action text in a <p> and the entity in a
-    // sub-paragraph — `getByText` picks up both.
-    await expect(page.getByText("USER_LOGIN").first()).toBeVisible({
-      timeout: PAGE_TIMEOUT,
-    });
-    await expect(page.getByText("PRESCRIPTION_VIEW").first()).toBeVisible();
+    // page.tsx:91-93 puts the action text in a <p class="text-sm font-medium">.
+    // Scope to that <p> via :is(p) — `getByText` would also match the
+    // hidden <option value="USER_LOGIN"> elements inside the action-filter
+    // <select>, and `.first()` would land on the option (DOM-order earlier)
+    // and fail the visibility check even though the visible <p> is fine.
+    await expect(
+      page.locator('p.font-medium', { hasText: 'USER_LOGIN' }).first(),
+    ).toBeVisible({ timeout: PAGE_TIMEOUT });
+    await expect(
+      page.locator('p.font-medium', { hasText: 'PRESCRIPTION_VIEW' }).first(),
+    ).toBeVisible();
 
     // The action-filter <select> populates from the deduped allActions
     // memo (page.tsx:37-40). Pick the second action via its value — uses
@@ -184,9 +189,15 @@ test.describe("My Activity — /dashboard/my-activity (self-scoped audit feed; u
 
     // After filtering, the USER_LOGIN row must be gone and the
     // PRESCRIPTION_VIEW row must remain. Pins the actionFilter predicate
-    // at page.tsx:42-44.
-    await expect(page.getByText("USER_LOGIN")).toHaveCount(0);
-    await expect(page.getByText("PRESCRIPTION_VIEW").first()).toBeVisible();
+    // at page.tsx:42-44. Same scoping as above — only the body <p>
+    // counts; the hidden filter <option value="USER_LOGIN"> remains in
+    // the DOM and would falsely satisfy a bare getByText.
+    await expect(
+      page.locator('p.font-medium', { hasText: 'USER_LOGIN' }),
+    ).toHaveCount(0);
+    await expect(
+      page.locator('p.font-medium', { hasText: 'PRESCRIPTION_VIEW' }).first(),
+    ).toBeVisible();
   });
 
   test("ADMIN sees the page chrome — same shape as DOCTOR, NOT an all-user audit feed (the API filters by req.user.userId at auth.ts:1126; the admin-wide view lives at /dashboard/audit)", async ({

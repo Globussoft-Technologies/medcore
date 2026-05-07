@@ -13,6 +13,7 @@
 import { it, expect, beforeAll, describe } from "vitest";
 import request from "supertest";
 import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
+import { waitForAuditFlush } from "../helpers/audit-wait";
 import {
   createMedicineFixture,
   createInventoryFixture,
@@ -198,9 +199,14 @@ describeIfDB("Pharmacy RBAC + Rx-rejection (integration, Gap #8)", () => {
       .post("/api/v1/pharmacy/dispense")
       .set("Authorization", `Bearer ${pharmacistToken}`)
       .send({ prescriptionId: rx.id });
+    // pharmacy.ts:668 fires auditLog with .catch(console.error) — the
+    // route returns BEFORE the deferred Promise resolves. Without
+    // waitForAuditFlush this races the write and intermittently sees
+    // null (CLAUDE.md gotcha #1).
     const prisma = await getPrisma();
-    const audit = await prisma.auditLog.findFirst({
-      where: { action: "PRESCRIPTION_DISPENSE", entityId: rx.id },
+    const audit = await waitForAuditFlush(prisma, {
+      action: "PRESCRIPTION_DISPENSE",
+      entityId: rx.id,
     });
     expect(audit).not.toBeNull();
   });
@@ -367,9 +373,12 @@ describeIfDB("Pharmacy RBAC + Rx-rejection (integration, Gap #8)", () => {
       .post(`/api/v1/pharmacy/prescriptions/${rx.id}/reject`)
       .set("Authorization", `Bearer ${pharmacistToken}`)
       .send({ reason: "Wrong patient on chart header" });
+    // pharmacy.ts:733 fires auditLog with .catch(console.error) — see
+    // CLAUDE.md gotcha #1. Use waitForAuditFlush to dodge the race.
     const prisma = await getPrisma();
-    const audit = await prisma.auditLog.findFirst({
-      where: { action: "PRESCRIPTION_REJECTED", entityId: rx.id },
+    const audit = await waitForAuditFlush(prisma, {
+      action: "PRESCRIPTION_REJECTED",
+      entityId: rx.id,
     });
     expect(audit).not.toBeNull();
     expect((audit!.details as any)?.reason).toBe("Wrong patient on chart header");

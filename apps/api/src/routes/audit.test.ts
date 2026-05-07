@@ -57,7 +57,18 @@ const { prismaMock } = vi.hoisted(() => {
   return { prismaMock: mock };
 });
 
-vi.mock("@medcore/db", () => ({ prisma: prismaMock }));
+// Issue #456 (May 2026, follow-up): A10 lifted the tenant wrapper into
+// `@medcore/db`, and routes/audit.ts imports `tenantScopedPrisma` from the
+// re-export shim at `apps/api/src/services/tenant-prisma`. The shim
+// resolves to `@medcore/db` as well, so a single mock that exposes BOTH
+// `prisma` (for resolver lookups) and `tenantScopedPrisma` (for the
+// auditLog.findMany / count calls) keeps the test in sync with the
+// runtime import graph. Without this, `tenantScopedPrisma` resolves to
+// undefined and the handler 500s on `tenantScopedPrisma.auditLog.findMany`.
+vi.mock("@medcore/db", () => ({
+  prisma: prismaMock,
+  tenantScopedPrisma: prismaMock,
+}));
 
 import { auditRouter } from "./audit";
 
@@ -250,5 +261,43 @@ describe("Issue #79 — audit log User column + entity-case", () => {
     expect(res.status).toBe(200);
     expect(res.body.data[0].userName).toBe("—");
     expect(res.body.data[0].userEmail).toBe("");
+  });
+
+  // ─── Issue #690 — inverted-date range guard ───────────────────────────
+  // The Audit Log filter UI accepted From > To and the server quietly
+  // applied the inverted range, returning zero rows with no indication
+  // anything was wrong. Now the server returns 400 with a clear field-
+  // shaped error so the form can render an inline message.
+  it("#690 GET /audit returns 400 when from > to (inverted date range)", async () => {
+    const app = buildApp();
+    const res = await request(app)
+      .get("/api/v1/audit?from=2026-05-08&to=2026-05-01")
+      .set("Authorization", `Bearer ${adminToken()}`);
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toMatch(/from.*before.*to/i);
+    // Prisma was never reached — the guard short-circuits before the query.
+    expect(prismaMock.auditLog.findMany).not.toHaveBeenCalled();
+  });
+
+  it("#690 GET /audit accepts equal from/to (single-day range)", async () => {
+    prismaMock.auditLog.findMany.mockResolvedValueOnce([]);
+    prismaMock.auditLog.count.mockResolvedValueOnce(0);
+    prismaMock.user.findMany.mockResolvedValueOnce([]);
+
+    const app = buildApp();
+    const res = await request(app)
+      .get("/api/v1/audit?from=2026-05-08&to=2026-05-08")
+      .set("Authorization", `Bearer ${adminToken()}`);
+    expect(res.status).toBe(200);
+  });
+
+  it("#690 GET /audit/export.csv also rejects inverted range", async () => {
+    const app = buildApp();
+    const res = await request(app)
+      .get("/api/v1/audit/export.csv?from=2026-05-31&to=2026-05-01")
+      .set("Authorization", `Bearer ${adminToken()}`);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/from.*before.*to/i);
   });
 });

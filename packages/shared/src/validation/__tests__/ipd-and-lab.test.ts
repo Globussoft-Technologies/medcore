@@ -141,6 +141,46 @@ describe("recordIpdVitalsSchema", () => {
       }).success
     ).toBe(true);
   });
+
+  // ─── Issue #544 — cross-field BP refine on admission Vitals ─────────
+  // 120/130 has each leg in-range per the per-field bounds, but the pair
+  // is physiologically wrong (diastolic >= systolic). The .superRefine()
+  // is the last line of defense.
+  it("#544 admission Vitals rejects diastolic >= systolic (120/130)", () => {
+    const result = recordIpdVitalsSchema.safeParse({
+      admissionId: UUID,
+      bloodPressureSystolic: 120,
+      bloodPressureDiastolic: 130,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some(
+          (i) =>
+            i.path.includes("bloodPressureDiastolic") &&
+            /less than systolic/i.test(i.message)
+        )
+      ).toBe(true);
+    }
+  });
+  it("#544 admission Vitals rejects diastolic == systolic (110/110)", () => {
+    expect(
+      recordIpdVitalsSchema.safeParse({
+        admissionId: UUID,
+        bloodPressureSystolic: 110,
+        bloodPressureDiastolic: 110,
+      }).success
+    ).toBe(false);
+  });
+  it("#544 admission Vitals accepts realistic 120/80", () => {
+    expect(
+      recordIpdVitalsSchema.safeParse({
+        admissionId: UUID,
+        bloodPressureSystolic: 120,
+        bloodPressureDiastolic: 80,
+      }).success
+    ).toBe(true);
+  });
 });
 
 describe("intakeOutputSchema", () => {

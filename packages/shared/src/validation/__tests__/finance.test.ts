@@ -85,6 +85,39 @@ describe("createPOSchema", () => {
       createPOSchema.safeParse({ supplierId: UUID, items: [item], taxPercentage: 150 }).success
     ).toBe(false);
   });
+  // Issue #693 — supplier required + line quantity strictly positive integer.
+  it("#693 rejects empty/missing supplier", () => {
+    expect(
+      createPOSchema.safeParse({ supplierId: "", items: [item] }).success
+    ).toBe(false);
+    expect(
+      createPOSchema.safeParse({ items: [item] } as any).success
+    ).toBe(false);
+  });
+  it("#693 rejects zero quantity line item", () => {
+    expect(
+      createPOSchema.safeParse({
+        supplierId: UUID,
+        items: [{ ...item, quantity: 0 }],
+      }).success
+    ).toBe(false);
+  });
+  it("#693 rejects negative quantity line item", () => {
+    expect(
+      createPOSchema.safeParse({
+        supplierId: UUID,
+        items: [{ ...item, quantity: -5 }],
+      }).success
+    ).toBe(false);
+  });
+  it("#693 rejects fractional quantity (not a whole unit)", () => {
+    expect(
+      createPOSchema.safeParse({
+        supplierId: UUID,
+        items: [{ ...item, quantity: 0.5 }],
+      }).success
+    ).toBe(false);
+  });
 });
 
 describe("createExpenseSchema", () => {
@@ -111,6 +144,17 @@ describe("createExpenseSchema", () => {
   it("rejects malformed date", () => {
     expect(
       createExpenseSchema.safeParse({ ...valid, date: "yesterday" }).success
+    ).toBe(false);
+  });
+  // Issue #694 — Add Expense form was accepting negative amount + future date.
+  it("#694 rejects negative amount", () => {
+    expect(
+      createExpenseSchema.safeParse({ ...valid, amount: -100 }).success
+    ).toBe(false);
+  });
+  it("#694 rejects zero amount", () => {
+    expect(
+      createExpenseSchema.safeParse({ ...valid, amount: 0 }).success
     ).toBe(false);
   });
 });

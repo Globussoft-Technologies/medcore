@@ -215,9 +215,37 @@ function labelFor(
   return labels.get(`${key}:${entityId}`) ?? null;
 }
 
+/**
+ * Issue #690 (May 2026): the Audit Log filter UI accepted From > To and the
+ * server quietly applied the inverted range, returning zero rows with no
+ * indication anything was wrong. Validate the pair up-front and surface a
+ * 400 so the form can render an inline error rather than swallowing the
+ * inversion. Returns null when the range is valid, or the parsed `from`/`to`
+ * Date pair so the caller doesn't reparse.
+ */
+class InvertedDateRangeError extends Error {
+  constructor() {
+    super("from must be on or before to");
+  }
+}
+
 function buildAuditWhere(req: Request): Record<string, unknown> {
   const { userId, entity, action, ipContains, from, to, q } = req.query;
   const where: Record<string, unknown> = {};
+
+  // Issue #690: inverted-range guard. If both `from` and `to` are present
+  // and parse to valid dates, fromDate must be on or before toDate.
+  if (from && to) {
+    const fromDate = new Date(from as string);
+    const toDate = new Date(to as string);
+    if (
+      !isNaN(fromDate.getTime()) &&
+      !isNaN(toDate.getTime()) &&
+      fromDate.getTime() > toDate.getTime()
+    ) {
+      throw new InvertedDateRangeError();
+    }
+  }
 
   if (userId) where.userId = userId;
   // Issue #79: entity casing is inconsistent across writers — patient creates
@@ -264,7 +292,21 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
     const take = Math.min(100, Math.max(1, parseInt(limit as string, 10)));
     const skip = (pageNum - 1) * take;
 
-    const where = buildAuditWhere(req);
+    let where: Record<string, unknown>;
+    try {
+      where = buildAuditWhere(req);
+    } catch (err) {
+      if (err instanceof InvertedDateRangeError) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: err.message,
+          details: [{ field: "to", message: err.message }],
+        });
+        return;
+      }
+      throw err;
+    }
 
     const [logs, total] = await Promise.all([
       tenantScopedPrisma.auditLog.findMany({
@@ -332,7 +374,21 @@ router.get(
       const take = Math.min(100, Math.max(1, parseInt(limit as string, 10)));
       const skip = (pageNum - 1) * take;
 
-      const where = buildAuditWhere(req);
+      let where: Record<string, unknown>;
+      try {
+        where = buildAuditWhere(req);
+      } catch (err) {
+        if (err instanceof InvertedDateRangeError) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: err.message,
+            details: [{ field: "to", message: err.message }],
+          });
+          return;
+        }
+        throw err;
+      }
 
       // If full-text query present, also scan details JSON by fetching a wider
       // candidate set and filtering in-memory.
@@ -470,7 +526,21 @@ router.get(
   "/export.csv",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const where = buildAuditWhere(req);
+      let where: Record<string, unknown>;
+      try {
+        where = buildAuditWhere(req);
+      } catch (err) {
+        if (err instanceof InvertedDateRangeError) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: err.message,
+            details: [{ field: "to", message: err.message }],
+          });
+          return;
+        }
+        throw err;
+      }
       const maxRows = 50_000;
 
       const logs = await tenantScopedPrisma.auditLog.findMany({

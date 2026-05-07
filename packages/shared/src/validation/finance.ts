@@ -81,10 +81,20 @@ export const updateSupplierSchema = createSupplierSchema.partial().extend({
 });
 
 // ─── Purchase Orders ───────────────────────────────────
+// Issue #693 (May 2026): the New PO form was accepting decimal qty (e.g.
+// 0.5 widgets) and zero qty would silently slip through if the user typed
+// "0" then submitted — the prior `.positive()` on its own rejects 0 but
+// allowed non-integer values that the warehouse can't actually receive.
+// Tighten to integer + strictly > 0 so a PO line item is always at least
+// one whole unit. Description min(1) already enforces "no empty supplier
+// line"; the supplier-required check sits on `createPOSchema.supplierId`.
 export const poItemSchema = z.object({
   description: z.string().min(1, "Description is required"),
   medicineId: z.string().uuid().optional(),
-  quantity: z.number().positive("Quantity must be positive"),
+  quantity: z
+    .number()
+    .int("Quantity must be a whole number")
+    .positive("Quantity must be at least 1"),
   unitPrice: z.number().positive("Unit price must be positive"),
 });
 

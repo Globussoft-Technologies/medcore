@@ -497,6 +497,59 @@ describeIfDB("Auth API (integration)", () => {
     expect(res.body?.success).toBeFalsy();
   });
 
+  // ─── Issues #688 + #668 (admin Add-Staff also enforces strict password) ─
+  //
+  // Admin staff creation hits the same /auth/register endpoint with a
+  // Bearer admin token (so `resolveRegistrationRole` honours a non-PATIENT
+  // role from the body). The strict register password schema is shared,
+  // so a weak password must be rejected on the staff path too — otherwise
+  // the Add-Staff form ships trivially weak credentials for clinical
+  // accounts. These tests pin the rejection contract on the staff path
+  // specifically so a future regression that splits the staff-create
+  // surface off /register (or replaces the schema) is caught immediately.
+  it("#688 admin staff-create on /register rejects 8-char password", async () => {
+    const adminLogin = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: "admin@test.local", password: "MedCoreT3st-2026" });
+    expect(adminLogin.status).toBe(200);
+    const adminBearer = adminLogin.body?.data?.tokens?.accessToken;
+    expect(adminBearer).toBeTruthy();
+
+    const res = await request(app)
+      .post("/api/v1/auth/register")
+      .set("Authorization", `Bearer ${adminBearer}`)
+      .send(patientBody({
+        name: "Weak Pass Nurse",
+        email: "weakpw.nurse@test.local",
+        phone: "9123456001",
+        password: "Abcd1234", // 8 chars, letter+digit, NOT denylisted — same case as #706
+        role: "NURSE",
+      }));
+    expect(res.status).toBe(400);
+    const errStr = JSON.stringify(res.body).toLowerCase();
+    expect(errStr).toMatch(/password|12 characters/);
+  });
+
+  it("#668 admin staff-create on /register rejects denylisted 'password123'", async () => {
+    const adminLogin = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: "admin@test.local", password: "MedCoreT3st-2026" });
+    const adminBearer = adminLogin.body?.data?.tokens?.accessToken;
+
+    const res = await request(app)
+      .post("/api/v1/auth/register")
+      .set("Authorization", `Bearer ${adminBearer}`)
+      .send(patientBody({
+        name: "Denylisted Doctor",
+        email: "denylist.doctor@test.local",
+        phone: "9123456002",
+        password: "password123", // denylist
+        role: "DOCTOR",
+      }));
+    expect(res.status).toBe(400);
+    expect(res.body?.success).toBeFalsy();
+  });
+
   // ─── Issue #707 (registration age range tightened to [0, 130]) ──────────
   it("accepts age=0 on /register (#707 — newborn)", async () => {
     const res = await request(app).post("/api/v1/auth/register").send(patientBody({

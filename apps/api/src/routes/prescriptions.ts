@@ -26,6 +26,7 @@ import { generatePrescriptionPDFBuffer } from "../services/pdf-generator";
 import { onPrescriptionReady } from "../services/notification-triggers";
 import { auditLog } from "../middleware/audit";
 import { ingestPrescription, fireAndForgetIngest } from "../services/ai/rag-ingest";
+import { sendEmail } from "../services/messaging/email";
 
 const router = Router();
 router.use(authenticate);
@@ -396,6 +397,15 @@ router.get(
       }
       const html = await generatePrescriptionPDF(req.params.id);
       res.setHeader("Content-Type", "text/html; charset=utf-8");
+      // The global helmet CSP is `default-src 'none'`, which would suppress
+      // the inline <style>, embedded QR data: image, signature URL, and the
+      // auto-print <script> in this self-contained printable view. Override
+      // only for this HTML render so the document is usable; the API's
+      // restrictive default still applies to every other endpoint.
+      res.setHeader(
+        "Content-Security-Policy",
+        "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+      );
       res.send(html);
     } catch (err) {
       if (err instanceof Error && err.message === "Prescription not found") {
@@ -447,9 +457,13 @@ router.post(
       const { channel } = req.body as { channel: string };
       const existing = await prisma.prescription.findUnique({
         where: { id: req.params.id },
-        select: {
-          sharedVia: true,
-          patientId: true,
+        include: {
+          patient: {
+            include: { user: { select: { name: true, email: true, phone: true } } },
+          },
+          doctor: {
+            include: { user: { select: { name: true } } },
+          },
         },
       });
       if (!existing) {
@@ -463,10 +477,78 @@ router.post(
 
       // Issue #242 + #511 audit: PATIENT may only share their own
       // prescription; staff already cleared the authorize() gate above.
-      // Refactored from the previous hand-rolled `userId` comparison onto
-      // the canonical helper for drift-free behaviour with the rest of the
-      // BOLA sweep.
       if (!(await assertPatientOwnsResource(req, res, existing.patientId))) return;
+
+      // Real delivery: only EMAIL is wired in this PR (SendGrid). WhatsApp/SMS
+      // are deliberately rejected with 501 — recording a "Shared via WHATSAPP"
+      // row when nothing was actually sent would be a clinical-truth bug
+      // (reception sees green toast + Rx.sharedVia=WHATSAPP, patient gets
+      // nothing). Wire them in a follow-up PR when Meta Cloud API / SMS
+      // gateway credentials are available.
+      if (channel !== "EMAIL") {
+        res.status(501).json({
+          success: false,
+          data: null,
+          error: `${channel} delivery is not yet available. Please use EMAIL.`,
+        });
+        return;
+      }
+
+      const recipient = existing.patient.user.email;
+      if (!recipient) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Patient has no email on file. Add one to the patient record before sharing.",
+        });
+        return;
+      }
+      // Same fallback as the QR-generation sites in pdf.ts / pdf-generator.ts
+      // — keep them in lockstep so that on a live host where PUBLIC_APP_URL
+      // is unset, the QR and the email link both point at the prod domain
+      // rather than diverging (QR → prod, email → localhost).
+      const verifyBase = (process.env.PUBLIC_APP_URL || "https://medcore.globusdemos.com").replace(/\/$/, "");
+      const verifyUrl = `${verifyBase}/verify/rx/${existing.id}`;
+      const patientName = existing.patient.user.name;
+      const doctorName = existing.doctor.user.name;
+
+      const result = await sendEmail({
+        to: recipient,
+        subject: `Your prescription from Dr. ${doctorName}`,
+        html: `
+          <div style="font-family:Segoe UI,Tahoma,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a;">
+            <h2 style="color:#4f46e5;margin:0 0 12px;">Your Prescription is Ready</h2>
+            <p>Hi ${escapeText(patientName)},</p>
+            <p>Dr. ${escapeText(doctorName)} has issued your prescription. You can view, download, and verify it via the secure link below.</p>
+            <p style="margin:24px 0;">
+              <a href="${verifyUrl}" style="background:#4f46e5;color:#fff;padding:12px 22px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block;">View Prescription</a>
+            </p>
+            <p style="font-size:12px;color:#64748b;margin-top:24px;">
+              This is an authentic prescription. The link includes a verifiable signature and is unique to you.
+            </p>
+            <p style="font-size:12px;color:#94a3b8;word-break:break-all;">
+              If the button does not work, copy this URL: ${escapeText(verifyUrl)}
+            </p>
+          </div>
+        `,
+      });
+
+      if (!result.ok) {
+        // Compliance: failed share attempts must still be auditable. Without
+        // this row a reviewer / regulator cannot tell whether a prescription
+        // was attempted-and-failed or never attempted at all.
+        auditLog(req, "PRESCRIPTION_SHARE_FAILED", "prescription", existing.id, {
+          channel,
+          error: result.error,
+        }).catch(console.error);
+        res.status(502).json({
+          success: false,
+          data: null,
+          error: `Email delivery failed: ${result.error}`,
+        });
+        return;
+      }
+
       const channels = new Set(
         (existing.sharedVia ?? "")
           .split(",")
@@ -481,8 +563,6 @@ router.post(
           sharedAt: new Date(),
         },
       });
-      // fire-and-forget: log to console (stub)
-      console.log(`[share-rx] Prescription ${updated.id} shared via ${channel}`);
       auditLog(req, "PRESCRIPTION_SHARE", "prescription", updated.id, {
         channel,
       }).catch(console.error);
@@ -492,6 +572,19 @@ router.post(
     }
   }
 );
+
+// Local helper: escape user-controlled strings before interpolating into
+// HTML email body (defense-in-depth — patient name is already validated
+// against PATIENT_NAME_REGEX upstream, but we render this in a third-party
+// inbox and CSP doesn't apply, so don't trust upstream alone).
+function escapeText(s: string): string {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 // POST /api/v1/prescriptions/copy-from-previous — copy items from a previous prescription
 router.post(

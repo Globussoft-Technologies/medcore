@@ -6,7 +6,17 @@ const { sendNotification, prismaMock } = vi.hoisted(() => {
     appointment: { findMany: vi.fn(async () => []) },
     invoice: { findMany: vi.fn(async () => []) },
     patient: { findMany: vi.fn(async () => []) },
-    bloodUnit: { findMany: vi.fn(async () => []) },
+    bloodUnit: {
+      findMany: vi.fn(async () => []),
+      updateMany: vi.fn(async () => ({ count: 0 })),
+    },
+    // Issue #734: scheduler also runs `auto_checkout_stale_visitors`, which
+    // queries the visitor delegate and updates rows. Stub both so the tick
+    // doesn't surface a "Cannot read properties of undefined" stderr.
+    visitor: {
+      findMany: vi.fn(async () => []),
+      update: vi.fn(async (args: any) => ({ id: "v-1", ...args.data })),
+    },
     user: { findMany: vi.fn(async () => []) },
     staffShift: { findMany: vi.fn(async () => []) },
     inventoryItem: { findMany: vi.fn(async () => []) },
@@ -73,6 +83,8 @@ describe("scheduled-tasks scheduler", () => {
     prismaMock.invoice.findMany.mockResolvedValue([]);
     prismaMock.patient.findMany.mockResolvedValue([]);
     prismaMock.bloodUnit.findMany.mockResolvedValue([]);
+    prismaMock.bloodUnit.updateMany.mockResolvedValue({ count: 0 });
+    prismaMock.visitor.findMany.mockResolvedValue([]);
     prismaMock.user.findMany.mockResolvedValue([]);
     prismaMock.staffShift.findMany.mockResolvedValue([]);
     prismaMock.inventoryItem.findMany.mockResolvedValue([]);

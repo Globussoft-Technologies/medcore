@@ -696,6 +696,144 @@ async function autoAssignOverdueComplaintsTask(): Promise<void> {
   }
 }
 
+// ─── Auto-flag expired blood units (Issue #737) ────────
+//
+// Even though /match and /inventory filter expired rows out of the runtime
+// query, the inventory-page count column reads the raw `status` column. So
+// an expired unit whose `status` is still `AVAILABLE` inflates the
+// "Available" count and stays orphaned in the table. This task transitions
+// any `AVAILABLE` unit whose `expiresAt < now` to `EXPIRED`, emits a single
+// audit row per batch, and is safe to re-run (idempotent — a second pass
+// finds zero AVAILABLE+expired rows). Runs daily at 1am host time.
+//
+// NOTE: this is purely a status-cleanup pass. The transfusion-safety guard
+// is the per-request expiry check inside the `/issue` handler — this cron
+// just keeps the inventory dashboard honest.
+export async function autoFlagExpiredBloodUnits(now: Date = new Date()): Promise<{
+  flagged: number;
+  ids: string[];
+}> {
+  const stale = await prisma.bloodUnit.findMany({
+    where: { status: "AVAILABLE", expiresAt: { lt: now } },
+    select: { id: true, unitNumber: true },
+    take: 500,
+  });
+  if (stale.length === 0) return { flagged: 0, ids: [] };
+  await prisma.bloodUnit.updateMany({
+    where: { id: { in: stale.map((u) => u.id) } },
+    data: { status: "EXPIRED" },
+  });
+  try {
+    await prisma.auditLog.create({
+      data: {
+        action: "BLOOD_UNIT_AUTO_EXPIRED",
+        entity: "blood_unit",
+        entityId: "batch",
+        details: {
+          count: stale.length,
+          unitNumbers: stale.map((u) => u.unitNumber),
+        } as any,
+      } as any,
+    });
+  } catch (err) {
+    console.error("[auto_flag_expired_blood_units] audit", err);
+  }
+  return { flagged: stale.length, ids: stale.map((u) => u.id) };
+}
+
+async function autoFlagExpiredBloodUnitsTask(): Promise<void> {
+  try {
+    const result = await autoFlagExpiredBloodUnits();
+    if (result.flagged > 0) {
+      console.log(
+        `[auto_flag_expired_blood_units] flagged ${result.flagged} expired units`
+      );
+    }
+  } catch (err) {
+    console.error("[auto_flag_expired_blood_units]", err);
+  }
+}
+
+// ─── Auto-checkout zombie visitors (Issue #734) ────────
+//
+// An ACTIVE visitor (checkOutAt = null) sitting >12h past their checkInAt
+// is a data anomaly — receptionist almost certainly forgot to scan them
+// out, but the dashboard "Currently Inside" count shows them as live which
+// hurts emergency-evacuation accuracy and seat-count analytics. This task
+// runs every 30 min, picks up any ACTIVE row older than the configured
+// ceiling (default 12h, override via env `MAX_VISIT_DURATION_HOURS`), sets
+// `checkOutAt = now` and appends a marker to `notes` so a human reviewer
+// can tell it was an auto-close, and emits an audit row per batch.
+const MAX_VISIT_DURATION_HOURS_DEFAULT = 12;
+
+export async function autoCheckoutStaleVisitors(now: Date = new Date()): Promise<{
+  checkedOut: number;
+  ids: string[];
+}> {
+  const ceilingHours = (() => {
+    const raw = process.env.MAX_VISIT_DURATION_HOURS;
+    if (!raw) return MAX_VISIT_DURATION_HOURS_DEFAULT;
+    const parsed = parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0
+      ? parsed
+      : MAX_VISIT_DURATION_HOURS_DEFAULT;
+  })();
+  const cutoff = new Date(now.getTime() - ceilingHours * 60 * 60 * 1000);
+  const stale = await prisma.visitor.findMany({
+    where: { checkOutAt: null, checkInAt: { lt: cutoff } },
+    select: { id: true, passNumber: true, notes: true },
+    take: 500,
+  });
+  if (stale.length === 0) return { checkedOut: 0, ids: [] };
+  const marker = `Auto-checked-out: ${ceilingHours}h limit`;
+  for (const v of stale) {
+    try {
+      await prisma.visitor.update({
+        where: { id: v.id },
+        data: {
+          checkOutAt: now,
+          notes: v.notes ? `${v.notes}\n${marker}` : marker,
+        },
+      });
+    } catch (err) {
+      console.error("[auto_checkout_stale_visitors] update", v.id, err);
+    }
+  }
+  try {
+    await prisma.auditLog.create({
+      data: {
+        action: "VISITOR_AUTO_CHECK_OUT",
+        entity: "visitor",
+        entityId: "batch",
+        details: {
+          count: stale.length,
+          passNumbers: stale.map((v) => v.passNumber),
+          ceilingHours,
+        } as any,
+      } as any,
+    });
+  } catch (err) {
+    console.error("[auto_checkout_stale_visitors] audit", err);
+  }
+  return {
+    checkedOut: stale.length,
+    ids: stale.map((v) => v.id),
+  };
+}
+
+async function autoCheckoutStaleVisitorsTask(): Promise<void> {
+  try {
+    const result = await autoCheckoutStaleVisitors();
+    if (result.checkedOut > 0) {
+      console.log(
+        `[auto_checkout_stale_visitors] auto-checked-out ${result.checkedOut} zombie visitor(s)`
+      );
+    }
+  } catch (err) {
+    console.error("[auto_checkout_stale_visitors]", err);
+  }
+}
+
 // ─── Drain queued (deferred) notifications ─────────────
 
 async function notificationDrainQueued(): Promise<void> {
@@ -819,6 +957,24 @@ const TASKS: ScheduledTask[] = [
     name: "auto_noshow_elapsed_booked",
     intervalMinutes: 30,
     run: autoNoShowElapsedBookedTask,
+  },
+  // Issue #737 — daily 1am host time. Flips AVAILABLE blood units whose
+  // `expiresAt` is already in the past to status=EXPIRED so the inventory
+  // dashboard count reflects reality without runtime filtering.
+  {
+    name: "auto_flag_expired_blood_units",
+    intervalMinutes: 24 * 60,
+    runAtHour: 1,
+    run: autoFlagExpiredBloodUnitsTask,
+  },
+  // Issue #734 — every 30 min. Auto-closes ACTIVE visitor rows whose
+  // checkInAt is >MAX_VISIT_DURATION_HOURS (default 12h) ago. Receptionist
+  // almost certainly forgot to scan them out; the audit trail records the
+  // auto-checkout so a human can correct if needed.
+  {
+    name: "auto_checkout_stale_visitors",
+    intervalMinutes: 30,
+    run: autoCheckoutStaleVisitorsTask,
   },
 ];
 

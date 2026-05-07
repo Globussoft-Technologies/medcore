@@ -204,7 +204,15 @@ async function resolveEntityLabels(
   return out;
 }
 
-/** Look up the resolved label for a single (entity, entityId) pair. */
+/** Look up the resolved label for a single (entity, entityId) pair.
+ *
+ * Issue #318 (May 2026): when the referenced entity has been deleted (or
+ * we have no resolver for the entity type) we fall back to a 12-char
+ * abbreviation prefixed with the entity name so the audit table still
+ * surfaces something a human can scan, rather than the raw 36-char
+ * UUID. The full UUID stays available on the row's `entityId` field
+ * for forensic deep-dives. Format: `Patient: a1b2c3d4-e5f6` (entity
+ * name + 12 leading chars of the UUID's hex). */
 function labelFor(
   entity: string | null,
   entityId: string | null,
@@ -212,7 +220,18 @@ function labelFor(
 ): string | null {
   if (!entity || !entityId) return null;
   const key = String(entity).toLowerCase().replace(/_/g, "");
-  return labels.get(`${key}:${entityId}`) ?? null;
+  const resolved = labels.get(`${key}:${entityId}`);
+  if (resolved) return resolved;
+  // Best-effort fallback: title-case entity + first 12 chars of UUID.
+  const titled =
+    String(entity).charAt(0).toUpperCase() +
+    String(entity).slice(1).toLowerCase();
+  // Abbreviation is the first 12 hex chars (8-4 grouping of a UUID).
+  const abbrev =
+    entityId.length > 13
+      ? `${entityId.slice(0, 8)}-${entityId.slice(9, 13)}`
+      : entityId;
+  return `${titled}: ${abbrev}`;
 }
 
 /**
@@ -227,6 +246,68 @@ class InvertedDateRangeError extends Error {
   constructor() {
     super("from must be on or before to");
   }
+}
+
+/**
+ * Issue #336 (May 2026): the audit log was rendering duplicate rows for
+ * the same (action, entity, entityId, userId) tuple within a few seconds
+ * of each other — most commonly when a route called both an awaited
+ * `auditLog(...)` and a fire-and-forget `safeAudit(...)` for the same
+ * event, or when a retry loop wrote the same row N times before the
+ * upstream call settled. The write-side fix (CLAUDE.md gotcha #1) covers
+ * new traffic, but historical rows are immutable and would keep
+ * cluttering compliance reviews. We dedupe at QUERY time: rows in the
+ * same 5-second bucket with the same (action, entity, entityId, userId)
+ * collapse to the earliest by createdAt. Returns the kept rows in the
+ * caller's existing sort order.
+ */
+const DEDUP_WINDOW_MS = 5_000;
+
+function dedupAuditRows<
+  T extends {
+    id: string;
+    action: string;
+    entity: string | null;
+    entityId: string | null;
+    userId: string | null;
+    createdAt: Date;
+  }
+>(rows: T[]): T[] {
+  // Group by (action, entity, entityId, userId), then within each group
+  // keep the earliest row in any 5-second window. Anything outside that
+  // window starts a new bucket so genuinely-recurring activity (e.g. a
+  // user paging through patients 30s apart) is preserved.
+  const groups = new Map<string, T[]>();
+  for (const r of rows) {
+    const key = `${r.action}|${r.entity ?? ""}|${r.entityId ?? ""}|${r.userId ?? ""}`;
+    const arr = groups.get(key) ?? [];
+    arr.push(r);
+    groups.set(key, arr);
+  }
+  const keep = new Set<string>();
+  for (const arr of groups.values()) {
+    if (arr.length <= 1) {
+      keep.add(arr[0].id);
+      continue;
+    }
+    // Sort ascending by createdAt; walk and start a new window each time
+    // the gap exceeds DEDUP_WINDOW_MS.
+    const asc = [...arr].sort(
+      (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
+    );
+    let windowStart = asc[0];
+    keep.add(windowStart.id);
+    for (let i = 1; i < asc.length; i++) {
+      const gap = asc[i].createdAt.getTime() - windowStart.createdAt.getTime();
+      if (gap > DEDUP_WINDOW_MS) {
+        windowStart = asc[i];
+        keep.add(windowStart.id);
+      }
+      // else: within the same 5-second window, drop.
+    }
+  }
+  // Preserve caller's order while filtering to the kept set.
+  return rows.filter((r) => keep.has(r.id));
 }
 
 function buildAuditWhere(req: Request): Record<string, unknown> {
@@ -318,9 +399,16 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
       tenantScopedPrisma.auditLog.count({ where: where as any }),
     ]);
 
+    // Issue #336: collapse near-duplicate rows (same action+entity+
+    // entityId+userId within 5s) to the earliest. Done in-memory on
+    // the page slice so paging math stays consistent — the alternative
+    // (DISTINCT ON in SQL) would also need a window function and
+    // cross-DB compatibility (sqlite for tests).
+    const dedupedLogs = dedupAuditRows(logs);
+
     // Enrich with user info
     const userIds = Array.from(
-      new Set(logs.map((l) => l.userId).filter((v): v is string => !!v))
+      new Set(dedupedLogs.map((l) => l.userId).filter((v): v is string => !!v))
     );
     const users = userIds.length
       ? await prisma.user.findMany({
@@ -331,9 +419,9 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
     const userMap = new Map(users.map((u) => [u.id, u]));
 
     // Issue #192: resolve entityId UUIDs to human-readable labels per row.
-    const labels = await resolveEntityLabels(logs);
+    const labels = await resolveEntityLabels(dedupedLogs);
 
-    const data = logs.map((l) => ({
+    const data = dedupedLogs.map((l) => ({
       id: l.id,
       timestamp: l.createdAt.toISOString(),
       userId: l.userId,
@@ -415,8 +503,12 @@ router.get(
           return hay.includes(term.toLowerCase());
         });
 
-        const total = filtered.length;
-        const slice = filtered.slice(skip, skip + take);
+        // Issue #336: dedup near-duplicate rows before paging the
+        // full-text result set so the count meta also reflects the
+        // collapsed view.
+        const deduped = dedupAuditRows(filtered);
+        const total = deduped.length;
+        const slice = deduped.slice(skip, skip + take);
 
         const userIds = Array.from(
           new Set(slice.map((l) => l.userId).filter((v): v is string => !!v))
@@ -475,8 +567,12 @@ router.get(
         tenantScopedPrisma.auditLog.count({ where: where as any }),
       ]);
 
+      // Issue #336: dedup near-duplicate rows (same action+entity+
+      // entityId+userId within 5s) to keep parity with GET /audit.
+      const dedupedLogs = dedupAuditRows(logs);
+
       const userIds = Array.from(
-        new Set(logs.map((l) => l.userId).filter((v): v is string => !!v))
+        new Set(dedupedLogs.map((l) => l.userId).filter((v): v is string => !!v))
       );
       const users = userIds.length
         ? await prisma.user.findMany({
@@ -487,9 +583,9 @@ router.get(
       const userMap = new Map(users.map((u) => [u.id, u]));
 
       // Issue #192: enrich the no-term branch too.
-      const labels = await resolveEntityLabels(logs);
+      const labels = await resolveEntityLabels(dedupedLogs);
 
-      const data = logs.map((l) => ({
+      const data = dedupedLogs.map((l) => ({
         id: l.id,
         timestamp: l.createdAt.toISOString(),
         userId: l.userId,

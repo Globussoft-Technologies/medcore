@@ -16,6 +16,11 @@ import { topLineError } from "@/lib/field-errors";
 // formatDate helper so a `null` / undefined / unparseable value renders as
 // "—" instead of "Invalid Date → Invalid Date".
 import { formatDate } from "@/lib/format";
+// Issue #534: scrub RFC1918 / loopback IPs from the error-breakdown
+// table so the Admin Console doesn't leak internal-network topology to
+// users who may not have full SRE clearance. Public IPs (real bot
+// traffic) still render verbatim — we only redact private space.
+import { scrubInternalIp } from "@/lib/scrub-ip";
 import {
   Activity,
   AlertTriangle,
@@ -514,7 +519,11 @@ export default function AdminConsolePage() {
                         <td className="p-2 font-mono text-[11px]">
                           {row.topIp ? (
                             <>
-                              {row.topIp}
+                              {/* Issue #534: scrub RFC1918 / loopback IPs
+                                  here so we never render an internal
+                                  topology breadcrumb. Public IPs flow
+                                  through unchanged. */}
+                              {scrubInternalIp(row.topIp)}
                               {/* a11y: text-gray-500 on white = 4.59:1 (passes
                                   4.5:1 normal-text). text-gray-400 (#9ca3af)
                                   on white was 2.84:1 — below WCAG AA — so the

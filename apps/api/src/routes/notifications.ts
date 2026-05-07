@@ -434,6 +434,24 @@ router.post(
 );
 
 // GET /api/v1/notifications/broadcasts
+//
+// Issue #697 (May 2026): the broadcast history table was rendering
+// implausibly high `sentCount` values (e.g. "Delivered: 240" for a
+// 12-staff hospital). Root cause: pre-#750 the broadcast handler
+// inserted ONE Notification row per (user × channel) pair, so a 4-
+// channel broadcast to 60 users wrote 240 rows even though only 60
+// recipients ever saw the message. The old `sentCount` stamped on the
+// broadcast row at write-time reflected that inflated row count. The
+// schema-level dedupKey introduced in #750 prevents new dups, but
+// historical broadcast rows still carry the wrong number. Rather than
+// running a one-time migration to back-fill `sentCount`, we recompute
+// the value on READ using `groupBy({ by: ['userId'] })` against the
+// Notification table — this collapses any historical dup rows (same
+// broadcastId + userId across multiple channels) onto a single
+// recipient count. Failed count is similarly recomputed as DISTINCT
+// recipients whose latest delivery state is FAILED. New broadcasts
+// converge to the same value because they only ever insert one row
+// per recipient.
 router.get(
   "/broadcasts",
   authorize(Role.ADMIN),
@@ -443,7 +461,78 @@ router.get(
         orderBy: { createdAt: "desc" },
         take: 50,
       });
-      res.json({ success: true, data: list, error: null });
+
+      const ids = list.map((b) => b.id);
+      // groupBy gives us one row per (broadcastId, userId) tuple, which
+      // we then count in-memory by broadcastId. This is the DISTINCT-
+      // recipient count regardless of how many rows the historical
+      // (broadcastId, userId) pair produced.
+      const recipientGroups = ids.length
+        ? await prisma.notification.groupBy({
+            by: ["broadcastId", "userId"],
+            where: { broadcastId: { in: ids } },
+          })
+        : [];
+      const sentByBroadcast = new Map<string, number>();
+      for (const g of recipientGroups) {
+        if (!g.broadcastId) continue;
+        sentByBroadcast.set(
+          g.broadcastId,
+          (sentByBroadcast.get(g.broadcastId) ?? 0) + 1
+        );
+      }
+      // Failed count: DISTINCT recipients whose row(s) are all FAILED.
+      // We err on the side of "any successful delivery to a user means
+      // they received the broadcast" — a user with one SENT + one FAILED
+      // row counts as delivered, not failed.
+      const failedRows = ids.length
+        ? await prisma.notification.findMany({
+            where: {
+              broadcastId: { in: ids },
+              deliveryStatus: "FAILED",
+            },
+            select: { broadcastId: true, userId: true },
+          })
+        : [];
+      const successRows = ids.length
+        ? await prisma.notification.findMany({
+            where: {
+              broadcastId: { in: ids },
+              deliveryStatus: { not: "FAILED" },
+            },
+            select: { broadcastId: true, userId: true },
+          })
+        : [];
+      const successKey = new Set(
+        successRows.map((r) => `${r.broadcastId}:${r.userId}`)
+      );
+      const failedByBroadcast = new Map<string, Set<string>>();
+      for (const r of failedRows) {
+        if (!r.broadcastId) continue;
+        // Skip if this user has any non-failed row for the broadcast.
+        if (successKey.has(`${r.broadcastId}:${r.userId}`)) continue;
+        const set =
+          failedByBroadcast.get(r.broadcastId) ?? new Set<string>();
+        set.add(r.userId);
+        failedByBroadcast.set(r.broadcastId, set);
+      }
+
+      const data = list.map((b) => {
+        const recomputedSent = sentByBroadcast.get(b.id);
+        const recomputedFailed = failedByBroadcast.get(b.id)?.size ?? 0;
+        return {
+          ...b,
+          // Prefer the recomputed value when at least one Notification
+          // row exists for this broadcast; otherwise fall back to the
+          // stamped count (legacy rows w/o broadcastId back-ref).
+          sentCount:
+            recomputedSent !== undefined ? recomputedSent : b.sentCount,
+          failedCount:
+            recomputedSent !== undefined ? recomputedFailed : b.failedCount,
+        };
+      });
+
+      res.json({ success: true, data, error: null });
     } catch (err) {
       next(err);
     }

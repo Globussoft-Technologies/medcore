@@ -124,16 +124,60 @@ export const createEmergencyCaseSchema = z
     }
   });
 
+// Issue #740: ER triage previously accepted physiologically impossible vitals
+// (SpO₂ = 200 %, HR = 0, Temp = 60 °C, BP = 0/0). Garbage like that not only
+// corrupted the chart, it ALSO triggered downstream alerting (e.g. the
+// "SpO₂ > 100 — critical" rule was silently firing on the bogus 200 %
+// rows). Pin every numeric vital to a clinically-plausible range here; the
+// BP free-text field gets a separate refine that parses "systolic/diastolic"
+// and bounds each leg.
+const BP_PATTERN = /^\s*(\d{1,3})\s*\/\s*(\d{1,3})\s*$/;
 export const triageSchema = z.object({
   caseId: z.string().uuid(),
   triageLevel: z.enum(TRIAGE_LEVELS),
   // Issue #424: vitalsBP is the only free-text field on the triage form
   // (e.g. "130/80"); reject HTML/script payloads.
-  vitalsBP: noHtmlOrScript("Blood pressure").optional(),
-  vitalsPulse: z.number().int().optional(),
-  vitalsResp: z.number().int().optional(),
-  vitalsSpO2: z.number().int().optional(),
-  vitalsTemp: z.number().optional(),
+  // Issue #740: ALSO reject physiologically impossible BP (0/0, 999/999).
+  // Plausible bounds: systolic 50-260 mmHg, diastolic 20-180 mmHg.
+  vitalsBP: noHtmlOrScript("Blood pressure")
+    .refine(
+      (v) => {
+        if (!v) return true;
+        const m = v.match(BP_PATTERN);
+        if (!m) return true; // shape errors handled elsewhere; only validate ranges when shape parses
+        const sys = Number(m[1]);
+        const dia = Number(m[2]);
+        return sys >= 50 && sys <= 260 && dia >= 20 && dia <= 180;
+      },
+      {
+        message:
+          "Blood pressure is outside the plausible range (systolic 50–260, diastolic 20–180 mmHg)",
+      }
+    )
+    .optional(),
+  vitalsPulse: z
+    .number()
+    .int()
+    .min(30, "Heart rate must be between 30 and 250 bpm")
+    .max(250, "Heart rate must be between 30 and 250 bpm")
+    .optional(),
+  vitalsResp: z
+    .number()
+    .int()
+    .min(4, "Respiratory rate must be between 4 and 60 breaths/min")
+    .max(60, "Respiratory rate must be between 4 and 60 breaths/min")
+    .optional(),
+  vitalsSpO2: z
+    .number()
+    .int()
+    .min(50, "SpO₂ must be between 50 and 100 %")
+    .max(100, "SpO₂ must be between 50 and 100 %")
+    .optional(),
+  vitalsTemp: z
+    .number()
+    .min(32, "Temperature must be between 32 and 43 °C")
+    .max(43, "Temperature must be between 32 and 43 °C")
+    .optional(),
   glasgowComa: z.number().int().min(3).max(15).optional(),
   mewsScore: z.number().int().min(0).max(14).optional(),
 });

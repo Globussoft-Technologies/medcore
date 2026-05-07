@@ -1,12 +1,19 @@
 import { z } from "zod";
 
 // ─── Health Packages ───────────────────────────────────
+// Issue #730: previously the API accepted negative prices because the form
+// posted them through unchecked. `price` and `discountPrice` are amounts in
+// rupees; both must be strictly greater than zero. Validity days too — a
+// 0-day "valid" package is meaningless.
 export const createPackageSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
   services: z.string().min(1, "Services are required"),
-  price: z.number().positive("Price must be positive"),
-  discountPrice: z.number().positive().optional(),
+  price: z.number().positive("Price must be greater than 0"),
+  discountPrice: z
+    .number()
+    .positive("Discount price must be greater than 0")
+    .optional(),
   validityDays: z.number().int().positive().default(365),
   category: z.string().optional(),
   maxFamilyMembers: z.number().int().min(1).default(1).optional(),
@@ -585,12 +592,18 @@ export const installmentPaymentSchema = z.object({
 });
 
 // ─── Pre-Authorization ─────────────────────────────────
+// Issue #729: pre-auth `estimatedCost` was previously left at the bare
+// `.positive()` default, which produced "Number must be greater than 0" — a
+// generic message that didn't read as an estimated-cost validation in the
+// FE toast. Pin a clear, user-facing message and keep the strict > 0 floor
+// so that zero / negative values (which would corrupt downstream insurance
+// claim batches) cannot be persisted.
 export const preAuthRequestSchema = z.object({
   patientId: z.string().uuid(),
   insuranceProvider: z.string().min(1),
   policyNumber: z.string().min(1),
   procedureName: z.string().min(1),
-  estimatedCost: z.number().positive(),
+  estimatedCost: z.number().positive("Estimated cost must be greater than 0"),
   diagnosis: z.string().optional(),
   supportingDocs: z.array(z.string()).optional(),
   notes: z.string().optional(),

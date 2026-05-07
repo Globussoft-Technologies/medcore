@@ -117,6 +117,67 @@ describe("triageSchema", () => {
   it("rejects mewsScore > 14", () => {
     expect(triageSchema.safeParse({ ...valid, mewsScore: 30 }).success).toBe(false);
   });
+
+  // Issue #740: physiologically-impossible vitals previously slipped past
+  // the schema and triggered downstream alerting on the bogus rows.
+  // Each numeric vital is now bounded to a clinically-plausible range.
+  it("accepts plausible vitals (HR 80, SpO2 97, Temp 37, RR 16)", () => {
+    expect(
+      triageSchema.safeParse({
+        ...valid,
+        vitalsPulse: 80,
+        vitalsSpO2: 97,
+        vitalsTemp: 37,
+        vitalsResp: 16,
+        vitalsBP: "120/80",
+      }).success
+    ).toBe(true);
+  });
+  it("rejects SpO2 = 200 (#740)", () => {
+    expect(
+      triageSchema.safeParse({ ...valid, vitalsSpO2: 200 }).success
+    ).toBe(false);
+  });
+  it("rejects SpO2 = 49 (below survival floor) (#740)", () => {
+    expect(
+      triageSchema.safeParse({ ...valid, vitalsSpO2: 49 }).success
+    ).toBe(false);
+  });
+  it("rejects heart rate = 0 (#740)", () => {
+    expect(
+      triageSchema.safeParse({ ...valid, vitalsPulse: 0 }).success
+    ).toBe(false);
+  });
+  it("rejects heart rate = 300 (#740)", () => {
+    expect(
+      triageSchema.safeParse({ ...valid, vitalsPulse: 300 }).success
+    ).toBe(false);
+  });
+  it("rejects temperature = 60 °C (#740)", () => {
+    expect(
+      triageSchema.safeParse({ ...valid, vitalsTemp: 60 }).success
+    ).toBe(false);
+  });
+  it("rejects temperature = 25 °C (#740)", () => {
+    expect(
+      triageSchema.safeParse({ ...valid, vitalsTemp: 25 }).success
+    ).toBe(false);
+  });
+  it("rejects respiratory rate = 0 (#740)", () => {
+    expect(
+      triageSchema.safeParse({ ...valid, vitalsResp: 0 }).success
+    ).toBe(false);
+  });
+  it("rejects BP = 0/0 (#740)", () => {
+    expect(
+      triageSchema.safeParse({ ...valid, vitalsBP: "0/0" }).success
+    ).toBe(false);
+  });
+  it("rejects BP = 999/999 (#740)", () => {
+    expect(
+      triageSchema.safeParse({ ...valid, vitalsBP: "999/999" }).success
+    ).toBe(false);
+  });
 });
 
 describe("assignEmergencyDoctorSchema", () => {

@@ -84,6 +84,28 @@ describeIfDB("Preauth API (integration)", () => {
     expect(res.status).toBe(400);
   });
 
+  // Issue #729: estimatedCost must be > 0; previously the API silently
+  // accepted negative + zero values, polluting the claims pipeline. The
+  // schema-level message is asserted so a regression to the bare `.positive()`
+  // default ("Number must be greater than 0") would be visible.
+  it("rejects negative estimatedCost with a clear message (#729 — Issue B14)", async () => {
+    const patient = await createPatientFixture();
+    const res = await submitRequest(patient.id, { estimatedCost: -1000 });
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).toMatch(
+      /Estimated cost must be greater than 0/i
+    );
+  });
+
+  it("rejects zero estimatedCost (#729 — Issue B14)", async () => {
+    const patient = await createPatientFixture();
+    const res = await submitRequest(patient.id, { estimatedCost: 0 });
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).toMatch(
+      /Estimated cost must be greater than 0/i
+    );
+  });
+
   it("rejects POST from DOCTOR (403)", async () => {
     const patient = await createPatientFixture();
     const res = await request(app)

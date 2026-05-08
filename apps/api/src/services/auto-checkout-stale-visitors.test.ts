@@ -138,4 +138,57 @@ describe("autoCheckoutStaleVisitors — Issue #734", () => {
       "Brought medical records\nAuto-checked-out: 12h limit"
     );
   });
+
+  // Issue #761 regression — the production bug surfaced 27.4-day-old
+  // ACTIVE rows that should have been auto-closed on the very next
+  // scheduler tick after the cron was deployed. The existing 13h test
+  // proves the cutoff arithmetic is right at the boundary; this one
+  // proves the worst-case pile of multi-week rows reported in the
+  // issue (Visitor 3 / Visitor 5 / 35371m elapsed) is also picked up
+  // in a single batch.
+  it("picks up a multi-week-old (27-day) ACTIVE visitor — issue #761 production shape", async () => {
+    const now = new Date("2026-05-08T12:00:00.000Z");
+    const twentySevenDaysAgo = new Date(
+      now.getTime() - 27 * 24 * 60 * 60 * 1000
+    );
+
+    prismaMock.visitor.findMany.mockResolvedValueOnce([
+      {
+        id: "v-stale-27d",
+        passNumber: "VIS000004-20260414",
+        notes: null,
+      },
+      {
+        id: "v-stale-25d",
+        passNumber: "VIS000005-20260413",
+        notes: null,
+      },
+    ]);
+    prismaMock.visitor.update.mockResolvedValue({});
+    prismaMock.auditLog.create.mockResolvedValueOnce({ id: "al-1" });
+
+    const result = await autoCheckoutStaleVisitors(now);
+
+    expect(result.checkedOut).toBe(2);
+    expect(result.ids).toEqual(["v-stale-27d", "v-stale-25d"]);
+
+    // The 27-day-old visitor is FAR past the 12h cutoff — the
+    // `lt: cutoff` clause must see it as stale.
+    const findManyArgs = prismaMock.visitor.findMany.mock.calls[0][0];
+    const cutoff: Date = findManyArgs.where.checkInAt.lt;
+    expect(twentySevenDaysAgo.getTime()).toBeLessThan(cutoff.getTime());
+
+    // Both rows updated in the same tick (no batch-size cap interferes
+    // with the demo-prod cleanup once the cron runs).
+    expect(prismaMock.visitor.update).toHaveBeenCalledTimes(2);
+
+    // Single batch audit row covers both.
+    expect(prismaMock.auditLog.create).toHaveBeenCalledTimes(1);
+    const auditArgs = prismaMock.auditLog.create.mock.calls[0][0];
+    expect(auditArgs.data.details.count).toBe(2);
+    expect(auditArgs.data.details.passNumbers).toEqual([
+      "VIS000004-20260414",
+      "VIS000005-20260413",
+    ]);
+  });
 });

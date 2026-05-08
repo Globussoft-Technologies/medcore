@@ -7,6 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NotificationChannel, NotificationType } from "@medcore/shared";
+import { NotificationType as PrismaNotificationType } from "@prisma/client";
 
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
@@ -19,6 +20,7 @@ const { prismaMock } = vi.hoisted(() => ({
       findUnique: vi.fn(),
       findMany: vi.fn(),
     },
+    auditLog: { create: vi.fn(async () => ({ id: "al-1" })) },
   },
 }));
 
@@ -46,6 +48,7 @@ function resetMocks() {
     email: "u1@example.com",
     phone: "+911111111111",
     name: "Test User",
+    role: "PATIENT",
   });
   prismaMock.notificationSchedule.findUnique.mockResolvedValue(null);
   prismaMock.notification.create.mockImplementation(async (args: any) => ({
@@ -164,5 +167,117 @@ describe("sendNotification — channel preferences (issue #180)", () => {
     await sendNotification(baseParams);
 
     expect(prismaMock.notification.create).toHaveBeenCalledTimes(4);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// Issue #759 — patient-copy notification types must NEVER reach a
+// non-PATIENT inbox. The seed code was already audience-tagged by
+// #272, but a runtime sendNotification() call with a patient-only
+// type and a staff userId is a routing bug. The dispatcher rejects
+// the send (no row, no channel dispatch) and emits an audit row.
+// ─────────────────────────────────────────────────────────────────
+describe("sendNotification — patient-copy audience guard (issue #759)", () => {
+  beforeEach(() => {
+    resetMocks();
+    prismaMock.auditLog.create.mockReset();
+    prismaMock.auditLog.create.mockResolvedValue({ id: "al-1" });
+  });
+
+  it("rejects DISCHARGE notifications addressed to a RECEPTION user", async () => {
+    prismaMock.user.findUnique.mockResolvedValueOnce({
+      id: "u-reception",
+      email: "rec@test.local",
+      phone: "+910000000000",
+      name: "Reception Staff",
+      role: "RECEPTION",
+    });
+
+    await sendNotification({
+      userId: "u-reception",
+      type: PrismaNotificationType.DISCHARGE as any,
+      title: "Discharge Summary",
+      message: "Your discharge has been processed. Summary available in the app.",
+    });
+
+    // Critical assertion: zero notification rows written for a misrouted
+    // patient-copy send.
+    expect(prismaMock.notification.create).not.toHaveBeenCalled();
+    // And we don't even read the user's channel preferences when the
+    // audience gate fails — short-circuit before the prefs lookup.
+    expect(prismaMock.notificationPreference.findMany).not.toHaveBeenCalled();
+
+    // An audit row must be emitted so ops can find the offending caller.
+    expect(prismaMock.auditLog.create).toHaveBeenCalledTimes(1);
+    const auditArgs = (prismaMock.auditLog.create.mock.calls[0] as any[])[0];
+    expect(auditArgs.data.action).toBe("NOTIFICATION_AUDIENCE_REJECTED");
+    expect(auditArgs.data.entity).toBe("notification");
+    expect(auditArgs.data.entityId).toBe("u-reception");
+    expect(auditArgs.data.details.recipientRole).toBe("RECEPTION");
+    expect(auditArgs.data.details.type).toBe(PrismaNotificationType.DISCHARGE);
+  });
+
+  it("rejects PRESCRIPTION_READY addressed to a DOCTOR user", async () => {
+    prismaMock.user.findUnique.mockResolvedValueOnce({
+      id: "u-doctor",
+      email: "doc@test.local",
+      phone: "+910000000001",
+      name: "Dr. Test",
+      role: "DOCTOR",
+    });
+
+    await sendNotification({
+      userId: "u-doctor",
+      type: PrismaNotificationType.PRESCRIPTION_READY as any,
+      title: "Prescription Ready",
+      message: "Your prescription is ready.",
+    });
+
+    expect(prismaMock.notification.create).not.toHaveBeenCalled();
+    expect(prismaMock.auditLog.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("ALLOWS DISCHARGE notifications addressed to a PATIENT user (the happy path)", async () => {
+    prismaMock.user.findUnique.mockResolvedValueOnce({
+      id: "u-patient",
+      email: "pat@test.local",
+      phone: "+910000000002",
+      name: "Test Patient",
+      role: "PATIENT",
+    });
+    prismaMock.notificationPreference.findMany.mockResolvedValueOnce([]);
+
+    await sendNotification({
+      userId: "u-patient",
+      type: PrismaNotificationType.DISCHARGE as any,
+      title: "Discharge Summary",
+      message: "Your discharge has been processed.",
+    });
+
+    // 4 channel rows written — same as a normal patient-copy send.
+    expect(prismaMock.notification.create).toHaveBeenCalledTimes(4);
+    // No audience-rejected audit row.
+    expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("ALLOWS staff-targeted types (e.g. SCHEDULE_SUMMARY) to reach a non-PATIENT user", async () => {
+    prismaMock.user.findUnique.mockResolvedValueOnce({
+      id: "u-doctor-2",
+      email: "doc2@test.local",
+      phone: "+910000000003",
+      name: "Dr. Test 2",
+      role: "DOCTOR",
+    });
+    prismaMock.notificationPreference.findMany.mockResolvedValueOnce([]);
+
+    await sendNotification({
+      userId: "u-doctor-2",
+      type: NotificationType.SCHEDULE_SUMMARY,
+      title: "Your schedule",
+      message: "You have 5 appointments today.",
+    });
+
+    expect(prismaMock.notification.create).toHaveBeenCalledTimes(4);
+    expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
   });
 });

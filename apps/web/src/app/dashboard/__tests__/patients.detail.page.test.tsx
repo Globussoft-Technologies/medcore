@@ -263,4 +263,108 @@ describe("PatientDetailPage", () => {
       expect(apiMock.patch).not.toHaveBeenCalled();
     });
   });
+
+  // Issue #566: Reception clicking an available time-slot in the patient
+  // profile's Book Appointment modal was redirecting to /login with a
+  // "Your session has expired" toast. Cause: lib/api.ts's global 401
+  // handler treated any 401 from /appointments/book — including
+  // transients during cookie rotation — as a real session expiry. The
+  // fix passes skip401Redirect on the slot-click POST and surfaces the
+  // server's error message inline so the user can retry without losing
+  // the session.
+  describe("Book Appointment slot-click (Issue #566)", () => {
+    function mockReceptionPatientLoad() {
+      authMock.mockImplementation((selector: any) => {
+        const state = {
+          user: {
+            id: "u1",
+            name: "Reception",
+            email: "r@x.com",
+            role: "RECEPTION",
+          },
+        };
+        return typeof selector === "function" ? selector(state) : state;
+      });
+      apiMock.get.mockImplementation((url: string) => {
+        if (url === "/patients/test-id")
+          return Promise.resolve({ data: samplePatient });
+        // Reject stats so the optional <Stats Strip> with toFixed() never
+        // renders — keeps the test focused on the slot-click path.
+        if (url.endsWith("/stats"))
+          return Promise.reject(new Error("no stats"));
+        if (url === "/doctors")
+          return Promise.resolve({
+            data: [
+              {
+                id: "doc1",
+                user: { name: "Dr Suresh" },
+                specialization: "GP",
+              },
+            ],
+          });
+        if (url.startsWith("/doctors/doc1/slots"))
+          return Promise.resolve({
+            data: {
+              slots: [
+                { startTime: "17:00", endTime: "17:15", isAvailable: true },
+              ],
+            },
+          });
+        return Promise.resolve({ data: [] });
+      });
+    }
+
+    it("posts to /appointments/book WITH skip401Redirect so a transient 401 cannot trigger the global session-expired redirect", async () => {
+      mockReceptionPatientLoad();
+      apiMock.post.mockResolvedValue({ data: { id: "appt-1" } });
+
+      render(<PatientDetailPage />);
+      // The detail page renders two "Book Appointment" buttons (the
+      // header chrome's quick-action and the in-tab Patient360Tab quick
+      // strip). Either opens the QuickBookModal — pick the first.
+      const bookBtns = await screen.findAllByRole("button", {
+        name: /book appointment/i,
+      });
+      fireEvent.click(bookBtns[0]);
+
+      // Wait for the slot tile to render in the modal.
+      const slotBtn = await screen.findByRole("button", { name: "17:00" });
+      fireEvent.click(slotBtn);
+
+      await waitFor(() =>
+        expect(apiMock.post).toHaveBeenCalledWith(
+          "/appointments/book",
+          expect.objectContaining({
+            patientId: "test-id",
+            doctorId: "doc1",
+            slotId: "17:00",
+          }),
+          expect.objectContaining({ skip401Redirect: true }),
+        ),
+      );
+    });
+
+    it("on a 401 from /appointments/book surfaces an inline session-out-of-sync message instead of bouncing the user", async () => {
+      mockReceptionPatientLoad();
+      const err = Object.assign(new Error("Unauthorized"), { status: 401 });
+      apiMock.post.mockRejectedValue(err);
+
+      render(<PatientDetailPage />);
+      // The detail page renders two "Book Appointment" buttons (the
+      // header chrome's quick-action and the in-tab Patient360Tab quick
+      // strip). Either opens the QuickBookModal — pick the first.
+      const bookBtns = await screen.findAllByRole("button", {
+        name: /book appointment/i,
+      });
+      fireEvent.click(bookBtns[0]);
+      const slotBtn = await screen.findByRole("button", { name: "17:00" });
+      fireEvent.click(slotBtn);
+
+      await waitFor(() =>
+        expect(
+          screen.getByText(/session is out of sync/i),
+        ).toBeInTheDocument(),
+      );
+    });
+  });
 });

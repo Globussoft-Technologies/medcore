@@ -2455,15 +2455,38 @@ function QuickBookModal({
     setSaving(true);
     setError(null);
     try {
-      await api.post("/appointments/book", {
-        patientId,
-        doctorId,
-        date,
-        slotId: slotStart,
-      });
+      // Issue #566: clicking a slot tile here was logging the user out
+      // ("Your session has expired. Please sign in again.") because the
+      // global 401-redirect in lib/api.ts treats ANY POST 401 as a real
+      // session expiry and bounces to /login?next=. In practice the
+      // /appointments/book POST can return 401 transiently during cookie
+      // rotation between the slot-list load and the click, or 403 from
+      // CSRF when the X-CSRF-Token cookie has gone out of sync — neither
+      // should terminate an otherwise-healthy session. We surface the
+      // server's error message inline (the modal already renders an
+      // error banner above the slot grid) so the user can retry. If the
+      // session truly IS dead, the user's next navigation hits a
+      // non-skipping endpoint and the global redirect fires as designed.
+      await api.post(
+        "/appointments/book",
+        {
+          patientId,
+          doctorId,
+          date,
+          slotId: slotStart,
+        },
+        { skip401Redirect: true }
+      );
       onSaved();
     } catch (e) {
-      setError((e as Error).message);
+      const status = (e as Error & { status?: number }).status;
+      if (status === 401) {
+        setError(
+          "Your session is out of sync. Please refresh the page and try again."
+        );
+      } else {
+        setError((e as Error).message);
+      }
     }
     setSaving(false);
   }

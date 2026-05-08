@@ -9,6 +9,7 @@ import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { ArrowLeft, FlaskConical, Printer } from "lucide-react";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { formatDateTime } from "@/lib/format";
 
 // Issue #90: RECEPTION must NOT see the lab order detail / result-entry UI.
 const LAB_ALLOWED = new Set(["ADMIN", "DOCTOR", "NURSE", "LAB_TECH", "PATIENT"]);
@@ -178,7 +179,11 @@ export default function LabOrderPage({
               {order.orderNumber || order.id.slice(0, 8)}
             </h1>
             <p className="mt-1 text-sm text-gray-500">
-              Ordered {new Date(order.orderedAt).toLocaleString()}
+              {/* Issue #643: previously rendered via toLocaleString() which
+                  emitted US-style `4/14/2026, 12:59:07 AM` while the orders
+                  list uses `14 Apr 2026`. Use the canonical formatDateTime so
+                  every Lab surface speaks the same date-format. */}
+              Ordered {formatDateTime(order.orderedAt)}
             </p>
           </div>
           <div className="flex items-center gap-3">

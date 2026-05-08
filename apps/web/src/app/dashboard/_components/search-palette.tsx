@@ -193,18 +193,21 @@ export function SearchPalette({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-xl"
+        className="w-full max-w-2xl overflow-hidden rounded-xl bg-white text-gray-900 shadow-xl dark:bg-gray-900 dark:text-gray-100"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2 border-b px-4 py-3">
+        <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-white/10">
           <Search size={18} className="text-gray-400" />
+          {/* Issue #655: typed text was invisible on dark theme — input had no
+              explicit text color so it inherited the page's dark-mode fg-muted
+              token. Force fg-default in both themes plus a visible caret. */}
           <input
             ref={inputRef}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={onKey}
             placeholder={placeholder}
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400"
+            className="flex-1 bg-transparent text-sm text-gray-900 caret-primary outline-none placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
           <kbd className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">
             ESC

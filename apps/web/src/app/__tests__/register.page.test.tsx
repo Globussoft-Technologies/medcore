@@ -51,7 +51,17 @@ describe("RegisterPage", () => {
     await user.type(screen.getByLabelText(/register\.fullName/i), "Aarav Mehta");
     await user.type(screen.getByLabelText(/register\.email/i), "a@x.com");
     await user.type(screen.getByLabelText(/register\.phone/i), "9000000001");
-    await user.type(screen.getByLabelText(/register\.password/i), "password123");
+    // Issue #706: password is now 12+ chars with at least one letter + digit.
+    await user.type(screen.getByLabelText(/register\.password/i), "Password1234");
+    // Issue #684: gender is required (no silent MALE default).
+    await user.selectOptions(screen.getByLabelText(/register\.gender/i), "FEMALE");
+    // Issue #713: address + emergency-contact triplet are required for
+    // PATIENT self-registration. Fill them in or validateClient short-circuits
+    // before the submit handler runs.
+    await user.type(screen.getByLabelText(/register\.address/i), "12 MG Road, Bangalore");
+    await user.type(screen.getByLabelText(/^name$/i), "Priya Mehta");
+    await user.type(screen.getByLabelText(/^emergency phone$/i), "9000000002");
+    await user.type(screen.getByLabelText(/^relationship$/i), "Spouse");
     await user.click(screen.getByRole("button", { name: /register\.submit/i }));
     await waitFor(() =>
       expect(apiMock.post).toHaveBeenCalledWith(
@@ -74,7 +84,13 @@ describe("RegisterPage", () => {
     await user.type(screen.getByLabelText(/register\.fullName/i), "Aarav");
     await user.type(screen.getByLabelText(/register\.email/i), "a@x.com");
     await user.type(screen.getByLabelText(/register\.phone/i), "9000000001");
-    await user.type(screen.getByLabelText(/register\.password/i), "password123");
+    await user.type(screen.getByLabelText(/register\.password/i), "Password1234");
+    await user.selectOptions(screen.getByLabelText(/register\.gender/i), "FEMALE");
+    // Issue #713: required new fields — see "submits with all required fields".
+    await user.type(screen.getByLabelText(/register\.address/i), "12 MG Road, Bangalore");
+    await user.type(screen.getByLabelText(/^name$/i), "Priya Mehta");
+    await user.type(screen.getByLabelText(/^emergency phone$/i), "9000000002");
+    await user.type(screen.getByLabelText(/^relationship$/i), "Spouse");
     await user.click(screen.getByRole("button", { name: /register\.submit/i }));
     await waitFor(() =>
       expect(screen.getByRole("alert")).toBeInTheDocument()

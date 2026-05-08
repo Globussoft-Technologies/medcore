@@ -563,7 +563,7 @@ export default function RegisterPage() {
                     htmlFor="reg-ec-phone"
                     className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200"
                   >
-                    Phone
+                    Emergency phone
                   </label>
                   <input
                     id="reg-ec-phone"

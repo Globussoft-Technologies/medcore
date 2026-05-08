@@ -73,14 +73,33 @@ const validForm = {
   name: "Aarav Mehta",
   email: "aarav@example.com",
   phone: "9876543210",
-  password: "correct-horse",
+  // Issue #706: register password floor is 12 chars + letter + digit.
+  password: "CorrectHorse12",
+  // Issue #713: PATIENT self-registration requires address + EC triplet.
+  address: "12 MG Road, Bangalore",
+  emergencyContactName: "Priya Mehta",
+  emergencyContactPhone: "9000000002",
+  emergencyContactRelationship: "Spouse",
 };
 
 async function fillValid(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText(/full name/i), validForm.name);
   await user.type(screen.getByLabelText(/^email/i), validForm.email);
-  await user.type(screen.getByLabelText(/^phone/i), validForm.phone);
-  await user.type(screen.getByLabelText(/^password/i), validForm.password);
+  await user.type(screen.getByLabelText(/^phone$/i), validForm.phone);
+  await user.type(screen.getByLabelText(/^password$/i), validForm.password);
+  // Issue #684: gender must be a deliberate choice.
+  await user.selectOptions(screen.getByLabelText(/gender/i), "FEMALE");
+  // Issue #713: address + emergency-contact triplet.
+  await user.type(screen.getByLabelText(/address/i), validForm.address);
+  await user.type(screen.getByLabelText(/^name$/i), validForm.emergencyContactName);
+  await user.type(
+    screen.getByLabelText(/^emergency phone$/i),
+    validForm.emergencyContactPhone,
+  );
+  await user.type(
+    screen.getByLabelText(/^relationship$/i),
+    validForm.emergencyContactRelationship,
+  );
 }
 
 describe("RegisterPage — server-error feedback (Issue #494)", () => {

@@ -16,6 +16,11 @@ import { topLineError } from "@/lib/field-errors";
 // formatDate helper so a `null` / undefined / unparseable value renders as
 // "—" instead of "Invalid Date → Invalid Date".
 import { formatDate } from "@/lib/format";
+// Issue #534: scrub RFC1918 / loopback IPs from the error-breakdown
+// table so the Admin Console doesn't leak internal-network topology to
+// users who may not have full SRE clearance. Public IPs (real bot
+// traffic) still render verbatim — we only redact private space.
+import { scrubInternalIp } from "@/lib/scrub-ip";
 import {
   Activity,
   AlertTriangle,
@@ -94,9 +99,39 @@ export default function AdminConsolePage() {
   // employed-doctor count so the bar shows "0/12 (0%)" or "8/12 (66%)".
   const [totalDoctors, setTotalDoctors] = useState(0);
   const [refreshTick, setRefreshTick] = useState(0);
+  // Issue #744: friendly tenant identity for the header. Replaces the
+  // raw `clinicId: <uuid>` fallback the page used to surface when ops
+  // wanted to know which hospital they were looking at. We fetch from
+  // /api/v1/me/tenant (any-authed) instead of /api/v1/tenants/:id which
+  // is super-admin-only and would 403 a regular hospital admin.
+  const [tenant, setTenant] = useState<{
+    id: string;
+    name: string;
+    subdomain: string;
+    plan: string;
+    active: boolean;
+  } | null>(null);
+  // Issue #746: canonical Visitors-Today KPI shared with /dashboard/visitors
+  // and (future) /dashboard/reports — anchored to the hospital's local day
+  // (Asia/Kolkata) so all three surfaces always agree.
+  const [visitorsToday, setVisitorsToday] = useState<number>(0);
+  const [visitorsActive, setVisitorsActive] = useState<number>(0);
 
+  // Issue #703 (May 2026): direct-URL navigation to /dashboard/admin-console
+  // while authenticated used to force a re-login. Root cause: this useEffect
+  // (and the early-return guard below) fired before the auth store had
+  // hydrated from the server's session cookie — `user` was null on first
+  // render, the page rendered "restricted to administrators", and any
+  // adjacent redirect logic in the layout kicked the user back to /login.
+  //
+  // Fix: gate every redirect / restriction render on `!isLoading`. While the
+  // store is still resolving /auth/me, render the same skeleton the rest of
+  // the dashboard uses so we don't show a half-state. Only after isLoading
+  // clears do we evaluate the user's role. This mirrors the hydration-aware
+  // guard in /dashboard/queue/page.tsx (search "isAuthLoading").
   useEffect(() => {
-    if (!isLoading && user && user.role !== "ADMIN") {
+    if (isLoading) return;
+    if (user && user.role !== "ADMIN") {
       router.replace("/dashboard");
     }
   }, [user, isLoading, router]);
@@ -144,6 +179,8 @@ export default function AdminConsolePage() {
         roster,
         surgeriesToday,
         users,
+        tenantRes,
+        visitorStatsRes,
       ] = await Promise.all([
         fetch(
           `${process.env.NEXT_PUBLIC_API_URL?.replace("/api/v1", "") ||
@@ -179,6 +216,10 @@ export default function AdminConsolePage() {
         safe<any>(`/shifts/roster?date=${dayKey}`, { data: [] }),
         safe<any>(`/surgery?from=${fromISO}&to=${toISO}&limit=100`, { data: [] }),
         safe<any>(`/doctors`, { data: [] }),
+        // Issue #744: friendly tenant identity for the header banner.
+        safe<any>(`/me/tenant`, { data: null }),
+        // Issue #746: canonical visitor KPI for the snapshot tile.
+        safe<any>(`/visitors-stats?period=today`, { data: null }),
       ]);
 
       setApiHealth(health?.status === "ok" ? "ok" : "down");
@@ -270,9 +311,34 @@ export default function AdminConsolePage() {
       // Duty (X / total)". A 0-doctor hospital still renders sanely as 0/0
       // (0%) thanks to the guard in ResourceBar.
       setTotalDoctors(Array.isArray(users.data) ? users.data.length : 0);
+      // Issue #744: stash friendly tenant identity for the header.
+      setTenant(tenantRes?.data ?? null);
+      // Issue #746: pull the canonical totalToday + currentlyActive numbers
+      // and store them so the snapshot tile renders one source of truth.
+      const vs = visitorStatsRes?.data;
+      setVisitorsToday(typeof vs?.totalToday === "number" ? vs.totalToday : 0);
+      setVisitorsActive(typeof vs?.currentlyActive === "number" ? vs.currentlyActive : 0);
       setLoaded(true);
     })();
   }, [user, refreshTick]);
+
+  // Issue #703: while the auth store is still hydrating from /auth/me,
+  // render a skeleton instead of the "restricted" placeholder. Showing the
+  // restriction text on a brief flicker before the user object lands was
+  // confusing (especially on direct URL navigation) and combined with the
+  // layout's redirect-effect to bounce the admin back to /login.
+  if (isLoading) {
+    return (
+      <div
+        className="flex items-center justify-center p-12 text-sm text-gray-700"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        Loading…
+      </div>
+    );
+  }
 
   if (!user || user.role !== "ADMIN") {
     return (
@@ -344,6 +410,24 @@ export default function AdminConsolePage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Admin Console</h1>
           <p className="text-sm text-gray-700">Command center for hospital operations</p>
+          {/* Issue #744: render tenant identity by FRIENDLY name + short
+              slug rather than the raw UUID `clinicId` that this page used
+              to surface in toast errors and debug breadcrumbs. The
+              tenantId is intentionally NOT rendered here — operators
+              identify hospitals by name; the UUID is an internal handle
+              with no meaning at this surface. */}
+          {tenant && (
+            <p
+              className="mt-1 text-xs text-gray-600"
+              data-testid="admin-console-tenant-banner"
+            >
+              <span className="font-medium text-gray-800">{tenant.name}</span>{" "}
+              <span className="font-mono">(#{tenant.subdomain})</span>
+              <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-gray-600">
+                {tenant.plan}
+              </span>
+            </p>
+          )}
         </div>
         {/* a11y: text-primary (#2563eb) on bg-primary/10 (effective ~#e9eefe
             over white) is ~4.31:1 — under WCAG AA's 4.5:1 for normal text.
@@ -435,7 +519,11 @@ export default function AdminConsolePage() {
                         <td className="p-2 font-mono text-[11px]">
                           {row.topIp ? (
                             <>
-                              {row.topIp}
+                              {/* Issue #534: scrub RFC1918 / loopback IPs
+                                  here so we never render an internal
+                                  topology breadcrumb. Public IPs flow
+                                  through unchanged. */}
+                              {scrubInternalIp(row.topIp)}
                               {/* a11y: text-gray-500 on white = 4.59:1 (passes
                                   4.5:1 normal-text). text-gray-400 (#9ca3af)
                                   on white was 2.84:1 — below WCAG AA — so the
@@ -503,6 +591,17 @@ export default function AdminConsolePage() {
           <Snap Icon={CheckCircle2} label="Discharges" value={overview?.discharges ?? 0} />
           <Snap Icon={Scissors} label="Surgeries" value={overview?.surgeries ?? 0} />
           <Snap Icon={Siren} label="ER Cases" value={overview?.erCases ?? 0} />
+          {/* Issue #746: Visitors-Today KPI from the canonical
+              /visitors-stats endpoint. The tile shows totalToday with the
+              currently-inside count as a sub-line so operators can see
+              both numbers at a glance and confirm Inside ⊆ Today. */}
+          <Snap
+            Icon={UserCheck}
+            label="Visitors Today"
+            value={`${visitorsToday}${visitorsActive > 0 ? ` (${visitorsActive} in)` : ""}`}
+            isString
+            data-testid="admin-console-visitors-today"
+          />
           <Snap
             Icon={TrendingUp}
             label="Revenue"
@@ -693,14 +792,16 @@ function Snap({
   label,
   value,
   isString,
+  "data-testid": testId,
 }: {
   Icon: React.ElementType;
   label: string;
   value: number | string;
   isString?: boolean;
+  "data-testid"?: string;
 }) {
   return (
-    <div className="rounded-lg bg-gray-50 p-3">
+    <div className="rounded-lg bg-gray-50 p-3" data-testid={testId}>
       <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-700">
         <Icon size={12} /> {label}
       </div>

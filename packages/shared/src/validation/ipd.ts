@@ -162,15 +162,32 @@ export const recordIpdVitalsSchema = z
     notes: z.string().optional(),
   })
   .superRefine((data, ctx) => {
-    if (data.temperature === undefined) return;
-    const unit = data.temperatureUnit ?? "C";
-    const range =
-      unit === "C" ? VITALS_RANGES.temperatureC : VITALS_RANGES.temperatureF;
-    if (data.temperature < range.min || data.temperature > range.max) {
+    if (data.temperature !== undefined) {
+      const unit = data.temperatureUnit ?? "C";
+      const range =
+        unit === "C" ? VITALS_RANGES.temperatureC : VITALS_RANGES.temperatureF;
+      if (data.temperature < range.min || data.temperature > range.max) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["temperature"],
+          message: `Temperature must be between ${range.min} and ${range.max}°${unit}`,
+        });
+      }
+    }
+    // Issue #544: diastolic must always be strictly less than systolic. The
+    // per-field min/max bounds above can't catch a clinically-impossible
+    // pair like 120/130 (each leg is in-range but the relationship is
+    // physiologically wrong). Cross-field refine here so the IPD vitals
+    // form rejects it server-side regardless of frontend state.
+    if (
+      data.bloodPressureSystolic !== undefined &&
+      data.bloodPressureDiastolic !== undefined &&
+      data.bloodPressureDiastolic >= data.bloodPressureSystolic
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["temperature"],
-        message: `Temperature must be between ${range.min} and ${range.max}°${unit}`,
+        path: ["bloodPressureDiastolic"],
+        message: "Diastolic must be less than systolic",
       });
     }
   });

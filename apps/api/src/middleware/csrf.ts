@@ -73,10 +73,18 @@ export function csrfProtection(
   const cookieToken = req.cookies?.[COOKIE_CSRF];
   const headerToken = req.headers[CSRF_HEADER];
   if (!cookieToken || !headerToken || cookieToken !== headerToken) {
+    // Issue #645: surface a user-facing message instead of leaking the
+    // internal `csrf_failed` enum to non-technical clinicians. The legacy
+    // `error` field keeps the old code for back-compat with tests + any
+    // code that switches on it; the new `message` field is what the
+    // frontend should render.
     res.status(403).json({
       success: false,
       data: null,
       error: "csrf_failed",
+      code: "csrf_failed",
+      message:
+        "Your session is out of sync. Please refresh the page and try again.",
     });
     return;
   }

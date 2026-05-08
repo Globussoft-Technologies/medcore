@@ -774,12 +774,26 @@ router.post(
       // list of mismatched units so the UI can highlight them.
       const mismatches: Array<{ unitNumber: string; bloodGroup: string }> = [];
 
+      // Issue #737 (CRITICAL): write-side expiry guard. Even if a stale UI
+      // sent an expired unit ID (e.g. cached selection list, or an
+      // adversarial caller bypassing the read filter), the API must refuse
+      // to issue blood whose `expiresAt` is in the past. This is defence in
+      // depth on top of the read-side filter on /match and /inventory.
+      const nowForExpiry = new Date();
       for (const u of units) {
         if (u.status !== "AVAILABLE") {
           res.status(400).json({
             success: false,
             data: null,
             error: `Unit ${u.unitNumber} not available (${u.status})`,
+          });
+          return;
+        }
+        if (u.expiresAt && new Date(u.expiresAt) <= nowForExpiry) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: `Unit ${u.unitNumber} has expired and cannot be issued`,
           });
           return;
         }

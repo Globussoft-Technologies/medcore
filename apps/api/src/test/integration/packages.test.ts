@@ -69,6 +69,33 @@ describeIfDB("Packages API (integration)", () => {
     expect(res.status).toBe(400);
   });
 
+  // Issue #730: package price must be > 0; the FE used to post negative
+  // values straight through (rendered red in the catalog).
+  it("rejects negative price (#730 — Issue B15)", async () => {
+    const res = await request(app)
+      .post("/api/v1/packages")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        name: `Bogus Pkg-${Date.now()}`,
+        services: "CBC",
+        price: -2500,
+      });
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).toMatch(/greater than 0/i);
+  });
+
+  it("rejects zero price (#730 — Issue B15)", async () => {
+    const res = await request(app)
+      .post("/api/v1/packages")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        name: `Free Pkg-${Date.now()}`,
+        services: "CBC",
+        price: 0,
+      });
+    expect(res.status).toBe(400);
+  });
+
   it("updates a package", async () => {
     const pkg = await createPackage();
     const res = await request(app)

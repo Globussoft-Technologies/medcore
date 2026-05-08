@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { z } from "zod";
 import { Role } from "@prisma/client";
 import { prisma } from "@medcore/db";
 import {
@@ -12,6 +13,8 @@ import {
   resetPasswordSchema,
   updateProfileSchema,
   sanitizeUserInput,
+  isCommonPassword,
+  containsHtmlOrScript,
 } from "@medcore/shared";
 import { validate } from "../middleware/validate";
 import { authenticate } from "../middleware/auth";
@@ -320,6 +323,238 @@ function resolveRegistrationRole(req: Request, requestedRole: unknown): Role {
   return PUBLIC_DEFAULT;
 }
 
+// ─── Hardening schemas (Issues #706, #707, #708, #712, #713) ──────────────
+//
+// These schemas extend the ones imported from `@medcore/shared` with the
+// stricter rules surfaced in the May 2026 production-bug sweep. We compose
+// at the route layer (rather than mutating the shared schemas) so the
+// existing schema unit tests in packages/shared don't have to be re-baselined
+// in lockstep, and so the rules read top-to-bottom alongside the route
+// handler that enforces them.
+//
+//   • #706 — register password floor lifts from 8 → 12 characters and the
+//     denylist (already in `validatePasswordStrength`) keeps blocking
+//     "password", "12345678", etc.
+//   • #707 — register age range tightens from [1, 150] → [0, 130].
+//   • #708 — register email uses a regex that rejects "abc", "a@", "a@b",
+//     "@b.com", "a b@c.com" — the bare zod `.email()` was lax on some of
+//     those edges (notably "a@b" and trailing whitespace).
+//   • #712 — same strict-email rule on /forgot-password.
+//   • #713 — phone, address, and emergencyContact required for PATIENT
+//     self-registration (still optional for staff-creation flows where an
+//     authenticated ADMIN is filling the form on behalf of someone else).
+
+// Issues #708 + #712: explicit format regex. zod 3.24's `.email()` is
+// reasonably strict but accepts a couple of edge cases ("a@b" and addresses
+// with embedded whitespace once the global strip middleware touches them).
+// This regex is the one the registration form's client-side validator already
+// uses, so we keep server-side and client-side in lockstep.
+const STRICT_EMAIL_REGEX = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+const strictEmail = z
+  .string()
+  .trim()
+  .refine((v) => STRICT_EMAIL_REGEX.test(v), {
+    message: "Invalid email address",
+  });
+
+// Issue #713: phone in E.164-ish form — 10–15 digits with an optional leading
+// "+" and tolerant of spaces/dashes that humans type. Mirrors the same regex
+// already used by `updateProfileSchema` for /auth/me phone updates.
+const PHONE_REGEX = /^[+]?[\d\s-]{10,15}$/;
+
+// Issues #284, #666, #686, #667, #687 (May 2026): Add Staff User name field
+// accepted SQL-injection-style (`Robert'); DROP TABLE--`, `1' OR '1'='1`) and
+// raw `<script>` payloads. The shared `registerSchema` already refines against
+// `containsHtmlOrScript`, which catches HTML/script vectors but PASSES strings
+// like `Robert'); DROP TABLE--` because none of the XSS patterns match. We
+// layer a strict character-class regex on top so only letters (Latin +
+// Devanagari per CLAUDE.md gotcha #8), whitespace, and the three punctuation
+// marks legitimate names actually use (".", "-", "'") are accepted. This
+// rejects digits, parentheses, semicolons, equals signs, asterisks, and every
+// other character common in injection payloads. The `containsHtmlOrScript`
+// refine stays in force as defence in depth (it would catch `&lt;script&gt;`
+// HTML-entity smuggling, which the regex would also reject — belt + braces).
+const PATIENT_NAME_REGEX = /^[A-Za-zऀ-ॿ\s.\-']{1,100}$/;
+const strictStaffName = z
+  .string()
+  .trim()
+  .min(2, "Name must be at least 2 characters")
+  .max(100, "Name must be at most 100 characters")
+  .regex(
+    PATIENT_NAME_REGEX,
+    "Name contains invalid characters — letters, spaces, '.', '-' and \"'\" only"
+  )
+  .refine((v) => !containsHtmlOrScript(v), {
+    message:
+      "Name contains characters that aren't allowed (e.g. < > or HTML tags)",
+  });
+
+// Issue #706: bump the floor from 8 to 12 characters at the registration
+// surface specifically. Login still accepts the legacy 6-char rule (so
+// pre-#266 accounts can sign in to change their password); /change-password
+// + /reset-password keep the shared `strongPassword` (>=8) — only public
+// /register tightens to 12. The denylist check is the same `isCommonPassword`
+// already used by the shared rule.
+const strictRegisterPassword = z
+  .string()
+  .min(12, "Password must be at least 12 characters")
+  .refine((pw) => /[A-Za-z]/.test(pw), {
+    message: "Password must contain at least one letter",
+  })
+  .refine((pw) => /\d/.test(pw), {
+    message: "Password must contain at least one digit",
+  })
+  .refine((pw) => !isCommonPassword(pw), {
+    message:
+      "This password is too common — please choose a less predictable password",
+  });
+
+// Issue #713: emergency-contact block. Required for PATIENT registration; the
+// route handler enforces presence post-parse (see register handler). We keep
+// the field-level shape here so a malformed sub-object (e.g. empty name,
+// short phone) is rejected with a proper field-shaped error.
+const emergencyContactSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, "Emergency contact name is required")
+    .max(100, "Emergency contact name must be at most 100 characters"),
+  phone: z
+    .string()
+    .trim()
+    .regex(PHONE_REGEX, "Emergency contact phone must be 10–15 digits"),
+  relationship: z
+    .string()
+    .trim()
+    .min(1, "Emergency contact relationship is required")
+    .max(50, "Emergency contact relationship must be at most 50 characters"),
+});
+
+// Issues #706, #707, #708, #713 composed: the strict register schema. We
+// `extend()` the shared `registerSchema` so existing rules (XSS-in-name,
+// role enum, etc.) stay in force, and overlay the tightened fields.
+//
+// Issues #284, #666, #686, #667, #687 (May 2026): the staff-creation form
+// (Add Staff User on /dashboard/users) POSTs to this same /auth/register
+// endpoint with a Bearer admin token. We replace the `name` field with the
+// strict regex-based `strictStaffName` so SQL-injection-style payloads
+// (`Robert'); DROP TABLE--`, `1' OR '1'='1`) and `<script>...</script>` XSS
+// vectors are rejected with a 400 BEFORE they ever touch prisma.user.create.
+const strictRegisterSchema = registerSchema
+  .extend({
+    name: strictStaffName,
+    email: strictEmail,
+    phone: z
+      .string()
+      .trim()
+      .regex(PHONE_REGEX, "Phone must be 10–15 digits, optional leading +"),
+    password: strictRegisterPassword,
+    // Issue #707: tightened to [0, 130] — newborn (age=0) is now valid via
+    // the public registration body for the rare case a parent self-registers
+    // a same-day birth. 200 / negatives stay rejected.
+    age: z
+      .number()
+      .int("Age must be a whole number")
+      .min(0, "Age must be at least 0")
+      .max(130, "Age must be at most 130")
+      .optional(),
+    // Issue #713: address required for PATIENT (verified post-parse since the
+    // schema can't see the resolved role yet — the role is set by
+    // `resolveRegistrationRole` after auth-token decode).
+    address: z
+      .string()
+      .trim()
+      .min(5, "Address must be at least 5 characters")
+      .max(500, "Address must be at most 500 characters")
+      .optional(),
+    emergencyContact: emergencyContactSchema.optional(),
+  });
+
+// Issue #712: forgot-password schema with the strict email refine on top of
+// the existing `forgotPasswordSchema` shape (which only carries `email`).
+const strictForgotPasswordSchema = forgotPasswordSchema.extend({
+  email: strictEmail,
+});
+
+// Issue #623 (May 2026): Pharmacist (and every other authed role)'s
+// /auth/change-password used `strongPassword` (>=8 chars + letter/digit +
+// denylist) for the new password. This was only marginally stronger than the
+// 6-char floor a few users reported being able to set, and well below the
+// 12-char floor /register now requires for new accounts. The bug report
+// surfaced two related concerns:
+//
+//   1. The new-password rule was too loose for clinical roles with PHI access.
+//      Trivially weak passphrases (`abcdef`, `password1`, `qwerty12`) could be
+//      set on the change-password surface even after the 12-char floor lifted
+//      on /register.
+//   2. The handler ran the bcrypt check on `currentPassword` BEFORE the new
+//      password was validated, so a user submitting (wrong-current, weak-new)
+//      saw "Current password is incorrect" — masking the more actionable
+//      "New password is too weak" message.
+//
+// Fix: extend the shared `changePasswordSchema` with the same
+// `strictRegisterPassword` rule the /register surface uses. Zod's `validate(…)`
+// middleware runs BEFORE the route handler, so a weak new password is now
+// rejected with the field-shaped 400 first — before any bcrypt comparison —
+// regardless of whether the current password is right or wrong. (The handler
+// itself does not need re-ordering because Zod already runs first; we keep
+// the bcrypt-then-update flow downstream of the schema gate.)
+const strictChangePasswordSchema = changePasswordSchema.extend({
+  newPassword: strictRegisterPassword,
+});
+
+// Issue #714: zod 3.x strips unknown keys by default. Extend the imported
+// `loginSchema` so `next` is recognised in the body and survives validation
+// (otherwise the open-redirect sanitizer below would always see undefined
+// for body-supplied `next`). Optional + string-only — anything else is
+// dropped, then `sanitizeNextPath` returns the safe default.
+const strictLoginSchema = loginSchema.extend({
+  next: z.string().optional(),
+});
+
+/**
+ * Issue #714 (May 2026): open-redirect sanitizer for the login `?next=` flow.
+ *
+ * The web client redirects unauthenticated users to `/login?next=<orig>` and
+ * uses the `next` value to bounce them back after login. If the client (or a
+ * future server-side login endpoint) treats `next` as a destination URL
+ * without sanitizing, an attacker's phishing page can be reached via:
+ *
+ *   /login?next=https://evil.example.com/harvest
+ *   /login?next=//evil.example.com/harvest        (protocol-relative)
+ *   /login?next=\\\\evil.example.com\\harvest     (Windows UNC variant)
+ *
+ * `sanitizeNextPath` returns "/dashboard" for any of those vectors and
+ * passes through legitimate same-origin paths ("/dashboard/patients",
+ * "/billing") unchanged. The server uses this helper anywhere it accepts a
+ * `next`-style parameter; the web client should call the same helper on the
+ * client side before navigating (see Lane B note below).
+ *
+ * NOTE FOR LANE B / web team: the actual `next=` consumption today lives in
+ * apps/web/src/app/login/page.tsx (and apps/web/src/lib/api.ts which sets
+ * the cookie's stash on 401). Mirror this exact rule there before passing
+ * `next` to `router.push()` / `window.location.replace()`. The server-side
+ * helper here is exported so the web bundle can import it directly via
+ * `@medcore/api-helpers` once that re-export is wired up.
+ */
+export function sanitizeNextPath(next: unknown): string {
+  const SAFE_DEFAULT = "/dashboard";
+  if (typeof next !== "string") return SAFE_DEFAULT;
+  const trimmed = next.trim();
+  if (trimmed.length === 0) return SAFE_DEFAULT;
+  // Reject Windows UNC / backslash variants outright — these can be coerced
+  // by some browsers into protocol-relative navigations.
+  if (trimmed.includes("\\")) return SAFE_DEFAULT;
+  // Must be a relative path anchored at the site root.
+  if (!trimmed.startsWith("/")) return SAFE_DEFAULT;
+  // Reject protocol-relative URLs ("//evil.example.com/harvest").
+  if (trimmed.startsWith("//")) return SAFE_DEFAULT;
+  // Reject absolute http(s) URLs even if they somehow start with "/" after
+  // a malformed prefix — belt-and-braces.
+  if (/^https?:/i.test(trimmed)) return SAFE_DEFAULT;
+  return trimmed;
+}
+
 // POST /api/v1/auth/register
 //
 // Issues #480 (anti-enumeration) + #489 (XSS in name) + #473 (mass-assignment),
@@ -341,10 +576,20 @@ function resolveRegistrationRole(req: Request, requestedRole: unknown): Role {
 //     downstream renderers expect.
 router.post(
   "/register",
-  validate(registerSchema),
+  validate(strictRegisterSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { email, phone, password } = req.body;
+      const { email, phone, password, address, emergencyContact } = req.body as {
+        email: string;
+        phone: string;
+        password: string;
+        address?: string;
+        emergencyContact?: {
+          name: string;
+          phone: string;
+          relationship: string;
+        };
+      };
       // Issue #489: sanitize the display name as a defence-in-depth pass on
       // top of the schema-level XSS rejection. Strips tags, normalises whitespace,
       // enforces a 100-char ceiling. Returns 400 with a field-level error if
@@ -367,6 +612,35 @@ router.post(
       // verifies the caller is an authenticated ADMIN before honouring a
       // non-PATIENT role; everyone else gets PATIENT.
       const role = resolveRegistrationRole(req, req.body.role);
+
+      // Issue #713: PATIENT self-registration must include address and
+      // emergencyContact (phone is required for ALL roles by the schema).
+      // For non-PATIENT roles these stay optional — admin staff-creation
+      // forms don't need to gate on a casualty contact.
+      if (role === Role.PATIENT) {
+        const missing: { field: string; message: string }[] = [];
+        if (!address || address.trim().length < 5) {
+          missing.push({
+            field: "address",
+            message: "Address is required (min 5 characters)",
+          });
+        }
+        if (!emergencyContact) {
+          missing.push({
+            field: "emergencyContact",
+            message: "Emergency contact is required",
+          });
+        }
+        if (missing.length > 0) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: missing[0].message,
+            details: missing,
+          });
+          return;
+        }
+      }
 
       const existing = await prisma.user.findUnique({ where: { email } });
       if (existing) {
@@ -431,6 +705,16 @@ router.post(
             // self-registered patients, telemedicine schedules 404 on
             // them, etc.
             tenantId,
+            // Issue #713: persist the registration-time demographics so
+            // casualty / triage have the contact info on file from the
+            // moment the patient first signs up. Phone lives on User
+            // (already written above); address + emergency contact live
+            // on Patient.
+            address: address?.trim() || null,
+            emergencyContactName: emergencyContact?.name?.trim() || null,
+            emergencyContactPhone: emergencyContact?.phone?.trim() || null,
+            emergencyContactRelationship:
+              emergencyContact?.relationship?.trim() || null,
           },
         });
 
@@ -506,7 +790,7 @@ router.post(
 router.post(
   "/login",
   loginLimiter,
-  validate(loginSchema),
+  validate(strictLoginSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { email, password, rememberMe } = req.body as {
@@ -633,6 +917,19 @@ router.post(
       // the same value through so the cookie's maxAge matches the JWT exp.
       setAuthCookies(res, tokens, tokens.refreshTtlSeconds);
 
+      // Issue #714 (May 2026): if the caller passed a `next` hint via the
+      // request body OR `?next=` query string, sanitize it to a safe
+      // same-origin path before echoing it back as `redirectUrl`. Off-origin
+      // / protocol-relative / backslash variants collapse to "/dashboard".
+      // The web bundle today does its own client-side bounce (see comment on
+      // sanitizeNextPath above for the Lane B follow-up), but exposing the
+      // sanitized value here lets future SSR / API-only clients trust the
+      // server's redirect target without re-implementing the rule.
+      const nextHint =
+        (req.body as { next?: unknown })?.next ??
+        (req.query as { next?: unknown })?.next;
+      const redirectUrl = sanitizeNextPath(nextHint);
+
       res.json({
         success: true,
         data: {
@@ -643,6 +940,7 @@ router.post(
             role: user.role,
           },
           tokens,
+          redirectUrl,
         },
         error: null,
       });
@@ -809,7 +1107,7 @@ router.post(
 router.post(
   "/forgot-password",
   forgotPasswordLimiter,
-  validate(forgotPasswordSchema),
+  validate(strictForgotPasswordSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { email } = req.body;
@@ -940,10 +1238,20 @@ router.post(
 );
 
 // POST /api/v1/auth/change-password (authenticated)
+//
+// Issue #623 (May 2026): clinical roles (Pharmacist reported, but the rule
+// is now tenant-wide) could change to a 6-char or denylisted password
+// because the schema only enforced `strongPassword` (>=8). We swap to
+// `strictChangePasswordSchema` which uses `strictRegisterPassword` (>=12 +
+// letter + digit + denylist). Zod runs as middleware BEFORE this handler,
+// so a weak `newPassword` is rejected at the schema layer first — the
+// caller never reaches the bcrypt-compare branch and never sees the
+// misleading "Current password is incorrect" when their actual error is a
+// weak new password.
 router.post(
   "/change-password",
   authenticate,
-  validate(changePasswordSchema),
+  validate(strictChangePasswordSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { currentPassword, newPassword } = req.body;

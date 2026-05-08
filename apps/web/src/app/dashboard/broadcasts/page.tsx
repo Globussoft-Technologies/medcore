@@ -399,8 +399,12 @@ export default function BroadcastsPage() {
           // Issue #75 — wrap in overflow-x-auto so narrow viewports get a
           // local scrollbar instead of the whole page going wide. Each
           // column also has a max-width to keep total width bounded.
+          // Issue #697 — pin a `min-w-[920px]` so the inner table doesn't
+          // collapse below the sum of its column widths on narrow screens
+          // (audience + counts get squashed to single chars otherwise);
+          // the parent's overflow-x-auto then provides a local scrollbar.
           <div className="overflow-x-auto" data-testid="broadcast-history">
-            <table className="w-full table-fixed">
+            <table className="w-full min-w-[920px] table-fixed">
               <thead>
                 <tr className="border-b text-left text-xs text-gray-500">
                   <th className="w-40 px-4 py-3">Sent</th>

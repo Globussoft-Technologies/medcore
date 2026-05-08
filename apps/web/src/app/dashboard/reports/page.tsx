@@ -225,6 +225,13 @@ function ReportsPageBody() {
   }, [genType, genFrom, genTo, loadRuns]);
 
   // ── Schedule handler ─────────────────────────────────
+  // Issue #735 (2026-05-08): the Save button used to flash a loader and
+  // close the modal with no clear acknowledgement that the schedule had
+  // actually been persisted. We now (a) validate name + email
+  // synchronously, (b) surface a name-bearing success toast on 2xx so
+  // the admin can see exactly what was created, (c) fully reset the
+  // form fields so the next Open is clean, and (d) keep the modal open
+  // on validation/server failures so the user can correct + retry.
   const submitSchedule = useCallback(async () => {
     const trimmedName = schedName.trim();
     const trimmedEmail = schedEmail.trim();
@@ -234,6 +241,10 @@ function ReportsPageBody() {
     }
     if (!trimmedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
       toast.error("Please enter a valid recipient email");
+      return;
+    }
+    if (!/^\d{2}:\d{2}$/.test(schedTime)) {
+      toast.error("Please pick a valid time (HH:MM)");
       return;
     }
     setSchedSubmitting(true);
@@ -250,10 +261,13 @@ function ReportsPageBody() {
       if (schedFreq === "WEEKLY") payload.dayOfWeek = 1; // Monday
       if (schedFreq === "MONTHLY") payload.dayOfMonth = 1;
       await api.post("/scheduled-reports", payload);
-      toast.success("Schedule created");
+      toast.success(`Schedule "${trimmedName}" created. It will run ${schedFreq.toLowerCase()} at ${schedTime}.`);
       setSchedOpen(false);
       setSchedName("");
       setSchedEmail("");
+      setSchedType("WEEKLY_REVENUE");
+      setSchedFreq("WEEKLY");
+      setSchedTime("09:00");
       loadRuns();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to schedule report");

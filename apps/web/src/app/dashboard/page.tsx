@@ -857,11 +857,26 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Quick Actions by role */}
-          <div className="mt-8">
+          {/* Quick Actions by role.
+              Issues #648/#682: when the caller's role is none of
+              RECEPTION/ADMIN/DOCTOR/NURSE (e.g. PHARMACIST, LAB_TECH,
+              ACCOUNTANT, AMBULANCE_DRIVER), every conditional branch
+              below was false and the page rendered an empty grid under
+              the "Quick Actions" heading — read by users as a broken
+              panel. We now render a placeholder line instead so the
+              section explains itself for unmatched roles. */}
+          <div className="mt-8" data-testid="quick-actions-panel">
             <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-gray-100">
               Quick Actions
             </h2>
+            {!(isReception || isAdmin || isDoctor || isNurse) ? (
+              <p
+                className="rounded-xl border border-dashed border-gray-300 bg-white p-4 text-center text-sm text-gray-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400"
+                data-testid="quick-actions-empty"
+              >
+                Quick actions will appear here based on your role.
+              </p>
+            ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
               {(isReception || isAdmin) && (
                 <>
@@ -904,6 +919,7 @@ export default function DashboardPage() {
                 </>
               )}
             </div>
+            )}
           </div>
         </>
       )}

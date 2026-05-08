@@ -134,13 +134,27 @@ export default function HolidaysPage() {
     }
   }
 
-  async function deleteHoliday(id: string) {
-    if (!(await confirm({ title: "Delete this holiday?", danger: true }))) return;
+  // Issue #726 (2026-05-08): the trash icon was already wired to this
+  // handler, but the only feedback after a delete was the table reload.
+  // Surface a success toast (and an explicit error toast on failure) so
+  // the click is unambiguously confirmed.
+  async function deleteHoliday(id: string, name: string) {
+    if (
+      !(await confirm({
+        title: "Delete this holiday?",
+        message: `"${name}" will be removed from the calendar.`,
+        confirmLabel: "Delete",
+        danger: true,
+      }))
+    ) {
+      return;
+    }
     try {
       await api.delete(`/hr-ops/holidays/${id}`);
+      toast.success(`Deleted "${name}"`);
       load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed to delete");
     }
   }
 
@@ -253,7 +267,10 @@ export default function HolidaysPage() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button
-                        onClick={() => deleteHoliday(h.id)}
+                        onClick={() => deleteHoliday(h.id, h.name)}
+                        data-testid={`holiday-delete-${h.id}`}
+                        aria-label={`Delete ${h.name}`}
+                        title={`Delete ${h.name}`}
                         className="rounded p-1 text-red-500 hover:bg-red-50"
                       >
                         <Trash2 size={14} />

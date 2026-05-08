@@ -303,6 +303,44 @@ export default function PrescriptionsPage() {
     }
   }
 
+  // Issue #608 (May 2026): the prescription card had no pharmacist
+  // workflow actions — only Print / Share. The pharmacy "Dispense Now"
+  // tab handles the inventory deduction, but pharmacists asked for the
+  // ability to mark a prescription as dispensed straight from the list,
+  // and the existing /pharmacy/dispense + /pharmacy/prescriptions/:id/reject
+  // endpoints already implement the underlying state changes. We expose
+  // them here as buttons so the workflow no longer requires a tab swap.
+  async function dispenseFromCard(id: string) {
+    try {
+      await api.post("/pharmacy/dispense", { prescriptionId: id });
+      toast.success("Prescription dispensed");
+      loadPrescriptions();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to dispense");
+    }
+  }
+
+  async function rejectFromCard(id: string) {
+    const reason = window.prompt(
+      "Rejection reason (min 10 chars — out of stock, expired, requires verification, etc.)",
+      "",
+    );
+    if (reason === null) return;
+    if (reason.trim().length < 10) {
+      toast.error("Rejection reason must be at least 10 characters");
+      return;
+    }
+    try {
+      await api.post(`/pharmacy/prescriptions/${id}/reject`, {
+        reason: reason.trim(),
+      });
+      toast.success("Prescription rejected");
+      loadPrescriptions();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to reject");
+    }
+  }
+
   async function loadPrescriptions() {
     setLoading(true);
     setLoadError(null);
@@ -1134,6 +1172,29 @@ export default function PrescriptionsPage() {
                     >
                       Share via Email
                     </button>
+                    {/* Issue #608: pharmacist + admin get Dispense / Reject
+                        actions on the card. Doctors/nurses keep the slimmer
+                        Print + Share footer. */}
+                    {(user?.role === "PHARMACIST" || user?.role === "ADMIN") && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => dispenseFromCard(rx.id)}
+                          data-testid={`rx-dispense-${rx.id}`}
+                          className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+                        >
+                          Dispense
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => rejectFromCard(rx.id)}
+                          data-testid={`rx-reject-${rx.id}`}
+                          className="rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+                        >
+                          Reject
+                        </button>
+                      </>
+                    )}
                     {rx.sharedVia && (
                       <span className="ml-auto self-center text-xs text-gray-500">
                         Shared: {rx.sharedVia}

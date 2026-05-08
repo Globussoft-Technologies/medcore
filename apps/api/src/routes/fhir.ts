@@ -165,9 +165,18 @@ router.get(
   authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION, Role.PATIENT),
   // security(2026-04-23-med): F-FHIR-1 — reject non-UUID :id up front.
   validateUuidParams(["id"]),
-  async (req: Request, res: Response, next: NextFunction) => {
+  // Issue #732 (May 2026): the `$everything` operation used to forward any
+  // unexpected error to `next(err)`, which the global errorHandler then
+  // returned as a generic MedCore-envelope 500 (`{ success:false, error:
+  // "Internal server error" }`). FHIR clients (ABDM HIU, third-party
+  // gateways) couldn't parse that — they expect an OperationOutcome
+  // resource. Wrap the handler in a local try/catch so 5xx failures emit a
+  // proper FHIR-native OperationOutcome with a useful `diagnostics`
+  // string while preserving the existing 404/403 not-found / forbidden
+  // OperationOutcomes for the early-return paths.
+  async (req: Request, res: Response, _next: NextFunction) => {
+    const { id } = req.params;
     try {
-      const { id } = req.params;
       if (!(await canReadPatient(req, id))) {
         sendFhir(res, 403, operationOutcome("error", "forbidden", "Not authorised"));
         return;
@@ -252,7 +261,36 @@ router.get(
       await auditLog(req, "FHIR_PATIENT_EVERYTHING", "Patient", id, { resourceCount: resources.length });
       sendFhir(res, 200, bundle);
     } catch (err) {
-      next(err);
+      // Issue #732: emit a FHIR-native OperationOutcome with a meaningful
+      // `diagnostics` field so downstream FHIR clients can parse the error
+      // and operators can trace the failure. We deliberately surface the
+      // err.message even in production for this endpoint — FHIR clients
+      // need actionable detail, and `$everything` doesn't accept a
+      // user-controllable body that could leak through. Other patient
+      // identifiers, query strings, etc. don't appear here.
+      console.error(
+        JSON.stringify({
+          level: "error",
+          event: "fhir_everything_failed",
+          patientId: id,
+          message: err instanceof Error ? err.message : String(err),
+          ts: new Date().toISOString(),
+        })
+      );
+      sendFhir(res, 500, {
+        resourceType: "OperationOutcome",
+        issue: [
+          {
+            severity: "error",
+            code: "exception",
+            diagnostics:
+              err instanceof Error ? err.message : "Unknown error",
+            details: {
+              text: "Failed to compile $everything bundle for patient",
+            },
+          },
+        ],
+      });
     }
   }
 );

@@ -17,7 +17,7 @@ import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { generatePaySlipHTML } from "../services/pdf";
-import { computePayroll } from "../services/payroll";
+import { computePayroll, daysInMonth as daysInMonthFor } from "../services/payroll";
 
 const router = Router();
 router.use(authenticate);
@@ -182,6 +182,9 @@ router.post(
       });
 
       // Single source of truth — same math the salary slip uses.
+      // #701/#702: pass daysInMonth so Basic gets pro-rated by
+      // workedDays/daysInMonth when there's attendance recorded
+      // (avoids the old "Net = 88 % of Basic regardless" bug).
       const calc = computePayroll({
         basicSalary,
         allowances,
@@ -189,6 +192,7 @@ router.post(
         overtimeRate,
         shifts,
         approvedOvertime,
+        daysInMonth: daysInMonthFor(year, month),
       });
 
       res.json({

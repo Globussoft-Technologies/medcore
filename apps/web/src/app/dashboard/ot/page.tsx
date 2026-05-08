@@ -157,11 +157,32 @@ export default function OTPage() {
     }
   }
 
+  // Issue #727 (2026-05-08): the Disable / Mark Out-of-Service toggle
+  // succeeded silently — no toast, and the row only updated after the full
+  // `loadOts()` round-trip so admins thought nothing happened. Three fixes:
+  //   (a) optimistic local update so the badge flips immediately;
+  //   (b) explicit success toast naming the OT and target state;
+  //   (c) the loadOts() re-fetch still runs to pick up server truth and
+  //       roll back the optimistic write if the server's response disagrees
+  //       (e.g. concurrent edit from another admin).
   async function toggleActive(ot: OT) {
+    const target = !ot.isActive;
+    const previous = ots;
+    setOts((prev) =>
+      prev.map((o) => (o.id === ot.id ? { ...o, isActive: target } : o)),
+    );
     try {
-      await api.patch(`/surgery/ots/${ot.id}`, { isActive: !ot.isActive });
+      await api.patch(`/surgery/ots/${ot.id}`, { isActive: target });
+      toast.success(
+        target
+          ? `${ot.name} is now active`
+          : `${ot.name} marked Out of Service`,
+      );
       loadOts();
     } catch (err) {
+      // Roll back the optimistic update on failure so the UI matches
+      // server truth.
+      setOts(previous);
       toast.error(err instanceof Error ? err.message : "Toggle failed");
     }
   }
@@ -227,13 +248,14 @@ export default function OTPage() {
                   <td className="px-4 py-3 text-sm">₹{ot.dailyRate}</td>
                   <td className="px-4 py-3">
                     <span
+                      data-testid={`ot-status-${ot.id}`}
                       className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
                         ot.isActive
                           ? "bg-green-100 text-green-700"
                           : "bg-gray-100 text-gray-600"
                       }`}
                     >
-                      {ot.isActive ? "Active" : "Inactive"}
+                      {ot.isActive ? "Active" : "Out of Service"}
                     </span>
                   </td>
                   <td className="px-4 py-3">
@@ -246,6 +268,12 @@ export default function OTPage() {
                       </button>
                       <button
                         onClick={() => toggleActive(ot)}
+                        data-testid={`ot-toggle-${ot.id}`}
+                        title={
+                          ot.isActive
+                            ? "Mark out of service"
+                            : "Mark active"
+                        }
                         className={`flex items-center gap-1 rounded px-2 py-1 text-xs text-white ${
                           ot.isActive
                             ? "bg-red-500 hover:bg-red-600"

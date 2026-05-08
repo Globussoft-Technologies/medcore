@@ -249,13 +249,53 @@ router.post(
 // findMany executes, so no per-row helper is needed for the list surface.
 router.get("/", authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PHARMACIST, Role.PATIENT), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { patientId, doctorId, page = "1", limit = "20", search } = req.query;
+    const { patientId, doctorId, page = "1", limit = "20", search, from, to } = req.query;
     const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
     const take = Math.min(parseInt(limit as string), 100);
+
+    // Issue #588 (May 2026): mirror the audit-log inverted-range guard
+    // (#690 / commit abae2f0). The patient prescriptions list page accepts
+    // From > To pickers and quietly returned `0 of 14 shown` with no
+    // explanation. Reject the inverted range at the API layer so the form
+    // can render an inline error rather than swallowing the inversion.
+    if (from && to) {
+      const fromDate = new Date(from as string);
+      const toDate = new Date(to as string);
+      if (
+        !isNaN(fromDate.getTime()) &&
+        !isNaN(toDate.getTime()) &&
+        fromDate.getTime() > toDate.getTime()
+      ) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "from must be on or before to",
+          details: [{ field: "to", message: "from must be on or before to" }],
+        });
+        return;
+      }
+    }
 
     const where: Record<string, unknown> = {};
     if (patientId) where.patientId = patientId;
     if (doctorId) where.doctorId = doctorId;
+
+    // Issue #588: when both pickers are populated, also wire them into the
+    // Prisma `createdAt` filter so the API actually narrows the result set
+    // (the FE used to filter purely in-memory after fetching). Single-sided
+    // ranges are also supported.
+    if (from || to) {
+      const range: Record<string, Date> = {};
+      if (from) {
+        const f = new Date(from as string);
+        if (!isNaN(f.getTime())) range.gte = f;
+      }
+      if (to) {
+        const t = new Date(to as string);
+        if (!isNaN(t.getTime())) range.lte = t;
+      }
+      if (Object.keys(range).length > 0) where.createdAt = range;
+    }
 
     // Issue #243: the adherence enrollment picker (and any other consumer
     // using the shared EntityPicker) sends `?search=<text>` to filter the

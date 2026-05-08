@@ -6,6 +6,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+_Nothing yet — new entries land here._
+
+## [1.3.0] - 2026-05-07
+
+First published GitHub release since v1.2.0 (2026-04-14). Cuts at
+commit `846d092`, validated by release.yml run #25465817640 (all 31
+jobs green: 12 Chromium E2E shards + 12 WebKit E2E shards + 4 API
+integration shards + Type check + Web component + API tests +
+Release summary), and deployed to medcore.globusdemos.com via
+test.yml's "Deploy to dev server" job.
+
 Session window: 2026-04-30 → 2026-05-05. Focus: CI hardening Phases 1-4,
 test-coverage closure across §A-§E gaps, Playwright stabilization
 across Chromium + WebKit, the local-first test workflow, and the

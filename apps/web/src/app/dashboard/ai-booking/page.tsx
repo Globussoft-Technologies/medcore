@@ -699,6 +699,11 @@ export default function AIBookingPage() {
 
   return (
     <div className="flex h-[calc(100vh-4rem)] gap-4 p-4">
+      {/* Issue #651: page lacked any <h1> landmark. Screen readers
+          announced only the generic chat header. We expose an h1 that
+          is visually hidden (`sr-only`) so the chat-panel layout stays
+          unchanged but assistive tech reaches the page heading. */}
+      <h1 className="sr-only">AI Booking Assistant</h1>
       {/* ── Chat panel ─────────────────────────────────── */}
       <div className="flex flex-col flex-1 bg-white rounded-2xl shadow border border-gray-100 overflow-hidden">
         {/* Header */}

@@ -289,12 +289,58 @@ router.get(
   authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { patientId, status, page = "1", limit = "20", search } = req.query;
+      const { patientId, status, page = "1", limit = "20", search, dateFrom, dateTo } = req.query;
       const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
       const take = Math.min(parseInt(limit as string), 100);
 
       const where: Record<string, unknown> = {};
       if (patientId) where.patientId = patientId;
+
+      // Issue #597 (May 2026): patient billing page rendered a flat
+      // unfiltered/unsorted list — no way to narrow by date range when
+      // the list grew beyond a screen. Add inclusive `dateFrom` / `dateTo`
+      // filters on `createdAt`. Inverted ranges and unparseable dates
+      // surface as a clean 400 so the form can render an inline error
+      // instead of silently returning an empty list.
+      if (typeof dateFrom === "string" || typeof dateTo === "string") {
+        const range: Record<string, Date> = {};
+        if (typeof dateFrom === "string" && dateFrom.length > 0) {
+          const f = new Date(dateFrom);
+          if (isNaN(f.getTime())) {
+            res.status(400).json({
+              success: false,
+              data: null,
+              error: "Invalid dateFrom value",
+              details: [{ field: "dateFrom", message: "Invalid date" }],
+            });
+            return;
+          }
+          range.gte = f;
+        }
+        if (typeof dateTo === "string" && dateTo.length > 0) {
+          const t = new Date(dateTo);
+          if (isNaN(t.getTime())) {
+            res.status(400).json({
+              success: false,
+              data: null,
+              error: "Invalid dateTo value",
+              details: [{ field: "dateTo", message: "Invalid date" }],
+            });
+            return;
+          }
+          range.lte = t;
+        }
+        if (range.gte && range.lte && range.gte.getTime() > range.lte.getTime()) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "dateFrom must be on or before dateTo",
+            details: [{ field: "dateTo", message: "dateFrom must be on or before dateTo" }],
+          });
+          return;
+        }
+        if (Object.keys(range).length > 0) where.createdAt = range;
+      }
       // Issue #479: the patient dashboard widget requests
       // `?status=PENDING,PARTIAL` as a comma-separated list. Passing the
       // literal "PENDING,PARTIAL" string straight into Prisma's

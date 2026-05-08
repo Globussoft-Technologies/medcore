@@ -14,12 +14,22 @@ import {
 } from "lucide-react";
 import { SkeletonRow } from "@/components/Skeleton";
 
+// Issue #733: the API returns `readAt: string | null` (the timestamp at
+// which the row was marked read, or null while unread). Earlier this
+// component carried `read: boolean` which was never actually populated by
+// the server, so every row rendered with the unread border-and-blue-dot
+// style on every refresh — even after Mark-all-read had successfully
+// PATCHed read-all and the optimistic update ran. We now read the source-
+// of-truth `readAt` directly and derive `isRead = !!readAt` everywhere
+// the UI used `n.read`. The optimistic markAsRead/markAllAsRead handlers
+// stamp `readAt` with the current ISO time so the next refresh reads the
+// same value the server will hand back.
 interface Notification {
   id: string;
   title: string;
   message: string;
   channel: "WHATSAPP" | "SMS" | "EMAIL" | "PUSH";
-  read: boolean;
+  readAt: string | null;
   createdAt: string;
 }
 
@@ -62,7 +72,7 @@ export default function NotificationsPage() {
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [prefsLoading, setPrefsLoading] = useState(false);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = notifications.filter((n) => !n.readAt).length;
 
   const loadNotifications = useCallback(
     async (pageNum: number, append = false) => {
@@ -109,8 +119,14 @@ export default function NotificationsPage() {
   async function markAsRead(id: string) {
     try {
       await api.patch(`/notifications/${id}/read`);
+      // Issue #733: stamp `readAt` with an ISO timestamp so the optimistic
+      // update matches the shape the server hands back on the next GET.
+      // Previously we set `read: true` which was never actually rendered
+      // (the row keyed off the wrong field) — the row stayed visually
+      // unread until we re-derived `isRead` from `readAt` below.
+      const now = new Date().toISOString();
       setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+        prev.map((n) => (n.id === id ? { ...n, readAt: now } : n))
       );
     } catch {
       // empty
@@ -120,7 +136,18 @@ export default function NotificationsPage() {
   async function markAllAsRead() {
     try {
       await api.patch("/notifications/read-all");
-      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      // Issue #733: stamp every row's `readAt` so the unread border + blue
+      // dot disappear immediately. Then re-fetch from the server so we
+      // trust the server's truth on the next render — the bug was that
+      // the badge updated but the row styling didn't, because the row
+      // styling read a non-existent `read` boolean.
+      const now = new Date().toISOString();
+      setNotifications((prev) =>
+        prev.map((n) => ({ ...n, readAt: n.readAt ?? now }))
+      );
+      // Issue #733: also re-fetch so we don't drift from the server's view
+      // (e.g. another tab marking new rows since this list was loaded).
+      loadNotifications(1);
     } catch {
       // empty
     }
@@ -201,14 +228,20 @@ export default function NotificationsPage() {
           <div>
             {notifications.map((notification) => {
               const ChannelIcon = channelIcon[notification.channel] || Bell;
+              // Issue #733: derive `isRead` from `readAt` (the server's
+              // source of truth) instead of the previous `read` boolean
+              // which was never populated by the API.
+              const isRead = !!notification.readAt;
               return (
                 <div
                   key={notification.id}
                   onClick={() => {
-                    if (!notification.read) markAsRead(notification.id);
+                    if (!isRead) markAsRead(notification.id);
                   }}
+                  data-testid={`notification-row-${notification.id}`}
+                  data-read={isRead ? "true" : "false"}
                   className={`flex cursor-pointer items-start gap-4 border-b px-5 py-4 transition last:border-0 hover:bg-gray-50 ${
-                    !notification.read
+                    !isRead
                       ? "border-l-4 border-l-blue-500 bg-blue-50/40"
                       : ""
                   }`}
@@ -216,13 +249,13 @@ export default function NotificationsPage() {
                   <div className="mt-0.5 flex-shrink-0">
                     <div
                       className={`flex h-9 w-9 items-center justify-center rounded-full ${
-                        !notification.read ? "bg-blue-100" : "bg-gray-100"
+                        !isRead ? "bg-blue-100" : "bg-gray-100"
                       }`}
                     >
                       <Bell
                         size={16}
                         className={
-                          !notification.read ? "text-blue-600" : "text-gray-400"
+                          !isRead ? "text-blue-600" : "text-gray-400"
                         }
                       />
                     </div>
@@ -231,7 +264,7 @@ export default function NotificationsPage() {
                     <div className="flex items-center gap-2">
                       <p
                         className={`text-sm ${
-                          !notification.read
+                          !isRead
                             ? "font-semibold text-gray-900"
                             : "font-medium text-gray-700"
                         }`}
@@ -254,7 +287,7 @@ export default function NotificationsPage() {
                       {formatTime(notification.createdAt)}
                     </p>
                   </div>
-                  {!notification.read && (
+                  {!isRead && (
                     <div className="mt-2 h-2.5 w-2.5 flex-shrink-0 rounded-full bg-blue-500" />
                   )}
                 </div>

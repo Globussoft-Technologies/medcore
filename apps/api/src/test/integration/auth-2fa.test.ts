@@ -25,12 +25,20 @@ async function loginPlain(email = EMAIL, password = PASSWORD) {
 }
 
 async function register() {
+  // #473: unauthenticated registration is silently coerced to PATIENT, so
+  // the RECEPTION hint is no longer meaningful here. #713: PATIENT now
+  // requires address + emergencyContact for the registration to succeed.
   const res = await request(app).post("/api/v1/auth/register").send({
     name: "TFA User",
     email: EMAIL,
     phone: "9555500000",
     password: PASSWORD,
-    role: "RECEPTION",
+    address: "44 TFA Lane, Test City",
+    emergencyContact: {
+      name: "TFA Kin",
+      phone: "9000000077",
+      relationship: "Spouse",
+    },
   });
   expect(res.status).toBeLessThan(400);
   return res.body.data.tokens.accessToken as string;

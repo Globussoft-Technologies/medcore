@@ -44,12 +44,24 @@ describeIfDB("Users API (integration)", () => {
     // error: null }` envelope; only the `data` block differs (no tokens
     // on the duplicate path). The 409 status assertion this test used to
     // make would now actively *defeat* the anti-enumeration guard.
+    // #713: PATIENT (the implicit role for unauthenticated /register) now
+    // requires address + emergencyContact. Pack them in via this fixture
+    // so the duplicate-email contract test isn't stalled on demographics.
+    const demographics = {
+      address: "1 Dup Lane, Test City",
+      emergencyContact: {
+        name: "Dup Kin",
+        phone: "9000000044",
+        relationship: "Friend",
+      },
+    };
     const email = `dup-${Date.now()}@test.local`;
     const first = await request(app).post("/api/v1/auth/register").send({
       name: "First",
       email,
       phone: "9999999999",
       password: "MedCoreT3st-2026",
+      ...demographics,
     });
     expect(first.status).toBe(201);
     expect(first.body.success).toBe(true);
@@ -60,6 +72,7 @@ describeIfDB("Users API (integration)", () => {
       email,
       phone: "9999999999",
       password: "MedCoreT3st-2026",
+      ...demographics,
     });
     // Status, success flag, and error field MUST be indistinguishable —
     // that is the whole point of the anti-enumeration contract.

@@ -80,6 +80,78 @@ describeIfDB("Emergency API (integration)", () => {
     expect(res.body.data?.status).toBe("TRIAGED");
   });
 
+  // Issue #740: ER triage previously persisted physiologically impossible
+  // vitals (SpO₂ = 200 %, HR = 0, Temp = 60 °C, BP = 0/0). The schema now
+  // bounds each vital to a clinically-plausible range; the API must 400
+  // before the row is created so downstream alerting doesn't fire on garbage.
+  it("rejects SpO2 = 200 on triage (#740 — Issue B29)", async () => {
+    const patient = await createPatientFixture();
+    const createRes = await request(app)
+      .post("/api/v1/emergency/cases")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ patientId: patient.id, chiefComplaint: "Resp distress" });
+    const caseId = createRes.body.data.id;
+    const res = await request(app)
+      .patch(`/api/v1/emergency/cases/${caseId}/triage`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        triageLevel: "URGENT",
+        vitalsSpO2: 200,
+      });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects heart rate = 0 on triage (#740 — Issue B29)", async () => {
+    const patient = await createPatientFixture();
+    const createRes = await request(app)
+      .post("/api/v1/emergency/cases")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ patientId: patient.id, chiefComplaint: "Cardiac" });
+    const caseId = createRes.body.data.id;
+    const res = await request(app)
+      .patch(`/api/v1/emergency/cases/${caseId}/triage`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        triageLevel: "EMERGENT",
+        vitalsPulse: 0,
+      });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects BP = 0/0 on triage (#740 — Issue B29)", async () => {
+    const patient = await createPatientFixture();
+    const createRes = await request(app)
+      .post("/api/v1/emergency/cases")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ patientId: patient.id, chiefComplaint: "Trauma" });
+    const caseId = createRes.body.data.id;
+    const res = await request(app)
+      .patch(`/api/v1/emergency/cases/${caseId}/triage`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        triageLevel: "EMERGENT",
+        vitalsBP: "0/0",
+      });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects temperature = 60 °C on triage (#740 — Issue B29)", async () => {
+    const patient = await createPatientFixture();
+    const createRes = await request(app)
+      .post("/api/v1/emergency/cases")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ patientId: patient.id, chiefComplaint: "Hyperthermia?" });
+    const caseId = createRes.body.data.id;
+    const res = await request(app)
+      .patch(`/api/v1/emergency/cases/${caseId}/triage`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        triageLevel: "URGENT",
+        vitalsTemp: 60,
+      });
+    expect(res.status).toBe(400);
+  });
+
   it("assigns a doctor to a case", async () => {
     const patient = await createPatientFixture();
     const doctor = await createDoctorFixture();

@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+// Issue #575 / #577 / #642 / #657: per-field length caps + phone shape
+// for free-text payloads. The previous schemas only required min(1) on
+// the name / category / description, which let 200k-char payloads
+// through and stored them verbatim. The cap is generous (catalog rows
+// run ~1k of clinical detail) but forecloses the storage/availability
+// risk and the "future renderer flips to dangerouslySetInnerHTML"
+// XSS pivot risk surfaced in #657.
+const VISITOR_PHONE_REGEX = /^[+]?[\d\s-]{7,20}$/;
+
 export const FEEDBACK_CATEGORIES = [
   "DOCTOR",
   "NURSE",
@@ -45,7 +54,7 @@ export const createFeedbackSchema = z.object({
   category: z.enum(FEEDBACK_CATEGORIES),
   rating: z.number().int().min(1).max(5),
   nps: z.number().int().min(0).max(10).optional(),
-  comment: z.string().optional(),
+  comment: z.string().max(2000).optional(),
 });
 
 // ───────────────────────────────────────────────────────
@@ -55,10 +64,15 @@ export const createFeedbackSchema = z.object({
 export const createComplaintSchema = z
   .object({
     patientId: z.string().uuid().optional(),
-    name: z.string().optional(),
-    phone: z.string().optional(),
-    category: z.string().min(1),
-    description: z.string().min(1),
+    // Issue #577: cap free-text fields. Title/category lives at <=200,
+    // description at <=4000 (long incident narratives are legitimate).
+    name: z.string().max(200).optional(),
+    phone: z
+      .string()
+      .regex(VISITOR_PHONE_REGEX, "Phone must be 7-20 digits, optional leading +")
+      .optional(),
+    category: z.string().min(1).max(200),
+    description: z.string().min(1).max(4000),
     priority: z.enum(COMPLAINT_PRIORITIES).default("MEDIUM"),
   })
   .refine((d) => d.patientId || d.name, {
@@ -69,7 +83,7 @@ export const createComplaintSchema = z
 export const updateComplaintSchema = z.object({
   status: z.enum(COMPLAINT_STATUSES).optional(),
   assignedTo: z.string().uuid().optional(),
-  resolution: z.string().optional(),
+  resolution: z.string().max(4000).optional(),
   priority: z.enum(COMPLAINT_PRIORITIES).optional(),
 });
 
@@ -95,14 +109,21 @@ export const sendMessageSchema = z.object({
 // ───────────────────────────────────────────────────────
 
 export const checkinVisitorSchema = z.object({
-  name: z.string().min(1),
-  phone: z.string().optional(),
-  idProofType: z.string().optional(),
-  idProofNumber: z.string().optional(),
+  // Issue #575: visitor name 1-120 chars (no anchor on shape — visitor
+  // names span Indic + Latin scripts and may include legitimate
+  // honorifics, so we don't reuse PATIENT_NAME_REGEX here). Phone is
+  // bounded so SMS notifications can't be DoS'd with absurd values.
+  name: z.string().min(1).max(120),
+  phone: z
+    .string()
+    .regex(VISITOR_PHONE_REGEX, "Phone must be 7-20 digits, optional leading +")
+    .optional(),
+  idProofType: z.string().max(40).optional(),
+  idProofNumber: z.string().max(60).optional(),
   patientId: z.string().uuid().optional(),
   purpose: z.enum(VISITOR_PURPOSES),
-  department: z.string().optional(),
-  notes: z.string().optional(),
+  department: z.string().max(120).optional(),
+  notes: z.string().max(2000).optional(),
 });
 
 // ───────────────────────────────────────────────────────
@@ -133,11 +154,14 @@ export const createChannelSchema = z.object({
 });
 
 export const visitorBlacklistSchema = z.object({
-  idProofType: z.string().optional(),
-  idProofNumber: z.string().optional(),
-  name: z.string().optional(),
-  phone: z.string().optional(),
-  reason: z.string().min(1),
+  idProofType: z.string().max(40).optional(),
+  idProofNumber: z.string().max(60).optional(),
+  name: z.string().max(120).optional(),
+  phone: z
+    .string()
+    .regex(VISITOR_PHONE_REGEX, "Phone must be 7-20 digits, optional leading +")
+    .optional(),
+  reason: z.string().min(1).max(2000),
 }).refine(
   (v) => v.idProofNumber || v.phone || v.name,
   "At least one identifier (idProofNumber, phone, or name) is required"

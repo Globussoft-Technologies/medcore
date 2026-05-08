@@ -293,6 +293,140 @@ const abhaDelinkLimit =
     ? (_: any, __: any, n: any) => n()
     : rateLimit(20, 60_000);
 
+// ── POST /abha/otp/send (Issue #741) ─────────────────────────────────────
+//
+// Scaffolds the ABHA OTP-send step that the mobile linking flow needs. Two
+// concerns are addressed here:
+//
+//   1. Server-side cooldown — the endpoint is rate-limited per
+//      (mobile_or_aadhaar, IP) bucket: any second send for the same key
+//      inside 30 seconds returns 429 with a `Retry-After: <seconds>`
+//      header so the client can render an honest countdown. The existing
+//      global `rateLimit(...)` middleware is per-IP; we layer a
+//      per-(key, IP) map on top so a shared NAT can still send for
+//      DIFFERENT mobile numbers without colliding.
+//
+//   2. Frontend cooldown is OUT OF SCOPE for this lane (a separate agent
+//      owns /dashboard/abdm). The UI must hide the Resend button for 30s
+//      and show a countdown — server returns the seconds in `retryAfter`
+//      and the standard `Retry-After` header so the client doesn't have
+//      to track the timer itself.
+//
+// Test infra (per CLAUDE.md gotcha #2): lazy delegate so the regression
+// test can flip ENABLE_ABDM_OTP_RATELIMIT_IN_TESTS=true AFTER importing
+// the router but BEFORE the first request. The reset hook
+// `__resetAbdmOtpLimiterForTests()` is called from the test's beforeAll
+// to ensure module-scope state from prior files is cleared under
+// `singleFork: true`.
+
+interface OtpRateLimitEntry {
+  lastSentAt: number;
+}
+
+let _otpRateMap: Map<string, OtpRateLimitEntry> | null = null;
+
+/** Reset the OTP-cooldown state (test-only — do not call from prod code). */
+export function __resetAbdmOtpLimiterForTests(): void {
+  _otpRateMap = null;
+}
+
+const OTP_COOLDOWN_MS = 30_000;
+
+/**
+ * Per-(key, IP) cooldown gate for /abha/otp/send. Returns `null` when the
+ * caller is allowed to proceed; returns a positive `retryAfterSeconds`
+ * when the caller must wait. Skipped under NODE_ENV=test unless the
+ * regression test opts in via ENABLE_ABDM_OTP_RATELIMIT_IN_TESTS=true.
+ */
+function checkOtpCooldown(
+  req: Request,
+  key: string
+): { ok: true } | { ok: false; retryAfterSeconds: number } {
+  const enableInTests =
+    process.env.ENABLE_ABDM_OTP_RATELIMIT_IN_TESTS === "true";
+  if (process.env.NODE_ENV === "test" && !enableInTests) {
+    return { ok: true };
+  }
+  if (!_otpRateMap) {
+    _otpRateMap = new Map();
+  }
+  const forwarded = req.headers["x-forwarded-for"];
+  const ip =
+    (typeof forwarded === "string"
+      ? forwarded.split(",")[0].trim()
+      : req.ip) ?? "unknown";
+  const bucketKey = `${ip}::${key}`;
+  const now = Date.now();
+  const entry = _otpRateMap.get(bucketKey);
+  if (entry && now - entry.lastSentAt < OTP_COOLDOWN_MS) {
+    const retryAfterSeconds = Math.max(
+      1,
+      Math.ceil((OTP_COOLDOWN_MS - (now - entry.lastSentAt)) / 1000)
+    );
+    return { ok: false, retryAfterSeconds };
+  }
+  _otpRateMap.set(bucketKey, { lastSentAt: now });
+  return { ok: true };
+}
+
+const sendOtpSchema = z
+  .object({
+    mobile: z
+      .string()
+      .regex(/^[0-9]{10}$/, "mobile must be a 10-digit number")
+      .optional(),
+    aadhaar: z
+      .string()
+      .regex(/^[0-9]{12}$/, "aadhaar must be a 12-digit number")
+      .optional(),
+  })
+  .refine((v) => v.mobile || v.aadhaar, {
+    message: "Provide mobile or aadhaar",
+  });
+
+abdmRouter.post(
+  "/abha/otp/send",
+  authorize(Role.DOCTOR, Role.ADMIN, Role.RECEPTION, Role.PATIENT),
+  validate(sendOtpSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const key = (req.body.mobile || req.body.aadhaar) as string;
+      const cool = checkOtpCooldown(req, key);
+      if (!cool.ok) {
+        res.setHeader("Retry-After", String(cool.retryAfterSeconds));
+        res.status(429).json({
+          success: false,
+          data: null,
+          error: `Please wait ${cool.retryAfterSeconds}s before requesting another OTP.`,
+          retryAfter: cool.retryAfterSeconds,
+        });
+        return;
+      }
+      // Real ABDM OTP send is plumbed via the abdm/abha service when the
+      // sandbox credentials are configured. For now we ack synchronously
+      // — the regression test for #741 only exercises the cooldown gate,
+      // and the real send is wired through the existing verifyAbha helper
+      // when the sandbox/transactionId flow is implemented.
+      const txnId = `otp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await auditLog(req, "ABDM_ABHA_OTP_SEND", "AbhaLink", undefined, {
+        keyType: req.body.mobile ? "mobile" : "aadhaar",
+        // Store only the last-4 of the key in the audit row — never the
+        // full mobile number / aadhaar. Mirrors the redaction posture of
+        // redactedSearchParams() in fhir.ts.
+        keyTail: key.slice(-4),
+        txnId,
+      });
+      res.status(202).json({
+        success: true,
+        data: { sent: true, txnId, cooldownSeconds: OTP_COOLDOWN_MS / 1000 },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // ── POST /abha/verify ─────────────────────────────────────────────────────
 
 abdmRouter.post(

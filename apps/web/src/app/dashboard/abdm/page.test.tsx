@@ -36,13 +36,31 @@ describe("AbdmPage", () => {
     });
   });
 
-  it("renders the heading, SANDBOX banner and the three tabs", () => {
+  it("renders the heading and the three tabs", () => {
+    // Issue #758: SANDBOX banner is no longer rendered by default — it now
+    // only appears when NEXT_PUBLIC_ABDM_MODE === "sandbox" (explicit
+    // opt-in). Production default is the unbannered, non-mock layout.
     render(<AbdmPage />);
     expect(screen.getByRole("heading", { name: /abdm.*abha/i })).toBeInTheDocument();
-    expect(screen.getByText(/SANDBOX MODE/i)).toBeInTheDocument();
+    expect(screen.queryByText(/SANDBOX MODE/i)).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /link abha/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /consents/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /care contexts/i })).toBeInTheDocument();
+  });
+
+  it("renders the SANDBOX banner when NEXT_PUBLIC_ABDM_MODE === 'sandbox'", () => {
+    // Issue #758: opt-in path. Dev/staging environments wire this env var
+    // through and get the banner + mock-OTP placeholder; production default
+    // does not.
+    const prev = process.env.NEXT_PUBLIC_ABDM_MODE;
+    process.env.NEXT_PUBLIC_ABDM_MODE = "sandbox";
+    try {
+      render(<AbdmPage />);
+      expect(screen.getByText(/SANDBOX MODE/i)).toBeInTheDocument();
+    } finally {
+      if (prev === undefined) delete process.env.NEXT_PUBLIC_ABDM_MODE;
+      else process.env.NEXT_PUBLIC_ABDM_MODE = prev;
+    }
   });
 
   it("shows a loading spinner while the auth store is loading", () => {
@@ -66,7 +84,9 @@ describe("AbdmPage", () => {
     apiMock.post.mockRejectedValueOnce(new Error("Network down"));
     const user = userEvent.setup();
     render(<AbdmPage />);
-    const input = screen.getByPlaceholderText(/rahul@sbx/i);
+    // Issue #758: placeholder is sandbox-mode-conditional now. Default
+    // (production) renders "username@abdm"; we test that path here.
+    const input = screen.getByPlaceholderText(/username@abdm/i);
     await user.type(input, "test@sbx");
     await user.click(screen.getByRole("button", { name: /verify abha/i }));
     await waitFor(() => expect(screen.getByText(/network down/i)).toBeInTheDocument());

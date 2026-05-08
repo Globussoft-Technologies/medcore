@@ -65,6 +65,18 @@ function fmtMoney(n: number) {
   })}`;
 }
 
+function MoneyValue({ amount, tone = "" }: { amount: number; tone?: string }) {
+  const formatted = fmtMoney(amount);
+  return (
+    <span
+      title={formatted}
+      className={`ml-auto block max-w-[9.5rem] truncate text-right tabular-nums ${tone}`}
+    >
+      {formatted}
+    </span>
+  );
+}
+
 function daysAgo(iso: string) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
 }
@@ -498,7 +510,7 @@ export default function BillingPage() {
       </div>
 
       {/* Content */}
-      <div className="rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
+      <div className="overflow-x-auto rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         {loading ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : tab === "outstanding" ? (
@@ -507,14 +519,14 @@ export default function BillingPage() {
               No outstanding invoices.
             </div>
           ) : (
-            <table className="w-full">
+            <table className="w-full min-w-[920px]">
               <thead>
                 <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                   <th className="px-4 py-3">Invoice #</th>
                   <th className="px-4 py-3">Patient</th>
-                  <th className="px-4 py-3">Total</th>
-                  <th className="px-4 py-3">Paid</th>
-                  <th className="px-4 py-3">Balance</th>
+                  <th className="min-w-36 px-4 py-3 text-right">Total</th>
+                  <th className="min-w-36 px-4 py-3 text-right">Paid</th>
+                  <th className="min-w-36 px-4 py-3 text-right">Balance</th>
                   <th className="px-4 py-3">Days Overdue</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Actions</th>
@@ -539,10 +551,14 @@ export default function BillingPage() {
                         <p className="text-xs text-gray-500 dark:text-gray-400">{r.patient.user.phone}</p>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm">{fmtMoney(r.totalAmount)}</td>
-                    <td className="px-4 py-3 text-sm">{fmtMoney(r.paid)}</td>
-                    <td className="px-4 py-3 text-sm font-semibold text-red-600">
-                      {fmtMoney(r.balance)}
+                    <td className="px-4 py-3 text-sm">
+                      <MoneyValue amount={r.totalAmount} />
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      <MoneyValue amount={r.paid} />
+                    </td>
+                    <td className="px-4 py-3 text-sm font-semibold">
+                      <MoneyValue amount={r.balance} tone="text-red-600" />
                     </td>
                     <td className={`px-4 py-3 text-sm ${overdueClass(r.daysOverdue)}`}>
                       {r.daysOverdue} days
@@ -580,14 +596,14 @@ export default function BillingPage() {
             description="Invoices will appear here once they are generated from visits or admissions."
           />
         ) : (
-          <table className="w-full">
+          <table className="w-full min-w-[920px]">
             <thead>
               <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Invoice #</th>
                 <th className="px-4 py-3">Patient</th>
-                <th className="px-4 py-3">Amount</th>
-                <th className="px-4 py-3">Paid</th>
-                <th className="px-4 py-3">Balance</th>
+                <th className="min-w-36 px-4 py-3 text-right">Amount</th>
+                <th className="min-w-36 px-4 py-3 text-right">Paid</th>
+                <th className="min-w-36 px-4 py-3 text-right">Balance</th>
                 <th className="px-4 py-3">Age</th>
                 <th className="px-4 py-3">Status</th>
                 {isStaff && <th className="px-4 py-3">Actions</th>}
@@ -612,14 +628,23 @@ export default function BillingPage() {
                       <p className="text-xs text-gray-500 dark:text-gray-400">{inv.patient.user.phone}</p>
                     )}
                   </td>
-                  <td className="px-4 py-3 font-medium">{fmtMoney(inv.totalAmount)}</td>
-                  <td className="px-4 py-3 text-sm">{fmtMoney(inv.netPaid)}</td>
+                  <td className="px-4 py-3 font-medium">
+                    <MoneyValue amount={inv.totalAmount} />
+                  </td>
+                  <td className="px-4 py-3 text-sm">
+                    <MoneyValue amount={inv.netPaid} />
+                  </td>
                   <td
-                    className={`px-4 py-3 text-sm font-semibold ${
-                      inv.balance > 0 ? "text-red-600 dark:text-red-400" : "text-gray-500 dark:text-gray-400"
-                    }`}
+                    className="px-4 py-3 text-sm font-semibold"
                   >
-                    {fmtMoney(inv.balance)}
+                    <MoneyValue
+                      amount={inv.balance}
+                      tone={
+                        inv.balance > 0
+                          ? "text-red-600 dark:text-red-400"
+                          : "text-gray-500 dark:text-gray-400"
+                      }
+                    />
                   </td>
                   {/* Issue #400: Age must be computed per-row from the
                       invoice's createdAt, not a hardcoded constant. The

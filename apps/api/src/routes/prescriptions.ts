@@ -26,6 +26,8 @@ import { generatePrescriptionPDFBuffer } from "../services/pdf-generator";
 import { onPrescriptionReady } from "../services/notification-triggers";
 import { auditLog } from "../middleware/audit";
 import { ingestPrescription, fireAndForgetIngest } from "../services/ai/rag-ingest";
+import { sendEmail } from "../services/messaging/email";
+import { sendWhatsApp } from "../services/messaging/whatsapp";
 
 const router = Router();
 router.use(authenticate);
@@ -247,13 +249,53 @@ router.post(
 // findMany executes, so no per-row helper is needed for the list surface.
 router.get("/", authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PHARMACIST, Role.PATIENT), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { patientId, doctorId, page = "1", limit = "20", search } = req.query;
+    const { patientId, doctorId, page = "1", limit = "20", search, from, to } = req.query;
     const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
     const take = Math.min(parseInt(limit as string), 100);
+
+    // Issue #588 (May 2026): mirror the audit-log inverted-range guard
+    // (#690 / commit abae2f0). The patient prescriptions list page accepts
+    // From > To pickers and quietly returned `0 of 14 shown` with no
+    // explanation. Reject the inverted range at the API layer so the form
+    // can render an inline error rather than swallowing the inversion.
+    if (from && to) {
+      const fromDate = new Date(from as string);
+      const toDate = new Date(to as string);
+      if (
+        !isNaN(fromDate.getTime()) &&
+        !isNaN(toDate.getTime()) &&
+        fromDate.getTime() > toDate.getTime()
+      ) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "from must be on or before to",
+          details: [{ field: "to", message: "from must be on or before to" }],
+        });
+        return;
+      }
+    }
 
     const where: Record<string, unknown> = {};
     if (patientId) where.patientId = patientId;
     if (doctorId) where.doctorId = doctorId;
+
+    // Issue #588: when both pickers are populated, also wire them into the
+    // Prisma `createdAt` filter so the API actually narrows the result set
+    // (the FE used to filter purely in-memory after fetching). Single-sided
+    // ranges are also supported.
+    if (from || to) {
+      const range: Record<string, Date> = {};
+      if (from) {
+        const f = new Date(from as string);
+        if (!isNaN(f.getTime())) range.gte = f;
+      }
+      if (to) {
+        const t = new Date(to as string);
+        if (!isNaN(t.getTime())) range.lte = t;
+      }
+      if (Object.keys(range).length > 0) where.createdAt = range;
+    }
 
     // Issue #243: the adherence enrollment picker (and any other consumer
     // using the shared EntityPicker) sends `?search=<text>` to filter the
@@ -396,6 +438,15 @@ router.get(
       }
       const html = await generatePrescriptionPDF(req.params.id);
       res.setHeader("Content-Type", "text/html; charset=utf-8");
+      // The global helmet CSP is `default-src 'none'`, which would suppress
+      // the inline <style>, embedded QR data: image, signature URL, and the
+      // auto-print <script> in this self-contained printable view. Override
+      // only for this HTML render so the document is usable; the API's
+      // restrictive default still applies to every other endpoint.
+      res.setHeader(
+        "Content-Security-Policy",
+        "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+      );
       res.send(html);
     } catch (err) {
       if (err instanceof Error && err.message === "Prescription not found") {
@@ -447,9 +498,13 @@ router.post(
       const { channel } = req.body as { channel: string };
       const existing = await prisma.prescription.findUnique({
         where: { id: req.params.id },
-        select: {
-          sharedVia: true,
-          patientId: true,
+        include: {
+          patient: {
+            include: { user: { select: { name: true, email: true, phone: true } } },
+          },
+          doctor: {
+            include: { user: { select: { name: true } } },
+          },
         },
       });
       if (!existing) {
@@ -463,26 +518,110 @@ router.post(
 
       // Issue #242 + #511 audit: PATIENT may only share their own
       // prescription; staff already cleared the authorize() gate above.
-      // Refactored from the previous hand-rolled `userId` comparison onto
-      // the canonical helper for drift-free behaviour with the rest of the
-      // BOLA sweep.
       if (!(await assertPatientOwnsResource(req, res, existing.patientId))) return;
-      const channels = new Set(
-        (existing.sharedVia ?? "")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean)
-      );
-      channels.add(channel);
+
+      // Same fallback as the QR-generation sites in pdf.ts / pdf-generator.ts
+      // — keep them in lockstep so that on a live host where PUBLIC_APP_URL
+      // is unset, the QR, the email link, AND the WhatsApp link all point at
+      // the prod domain rather than diverging.
+      const verifyBase = (process.env.PUBLIC_APP_URL || "https://medcore.globusdemos.com").replace(/\/$/, "");
+      const verifyUrl = `${verifyBase}/verify/rx/${existing.id}`;
+      const patientName = existing.patient.user.name;
+      const doctorName = existing.doctor.user.name;
+
+      // Per-channel delivery. EMAIL and WHATSAPP are wired (SendGrid + Meta
+      // Cloud API). SMS still returns 501 until a gateway is integrated —
+      // recording a stub-success would be a clinical-truth bug.
+      let deliveryError: string | null = null;
+      if (channel === "EMAIL") {
+        const recipient = existing.patient.user.email;
+        if (!recipient) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "Patient has no email on file. Add one to the patient record before sharing.",
+          });
+          return;
+        }
+        const result = await sendEmail({
+          to: recipient,
+          subject: `Your prescription from Dr. ${doctorName}`,
+          html: `
+            <div style="font-family:Segoe UI,Tahoma,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a;">
+              <h2 style="color:#4f46e5;margin:0 0 12px;">Your Prescription is Ready</h2>
+              <p>Hi ${escapeText(patientName)},</p>
+              <p>Dr. ${escapeText(doctorName)} has issued your prescription. You can view, download, and verify it via the secure link below.</p>
+              <p style="margin:24px 0;">
+                <a href="${verifyUrl}" style="background:#4f46e5;color:#fff;padding:12px 22px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block;">View Prescription</a>
+              </p>
+              <p style="font-size:12px;color:#64748b;margin-top:24px;">
+                This is an authentic prescription. The link includes a verifiable signature and is unique to you.
+              </p>
+              <p style="font-size:12px;color:#94a3b8;word-break:break-all;">
+                If the button does not work, copy this URL: ${escapeText(verifyUrl)}
+              </p>
+            </div>
+          `,
+        });
+        if (!result.ok) deliveryError = `Email delivery failed: ${result.error}`;
+      } else if (channel === "WHATSAPP") {
+        const recipient = existing.patient.user.phone;
+        console.log(`[share-rx] WHATSAPP request: rxId=${existing.id} patientId=${existing.patientId} patientName="${patientName}" rawPhoneFromDB="${recipient}"`);
+        if (!recipient) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "Patient has no phone on file. Add one to the patient record before sharing via WhatsApp.",
+          });
+          return;
+        }
+        // Plain text body — Meta auto-linkifies the verify URL on the
+        // recipient's WhatsApp client. For prod outside the 24h customer
+        // service window this MUST switch to a pre-approved Utility template
+        // (see TODO(template) in services/messaging/whatsapp.ts).
+        const result = await sendWhatsApp({
+          to: recipient,
+          body: `Hi ${patientName}, Dr. ${doctorName} has issued your prescription. View it here: ${verifyUrl}`,
+        });
+        if (!result.ok) deliveryError = `WhatsApp delivery failed: ${result.error}`;
+      } else {
+        // SMS still pending a gateway integration (Twilio / MSG91 / Karix).
+        res.status(501).json({
+          success: false,
+          data: null,
+          error: `${channel} delivery is not yet available. Use EMAIL or WHATSAPP.`,
+        });
+        return;
+      }
+
+      if (deliveryError) {
+        // Compliance: failed share attempts must still be auditable. Without
+        // this row a reviewer / regulator cannot tell whether a prescription
+        // was attempted-and-failed or never attempted at all.
+        auditLog(req, "PRESCRIPTION_SHARE_FAILED", "prescription", existing.id, {
+          channel,
+          error: deliveryError,
+        }).catch(console.error);
+        res.status(502).json({
+          success: false,
+          data: null,
+          error: deliveryError,
+        });
+        return;
+      }
+
+      // Record the MOST RECENT channel as the single source of truth — the
+      // UI badge shows "Shared via X" and accumulating "WHATSAPP,EMAIL"
+      // confused reception about what was actually used last. Audit log
+      // below preserves the full per-attempt history for compliance, so
+      // overwriting `sharedVia` doesn't lose information.
       const updated = await prisma.prescription.update({
         where: { id: req.params.id },
         data: {
-          sharedVia: Array.from(channels).join(","),
+          sharedVia: channel,
           sharedAt: new Date(),
         },
       });
-      // fire-and-forget: log to console (stub)
-      console.log(`[share-rx] Prescription ${updated.id} shared via ${channel}`);
       auditLog(req, "PRESCRIPTION_SHARE", "prescription", updated.id, {
         channel,
       }).catch(console.error);
@@ -492,6 +631,19 @@ router.post(
     }
   }
 );
+
+// Local helper: escape user-controlled strings before interpolating into
+// HTML email body (defense-in-depth — patient name is already validated
+// against PATIENT_NAME_REGEX upstream, but we render this in a third-party
+// inbox and CSP doesn't apply, so don't trust upstream alone).
+function escapeText(s: string): string {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 // POST /api/v1/prescriptions/copy-from-previous — copy items from a previous prescription
 router.post(

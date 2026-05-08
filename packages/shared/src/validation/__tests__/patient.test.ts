@@ -207,4 +207,33 @@ describe("recordVitalsSchema", () => {
       }).success
     ).toBe(true);
   });
+  // Issue #544: cross-field BP refine — diastolic must be < systolic.
+  // Each leg below is in-range per the per-field bounds, but the pair is
+  // physiologically wrong. The .superRefine() catches it.
+  it("#544 rejects diastolic >= systolic (120/130)", () => {
+    const result = recordVitalsSchema.safeParse({
+      ...valid,
+      bloodPressureSystolic: 120,
+      bloodPressureDiastolic: 130,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some(
+          (i) =>
+            i.path.includes("bloodPressureDiastolic") &&
+            /less than systolic/i.test(i.message)
+        )
+      ).toBe(true);
+    }
+  });
+  it("#544 rejects diastolic == systolic (110/110)", () => {
+    expect(
+      recordVitalsSchema.safeParse({
+        ...valid,
+        bloodPressureSystolic: 110,
+        bloodPressureDiastolic: 110,
+      }).success
+    ).toBe(false);
+  });
 });

@@ -419,6 +419,12 @@ router.post(
 );
 
 // GET /api/v1/leaves/calendar?from=&to= — who is on leave (APPROVED) in window
+// Issue #579 (May 2026): mirror the audit-log inverted-range guard (#690 /
+// commit abae2f0). The leave-request POST already refuses fromDate > toDate
+// at the schema layer, but the calendar GET silently applied an inverted
+// `from`/`to` window and returned an empty list with no signal that the
+// pickers were transposed. Validate the pair up front and surface a 400 so
+// the schedule UI can render an inline error.
 router.get(
   "/calendar",
   authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR, Role.NURSE),
@@ -432,6 +438,24 @@ router.get(
 
       const from = req.query.from ? new Date(req.query.from as string) : defaultFrom;
       const to = req.query.to ? new Date(req.query.to as string) : defaultTo;
+
+      // Issue #579: inverted-range guard. When the caller supplies BOTH
+      // params and they parse to valid dates, from must be on or before to.
+      if (
+        req.query.from &&
+        req.query.to &&
+        !isNaN(from.getTime()) &&
+        !isNaN(to.getTime()) &&
+        from.getTime() > to.getTime()
+      ) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "from must be on or before to",
+          details: [{ field: "to", message: "from must be on or before to" }],
+        });
+        return;
+      }
 
       const leaves = await prisma.leaveRequest.findMany({
         where: {

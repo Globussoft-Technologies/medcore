@@ -166,12 +166,24 @@ export default function PatientBillingPage() {
 
   async function submitBulkDiscount() {
     if (selectedInvoices.length === 0 || !discValue || !discReason) return;
+    // Issue #671 (regression of #358): mirror the server's applyDiscountSchema
+    // limits client-side so the user gets an inline toast instead of a 400
+    // burst when they punch in `-50`, `999`, or another absurd value.
+    const numeric = parseFloat(discValue);
+    if (!Number.isFinite(numeric) || numeric < 0) {
+      toast.error("Discount must be a non-negative number");
+      return;
+    }
+    if (discType === "percentage" && (numeric < 0 || numeric > 100)) {
+      toast.error("Percentage must be between 0 and 100");
+      return;
+    }
     setDiscSubmitting(true);
     try {
       for (const inv of selectedInvoices) {
         const body: Record<string, unknown> = { reason: discReason };
-        if (discType === "percentage") body.percentage = parseFloat(discValue);
-        else body.flatAmount = parseFloat(discValue);
+        if (discType === "percentage") body.percentage = numeric;
+        else body.flatAmount = numeric;
         await api.post(`/billing/invoices/${inv.id}/discount`, body);
       }
       setDiscOpen(false);
@@ -453,6 +465,7 @@ export default function PatientBillingPage() {
                   id="bulk-disc-value"
                   type="number"
                   min="0"
+                  max={discType === "percentage" ? "100" : undefined}
                   step="0.01"
                   value={discValue}
                   onChange={(e) => setDiscValue(e.target.value)}

@@ -288,6 +288,7 @@ export default function InsuranceClaimsPage() {
             id="claims-filter-from"
             type="date"
             value={filterFrom}
+            max={filterTo || undefined}
             onChange={(e) => setFilterFrom(e.target.value)}
             className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
           />
@@ -298,11 +299,20 @@ export default function InsuranceClaimsPage() {
             id="claims-filter-to"
             type="date"
             value={filterTo}
+            min={filterFrom || undefined}
             onChange={(e) => setFilterTo(e.target.value)}
             className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
           />
         </div>
       </div>
+      {/* Issue #580 (sub-concern 4): when From > To the API silently
+          returns 0 rows. Surface the inverted-range explicitly so the user
+          gets feedback instead of an unexplained empty state. */}
+      {filterFrom && filterTo && filterFrom > filterTo && (
+        <p className="mt-2 text-xs text-red-600">
+          The From date is after the To date — please correct the range.
+        </p>
+      )}
 
       {/* Table */}
       {loading && <p className="p-6 text-sm text-gray-500">Loading claims…</p>}

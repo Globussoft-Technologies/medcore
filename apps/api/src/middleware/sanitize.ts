@@ -10,8 +10,29 @@ import { Request, Response, NextFunction } from "express";
 // rely on tag-stripping so a careless `<script>` paste doesn't blow up the
 // renderer. We keep stripping the default and opt OUT of it for the few
 // routes whose schema does explicit rejection.
+// Issues #708, #712 (May 2026): both /register and /forgot-password use the
+// strict email-format refine. The global stripper would not normally touch a
+// valid-looking email, but addresses like `<a@b.com>` (RFC 5322 angle-bracket
+// form) get truncated by the tag stripper and silently re-formed into a string
+// that passes the regex. Bypassing the global stripper for these auth paths
+// keeps the schema's reject-not-mutate intent intact.
+//
+// Issue #616 (partial-XSS on Lab Add Result Unit): the lab `unit` field has
+// a strict allowlist regex (LAB_UNIT_REGEX) but the global stripper was
+// silently rewriting `<script>alert(1)</script>` to `alert(1)` BEFORE the
+// schema ran, defeating the regex's reject-not-strip intent. Bypass the
+// stripper for /api/v1/lab/results so the schema can reject angle-bracket
+// payloads with a 400 instead of laundering them.
+// Issue #577 (May 2026): /api/v1/complaints uses createComplaintSchema with
+// containsHtmlOrScript refines on name / category / description. Without the
+// bypass the global stripper turned `<script>alert(1)</script>` into
+// `alert(1)` BEFORE the schema saw it, so the refine never fired and the
+// laundered residue ended up in the DB.
 const SCHEMA_REJECT_PATHS: readonly string[] = [
   "/api/v1/auth/register",
+  "/api/v1/auth/forgot-password",
+  "/api/v1/lab/results",
+  "/api/v1/complaints",
 ];
 
 function stripHtmlTags(value: unknown): unknown {

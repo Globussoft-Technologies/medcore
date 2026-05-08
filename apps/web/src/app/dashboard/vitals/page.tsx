@@ -1,9 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { useAuthStore } from "@/lib/store";
 import { extractFieldErrors, type FieldErrorMap } from "@/lib/field-errors";
+
+// Issue #672: Record-Vitals is clinical-only. RECEPTION reaching the URL
+// directly used to render the full UI even though POST /vitals 403'd, so
+// the receptionist could fill the entire form before discovering the gate
+// at submit time. Restrict view + record to clinical roles. ADMIN included
+// for triage; LAB_TECH excluded — they don't record patient vitals.
+const VITALS_VIEW_ALLOWED = new Set(["DOCTOR", "NURSE", "ADMIN"]);
 
 // Issue #91 (Apr 2026): clinically sensible ranges, mirrored from
 // packages/shared/src/validation/patient.ts VITALS_RANGES.
@@ -49,10 +58,25 @@ interface Doctor {
 }
 
 export default function VitalsPage() {
+  const { user, isLoading } = useAuthStore();
+  const router = useRouter();
+  const pathname = usePathname();
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [selectedDoctor, setSelectedDoctor] = useState("");
   const [queue, setQueue] = useState<QueuePatient[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<QueuePatient | null>(null);
+
+  // Issue #672: redirect non-clinical roles BEFORE the form paints.
+  // RECEPTION used to see the full Record-Vitals UI here even though
+  // POST /vitals correctly 403'd at submit time.
+  useEffect(() => {
+    if (!isLoading && user && !VITALS_VIEW_ALLOWED.has(user.role)) {
+      toast.error("Recording vitals is restricted to doctors and nurses.");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/vitals")}`,
+      );
+    }
+  }, [isLoading, user, router, pathname]);
   const [form, setForm] = useState({
     bloodPressureSystolic: "",
     bloodPressureDiastolic: "",

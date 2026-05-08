@@ -213,4 +213,38 @@ describe("BillingPage", () => {
       "PARTIAL"
     );
   });
+
+  it("contains large paid amounts in a truncated money cell (#568)", async () => {
+    const inv = {
+      id: "inv-568",
+      invoiceNumber: "INV000373",
+      totalAmount: 999999999,
+      paymentStatus: "PAID",
+      createdAt: new Date().toISOString(),
+      patientId: "p568",
+      patient: { user: { name: "Seema Rawat", phone: "9000000373" } },
+      payments: [
+        {
+          id: "pm-568",
+          amount: 999999999,
+          mode: "CASH",
+          paidAt: new Date().toISOString(),
+        },
+      ],
+    };
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/billing/invoices"))
+        return Promise.resolve({ data: [inv] });
+      return Promise.resolve(defaultGet(url));
+    });
+    render(<BillingPage />);
+    await waitFor(() =>
+      expect(screen.getByText("INV000373")).toBeInTheDocument()
+    );
+
+    const paidAmount = screen.getAllByTitle("Rs. 99,99,99,999.00")[1];
+    expect(paidAmount).toHaveClass("truncate");
+    expect(paidAmount).toHaveClass("text-right");
+    expect(paidAmount).toHaveClass("tabular-nums");
+  });
 });

@@ -328,11 +328,16 @@ describe("generatePaySlipHTML — content quality", () => {
     expectWellFormedHtml(html);
     expect(html).toContain("Salary Slip");
     expect(html).toContain("Alice Nightingale");
-    expect(html).toContain("30000.00"); // basic
-    expect(html).toContain("47850.00"); // gross
-    // Issue #74: ESI = 0 above ₹21,000 ceiling → Net = 47850 - 3600 PF = 44250.
-    expect(html).toContain("44250.00"); // net
-    expect(html).toMatch(/Forty Four Thousand/i);
+    // Issue #701/#702 (2026-05-08): Basic is now pro-rated by days worked.
+    // 2024-05 = 31 days; 2 PRESENT + 1 LEAVE → workedDays = 2.
+    // proRatedBasic = (30000 / 31) * 2 = 1935.48
+    // Gross = 1935.48 + 17850 = 19785.48 → ESI applies (≤ 21000)
+    // PF = round(0.12 * 1935.48) = 232 ; ESI = round(0.0075 * 19785.48) = 148
+    // Net = 19785.48 - 232 - 148 = 19405.48
+    expect(html).toContain("1935.48"); // pro-rated basic
+    expect(html).toContain("19785.48"); // gross
+    expect(html).toContain("19405.48"); // net
+    expect(html).toMatch(/Nineteen Thousand Four Hundred/i);
     // Provident Fund and ESI lines
     expect(html).toContain("Provident Fund");
     expect(html).toContain("ESI");

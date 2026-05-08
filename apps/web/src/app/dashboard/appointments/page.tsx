@@ -427,6 +427,38 @@ export default function AppointmentsPage() {
     }
   }, [isPatient]);
 
+  // Issue #554: deep-link /dashboard/appointments?id=<uuid> from the
+  // dashboard "View Details" tile and notification emails. Used to be
+  // silently ignored — the list rendered as if no id were supplied. Force
+  // list view, scroll the matching row into view, and apply a temporary
+  // highlight pulse so the user sees which appointment they were sent to.
+  // Highlight clears after 3s on its own. Re-runs whenever the row arrives
+  // in the loaded page (idempotent — exact match by id).
+  const [highlightedAptId, setHighlightedAptId] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("id");
+    if (!id) return;
+    const exists = appointments.some((apt) => apt.id === id);
+    if (!exists) return;
+    setView("list");
+    setHighlightedAptId(id);
+    // Defer scroll until after render — the row may not exist in the DOM
+    // yet on the same tick we set view.
+    const t = setTimeout(() => {
+      const el = document.querySelector(`[data-apt-row="${id}"]`);
+      if (el && "scrollIntoView" in el) {
+        (el as HTMLElement).scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 50);
+    const clear = setTimeout(() => setHighlightedAptId(null), 3000);
+    return () => {
+      clearTimeout(t);
+      clearTimeout(clear);
+    };
+  }, [appointments]);
+
   // ─── Actions ──────────────────────
 
   // Issue #35: wrap the click handler in useCallback. The page previously
@@ -732,6 +764,14 @@ export default function AppointmentsPage() {
   }
 
   function exportCSV() {
+    // Issue #558: when the current view has no rows, the previous code
+    // still emitted a header-only CSV, which the browser dropped silently
+    // because chromium debounces zero-row synthetic downloads. Surface
+    // the empty-state explicitly so the user gets feedback.
+    if (filteredAppointments.length === 0) {
+      toast.info("Nothing to export — the current view is empty.");
+      return;
+    }
     const rows = [
       ["Token", "Patient", "Phone", "Doctor", "Date", "Time", "Type", "Status", "Priority"],
       ...filteredAppointments.map((a) => [
@@ -1646,11 +1686,17 @@ export default function AppointmentsPage() {
                       isPatient && patientTab === "cancelled"
                         ? "my-appt-cancelled-row"
                         : undefined;
+                    const isDeepLinkHighlight = highlightedAptId === apt.id;
                     return (
                     <tr
                       key={apt.id}
-                      className="border-b last:border-0"
+                      className={`border-b last:border-0 transition-colors ${
+                        isDeepLinkHighlight
+                          ? "bg-yellow-50 dark:bg-yellow-900/30"
+                          : ""
+                      }`}
                       data-testid={rowTestId}
+                      data-apt-row={apt.id}
                     >
                       {!isPatient && (
                         <td className="px-4 py-3">

@@ -141,6 +141,46 @@ describe("recordIpdVitalsSchema", () => {
       }).success
     ).toBe(true);
   });
+
+  // ─── Issue #544 — cross-field BP refine on admission Vitals ─────────
+  // 120/130 has each leg in-range per the per-field bounds, but the pair
+  // is physiologically wrong (diastolic >= systolic). The .superRefine()
+  // is the last line of defense.
+  it("#544 admission Vitals rejects diastolic >= systolic (120/130)", () => {
+    const result = recordIpdVitalsSchema.safeParse({
+      admissionId: UUID,
+      bloodPressureSystolic: 120,
+      bloodPressureDiastolic: 130,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some(
+          (i) =>
+            i.path.includes("bloodPressureDiastolic") &&
+            /less than systolic/i.test(i.message)
+        )
+      ).toBe(true);
+    }
+  });
+  it("#544 admission Vitals rejects diastolic == systolic (110/110)", () => {
+    expect(
+      recordIpdVitalsSchema.safeParse({
+        admissionId: UUID,
+        bloodPressureSystolic: 110,
+        bloodPressureDiastolic: 110,
+      }).success
+    ).toBe(false);
+  });
+  it("#544 admission Vitals accepts realistic 120/80", () => {
+    expect(
+      recordIpdVitalsSchema.safeParse({
+        admissionId: UUID,
+        bloodPressureSystolic: 120,
+        bloodPressureDiastolic: 80,
+      }).success
+    ).toBe(true);
+  });
 });
 
 describe("intakeOutputSchema", () => {
@@ -250,6 +290,39 @@ describe("recordLabResultSchema", () => {
       }).success
     ).toBe(false);
   });
+  // Issue #616: Unit must reject angle-bracket / script payloads outright,
+  // not silently strip them down to `alert(1)`. The global sanitize
+  // middleware bypasses /api/v1/lab/results so the schema sees the raw
+  // payload and a regex mismatch fires the 400.
+  it("accepts canonical clinical units", () => {
+    for (const unit of ["mg/dL", "mmol/L", "µg/mL", "IU/mL", "cells/mm³", "% (v/v)", "°C"]) {
+      const out = recordLabResultSchema.safeParse({
+        orderItemId: UUID,
+        parameter: "Hb",
+        value: "13.5",
+        unit,
+      });
+      expect(out.success, `unit "${unit}" should be accepted`).toBe(true);
+    }
+  });
+  it("rejects HTML/script payloads in unit (Issue #616)", () => {
+    for (const unit of [
+      "<script>alert(1)</script>",
+      "mg/dL<img src=x>",
+      'mg/dL"',
+      "mg/dL;",
+      "mg/dL=1",
+      "mg/dL`",
+    ]) {
+      const out = recordLabResultSchema.safeParse({
+        orderItemId: UUID,
+        parameter: "Hb",
+        value: "13.5",
+        unit,
+      });
+      expect(out.success, `unit "${unit}" should be rejected`).toBe(false);
+    }
+  });
 });
 
 describe("labQCSchema", () => {
@@ -306,9 +379,71 @@ describe("validateNumericLabResult", () => {
       })
     ).toBeNull();
   });
-  it("accepts negative and decimal numbers", () => {
+  it("accepts decimals and accepts negatives only when panicLow < 0", () => {
+    // Decimal positive is fine.
     expect(
-      validateNumericLabResult({ value: "-1.4", test: { unit: "mEq/L" } })
+      validateNumericLabResult({ value: "1.4", test: { unit: "mEq/L" } })
     ).toBeNull();
+    // Issue #611: negative values are biologically impossible for most
+    // tests — reject them unless the test's own panicLow is itself
+    // negative (e.g. base excess, anion gap).
+    const negOnPlainNumeric = validateNumericLabResult({
+      value: "-1.4",
+      test: { unit: "mEq/L" },
+    });
+    expect(negOnPlainNumeric).not.toBeNull();
+    expect(negOnPlainNumeric?.field).toBe("value");
+    expect(
+      validateNumericLabResult({
+        value: "-1.4",
+        test: { unit: "mEq/L", panicLow: -3, panicHigh: 3 },
+      })
+    ).toBeNull();
+  });
+
+  // Issue #611 (May 2026): a LabTech submitting NORMAL for a value that
+  // is outside the panic range must be overridden to CRITICAL by the
+  // server so dangerous results cannot be buried.
+  describe("deriveLabResultFlag (#611)", () => {
+    it("elevates NORMAL to CRITICAL when value is below panicLow", async () => {
+      const { deriveLabResultFlag } = await import("../lab");
+      expect(
+        deriveLabResultFlag({
+          value: "0.2",
+          flag: "NORMAL",
+          test: { panicLow: 0.6, panicHigh: 1.3 },
+        })
+      ).toBe("CRITICAL");
+    });
+    it("elevates NORMAL to CRITICAL when value is above panicHigh", async () => {
+      const { deriveLabResultFlag } = await import("../lab");
+      expect(
+        deriveLabResultFlag({
+          value: "39",
+          flag: "NORMAL",
+          test: { panicLow: 0.6, panicHigh: 5 },
+        })
+      ).toBe("CRITICAL");
+    });
+    it("retains submitted flag when value is inside panic range", async () => {
+      const { deriveLabResultFlag } = await import("../lab");
+      expect(
+        deriveLabResultFlag({
+          value: "1.0",
+          flag: "NORMAL",
+          test: { panicLow: 0.6, panicHigh: 5 },
+        })
+      ).toBe("NORMAL");
+    });
+    it("falls through for non-numeric value (cannot evaluate threshold)", async () => {
+      const { deriveLabResultFlag } = await import("../lab");
+      expect(
+        deriveLabResultFlag({
+          value: "Yellow",
+          flag: "NORMAL",
+          test: { panicLow: null, panicHigh: null },
+        })
+      ).toBe("NORMAL");
+    });
   });
 });

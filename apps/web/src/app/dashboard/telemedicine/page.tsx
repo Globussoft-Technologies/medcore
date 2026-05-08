@@ -76,6 +76,26 @@ function joinActive(session: TelemedicineSession): boolean {
   return diffMs <= 15 * 60 * 1000;
 }
 
+/**
+ * Issue #602 (CRITICAL): a PHARMACIST viewing the calendar could open
+ * another clinician's telemedicine event and click Join Call — entering
+ * the live Jitsi room between a doctor and a patient. The Join button
+ * never checked role / ownership, only session timing. Roles allowed
+ * to join a Jitsi session are exclusively: ADMIN (triage), DOCTOR (the
+ * treating clinician), PATIENT (the participant). PHARMACIST / NURSE /
+ * RECEPTION / LAB_TECH can read the schedule for coordination but
+ * cannot enter the call.
+ *
+ * The frontend gate hides the Join button for non-participant roles. The
+ * server-side enforcement (per-meeting JWT, room admission policy) is
+ * tracked separately as a follow-up — this UI gate stops the Jitsi-link
+ * leak from a casual click in the calendar.
+ */
+const TELEMED_JOIN_ROLES = new Set(["ADMIN", "DOCTOR", "PATIENT"]);
+function canJoinCall(user: { role?: string } | null): boolean {
+  return !!user?.role && TELEMED_JOIN_ROLES.has(user.role);
+}
+
 export default function TelemedicinePage() {
   const { user } = useAuthStore();
   const confirm = useConfirm();
@@ -407,7 +427,11 @@ export default function TelemedicinePage() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((s) => {
-            const canJoin = joinActive(s);
+            // Issue #602: role gate — bystanders (PHARMACIST / NURSE /
+            // RECEPTION / LAB_TECH) see the session card for calendar
+            // coordination but the Join Call button is hidden for them.
+            // The Doctor + Patient who own the session see Join as before.
+            const canJoin = joinActive(s) && canJoinCall(user);
             return (
               <div
                 key={s.id}

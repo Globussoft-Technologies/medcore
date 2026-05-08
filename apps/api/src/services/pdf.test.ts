@@ -274,11 +274,14 @@ describe("generatePaySlipHTML", () => {
       allowances: 17850,
     });
     expect(html).toContain("Salary Slip");
-    // Issue #74: ESI is now correctly skipped when gross > ₹21,000 ceiling.
-    // Basic 30000 + Allowances 17850 → Gross 47850
-    // PF = 0.12 * 30000 = 3600 ; ESI = 0 (above ceiling) ; Net = 47850 - 3600 = 44250
-    expect(html).toContain("44250.00");
-    expect(html).toMatch(/Forty Four Thousand/i);
+    // Issue #701/#702 (2026-05-08): Basic is now pro-rated by days worked.
+    // 2024-05 has 31 days. Shifts are 2 PRESENT + 1 LEAVE → workedDays = 2.
+    // proRatedBasic = (30000 / 31) * 2 = 1935.4838... → 1935.48
+    // Gross = 1935.48 + 17850 = 19785.48 → ESI applies (≤ 21000)
+    // PF = round(0.12 * 1935.48) = 232 ; ESI = round(0.0075 * 19785.48) = 148
+    // Net = 19785.48 - 232 - 148 = 19405.48
+    expect(html).toContain("19405.48");
+    expect(html).toMatch(/Nineteen Thousand Four Hundred/i);
   });
 });
 

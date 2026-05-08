@@ -1,4 +1,25 @@
 import { z } from "zod";
+import { containsHtmlOrScript } from "./security";
+
+// Issue #575 / #577 / #642 / #657: per-field length caps + phone shape
+// for free-text payloads. The previous schemas only required min(1) on
+// the name / category / description, which let 200k-char payloads
+// through and stored them verbatim. The cap is generous (catalog rows
+// run ~1k of clinical detail) but forecloses the storage/availability
+// risk and the "future renderer flips to dangerouslySetInnerHTML"
+// XSS pivot risk surfaced in #657.
+//
+// Issue #577 (May 2026): in addition to length caps we now reject any
+// HTML/script vector via containsHtmlOrScript on the user-facing free
+// text fields (name, category, description). The global sanitize
+// middleware silently strips tags BEFORE the schema runs, so a payload
+// like `<script>alert(1)</script>` was being laundered into `alert(1)`
+// and stored as plain text — visually messy in the list view and a
+// pivot risk if a future renderer ever switches to
+// dangerouslySetInnerHTML. The route is added to SCHEMA_REJECT_PATHS
+// in apps/api/src/middleware/sanitize.ts so the schema's reject-not-
+// strip intent is preserved end-to-end.
+const VISITOR_PHONE_REGEX = /^[+]?[\d\s-]{7,20}$/;
 
 export const FEEDBACK_CATEGORIES = [
   "DOCTOR",
@@ -45,7 +66,7 @@ export const createFeedbackSchema = z.object({
   category: z.enum(FEEDBACK_CATEGORIES),
   rating: z.number().int().min(1).max(5),
   nps: z.number().int().min(0).max(10).optional(),
-  comment: z.string().optional(),
+  comment: z.string().max(2000).optional(),
 });
 
 // ───────────────────────────────────────────────────────
@@ -55,10 +76,33 @@ export const createFeedbackSchema = z.object({
 export const createComplaintSchema = z
   .object({
     patientId: z.string().uuid().optional(),
-    name: z.string().optional(),
-    phone: z.string().optional(),
-    category: z.string().min(1),
-    description: z.string().min(1),
+    // Issue #577: cap free-text fields. Title/category lives at <=200,
+    // description at <=4000 (long incident narratives are legitimate).
+    name: z
+      .string()
+      .max(200)
+      .optional()
+      .refine((v) => v === undefined || !containsHtmlOrScript(v), {
+        message: "Name cannot contain HTML or script tags",
+      }),
+    phone: z
+      .string()
+      .regex(VISITOR_PHONE_REGEX, "Phone must be 7-20 digits, optional leading +")
+      .optional(),
+    category: z
+      .string()
+      .min(1)
+      .max(200)
+      .refine((v) => !containsHtmlOrScript(v), {
+        message: "Category cannot contain HTML or script tags",
+      }),
+    description: z
+      .string()
+      .min(1)
+      .max(4000)
+      .refine((v) => !containsHtmlOrScript(v), {
+        message: "Description cannot contain HTML or script tags",
+      }),
     priority: z.enum(COMPLAINT_PRIORITIES).default("MEDIUM"),
   })
   .refine((d) => d.patientId || d.name, {
@@ -69,7 +113,16 @@ export const createComplaintSchema = z
 export const updateComplaintSchema = z.object({
   status: z.enum(COMPLAINT_STATUSES).optional(),
   assignedTo: z.string().uuid().optional(),
-  resolution: z.string().optional(),
+  // Issue #577: resolution is operator-supplied free text rendered in the
+  // ticket detail and (eventually) the patient-facing closure email — same
+  // reject-not-strip rule as the create schema's description.
+  resolution: z
+    .string()
+    .max(4000)
+    .optional()
+    .refine((v) => v === undefined || !containsHtmlOrScript(v), {
+      message: "Resolution cannot contain HTML or script tags",
+    }),
   priority: z.enum(COMPLAINT_PRIORITIES).optional(),
 });
 
@@ -95,14 +148,21 @@ export const sendMessageSchema = z.object({
 // ───────────────────────────────────────────────────────
 
 export const checkinVisitorSchema = z.object({
-  name: z.string().min(1),
-  phone: z.string().optional(),
-  idProofType: z.string().optional(),
-  idProofNumber: z.string().optional(),
+  // Issue #575: visitor name 1-120 chars (no anchor on shape — visitor
+  // names span Indic + Latin scripts and may include legitimate
+  // honorifics, so we don't reuse PATIENT_NAME_REGEX here). Phone is
+  // bounded so SMS notifications can't be DoS'd with absurd values.
+  name: z.string().min(1).max(120),
+  phone: z
+    .string()
+    .regex(VISITOR_PHONE_REGEX, "Phone must be 7-20 digits, optional leading +")
+    .optional(),
+  idProofType: z.string().max(40).optional(),
+  idProofNumber: z.string().max(60).optional(),
   patientId: z.string().uuid().optional(),
   purpose: z.enum(VISITOR_PURPOSES),
-  department: z.string().optional(),
-  notes: z.string().optional(),
+  department: z.string().max(120).optional(),
+  notes: z.string().max(2000).optional(),
 });
 
 // ───────────────────────────────────────────────────────
@@ -133,11 +193,14 @@ export const createChannelSchema = z.object({
 });
 
 export const visitorBlacklistSchema = z.object({
-  idProofType: z.string().optional(),
-  idProofNumber: z.string().optional(),
-  name: z.string().optional(),
-  phone: z.string().optional(),
-  reason: z.string().min(1),
+  idProofType: z.string().max(40).optional(),
+  idProofNumber: z.string().max(60).optional(),
+  name: z.string().max(120).optional(),
+  phone: z
+    .string()
+    .regex(VISITOR_PHONE_REGEX, "Phone must be 7-20 digits, optional leading +")
+    .optional(),
+  reason: z.string().min(1).max(2000),
 }).refine(
   (v) => v.idProofNumber || v.phone || v.name,
   "At least one identifier (idProofNumber, phone, or name) is required"
@@ -148,7 +211,16 @@ export const visitorPhotoSchema = z.object({
 });
 
 export const escalateComplaintSchema = z.object({
-  reason: z.string().min(1).max(500),
+  // Issue #577: escalation reason is rendered on the ticket detail and into
+  // the audit row payload — same reject-not-strip rule as the rest of the
+  // complaints surface.
+  reason: z
+    .string()
+    .min(1)
+    .max(500)
+    .refine((v) => !containsHtmlOrScript(v), {
+      message: "Reason cannot contain HTML or script tags",
+    }),
 });
 
 export const feedbackRequestSchema = z.object({

@@ -72,6 +72,20 @@ import { paymentPlansRouter } from "./routes/payment-plans";
 import { preauthRouter } from "./routes/preauth";
 import { medReconciliationRouter } from "./routes/med-reconciliation";
 import { scheduledReportsRouter } from "./routes/scheduled-reports";
+// Issue #744: friendly tenant resolver for the dashboard chrome (so the
+// admin-console can render tenant.name/subdomain instead of raw clinicId
+// UUID strings, without granting non-super-admins access to the
+// super-admin-only /tenants endpoints).
+import { meTenantRouter } from "./routes/me-tenant";
+// Issue #746: canonical "today" visitor stats endpoint, anchored to the
+// hospital's local-day boundary (Asia/Kolkata). Adds a single source-of-
+// truth so the admin-console card, the visitors page tile, and the
+// reports page all agree on the same KPI.
+import { visitorsStatsRouter } from "./routes/visitors-stats";
+// Issue #749: public read-only holidays endpoint so the calendar grid
+// can render holiday cells for every authed role (the existing
+// /api/v1/hr-ops/holidays endpoint is admin-only).
+import { holidaysRouter } from "./routes/holidays";
 import { patientExtrasRouter } from "./routes/patient-extras";
 import { usersRouter } from "./routes/users";
 import { aiTriageRouter } from "./routes/ai-triage";
@@ -88,6 +102,8 @@ import { aiChartSearchRouter } from "./routes/ai-chart-search";
 import { fhirRouter } from "./routes/fhir";
 import { abdmRouter } from "./routes/abdm";
 import { insuranceClaimsRouter } from "./routes/insurance-claims";
+import { insuranceProvidersRouter } from "./routes/insurance-providers";
+import { calendarEventsRouter } from "./routes/calendar-events";
 import { hl7v2Router } from "./routes/hl7v2";
 import { aiRadiologyRouter } from "./routes/ai-radiology";
 import { aiAdminRouter } from "./routes/ai-admin";
@@ -105,6 +121,7 @@ import { aiFraudRouter } from "./routes/ai-fraud";
 import { aiDocQaRouter } from "./routes/ai-doc-qa";
 import { aiSentimentRouter } from "./routes/ai-sentiment";
 import { tenantsRouter } from "./routes/tenants";
+import { settingsRouter } from "./routes/settings";
 import { agentConsoleRouter } from "./routes/agent-console";
 import { aiKpisRouter } from "./routes/ai-kpis";
 import { healthRouter } from "./routes/health";
@@ -270,6 +287,13 @@ export function buildApp() {
   app.use("/api/v1/payment-plans", paymentPlansRouter);
   app.use("/api/v1/preauth", preauthRouter);
   app.use("/api/v1/scheduled-reports", scheduledReportsRouter);
+  // Issue #744: caller-scoped tenant info; any authenticated role.
+  app.use("/api/v1/me", meTenantRouter);
+  // Issue #746: canonical "Visitors-Today" KPI shared by admin-console,
+  // visitors page, and reports page (Asia/Kolkata day boundary).
+  app.use("/api/v1/visitors-stats", visitorsStatsRouter);
+  // Issue #749: read-only holidays for the calendar grid (any authed role).
+  app.use("/api/v1/holidays", holidaysRouter);
   app.use("/api/v1/marketing", marketingRouter);
   app.use("/api/v1/ai/triage", aiTriageRouter);
   app.use("/api/v1/ai/scribe", aiScribeRouter);
@@ -285,6 +309,11 @@ export function buildApp() {
   app.use("/api/v1/fhir", fhirRouter);
   app.use("/api/v1/abdm", abdmRouter);
   app.use("/api/v1/claims", insuranceClaimsRouter);
+  // Issues #718 + #724: admin Calendar New-Event + Insurance Add-Provider
+  // CRUD. Both are simple Zod-validated tenant-scoped tables added in
+  // migration 20260508000002.
+  app.use("/api/v1/calendar-events", calendarEventsRouter);
+  app.use("/api/v1/insurance-providers", insuranceProvidersRouter);
   app.use("/api/v1/hl7v2", hl7v2Router);
   app.use("/api/v1/ai/radiology", aiRadiologyRouter);
   app.use("/api/v1/ai/admin", aiAdminRouter);
@@ -302,6 +331,7 @@ export function buildApp() {
   app.use("/api/v1/ai/doc-qa", aiDocQaRouter);
   app.use("/api/v1/ai/sentiment", aiSentimentRouter);
   app.use("/api/v1/tenants", tenantsRouter);
+  app.use("/api/v1/settings", settingsRouter);
   app.use("/api/v1/agent-console", agentConsoleRouter);
   app.use("/api/v1/ai/kpis", aiKpisRouter);
   app.use("/api/v1/patient-data-export", patientDataExportRouter);

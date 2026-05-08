@@ -1,9 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
+
+// Issue #674: AI Booking is a patient-facing intake flow. Pharmacist /
+// LabTech / Nurse / Doctor / Reception / Admin must not be able to start
+// a triage session under their own identity — that creates clinical
+// records attached to a non-patient user. ADMIN keeps view access for
+// support / debugging via /dashboard/agent-console; everyone else gets
+// bounced to /dashboard/not-authorized.
+const AI_BOOKING_ALLOWED = new Set(["PATIENT", "ADMIN"]);
 // PRD §3.5.1 Phase 2: 8-language i18n bundle (codes + native display names +
 // symptom-chip translations + UI-chrome strings + BCP-47 converter).
 import {
@@ -96,7 +105,26 @@ const hasSpeechRecognition =
 export default function AIBookingPage() {
   // Issue #84: also pull `user` so the booking-confirmed CTA can show
   // "Start Consultation" only for staff roles.
-  const { token, user } = useAuthStore();
+  // Issue #674: pull `isLoading` to gate the role redirect until auth
+  // hydration completes — otherwise we'd briefly bounce a logged-in
+  // patient on first render.
+  const { token, user, isLoading } = useAuthStore();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  // Issue #674: redirect non-patient roles. Pharmacist starting an AI
+  // consultation creates a clinical record attached to a non-patient
+  // identity, which is both a role-boundary violation and a data-
+  // integrity defect. Pattern mirrors /dashboard/billing's BILLING_ALLOWED
+  // gate (issue #89) and /dashboard/prescriptions's RX_ALLOWED gate.
+  useEffect(() => {
+    if (!isLoading && user && !AI_BOOKING_ALLOWED.has(user.role)) {
+      toast.error("AI Booking is for patients only.");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/ai-booking")}`,
+      );
+    }
+  }, [isLoading, user, router, pathname]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -699,6 +727,11 @@ export default function AIBookingPage() {
 
   return (
     <div className="flex h-[calc(100vh-4rem)] gap-4 p-4">
+      {/* Issue #651: page lacked any <h1> landmark. Screen readers
+          announced only the generic chat header. We expose an h1 that
+          is visually hidden (`sr-only`) so the chat-panel layout stays
+          unchanged but assistive tech reaches the page heading. */}
+      <h1 className="sr-only">AI Booking Assistant</h1>
       {/* ── Chat panel ─────────────────────────────────── */}
       <div className="flex flex-col flex-1 bg-white rounded-2xl shadow border border-gray-100 overflow-hidden">
         {/* Header */}

@@ -9,6 +9,7 @@ import {
   waitlistEntrySchema,
   coordinatedVisitSchema,
   doctorScheduleSchema,
+  scheduleOverrideSchema,
 } from "../appointment";
 
 const UUID = "11111111-1111-1111-1111-111111111111";
@@ -208,6 +209,61 @@ describe("doctorScheduleSchema (Issue #213-A)", () => {
         startTime: "09:00",
         endTime: "09:10",
         slotDurationMinutes: 15,
+      }).success
+    ).toBe(false);
+  });
+});
+
+// Issue #731 (2026-05-08): Schedule overrides in "Modify Hours" mode were
+// previously accepted with End < Start (e.g. start 17:00, end 09:00 same
+// day), which produced negative-duration windows that broke conflict
+// detection and reporting. The schema now rejects reverse ranges; "Block
+// Entire Day" mode is unaffected because times are absent in that branch.
+describe("scheduleOverrideSchema (Issue #731)", () => {
+  const baseDate = "2099-04-20";
+  it("accepts a Block-Entire-Day override (no times)", () => {
+    expect(
+      scheduleOverrideSchema.safeParse({
+        doctorId: UUID,
+        date: baseDate,
+        isBlocked: true,
+      }).success
+    ).toBe(true);
+  });
+  it("accepts a Modify-Hours override with end > start", () => {
+    expect(
+      scheduleOverrideSchema.safeParse({
+        doctorId: UUID,
+        date: baseDate,
+        isBlocked: false,
+        startTime: "09:00",
+        endTime: "13:00",
+      }).success
+    ).toBe(true);
+  });
+  it("rejects a Modify-Hours override with end < start (reverse range)", () => {
+    const r = scheduleOverrideSchema.safeParse({
+      doctorId: UUID,
+      date: baseDate,
+      isBlocked: false,
+      startTime: "17:00",
+      endTime: "09:00",
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(
+        r.error.issues.some((i) => /end time must be after start/i.test(i.message))
+      ).toBe(true);
+    }
+  });
+  it("rejects a Modify-Hours override with end == start (zero length)", () => {
+    expect(
+      scheduleOverrideSchema.safeParse({
+        doctorId: UUID,
+        date: baseDate,
+        isBlocked: false,
+        startTime: "09:00",
+        endTime: "09:00",
       }).success
     ).toBe(false);
   });

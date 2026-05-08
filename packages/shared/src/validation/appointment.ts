@@ -128,14 +128,35 @@ export const doctorScheduleSchema = z
     }
   });
 
-export const scheduleOverrideSchema = z.object({
-  doctorId: z.string().uuid(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
-  isBlocked: z.boolean().default(true),
-  startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
-  endTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
-  reason: z.string().optional(),
-});
+// Issue #731: when a doctor uses "Modify Hours" mode (isBlocked=false) and
+// supplies both startTime and endTime, the API previously accepted reverse
+// ranges (e.g. start 17:00, end 09:00 same day). Reject that here so the
+// override row can never land in the DB with a negative-duration window.
+// "Block entire day" mode (isBlocked=true) skips the check because times
+// are absent in that branch.
+export const scheduleOverrideSchema = z
+  .object({
+    doctorId: z.string().uuid(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
+    isBlocked: z.boolean().default(true),
+    startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+    endTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+    reason: z.string().optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.isBlocked) return;
+    if (!val.startTime || !val.endTime) return;
+    const start = parseHHMM(val.startTime);
+    const end = parseHHMM(val.endTime);
+    if (start === null || end === null) return;
+    if (end <= start) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["endTime"],
+        message: "End time must be after start time",
+      });
+    }
+  });
 
 export const rescheduleAppointmentSchema = z.object({
   // Issue #491 (2026-05-03): same fix as bookAppointmentSchema — reject

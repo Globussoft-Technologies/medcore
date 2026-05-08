@@ -263,18 +263,31 @@ export default function LabPage() {
                       className="rounded-lg border border-gray-200 p-3 dark:border-gray-700"
                     >
                       <p className="font-medium">{t.name}</p>
-                      {t.normalRange && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {/* Issue #230: extension of #147 — only append the
-                              unit when the range string doesn't already
-                              contain it. Prevents "0.4-4.0 mIU/L mIU/L". */}
-                          Normal: {t.normalRange}
-                          {t.unit &&
-                          !t.normalRange.toLowerCase().includes(t.unit.toLowerCase())
-                            ? ` ${t.unit}`
-                            : ""}
-                        </p>
-                      )}
+                      {/* Issue #631 (2026-05-05): tests without a numeric range
+                          previously rendered NO Normal line at all, making the
+                          tile look like missing data. Always render the line —
+                          show the range when present, "Qualitative" otherwise
+                          (covers imaging like Echo/ECG/X-Ray, qualitative
+                          serology like HIV/Dengue/Widal, and microscopy where
+                          the result is a structured report rather than a
+                          number). */}
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {/* Issue #230: extension of #147 — only append the
+                            unit when the range string doesn't already
+                            contain it. Prevents "0.4-4.0 mIU/L mIU/L". */}
+                        Normal:{" "}
+                        {t.normalRange ? (
+                          <>
+                            {t.normalRange}
+                            {t.unit &&
+                            !t.normalRange.toLowerCase().includes(t.unit.toLowerCase())
+                              ? ` ${t.unit}`
+                              : ""}
+                          </>
+                        ) : (
+                          <span className="italic">Qualitative</span>
+                        )}
+                      </p>
                       {t.price !== undefined && (
                         // Issue #403: canonical INR format ("₹1,200.00") via
                         // shared formatINR — was bare "₹1200" before.
@@ -299,10 +312,26 @@ export default function LabPage() {
               data-testid="lab-orders-empty-state"
             >
               <Inbox size={28} className="text-gray-400" aria-hidden="true" />
-              <p className="text-sm font-medium">No lab orders yet</p>
-              <p className="text-xs text-gray-400 dark:text-gray-500">
-                Orders placed by doctors will appear here.
+              {/* Issue #625: when STAT-only is on, distinguish "no STAT orders right now"
+                  from "no orders at all" so the user understands non-STAT orders aren't
+                  missing — they're hidden by the active filter. */}
+              <p className="text-sm font-medium">
+                {statOnly ? "No STAT orders match this filter" : "No lab orders yet"}
               </p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                {statOnly
+                  ? "Turn off STAT Only to see all current orders."
+                  : "Orders placed by doctors will appear here."}
+              </p>
+              {statOnly && (
+                <button
+                  type="button"
+                  onClick={() => setStatOnly(false)}
+                  className="mt-2 rounded-lg border border-gray-300 px-3 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  Clear STAT filter
+                </button>
+              )}
             </div>
           ) : (
             <table className="w-full">
@@ -585,18 +614,27 @@ function NewOrderModal({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedPatient) {
-      toast.error("Select a patient");
-      return;
-    }
-    if (selectedTests.length === 0) {
-      toast.error("Select at least one test");
+    // Issue #545: "Create Order" with empty fields previously emitted a toast
+    // and exited silently — receptionists in noisy environments missed the
+    // toast and assumed the form was broken. Now we ALSO set inline
+    // `fieldErrors` keyed to the same `[data-testid="error-lab-*"]` elements
+    // already present in the form, so the user sees a per-field error in
+    // the modal itself and the toast is just a secondary confirmation.
+    const localErrors: FieldErrorMap = {};
+    if (!selectedPatient) localErrors.patientId = "Select a patient";
+    if (selectedTests.length === 0)
+      localErrors.testIds = "Select at least one test";
+    if (Object.keys(localErrors).length > 0) {
+      setFieldErrors(localErrors);
+      toast.error(
+        Object.values(localErrors)[0] || "Please fix the highlighted fields"
+      );
       return;
     }
     setFieldErrors({});
     try {
       await api.post("/lab/orders", {
-        patientId: selectedPatient.id,
+        patientId: selectedPatient!.id,
         testIds: selectedTests,
         notes: notes || undefined,
         priority,

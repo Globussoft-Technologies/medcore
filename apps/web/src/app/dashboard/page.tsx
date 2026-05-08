@@ -61,6 +61,11 @@ interface DashboardData {
   lowStockCount?: number;
   // Lab
   pendingLabOrders?: number;
+  // Issue #629 — LAB_TECH-specific KPIs
+  labOrdersInProgress?: number;
+  labOrdersStat?: number;
+  labOrdersCompletedToday?: number;
+  labOrdersSampleCollected?: number;
   // Blood bank
   bloodUnitsAvailable?: number;
   bloodUnitsExpiring?: number;
@@ -331,9 +336,18 @@ export default function DashboardPage() {
       // PATIENT role fired these, which produced repeated 403s in the
       // nurse/doctor Network tab. See GitHub issue #31. We ONLY skip calls
       // client-side — we never widen backend permissions.
+      //
+      // Issue #621: PHARMACIST also fans out 12+ requests on first paint
+      // that always 403 (patients, billing, queue, wards, emergency, lab,
+      // bloodbank, shifts, complaints, visitors, immunization). Skip them
+      // for PHARMACIST so the dashboard doesn't pollute monitoring with
+      // expected 403s on every login. Pharmacist's actual surface
+      // (prescriptions, low-stock pharmacy inventory) still loads.
       const role = user?.role;
       const canSeeAnalytics = role === "ADMIN" || role === "RECEPTION";
       const canSeeAdminHR = role === "ADMIN";
+      const isPharmacist = role === "PHARMACIST";
+      const isLabTech = role === "LAB_TECH";
 
       const [
         appointments,
@@ -360,34 +374,94 @@ export default function DashboardPage() {
         visitorsActive,
       ] = await Promise.all([
         safeGet<any>(`/appointments?date=${today}&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/patients?limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/billing/invoices?status=PENDING&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/billing/invoices?status=PARTIAL&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/queue`, { data: [] }),
-        safeGet<any>(`/admissions?status=ADMITTED&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/wards`, { data: [] }),
-        safeGet<any>(`/emergency/cases/active`, { data: [] }),
+        // Issue #621: PHARMACIST + LAB_TECH have no read access to the patient
+        // roster, billing, queue, wards, emergency, bloodbank, shifts,
+        // complaints, visitors, immunization. Short-circuit to a no-op so
+        // we don't flood the monitoring/alert channel with 403s.
+        isPharmacist || isLabTech
+          ? Promise.resolve({ meta: { total: 0 } })
+          : safeGet<any>(`/patients?limit=1`, { meta: { total: 0 } }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ meta: { total: 0 } })
+          : safeGet<any>(`/billing/invoices?status=PENDING&limit=1`, { meta: { total: 0 } }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ meta: { total: 0 } })
+          : safeGet<any>(`/billing/invoices?status=PARTIAL&limit=1`, { meta: { total: 0 } }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ data: [] })
+          : safeGet<any>(`/queue`, { data: [] }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ meta: { total: 0 } })
+          : safeGet<any>(`/admissions?status=ADMITTED&limit=1`, { meta: { total: 0 } }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ data: [] })
+          : safeGet<any>(`/wards`, { data: [] }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ data: [] })
+          : safeGet<any>(`/emergency/cases/active`, { data: [] }),
         safeGet<any>(`/pharmacy/inventory?lowStock=true&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/lab/orders?status=ORDERED&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/bloodbank/inventory/summary`, { data: null }),
-        safeGet<any>(`/surgery?status=SCHEDULED&from=${today}&to=${today}&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/surgery?status=IN_PROGRESS&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/shifts/roster?date=${today}`, { data: [] }),
+        // Lab orders ARE part of LAB_TECH's surface, so don't gate it for them.
+        isPharmacist
+          ? Promise.resolve({ meta: { total: 0 } })
+          : safeGet<any>(`/lab/orders?status=ORDERED&limit=1`, { meta: { total: 0 } }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ data: null })
+          : safeGet<any>(`/bloodbank/inventory/summary`, { data: null }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ meta: { total: 0 } })
+          : safeGet<any>(`/surgery?status=SCHEDULED&from=${today}&to=${today}&limit=1`, { meta: { total: 0 } }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ meta: { total: 0 } })
+          : safeGet<any>(`/surgery?status=IN_PROGRESS&limit=1`, { meta: { total: 0 } }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ data: [] })
+          : safeGet<any>(`/shifts/roster?date=${today}`, { data: [] }),
         canSeeAdminHR
           ? safeGet<any>(`/leaves/pending`, { data: [] })
           : Promise.resolve({ data: [] }),
         canSeeAnalytics
           ? safeGet<any>(`/feedback/summary`, { data: null })
           : Promise.resolve({ data: null }),
-        safeGet<any>(`/complaints?status=OPEN&limit=1`, { meta: { total: 0 } }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ meta: { total: 0 } })
+          : safeGet<any>(`/complaints?status=OPEN&limit=1`, { meta: { total: 0 } }),
         canSeeAnalytics
           ? safeGet<any>(`/analytics/overview?from=${today}&to=${today}`, { data: null })
           : Promise.resolve({ data: null }),
-        safeGet<any>(`/medication/administrations/due`, { data: [] }),
-        safeGet<any>(`/telemedicine?date=${today}&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/ehr/immunizations/schedule?filter=overdue`, { data: [] }),
-        safeGet<any>(`/visitors/active`, { data: [] }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ data: [] })
+          : safeGet<any>(`/medication/administrations/due`, { data: [] }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ meta: { total: 0 } })
+          : safeGet<any>(`/telemedicine?date=${today}&limit=1`, { meta: { total: 0 } }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ data: [] })
+          : safeGet<any>(`/ehr/immunizations/schedule?filter=overdue`, { data: [] }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ data: [] })
+          : safeGet<any>(`/visitors/active`, { data: [] }),
       ]);
+
+      // Issue #629 — LAB_TECH-specific KPIs (others get a no-op so we don't
+      // pay the extra round-trips for roles that don't render the strip).
+      const [
+        labInProgress,
+        labStat,
+        labCompletedToday,
+        labSampleCollected,
+      ] = isLabTech
+        ? await Promise.all([
+            safeGet<any>(`/lab/orders?status=IN_PROGRESS&limit=1`, { meta: { total: 0 } }),
+            safeGet<any>(`/lab/orders?stat=true&limit=1`, { meta: { total: 0 } }),
+            safeGet<any>(`/lab/orders?status=COMPLETED&limit=1`, { meta: { total: 0 } }),
+            safeGet<any>(`/lab/orders?status=SAMPLE_COLLECTED&limit=1`, { meta: { total: 0 } }),
+          ])
+        : [
+            { meta: { total: 0 } },
+            { meta: { total: 0 } },
+            { meta: { total: 0 } },
+            { meta: { total: 0 } },
+          ];
 
       // Compute totals
       const totalInQueue = (queue.data ?? []).reduce(
@@ -424,6 +498,11 @@ export default function DashboardPage() {
         erCritical,
         lowStockCount: lowStock.meta?.total ?? 0,
         pendingLabOrders: labOrders.meta?.total ?? 0,
+        // Issue #629 — LAB_TECH-specific KPI counts
+        labOrdersInProgress: labInProgress.meta?.total ?? 0,
+        labOrdersStat: labStat.meta?.total ?? 0,
+        labOrdersCompletedToday: labCompletedToday.meta?.total ?? 0,
+        labOrdersSampleCollected: labSampleCollected.meta?.total ?? 0,
         bloodUnitsAvailable: bloodAvailable,
         bloodUnitsExpiring: bloodExpiring,
         surgeriesScheduledToday: surgeryScheduled.meta?.total ?? 0,
@@ -465,6 +544,11 @@ export default function DashboardPage() {
   const isNurse = role === "NURSE";
   const isReception = role === "RECEPTION";
   const isPatient = role === "PATIENT";
+  // Issue #629 — LAB_TECH gets a dedicated KPI strip + quick actions; the
+  // generic strip's tiles (appointments / patients / beds / ER / bills) all
+  // either link to Access-Denied pages or surface counts irrelevant to lab
+  // operations.
+  const isLabTechRole = role === "LAB_TECH";
 
   const fmt = (n?: number) => (n ?? 0).toLocaleString("en-IN");
   // Issue #298: canonical INR formatting (₹1,23,456.00) via shared helper.
@@ -527,8 +611,74 @@ export default function DashboardPage() {
 
       {!isPatient && (
         <>
-          {/* Top KPI strip */}
-          {isWidgetVisible(widgets, "kpi_top") && (
+          {/* Top KPI strip.
+              Issue #529 — when the dashboard first paints, the data fetches
+              are still in flight and every numeric tile read 0 (the default
+              for `fmt(undefined)`). Admins glancing at the dashboard
+              interpreted "0 patients / 0 admitted / 0/0 beds" as a wiped
+              database. We gate the real KPI grid on `!loading` so the
+              SkeletonCard strip rendered above is the ONLY visible
+              representation while data fetches are in flight; once `loading`
+              flips false the real numbers replace the skeleton. Quick
+              Actions and role-specific sections render unconditionally
+              because they don't depend on the in-flight data. */}
+          {!loading && isWidgetVisible(widgets, "kpi_top") && (
+          isLabTechRole ? (
+            // Issue #629 — LAB_TECH dashboard: replace the generic strip
+            // (appointments/patients/beds/ER/bills — all gated 403 for lab
+            // tech and irrelevant to lab work) with lab-operations KPIs.
+            <div
+              className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6"
+              data-testid="kpi-strip-lab-tech"
+            >
+              <StatCard
+                title="Pending Lab Orders"
+                value={fmt(data.pendingLabOrders)}
+                subtitle="awaiting collection"
+                icon={FlaskConical}
+                color="bg-primary"
+                href="/dashboard/lab?status=ORDERED"
+              />
+              <StatCard
+                title="Sample Collected"
+                value={fmt(data.labOrdersSampleCollected)}
+                subtitle="ready for analysis"
+                icon={CheckCircle2}
+                color="bg-blue-600"
+                href="/dashboard/lab?status=SAMPLE_COLLECTED"
+              />
+              <StatCard
+                title="In Progress"
+                value={fmt(data.labOrdersInProgress)}
+                icon={Activity}
+                color="bg-indigo-600"
+                href="/dashboard/lab?status=IN_PROGRESS"
+              />
+              <StatCard
+                title="STAT"
+                value={fmt(data.labOrdersStat)}
+                subtitle="urgent"
+                icon={AlertTriangle}
+                color={data.labOrdersStat ? "bg-red-600" : "bg-orange-600"}
+                href="/dashboard/lab?stat=true"
+              />
+              <StatCard
+                title="Completed Today"
+                value={fmt(data.labOrdersCompletedToday)}
+                icon={CheckCircle2}
+                color="bg-emerald-600"
+                href="/dashboard/lab?status=COMPLETED"
+              />
+              <StatCard
+                title="QC Queue"
+                value={"Open"}
+                subtitle="quality control"
+                icon={FileText}
+                color="bg-secondary"
+                href="/dashboard/lab/qc"
+              />
+            </div>
+          ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
             <StatCard
               title={t("dashboard.home.kpi.todayAppointments")}
@@ -591,10 +741,14 @@ export default function DashboardPage() {
               href="/dashboard/billing?status=PENDING"
             />
           </div>
+          )
           )}
 
-          {/* Role-specific primary sections */}
-          {(isDoctor || isAdmin) && isWidgetVisible(widgets, "clinical_today") && (
+          {/* Role-specific primary sections.
+              Issue #529 — same hard-zero-flash class as the KPI strip;
+              gated on !loading so only the skeleton represents the
+              in-flight state. */}
+          {!loading && (isDoctor || isAdmin) && isWidgetVisible(widgets, "clinical_today") && (
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
               <ModuleSection
                 title="Clinical — Today"
@@ -714,8 +868,8 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Nurse dashboard emphasis */}
-          {isNurse && (
+          {/* Nurse dashboard emphasis. Issue #529 same gate. */}
+          {!loading && isNurse && (
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
               <ModuleSection
                 title="Medications Due"
@@ -775,8 +929,8 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Reception emphasis */}
-          {isReception && (
+          {/* Reception emphasis. Issue #529 same gate. */}
+          {!loading && isReception && (
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
               <ModuleSection
                 title="Pending Billing"
@@ -818,8 +972,9 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Admin summary — deeper financial & operational section */}
-          {isAdmin && (
+          {/* Admin summary — deeper financial & operational section. Issue
+              #529 same gate as the rest of the dashboard. */}
+          {!loading && isAdmin && (
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-4">
               <StatCard
                 title="Surgeries In Progress"
@@ -857,12 +1012,40 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Quick Actions by role */}
-          <div className="mt-8">
+          {/* Quick Actions by role.
+              Issues #648/#682: when the caller's role is none of
+              RECEPTION/ADMIN/DOCTOR/NURSE (e.g. PHARMACIST, LAB_TECH,
+              ACCOUNTANT, AMBULANCE_DRIVER), every conditional branch
+              below was false and the page rendered an empty grid under
+              the "Quick Actions" heading — read by users as a broken
+              panel. We now render a placeholder line instead so the
+              section explains itself for unmatched roles. */}
+          <div className="mt-8" data-testid="quick-actions-panel">
             <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-gray-100">
               Quick Actions
             </h2>
+            {!(isReception || isAdmin || isDoctor || isNurse || isLabTechRole) ? (
+              <p
+                className="rounded-xl border border-dashed border-gray-300 bg-white p-4 text-center text-sm text-gray-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400"
+                data-testid="quick-actions-empty"
+              >
+                Quick actions will appear here based on your role.
+              </p>
+            ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              {/* Issue #629 — LAB_TECH quick actions: STAT queue, sample
+                  collection, result entry, test catalog. Replaces the
+                  empty-grid render that was confusing users. */}
+              {isLabTechRole && (
+                <>
+                  <QuickAction href="/dashboard/lab?stat=true" icon={AlertTriangle} label="STAT Queue" />
+                  <QuickAction href="/dashboard/lab?status=ORDERED" icon={FlaskConical} label="Collect Samples" />
+                  <QuickAction href="/dashboard/lab?status=SAMPLE_COLLECTED" icon={Activity} label="Enter Results" />
+                  <QuickAction href="/dashboard/lab?status=IN_PROGRESS" icon={Clock} label="In Progress" />
+                  <QuickAction href="/dashboard/lab?status=COMPLETED" icon={CheckCircle2} label="Completed" />
+                  <QuickAction href="/dashboard/lab/qc" icon={FileText} label="QC Queue" />
+                </>
+              )}
               {(isReception || isAdmin) && (
                 <>
                   <QuickAction href="/dashboard/walk-in" icon={Users} label="Walk-in" />
@@ -904,6 +1087,7 @@ export default function DashboardPage() {
                 </>
               )}
             </div>
+            )}
           </div>
         </>
       )}
@@ -989,7 +1173,19 @@ function PatientHome() {
         return Array.isArray(arr) ? arr : [];
       };
       const apArr = safeArr(settled[0]);
-      const upc = [...apArr].sort(
+      // Issue #546 (2026-05-05): the API filter `from=today` already excludes
+      // past calendar dates, but the upcoming card was still rendering rows
+      // dated today-or-earlier in some races (timezone boundary, sort by
+      // ascending date that picks the OLDEST first). Belt-and-braces: drop
+      // anything strictly before the start of today's local day, and prefer
+      // the EARLIEST upcoming row (sort ascending) only among the remaining.
+      const todayMidnight = new Date();
+      todayMidnight.setHours(0, 0, 0, 0);
+      const futureOnly = apArr.filter((a: any) => {
+        if (!a?.date) return false;
+        return new Date(a.date).getTime() >= todayMidnight.getTime();
+      });
+      const upc = futureOnly.sort(
         (a: any, b: any) =>
           new Date(a.date).getTime() - new Date(b.date).getTime()
       )[0];

@@ -5,7 +5,7 @@ import {
   computeLineItemTax,
   derivePaymentStatus,
 } from "@medcore/shared";
-import { computePayroll } from "./payroll";
+import { computePayroll, daysInMonth as daysInMonthFor } from "./payroll";
 
 // ─── Helpers ────────────────────────────────────────────
 
@@ -790,6 +790,8 @@ export async function generatePaySlipHTML(
   const overtimeRate = overrides.overtimeRate ?? 0;
 
   // Single source of truth — same math the dashboard table uses.
+  // #701/#702: pass daysInMonth so the slip's Basic and Net Pay match
+  // the table's pro-rated values (no double-deduction of absent days).
   const calc = computePayroll({
     basicSalary,
     allowances,
@@ -797,6 +799,7 @@ export async function generatePaySlipHTML(
     overtimeRate,
     shifts,
     approvedOvertime,
+    daysInMonth: daysInMonthFor(year, month),
   });
 
   const monthName = start.toLocaleDateString("en-IN", {
@@ -828,7 +831,7 @@ export async function generatePaySlipHTML(
     <div style="flex:1;">
       <h3 style="font-size:12px;color:#16a34a;text-transform:uppercase;margin-bottom:4px;">Earnings</h3>
       <table>
-        <tr><td>Basic Salary</td><td style="text-align:right;">₹${calc.basicSalary.toFixed(2)}</td></tr>
+        <tr><td>Basic Salary${calc.proRatedBasic !== calc.basicSalary ? ` (pro-rated ${calc.workedDays}/${calc.daysInMonth || calc.scheduledDays})` : ""}</td><td style="text-align:right;">₹${calc.proRatedBasic.toFixed(2)}</td></tr>
         <tr><td>Allowances</td><td style="text-align:right;">₹${calc.allowances.toFixed(2)}</td></tr>
         <tr><td>Overtime (${calc.overtimeShifts} shifts)</td><td style="text-align:right;">₹${calc.overtimePay.toFixed(2)}</td></tr>
         <tr><td>Approved Overtime</td><td style="text-align:right;">₹${calc.approvedOvertimePay.toFixed(2)}</td></tr>

@@ -158,7 +158,7 @@ describe("AdminConsolePage", () => {
         const data = Array.from({ length: 100 }, (_, i) => ({
           id: `a${i}`,
           action: "LOGIN_FAILED",
-          ipAddress: i < 60 ? "10.0.0.1" : i < 95 ? "10.0.0.2" : "10.0.0.3",
+          ipAddress: i < 60 ? "203.0.113.10" : i < 95 ? "203.0.113.20" : "203.0.113.30",
           details: {},
         }));
         return Promise.resolve({ data });
@@ -178,7 +178,7 @@ describe("AdminConsolePage", () => {
     // The breakdown should label the dominant action and surface IP context.
     expect(screen.getByText(/LOGIN_FAILED/)).toBeInTheDocument();
     expect(screen.getByText(/likely bot traffic/i)).toBeInTheDocument();
-    expect(screen.getByText(/10\.0\.0\.1/)).toBeInTheDocument();
+    expect(screen.getByText(/203\.0\.113\.10/)).toBeInTheDocument();
   });
 
   it("Issue #47: hides error breakdown when errorCount is 0", async () => {

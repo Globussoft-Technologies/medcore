@@ -119,7 +119,11 @@ router.post(
   // prescription (the /dashboard/adherence "+ Enroll Prescription" flow). The
   // owner check is enforced inline below — a patient cannot enrol someone
   // else's prescriptionId.
-  authorize(Role.DOCTOR, Role.ADMIN, Role.NURSE, Role.PHARMACIST, Role.PATIENT),
+  // Issue #639 (2026-05-08): PHARMACIST removed — pharmacists do not own
+  // patient adherence schedules and the dashboard surface is now gated to
+  // PATIENT/DOCTOR/NURSE/ADMIN. Keeping PHARMACIST here let an authenticated
+  // pharmacist write reminder rows even after the UI gate landed.
+  authorize(Role.DOCTOR, Role.ADMIN, Role.NURSE, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     // security(2026-05-04-med): F-ADH-3 — stamp an AI-inference audit row for
     // every /enroll call so the security team can reconstruct who triggered

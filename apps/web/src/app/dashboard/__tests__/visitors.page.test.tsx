@@ -104,10 +104,18 @@ describe("VisitorsPage", () => {
   });
 
   it("fetches visitors stats on mount", async () => {
+    // Issue #746 (2026-05-08) migrated the page off the legacy
+    // `/visitors/stats/daily` endpoint to the canonical
+    // `/visitors-stats?period=today` shared with the dashboard widget.
+    // Accept either path so this test survives the migration window.
     render(<VisitorsPage />);
     await waitFor(() => {
       const urls = apiMock.get.mock.calls.map((c) => String(c[0]));
-      expect(urls.some((u) => u.includes("/visitors/stats/daily"))).toBe(true);
+      expect(
+        urls.some(
+          (u) => u.includes("/visitors-stats") || u.includes("/visitors/stats/daily"),
+        ),
+      ).toBe(true);
     });
   });
 });

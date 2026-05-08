@@ -16,6 +16,24 @@ interface SearchHit {
   href: string;
 }
 
+/**
+ * Issue #630: the global search palette previously returned raw enum
+ * status values (`IN_PROGRESS`, `SAMPLE_COLLECTED`, `NO_SHOW`) on the
+ * `meta` field, which then rendered verbatim in the dropdown. Lab tech
+ * users got `IN_PROGRESS` while the lab list page used a styled chip with
+ * the prettified `In Progress` label — visually inconsistent. Map the
+ * raw enum to title-case here so every consumer of the search API sees a
+ * presentable label without each frontend re-implementing the rule.
+ */
+function humanizeStatus(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  return raw
+    .toLowerCase()
+    .split("_")
+    .map((w) => (w.length === 0 ? w : w[0].toUpperCase() + w.slice(1)))
+    .join(" ");
+}
+
 const ALL_TYPES = [
   "patients",
   "appointments",
@@ -54,6 +72,20 @@ router.get(
       const role = req.user!.role as Role;
       const userId = req.user!.userId;
 
+      // Issue #612 (May 2026): the global search palette returned the full
+      // appointment history — every doctor, every status — to PHARMACIST
+      // users. Pharmacists only need dispense-relevant info: the patient
+      // (name + MR) and active prescriptions. Whitelist the allowed
+      // entity types per role so any future caller can't expand the
+      // pharmacist surface by passing `?types=appointments,...`.
+      const ROLE_ALLOWED_TYPES: Record<string, readonly SearchType[]> = {
+        PHARMACIST: ["patients", "prescriptions", "labels"],
+      };
+      const allowedForRole = ROLE_ALLOWED_TYPES[role as string];
+      const requestedScoped = allowedForRole
+        ? requested.filter((t) => allowedForRole.includes(t))
+        : requested;
+
       // Resolve scope ids upfront
       let patientId: string | null = null;
       let doctorId: string | null = null;
@@ -77,7 +109,7 @@ router.get(
 
       // ── Patients ─────────────────────────────────────────
       if (
-        requested.includes("patients") &&
+        requestedScoped.includes("patients") &&
         role !== Role.PATIENT // patients don't search patients
       ) {
         const patients = await prisma.patient.findMany({
@@ -100,14 +132,16 @@ router.get(
             id: p.id,
             title: p.user?.name || p.mrNumber,
             subtitle: `${p.mrNumber} · ${p.gender}${p.age ? ` · ${p.age}y` : ""}`,
-            meta: p.user?.phone || "",
+            // Issue #612: PHARMACIST does not need the patient's phone in
+            // the search palette (PII minimisation, paired with #599).
+            meta: role === Role.PHARMACIST ? "" : (p.user?.phone || ""),
             href: `/dashboard/patients/${p.id}`,
           });
         }
       }
 
       // ── Appointments ─────────────────────────────────────
-      if (requested.includes("appointments")) {
+      if (requestedScoped.includes("appointments")) {
         const where: any = {
           OR: [
             { notes: ci },
@@ -137,14 +171,14 @@ router.get(
             id: a.id,
             title: `${a.patient?.user?.name || "Patient"} · ${a.type}`,
             subtitle: `Dr. ${a.doctor?.user?.name || "—"} · ${new Date(a.date).toLocaleDateString()}`,
-            meta: a.status,
+            meta: humanizeStatus(a.status),
             href: `/dashboard/appointments?id=${a.id}`,
           });
         }
       }
 
       // ── Invoices ─────────────────────────────────────────
-      if (requested.includes("invoices")) {
+      if (requestedScoped.includes("invoices")) {
         const where: any = {
           OR: [
             { invoiceNumber: ci },
@@ -177,7 +211,7 @@ router.get(
       }
 
       // ── Prescriptions ────────────────────────────────────
-      if (requested.includes("prescriptions")) {
+      if (requestedScoped.includes("prescriptions")) {
         const where: any = {
           OR: [
             { diagnosis: ci },
@@ -212,7 +246,7 @@ router.get(
       }
 
       // ── Admissions ───────────────────────────────────────
-      if (requested.includes("admissions")) {
+      if (requestedScoped.includes("admissions")) {
         const where: any = {
           OR: [
             { admissionNumber: ci },
@@ -241,14 +275,14 @@ router.get(
             id: a.id,
             title: `${a.admissionNumber} · ${a.patient?.user?.name || ""}`,
             subtitle: `${a.reason}${a.bed?.ward ? ` · ${a.bed.ward.name} Bed ${a.bed.bedNumber}` : ""}`,
-            meta: a.status,
+            meta: humanizeStatus(a.status),
             href: `/dashboard/ipd/${a.id}`,
           });
         }
       }
 
       // ── Surgeries ────────────────────────────────────────
-      if (requested.includes("surgeries")) {
+      if (requestedScoped.includes("surgeries")) {
         const where: any = {
           OR: [
             { caseNumber: ci },
@@ -277,14 +311,14 @@ router.get(
             id: s.id,
             title: `${s.caseNumber} · ${s.procedure}`,
             subtitle: `${s.patient?.user?.name || ""} · Dr. ${s.surgeon?.user?.name || "—"}`,
-            meta: s.status,
+            meta: humanizeStatus(s.status),
             href: `/dashboard/surgery?id=${s.id}`,
           });
         }
       }
 
       // ── Lab orders ───────────────────────────────────────
-      if (requested.includes("lab")) {
+      if (requestedScoped.includes("lab")) {
         const where: any = {
           OR: [
             { orderNumber: ci },
@@ -317,14 +351,14 @@ router.get(
             id: lo.id,
             title: `Lab ${lo.orderNumber}`,
             subtitle: `${lo.patient?.user?.name || ""} · ${tests || "—"}`,
-            meta: lo.status,
+            meta: humanizeStatus(lo.status),
             href: `/dashboard/lab?id=${lo.id}`,
           });
         }
       }
 
       // ── Static labels: quick module navigation ──────────
-      if (requested.includes("labels")) {
+      if (requestedScoped.includes("labels")) {
         const labels: Array<{ label: string; href: string; roles?: Role[] }> = [
           { label: "Appointments", href: "/dashboard/appointments" },
           { label: "Patients", href: "/dashboard/patients", roles: [Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION] },

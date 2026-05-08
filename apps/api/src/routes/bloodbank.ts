@@ -96,9 +96,12 @@ const RBC_COMPATIBILITY: Record<string, string[]> = SHARED_RBC_COMPATIBILITY;
 // DONORS
 // ───────────────────────────────────────────────────────
 
-// Issue #174 (Apr 30 2026): blood donor registry exposes name + phone PII.
-// Restrict to clinical staff who actually run the bank.
-router.get("/donors", authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH), async (req: Request, res: Response, next: NextFunction) => {
+// Issue #174 (Apr 30 2026) + Issue #756 (May 2026): blood donor registry exposes
+// name + phone + email PII. Restrict to staff who actually run the blood bank
+// (ADMIN / NURSE / LAB_TECH). DOCTORs do not need the donor registry — for
+// clinical decisions they consume aggregated stock-by-blood-group via
+// /api/v1/bloodbank/stock and the cross-match flow scoped to a specific patient.
+router.get("/donors", authorize(Role.ADMIN, Role.NURSE, Role.LAB_TECH), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { search, bloodGroup, page = "1", limit = "20" } = req.query as Record<
       string,
@@ -168,8 +171,9 @@ router.post(
 
 router.get(
   "/donors/:id",
-  // Issue #174: donor PII.
-  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH),
+  // Issue #174 + #756: donor PII. DOCTORs removed — they don't need donor
+  // registry detail; clinical decisions consume aggregated stock + cross-match.
+  authorize(Role.ADMIN, Role.NURSE, Role.LAB_TECH),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const donor = await prisma.bloodDonor.findUnique({
@@ -774,12 +778,26 @@ router.post(
       // list of mismatched units so the UI can highlight them.
       const mismatches: Array<{ unitNumber: string; bloodGroup: string }> = [];
 
+      // Issue #737 (CRITICAL): write-side expiry guard. Even if a stale UI
+      // sent an expired unit ID (e.g. cached selection list, or an
+      // adversarial caller bypassing the read filter), the API must refuse
+      // to issue blood whose `expiresAt` is in the past. This is defence in
+      // depth on top of the read-side filter on /match and /inventory.
+      const nowForExpiry = new Date();
       for (const u of units) {
         if (u.status !== "AVAILABLE") {
           res.status(400).json({
             success: false,
             data: null,
             error: `Unit ${u.unitNumber} not available (${u.status})`,
+          });
+          return;
+        }
+        if (u.expiresAt && new Date(u.expiresAt) <= nowForExpiry) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: `Unit ${u.unitNumber} has expired and cannot be issued`,
           });
           return;
         }

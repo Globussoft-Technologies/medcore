@@ -122,9 +122,13 @@ export default function PediatricDetailPage() {
   }
 
   // Compute default age months from DOB
+  // Issue #751: future-dated DOBs (data-entry error) previously emitted
+  // "-884 months". Surface as empty string so the UI shows the manual-entry
+  // affordance instead of nonsense.
   const defaultAgeMonths = useMemo(() => {
     if (!patient?.dateOfBirth) return "";
     const diff = Date.now() - new Date(patient.dateOfBirth).getTime();
+    if (diff < 0) return "";
     return String(Math.floor(diff / (30.44 * 24 * 60 * 60 * 1000)));
   }, [patient]);
 

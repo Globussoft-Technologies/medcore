@@ -23,6 +23,7 @@ import {
   verifyResultSchema,
   shareLinkSchema,
   validateNumericLabResult,
+  deriveLabResultFlag,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
@@ -412,13 +413,32 @@ router.post(
 
       const orderItem = await prisma.labOrderItem.findUnique({
         where: { id: orderItemId },
-        include: { test: true },
+        include: { test: true, order: { select: { status: true } } },
       });
       if (!orderItem) {
         res.status(404).json({
           success: false,
           data: null,
           error: "Lab order item not found",
+        });
+        return;
+      }
+
+      // Issue #609 (clinical safety / NABL compliance): once an order is
+      // finalised (COMPLETED) or CANCELLED, results cannot be appended.
+      // The legacy router accepted POST /results against any orderItem,
+      // letting any LabTech inject extra rows into already-issued reports
+      // with no audit trail. Amendments must go through the verify
+      // workflow / a dedicated amendment endpoint, not this handler.
+      if (
+        orderItem.order.status === "COMPLETED" ||
+        orderItem.order.status === "CANCELLED"
+      ) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error:
+            "Order is finalised; new results cannot be added. Create an amendment instead.",
         });
         return;
       }
@@ -481,6 +501,19 @@ router.post(
         }
       }
 
+      // Issue #611 (clinical safety): if value is outside the test's panic
+      // range, force flag=CRITICAL even if the LabTech submitted NORMAL.
+      // Prevents burying dangerous results (e.g. Creatinine 39 mg/dL) under
+      // a NORMAL label.
+      const effectiveFlag = deriveLabResultFlag({
+        value,
+        flag: flag ?? "NORMAL",
+        test: {
+          panicLow: orderItem.test.panicLow,
+          panicHigh: orderItem.test.panicHigh,
+        },
+      });
+
       const result = await prisma.labResult.create({
         data: {
           orderItemId,
@@ -488,7 +521,7 @@ router.post(
           value,
           unit,
           normalRange,
-          flag: flag ?? "NORMAL",
+          flag: effectiveFlag,
           notes,
           enteredBy: req.user!.userId,
           deltaFlag,
@@ -555,7 +588,9 @@ router.post(
       auditLog(req, "LAB_RESULT_CREATE", "lab_result", result.id, {
         orderItemId,
         parameter,
-        flag: flag ?? "NORMAL",
+        flag: effectiveFlag,
+        submittedFlag: flag ?? "NORMAL",
+        autoElevated: effectiveFlag !== (flag ?? "NORMAL"),
       }).catch(console.error);
 
       // Realtime: notify ordering doctor
@@ -565,7 +600,7 @@ router.post(
           orderId: orderContext?.order?.id ?? null,
           orderItemId,
           resultId: result.id,
-          criticalFlag: (flag ?? "NORMAL") === "CRITICAL",
+          criticalFlag: effectiveFlag === "CRITICAL",
         });
       }
 
@@ -879,6 +914,35 @@ router.post(
         }>;
       };
 
+      // Issue #609 (clinical safety / NABL compliance): block result batch
+      // entry against finalised orders. Same guard as POST /results — a
+      // COMPLETED or CANCELLED order is closed; new rows must go through
+      // an amendment workflow, not silent re-entry.
+      const parentOrder = await prisma.labOrder.findUnique({
+        where: { id: orderId },
+        select: { status: true },
+      });
+      if (!parentOrder) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Lab order not found",
+        });
+        return;
+      }
+      if (
+        parentOrder.status === "COMPLETED" ||
+        parentOrder.status === "CANCELLED"
+      ) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error:
+            "Order is finalised; new results cannot be added. Create an amendment instead.",
+        });
+        return;
+      }
+
       // Issue #95: pre-validate every row's value against its test's numeric
       // expectation BEFORE opening the transaction. Failing fast prevents a
       // partial-batch insert that would have to be rolled back.
@@ -921,6 +985,18 @@ router.post(
       const created = await prisma.$transaction(async (tx) => {
         const out = [];
         for (const r of results) {
+          // Issue #611: auto-elevate flag to CRITICAL when value is outside
+          // panic range. Same guard as POST /results, applied per row so
+          // batch entry can't bypass the safety check.
+          const it = itemById.get(r.orderItemId);
+          const effectiveFlag = deriveLabResultFlag({
+            value: r.value,
+            flag: r.flag ?? "NORMAL",
+            test: {
+              panicLow: it?.test.panicLow ?? null,
+              panicHigh: it?.test.panicHigh ?? null,
+            },
+          });
           const created = await tx.labResult.create({
             data: {
               orderItemId: r.orderItemId,
@@ -928,7 +1004,7 @@ router.post(
               value: r.value,
               unit: r.unit,
               normalRange: r.normalRange,
-              flag: r.flag ?? "NORMAL",
+              flag: effectiveFlag,
               notes: r.notes,
               enteredBy: req.user!.userId,
             },

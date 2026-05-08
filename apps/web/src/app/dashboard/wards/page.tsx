@@ -74,6 +74,16 @@ export default function WardsPage() {
   const [showWardModal, setShowWardModal] = useState(false);
   const [tab, setTab] = useState<"beds" | "forecast">("beds");
   const [showBedModal, setShowBedModal] = useState<string | null>(null);
+  // Issue #719 (2026-05-08): admins reported the Add Bed button was dead
+  // because it only existed INSIDE an expanded ward card. Add a top-level
+  // "Add Bed" CTA that prompts the admin for both ward + bed number.
+  const [showGlobalBedModal, setShowGlobalBedModal] = useState(false);
+  const [globalBedForm, setGlobalBedForm] = useState({
+    wardId: "",
+    bedNumber: "",
+  });
+  const [creatingWard, setCreatingWard] = useState(false);
+  const [creatingBed, setCreatingBed] = useState(false);
   const [wardForm, setWardForm] = useState({
     name: "",
     type: "GENERAL",
@@ -125,6 +135,7 @@ export default function WardsPage() {
       toast.error("Ward name is required");
       return;
     }
+    setCreatingWard(true);
     try {
       await api.post("/wards", {
         name: wardForm.name,
@@ -132,11 +143,42 @@ export default function WardsPage() {
         floor: wardForm.floor || undefined,
         description: wardForm.description || undefined,
       });
+      // Issue #719: surface a success toast so admins know the click took.
+      toast.success("Ward created");
       setShowWardModal(false);
       setWardForm({ name: "", type: "GENERAL", floor: "", description: "" });
       loadWards();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to create ward");
+    } finally {
+      setCreatingWard(false);
+    }
+  }
+
+  // Issue #719: top-level Add Bed handler — picks the ward from a dropdown.
+  async function createGlobalBed(e: React.FormEvent) {
+    e.preventDefault();
+    if (!globalBedForm.wardId) {
+      toast.error("Select a ward");
+      return;
+    }
+    if (!globalBedForm.bedNumber.trim()) {
+      toast.error("Bed number is required");
+      return;
+    }
+    setCreatingBed(true);
+    try {
+      await api.post(`/wards/${globalBedForm.wardId}/beds`, {
+        bedNumber: globalBedForm.bedNumber,
+      });
+      toast.success("Bed created");
+      setShowGlobalBedModal(false);
+      setGlobalBedForm({ wardId: "", bedNumber: "" });
+      loadWards();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to add bed");
+    } finally {
+      setCreatingBed(false);
     }
   }
 
@@ -150,6 +192,7 @@ export default function WardsPage() {
       await api.post(`/wards/${wardId}/beds`, {
         bedNumber: bedForm.bedNumber,
       });
+      toast.success("Bed added");
       setShowBedModal(null);
       setBedForm({ bedNumber: "" });
       loadWards();
@@ -196,12 +239,22 @@ export default function WardsPage() {
           </p>
         </div>
         {isAdmin && (
-          <button
-            onClick={() => setShowWardModal(true)}
-            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
-          >
-            <Plus size={16} /> Add Ward
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowGlobalBedModal(true)}
+              data-testid="add-bed-cta"
+              className="flex items-center gap-2 rounded-lg border border-primary px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10"
+            >
+              <Plus size={16} /> Add Bed
+            </button>
+            <button
+              onClick={() => setShowWardModal(true)}
+              data-testid="add-ward-cta"
+              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+            >
+              <Plus size={16} /> Add Ward
+            </button>
+          </div>
         )}
       </div>
 
@@ -338,6 +391,7 @@ export default function WardsPage() {
                         <button
                           onClick={() => setShowBedModal(ward.id)}
                           className="flex items-center gap-1 rounded bg-primary px-2 py-1 text-xs text-white hover:bg-primary-dark"
+                          data-testid={`add-bed-inline-${ward.id}`}
                         >
                           <Plus size={12} /> Add Bed
                         </button>
@@ -395,6 +449,85 @@ export default function WardsPage() {
         </div>
       )}
         </>
+      )}
+
+      {/* Issue #719 — Global Add Bed modal: picks ward + bed number */}
+      {showGlobalBedModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <form
+            onSubmit={createGlobalBed}
+            noValidate
+            data-testid="add-bed-modal"
+            className="w-full max-w-lg rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
+          >
+            <h2 className="mb-4 text-lg font-semibold">Add Bed</h2>
+            <div className="space-y-3">
+              <div>
+                <label
+                  htmlFor="add-bed-ward"
+                  className="mb-1 block text-sm font-medium"
+                >
+                  Ward
+                </label>
+                <select
+                  id="add-bed-ward"
+                  value={globalBedForm.wardId}
+                  onChange={(e) =>
+                    setGlobalBedForm({
+                      ...globalBedForm,
+                      wardId: e.target.value,
+                    })
+                  }
+                  data-testid="add-bed-ward-select"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                >
+                  <option value="">Select a ward…</option>
+                  {wards.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name} ({w.type.replace(/_/g, " ")})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label
+                  htmlFor="add-bed-number"
+                  className="mb-1 block text-sm font-medium"
+                >
+                  Bed Number
+                </label>
+                <input
+                  id="add-bed-number"
+                  value={globalBedForm.bedNumber}
+                  onChange={(e) =>
+                    setGlobalBedForm({
+                      ...globalBedForm,
+                      bedNumber: e.target.value,
+                    })
+                  }
+                  data-testid="add-bed-number"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                />
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowGlobalBedModal(false)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={creatingBed}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+              >
+                {creatingBed ? "Saving…" : "Create Bed"}
+              </button>
+            </div>
+          </form>
+        </div>
       )}
 
       {/* Add Ward Modal */}
@@ -471,9 +604,11 @@ export default function WardsPage() {
               </button>
               <button
                 type="submit"
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+                disabled={creatingWard}
+                data-testid="add-ward-submit"
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
               >
-                Create Ward
+                {creatingWard ? "Saving…" : "Create Ward"}
               </button>
             </div>
           </form>

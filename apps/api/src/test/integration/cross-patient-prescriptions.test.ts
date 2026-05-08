@@ -208,7 +208,13 @@ describeIfDB("Cross-patient prescription RBAC (issue #511 — expanded BOLA)", (
     expect(res.status).toBe(403);
   });
 
-  it("/:id/share: PATIENT-A CAN share own prescription (200) [positive control]", async () => {
+  // RBAC positive control. We use the SMS channel because it's the only
+  // channel still gated with a 501 (no provider integration yet). EMAIL and
+  // WHATSAPP are now wired and would 502 in the test env where neither
+  // SendGrid nor the Meta Cloud API are configured. The 501 here still
+  // proves the RBAC + ownership checks passed (got past authorize() and
+  // assertPatientOwnsResource()) — a real BOLA breach would 403/404.
+  it("/:id/share: PATIENT-A reaches own-Rx share endpoint (501 = SMS unwired) [positive control]", async () => {
     const apt = await createAppointmentFixture({ patientId: patientAId, doctorId });
     const rx = await createPrescriptionFixture({
       patientId: patientAId,
@@ -218,12 +224,14 @@ describeIfDB("Cross-patient prescription RBAC (issue #511 — expanded BOLA)", (
     const res = await request(app)
       .post(`/api/v1/prescriptions/${rx.id}/share`)
       .set("Authorization", `Bearer ${patientAToken}`)
-      .send({ channel: "WHATSAPP" });
-    expect(res.status).toBe(200);
-    expect(res.body.data?.id).toBe(rx.id);
+      .send({ channel: "SMS" });
+    expect(res.status).toBe(501);
+    expect(res.body.error).toMatch(/not yet available/i);
   });
 
-  it("/:id/share: DOCTOR can share any prescription (200) [staff control]", async () => {
+  // Staff (DOCTOR) bypasses the patient-owns check via authorize(). Same
+  // 501-as-RBAC-pass pattern using SMS for the same reason as above.
+  it("/:id/share: DOCTOR reaches any-Rx share endpoint (501 = SMS unwired) [staff control]", async () => {
     const apt = await createAppointmentFixture({ patientId: patientBId, doctorId });
     const rx = await createPrescriptionFixture({
       patientId: patientBId,
@@ -233,7 +241,7 @@ describeIfDB("Cross-patient prescription RBAC (issue #511 — expanded BOLA)", (
     const res = await request(app)
       .post(`/api/v1/prescriptions/${rx.id}/share`)
       .set("Authorization", `Bearer ${doctorToken}`)
-      .send({ channel: "EMAIL" });
-    expect(res.status).toBe(200);
+      .send({ channel: "SMS" });
+    expect(res.status).toBe(501);
   });
 });

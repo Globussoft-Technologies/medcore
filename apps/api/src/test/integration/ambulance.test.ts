@@ -10,15 +10,17 @@ let receptionToken: string;
 let doctorToken: string;
 
 async function createAmbulance(token: string, overrides: Partial<any> = {}) {
+  // Issue #739 (driver double-booking guard) means two ambulances sharing a
+  // driverName cannot both be on active trips at once. Default to a unique
+  // driverName per call so each test seeds an independent fleet+driver.
+  const uniq = `${Date.now() % 100000}-${Math.floor(Math.random() * 1_000_000)}`;
   const res = await request(app)
     .post("/api/v1/ambulance")
     .set("Authorization", `Bearer ${token}`)
     .send({
-      vehicleNumber:
-        overrides.vehicleNumber ||
-        `AMB${Date.now() % 100000}-${Math.floor(Math.random() * 1000)}`,
+      vehicleNumber: overrides.vehicleNumber || `AMB${uniq}`,
       type: overrides.type || "BASIC_LIFE_SUPPORT",
-      driverName: overrides.driverName || "John Driver",
+      driverName: overrides.driverName || `Driver ${uniq}`,
       driverPhone: overrides.driverPhone || "9999888777",
     });
   return res.body.data;

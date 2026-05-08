@@ -258,6 +258,39 @@ router.post(
         return;
       }
 
+      // Issue #739 — driver double-booking guard. The Ambulance schema
+      // has `driverName` (string, no FK). Two distinct ambulances may
+      // share a driverName (driver moonlighting / data-entry typo /
+      // legacy roster). If the named driver is already on an active
+      // trip on another vehicle, refuse the new dispatch. Active =
+      // anything before COMPLETED/CANCELLED.
+      if (ambulance.driverName && ambulance.driverName.trim() !== "") {
+        const conflict = await prisma.ambulanceTrip.findFirst({
+          where: {
+            status: { notIn: ["COMPLETED", "CANCELLED"] },
+            ambulance: {
+              is: {
+                driverName: ambulance.driverName,
+                NOT: { id: ambulance.id },
+              },
+            },
+          },
+          select: {
+            id: true,
+            tripNumber: true,
+            ambulance: { select: { vehicleNumber: true } },
+          },
+        });
+        if (conflict) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: `Driver ${ambulance.driverName} is already on active dispatch ${conflict.tripNumber} (vehicle ${conflict.ambulance.vehicleNumber})`,
+          });
+          return;
+        }
+      }
+
       const tripNumber = await generateTripNumber();
 
       const trip = await prisma.$transaction(async (tx) => {
@@ -612,6 +645,28 @@ router.get("/", authorize(Role.ADMIN, Role.RECEPTION, Role.NURSE, Role.DOCTOR), 
     const { status } = req.query as Record<string, string | undefined>;
     const where: Record<string, unknown> = {};
     if (status) where.status = status;
+
+    // Issue #738: hide test/demo ambulance rows in production. Local seed
+    // data ships rows with `TEST-*` / `DEMO*` / `AMB-DEMO-*` vehicle
+    // numbers and "Demo Driver" driver names so the dev/test fleet view
+    // has data to render. Those rows must NEVER surface on a production
+    // dispatch console where they confuse real dispatchers and inflate
+    // fleet counts. The 20260508000003_cleanup_attacker_test_users_and_
+    // test_ambulances migration removes them at rest, but the runtime
+    // filter is a defensive belt-and-braces in case ops ever loads a
+    // demo-shaped row into prod accidentally.
+    if (process.env.NODE_ENV === "production") {
+      where.AND = [
+        { NOT: { vehicleNumber: { startsWith: "TEST-", mode: "insensitive" } } },
+        { NOT: { vehicleNumber: { startsWith: "DEMO", mode: "insensitive" } } },
+        {
+          NOT: {
+            vehicleNumber: { startsWith: "AMB-DEMO-", mode: "insensitive" },
+          },
+        },
+        { NOT: { driverName: { equals: "Demo Driver", mode: "insensitive" } } },
+      ];
+    }
 
     const ambulances = await prisma.ambulance.findMany({
       where,

@@ -96,7 +96,28 @@ export const createPatientSchema = patientBaseSchema.superRefine((data, ctx) => 
 // (ZodEffects from .superRefine() doesn't expose .partial()). The adult
 // `age=0` guard isn't relevant on PATCH — receptionists fixing typos
 // shouldn't be blocked by a refine that's only meaningful at registration.
-export const updatePatientSchema = patientBaseSchema.partial();
+// Issue #551 (2026-05-05): Edit Patient previously accepted future DOB —
+// the create-side superRefine wasn't replicated on update. Re-apply the
+// "DOB must be in the past" guard here so a typo like "2030-01-01" is
+// caught at write time on PATCH too.
+export const updatePatientSchema = patientBaseSchema.partial().superRefine((data, ctx) => {
+  if (data.dateOfBirth) {
+    const dob = new Date(data.dateOfBirth);
+    if (Number.isNaN(dob.getTime())) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dateOfBirth"],
+        message: "Invalid date of birth",
+      });
+    } else if (dob.getTime() > Date.now()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dateOfBirth"],
+        message: "Date of birth must be in the past",
+      });
+    }
+  }
+});
 
 export const mergePatientSchema = z.object({
   otherPatientId: z.string().uuid(),
@@ -171,15 +192,32 @@ export const recordVitalsSchema = z
     notes: z.string().optional(),
   })
   .superRefine((data, ctx) => {
-    if (data.temperature === undefined) return;
-    const unit = data.temperatureUnit ?? "F";
-    const range =
-      unit === "C" ? VITALS_RANGES.temperatureC : VITALS_RANGES.temperatureF;
-    if (data.temperature < range.min || data.temperature > range.max) {
+    if (data.temperature !== undefined) {
+      const unit = data.temperatureUnit ?? "F";
+      const range =
+        unit === "C" ? VITALS_RANGES.temperatureC : VITALS_RANGES.temperatureF;
+      if (data.temperature < range.min || data.temperature > range.max) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["temperature"],
+          message: `Temperature must be between ${range.min} and ${range.max}°${unit}`,
+        });
+      }
+    }
+    // Issue #544: diastolic must always be strictly less than systolic. The
+    // per-field min/max bounds above can't catch a clinically-impossible
+    // pair like 120/130 (each leg is in-range but the relationship is
+    // physiologically wrong). Cross-field refine here so the nurse vitals
+    // form rejects it server-side regardless of frontend state.
+    if (
+      data.bloodPressureSystolic !== undefined &&
+      data.bloodPressureDiastolic !== undefined &&
+      data.bloodPressureDiastolic >= data.bloodPressureSystolic
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["temperature"],
-        message: `Temperature must be between ${range.min} and ${range.max}°${unit}`,
+        path: ["bloodPressureDiastolic"],
+        message: "Diastolic must be less than systolic",
       });
     }
   });

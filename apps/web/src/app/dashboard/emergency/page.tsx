@@ -124,9 +124,15 @@ export default function EmergencyPage() {
     unknownName: "",
     unknownAge: "",
     unknownGender: "",
-    arrivalMode: "Walk-in",
+    // Issue #576: arrival mode now sent as the canonical enum value
+    // (WALK_IN / AMBULANCE / POLICE / REFERRED) — the schema rejects
+    // anything else with a 400 + clinician-facing field error.
+    arrivalMode: "WALK_IN",
     chiefComplaint: "",
   });
+  // Issue #576: inline field-error map for the intake modal so empty submit
+  // surfaces a per-field hint instead of the previous toast-only behaviour.
+  const [intakeErrors, setIntakeErrors] = useState<FieldErrorMap>({});
 
   // triage form
   const [triageForm, setTriageForm] = useState({
@@ -256,18 +262,38 @@ export default function EmergencyPage() {
 
   async function submitIntake(e: React.FormEvent) {
     e.preventDefault();
-    if (!intakeForm.chiefComplaint) {
-      toast.error("Chief complaint is required");
-      return;
-    }
+    // Issue #576: empty submit now produces inline per-field errors AND a
+    // generic toast AND focuses the first invalid field, instead of the
+    // previous "button does nothing" silent failure.
+    const errs: FieldErrorMap = {};
     if (!intakePatient && !unknownMode) {
-      toast.error("Select a patient or mark as Unknown");
+      errs.patientId = "Select a patient or switch to Unknown / Unregistered";
+    }
+    if (unknownMode && !intakeForm.unknownName.trim()) {
+      errs.unknownName =
+        "Enter a name (or John/Jane Doe) for the unknown patient";
+    }
+    if (!intakeForm.chiefComplaint.trim()) {
+      errs.chiefComplaint = "Chief complaint is required";
+    }
+    if (Object.keys(errs).length > 0) {
+      setIntakeErrors(errs);
+      const first = Object.keys(errs)[0];
+      // Focus the first invalid field by data-testid mapping.
+      const focusMap: Record<string, string> = {
+        patientId: "er-patient-search",
+        unknownName: "er-unknown-name",
+        chiefComplaint: "er-intake-complaint",
+      };
+      const id = focusMap[first];
+      if (id && typeof document !== "undefined") {
+        const el = document.getElementById(id);
+        if (el && "focus" in el) (el as HTMLElement).focus();
+      }
+      toast.error(Object.values(errs)[0] || "Please fix the highlighted fields");
       return;
     }
-    if (unknownMode && !intakeForm.unknownName) {
-      toast.error("Enter a name (or John/Jane Doe) for the unknown patient");
-      return;
-    }
+    setIntakeErrors({});
 
     try {
       await api.post("/emergency/cases", {
@@ -289,12 +315,22 @@ export default function EmergencyPage() {
         unknownName: "",
         unknownAge: "",
         unknownGender: "",
-        arrivalMode: "Walk-in",
+        arrivalMode: "WALK_IN",
         chiefComplaint: "",
       });
       loadData();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Registration failed");
+      // Issue #576: surface per-field errors from the API into the modal so
+      // the user sees which field the server rejected (e.g. arrival mode
+      // out-of-enum, chief complaint over 2000 chars).
+      const fields = extractFieldErrors(err);
+      if (fields) {
+        setIntakeErrors(fields);
+        const first = Object.values(fields)[0];
+        toast.error(first || "Please fix the highlighted fields");
+      } else {
+        toast.error(err instanceof Error ? err.message : "Registration failed");
+      }
     }
   }
 
@@ -670,13 +706,35 @@ export default function EmergencyPage() {
                         // emergency case is an orphan record. Hard guard
                         // is in submitIntake(); aria-required surfaces it
                         // to AT + the visible asterisk above.
+                        // Issue #576: surface inline error if submit fired
+                        // without a selection (instead of the silent toast).
+                        id="er-patient-search"
                         aria-required="true"
+                        aria-invalid={!!intakeErrors.patientId}
                         data-testid="er-patient-search"
                         placeholder="Search by name or MR number (required)"
                         value={intakeSearch}
-                        onChange={(e) => setIntakeSearch(e.target.value)}
-                        className="w-full rounded-lg border px-3 py-2 text-sm"
+                        onChange={(e) => {
+                          setIntakeSearch(e.target.value);
+                          if (intakeErrors.patientId)
+                            setIntakeErrors((p) => {
+                              const n = { ...p };
+                              delete n.patientId;
+                              return n;
+                            });
+                        }}
+                        className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                          intakeErrors.patientId ? "border-red-500 bg-red-50" : ""
+                        }`}
                       />
+                      {intakeErrors.patientId && (
+                        <p
+                          data-testid="error-intake-patient"
+                          className="mt-1 text-xs text-red-600"
+                        >
+                          {intakeErrors.patientId}
+                        </p>
+                      )}
                       {intakeResults.length > 0 && (
                         <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white shadow-sm">
                           {intakeResults.map((p) => (
@@ -701,16 +759,38 @@ export default function EmergencyPage() {
               ) : (
                 <div className="grid grid-cols-3 gap-3">
                   <div className="col-span-3">
-                    <label htmlFor="er-unknown-name" className="mb-1 block text-sm font-medium">Name / Label</label>
+                    <label htmlFor="er-unknown-name" className="mb-1 block text-sm font-medium">
+                      Name / Label <span className="text-red-600" aria-hidden="true">*</span>
+                    </label>
                     <input
                       id="er-unknown-name"
+                      data-testid="er-unknown-name"
+                      aria-required="true"
+                      aria-invalid={!!intakeErrors.unknownName}
                       placeholder="e.g. John Doe, Trauma 1"
+                      maxLength={120}
                       value={intakeForm.unknownName}
-                      onChange={(e) =>
-                        setIntakeForm({ ...intakeForm, unknownName: e.target.value })
-                      }
-                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                      onChange={(e) => {
+                        setIntakeForm({ ...intakeForm, unknownName: e.target.value });
+                        if (intakeErrors.unknownName)
+                          setIntakeErrors((p) => {
+                            const n = { ...p };
+                            delete n.unknownName;
+                            return n;
+                          });
+                      }}
+                      className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                        intakeErrors.unknownName ? "border-red-500 bg-red-50" : ""
+                      }`}
                     />
+                    {intakeErrors.unknownName && (
+                      <p
+                        data-testid="error-unknown-name"
+                        className="mt-1 text-xs text-red-600"
+                      >
+                        {intakeErrors.unknownName}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label htmlFor="er-unknown-age" className="mb-1 block text-sm font-medium">Age</label>
@@ -745,42 +825,69 @@ export default function EmergencyPage() {
 
               <div>
                 <label htmlFor="er-arrival-mode" className="mb-1 block text-sm font-medium">Arrival Mode</label>
+                {/* Issue #576: dropdown emits canonical enum values
+                    (WALK_IN / AMBULANCE / POLICE / REFERRED) so a
+                    free-text bypass via direct API call is now rejected
+                    by the shared schema (arrivalModeSchema). */}
                 <select
                   id="er-arrival-mode"
+                  data-testid="er-arrival-mode"
                   value={intakeForm.arrivalMode}
                   onChange={(e) =>
                     setIntakeForm({ ...intakeForm, arrivalMode: e.target.value })
                   }
                   className="w-full rounded-lg border px-3 py-2 text-sm"
                 >
-                  <option>Walk-in</option>
-                  <option>Ambulance</option>
-                  <option>Police</option>
-                  <option>Referred</option>
+                  <option value="WALK_IN">Walk-in</option>
+                  <option value="AMBULANCE">Ambulance</option>
+                  <option value="POLICE">Police</option>
+                  <option value="REFERRED">Referred</option>
                 </select>
               </div>
 
               <div>
                 <label htmlFor="er-intake-complaint" className="mb-1 block text-sm font-medium">
-                  Chief Complaint *
+                  Chief Complaint <span className="text-red-600" aria-hidden="true">*</span>
                 </label>
                 <textarea
                   id="er-intake-complaint"
                   data-testid="er-intake-complaint"
+                  aria-required="true"
+                  aria-invalid={!!intakeErrors.chiefComplaint}
                   rows={3}
+                  maxLength={2000}
                   value={intakeForm.chiefComplaint}
-                  onChange={(e) =>
-                    setIntakeForm({ ...intakeForm, chiefComplaint: e.target.value })
-                  }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  onChange={(e) => {
+                    setIntakeForm({ ...intakeForm, chiefComplaint: e.target.value });
+                    if (intakeErrors.chiefComplaint)
+                      setIntakeErrors((p) => {
+                        const n = { ...p };
+                        delete n.chiefComplaint;
+                        return n;
+                      });
+                  }}
+                  className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                    intakeErrors.chiefComplaint ? "border-red-500 bg-red-50" : ""
+                  }`}
                 />
+                {intakeErrors.chiefComplaint && (
+                  <p
+                    data-testid="error-chief-complaint"
+                    className="mt-1 text-xs text-red-600"
+                  >
+                    {intakeErrors.chiefComplaint}
+                  </p>
+                )}
               </div>
             </div>
 
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setShowIntakeModal(false)}
+                onClick={() => {
+                  setShowIntakeModal(false);
+                  setIntakeErrors({});
+                }}
                 className="rounded-lg border px-4 py-2 text-sm"
               >
                 Cancel

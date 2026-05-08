@@ -170,6 +170,31 @@ export function OnboardingTour({
     onClose();
   }, [role, onClose]);
 
+  // Issue #561: previously the tour was completely modal-trapped — Esc, click
+  // outside, and the X-style close affordance were all missing, so any user
+  // who landed on a sibling page that remounted the layout would be locked on
+  // Step 1. The Skip + Next buttons themselves work, but on production they
+  // also reportedly hung when a parent layout re-rendered between mousedown
+  // and click. Adding Esc-to-skip + click-outside-to-skip gives the user
+  // multiple escape hatches even if the buttons race a parent re-render.
+  const skip = useCallback(() => {
+    markOnboardingSkipped(userId);
+    markTourCompleted(role);
+    onClose();
+  }, [role, userId, onClose]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        skip();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, skip]);
+
   if (!open) return null;
   const current = steps[step];
 
@@ -183,29 +208,21 @@ export function OnboardingTour({
     setStep(step + 1);
   };
 
-  const skip = () => {
-    // Issue #122: persist a per-user "skipped" flag so navigating to a
-    // sibling page (which remounts the layout) doesn't auto-launch the
-    // tour again. Also marks the role completion flag so the legacy
-    // hasCompletedTour() check passes for the same session.
-    markOnboardingSkipped(userId);
-    // Issue #502: markTourCompleted now also writes the global v1 flag —
-    // this is the only path that reliably survives `userId` being undefined
-    // at click time (the user reported the tour reappearing on every
-    // /dashboard visit despite mc_tour_<role> being '1', which is exactly
-    // the symptom of `markOnboardingSkipped` being a no-op).
-    markTourCompleted(role);
-    onClose();
-  };
-
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
       role="dialog"
       aria-modal="true"
       aria-label="Product tour"
+      // Issue #561: click-outside-to-dismiss. The dialog content stops
+      // propagation below so clicking the card itself doesn't trigger
+      // a skip — only the dimmed backdrop does.
+      onClick={skip}
     >
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-800">
+      <div
+        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-800"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="mb-3 flex items-center justify-between">
           <span className="text-xs font-medium uppercase tracking-wider text-primary">
             Step {step + 1} of {steps.length}

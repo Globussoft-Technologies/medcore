@@ -269,6 +269,26 @@ export default function PrescriptionsPage() {
     }
   }, [user?.role]);
 
+  // Issue #569: deep-linking to /dashboard/prescriptions?id=<uuid> (the URL
+  // shape used by the dashboard "View" tile + email/notification links) used
+  // to render the same list view with no detail surface. Auto-open the
+  // matching row's expand pane and scroll it into view as soon as the row
+  // exists in the loaded page. Works for every role that can read
+  // prescriptions — patient/doctor/nurse/pharmacist/admin.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("id");
+    if (!id) return;
+    const exists = prescriptions.some((rx) => rx.id === id);
+    if (!exists) return;
+    setExpanded(id);
+    const el = document.querySelector(`[data-testid="rx-row-${id}"]`);
+    if (el && "scrollIntoView" in el) {
+      (el as HTMLElement).scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [prescriptions]);
+
   function applyTemplate(tplId: string) {
     const tpl = templates.find((t) => t.id === tplId);
     if (!tpl) return;

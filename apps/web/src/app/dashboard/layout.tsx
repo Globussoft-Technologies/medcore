@@ -965,7 +965,7 @@ export default function DashboardLayout({
         className="flex-1 overflow-y-auto bg-bg dark:bg-gray-900"
       >
         {/* Mobile top bar */}
-        <div className="sticky top-0 z-30 flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-gray-800 md:hidden">
+        <div className="no-print sticky top-0 z-30 flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-gray-800 md:hidden">
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
@@ -1000,7 +1000,7 @@ export default function DashboardLayout({
       {/* Mobile bottom nav */}
       <nav
         aria-label="Bottom navigation"
-        className="fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around border-t border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 md:hidden"
+        className="no-print fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around border-t border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 md:hidden"
       >
         {bottomNav.map(({ href, label, icon: Icon }) => {
           const isActive =

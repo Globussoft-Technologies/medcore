@@ -30,6 +30,7 @@ import { appointmentRouter } from "./routes/appointments";
 import { doctorRouter } from "./routes/doctors";
 import { billingRouter, razorpayWebhookRouter } from "./routes/billing";
 import { prescriptionRouter, publicPrescriptionRouter } from "./routes/prescriptions";
+import { publicPatientRouter } from "./routes/public-patient";
 import { queueRouter } from "./routes/queue";
 import { notificationRouter } from "./routes/notifications";
 import { auditRouter } from "./routes/audit";
@@ -234,6 +235,7 @@ export function buildApp() {
   // Public routes (no auth) — must be mounted BEFORE routers that require auth
   app.use("/api/v1/public", publicLabRouter);
   app.use("/api/v1/public", publicPrescriptionRouter);
+  app.use("/api/v1/public", publicPatientRouter);
 
   // Routes
   const authLimiter =

@@ -737,3 +737,19 @@ export async function generatePrescriptionQrDataUrl(
     margin: 1,
   });
 }
+
+export async function generatePatientQrDataUrl(
+  patientId: string,
+  _mrNumber: string
+): Promise<string> {
+  const verifyBase = (
+    process.env.PUBLIC_APP_URL || "https://medcore.globusdemos.com"
+  ).replace(/\/$/, "");
+  const verifyUrl = `${verifyBase}/verify/patient/${patientId}`;
+  return QRCode.toDataURL(verifyUrl, {
+    type: "image/png",
+    errorCorrectionLevel: "M",
+    width: 160,
+    margin: 1,
+  });
+}

@@ -286,13 +286,15 @@ describe("generatePaySlipHTML", () => {
 });
 
 describe("generatePatientIdCardHTML", () => {
-  it("includes MR number and a QR/barcode block", async () => {
+  it("includes MR number and a real PNG QR code", async () => {
     prismaMock.patient.findUnique.mockResolvedValueOnce(aPatient());
     const html = await generatePatientIdCardHTML("p1");
     expect(html).toContain("MR-1001");
     expect(html).toContain("PATIENT ID CARD");
-    // QR placeholder uses repeating-linear-gradient (barcode stand-in)
-    expect(html).toContain("repeating-linear-gradient");
+    // Real QR is embedded as a data:image/png;base64 URL (not the
+    // old repeating-linear-gradient CSS stand-in).
+    expect(html).toContain("data:image/png;base64,");
+    expect(html).toContain('alt="Verification QR"');
   });
 });
 

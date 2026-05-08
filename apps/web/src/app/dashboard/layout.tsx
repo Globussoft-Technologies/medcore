@@ -3,6 +3,8 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
+import logoIcon from "../assets/HD_Icon.png";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
@@ -776,7 +778,10 @@ export default function DashboardLayout({
         <div className="border-b border-gray-200 p-5 dark:border-white/10">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-bold">MedCore</h1>
+              <div className="flex items-center gap-2">
+                <Image src={logoIcon} alt="MedCore" width={32} height={32} className="rounded-lg" />
+                <h1 className="text-xl font-bold">MedCore</h1>
+              </div>
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 {user.name} ({user.role})
               </p>
@@ -974,7 +979,8 @@ export default function DashboardLayout({
           >
             <Menu size={20} aria-hidden="true" />
           </button>
-          <span className="font-semibold text-gray-900 dark:text-gray-100">
+          <span className="flex items-center gap-2 font-semibold text-gray-900 dark:text-gray-100">
+            <Image src={logoIcon} alt="MedCore" width={24} height={24} className="rounded" />
             MedCore
           </span>
           <div className="flex items-center gap-1">

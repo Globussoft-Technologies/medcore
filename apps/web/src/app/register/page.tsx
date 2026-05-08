@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { api } from "@/lib/api";
+import logoIcon from "../assets/HD_Icon.png";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { LanguageDropdown } from "@/components/LanguageDropdown";
@@ -239,6 +241,9 @@ export default function RegisterPage() {
       </div>
       <div className="w-full max-w-lg rounded-2xl bg-white p-8 shadow-xl dark:bg-gray-800">
         <div className="mb-8 text-center">
+          <div className="mb-4 flex justify-center">
+            <Image src={logoIcon} alt="MedCore" width={52} height={52} className="rounded-xl" />
+          </div>
           <h1 className="text-3xl font-bold text-primary">{t("app.name")}</h1>
           <p className="mt-2 text-gray-500 dark:text-gray-400">
             {t("register.title")}

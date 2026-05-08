@@ -9,6 +9,8 @@ import { LanguageDropdown } from "@/components/LanguageDropdown";
 import { PasswordInput } from "@/components/PasswordInput";
 import { toast } from "@/lib/toast";
 import { sanitizeNextPath } from "@/lib/utils";
+import Image from "next/image";
+import logoHorizontal from "../assets/MedCore_Logo1_0001_Layer-3.png";
 import {
   Activity,
   QrCode,
@@ -186,6 +188,9 @@ function LoginPageInner() {
           aria-labelledby="marketing-heading"
           className="order-1 text-center md:order-none md:text-left"
         >
+          <div className="mb-6">
+            <Image src={logoHorizontal} alt="MedCore" height={56} width={220} className="h-14 w-auto" />
+          </div>
           <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-primary dark:bg-primary/20">
             <span
               className="h-2 w-2 rounded-full bg-primary"

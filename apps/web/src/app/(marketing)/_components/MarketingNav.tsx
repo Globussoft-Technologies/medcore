@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useState } from "react";
-import { Menu, X, Stethoscope } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { Container } from "./Container";
+import logoIcon from "../../assets/HD_Icon.png";
 
 const links = [
   { href: "/features", label: "Features" },
@@ -20,9 +22,7 @@ export function MarketingNav() {
     <header className="sticky top-0 z-50 border-b border-gray-200/70 bg-white/80 backdrop-blur-md dark:border-gray-800/70 dark:bg-gray-950/80">
       <Container className="flex h-16 items-center justify-between">
         <Link href="/" className="flex items-center gap-2 font-bold text-lg text-gray-900 dark:text-white">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-emerald-500 text-white">
-            <Stethoscope className="h-5 w-5" />
-          </span>
+          <Image src={logoIcon} alt="MedCore" width={32} height={32} className="rounded-lg" />
           MedCore
         </Link>
 

@@ -1,6 +1,8 @@
 import Link from "next/link";
-import { Stethoscope, Github, Twitter, Linkedin } from "lucide-react";
+import Image from "next/image";
+import { Github, Twitter, Linkedin } from "lucide-react";
 import { Container } from "./Container";
+import logoIcon from "../../assets/HD_Icon.png";
 
 const cols = [
   {
@@ -45,9 +47,7 @@ export function MarketingFooter() {
         <div className="grid gap-10 md:grid-cols-5">
           <div className="md:col-span-2">
             <Link href="/" className="flex items-center gap-2 text-lg font-bold text-gray-900 dark:text-white">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-emerald-500 text-white">
-                <Stethoscope className="h-5 w-5" />
-              </span>
+              <Image src={logoIcon} alt="MedCore" width={32} height={32} className="rounded-lg" />
               MedCore
             </Link>
             <p className="mt-4 max-w-sm text-sm text-gray-600 dark:text-gray-400">

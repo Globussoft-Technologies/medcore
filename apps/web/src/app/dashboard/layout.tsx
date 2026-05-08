@@ -320,6 +320,42 @@ const navByRole: Record<
     // approved explanation via notification, so the sidebar entry used to
     // render a "Forbidden" toast for them. See GitHub issue #23.
   ],
+  // Issue #606 / #615 / #637: PHARMACIST previously fell through to the
+  // PATIENT nav (line 746 fallback), so they saw "Bills", "AI Booking" and
+  // "Medication Reminders" — none of which they have access to (#615
+  // documents Bills then routing to /dashboard/not-authorized, #637
+  // documents AI Booking and Medication Reminders being role-irrelevant).
+  // Pharmacy + Medicines + Prescriptions are the real work surfaces for
+  // this role.
+  PHARMACIST: [
+    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/dashboard/pharmacy", label: "Pharmacy", icon: Package },
+    { href: "/dashboard/medicines", label: "Medicines", icon: Pill },
+    { href: "/dashboard/prescriptions", label: "Prescriptions", icon: FileText },
+    { href: "/dashboard/controlled-substances", label: "Controlled Register", icon: ShieldAlert },
+    { href: "/dashboard/suppliers", label: "Suppliers", icon: Truck },
+    { href: "/dashboard/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },
+    { href: "/dashboard/patients", label: "Patients", icon: Users },
+    { href: "/dashboard/chat", label: "Chat", icon: MessageCircle },
+    { href: "/dashboard/my-schedule", label: "My Schedule", icon: CalendarDays },
+    { href: "/dashboard/my-leaves", label: "My Leaves", icon: PlaneTakeoff },
+    { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
+  ],
+  // Issue #628: LAB_TECH previously fell through to PATIENT nav, so the
+  // "Lab" item was missing and they saw "Bills" + "Prescriptions" instead.
+  // Lab + Lab QC + Patients (sample-collection context) are the work
+  // surfaces.
+  LAB_TECH: [
+    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/dashboard/lab", label: "Lab", icon: FlaskConical },
+    { href: "/dashboard/lab/qc", label: "Lab QC", icon: Activity },
+    { href: "/dashboard/patients", label: "Patients", icon: Users },
+    { href: "/dashboard/lab-explainer", label: "Lab Explainer", icon: Languages },
+    { href: "/dashboard/chat", label: "Chat", icon: MessageCircle },
+    { href: "/dashboard/my-schedule", label: "My Schedule", icon: CalendarDays },
+    { href: "/dashboard/my-leaves", label: "My Leaves", icon: PlaneTakeoff },
+    { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
+  ],
 };
 
 export default function DashboardLayout({

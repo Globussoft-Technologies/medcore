@@ -16,9 +16,17 @@ import { Request, Response, NextFunction } from "express";
 // form) get truncated by the tag stripper and silently re-formed into a string
 // that passes the regex. Bypassing the global stripper for these auth paths
 // keeps the schema's reject-not-mutate intent intact.
+//
+// Issue #616 (partial-XSS on Lab Add Result Unit): the lab `unit` field has
+// a strict allowlist regex (LAB_UNIT_REGEX) but the global stripper was
+// silently rewriting `<script>alert(1)</script>` to `alert(1)` BEFORE the
+// schema ran, defeating the regex's reject-not-strip intent. Bypass the
+// stripper for /api/v1/lab/results so the schema can reject angle-bracket
+// payloads with a 400 instead of laundering them.
 const SCHEMA_REJECT_PATHS: readonly string[] = [
   "/api/v1/auth/register",
   "/api/v1/auth/forgot-password",
+  "/api/v1/lab/results",
 ];
 
 function stripHtmlTags(value: unknown): unknown {

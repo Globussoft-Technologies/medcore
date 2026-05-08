@@ -290,6 +290,39 @@ describe("recordLabResultSchema", () => {
       }).success
     ).toBe(false);
   });
+  // Issue #616: Unit must reject angle-bracket / script payloads outright,
+  // not silently strip them down to `alert(1)`. The global sanitize
+  // middleware bypasses /api/v1/lab/results so the schema sees the raw
+  // payload and a regex mismatch fires the 400.
+  it("accepts canonical clinical units", () => {
+    for (const unit of ["mg/dL", "mmol/L", "µg/mL", "IU/mL", "cells/mm³", "% (v/v)", "°C"]) {
+      const out = recordLabResultSchema.safeParse({
+        orderItemId: UUID,
+        parameter: "Hb",
+        value: "13.5",
+        unit,
+      });
+      expect(out.success, `unit "${unit}" should be accepted`).toBe(true);
+    }
+  });
+  it("rejects HTML/script payloads in unit (Issue #616)", () => {
+    for (const unit of [
+      "<script>alert(1)</script>",
+      "mg/dL<img src=x>",
+      'mg/dL"',
+      "mg/dL;",
+      "mg/dL=1",
+      "mg/dL`",
+    ]) {
+      const out = recordLabResultSchema.safeParse({
+        orderItemId: UUID,
+        parameter: "Hb",
+        value: "13.5",
+        unit,
+      });
+      expect(out.success, `unit "${unit}" should be rejected`).toBe(false);
+    }
+  });
 });
 
 describe("labQCSchema", () => {

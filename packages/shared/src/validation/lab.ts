@@ -43,11 +43,33 @@ export const updateLabOrderStatusSchema = z.object({
 //   - value: <= 400 chars (long qualitative descriptions)
 //   - unit / normalRange: <= 80 chars
 //   - notes: <= 2000 chars (clinician narrative)
+//
+// Issue #616 (partial XSS sanitisation on Unit): the global
+// `sanitize` middleware strips angle brackets BEFORE the schema runs,
+// so `<script>alert(1)</script>` reached the DB as the textually-
+// valid string `alert(1)`. We tighten `unit` (and `normalRange`) to
+// the canonical lab-unit alphabet — letters, digits, % / mol / molar
+// math (`/ * - + . , ( )`), whitespace, the micro sign µ, the
+// superscript/subscript digits (`²³`), and the degree sign `°`. Anything
+// else (parens with embedded `alert`, `=`, `<`, `>`, semicolons,
+// quotes, backticks) is rejected outright instead of silently
+// stripped. The set is intentionally liberal so legitimate units like
+// `mg/dL`, `mmol/L`, `µg/mL`, `IU/mL`, `cells/mm³`, `°C`, `% (v/v)`
+// all pass.
+const LAB_UNIT_REGEX = /^[A-Za-z0-9µ°²³%/\\\-+*.,()\s]+$/;
+
 export const recordLabResultSchema = z.object({
   orderItemId: z.string().uuid(),
   parameter: z.string().min(1, "Parameter is required").max(200),
   value: z.string().min(1, "Value is required").max(400),
-  unit: z.string().max(80).optional(),
+  unit: z
+    .string()
+    .max(80)
+    .regex(
+      LAB_UNIT_REGEX,
+      "Unit may contain letters, digits, %, /, parentheses and basic math symbols only",
+    )
+    .optional(),
   normalRange: z.string().max(80).optional(),
   flag: LabResultFlag.optional(),
   notes: z.string().max(2000).optional(),

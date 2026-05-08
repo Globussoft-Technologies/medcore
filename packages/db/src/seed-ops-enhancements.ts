@@ -219,15 +219,61 @@ async function main() {
     "OTHER",
   ];
   const approvalStates: ApprovalStatus[] = ["APPROVED", "APPROVED", "APPROVED", "PENDING"];
+  // Issue #277: replace "<category> expense #N" placeholder descriptions
+  // with realistic line items per category.
+  const expenseDescriptions: Partial<Record<ExpenseCategory, string[]>> = {
+    SALARY: [
+      "Monthly payroll — nursing staff",
+      "Monthly payroll — admin & reception",
+      "Doctor consultation honorarium settlement",
+    ],
+    UTILITIES: [
+      "BESCOM electricity bill — main building",
+      "BWSSB water charges — quarterly",
+      "DG set diesel refill",
+    ],
+    EQUIPMENT: [
+      "Spare ECG electrodes pack",
+      "Pulse oximeter replacement units",
+      "Stethoscope bulk order — wards",
+    ],
+    MAINTENANCE: [
+      "AC servicing — OPD wing",
+      "Backup generator preventive maintenance",
+      "Lift annual maintenance contract",
+    ],
+    CONSUMABLES: [
+      "Surgical gloves (case of 1000)",
+      "IV cannula stock replenishment",
+      "Disposable masks — month supply",
+    ],
+    RENT: [
+      "Monthly clinic premises rent",
+      "Pharmacy unit rent",
+    ],
+    MARKETING: [
+      "Local newspaper ad — health camp",
+      "Hoarding rental — main road",
+      "Pamphlet printing for awareness drive",
+    ],
+    OTHER: [
+      "Postage and courier charges",
+      "Patient refreshment supplies",
+      "Reception stationery restock",
+    ],
+  };
   for (let i = 0; i < 10; i++) {
     const cat = randomItem(cats);
     const amount = cat === "SALARY" || cat === "RENT" ? randomInt(20000, 80000) : randomInt(500, 8000);
     const st = amount > 10000 ? randomItem(approvalStates) : "APPROVED";
+    const desc = randomItem(
+      expenseDescriptions[cat] ?? ["Operational expense"]
+    );
     await prisma.expense.create({
       data: {
         category: cat,
         amount,
-        description: `${cat.toLowerCase().replace("_", " ")} expense #${i + 1}`,
+        description: desc,
         date: daysAgo(randomInt(1, 60)),
         paidTo: randomItem([
           "Cleaning Services Pvt Ltd",
@@ -428,9 +474,36 @@ async function main() {
   console.log("  Created 20 feedback entries");
 
   // ─── Escalated Complaints ─────────────────────
+  // Use realistic per-category descriptions so the dashboard reads like
+  // genuine customer issues during demos (issue #277).
   console.log("Creating 3 escalated complaints...");
+  const escalatedSpecs: Array<{
+    category: string;
+    subCategory: string;
+    description: string;
+  }> = [
+    {
+      category: "BILLING",
+      subCategory: "ERROR",
+      description:
+        "Charged twice for the same OPD consultation last week (invoice INV-19888). Have raised this with reception twice but no resolution. Need refund processed within 48 hours.",
+    },
+    {
+      category: "STAFF_BEHAVIOR",
+      subCategory: "RUDE",
+      description:
+        "Reception staff was extremely dismissive when I asked for a copy of my discharge summary. Was kept waiting 40 min and told to 'come back tomorrow' without explanation. Supervisor not available.",
+    },
+    {
+      category: "CLEANLINESS",
+      subCategory: "NEGLIGENCE",
+      description:
+        "Ward 3B washroom has not been cleaned for over 24 hours despite multiple requests to housekeeping. Family of admitted patient is forced to use a different floor.",
+    },
+  ];
   let ccCount = 0;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < escalatedSpecs.length; i++) {
+    const spec = escalatedSpecs[i];
     const p = randomItem(patients);
     const priority = randomItem(["HIGH", "CRITICAL"]);
     const hoursSla = priority === "CRITICAL" ? 4 : 24;
@@ -442,9 +515,9 @@ async function main() {
         patientId: p.id,
         name: null,
         phone: null,
-        category: randomItem(["SERVICE", "BILLING", "CLEANLINESS", "STAFF_BEHAVIOR"]),
-        subCategory: randomItem(["NEGLIGENCE", "DELAY", "RUDE", "ERROR"]),
-        description: `Escalated complaint #${i + 1}: serious issue requiring immediate attention`,
+        category: spec.category,
+        subCategory: spec.subCategory,
+        description: spec.description,
         status: "ESCALATED",
         priority,
         slaDueAt: slaDue,
@@ -493,6 +566,9 @@ async function main() {
   console.log(`  Created ${chCount} chat channels`);
 
   // ─── Visitors ─────────────────────────────────
+  // Issue #277: replace "Visitor 1..N" placeholder with realistic Indian
+  // names so the /dashboard/visitors panel doesn't read like test data
+  // during customer demos.
   console.log("Creating 10 additional visitors...");
   const purposes: VisitorPurpose[] = [
     "PATIENT_VISIT",
@@ -501,13 +577,25 @@ async function main() {
     "MEETING",
     "OTHER",
   ];
+  const opsVisitorNames = [
+    "Aarav Krishnan",
+    "Saanvi Nair",
+    "Vihaan Joshi",
+    "Aanya Bhatt",
+    "Reyansh Pillai",
+    "Diya Chatterjee",
+    "Kabir Saxena",
+    "Ishita Bose",
+    "Arnav Pandey",
+    "Myra Kapoor",
+  ];
   for (let i = 0; i < 10; i++) {
     const ci = daysAgo(randomInt(0, 7));
     const co = Math.random() < 0.7 ? new Date(ci.getTime() + randomInt(30, 120) * 60000) : null;
     await prisma.visitor.create({
       data: {
         passNumber: `VIS-OPS-${String(i + 1).padStart(4, "0")}`,
-        name: `Visitor ${i + 1}`,
+        name: opsVisitorNames[i],
         phone: `98${randomInt(10000000, 99999999)}`,
         idProofType: randomItem(["Aadhaar", "PAN", "Driving License"]),
         idProofNumber: `${randomInt(100000, 999999)}`,
@@ -522,13 +610,15 @@ async function main() {
   console.log("  Created 10 visitors");
 
   // ─── Visitor Blacklist ────────────────────────
+  // Issue #277: realistic names instead of "Blacklisted Person N".
+  const opsBlacklistNames = ["Imran Pathak", "Devraj Bhonsle"];
   for (let i = 0; i < 2; i++) {
     try {
       await prisma.visitorBlacklist.create({
         data: {
           idProofType: "Aadhaar",
           idProofNumber: `BL${randomInt(100000, 999999)}`,
-          name: `Blacklisted Person ${i + 1}`,
+          name: opsBlacklistNames[i],
           phone: `99${randomInt(10000000, 99999999)}`,
           reason: randomItem([
             "Trespassing in restricted area",
@@ -610,16 +700,90 @@ async function main() {
     "SENT",
     "FAILED",
   ];
+  // Type-keyed plausible title/message so the notifications panel reads
+  // like real customer traffic instead of "Notification #N / Sample
+  // notification message body" (issue #277). Body strings mirror the
+  // tone used by seed-notifications-history.ts so the two suites blend.
+  const notificationContent: Partial<Record<NotificationType, { title: string; messages: string[] }>> = {
+    APPOINTMENT_BOOKED: {
+      title: "Appointment Confirmed",
+      messages: [
+        "Your appointment with Dr. Rajesh Sharma on Mon 10:30 AM has been booked. Token #14.",
+        "Appointment with Dr. Priya Patel confirmed for Wed 4:15 PM. Please arrive 10 min early.",
+        "Booking confirmed: Dr. Amir Khan, Fri 11:00 AM, OPD-2.",
+      ],
+    },
+    APPOINTMENT_REMINDER: {
+      title: "Appointment Reminder",
+      messages: [
+        "Reminder: appointment tomorrow at 10:30 AM with Dr. Rajesh Sharma. Please bring previous reports.",
+        "Your follow-up consult is in 2 hours. Token #22 — please proceed to OPD-1.",
+        "Don't forget your appointment today at 4:00 PM. Reception will check you in 15 min prior.",
+      ],
+    },
+    APPOINTMENT_CANCELLED: {
+      title: "Appointment Cancelled",
+      messages: [
+        "Your appointment on Thu 3:00 PM has been cancelled. Please reschedule at your convenience.",
+        "Doctor is unavailable on the booked slot — please rebook via the app.",
+      ],
+    },
+    BILL_GENERATED: {
+      title: "Invoice Generated",
+      messages: [
+        "Invoice INV-20230 for Rs.1,250 has been generated. Pay online or at the cashier.",
+        "Your consultation invoice (Rs.500) is ready. Login to download.",
+        "Invoice INV-20245 for Rs.4,800 generated against your lab orders.",
+      ],
+    },
+    PAYMENT_RECEIVED: {
+      title: "Payment Received",
+      messages: [
+        "Payment of Rs.1,250 received via UPI. Receipt RCPT-9421. Thank you.",
+        "We have received your payment of Rs.4,800. Reference RCPT-9437.",
+        "Advance payment of Rs.2,000 acknowledged against future visits.",
+      ],
+    },
+    TOKEN_CALLED: {
+      title: "Your Token is Up",
+      messages: [
+        "Token #14 is now being called. Please proceed to consultation room 3.",
+        "Token #22 — Dr. Priya Patel is ready to see you. OPD-1.",
+        "Your turn is next. Please be seated near consultation room 2.",
+      ],
+    },
+    PRESCRIPTION_READY: {
+      title: "Prescription Ready",
+      messages: [
+        "Your prescription is ready. Download from the app or collect at pharmacy.",
+        "Prescription PRX-3142 issued. Medicines available at the in-house pharmacy.",
+      ],
+    },
+    LAB_RESULT_READY: {
+      title: "Lab Results Ready",
+      messages: [
+        "Your CBC + ESR results are available. Login to view or contact reception.",
+        "Lab order LAB-1187 has been completed. Reports uploaded to your record.",
+        "Thyroid Function Test results are ready. Dr. Sharma will review at your next visit.",
+      ],
+    },
+  };
+
   for (let i = 0; i < 50; i++) {
     const u = randomItem(allUsers);
     const st = randomItem(nStatuses);
+    const t = randomItem(nTypes);
+    const tpl = notificationContent[t] ?? {
+      title: "Hospital Notification",
+      messages: ["Please check the app for more details."],
+    };
     await prisma.notification.create({
       data: {
         userId: u.id,
-        type: randomItem(nTypes),
+        type: t,
         channel: randomItem(nChannels),
-        title: "Notification #" + (i + 1),
-        message: "Sample notification message body",
+        title: tpl.title,
+        message: randomItem(tpl.messages),
         deliveryStatus: st,
         sentAt: st !== "FAILED" ? daysAgo(randomInt(0, 7)) : null,
         deliveredAt:

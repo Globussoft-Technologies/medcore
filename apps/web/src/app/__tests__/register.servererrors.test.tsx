@@ -79,7 +79,7 @@ const validForm = {
 async function fillValid(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText(/full name/i), validForm.name);
   await user.type(screen.getByLabelText(/^email/i), validForm.email);
-  await user.type(screen.getByLabelText(/^phone/i), validForm.phone);
+  await user.type(screen.getByLabelText(/^phone$/i), validForm.phone);
   await user.type(screen.getByLabelText(/^password/i), validForm.password);
 }
 
@@ -132,7 +132,7 @@ describe("RegisterPage — server-error feedback (Issue #494)", () => {
       (screen.getByLabelText(/^email/i) as HTMLInputElement).value,
     ).toBe(validForm.email);
     expect(
-      (screen.getByLabelText(/^phone/i) as HTMLInputElement).value,
+      (screen.getByLabelText(/^phone$/i) as HTMLInputElement).value,
     ).toBe(validForm.phone);
   });
 

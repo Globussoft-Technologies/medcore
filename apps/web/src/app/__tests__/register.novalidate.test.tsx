@@ -99,7 +99,7 @@ describe("RegisterPage — noValidate + inline field errors (Issue #102 / #130)"
     render(<RegisterPage />);
     await user.type(screen.getByLabelText(/full name/i), "Aarav Mehta");
     await user.type(screen.getByLabelText(/^email/i), "aarav@example.com");
-    await user.type(screen.getByLabelText(/^phone/i), "12345"); // only 5 digits
+    await user.type(screen.getByLabelText(/^phone$/i), "12345"); // only 5 digits
     await user.type(screen.getByLabelText(/^password/i), "correct-horse");
     await user.click(screen.getByRole("button", { name: /^register$/i }));
 
@@ -114,7 +114,7 @@ describe("RegisterPage — noValidate + inline field errors (Issue #102 / #130)"
     render(<RegisterPage />);
     await user.type(screen.getByLabelText(/full name/i), "Aarav Mehta");
     await user.type(screen.getByLabelText(/^email/i), "aarav@example.com");
-    await user.type(screen.getByLabelText(/^phone/i), "9876543210");
+    await user.type(screen.getByLabelText(/^phone$/i), "9876543210");
     await user.type(screen.getByLabelText(/^password/i), "short"); // 5 chars
 
     await user.click(screen.getByRole("button", { name: /^register$/i }));
@@ -130,7 +130,7 @@ describe("RegisterPage — noValidate + inline field errors (Issue #102 / #130)"
     render(<RegisterPage />);
     await user.type(screen.getByLabelText(/full name/i), "Aarav Mehta");
     await user.type(screen.getByLabelText(/^email/i), "aarav@example.com");
-    await user.type(screen.getByLabelText(/^phone/i), "9876543210");
+    await user.type(screen.getByLabelText(/^phone$/i), "9876543210");
     await user.type(screen.getByLabelText(/^password/i), "correct-horse");
     await user.type(screen.getByLabelText(/^age/i), "0");
     await user.click(screen.getByRole("button", { name: /^register$/i }));

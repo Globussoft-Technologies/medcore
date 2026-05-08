@@ -696,6 +696,143 @@ async function autoAssignOverdueComplaintsTask(): Promise<void> {
   }
 }
 
+// ─── Auto-escalate SLA-breached complaints (Issue #760) ──────
+//
+// `auto_assign_overdue_complaints` (Issue #161) only handles the
+// assignment-routing side: it picks the lowest-load admin for any OPEN
+// complaint that's been unassigned >48h. It does NOT change the row's
+// `status`, so a CRITICAL ticket sitting at 798h overdue (the symptom
+// reported in #760) still showed `status=OPEN` indefinitely with no
+// visible escalation flag — and the matching `POST /complaints/auto-escalate`
+// endpoint, which DID transition such rows to `ESCALATED`, was only ever
+// invoked manually (no scheduler entry).
+//
+// This task closes that gap. Every hour we transition any OPEN /
+// UNDER_REVIEW row whose `slaDueAt` is in the past AND that hasn't
+// already been escalated to `ESCALATED`, stamp `escalatedAt` + a
+// machine-readable `escalationReason`, emit one audit row per ticket so
+// the trail captures "auto-system did this, not a human", and notify
+// the assignee (or admin pool when unassigned) so the escalation
+// actually surfaces to a live human.
+//
+// Idempotent: a second pass finds zero rows because `escalatedAt: null`
+// is the gate. The guard mirrors `POST /complaints/auto-escalate`'s
+// shape so behaviour stays identical to the existing manual endpoint.
+
+export async function autoEscalateSlaBreachedComplaints(now: Date = new Date()): Promise<{
+  escalated: number;
+  ids: string[];
+}> {
+  const overdue = await prisma.complaint.findMany({
+    where: {
+      status: { in: ["OPEN", "UNDER_REVIEW"] },
+      slaDueAt: { lt: now },
+      escalatedAt: null,
+    },
+    select: {
+      id: true,
+      ticketNumber: true,
+      priority: true,
+      assignedTo: true,
+      createdAt: true,
+      slaDueAt: true,
+    },
+    take: 500,
+  });
+  if (overdue.length === 0) return { escalated: 0, ids: [] };
+
+  // Pre-fetch admin pool for unassigned escalations — these get notified
+  // so a human actually sees the breach instead of the row sitting in a
+  // queue tab unread.
+  const admins = await prisma.user.findMany({
+    where: { role: "ADMIN", isActive: true },
+    select: { id: true },
+  });
+
+  const escalatedIds: string[] = [];
+  for (const c of overdue) {
+    try {
+      const overdueHours = Math.floor(
+        (now.getTime() - new Date(c.slaDueAt!).getTime()) / 3600000
+      );
+      await prisma.$transaction([
+        prisma.complaint.update({
+          where: { id: c.id },
+          data: {
+            status: "ESCALATED",
+            escalatedAt: now,
+            escalationReason: `Auto-escalated: SLA breach (priority=${c.priority}, ${overdueHours}h past slaDueAt)`,
+          },
+        }),
+        prisma.auditLog.create({
+          data: {
+            action: "COMPLAINT_AUTO_ESCALATED_SLA_BREACH",
+            entity: "complaint",
+            entityId: c.id,
+            details: {
+              ticketNumber: c.ticketNumber,
+              priority: c.priority,
+              overdueHours,
+              slaDueAt: c.slaDueAt,
+              wasAssigned: !!c.assignedTo,
+            } as any,
+          } as any,
+        }),
+      ]);
+      escalatedIds.push(c.id);
+
+      // Notify the assignee directly so the escalation lands in the
+      // owner's inbox — fall back to the admin pool when unassigned so
+      // CRITICAL/HIGH tickets aren't escalated into the void.
+      const recipients = c.assignedTo
+        ? [c.assignedTo]
+        : admins.map((a) => a.id);
+      for (const userId of recipients) {
+        try {
+          await sendNotification({
+            userId,
+            type: NotificationType.SCHEDULE_SUMMARY,
+            title: `Complaint escalated (SLA breach)`,
+            message: `${c.ticketNumber} (${c.priority}) is ${overdueHours}h past its SLA and has been auto-escalated. Please action immediately.`,
+            data: {
+              complaintId: c.id,
+              ticketNumber: c.ticketNumber,
+              priority: c.priority,
+              overdueHours,
+            },
+          });
+        } catch (notifErr) {
+          console.error(
+            "[auto_escalate_sla_breached_complaints] notify",
+            userId,
+            notifErr
+          );
+        }
+      }
+    } catch (err) {
+      console.error(
+        "[auto_escalate_sla_breached_complaints] escalate failed",
+        c.id,
+        err
+      );
+    }
+  }
+  return { escalated: escalatedIds.length, ids: escalatedIds };
+}
+
+async function autoEscalateSlaBreachedComplaintsTask(): Promise<void> {
+  try {
+    const result = await autoEscalateSlaBreachedComplaints();
+    if (result.escalated > 0) {
+      console.log(
+        `[auto_escalate_sla_breached_complaints] escalated ${result.escalated} SLA-breached complaints`
+      );
+    }
+  } catch (err) {
+    console.error("[auto_escalate_sla_breached_complaints]", err);
+  }
+}
+
 // ─── Auto-flag expired blood units (Issue #737) ────────
 //
 // Even though /match and /inventory filter expired rows out of the runtime
@@ -1033,6 +1170,18 @@ const TASKS: ScheduledTask[] = [
     intervalMinutes: 24 * 60,
     runAtHour: 6,
     run: autoAssignOverdueComplaintsTask,
+  },
+  // Issue #760 — every 60 min. Transitions OPEN/UNDER_REVIEW complaints
+  // whose `slaDueAt` is past to status=ESCALATED with an "Auto-escalated:
+  // SLA breach" reason, emits one audit row per ticket, and notifies the
+  // assignee (or admin pool if unassigned). Hourly cadence is tight enough
+  // that CRITICAL tickets (4h SLA) don't sit in OPEN past their breach by
+  // more than ~1h, but generous enough that one slow tick won't double-fire
+  // because `escalatedAt: null` gates the next pass.
+  {
+    name: "auto_escalate_sla_breached_complaints",
+    intervalMinutes: 60,
+    run: autoEscalateSlaBreachedComplaintsTask,
   },
   // Issue #388 — every 30 min, transition past BOOKED appointments
   // (>30 min beyond their IST start instant) to NO_SHOW so analytics,

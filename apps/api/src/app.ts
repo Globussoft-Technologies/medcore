@@ -203,7 +203,8 @@ export function buildApp() {
   // signature, NOT JWT, so it is intentionally mounted before authenticate.
   app.use("/api/v1/billing", razorpayWebhookRouter);
 
-  app.use(express.json());
+ app.use(express.json({ limit: "5mb" }));
+
   // Issue #477: parse cookies BEFORE auth middleware so the cookie-based
   // JWT lookup (medcore_at) and the CSRF guard (medcore_csrf) can both
   // read req.cookies.

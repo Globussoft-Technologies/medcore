@@ -176,6 +176,61 @@ export function deriveLabResultFlag(input: {
   return submitted;
 }
 
+/**
+ * Issue #622: detect whether a LabTest represents an imaging / radiology
+ * study (Ultrasound, X-Ray, ECG, Echocardiogram, MRI, CT, etc.) so the
+ * order detail UI can offer a file-upload control instead of forcing the
+ * narrative report through the numeric parameter/value form. The
+ * `category` column on LabTest is free-form (seed data uses
+ * "Procedure", "Imaging", "Radiology"), so we match on either category or
+ * the test name. Conservative regex — keeps Hematology/Biochemistry
+ * panels OUT of the imaging surface.
+ */
+// Tokens that uniquely indicate an imaging study. Each is matched as a
+// standalone word (\b word boundary) so we don't accidentally tag
+// "echo" inside "echocardiogram-pre-test" pre-screens etc.
+const IMAGING_TOKENS = [
+  "radiology",
+  "radiologic",
+  "imaging",
+  "ultrasound",
+  "ultrasonography",
+  "ultrasonogram",
+  "sonography",
+  "sonogram",
+  "usg",
+  "x-ray",
+  "xray",
+  "echocardiogram",
+  "echocardiography",
+  "ecg",
+  "ekg",
+  "mri",
+  "ct",
+  "cat-scan",
+  "tomography",
+  "tomogram",
+  "fluoroscopy",
+  "mammography",
+  "mammogram",
+  "dexa",
+  "densitometry",
+  "scintigraphy",
+];
+const IMAGING_PATTERN = new RegExp(
+  String.raw`\b(?:${IMAGING_TOKENS.join("|")})\b`,
+  "i",
+);
+
+export function isImagingLabTest(test: {
+  name: string;
+  category?: string | null;
+}): boolean {
+  if (test.category && IMAGING_PATTERN.test(test.category)) return true;
+  if (test.name && IMAGING_PATTERN.test(test.name)) return true;
+  return false;
+}
+
 export const labQCSchema = z.object({
   testId: z.string().uuid(),
   qcLevel: z.enum(["LOW", "NORMAL", "HIGH", "INTERNAL"]),

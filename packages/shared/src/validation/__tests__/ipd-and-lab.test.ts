@@ -446,4 +446,64 @@ describe("validateNumericLabResult", () => {
       ).toBe("NORMAL");
     });
   });
+
+  // Issue #622 (May 2026): the order detail page surfaces a file-upload
+  // control instead of the numeric Add-Result form for orders that
+  // contain at least one imaging / radiology test. The detection helper
+  // must catch the canonical modalities (Ultrasound, X-Ray, ECG,
+  // Echocardiogram, MRI, CT, etc.) without false-positives on regular
+  // hematology / biochemistry panels.
+  describe("isImagingLabTest (#622)", () => {
+    it("matches the modalities listed in the issue body", async () => {
+      const { isImagingLabTest } = await import("../lab");
+      const cases = [
+        "Ultrasound Abdomen",
+        "Ultrasound Pelvis",
+        "X-Ray Chest PA",
+        "ECG",
+        "2D Echocardiogram",
+        "MRI Brain",
+        "CT Head",
+        "Mammography",
+      ];
+      for (const name of cases) {
+        expect(
+          isImagingLabTest({ name, category: "Procedure" }),
+          `expected "${name}" to be detected as imaging`,
+        ).toBe(true);
+      }
+    });
+    it("matches by the category label too (Radiology / Imaging)", async () => {
+      const { isImagingLabTest } = await import("../lab");
+      expect(
+        isImagingLabTest({ name: "Random Study 7", category: "Radiology" }),
+      ).toBe(true);
+      expect(
+        isImagingLabTest({ name: "Random Study 7", category: "Imaging" }),
+      ).toBe(true);
+    });
+    it("does NOT match standard panels", async () => {
+      const { isImagingLabTest } = await import("../lab");
+      const negatives = [
+        { name: "Complete Blood Count", category: "Hematology" },
+        { name: "Liver Function Test", category: "Biochemistry" },
+        { name: "HbA1c", category: "Biochemistry" },
+        { name: "Thyroid Panel", category: "Endocrinology" },
+        { name: "Urine Routine", category: "Microbiology" },
+      ];
+      for (const t of negatives) {
+        expect(
+          isImagingLabTest(t),
+          `expected "${t.name}" NOT to be detected as imaging`,
+        ).toBe(false);
+      }
+    });
+    it("handles missing / null category", async () => {
+      const { isImagingLabTest } = await import("../lab");
+      expect(
+        isImagingLabTest({ name: "USG Abdomen", category: null }),
+      ).toBe(true);
+      expect(isImagingLabTest({ name: "CBC", category: null })).toBe(false);
+    });
+  });
 });

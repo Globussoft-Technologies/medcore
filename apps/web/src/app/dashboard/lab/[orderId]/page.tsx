@@ -1,18 +1,26 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, use, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { api, openPrintEndpoint } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
-import { ArrowLeft, FlaskConical, Printer } from "lucide-react";
+import { ArrowLeft, FlaskConical, Printer, Upload, FileImage } from "lucide-react";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { formatDateTime } from "@/lib/format";
+import { isImagingLabTest } from "@medcore/shared";
 
 // Issue #90: RECEPTION must NOT see the lab order detail / result-entry UI.
 const LAB_ALLOWED = new Set(["ADMIN", "DOCTOR", "NURSE", "LAB_TECH", "PATIENT"]);
+
+// Issue #622: imaging-report attachments are capped at 10 MB on the API
+// (matches the global UPLOAD_MAX_BYTES on /api/v1/uploads). Pre-flight the
+// cap on the client to avoid a wasted base64 encode + 413 round-trip.
+const LAB_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+const LAB_ATTACHMENT_ACCEPT =
+  "application/pdf,image/png,image/jpeg,image/webp,application/dicom,.dcm";
 
 interface LabTest {
   id: string;
@@ -65,12 +73,16 @@ const FLAG_COLORS: Record<string, string> = {
   CRITICAL: "bg-red-100 text-red-700",
 };
 
+// Issue #624: keys must match the LabTestStatus DB enum
+// (ORDERED / SAMPLE_COLLECTED / IN_PROGRESS / COMPLETED / CANCELLED /
+// SAMPLE_REJECTED). The legacy "PENDING" key was a no-op.
 const STATUS_COLORS: Record<string, string> = {
-  PENDING: "bg-yellow-100 text-yellow-700",
+  ORDERED: "bg-yellow-100 text-yellow-700",
   SAMPLE_COLLECTED: "bg-blue-100 text-blue-700",
   IN_PROGRESS: "bg-indigo-100 text-indigo-700",
   COMPLETED: "bg-green-100 text-green-700",
   CANCELLED: "bg-red-100 text-red-700",
+  SAMPLE_REJECTED: "bg-red-100 text-red-700",
 };
 
 export default function LabOrderPage({
@@ -118,6 +130,29 @@ export default function LabOrderPage({
     if (!(await confirm({ title: "Mark this order as complete?" }))) return;
     try {
       await api.patch(`/lab/orders/${orderId}/status`, { status: "COMPLETED" });
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update");
+    }
+  }
+
+  // Issue #624: pre-analytical workflow — LAB_TECH/NURSE/ADMIN move the
+  // order from ORDERED → SAMPLE_COLLECTED before any results are entered.
+  // The PATCH /status endpoint stamps `collectedAt = now()` server-side
+  // when the new status is SAMPLE_COLLECTED.
+  async function markSampleCollected() {
+    if (
+      !(await confirm({
+        title: "Mark sample as collected?",
+        message: "This stamps the collection time and unlocks result entry.",
+      }))
+    )
+      return;
+    try {
+      await api.patch(`/lab/orders/${orderId}/status`, {
+        status: "SAMPLE_COLLECTED",
+      });
+      toast.success("Sample marked as collected.");
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update");
@@ -230,6 +265,33 @@ export default function LabOrderPage({
         </div>
       </div>
 
+      {/* Issue #624: pre-analytical CTA. Visible to LAB_TECH/NURSE/ADMIN
+          when the order is still in the initial ORDERED state, so the
+          sample can be marked collected before any results are entered. */}
+      {order.status === "ORDERED" &&
+        (user?.role === "LAB_TECH" ||
+          user?.role === "NURSE" ||
+          user?.role === "ADMIN") && (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold text-blue-900">
+                Sample not collected yet
+              </p>
+              <p className="text-xs text-blue-700">
+                Mark the sample as collected to start the analytical phase.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={markSampleCollected}
+              data-testid="lab-mark-collected-btn"
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              Mark Sample Collected
+            </button>
+          </div>
+        )}
+
       {order.status !== "COMPLETED" && allItemsHaveResults && (
         <div className="mb-4 flex justify-end">
           <button
@@ -239,6 +301,21 @@ export default function LabOrderPage({
             Mark Order Complete
           </button>
         </div>
+      )}
+
+      {/* Issue #622: imaging / radiology orders need a file artefact
+          (DICOM, PDF report, JPEG/PNG image), not a numeric value. Render
+          the upload + attachment list panel only when at least one test
+          on the order looks imaging-shaped (Ultrasound, X-Ray, ECG,
+          Echocardiogram, MRI, CT, etc.). */}
+      {order.items.some((it) =>
+        isImagingLabTest({ name: it.test.name, category: it.test.category ?? null })
+      ) && (
+        <RadiologyAttachmentsPanel
+          orderId={order.id}
+          orderStatus={order.status}
+          userRole={user?.role ?? null}
+        />
       )}
 
       <div className="space-y-4">
@@ -252,6 +329,196 @@ export default function LabOrderPage({
           />
         ))}
       </div>
+    </div>
+  );
+}
+
+// Imaging / radiology attachments panel (Issue #622). Lists existing
+// uploads + provides an inline upload control for LAB_TECH/ADMIN/DOCTOR.
+// Files are sent as base64 to POST /lab/orders/:id/attachments which
+// magic-byte-sniffs and stores the artefact via services/storage.
+interface LabAttachment {
+  id: string;
+  title: string;
+  filePath: string;
+  fileSize?: number | null;
+  mimeType?: string | null;
+  createdAt: string;
+}
+
+function RadiologyAttachmentsPanel({
+  orderId,
+  orderStatus,
+  userRole,
+}: {
+  orderId: string;
+  orderStatus: string;
+  userRole: string | null;
+}) {
+  const [attachments, setAttachments] = useState<LabAttachment[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [title, setTitle] = useState("");
+  const [notes, setNotes] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+
+  const canUpload =
+    !!userRole &&
+    (userRole === "LAB_TECH" || userRole === "ADMIN" || userRole === "DOCTOR") &&
+    orderStatus !== "CANCELLED";
+
+  const loadAttachments = useCallback(async () => {
+    try {
+      const res = await api.get<{ data: LabAttachment[] }>(
+        `/lab/orders/${orderId}/attachments`,
+      );
+      setAttachments(res.data || []);
+    } catch {
+      // Empty list on any read failure — UI degrades gracefully.
+      setAttachments([]);
+    }
+  }, [orderId]);
+
+  useEffect(() => {
+    loadAttachments();
+  }, [loadAttachments]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!file) {
+      toast.error("Choose a file to upload");
+      return;
+    }
+    if (file.size > LAB_ATTACHMENT_MAX_BYTES) {
+      toast.error("File exceeds 10 MB cap. Compress before re-uploading.");
+      return;
+    }
+    if (!title.trim()) {
+      toast.error("Title is required (e.g. \"USG Abdomen — final report\")");
+      return;
+    }
+    setBusy(true);
+    try {
+      const base64: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const r = reader.result as string;
+          resolve(r.split(",")[1] || r);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      await api.post(`/lab/orders/${orderId}/attachments`, {
+        filename: file.name,
+        base64Content: base64,
+        title: title.trim(),
+        notes: notes.trim() || undefined,
+      });
+      toast.success("Attachment uploaded");
+      setFile(null);
+      setTitle("");
+      setNotes("");
+      await loadAttachments();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to upload attachment",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="mb-6 rounded-xl border border-indigo-100 bg-white p-5 shadow-sm"
+      data-testid="lab-radiology-panel"
+    >
+      <div className="mb-3 flex items-center gap-2 border-b pb-2">
+        <FileImage className="text-indigo-600" size={18} aria-hidden="true" />
+        <h3 className="font-semibold text-gray-900">
+          Imaging report &amp; attachments
+        </h3>
+      </div>
+
+      {attachments.length === 0 ? (
+        <p className="mb-3 text-xs text-gray-500">
+          No imaging artefacts uploaded yet.
+        </p>
+      ) : (
+        <ul className="mb-4 space-y-1.5">
+          {attachments.map((a) => (
+            <li
+              key={a.id}
+              data-testid="lab-attachment-row"
+              className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-medium text-gray-900">{a.title}</p>
+                <p className="text-xs text-gray-500">
+                  {a.mimeType || "file"}
+                  {a.fileSize
+                    ? ` · ${(a.fileSize / 1024).toFixed(1)} KB`
+                    : ""}
+                  {" · "}
+                  {formatDateTime(a.createdAt)}
+                </p>
+              </div>
+              <Link
+                href={`/api/v1/uploads/document/${a.id}`}
+                target="_blank"
+                rel="noopener"
+                className="ml-3 shrink-0 rounded-lg border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Open
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {canUpload ? (
+        <form
+          onSubmit={submit}
+          data-testid="lab-attachment-upload-form"
+          className="space-y-2 rounded-lg bg-gray-50 p-3"
+        >
+          <p className="text-xs font-semibold text-gray-600">
+            Upload imaging report (PDF / JPEG / PNG / DICOM, max 10 MB)
+          </p>
+          <input
+            type="text"
+            placeholder='Title — e.g. "USG Abdomen final report"'
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            data-testid="lab-attachment-title"
+            className="w-full rounded-lg border px-3 py-1.5 text-sm"
+          />
+          <input
+            type="text"
+            placeholder="Notes / impressions (optional)"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            className="w-full rounded-lg border px-3 py-1.5 text-sm"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="file"
+              accept={LAB_ATTACHMENT_ACCEPT}
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              data-testid="lab-attachment-file"
+              className="text-sm"
+            />
+            <button
+              type="submit"
+              disabled={busy}
+              data-testid="lab-attachment-submit"
+              className="ml-auto inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+            >
+              <Upload size={14} aria-hidden="true" />
+              {busy ? "Uploading..." : "Upload"}
+            </button>
+          </div>
+        </form>
+      ) : null}
     </div>
   );
 }

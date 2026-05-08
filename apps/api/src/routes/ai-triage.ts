@@ -108,6 +108,14 @@ router.post(
 );
 
 // POST /api/v1/ai/triage/:sessionId/message — send a user message
+//
+// security(2026-05-09, issue #511): only `authenticate` was applied — any
+// signed-in PATIENT could send messages into another patient's in-flight
+// triage session, mutating its state and potentially driving its red-flag
+// + suggestedSpecialties output. OWASP API1:2023 BOLA / CWE-285. Same fix
+// shape as GET /:sessionId and DELETE /:sessionId in this file: load the
+// session row, then run `assertPatientOwnsResource` so PATIENT callers are
+// scoped to their own session; staff (DOCTOR/ADMIN) pass through.
 router.post(
   "/:sessionId/message",
   authenticate,
@@ -122,6 +130,7 @@ router.post(
         res.status(404).json({ success: false, data: null, error: "Session not found" });
         return;
       }
+      if (!(await assertPatientOwnsResource(req, res, session.patientId))) return;
       if (session.status !== "ACTIVE") {
         res.status(400).json({ success: false, data: null, error: `Session is ${session.status}` });
         return;
@@ -563,6 +572,12 @@ router.post(
 );
 
 // POST /api/v1/ai/triage/:sessionId/handoff — human handoff to receptionist
+//
+// security(2026-05-09, issue #511): only `authenticate` was applied — any
+// signed-in PATIENT could trigger another patient's handoff, creating a
+// ChatRoom with the receptionist and flipping the session to COMPLETED.
+// OWASP API1:2023 BOLA / CWE-285. Load the session, then enforce per-row
+// ownership via `assertPatientOwnsResource`.
 router.post(
   "/:sessionId/handoff",
   authenticate,
@@ -576,6 +591,7 @@ router.post(
         res.status(404).json({ success: false, data: null, error: "Session not found" });
         return;
       }
+      if (!(await assertPatientOwnsResource(req, res, session.patientId))) return;
 
       // 2. Find an available RECEPTION or ADMIN user
       const receptionist = await prisma.user.findFirst({

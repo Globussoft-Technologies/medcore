@@ -48,26 +48,37 @@ router.post(
 );
 
 // GET /api/v1/nurse-rounds?admissionId=
-router.get("/", async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { admissionId } = req.query;
-    if (!admissionId) {
-      res.status(400).json({ success: false, data: null, error: "admissionId is required" });
-      return;
+//
+// security(2026-05-09, issue #511): no per-handler `authorize(...)` and no
+// per-row ownership check — any authenticated user (including PATIENT)
+// could enumerate another patient's nurse rounds (clinical assessment
+// notes per shift) by guessing the admissionId. Nurse rounds are
+// operational/clinical data: the POST handler already restricts to
+// ADMIN/NURSE/DOCTOR, so the GET should match. Block PATIENT.
+router.get(
+  "/",
+  authorize(Role.ADMIN, Role.NURSE, Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { admissionId } = req.query;
+      if (!admissionId) {
+        res.status(400).json({ success: false, data: null, error: "admissionId is required" });
+        return;
+      }
+
+      const rounds = await prisma.nurseRound.findMany({
+        where: { admissionId: admissionId as string },
+        include: {
+          nurse: { select: { id: true, name: true } },
+        },
+        orderBy: { performedAt: "desc" },
+      });
+
+      res.json({ success: true, data: rounds, error: null });
+    } catch (err) {
+      next(err);
     }
-
-    const rounds = await prisma.nurseRound.findMany({
-      where: { admissionId: admissionId as string },
-      include: {
-        nurse: { select: { id: true, name: true } },
-      },
-      orderBy: { performedAt: "desc" },
-    });
-
-    res.json({ success: true, data: rounds, error: null });
-  } catch (err) {
-    next(err);
   }
-});
+);
 
 export { router as nurseRoundRouter };

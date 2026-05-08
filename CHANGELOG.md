@@ -67,6 +67,37 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   was misnamed for months — Prisma column has always been
   `insurancePolicyNumber`. Closes #592 (RECEPTION had no way to add/update
   policy data, blocking every downstream billing/claims workflow).
+- **2026-05-09 wave continued — 4 more commits + session-end discovery.**
+  `5f784a2` makes `seed-ipd.ts` idempotent on the patient side
+  (`findFirst({patientId, status: ADMITTED})` guard before each
+  admission `.create`) so re-runs no-op instead of producing the
+  dual-bed admission rows reported in `.issue-details.txt #37`.
+  Schema (partial unique index) + API (409 pre-check) layers were
+  already protecting against this from `f2dbb99` migration
+  `20260424000001`; only the seed itself was non-idempotent. SQL
+  cleanup script for existing demo-box duplicates documented in the
+  commit body. `aa63e64` flips Aspirin 75mg from RX to OTC (low-dose
+  cardio-prevention is non-prescription in India) and wires
+  `tsx packages/db/src/seed-pharmacy.ts` into `scripts/deploy.sh` as
+  idempotent post-deploy step 8b so future deploys re-apply the
+  pharmacy catalog (closes `.issue-details.txt #40` Rx flags + `#41`
+  manufacturer field — both were already correct in the seed; deploy
+  wiring was the gap). `efd42c9` fixes a real IST/UTC timezone bug at
+  `apps/api/src/routes/analytics.ts:42-46` — `parseRange` was parsing
+  client IST-anchored ISO bounds correctly, then immediately clobbering
+  them with `from.setHours(0,0,0,0)` / `to.setHours(23,59,59,999)`
+  which operate in the **server's** local timezone. On a UTC host this
+  collapsed the hospital's IST day onto the UTC day, dropping every
+  patient registered between 18:30 IST and midnight IST out of the
+  count window. Pass-through ISO bounds + new `istMidnightUtc(daysOffset)`
+  helper for default fallback. Closes `.issue-details.txt #48` (admin
+  Today Snapshot Registered = 0 even after multiple registrations).
+  **Session-end discovery**: 5 of 8 unfiled bug-bash entries were
+  already fixed on main (especially by `f2dbb99` Apr 24 — a 19-issue
+  closure commit) but the demo box runs stale data because most seeds
+  aren't in the auto-deploy path. Demo box needs either an extended
+  deploy.sh to idempotently re-run all demo seeds, or a one-time
+  manual DB reset, before further bug-bash against the live URL.
 
 ## [1.3.0] - 2026-05-07
 

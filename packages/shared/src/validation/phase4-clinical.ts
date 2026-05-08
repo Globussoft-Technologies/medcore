@@ -12,10 +12,20 @@ import { containsHtmlOrScript } from "./security";
 // rules, but they all share the "no XSS markup" rule).
 //
 // Note: `.refine()` returns a ZodEffects, which doesn't expose `.min()`/
-// `.max()` chainable string methods, so the helper accepts a `minLen` arg
-// that is applied to the underlying ZodString *before* the refinement.
-const noHtmlOrScript = (field: string, minLen?: number) => {
-  const base = minLen != null ? z.string().min(minLen) : z.string();
+// `.max()` chainable string methods, so the helper accepts `minLen` AND
+// `maxLen` args that are applied to the underlying ZodString *before* the
+// refinement. Issue #576 added the maxLen leg so free-text ER fields can
+// be capped (chief complaint, MLC officer name, etc.) at their schema layer
+// rather than depending on the route handler to truncate.
+const noHtmlOrScript = (field: string, minLen?: number, maxLen?: number) => {
+  let base = z.string();
+  if (minLen != null) base = base.min(minLen);
+  if (maxLen != null) {
+    base = base.max(
+      maxLen,
+      `${field} must be at most ${maxLen} characters`
+    );
+  }
   return base.refine((v) => !containsHtmlOrScript(v), {
     message: `${field} contains characters that aren't allowed (e.g. < > or HTML tags)`,
   });
@@ -48,6 +58,44 @@ export const EMERGENCY_STATUS = [
   "LEFT_WITHOUT_BEING_SEEN",
   "DECEASED",
 ] as const;
+
+// Issue #576 (May 2026): the ER Register-New-Case modal previously accepted
+// `arrivalMode` as unbounded free text, so a direct API caller could write
+// any garbage string ("Other", "<script>", "asdf") and the chart row would
+// render that verbatim. Pin to a fixed enum at the shared-schema layer; the
+// web select already only emits these four canonical values plus the MCI
+// sentinel. Anything else is a 400.
+export const ARRIVAL_MODES = [
+  "WALK_IN",
+  "AMBULANCE",
+  "POLICE",
+  "REFERRED",
+  "MASS_CASUALTY",
+] as const;
+// The web form historically used the human-readable "Walk-in" / "Ambulance"
+// labels. Accept both the enum form and the legacy display labels so we don't
+// break any in-flight client builds, then normalise to the enum for storage.
+const ARRIVAL_MODE_ALIASES: Record<string, (typeof ARRIVAL_MODES)[number]> = {
+  "Walk-in": "WALK_IN",
+  "WALK-IN": "WALK_IN",
+  "walk-in": "WALK_IN",
+  Ambulance: "AMBULANCE",
+  ambulance: "AMBULANCE",
+  Police: "POLICE",
+  police: "POLICE",
+  Referred: "REFERRED",
+  referred: "REFERRED",
+};
+const arrivalModeSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .transform((v) => ARRIVAL_MODE_ALIASES[v] ?? v)
+  .pipe(z.enum(ARRIVAL_MODES, {
+    errorMap: () => ({
+      message: `Arrival mode must be one of: ${ARRIVAL_MODES.join(", ")}`,
+    }),
+  }));
 
 // Telemedicine
 // Issues #18 / #27: reject negative fees AND past scheduledAt timestamps at
@@ -95,21 +143,33 @@ export const endTelemedicineSchema = z.object({
 // — chiefComplaint is the worst because it's rendered into the chart, but
 // unknownName / unknownGender / arrivalMode are also displayed elsewhere
 // (intake list, audit log, MCI dashboard).
+// Issue #576 (May 2026): chiefComplaint, unknownName, unknownGender were all
+// unbounded — a direct API caller could POST a 500 KB blob of text and the
+// row would happily store it. Add explicit max-length caps that match the
+// chart-render layout (chief complaint is the only multi-line field so it
+// gets the largest cap; unknownName/Gender are single-line labels). Bounded
+// integer cap on unknownAge prevents 9999-year-old "Jane Doe" rows.
 export const createEmergencyCaseSchema = z
   .object({
     patientId: z.string().uuid().optional(),
     unknownName: z
       .string()
       .trim()
+      .max(120, "Unknown patient name must be at most 120 characters")
       .refine((v) => !containsHtmlOrScript(v), {
         message:
           "Unknown patient name contains characters that aren't allowed (e.g. < > or HTML tags)",
       })
       .optional(),
-    unknownAge: z.number().int().nonnegative().optional(),
-    unknownGender: noHtmlOrScript("Unknown patient gender").optional(),
-    arrivalMode: noHtmlOrScript("Arrival mode").optional(),
-    chiefComplaint: noHtmlOrScript("Chief complaint", 1),
+    unknownAge: z
+      .number()
+      .int()
+      .min(0, "Age must be between 0 and 130")
+      .max(130, "Age must be between 0 and 130")
+      .optional(),
+    unknownGender: noHtmlOrScript("Unknown patient gender", undefined, 40).optional(),
+    arrivalMode: arrivalModeSchema.optional(),
+    chiefComplaint: noHtmlOrScript("Chief complaint", 1, 2000),
   })
   .superRefine((data, ctx) => {
     const hasPatient = !!data.patientId;

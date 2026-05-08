@@ -99,6 +99,70 @@ describe("createEmergencyCaseSchema", () => {
       }).success
     ).toBe(false);
   });
+
+  // Issue #576: tighten arrivalMode to a fixed enum (WALK_IN / AMBULANCE /
+  // POLICE / REFERRED / MASS_CASUALTY) so a direct API caller cannot bypass
+  // the dropdown with arbitrary free text (e.g. "Other", "asdf").
+  it("accepts canonical arrivalMode enum values (#576)", () => {
+    for (const mode of ["WALK_IN", "AMBULANCE", "POLICE", "REFERRED"]) {
+      expect(
+        createEmergencyCaseSchema.safeParse({
+          patientId: UUID,
+          chiefComplaint: "Pain",
+          arrivalMode: mode,
+        }).success
+      ).toBe(true);
+    }
+  });
+  it("accepts legacy display labels for arrivalMode and normalises (#576)", () => {
+    const result = createEmergencyCaseSchema.safeParse({
+      patientId: UUID,
+      chiefComplaint: "Pain",
+      arrivalMode: "Walk-in",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.arrivalMode).toBe("WALK_IN");
+    }
+  });
+  it("rejects free-text arrivalMode bypass (#576)", () => {
+    expect(
+      createEmergencyCaseSchema.safeParse({
+        patientId: UUID,
+        chiefComplaint: "Pain",
+        arrivalMode: "Other (taxi)",
+      }).success
+    ).toBe(false);
+  });
+
+  // Issue #576: free-text fields previously accepted unbounded payloads —
+  // a 500 KB blob would happily land in the chart. Cap each at the schema
+  // layer.
+  it("rejects chiefComplaint longer than 2000 characters (#576)", () => {
+    expect(
+      createEmergencyCaseSchema.safeParse({
+        patientId: UUID,
+        chiefComplaint: "x".repeat(2001),
+      }).success
+    ).toBe(false);
+  });
+  it("rejects unknownName longer than 120 characters (#576)", () => {
+    expect(
+      createEmergencyCaseSchema.safeParse({
+        unknownName: "n".repeat(121),
+        chiefComplaint: "Pain",
+      }).success
+    ).toBe(false);
+  });
+  it("rejects implausibly large unknownAge (#576)", () => {
+    expect(
+      createEmergencyCaseSchema.safeParse({
+        unknownName: "John Doe",
+        unknownAge: 200,
+        chiefComplaint: "Pain",
+      }).success
+    ).toBe(false);
+  });
 });
 
 describe("triageSchema", () => {

@@ -611,8 +611,18 @@ export default function DashboardPage() {
 
       {!isPatient && (
         <>
-          {/* Top KPI strip */}
-          {isWidgetVisible(widgets, "kpi_top") && (
+          {/* Top KPI strip.
+              Issue #529 — when the dashboard first paints, the data fetches
+              are still in flight and every numeric tile read 0 (the default
+              for `fmt(undefined)`). Admins glancing at the dashboard
+              interpreted "0 patients / 0 admitted / 0/0 beds" as a wiped
+              database. We gate the real KPI grid on `!loading` so the
+              SkeletonCard strip rendered above is the ONLY visible
+              representation while data fetches are in flight; once `loading`
+              flips false the real numbers replace the skeleton. Quick
+              Actions and role-specific sections render unconditionally
+              because they don't depend on the in-flight data. */}
+          {!loading && isWidgetVisible(widgets, "kpi_top") && (
           isLabTechRole ? (
             // Issue #629 — LAB_TECH dashboard: replace the generic strip
             // (appointments/patients/beds/ER/bills — all gated 403 for lab
@@ -734,8 +744,11 @@ export default function DashboardPage() {
           )
           )}
 
-          {/* Role-specific primary sections */}
-          {(isDoctor || isAdmin) && isWidgetVisible(widgets, "clinical_today") && (
+          {/* Role-specific primary sections.
+              Issue #529 — same hard-zero-flash class as the KPI strip;
+              gated on !loading so only the skeleton represents the
+              in-flight state. */}
+          {!loading && (isDoctor || isAdmin) && isWidgetVisible(widgets, "clinical_today") && (
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
               <ModuleSection
                 title="Clinical — Today"
@@ -855,8 +868,8 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Nurse dashboard emphasis */}
-          {isNurse && (
+          {/* Nurse dashboard emphasis. Issue #529 same gate. */}
+          {!loading && isNurse && (
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
               <ModuleSection
                 title="Medications Due"
@@ -916,8 +929,8 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Reception emphasis */}
-          {isReception && (
+          {/* Reception emphasis. Issue #529 same gate. */}
+          {!loading && isReception && (
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
               <ModuleSection
                 title="Pending Billing"
@@ -959,8 +972,9 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Admin summary — deeper financial & operational section */}
-          {isAdmin && (
+          {/* Admin summary — deeper financial & operational section. Issue
+              #529 same gate as the rest of the dashboard. */}
+          {!loading && isAdmin && (
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-4">
               <StatCard
                 title="Surgeries In Progress"

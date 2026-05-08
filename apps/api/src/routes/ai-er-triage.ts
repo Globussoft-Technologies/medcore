@@ -19,6 +19,10 @@ const SARVAM_MODEL = "sarvam-105b";
 
 const router = Router();
 
+// #511 audit (file-level, 2026-05-09): both POST handlers apply
+// `authorize(Role.DOCTOR, Role.NURSE, Role.ADMIN)` (or DOCTOR/ADMIN-only
+// for the `:caseId` variant) — PATIENT is excluded. Verified-safe.
+
 // security(2026-04-24): F-ER-2 — er-triage is Sarvam-backed (one LLM call per
 // assess), same risk profile as chart-search / report-explainer / letters that
 // were rate-limited in the first MEDIUM pass. Cap to 30/min/IP so one

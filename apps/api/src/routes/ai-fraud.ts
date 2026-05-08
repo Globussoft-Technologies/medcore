@@ -20,6 +20,9 @@ function safeAudit(
 export const aiFraudRouter = Router();
 
 aiFraudRouter.use(authenticate);
+// #511 audit (file-level, 2026-05-09): every handler applies either
+// `adminOnly` (Role.ADMIN) or `investigators` (Role.ADMIN, Role.RECEPTION).
+// PATIENT is excluded from every fraud-detection surface. Verified-safe.
 // Note: previously this router was ADMIN-only at the router level. Sprint 2
 // added a billing-investigator workflow (status transitions + comment thread)
 // for RECEPTION users, so role gating is now applied per-endpoint. Existing

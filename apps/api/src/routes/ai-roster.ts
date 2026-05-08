@@ -113,6 +113,9 @@ const store = {
 export const aiRosterRouter = Router();
 
 aiRosterRouter.use(authenticate);
+// #511 audit (file-level, 2026-05-09): router-level `authorize(Role.ADMIN)`
+// excludes PATIENT (and every non-admin role) from every handler in this
+// file. Verified-safe.
 aiRosterRouter.use(authorize(Role.ADMIN));
 
 /** Basic input validator — keeps route pure without pulling zod for one schema. */

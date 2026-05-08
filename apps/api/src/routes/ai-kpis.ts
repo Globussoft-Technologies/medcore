@@ -24,6 +24,10 @@ import {
 const router = Router();
 router.use(authenticate);
 
+// #511 audit (file-level, 2026-05-09): every handler applies
+// `authorize(Role.ADMIN)` per the file header — KPIs are commercially
+// sensitive aggregates. PATIENT is excluded. Verified-safe.
+
 function parseRange(req: Request): { from: Date; to: Date } {
   const fromStr = req.query.from as string | undefined;
   const toStr = req.query.to as string | undefined;

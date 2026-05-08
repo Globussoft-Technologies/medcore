@@ -25,6 +25,11 @@ const createBedBodySchema = z.object({
 const router = Router();
 router.use(authenticate);
 
+// #511 audit (file-level, 2026-05-09): every handler in this file applies
+// `authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION)` (or a
+// stricter ADMIN-only subset) — PATIENT is excluded everywhere. Ward
+// layout + bed occupancy is operational data. Verified-safe.
+
 // GET /api/v1/wards — list all wards with bed counts
 //
 // Issue #36 — the web Wards page reads `ward.beds`, `ward.totalBeds`,

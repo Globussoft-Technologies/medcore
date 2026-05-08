@@ -44,6 +44,39 @@ router.post(
         return;
       }
 
+      // Issue #747 — overlap guard. The schema unique is
+      // `(userId, date, type)`, which permits two different shift
+      // types (e.g. MORNING + NIGHT, or MORNING + ON_CALL) on the same
+      // date with overlapping HH:MM windows. That double-books a single
+      // human. Standard half-open overlap test: newStart < existingEnd
+      // AND newEnd > existingStart. We compare in minutes-since-midnight
+      // because shift times are stored as "HH:MM" strings.
+      const newStart = toMinutes(startTime);
+      const newEnd = toMinutes(endTime);
+      const sameDay = await prisma.staffShift.findMany({
+        where: { userId, date: parseDate(date) },
+        select: { id: true, type: true, startTime: true, endTime: true },
+      });
+      for (const s of sameDay) {
+        const existStart = toMinutes(s.startTime);
+        const existEnd = toMinutes(s.endTime);
+        if (newStart < existEnd && newEnd > existStart) {
+          const userName = user.name ?? "this user";
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: `Dr ${userName} already has overlapping shift ${s.startTime}-${s.endTime} on ${date}`,
+            existingShift: {
+              id: s.id,
+              type: s.type,
+              startTime: s.startTime,
+              endTime: s.endTime,
+            },
+          });
+          return;
+        }
+      }
+
       const shift = await prisma.staffShift.create({
         data: {
           userId,

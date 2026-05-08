@@ -48,7 +48,14 @@ const { prismaMock } = vi.hoisted(() => {
   return { prismaMock: base };
 });
 
-vi.mock("@medcore/db", () => ({ prisma: prismaMock }));
+vi.mock("@medcore/db", () => ({
+  prisma: prismaMock,
+  // `apps/api/src/services/tenant-prisma.ts` re-exports
+  // `tenantScopedPrisma` from this package; admissions.ts imports
+  // both. The shim points at the same mock so create/findFirst/etc.
+  // calls land on a single object the tests can drive.
+  tenantScopedPrisma: prismaMock,
+}));
 vi.mock("../services/pdf", () => ({ generateDischargeSummaryHTML: vi.fn() }));
 vi.mock("../services/pdf-generator", () => ({
   generateDischargeSummaryPDFBuffer: vi.fn(),
@@ -128,10 +135,18 @@ describe("Issue #421 — admission uniqueness (one-active-per-patient)", () => {
       }); // post-P2002 lookup
     // For nextAdmissionNumber()
     prismaMock.admission.findFirst.mockResolvedValueOnce(null);
-    prismaMock.bed.findUnique.mockResolvedValueOnce({
-      id: baseAdmitBody.bedId,
-      status: "AVAILABLE",
-    });
+    prismaMock.bed.findUnique
+      // Outer pre-check (with ward include for #736 ward-cap guard).
+      .mockResolvedValueOnce({
+        id: baseAdmitBody.bedId,
+        wardId: "ward-1",
+        status: "AVAILABLE",
+        ward: { id: "ward-1", name: "Ward A" },
+      })
+      // In-transaction re-read (#736 race-safe allocation) — still
+      // available, so we proceed to the create that hits P2002.
+      .mockResolvedValueOnce({ status: "AVAILABLE" });
+    prismaMock.bed.count.mockResolvedValueOnce(2); // ward has free beds
     // The race-loser: Prisma surfaces the partial-unique-index violation
     // as a P2002 from inside $transaction → tx.admission.create.
     const p2002 = Object.assign(new Error("Unique constraint failed"), {
@@ -155,10 +170,17 @@ describe("Issue #421 — admission uniqueness (one-active-per-patient)", () => {
     prismaMock.admission.findFirst
       .mockResolvedValueOnce(null) // pre-check
       .mockResolvedValueOnce(null); // nextAdmissionNumber
-    prismaMock.bed.findUnique.mockResolvedValueOnce({
-      id: baseAdmitBody.bedId,
-      status: "AVAILABLE",
-    });
+    prismaMock.bed.findUnique
+      // Outer pre-check (with ward include).
+      .mockResolvedValueOnce({
+        id: baseAdmitBody.bedId,
+        wardId: "ward-1",
+        status: "AVAILABLE",
+        ward: { id: "ward-1", name: "Ward A" },
+      })
+      // In-transaction re-read for race-safe allocation (#736).
+      .mockResolvedValueOnce({ status: "AVAILABLE" });
+    prismaMock.bed.count.mockResolvedValueOnce(3); // ward has free beds
     prismaMock.admission.create.mockResolvedValueOnce({
       id: "new-admission",
       admissionNumber: "IPD000001",
@@ -180,5 +202,74 @@ describe("Issue #421 — admission uniqueness (one-active-per-patient)", () => {
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
     expect(res.body.data.id).toBe("new-admission");
+  });
+});
+
+/**
+ * Issue #736 — Admit Patient must not succeed when the requested ward
+ * has 0 free beds. The per-bed `bed.status === AVAILABLE` check above
+ * is necessary but not sufficient (stale-AVAILABLE rows, dropped
+ * admissions). This test pins the explicit ward-capacity guard.
+ */
+describe("Issue #736 — admit blocked when ward has 0 free beds", () => {
+  beforeEach(() => {
+    prismaMock.admission.findFirst.mockReset();
+    prismaMock.admission.findUnique.mockReset();
+    prismaMock.admission.create.mockReset();
+    prismaMock.bed.findUnique.mockReset();
+    prismaMock.bed.update.mockReset();
+    prismaMock.bed.count.mockReset();
+  });
+
+  it("returns 400 with a clear ward-name error when bed.count(wardId, AVAILABLE) is 0", async () => {
+    prismaMock.admission.findFirst.mockResolvedValueOnce(null); // no active admission
+    prismaMock.bed.findUnique.mockResolvedValueOnce({
+      id: baseAdmitBody.bedId,
+      wardId: "ward-1",
+      status: "AVAILABLE",
+      ward: { id: "ward-1", name: "ICU North" },
+    });
+    // The crux: ward shows zero free beds even though the picked bed
+    // momentarily reads AVAILABLE.
+    prismaMock.bed.count.mockResolvedValueOnce(0);
+
+    const res = await request(buildApp())
+      .post("/api/v1/admissions")
+      .set("Authorization", `Bearer ${doctorToken()}`)
+      .send(baseAdmitBody);
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toMatch(/no beds available in icu north/i);
+    // Defensive: nothing was created or updated.
+    expect(prismaMock.admission.create).not.toHaveBeenCalled();
+    expect(prismaMock.bed.update).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 when the bed status flips between pre-check and the transactional re-read (race loss)", async () => {
+    prismaMock.admission.findFirst
+      .mockResolvedValueOnce(null) // pre-check (no active admission)
+      .mockResolvedValueOnce(null); // nextAdmissionNumber
+    prismaMock.bed.findUnique
+      // Outer pre-check sees AVAILABLE.
+      .mockResolvedValueOnce({
+        id: baseAdmitBody.bedId,
+        wardId: "ward-1",
+        status: "AVAILABLE",
+        ward: { id: "ward-1", name: "Ward A" },
+      })
+      // In-transaction re-read: a concurrent admit grabbed it first.
+      .mockResolvedValueOnce({ status: "OCCUPIED" });
+    prismaMock.bed.count.mockResolvedValueOnce(1); // ward had a free slot
+
+    const res = await request(buildApp())
+      .post("/api/v1/admissions")
+      .set("Authorization", `Bearer ${doctorToken()}`)
+      .send(baseAdmitBody);
+
+    expect(res.status).toBe(409);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toMatch(/no longer available/i);
+    expect(prismaMock.admission.create).not.toHaveBeenCalled();
   });
 });

@@ -1,12 +1,27 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { EntityPicker } from "@/components/EntityPicker";
 import { Bell, Trash2, Plus, Clock, Calendar, Pill } from "lucide-react";
+
+// Issue #639: Medication Reminders are PHI tied to a patient account.
+// PHARMACIST and LAB_TECH have no clinical claim to the page; surface
+// access used to render the full CRUD UI for them, and writes were
+// (separately) gated only by API authorize() — but the UI exposure is
+// what users reported as "I can edit reminders for any patient". The
+// allow-set below mirrors the actual clinical owners: the patient
+// themselves, plus their treating clinicians and admin for triage.
+const ADHERENCE_VIEW_ALLOWED = new Set([
+  "PATIENT",
+  "DOCTOR",
+  "NURSE",
+  "ADMIN",
+]);
 
 interface MedicationItem {
   name: string;
@@ -38,11 +53,27 @@ function formatDate(iso: string) {
 }
 
 export default function AdherencePage() {
-  const { user } = useAuthStore();
+  const { user, isLoading } = useAuthStore();
+  const router = useRouter();
+  const pathname = usePathname();
   const confirm = useConfirm();
   const [schedules, setSchedules] = useState<AdherenceSchedule[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Issue #639: redirect non-allowed roles (PHARMACIST, LAB_TECH, RECEPTION)
+  // to /dashboard/not-authorized BEFORE any data fetch so the CRUD UI never
+  // paints for them.
+  useEffect(() => {
+    if (!isLoading && user && !ADHERENCE_VIEW_ALLOWED.has(user.role)) {
+      toast.error(
+        "Medication reminders are restricted to patients and their treating clinicians.",
+      );
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/adherence")}`,
+      );
+    }
+  }, [isLoading, user, router, pathname]);
 
   // Enroll form state
   const [showEnroll, setShowEnroll] = useState(false);

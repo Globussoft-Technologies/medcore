@@ -65,7 +65,13 @@ export default function PatientsPage() {
       // Issue #179: redirect to chrome-wrapped /dashboard/not-authorized so
       // the user keeps the sidebar and gets a real "Access Denied" page
       // instead of a generic 404.
-      toast.error("Patient registry is staff-only.");
+      // Issue #636: LAB_TECH IS staff, so "staff-only" mis-described the
+      // gate. The actual rule is clinician + front-desk: ADMIN, DOCTOR,
+      // NURSE, RECEPTION. Wording made narrower to match the rule and to
+      // remove the contradiction LAB_TECH users reported.
+      toast.error(
+        "Patient registry is restricted to clinical and front-desk staff (Admin, Doctor, Nurse, Reception).",
+      );
       router.replace(
         `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/patients")}`,
       );

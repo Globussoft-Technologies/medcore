@@ -23,10 +23,16 @@ import { Request, Response, NextFunction } from "express";
 // schema ran, defeating the regex's reject-not-strip intent. Bypass the
 // stripper for /api/v1/lab/results so the schema can reject angle-bracket
 // payloads with a 400 instead of laundering them.
+// Issue #577 (May 2026): /api/v1/complaints uses createComplaintSchema with
+// containsHtmlOrScript refines on name / category / description. Without the
+// bypass the global stripper turned `<script>alert(1)</script>` into
+// `alert(1)` BEFORE the schema saw it, so the refine never fired and the
+// laundered residue ended up in the DB.
 const SCHEMA_REJECT_PATHS: readonly string[] = [
   "/api/v1/auth/register",
   "/api/v1/auth/forgot-password",
   "/api/v1/lab/results",
+  "/api/v1/complaints",
 ];
 
 function stripHtmlTags(value: unknown): unknown {

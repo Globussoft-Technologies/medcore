@@ -1005,7 +1005,19 @@ function PatientHome() {
         return Array.isArray(arr) ? arr : [];
       };
       const apArr = safeArr(settled[0]);
-      const upc = [...apArr].sort(
+      // Issue #546 (2026-05-05): the API filter `from=today` already excludes
+      // past calendar dates, but the upcoming card was still rendering rows
+      // dated today-or-earlier in some races (timezone boundary, sort by
+      // ascending date that picks the OLDEST first). Belt-and-braces: drop
+      // anything strictly before the start of today's local day, and prefer
+      // the EARLIEST upcoming row (sort ascending) only among the remaining.
+      const todayMidnight = new Date();
+      todayMidnight.setHours(0, 0, 0, 0);
+      const futureOnly = apArr.filter((a: any) => {
+        if (!a?.date) return false;
+        return new Date(a.date).getTime() >= todayMidnight.getTime();
+      });
+      const upc = futureOnly.sort(
         (a: any, b: any) =>
           new Date(a.date).getTime() - new Date(b.date).getTime()
       )[0];

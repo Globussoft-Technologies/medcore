@@ -123,7 +123,13 @@ describeIfDB("RBAC negatives (lab results + nurse rounds)", () => {
         orderItemId: order.items[0].id,
         parameter: "WBC",
         value: "7.5",
-        unit: "10^9/L",
+        // Issue #616 (commit d12d3de) tightened LAB_UNIT_REGEX to reject
+        // shell-injection alphabet characters including `^`. The original
+        // unit "10^9/L" is now schema-rejected at 400, which would mask
+        // the RBAC contract this test exists to pin (admin CAN POST). Use
+        // a clean unit string so this regression test still asserts only
+        // the RBAC bit (#14 — separation-of-duties admin-allowed branch).
+        unit: "x10*9/L",
       });
 
     expect([200, 201]).toContain(res.status);

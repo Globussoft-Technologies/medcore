@@ -247,13 +247,12 @@ function LoginPageInner() {
             {twoFAStep ? (
               <form
                 onSubmit={handle2FA}
-                noValidate
-                className="space-y-5"
-                aria-label="2FA form"
                 // Issue #709: same noValidate convention as the email/password
                 // form so the 2FA step never surfaces the native validation
                 // tooltip either.
                 noValidate
+                className="space-y-5"
+                aria-label="2FA form"
               >
                 {error && (
                   <div
@@ -307,14 +306,13 @@ function LoginPageInner() {
             ) : (
               <form
                 onSubmit={handleSubmit}
-                noValidate
-                className="space-y-5"
-                aria-label="Login form"
                 // Issue #102: suppress the browser's native email/required
                 // validation tooltip — it positioned itself over the Password
                 // label on Chromium. We render our own per-field error spans
                 // (data-testid="error-email" / "error-password") below.
                 noValidate
+                className="space-y-5"
+                aria-label="Login form"
               >
                 {error && (
                   <div

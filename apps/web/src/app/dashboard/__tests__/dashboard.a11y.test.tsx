@@ -76,8 +76,12 @@ describe("Dashboard a11y (issues #504 + #505)", () => {
     // sr-only). A regression that drops opacity to 0 or wraps the label
     // in `sr-only` would still leave the node in the DOM but break this.
     render(<DashboardPage />);
+    // Issue #529 gated the role-specific Quick Action blocks on `!loading`,
+    // so we MUST wait for one of the labels itself to appear — the welcome
+    // banner above renders unconditionally and would resolve before the
+    // first api.get() promise microtask flushes.
     await waitFor(() =>
-      expect(screen.getByText(/welcome.*sumit/i)).toBeInTheDocument()
+      expect(screen.getByText("Walk-in")).toBeInTheDocument()
     );
     for (const label of [
       "Walk-in",
@@ -98,8 +102,13 @@ describe("Dashboard a11y (issues #504 + #505)", () => {
   it("Diagnostics & Labs + Operations panel labels are visible in dark mode (#505)", async () => {
     document.documentElement.classList.add("dark");
     render(<DashboardPage />);
+    // Issue #529 gated the Diagnostics & Labs / Operations sections on
+    // `!loading`, so the labels below only mount after the api.get() fan-out
+    // has resolved and `setLoading(false)` has fired. Wait on the FIRST
+    // expected label to appear before iterating — the welcome banner above
+    // is unconditional and would race past the data load otherwise.
     await waitFor(() =>
-      expect(screen.getByText(/welcome.*sumit/i)).toBeInTheDocument()
+      expect(screen.getByText("Pending Lab Orders")).toBeInTheDocument()
     );
     // The exact labels called out in the bug report.
     for (const label of [
@@ -121,8 +130,10 @@ describe("Dashboard a11y (issues #504 + #505)", () => {
 
   it("dashboard page has no axe color-contrast / wcag2aa violations (light mode)", async () => {
     const { container } = render(<DashboardPage />);
+    // Same #529 gating reason as the prior test — wait for a loaded-state
+    // label rather than the unconditional welcome banner.
     await waitFor(() =>
-      expect(screen.getByText(/welcome.*sumit/i)).toBeInTheDocument()
+      expect(screen.getByText("Pending Lab Orders")).toBeInTheDocument()
     );
     // `expectNoA11yViolations` runs the wcag2a / wcag2aa / wcag21a /
     // wcag21aa tag set, which includes `color-contrast`. axe in jsdom

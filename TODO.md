@@ -6,7 +6,40 @@ is independently shippable. Full per-session history lives under
 
 ---
 
-## 🏠 HOME PICKUP — handoff from 2026-05-08 evening (read this first)
+## 🏠 HOME PICKUP — handoff from 2026-05-09 autonomous bug-bash (read this first)
+
+**Production state at handoff** (commit `96938fc` — `docs(api/ai-routes): annotate 10 AI routes as #511 BOLA-verified-safe`):
+- ✅ HEAD on `main` = `96938fc`. Working tree clean. CI Test on the wave is in flight at handoff time (b0933c0 + a21e4ff + 96938fc still pending; earlier 805ef79/cd28630 were red on a pre-fix BOLA-test regression that was cleared by `805ef79`).
+- ✅ Auto-deploy operating; `medcore.globusdemos.com` will pick up the wave once CI clears.
+- **17 issues closed today** across 13 commits, including the entire admin contrast cluster (#325/#326/#327/#332), the login validation cluster (#548/#537/#528), the BOLA #511 long-tail (every AI route now annotated), #344 patient picker, #592 insurance editing, #593 calendar freeze, #613 prescriptions 401, #617 register form expansion, #760 SLA escalation, #277 demo data cleanup. Plus #615/#628/#637 closed-as-already-fixed (98adc03 from prior session) with closeout comments.
+- **Open issues: 3** (down from 20) — #482 JWT HS256→RS256 (operational/design), #511 was closed today, #512 manual-only QA tracker (informational, not closeable in code). Effectively all engineering-actionable issues are closed.
+- **Open PRs: 2 (unchanged)** — #762 Sourav + #757 Subhadip, still waiting on contributors.
+
+### 🔥 Top priority for next session
+
+1. **Wait on / verify CI** on `96938fc`. The agent-console BOLA test fix in `805ef79` should have unblocked the per-push Test workflow; if it didn't, the next failure shape is the next investigation step.
+2. **Smoke-test the wave on dev** once CI green + auto-deploys:
+   - `/dashboard/suppliers`, `/assets`, `/duty-roster`, `/census` — all 4 should now have legible text + (census specifically) a populated occupancy chart.
+   - `/login` — fresh viewport, paste creds with Ctrl+V → should land in state and submit cleanly. Whitespace-only / SQL-payload / 1000-char inputs should fail inline before hitting the API.
+   - `/register` — Confirm Password mismatch should surface inline; DOB picker should reject future dates; T&C checkbox required.
+   - `/dashboard/appointments/new` — Patient picker should be the first field; pre-pick → click slot → no modal re-prompt.
+   - `/dashboard/calendar` (RECEPTION) — should render events even if a single row has a malformed `scheduledAt` (try purposely seeding one if you want to verify the guard).
+   - `/dashboard/patients/<id>` — Insurance row always rendered with Add/Edit button; modal includes both insurance fields.
+   - `/dashboard/prescriptions` (PHARMACIST) — fresh login → no 401 misleading "Forbidden" banner.
+   - `/dashboard/complaints` — overdue rows should be sorted to top with "Nd open" age badge.
+3. **Tackle the unfiled bug-bash dump** at `.issue-details.txt` (numbered ===#1 through ===#49 in the user's bug-bash format, NOT GH issue numbers). High-impact candidates: ===#37 same-patient-two-beds (CRITICAL data integrity), ===#36 wards 0/0 beds, ===#35 booking page freeze, ===#38 86 overdue immunizations, ===#47 125 errors/h. These look like real production bugs worth filing on GitHub then dispatching another fanout wave.
+4. **#482 JWT HS256→RS256** — defer to a dedicated operational session per the previous handoff's recommendation (key-rollover plan needed).
+5. **Promote the cross-patient test fixture identity-mismatch learning to `/medcore-bola-sweep`** — now confirmed as 2nd recurrence (see CLAUDE.md cron-learnings for the symptom). Ripe for skill promotion when at the keyboard.
+
+### 📦 New artifacts this session
+
+- 13 commits all on main — see "What landed 2026-05-09" section below for the per-commit breakdown.
+- All commit bodies carry `Closes #N` references for git-history searchability.
+- Workflow finding: GitHub's `close #A #B #C` keyword only auto-closes the FIRST `#`. For multi-issue commits, must repeat the keyword: `close #A close #B close #C`. Worked around with manual `gh issue close` comments after the fact.
+
+---
+
+## 🏠 PRIOR HOME PICKUP — handoff from 2026-05-08 evening (kept for log)
 
 **Production state at handoff** (commit `601a038` — `fix(web/abdm): close #758`):
 - ✅ HEAD on `main` = `601a038`. Working tree clean. Per-push CI green (was red yesterday from Lane A's `#713` register-test regression — fixed in `ac69270`).
@@ -1580,6 +1613,35 @@ HEAD on `main` = `4637924d` (after morning session). Working tree should be clea
 > closed; long tail (~80 candidate handlers in less-trafficked routes
 > like appointments / billing / ehr / immunization / lab / pharmacy /
 > insurance-claims) remains for a future sweep.**
+
+---
+
+## What landed 2026-05-09 — autonomous bug-bash, 13 commits, 17 issues closed
+
+Single-session autonomous run picked up at HEAD `cd28630` with 14 staged-but-uncommitted files from the prior session and ~20 open GitHub issues. The session split the staged work into 6 topical commits, fixed a CI regression introduced by the prior BOLA wave, then dispatched 5 parallel foreground agents in 2 waves to close the remaining backlog.
+
+| Commit | What |
+|---|---|
+| `1097e94` | **#511 file-level audit annotations on 7 AI routes** — ai-capacity, ai-chart-search, ai-claims, ai-differential, ai-doc-qa, ai-lab-intel, ai-radiology. Comment-only; documents that every handler applies `authorize(...)` excluding PATIENT. Closes the doc side of the BOLA sweep for the AI surface. |
+| `25f34c2` | **#760 complaints SLA auto-escalation.** New hourly `auto_escalate_sla_breached_complaints` task in `scheduled-tasks.ts` flips OPEN/UNDER_REVIEW rows whose `slaDueAt` is past to `status=ESCALATED`, stamps `escalatedAt` + `escalationReason`, emits per-ticket `COMPLAINT_AUTO_ESCALATED_SLA_BREACH` audit, and notifies the assignee (or admin pool when unassigned). Web list now sorts non-resolved rows by SLA-overdue desc + adds an "Nd open" age badge color-coded amber@3d / red@7d. Idempotent on `escalatedAt: null`. |
+| `2e36e7b` | **#344 appointment booking patient picker.** Patient EntityPicker now the FIRST field in the booking form (was hidden inside a post-slot-click modal). When a patient is pre-picked here, clicking a slot books immediately without re-prompting. `confirmPatientIdAndBook(slotOverride?)` accepts a slot argument so the in-form path doesn't depend on the prompt-state being set. |
+| `9eda50b` | **#593 calendar perpetual-loading guard.** `new Date(s.scheduledAt).toISOString()` was throwing `RangeError: Invalid time value` against malformed surgery / telemedicine / custom-event rows; the rejection escaped the IIFE and `setLoading(false)` never ran. Added `safeHHMM(d)` guard + `Number.isNaN(d.getTime())` skip + try/finally so bad rows drop out instead of poisoning the whole render. |
+| `3600c9b` | **#592 patient insurance editing.** RECEPTION had no way to add/edit insurance from the patient profile. PatientEditModal extended with `insuranceProvider` + `insurancePolicyNumber` fields; patient detail page Insurance row always renders with "Not on file" empty state + Add/Edit button (gated to `canEditDemographics`). Renames misnamed `insuranceId` → `insurancePolicyNumber` to match the wire shape. |
+| `75a8fd6` | **#613 prescriptions 401 race.** PHARMACIST saw a 401 from initial GET right after login because the load-effect fired before the auth-store hydrated. Gate the fetch on `!isLoading` + `user` + `RX_ALLOWED.has(user.role)`; deps now include `isLoading + user.id + user.role` so a late hydration triggers the fetch. |
+| `805ef79` | **CI unblock: agent-console test post-#511 BOLA.** The 2684b6d BOLA fix on POST /:sessionId/handoff added `assertPatientOwnsResource`. `createHandoffFixture` was calling handoff with the seed `patientToken` while the session was created for `createPatientFixture()` — different Patient → 403, breaking 4 tests. Switch caller to `receptionToken` (RECEPTION drives the session anyway and bypasses the helper). **2nd recurrence of the cross-patient test fixture identity-mismatch class — now ripe for `/medcore-bola-sweep` skill promotion.** |
+| `004bcb0` | **Login form trio (#548 #537 #528).** #548 reserved fixed vertical space (`min-h-[3rem]` banner + `min-h-[1rem]` per-field) so the layout never jumps mid-keystroke. #537 added trim, RFC 5321 length cap (254 / 200), regex validation that catches SQL/XSS payloads inline, whitespace-only rejection. #528 added `name="email"` / `name="password"` for password-manager targeting + `onInput` mirror of `onChange` to catch all input-event variants from autofill bridges + `onBlur` DOM-sync fallback. |
+| `da35326` | **#617 register expansion.** Confirm Password (with 4-step strength meter, no new dep), DOB (`<input type="date">` with `max={today}`, validates shape + future-date + >130yr), and T&C checkbox (links `/terms` + `/privacy`, blocks submit on `!acceptedTerms`). Server `strictRegisterSchema` extended with optional `dateOfBirth` + `acceptedTerms: z.literal(true)` (kept .optional() so older clients aren't broken). Test fixtures updated; uses `fireEvent.change` on date input (userEvent.type is flaky on `type="date"` under jsdom). |
+| `b0933c0` | **#277 demo data cleanup.** Replaced placeholder strings in `packages/db/src/seed-ops-enhancements.ts`: visitors `Visitor 1..10` → 10 plausible Indian names; blacklisted persons `Blacklisted Person 1..2` → real names; notifications `Notification #N` → 7 type-keyed dictionaries (APPOINTMENT_BOOKED, BILL_GENERATED, etc.); escalated complaints `serious issue requiring immediate attention` → 3 plausible per-category complaints; expense ledger `<category> expense #N` → 8-category dictionary (BESCOM bill, surgical gloves case, AC servicing, etc.). **Note**: the issue's other examples ("test"/"Tester"/"xyz" on /dashboard/ambulance) are runtime user-created rows on the live demo, NOT in any seed; full-repo grep confirms. Will require a manual demo-box purge. |
+| `a21e4ff` | **Admin contrast cluster (#325 #326 #327 #332).** All 4 admin pages had primary table content using inherited body color + low-contrast labels. Standard fix: add `text-gray-900` to row content cells, bump `text-gray-500` → `text-gray-600` on sublabels. Census page had a SECOND bug: Occupancy Trend chart bars are hand-rolled divs with `height: (occ/max)*100%` — when all values are 0 every bar collapses to 0% height, leaving only axis labels visible. Added all-zero empty-state ("No occupancy recorded for the selected window.") + `Math.max(2, …)` clamp so single-digit % still shows a 2px sliver. |
+| `96938fc` | **#511 file-level audit annotations on 10 more AI routes** — ai-adherence, ai-bill-explainer, ai-coaching, ai-followup, ai-previsit, ai-report-explainer, ai-scribe, ai-sentiment, ai-transcribe, ai-triage. Per-file verdicts: 8×B (PATIENT-reachable handlers all use `assertPatientOwnsResource` or stricter), 2×A (router-level staff-only authorize). No real BOLA gaps surfaced — earlier waves had already patched everything; this is the documentation-only follow-up. **27/27 AI routes now bear an explicit verdict, closing the long-tail.** |
+
+### Architectural findings surfaced by this wave
+
+1. **`packages/db/src/seed-ops-enhancements.ts` placeholders → realistic data fixed; runtime-created placeholder rows on the live demo box still need a manual purge.** `001test` / `Tester` / `xyz` on `/dashboard/ambulance` and `Visitor 3` / `Visitor 5` on `/dashboard/visitors` come from manual user input on the demo box, not the seed. The seed has been cleaned but DB reset on next deploy is upsert/append, not destructive — existing rows persist. Will require either a one-off `DELETE WHERE name LIKE 'test%'` on the demo box, or a destructive seed-reset path that's currently absent.
+2. **Hand-rolled chart components collapse silently on all-zero data.** Census page's Occupancy Trend chart was the first surfaced instance — divs with `height: (occ/max)*100%` go to 0% when every value is 0, and the user sees an empty axis. Added empty-state UX + min-height clamp on this page; the pattern probably exists on other admin/analytics pages — **worth a sweep when next visiting analytics dashboards.** Suggested action: grep for `height.*\* 100%` or `height.*occ.*max` to find similar fragile constructs.
+3. **GitHub `close #A #B #C` only auto-closes the FIRST issue.** Two of this session's commits (004bcb0 and a21e4ff) had multiple `close #N` references separated by spaces; only the first ` # ` got the auto-close trigger. Workaround: write `close #A, close #B, close #C` with explicit keyword repetition, OR manually `gh issue close <N>` after the push. Worth a check on `.gitmessage` template / commit-msg lint (none currently) for future enforcement.
+4. **Cross-patient test fixture identity-mismatch — 2nd recurrence (now ripe for skill).** First instance was `cross-patient-uploads-notifications-aiknowledge.test.ts` (2026-05-05) where the test seeded `PatientDocument.uploadedBy` on the fixture doctor but used `getAuthToken("DOCTOR")` (a DIFFERENT seeded user). This wave hit the SAME class on `agent-console.test.ts` — session created for `createPatientFixture()` row, but handoff called with `getAuthToken("PATIENT")` (the seed PATIENT, not the fixture). **Per CLAUDE.md cron-learnings policy, this bullet is now ripe for promotion to `/medcore-bola-sweep` skill** — the rule: when a handler does identity comparison against `userId` / `uploadedBy` / `createdBy` (anything not `patientId`), the test MUST mint the JWT directly from the SAME User created via the fixture, not via `getAuthToken("<role>")`. Skill edit needs the user at the keyboard (harness blocks unattended `.claude/skills/**` writes).
+5. **`PatientDocument.insuranceId` was misnamed for months.** The Prisma column has always been `insurancePolicyNumber`; the patient-detail page typed it as `insuranceId` and silently never displayed the policy number even when set. Fixed in `3600c9b`. **Suggested follow-up grep**: `grep -r insuranceId apps/` — see if any other consumer is reading the wrong field.
 
 ---
 

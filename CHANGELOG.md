@@ -6,7 +6,67 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-_Nothing yet — new entries land here._
+### Fixed
+- **2026-05-09 wave — autonomous bug-bash, 13 commits, 17 issues closed.**
+  Single-session run picked up at HEAD `cd28630` with 14 staged-but-uncommitted
+  files from the prior session and ~20 open GitHub issues. Split the staged
+  work into 6 topical commits, fixed a CI regression introduced by the prior
+  BOLA wave (`805ef79` — agent-console test now uses receptionToken, not the
+  seed patientToken, for the post-#511 BOLA helper to bypass on RECEPTION),
+  then dispatched 5 parallel foreground agents in 2 waves to close the
+  remaining backlog. **Customer-reported bugs closed**: #277 demo-data
+  placeholders, #325/#326/#327/#332 admin-page low-contrast text + census
+  occupancy chart all-zero collapse, #344 appointment patient picker
+  visibility, #528/#537/#548 login form (paste/programmatic state binding +
+  validation gaps + focus/relayout race), #592 patient insurance editing
+  (was read-only), #593 calendar perpetual-loading on bad scheduledAt rows,
+  #613 prescriptions 401 race on auth-store hydration, #617 register form
+  expansion (Confirm Password + DOB + T&C consent), #760 complaints
+  SLA-breach auto-escalation (new hourly scheduled task) + age sorting +
+  "Nd open" badge. **Security/audit closure**: #511 long-tail BOLA audit
+  closed — every AI route file (27/27) now bears a `#511 audit (file-level)`
+  comment with a per-handler verdict; no remaining open BOLA gaps. **Side
+  closures**: #615/#628/#637 closed-as-already-fixed by the 2026-05-08
+  evening sidebar-role wave (commit `98adc03`); the 2026-05-09 session
+  posted the closeout comments. **Architectural findings surfaced**:
+  (1) hand-rolled chart components on admin pages collapse silently on
+  all-zero data — pattern likely repeats on other analytics surfaces;
+  (2) GitHub's `close #A #B #C` keyword only auto-closes the FIRST `#`,
+  not the rest — write `close #A, close #B, close #C` instead, or use
+  `gh issue close` post-hoc; (3) cross-patient test fixture identity-
+  mismatch class hit its 2nd recurrence (`agent-console.test.ts`) and is
+  now ripe for promotion into the `/medcore-bola-sweep` skill.
+
+### Added
+- **2026-05-09 — `auto_escalate_sla_breached_complaints` scheduled task
+  (`apps/api/src/services/scheduled-tasks.ts`).** Hourly cadence transitions
+  OPEN/UNDER_REVIEW complaints whose `slaDueAt` is past to `status=ESCALATED`,
+  stamps `escalatedAt` + a machine-readable `escalationReason` of the form
+  `"Auto-escalated: SLA breach (priority=…, Nh past slaDueAt)"`, emits a
+  `COMPLAINT_AUTO_ESCALATED_SLA_BREACH` audit row per ticket, and notifies
+  the assignee directly (or the admin pool when unassigned) so the
+  escalation lands in a real human inbox. Idempotent — `escalatedAt: null`
+  gates the next pass; no double-fire. Mirrors the manual `POST
+  /complaints/auto-escalate` endpoint that nobody was calling. Closes #760
+  (CRITICAL/HIGH complaints sat OPEN for 200-800+ hours past their SLA
+  with no auto-escalation visible to staff).
+- **2026-05-09 — patient registration captures Date of Birth and Terms &
+  Conditions consent.** `strictRegisterSchema` in `apps/api/src/routes/auth.ts`
+  extended with optional `dateOfBirth` (regex YYYY-MM-DD) + optional
+  `acceptedTerms: z.literal(true)`. Both kept .optional() for back-compat
+  with older clients (mobile app, dashboard staff-creation); the web
+  register form's client-side validator gates submit on both being present
+  so the on-the-wire contract is enforced upstream. Patient.dateOfBirth is
+  now persisted at registration time. Closes #617 (foundational identifier
+  used across appointments / prescriptions / billing).
+- **2026-05-09 — patient insurance fields editable from the patient
+  profile.** `PatientEditModal` extended with `insuranceProvider` +
+  `insurancePolicyNumber` inputs; patient detail page Insurance row always
+  renders with "Not on file" empty state + Add/Edit button (gated to
+  `canEditDemographics`). The `insuranceId` field on the page-side type
+  was misnamed for months — Prisma column has always been
+  `insurancePolicyNumber`. Closes #592 (RECEPTION had no way to add/update
+  policy data, blocking every downstream billing/claims workflow).
 
 ## [1.3.0] - 2026-05-07
 

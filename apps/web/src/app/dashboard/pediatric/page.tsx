@@ -17,8 +17,14 @@ interface Patient {
 function computeAgeYears(p: Patient): number | null {
   if (p.dateOfBirth) {
     const diff = Date.now() - new Date(p.dateOfBirth).getTime();
+    // Issue #751: future-dated DOB rows (data-entry error) previously rendered
+    // negative ages like "-74y" / "-884 months" on the pediatric list.
+    // Treat anything with DOB > today as invalid and surface as null so the
+    // table shows the "—" sentinel and the <18 filter excludes them.
+    if (diff < 0) return null;
     return Math.floor(diff / (365.25 * 24 * 60 * 60 * 1000));
   }
+  if (typeof p.age === "number" && p.age < 0) return null;
   return p.age ?? null;
 }
 

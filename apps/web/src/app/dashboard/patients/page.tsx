@@ -147,14 +147,16 @@ export default function PatientsPage() {
       errs.phone = "Phone must be 10–15 digits, optional leading +";
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
       errs.email = "Enter a valid email address";
-    if (form.age) {
+    if (form.age !== undefined && form.age !== "") {
       const ageNum = parseInt(form.age, 10);
-      // Issue #167 (Apr 2026): adult registration form. age=0 was
-      // silently accepted because reception's empty input coerced to 0;
-      // newborns are registered with date-of-birth via the pediatric
-      // flow, not this form. Reject < 1 explicitly.
-      if (Number.isNaN(ageNum) || ageNum < 1 || ageNum > 130)
-        errs.age = "Age must be between 1 and 130";
+      // Issue #555 (May 2026): allow age=0 (newborns). The original #167
+      // restriction to age>=1 was an over-correction that blocked
+      // legitimate newborn / infant registrations the registry was
+      // already storing (MR009000 Aarav age 0, MR009003 Diya age 2).
+      // Empty input is still treated as "not provided" via the outer
+      // string check; only an explicitly-typed value is range-checked.
+      if (Number.isNaN(ageNum) || ageNum < 0 || ageNum > 130)
+        errs.age = "Age must be between 0 and 130";
     }
     if (form.address) {
       const pinMatch = form.address.match(/\b(\d{6})\b/);
@@ -269,7 +271,13 @@ export default function PatientsPage() {
             {t("dashboard.patients.title")}
           </h1>
           <p className="text-sm text-gray-600 dark:text-gray-300">
-            {total} {t("dashboard.patients.subtitle")}
+            {/* Issue #590: previously read literally "0 Patient registry"
+                until the count loaded — confusing when patients are
+                actually present below. Show a stable label, then the
+                count once the page hydrates with a real total. */}
+            {total > 0
+              ? `${total} ${total === 1 ? "patient" : "patients"} in registry`
+              : t("dashboard.patients.subtitle")}
           </p>
         </div>
         {(user?.role === "RECEPTION" || user?.role === "ADMIN") && (

@@ -732,6 +732,14 @@ export default function AppointmentsPage() {
   }
 
   function exportCSV() {
+    // Issue #558: when the current view has no rows, the previous code
+    // still emitted a header-only CSV, which the browser dropped silently
+    // because chromium debounces zero-row synthetic downloads. Surface
+    // the empty-state explicitly so the user gets feedback.
+    if (filteredAppointments.length === 0) {
+      toast.info("Nothing to export — the current view is empty.");
+      return;
+    }
     const rows = [
       ["Token", "Patient", "Phone", "Doctor", "Date", "Time", "Type", "Status", "Priority"],
       ...filteredAppointments.map((a) => [

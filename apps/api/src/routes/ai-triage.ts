@@ -35,6 +35,15 @@ function safeAudit(
 }
 
 const router = Router();
+// #511 audit (file-level, 2026-05-09): no router-level `router.use(authenticate)`
+// — each handler applies `authenticate` individually (and `authorize` where the
+// surface is staff-restricted). Every PATIENT-reachable `:sessionId`-keyed
+// handler (POST /:sessionId/message, GET /:sessionId, POST /:sessionId/book,
+// POST /:sessionId/handoff, DELETE /:sessionId) loads the session row and
+// runs `assertPatientOwnsResource` against `session.patientId` so a PATIENT
+// cannot reach another patient's triage session. /start has no row to scope.
+// BOLA gaps on /:sessionId/message and /:sessionId/handoff were closed in
+// commit 2684b6d on this same audit pass. Verified-safe.
 
 // POST /api/v1/ai/triage/start — create a new triage session (auth optional for patients)
 router.post(

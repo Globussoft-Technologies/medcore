@@ -29,6 +29,14 @@ function safeAudit(
 
 const router = Router();
 router.use(authenticate);
+// #511 audit (file-level, 2026-05-09): PATIENT is included in the
+// per-handler `authorize(...)` lists for self-service surfaces (/enroll,
+// /:patientId GET, /:scheduleId DELETE, /:scheduleId/doses POST+GET, /mine).
+// Every PATIENT-reachable handler enforces per-row scoping — /mine resolves
+// the patient row from `req.user.userId` server-side; the others delegate
+// to `assertPatientOwnsResource` (directly or via `authorizeScheduleAccess`)
+// so a PATIENT cannot reach another patient's schedule. /enroll additionally
+// gates on `prescription.patient.user.id === req.user.userId`. Verified-safe.
 
 // ── Ownership helper ────────────────────────────────────────────────────────
 

@@ -20,6 +20,12 @@ function safeAudit(
 
 const router = Router();
 router.use(authenticate);
+// #511 audit (file-level, 2026-05-09): the only handler is GET /:appointmentId
+// with `authorize(Role.PATIENT, Role.ADMIN, Role.DOCTOR)`. Per-row ownership
+// is enforced by the bespoke `authorizeAppointmentAccess` helper below
+// (PATIENT must match `appointment.patient.userId`; DOCTOR must be the
+// attending doctor — STRICTER than the generic `assertPatientOwnsResource`
+// for the doctor branch). Verified-safe.
 
 /**
  * Resolve whether the caller is allowed to view / generate the checklist for

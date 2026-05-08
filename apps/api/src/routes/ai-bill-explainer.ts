@@ -25,6 +25,11 @@ function safeAudit(
 
 const router = Router();
 router.use(authenticate);
+// #511 audit (file-level, 2026-05-09): PATIENT is permitted on /:invoiceId/generate
+// and GET /:id; both handlers call `assertPatientOwnsResource` against the
+// invoice's / explanation's `patientId` after the row is loaded. /:id/approve
+// and /pending are restricted to `authorize(Role.ADMIN, Role.RECEPTION)` —
+// PATIENT excluded from approval + queue surfaces. Verified-safe.
 
 // ── POST /api/v1/ai/bill-explainer/:invoiceId/generate ────────────────────────
 // Generates (or regenerates) a DRAFT BillExplanation for an invoice. Reception,

@@ -31,6 +31,10 @@ router.use(authenticate);
 // Audio transcription is a clinician-only feature — patients must not be able
 // to spend the Sarvam ASR quota by POSTing audio to this endpoint.
 router.use(authorize(Role.DOCTOR, Role.ADMIN, Role.NURSE));
+// #511 audit (file-level, 2026-05-09): router-level
+// `authorize(Role.DOCTOR, Role.ADMIN, Role.NURSE)` gates every handler —
+// PATIENT excluded from ASR / Sarvam-quota surfaces. POST `/` and GET
+// `/providers` have no `:id` param; no per-row scoping needed. Verified-safe.
 // security(2026-04-23): tighter per-IP limit for this LLM/ASR path so a
 // compromised clinician token cannot burn the Sarvam quota (global limit is
 // 600/min — way too loose for a paid speech API).

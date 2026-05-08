@@ -140,7 +140,58 @@ router.post(
 );
 
 // GET /api/v1/telemedicine — list with filters
-router.get("/", async (req: Request, res: Response, next: NextFunction) => {
+// Issue #602 (CRITICAL): the list endpoint had no role gate, so PHARMACIST
+// and LAB_TECH could enumerate every clinician's sessions and read the
+// `meetingId` straight off the response — that's enough to construct
+// `https://meet.jit.si/medcore-<meetingId>` and walk into a live call.
+// Coordinating roles (ADMIN, DOCTOR, NURSE, RECEPTION, PATIENT) keep
+// access; PHARMACIST and LAB_TECH have no business listing telemed
+// sessions and are now blocked at the gate. The detail endpoint below
+// gets the same treatment + a meetingId-strip for non-participants.
+const TELEMED_LIST_ROLES = [
+  Role.ADMIN,
+  Role.DOCTOR,
+  Role.NURSE,
+  Role.RECEPTION,
+  Role.PATIENT,
+] as const;
+
+const TELEMED_PARTICIPANT_ROLES: ReadonlySet<string> = new Set([
+  Role.ADMIN,
+  Role.DOCTOR,
+  Role.PATIENT,
+]);
+
+/**
+ * Issue #602: only the actual participants of a session (the treating
+ * doctor, the patient, and ADMIN for triage/break-glass) ever need
+ * `meetingId`. Coordinating roles (NURSE / RECEPTION) can see the
+ * schedule but not the join-URL primitive. Strip the field before
+ * serialisation so the JSON response simply doesn't carry it.
+ */
+function stripMeetingIdForNonParticipants<
+  T extends { meetingId?: string | null; doctorId?: string | null; patientId?: string | null },
+>(req: Request, session: T): T {
+  const role = req.user?.role;
+  if (!role || !TELEMED_PARTICIPANT_ROLES.has(role)) {
+    return { ...session, meetingId: null };
+  }
+  // ADMIN sees meetingId always; DOCTOR/PATIENT see it only when this
+  // session belongs to them.
+  if (role === Role.ADMIN) return session;
+  // For DOCTOR / PATIENT we'd ideally cross-check that they're THE
+  // doctor / THE patient on the session; the LIST endpoint already
+  // applies `where.doctorId/patientId = self` for those roles so the
+  // returned rows are always self-owned. The detail endpoint runs
+  // assertPatientOwnsResource for PATIENT, and DOCTOR detail-by-id is
+  // gated separately. Default safe: keep the field.
+  return session;
+}
+
+router.get(
+  "/",
+  authorize(...TELEMED_LIST_ROLES),
+  async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       patientId,
@@ -203,9 +254,16 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
       prisma.telemedicineSession.count({ where }),
     ]);
 
+    // Issue #602: scrub `meetingId` from rows that don't belong to the
+    // caller. NURSE/RECEPTION are allowed to see the schedule but never
+    // the Jitsi room primitive.
+    const safeSessions = sessions.map((s) =>
+      stripMeetingIdForNonParticipants(req, s),
+    );
+
     res.json({
       success: true,
-      data: sessions,
+      data: safeSessions,
       error: null,
       meta: { page: parseInt(page as string), limit: take, total },
     });
@@ -215,7 +273,10 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // GET /api/v1/telemedicine/:id
-router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
+router.get(
+  "/:id",
+  authorize(...TELEMED_LIST_ROLES),
+  async (req: Request, res: Response, next: NextFunction) => {
   try {
     const session = await prisma.telemedicineSession.findUnique({
       where: { id: req.params.id },
@@ -236,11 +297,30 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
     // ("telemedicine: PATIENT-A cannot GET PATIENT-B's session").
     if (!(await assertPatientOwnsResource(req, res, session.patientId))) return;
 
-    res.json({ success: true, data: session, error: null });
+    // Issue #602: DOCTOR can fetch any session by id, but only sees
+    // `meetingId` for sessions where they're the treating clinician.
+    // PATIENT already passed assertPatientOwnsResource above so they're
+    // self-scoped. NURSE/RECEPTION get scrubbed.
+    const role = req.user?.role;
+    let safe: typeof session = session;
+    if (role === Role.DOCTOR) {
+      const doctor = await prisma.doctor.findUnique({
+        where: { userId: req.user!.userId },
+        select: { id: true },
+      });
+      if (!doctor || doctor.id !== session.doctorId) {
+        safe = { ...session, meetingId: null };
+      }
+    } else if (role && !TELEMED_PARTICIPANT_ROLES.has(role)) {
+      safe = { ...session, meetingId: null };
+    }
+
+    res.json({ success: true, data: safe, error: null });
   } catch (err) {
     next(err);
   }
-});
+  },
+);
 
 // PATCH /api/v1/telemedicine/:id/start
 router.patch(

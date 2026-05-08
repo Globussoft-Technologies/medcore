@@ -494,21 +494,39 @@ export default function AppointmentsPage() {
         );
         return;
       }
+      // Issue #344 (May 2026): if the receptionist has already picked a
+      // patient via the in-form picker, skip the modal entirely and book
+      // straight away. The modal still opens when no patient is pre-picked
+      // (back-compat for keyboard-driven flows + the legacy "click slot
+      // first, then enter MRN" muscle memory).
+      if (patientIdInput.trim().length > 0) {
+        // Stash slot in the prompt state so confirmPatientIdAndBook reads
+        // the correct value, then trigger the same submission path the
+        // modal would have triggered. Modal stays closed because we don't
+        // set `open: true`.
+        setPatientIdPrompt({ open: false, slotStartTime });
+        void confirmPatientIdAndBook(slotStartTime);
+        return;
+      }
       // Open in-page modal (replaces window.prompt so it's testable by
       // browser automation that cannot interact with native dialogs).
-      setPatientIdInput("");
       setPatientIdPrompt({ open: true, slotStartTime });
     },
-    [patientIdPrompt.open, selectedDate, selectedDoctor, t]
+    [patientIdPrompt.open, selectedDate, selectedDoctor, t, patientIdInput]
   );
 
-  async function confirmPatientIdAndBook() {
+  async function confirmPatientIdAndBook(slotOverride?: string) {
     const patientId = patientIdInput.trim();
     if (!patientId) {
       toast.error("Patient ID is required to book an appointment");
       return;
     }
-    const slotStartTime = patientIdPrompt.slotStartTime;
+    // Issue #344: when called from the in-form path (Patient already
+    // picked + slot just clicked), the prompt-state hasn't been updated
+    // yet so we accept the slot directly via argument. The modal path
+    // still falls back to `patientIdPrompt.slotStartTime` (its useEffect
+    // setter ran synchronously before the form submit).
+    const slotStartTime = slotOverride ?? patientIdPrompt.slotStartTime;
     setBookingInFlight(true);
     try {
       if (isRecurring) {
@@ -1399,6 +1417,33 @@ export default function AppointmentsPage() {
                 >
                   Close
                 </button>
+              </div>
+              {/* Issue #344 (May 2026): the booking form previously showed
+                  Doctor + Date only — the Patient picker was hidden inside
+                  a post-slot-click modal, so users (and bug-bashers) saw an
+                  apparent "Book appointment" CTA with no Patient field and
+                  reasonably concluded the form was broken. Surface the
+                  patient picker as the FIRST field in the form so the
+                  required-fields contract is visible at the panel level.
+                  When a patient is pre-picked here, clicking a slot books
+                  immediately without re-prompting — see bookAppointment(). */}
+              <div className="mb-4">
+                <label htmlFor="appt-book-patient" className="mb-1 block text-sm font-medium">
+                  Patient *
+                </label>
+                <EntityPicker
+                  endpoint="/patients"
+                  labelField="user.name"
+                  subtitleField="user.phone"
+                  hintField="mrNumber"
+                  value={patientIdInput}
+                  onChange={(id) => setPatientIdInput(id)}
+                  searchPlaceholder="Search patient by name, phone, MR..."
+                  testIdPrefix="appt-book-patient"
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Required — pick a patient before choosing a slot below.
+                </p>
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>

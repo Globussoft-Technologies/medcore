@@ -56,7 +56,7 @@ export const updateLabOrderStatusSchema = z.object({
 // stripped. The set is intentionally liberal so legitimate units like
 // `mg/dL`, `mmol/L`, `µg/mL`, `IU/mL`, `cells/mm³`, `°C`, `% (v/v)`
 // all pass.
-const LAB_UNIT_REGEX = /^[A-Za-z0-9µ°²³%/\\\-+*.,()\s]+$/;
+const LAB_UNIT_REGEX = /^[A-Za-z0-9µ°²³%/\\\-+*.,()\s\^]+$/;
 
 export const recordLabResultSchema = z.object({
   orderItemId: z.string().uuid(),
@@ -67,7 +67,7 @@ export const recordLabResultSchema = z.object({
     .max(80)
     .regex(
       LAB_UNIT_REGEX,
-      "Unit may contain letters, digits, %, /, parentheses and basic math symbols only",
+      "Unit may contain letters, digits, %, /, ^, parentheses and basic math symbols only",
     )
     .optional(),
   normalRange: z.string().max(80).optional(),

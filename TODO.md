@@ -6,6 +6,34 @@ is independently shippable. Full per-session history lives under
 
 ---
 
+## 🏠 HOME PICKUP — handoff from 2026-05-08 evening (read this first)
+
+**Production state at handoff** (commit `601a038` — `fix(web/abdm): close #758`):
+- ✅ HEAD on `main` = `601a038`. Working tree clean. Per-push CI green (was red yesterday from Lane A's `#713` register-test regression — fixed in `ac69270`).
+- ✅ Auto-deploy operating; `medcore.globusdemos.com` is current.
+- **9 issues closed tonight** across 6 commits: #602 (CRITICAL telemed), #606/#615/#628/#637 (sidebar role fix for PHARMACIST + LAB_TECH), #681 (login double-click), #758 (ABDM SANDBOX in prod). Plus #684/#685/#526 closed-as-already-fixed with comments.
+- **Open issues: ~33** (was 38). **Open PRs: 2** — #762 + #757, both told to recreate from current main with focused scope.
+
+### 🔥 Top priority for home pickup
+
+1. **Smoke-test merged majors on dev** (`medcore.globusdemos.com`):
+   - PHARMACIST sidebar — should now show Pharmacy/Medicines/Prescriptions/Controlled Substances etc., NOT Bills or AI Booking.
+   - LAB_TECH sidebar — should show Lab + Lab QC, not the patient-nav fallback.
+   - /dashboard/abdm — should NOT show "SANDBOX MODE" banner (assuming prod env doesn't set `NEXT_PUBLIC_ABDM_MODE=sandbox`).
+   - Login single-click — no double-click required.
+   - Sign Out from sidebar — "Signed out successfully" toast, lands on `/login`.
+2. **#602 hardening follow-up**: per-meeting JWT for Jitsi room admission. Current fix scrubs meetingId + gates list/detail endpoints (closes the casual-leak path), but a determined attacker who knows the meetingId can still join. `signedJitsiRoomUrl` exists in `apps/api/src/services/jitsi.ts` but isn't enforced as the only path.
+3. **Continue bug-fix sprint** from `docs/archive/SESSION_SNAPSHOT_2026-05-08-evening.md` §"Remaining open production bugs". Top candidates: #761 stale visitors, #759 discharge-summary notification routing, #699 budgets KPI inconsistency, #692 admin edit gaps, #622/#624 LabTech UX, #603 patient adherence session loss, #566 reception slot click logout.
+4. **3 dependency-major migration PRs still open** from 2026-05-05 session: #472 eslint 9→10, #470 @prisma/client 6→7, #469 vitest 2→4. Each is a dedicated migration session.
+5. **Wait on PR contributors** — Sourav (#762) and Subhadip (#757) both asked to recreate from current main with focused scope. Their original branches were too tangled to rebase.
+
+### 📦 New artifacts this session
+
+- `docs/archive/SESSION_SNAPSHOT_2026-05-08-evening.md` — full handoff (commit-by-commit, per-PR status, follow-up list).
+- All 6 commits' bodies carry the `Closes #N` reference for git-history searchability.
+
+---
+
 ## 🌙 Overnight autopilot (2026-05-06) — release.yml grind
 
 **Goal**: get `release.yml` to green run conclusion.

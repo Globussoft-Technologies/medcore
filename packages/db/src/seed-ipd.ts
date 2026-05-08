@@ -137,6 +137,27 @@ async function main() {
     }
 
     for (const adm of admissions) {
+      // Issue #37 — patient-side idempotency guard. The earlier "skip if bed
+      // not AVAILABLE" check is a bed-side guard, not a patient-side guard:
+      // on the second seed run, the original bed (e.g. GA-101) is now
+      // OCCUPIED so we'd pick the next free bed (GA-102) and create a SECOND
+      // active admission for the same patient — exactly the dual-bed bug
+      // reported on demo (Rahul Sharma in GA-101 + GA-102, Priya Mehta in
+      // ICU-01 + GA-103). The DB-level partial unique index
+      // `one_active_admission_per_patient` (migration 20260424000001) would
+      // now reject this with P2002 and crash the seed; this guard makes the
+      // seed idempotent BEFORE the DB rejects, so re-runs just no-op.
+      const existingActive = await prisma.admission.findFirst({
+        where: { patientId: adm.patientId, status: "ADMITTED" as AdmissionStatus },
+        select: { id: true, admissionNumber: true, bedId: true },
+      });
+      if (existingActive) {
+        console.log(
+          `  Skipping admission — patient ${adm.patientId.slice(0, 8)} already has active admission ${existingActive.admissionNumber}`
+        );
+        continue;
+      }
+
       // skip if bed is already occupied (idempotent-ish)
       const bed = await prisma.bed.findUnique({ where: { id: adm.bedId } });
       if (!bed || bed.status !== "AVAILABLE") {

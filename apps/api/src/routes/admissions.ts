@@ -198,7 +198,10 @@ router.post(
         return;
       }
 
-      const bed = await prisma.bed.findUnique({ where: { id: bedId } });
+      const bed = await prisma.bed.findUnique({
+        where: { id: bedId },
+        include: { ward: { select: { id: true, name: true } } },
+      });
       if (!bed) {
         res.status(404).json({ success: false, data: null, error: "Bed not found" });
         return;
@@ -208,6 +211,25 @@ router.post(
           success: false,
           data: null,
           error: `Bed is not available (current status: ${bed.status})`,
+        });
+        return;
+      }
+
+      // Issue #736 — ward-level capacity guard. The per-bed AVAILABLE
+      // check above is necessary but not sufficient: a ward could have
+      // every bed marked OCCUPIED/RESERVED/MAINTENANCE except for one
+      // that's stale-AVAILABLE due to a dropped admission. Require the
+      // ward to actually have ≥1 free bed before admitting. Two
+      // concurrent admit POSTs racing on the last bed are caught by the
+      // bed.status check inside the $transaction below.
+      const freeBedsInWard = await prisma.bed.count({
+        where: { wardId: bed.wardId, status: "AVAILABLE" },
+      });
+      if (freeBedsInWard <= 0) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `No beds available in ${bed.ward?.name ?? "the requested ward"}`,
         });
         return;
       }
@@ -226,6 +248,21 @@ router.post(
       let admission;
       try {
         admission = await prisma.$transaction(async (tx) => {
+          // Issue #736 — race-safe bed allocation. Re-read inside the
+          // transaction; if a concurrent admit grabbed this bed between
+          // the pre-check and now, surface a clean 409 via this thrown
+          // marker (caught in the outer catch below).
+          const bedNow = await tx.bed.findUnique({
+            where: { id: bedId },
+            select: { status: true },
+          });
+          if (!bedNow || bedNow.status !== "AVAILABLE") {
+            const err = new Error(
+              `Bed is no longer available (current status: ${bedNow?.status ?? "missing"})`
+            );
+            (err as { code?: string }).code = "BED_RACE_LOST";
+            throw err;
+          }
           const created = await tx.admission.create({
             data: {
               admissionNumber,
@@ -255,6 +292,15 @@ router.post(
           return created;
         });
       } catch (e: unknown) {
+        const errCode = (e as { code?: string } | null)?.code;
+        if (errCode === "BED_RACE_LOST") {
+          res.status(409).json({
+            success: false,
+            data: null,
+            error: (e as Error).message,
+          });
+          return;
+        }
         const code = (e as { code?: string } | null)?.code;
         if (code === "P2002") {
           // Partial unique index `one_active_admission_per_patient` fired —

@@ -667,11 +667,28 @@ function DispatchModal({
   }
 
   function validateLocal(): Record<string, string> {
+    // Issue #581: surface every gap inline before the user clicks Create —
+    // pickup/drop used to accept a single character, the patient lookup let
+    // free-text through, and the empty submit silently no-op'd via the
+    // disabled button. Add real minLength + format checks so the dispatch
+    // dialog stops shipping bad rows to the API.
     const e: Record<string, string> = {};
-    if (!form.ambulanceId) e.ambulanceId = "Select an ambulance";
-    if (!form.pickupAddress.trim()) e.pickupAddress = "Pickup address is required";
+    if (!form.ambulanceId) e.ambulanceId = "Select an available ambulance";
+    const pickup = form.pickupAddress.trim();
+    if (!pickup) {
+      e.pickupAddress = "Pickup address is required";
+    } else if (pickup.length < 5) {
+      e.pickupAddress = "Pickup address must be at least 5 characters";
+    }
+    const drop = form.dropAddress.trim();
+    if (drop && drop.length < 5) {
+      e.dropAddress = "Drop address must be at least 5 characters";
+    }
     if (form.callerPhone && !isValidPhone(form.callerPhone)) {
       e.callerPhone = "Enter a valid phone number";
+    }
+    if (form.callerName && form.callerName.trim().length < 2) {
+      e.callerName = "Caller name must be at least 2 characters";
     }
     return e;
   }
@@ -724,14 +741,25 @@ function DispatchModal({
             className="w-full rounded border p-2"
             value={form.ambulanceId}
             onChange={(e) => setForm({ ...form, ambulanceId: e.target.value })}
+            data-testid="trip-ambulanceId"
+            aria-label="Available ambulance"
           >
-            <option value="">Select available ambulance</option>
+            <option value="">
+              {ambulances.length === 0
+                ? "No ambulances available — all on trip / in maintenance"
+                : "Select available ambulance"}
+            </option>
             {ambulances.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.vehicleNumber} ({a.type})
               </option>
             ))}
           </select>
+          {errors.ambulanceId && (
+            <p data-testid="error-ambulanceId" className="text-xs text-red-600">
+              {errors.ambulanceId}
+            </p>
+          )}
 
           <div>
             <label htmlFor="ambulance-patient-search" className="text-xs text-gray-600">Patient (optional)</label>
@@ -811,7 +839,24 @@ function DispatchModal({
             className="w-full rounded border p-2"
             value={form.dropAddress}
             onChange={(e) => setForm({ ...form, dropAddress: e.target.value })}
+            data-testid="trip-dropAddress"
           />
+          {errors.dropAddress && (
+            <p
+              data-testid="error-dropAddress"
+              className="text-xs text-red-600"
+            >
+              {errors.dropAddress}
+            </p>
+          )}
+          {errors.callerName && (
+            <p
+              data-testid="error-callerName"
+              className="text-xs text-red-600"
+            >
+              {errors.callerName}
+            </p>
+          )}
           <textarea
             placeholder="Chief complaint"
             className="w-full rounded border p-2"

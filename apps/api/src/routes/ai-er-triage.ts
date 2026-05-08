@@ -15,7 +15,7 @@ import { sanitizeUserInput } from "../services/ai/prompt-safety";
 // security(2026-05-04): F-ER-3 — Sarvam model used for AI-assisted triage.
 // Stamped onto the AI_ER_TRIAGE_INFERENCE audit row so we can correlate
 // model rollouts with quality / billing changes downstream.
-const SARVAM_MODEL = "sarvam-105b";
+const SARVAM_MODEL = process.env.SARVAM_MODEL ?? "sarvam-m";
 
 const router = Router();
 

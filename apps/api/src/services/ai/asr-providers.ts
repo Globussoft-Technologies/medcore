@@ -148,8 +148,9 @@ class SarvamASRClient implements ASRClient {
     if (!res.ok) {
       let errMsg = `Sarvam ASR error: ${res.status}`;
       try {
-        const errBody = (await res.json()) as { message?: string; error?: string };
-        errMsg = errBody.message || errBody.error || errMsg;
+        const errBody = (await res.json()) as any;
+        const raw = errBody?.message ?? errBody?.error ?? errBody?.detail ?? errBody;
+        errMsg = typeof raw === "string" ? raw : JSON.stringify(raw);
       } catch {
         /* body not JSON */
       }

@@ -202,6 +202,9 @@ export function buildApp() {
   // signature, NOT JWT, so it is intentionally mounted before authenticate.
   app.use("/api/v1/billing", razorpayWebhookRouter);
 
+  // Audio transcription sends base64-encoded audio chunks (~200 KB per 8 s flush).
+  // Mount a higher limit for that route before the default 100 KB global parser.
+  app.use("/api/v1/ai/transcribe", express.json({ limit: "10mb" }));
   app.use(express.json());
   // Issue #477: parse cookies BEFORE auth middleware so the cookie-based
   // JWT lookup (medcore_at) and the CSRF guard (medcore_csrf) can both

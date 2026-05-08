@@ -51,15 +51,17 @@ router.use(authenticate);
 // stored date falls inside that 24h window is captured regardless of
 // how the timestamp was originally injected.
 async function getNextToken(doctorId: string, date: Date): Promise<number> {
+  // Use UTC boundaries so setHours(0,0,0,0) in local time doesn't shift the
+  // window and miss same-day rows stored at a different UTC offset.
   const dayStart = new Date(date);
-  dayStart.setHours(0, 0, 0, 0);
+  dayStart.setUTCHours(0, 0, 0, 0);
   const dayEnd = new Date(dayStart);
-  dayEnd.setDate(dayEnd.getDate() + 1);
-  const last = await prisma.appointment.findFirst({
+  dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+  const result = await prisma.appointment.aggregate({
     where: { doctorId, date: { gte: dayStart, lt: dayEnd } },
-    orderBy: { tokenNumber: "desc" },
+    _max: { tokenNumber: true },
   });
-  return (last?.tokenNumber ?? 0) + 1;
+  return (result._max.tokenNumber ?? 0) + 1;
 }
 
 // Helper: read integer SystemConfig with fallback
@@ -167,28 +169,36 @@ router.post(
         return;
       }
 
-      const tokenNumber = await getNextToken(doctorId, dateObj);
-
-      const appointment = await prisma.appointment.create({
-        data: {
-          patientId,
-          doctorId,
-          date: dateObj,
-          slotStart: slotId,
-          tokenNumber,
-          type: "SCHEDULED",
-          status: "BOOKED",
-          notes,
-        },
-        include: {
-          patient: {
-            include: { user: { select: { name: true, phone: true } } },
-          },
-          doctor: {
-            include: { user: { select: { name: true } } },
-          },
-        },
-      });
+      let tokenNumber = await getNextToken(doctorId, dateObj);
+      let appointment: any;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          appointment = await prisma.appointment.create({
+            data: {
+              patientId,
+              doctorId,
+              date: dateObj,
+              slotStart: slotId,
+              tokenNumber,
+              type: "SCHEDULED",
+              status: "BOOKED",
+              notes,
+            },
+            include: {
+              patient: {
+                include: { user: { select: { name: true, phone: true } } },
+              },
+              doctor: {
+                include: { user: { select: { name: true } } },
+              },
+            },
+          });
+          break;
+        } catch (err: any) {
+          if (err?.code === "P2002" && attempt < 4) { tokenNumber++; continue; }
+          throw err;
+        }
+      }
 
       // Emit socket event for queue update
       const io = req.app.get("io");
@@ -221,28 +231,36 @@ router.post(
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      const tokenNumber = await getNextToken(doctorId, today);
-
-      const appointment = await prisma.appointment.create({
-        data: {
-          patientId,
-          doctorId,
-          date: today,
-          tokenNumber,
-          type: "WALK_IN",
-          status: "BOOKED",
-          priority: priority || "NORMAL",
-          notes,
-        },
-        include: {
-          patient: {
-            include: { user: { select: { name: true, phone: true } } },
-          },
-          doctor: {
-            include: { user: { select: { name: true } } },
-          },
-        },
-      });
+      let tokenNumber = await getNextToken(doctorId, today);
+      let appointment: any;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          appointment = await prisma.appointment.create({
+            data: {
+              patientId,
+              doctorId,
+              date: today,
+              tokenNumber,
+              type: "WALK_IN",
+              status: "BOOKED",
+              priority: priority || "NORMAL",
+              notes,
+            },
+            include: {
+              patient: {
+                include: { user: { select: { name: true, phone: true } } },
+              },
+              doctor: {
+                include: { user: { select: { name: true } } },
+              },
+            },
+          });
+          break;
+        } catch (err: any) {
+          if (err?.code === "P2002" && attempt < 4) { tokenNumber++; continue; }
+          throw err;
+        }
+      }
 
       const io = req.app.get("io");
       if (io) {
@@ -275,7 +293,20 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
     const take = Math.min(parseInt(limit as string), 100);
 
     const where: Record<string, unknown> = {};
-    if (doctorId) where.doctorId = doctorId;
+
+    // Doctors may only see their own appointments — ignore any doctorId
+    // query param and auto-scope to the authenticated doctor's record.
+    if (req.user?.role === Role.DOCTOR) {
+      const doctorRecord = await prisma.doctor.findFirst({ where: { userId: req.user.userId }, select: { id: true } });
+      if (!doctorRecord) {
+        res.status(403).json({ success: false, data: null, error: "Doctor profile not found" });
+        return;
+      }
+      where.doctorId = doctorRecord.id;
+    } else if (doctorId) {
+      where.doctorId = doctorId;
+    }
+
     if (patientId) where.patientId = patientId;
     if (date) {
       // Issue #156: Today's-Patients in the AI Scribe page sends an ISO

@@ -10,6 +10,10 @@
  *  - tolerant of leading filler ("the", "to", "please", articles)
  *  - allows loose word order for accept/reject section commands so
  *    "accept the plan" / "plan accept" both resolve to the same action
+ *  - single-letter section shortcuts: "reject P" / "accept S" etc.
+ *  - Levenshtein fuzzy correction for command verbs & section names so
+ *    speech-recognition mishearings ("acsept", "rejact", "subjectiv")
+ *    still resolve correctly
  *  - returns `{ kind: "unknown" }` (NOT throws) when nothing matches —
  *    the caller decides whether to toast or stay silent
  */
@@ -32,6 +36,78 @@ const SECTION_TOKENS: Record<string, SectionKey> = {
   assessment: "A",
   plan: "P",
 };
+
+// Short aliases: single letters and common abbreviations.
+// Deliberately excludes "a" as an alias for Assessment to avoid
+// conflicting with the article "a" after stripFillers.
+const SECTION_ALIASES: Array<[RegExp, SectionKey]> = [
+  [/\bsub(?:j|jective)?\b/i, "S"],
+  [/\bobj(?:ective)?\b/i,     "O"],
+  [/\bassess(?:ment)?\b/i,    "A"],
+  // single uppercase-ish letter after a command word or at word boundary
+  [/\b[sS]\b/, "S"],
+  [/\b[oO]\b/, "O"],
+  [/\b[pP]\b/, "P"],
+];
+
+// ─── Levenshtein fuzzy correction ────────────────────────────────────────────
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  );
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] =
+        a[i - 1] === b[j - 1]
+          ? dp[i - 1][j - 1]
+          : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
+// [canonical, maxEditDistance]
+const FUZZY_VOCAB: Array<[string, number]> = [
+  ["accept",     2],
+  ["reject",     2],
+  ["approve",    2],
+  ["subjective", 3],
+  ["objective",  3],
+  ["assessment", 3],
+  ["plan",       1],
+  ["discard",    2],
+  ["cancel",     2],
+  ["finalize",   2],
+  ["submit",     2],
+  ["dosage",     2],
+  ["dose",       1],
+  ["note",       1],
+  ["sign",       1],
+  ["all",        1],
+];
+
+/**
+ * Correct individual words that are close to known command vocabulary.
+ * Very short words (≤ 2 chars) are not fuzzy-corrected to avoid false
+ * positives on articles and prepositions.
+ */
+function fuzzyCorrect(text: string): string {
+  return text
+    .split(/\s+/)
+    .map((word) => {
+      if (word.length <= 2) return word;
+      for (const [canon, maxDist] of FUZZY_VOCAB) {
+        if (levenshtein(word, canon) <= maxDist) return canon;
+      }
+      return word;
+    })
+    .join(" ");
+}
+
+// ─── Normalisation helpers ────────────────────────────────────────────────────
 
 /**
  * Strip filler words and punctuation, collapse whitespace, lowercase.
@@ -60,21 +136,29 @@ function stripFillers(s: string): string {
 
 /**
  * Detect a section keyword anywhere in the (already normalised) string.
- * Returns the canonical SectionKey or null.
+ * Checks full words first, then short aliases (sub/obj/assess) and
+ * single-letter shortcuts (S/O/A/P).
  */
 function findSection(s: string): SectionKey | null {
+  // Full word match
   for (const [tok, key] of Object.entries(SECTION_TOKENS)) {
-    // word boundary match so "subjectively" wouldn't match "subjective"
     if (new RegExp(`\\b${tok}\\b`).test(s)) return key;
+  }
+  // Short aliases + single letters
+  for (const [re, key] of SECTION_ALIASES) {
+    if (re.test(s)) return key;
   }
   return null;
 }
+
+// ─── Main parser ─────────────────────────────────────────────────────────────
 
 export function parseVoiceCommand(raw: string): VoiceAction {
   if (!raw || !raw.trim()) return { kind: "unknown", raw: "" };
 
   const original = raw.trim();
-  const norm = stripFillers(normalise(original));
+  // Apply normalise → strip fillers → fuzzy-correct typos
+  const norm = fuzzyCorrect(stripFillers(normalise(original)));
 
   // ── 1. "what can I say" / cheat-sheet ──────────────────
   if (
@@ -102,10 +186,7 @@ export function parseVoiceCommand(raw: string): VoiceAction {
 
   // ── 4. change dosage of <medicine> to <new> ────────────
   // Run the regex against the ORIGINAL casing so we preserve the
-  // medicine query as the doctor said it (helps the substring match
-  // against `medicineName` later). Whitespace already collapsed in
-  // `original` is fine — we don't strictly need to here.
-  // Accept both "dosage" and "dose".
+  // medicine query as the doctor said it. Accept both "dosage" and "dose".
   const dosageMatch = original.match(
     /change\s+(?:the\s+)?(?:dosage|dose)\s+(?:of\s+)?(.+?)\s+to\s+(.+?)$/i,
   );
@@ -152,6 +233,18 @@ export function parseVoiceCommand(raw: string): VoiceAction {
   }
   if (section && hasReject && !hasAccept) {
     return { kind: "reject-section", section };
+  }
+
+  // ── 7. bare section letter / name after command word ───
+  // Handles edge cases like "P reject" where word order is reversed
+  // and hasReject may not have matched with the fuzzy-corrected norm.
+  if (section) {
+    if (/\b(accept|approve|ok|okay)\b/.test(norm)) {
+      return { kind: "accept-section", section };
+    }
+    if (/\b(reject|deny)\b/.test(norm)) {
+      return { kind: "reject-section", section };
+    }
   }
 
   return { kind: "unknown", raw: original };

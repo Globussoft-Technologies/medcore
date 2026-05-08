@@ -38,6 +38,42 @@ function safeAudit(
   });
 }
 
+/** Convert a stored soapFinal JSON blob to the plain-text notes string the
+ *  previous-consultation UI panel expects. Mirrors soapToPlainText on the frontend. */
+function soapFinalToNotes(soapFinal: unknown): string {
+  if (!soapFinal || typeof soapFinal !== "object") return "";
+  const soap = soapFinal as Record<string, any>;
+  const parts: string[] = [];
+  const s = soap.subjective;
+  if (s) {
+    if (s.chiefComplaint) parts.push(`Chief Complaint: ${s.chiefComplaint}`);
+    if (s.hpi) parts.push(`HPI: ${s.hpi}`);
+    if (s.pastMedicalHistory) parts.push(`PMH: ${s.pastMedicalHistory}`);
+    if (s.medications?.length) parts.push(`Medications: ${(s.medications as string[]).join(", ")}`);
+    if (s.allergies?.length) parts.push(`Allergies: ${(s.allergies as string[]).join(", ")}`);
+  }
+  const o = soap.objective;
+  if (o) {
+    if (o.vitals) parts.push(`Vitals: ${o.vitals}`);
+    if (o.examinationFindings) parts.push(`Examination: ${o.examinationFindings}`);
+  }
+  const a = soap.assessment;
+  if (a) {
+    if (a.impression) parts.push(`Assessment: ${a.impression}`);
+    if (a.icd10Codes?.length)
+      parts.push(`ICD-10: ${(a.icd10Codes as any[]).map((c) => `${c.code} (${c.description})`).join(", ")}`);
+  }
+  const p = soap.plan;
+  if (p) {
+    if (p.medications?.length)
+      parts.push(`Plan Meds: ${(p.medications as any[]).map((m) => `${m.name} ${m.dose} ${m.frequency} ${m.duration}`).join(", ")}`);
+    if (p.investigations?.length) parts.push(`Investigations: ${(p.investigations as string[]).join(", ")}`);
+    if (p.followUpTimeline) parts.push(`Follow-up: ${p.followUpTimeline}`);
+    if (p.patientInstructions) parts.push(`Instructions: ${p.patientInstructions}`);
+  }
+  return parts.join("\n");
+}
+
 const router = Router();
 router.use(authenticate);
 
@@ -158,9 +194,17 @@ router.post(
 
       // Prevent duplicate sessions
       const existing = await prisma.aIScribeSession.findUnique({ where: { appointmentId } });
-      if (existing && existing.status === "ACTIVE") {
-        res.json({ success: true, data: { sessionId: existing.id, resumed: true }, error: null });
-        return;
+      if (existing) {
+        if (existing.status === "ACTIVE" || existing.status === "PAUSED") {
+          res.json({ success: true, data: { sessionId: existing.id, resumed: true }, error: null });
+          return;
+        }
+        if (existing.status === "COMPLETED") {
+          res.json({ success: true, data: { sessionId: existing.id, completed: true }, error: null });
+          return;
+        }
+        // CONSENT_WITHDRAWN — patient re-consenting; delete stale session and start fresh
+        await prisma.aIScribeSession.delete({ where: { appointmentId } });
       }
 
       const retainUntil = audioRetentionDays > 0
@@ -210,16 +254,20 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { sessionId } = req.params;
-      const { entries } = req.body;
+      const { entries, forceRegen } = req.body;
 
       const session = await prisma.aIScribeSession.findUnique({ where: { id: sessionId } });
       if (!session) {
         res.status(404).json({ success: false, data: null, error: "Session not found" });
         return;
       }
-      if (session.status !== "ACTIVE") {
-        res.status(400).json({ success: false, data: null, error: `Session is ${session.status}` });
+      if (session.status === "CONSENT_WITHDRAWN") {
+        res.status(400).json({ success: false, data: null, error: "Session consent has been withdrawn" });
         return;
+      }
+      // Doctor continued recording on a paused or completed session — reactivate it.
+      if (session.status !== "ACTIVE") {
+        await prisma.aIScribeSession.update({ where: { id: sessionId }, data: { status: "ACTIVE" } });
       }
 
       const existingTranscript = (session.transcript as any[]) || [];
@@ -278,10 +326,12 @@ router.post(
       const newEntriesSinceLastRegen = updatedTranscript.length - entriesAtLastRegen;
       const timeSinceLastRegenMs = lastRegenAt != null ? now - lastRegenAt : Number.POSITIVE_INFINITY;
 
-      const shouldRegen = updatedTranscript.length >= 3 && (
-        lastRegenAt == null
+      const minEntries = forceRegen === true ? 1 : 3;
+      const shouldRegen = updatedTranscript.length >= minEntries && (
+        forceRegen === true
+          || lastRegenAt == null
           || newEntriesSinceLastRegen >= 5
-          || timeSinceLastRegenMs >= 30_000
+          || timeSinceLastRegenMs >= 10_000
       );
 
       if (shouldRegen) {
@@ -302,8 +352,8 @@ router.post(
           } else {
             soapDraft = fresh;
           }
-        } catch {
-          // Non-fatal — keep previous draft
+        } catch (soapErr) {
+          console.error("[ai-scribe] generateSOAPNote failed:", soapErr instanceof Error ? soapErr.message : soapErr);
         }
 
         // Run drug safety checks whenever we have a fresh SOAP draft with medications
@@ -611,22 +661,60 @@ router.get(
         return;
       }
 
-      // Find the most recent consultation for this patient other than the
-      // current visit. We join through Appointment to filter by patientId
-      // because Consultation itself has no direct patient FK (yet — see the
-      // proposal in .prisma-models-triage-scribe.md).
-      const previous = await prisma.consultation.findFirst({
-        where: {
-          appointment: { patientId: session.patientId },
-          appointmentId: { not: session.appointmentId },
-        },
-        orderBy: { createdAt: "desc" },
-        include: {
-          appointment: {
-            select: { id: true, date: true, slotStart: true, slotEnd: true },
+      // Query both sources in parallel: signed-off scribe sessions (soapFinal)
+      // and legacy manual Consultation records. Return whichever is more recent.
+      const [prevScribe, prevConsultation] = await Promise.all([
+        prisma.aIScribeSession.findFirst({
+          where: {
+            patientId: session.patientId,
+            appointmentId: { not: session.appointmentId },
+            status: "COMPLETED",
+            NOT: { soapFinal: Prisma.JsonNull },
           },
-        },
-      });
+          orderBy: { signedOffAt: "desc" },
+          select: {
+            id: true,
+            soapFinal: true,
+            signedOffAt: true,
+            createdAt: true,
+            appointment: { select: { id: true, date: true, slotStart: true, slotEnd: true } },
+          },
+        }),
+        prisma.consultation.findFirst({
+          where: {
+            appointment: { patientId: session.patientId },
+            appointmentId: { not: session.appointmentId },
+          },
+          orderBy: { createdAt: "desc" },
+          include: {
+            appointment: { select: { id: true, date: true, slotStart: true, slotEnd: true } },
+          },
+        }),
+      ]);
+
+      // Prefer the more recent record; normalise to a common shape the UI expects.
+      let previous: { id: string; notes: string | null; findings: string | null; createdAt: string; appointment?: any } | null = null;
+
+      const scribeDate = prevScribe?.signedOffAt ?? prevScribe?.createdAt ?? null;
+      const consultDate = prevConsultation?.createdAt ?? null;
+
+      if (prevScribe && (!consultDate || (scribeDate && scribeDate >= consultDate))) {
+        previous = {
+          id: prevScribe.id,
+          notes: soapFinalToNotes(prevScribe.soapFinal),
+          findings: null,
+          createdAt: (scribeDate ?? prevScribe.createdAt).toISOString(),
+          appointment: prevScribe.appointment,
+        };
+      } else if (prevConsultation) {
+        previous = {
+          id: prevConsultation.id,
+          notes: prevConsultation.notes,
+          findings: prevConsultation.findings,
+          createdAt: prevConsultation.createdAt.toISOString(),
+          appointment: prevConsultation.appointment,
+        };
+      }
 
       safeAudit(req, "AI_SCRIBE_PREV_CONSULT_READ", "AIScribeSession", session.id, {
         hasPrevious: !!previous,
@@ -634,7 +722,7 @@ router.get(
 
       res.json({
         success: true,
-        data: { previous: previous ?? null },
+        data: { previous },
         error: null,
       });
     } catch (err) {

@@ -12,21 +12,9 @@ vi.mock("openai", () => {
 
 import { calculateMEWS, assessERPatient } from "./er-triage";
 
-function triageToolReply(args: object) {
+function triageContentReply(args: object) {
   return {
-    choices: [
-      {
-        message: {
-          content: null,
-          tool_calls: [
-            {
-              type: "function",
-              function: { name: "suggest_triage", arguments: JSON.stringify(args) },
-            },
-          ],
-        },
-      },
-    ],
+    choices: [{ message: { content: JSON.stringify(args) } }],
   };
 }
 
@@ -86,7 +74,7 @@ describe("calculateMEWS", () => {
 describe("assessERPatient", () => {
   it("returns parsed assessment and attaches calculated MEWS", async () => {
     createMock.mockResolvedValueOnce(
-      triageToolReply({
+      triageContentReply({
         suggestedTriageLevel: 2,
         triageLevelLabel: "Emergent",
         disposition: "Treatment room",
@@ -109,9 +97,9 @@ describe("assessERPatient", () => {
     expect(result.disclaimer).toMatch(/Final triage decision/i);
   });
 
-  it("returns conservative Level-2 fallback when model emits no tool call", async () => {
+  it("returns conservative Level-2 fallback when model emits non-JSON content", async () => {
     createMock.mockResolvedValueOnce({
-      choices: [{ message: { content: "cannot help", tool_calls: undefined } }],
+      choices: [{ message: { content: "Sorry, I cannot help with that." } }],
     });
     const result = await assessERPatient({
       chiefComplaint: "abdominal pain",
@@ -125,7 +113,7 @@ describe("assessERPatient", () => {
 
   it("parses systolic BP from BP string for MEWS calculation", async () => {
     createMock.mockResolvedValueOnce(
-      triageToolReply({
+      triageContentReply({
         suggestedTriageLevel: 1,
         triageLevelLabel: "Resuscitation",
         disposition: "Immediate resuscitation bay",
@@ -145,7 +133,7 @@ describe("assessERPatient", () => {
 
   it("maps GCS 15 to alert (consciousness 0)", async () => {
     createMock.mockResolvedValueOnce(
-      triageToolReply({
+      triageContentReply({
         suggestedTriageLevel: 3,
         triageLevelLabel: "Urgent",
         disposition: "Treatment room",
@@ -165,7 +153,7 @@ describe("assessERPatient", () => {
 
   it("returns null MEWS when no vitals provided", async () => {
     createMock.mockResolvedValueOnce(
-      triageToolReply({
+      triageContentReply({
         suggestedTriageLevel: 5,
         triageLevelLabel: "Non-Urgent",
         disposition: "Waiting room",

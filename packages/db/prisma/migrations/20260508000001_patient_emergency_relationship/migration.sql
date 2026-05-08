@@ -3,4 +3,9 @@
 -- already had columns on Patient; this migration adds the relationship
 -- column. Nullable to keep historic rows valid; the API layer enforces
 -- presence at registration time.
-ALTER TABLE "Patient" ADD COLUMN "emergencyContactRelationship" TEXT;
+--
+-- Table-name fix (2026-05-08): the Prisma model `Patient` is mapped via
+-- @@map("patients"), so the actual SQL identifier is "patients", not
+-- "Patient". Original migration shipped with the camelCased name and
+-- failed with `relation "Patient" does not exist` on every clean DB.
+ALTER TABLE "patients" ADD COLUMN IF NOT EXISTS "emergencyContactRelationship" TEXT;

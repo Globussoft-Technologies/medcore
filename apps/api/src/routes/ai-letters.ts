@@ -207,6 +207,7 @@ aiLettersRouter.post(
 
       const patientName: string = admission.patient?.user?.name ?? "Unknown Patient";
       const patientAge: number | undefined = admission.patient?.age ?? undefined;
+      const patientGender: string | undefined = admission.patient?.gender ?? undefined;
       const doctorName: string = admission.doctor?.user?.name ?? "Unknown Doctor";
 
       const admittingDiagnosis: string = admission.reason ?? admission.diagnosis ?? "Not recorded";
@@ -239,6 +240,7 @@ aiLettersRouter.post(
       const summary = await generateDischargeSummary({
         patientName,
         patientAge,
+        patientGender,
         admissionDate: formatDate(admission.admittedAt),
         dischargeDate: admission.dischargedAt ? formatDate(admission.dischargedAt) : formatDate(new Date()),
         admittingDiagnosis: safeAdmittingDx,

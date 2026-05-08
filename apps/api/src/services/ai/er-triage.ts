@@ -8,7 +8,7 @@ const sarvam = new OpenAI({
   baseURL: "https://api.sarvam.ai/v1",
 });
 
-const MODEL = "sarvam-105b";
+const MODEL = process.env.SARVAM_MODEL ?? "sarvam-m";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -211,95 +211,49 @@ export async function assessERPatient(opts: {
     .filter(Boolean)
     .join("\n");
 
-  // 3. Call Sarvam AI with tool suggest_triage
+  // 3. Call Sarvam AI — JSON prompt approach (no tool calling for broader model compatibility)
+  const systemPrompt =
+    "You are an emergency medicine AI assistant. Analyze the patient presentation and suggest an ESI triage level. Be conservative — when in doubt, assign higher acuity. You assist human clinical judgment only.\n\n" +
+    "Respond ONLY with a single valid JSON object — no markdown fences, no explanation outside the JSON — with exactly these fields:\n" +
+    '{"suggestedTriageLevel":<1-5>,"triageLevelLabel":"<Resuscitation|Emergent|Urgent|Semi-Urgent|Non-Urgent>","disposition":"<Immediate resuscitation bay|Treatment room|Fast track|Waiting room>","immediateActions":["..."],"suggestedInvestigations":["..."],"redFlags":["..."],"aiReasoning":"..."}';
+
   const response = await withRetry(() =>
     sarvam.chat.completions.create({
       model: MODEL,
-      max_tokens: 2048,
-      tools: [
-        {
-          type: "function",
-          function: {
-            name: "suggest_triage",
-            description:
-              "Suggest ESI triage level and immediate clinical actions for an emergency department patient",
-            parameters: {
-              type: "object",
-              properties: {
-                suggestedTriageLevel: {
-                  type: "number",
-                  description: "ESI triage level 1-5 (1=Resuscitation, 5=Non-Urgent)",
-                  minimum: 1,
-                  maximum: 5,
-                },
-                triageLevelLabel: {
-                  type: "string",
-                  enum: ["Resuscitation", "Emergent", "Urgent", "Semi-Urgent", "Non-Urgent"],
-                },
-                disposition: {
-                  type: "string",
-                  description: "Where to send the patient",
-                  enum: [
-                    "Immediate resuscitation bay",
-                    "Treatment room",
-                    "Fast track",
-                    "Waiting room",
-                  ],
-                },
-                immediateActions: {
-                  type: "array",
-                  items: { type: "string" },
-                  description: "Actions to take right now",
-                },
-                suggestedInvestigations: {
-                  type: "array",
-                  items: { type: "string" },
-                  description: "Investigations to order",
-                },
-                redFlags: {
-                  type: "array",
-                  items: { type: "string" },
-                  description: "Concerning features identified",
-                },
-                aiReasoning: {
-                  type: "string",
-                  description: "Brief clinical reasoning for the triage decision",
-                },
-              },
-              required: [
-                "suggestedTriageLevel",
-                "triageLevelLabel",
-                "disposition",
-                "immediateActions",
-                "suggestedInvestigations",
-                "redFlags",
-                "aiReasoning",
-              ],
-            },
-          },
-        },
-      ],
-      tool_choice: { type: "function", function: { name: "suggest_triage" } },
+      max_tokens: 1024,
       messages: [
-        {
-          role: "system",
-          content:
-            "You are an emergency medicine AI assistant. Analyze patient presentation and suggest ESI triage level (1-5). Be conservative — when in doubt, assign higher acuity. You assist human clinical judgment only.",
-        },
-        {
-          role: "user",
-          content: clinicalSummary,
-        },
+        { role: "system", content: systemPrompt },
+        { role: "user", content: clinicalSummary },
       ],
     })
   );
 
-  // 4. Parse tool call response
-  const raw = response.choices[0]?.message?.tool_calls?.[0];
-  const toolCall = raw?.type === "function" ? raw : undefined;
+  // 4. Parse JSON from content
+  const content = response.choices[0]?.message?.content ?? "";
+  // Strip markdown fences; if model prefixed with prose, find the first {...} block
+  let jsonText = content.replace(/^```(?:json)?\s*/im, "").replace(/\s*```\s*$/m, "").trim();
+  if (!jsonText.startsWith("{")) {
+    const match = jsonText.match(/\{[\s\S]*\}/);
+    jsonText = match ? match[0] : jsonText;
+  }
 
-  if (!toolCall) {
-    // Fallback if tool call fails — return a safe conservative assessment
+  let parsed: {
+    suggestedTriageLevel: number;
+    triageLevelLabel: string;
+    disposition: string;
+    immediateActions: string[];
+    suggestedInvestigations: string[];
+    redFlags: string[];
+    aiReasoning: string;
+  } | null = null;
+
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    parsed = null;
+  }
+
+  if (!parsed || typeof parsed.suggestedTriageLevel !== "number") {
     return {
       suggestedTriageLevel: 2,
       triageLevelLabel: "Emergent",
@@ -308,21 +262,11 @@ export async function assessERPatient(opts: {
       suggestedInvestigations: ["ECG", "Full blood count", "Basic metabolic panel"],
       redFlags: [],
       calculatedMEWS,
-      aiReasoning: "Unable to complete AI assessment — defaulting to Emergent (Level 2) as conservative fallback.",
+      aiReasoning: "Unable to parse AI response — defaulting to Emergent (Level 2) as conservative fallback.",
       disclaimer:
         "AI-assisted triage suggestion only. Final triage decision must be made by a qualified nurse or physician.",
     };
   }
-
-  const parsed = JSON.parse(toolCall.function.arguments) as {
-    suggestedTriageLevel: number;
-    triageLevelLabel: string;
-    disposition: string;
-    immediateActions: string[];
-    suggestedInvestigations: string[];
-    redFlags: string[];
-    aiReasoning: string;
-  };
 
   return {
     ...parsed,

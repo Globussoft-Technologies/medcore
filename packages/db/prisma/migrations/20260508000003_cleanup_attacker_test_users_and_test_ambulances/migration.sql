@@ -31,7 +31,29 @@
 -- Match three independent indicators so a single typo doesn't survive
 -- the cleanup. Email patterns are the most stable — names get edited
 -- but the email is the unique key of record.
-DELETE FROM "User"
+--
+-- Fixes (2026-05-08):
+--   1. Prisma `User` model is @@map("users"); the original "User"
+--      identifier failed with `relation "User" does not exist`.
+--   2. `Notification.user` is the ONE userId FK in the schema that
+--      omits `onDelete: Cascade` (schema.prisma:1308) — so the user
+--      delete fails with notifications_userId_fkey if attacker users
+--      have any notifications. Clear those first. All other userId
+--      FKs (refresh_tokens, password_reset_codes, two_factor_temp_tokens,
+--      doctors, patients, notification_preferences, staff_shifts,
+--      chat_participants, staff_certifications, overtime_records) are
+--      ON DELETE CASCADE and clean themselves up. audit_logs.userId
+--      has no FK relation, only a string column, so it's unaffected.
+DELETE FROM "notifications"
+ WHERE "userId" IN (
+   SELECT id FROM "users"
+   WHERE name ILIKE '%attacker%'
+      OR email ILIKE '%attacker%'
+      OR email ILIKE '%@evil.test%'
+      OR email ILIKE '%pentest%@%'
+ );
+
+DELETE FROM "users"
  WHERE name ILIKE '%attacker%'
     OR email ILIKE '%attacker%'
     OR email ILIKE '%@evil.test%'

@@ -50,6 +50,17 @@
   background-color: var(--color-bg);
 }
 
+/* Hand cursor on all interactive elements */
+button,
+a,
+[role="button"],
+[role="tab"],
+[role="menuitem"],
+label[for],
+select {
+  cursor: pointer;
+}
+
 /* Focus-visible baseline for accessibility */
 :where(button, a, input, select, textarea, [role="button"]):focus-visible {
   outline: 2px solid var(--color-primary);
@@ -127,6 +138,14 @@
 }
 
 .print-only {
+  display: none;
+}
+
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
 

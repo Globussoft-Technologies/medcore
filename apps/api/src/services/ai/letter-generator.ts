@@ -1,18 +1,24 @@
-import OpenAI from "openai";
 import { sanitizeUserInput } from "./prompt-safety";
+import { getChatClient } from "./model-router";
 
-// Sarvam AI client
-const sarvam = new OpenAI({
-  // openai@6 throws "Missing credentials" at construction when apiKey
-  // is empty; placeholder lets module-load succeed when env is unset.
-  apiKey: process.env.SARVAM_API_KEY || "sk-medcore-placeholder",
-  baseURL: "https://api.sarvam.ai/v1",
-});
+const sarvam = getChatClient("sarvam");
+const MODEL = process.env.SARVAM_MODEL ?? "sarvam-m";
 
-const MODEL = "sarvam-105b";
+function cleanResponse(text: string): string {
+  return text
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/\*\*/g, "")
+    .replace(/\*/g, "")
+    .replace(/^---+$/gm, "")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
 
 const SYSTEM_PROMPT =
-  "You are a medical letter writer. Generate professional, concise clinical correspondence. Use formal medical language. Format with proper sections. Output plain text suitable for printing.";
+  "You are a medical letter writer. Generate professional, concise clinical correspondence. Use formal medical language. Format with proper sections. Output plain text suitable for printing. Do not use any markdown formatting — no asterisks, no bold, no italics, no hyphens for bullets, no horizontal rules. Never add notes, warnings, disclaimers, or editorial comments about the quality or completeness of the data provided. Use the data exactly as given.";
 
 // ── generateReferralLetter ────────────────────────────────────────────────────
 
@@ -98,7 +104,7 @@ Write a formal referral letter using the above data.`;
     ],
   });
 
-  return response.choices[0]?.message?.content ?? "";
+  return cleanResponse(response.choices[0]?.message?.content ?? "");
 }
 
 // ── generateDischargeSummary ──────────────────────────────────────────────────
@@ -108,9 +114,17 @@ Write a formal referral letter using the above data.`;
  * printing. Covers admission/discharge dates, diagnoses, procedures,
  * discharge medications, follow-up instructions, and a signature block.
  */
+function salutation(gender?: string): string {
+  const g = (gender ?? "").toUpperCase();
+  if (g === "MALE" || g === "M") return "Mr.";
+  if (g === "FEMALE" || g === "F") return "Ms.";
+  return "";
+}
+
 export async function generateDischargeSummary(opts: {
   patientName: string;
   patientAge?: number;
+  patientGender?: string;
   admissionDate: string;
   dischargeDate: string;
   admittingDiagnosis: string;
@@ -124,13 +138,23 @@ export async function generateDischargeSummary(opts: {
   // security(2026-04-23-low): F-INJ-1 — sanitize every free-text field before
   // concatenating into the discharge-summary prompt.
   const safeHospital = sanitizeUserInput(opts.hospital, { maxLen: 150 });
-  const safeDoctorName = sanitizeUserInput(opts.doctorName, { maxLen: 100 });
+  const rawDoctorName = sanitizeUserInput(opts.doctorName, { maxLen: 100 });
+  const safeDoctorName = rawDoctorName.replace(/^Dr\.\s*/i, "").trim();
   const safePatientName = sanitizeUserInput(opts.patientName, { maxLen: 100 });
   const safeAdmissionDate = sanitizeUserInput(opts.admissionDate, { maxLen: 40 });
   const safeDischargeDate = sanitizeUserInput(opts.dischargeDate, { maxLen: 40 });
   const safeAdmittingDx = sanitizeUserInput(opts.admittingDiagnosis, { maxLen: 1000 });
   const safeDischargeDx = sanitizeUserInput(opts.dischargeDiagnosis, { maxLen: 1000 });
   const safeFollowUp = sanitizeUserInput(opts.followUpInstructions, { maxLen: 3000 });
+
+  const sal = salutation(opts.patientGender);
+  const patientLabel = sal ? `${sal} ${safePatientName}` : safePatientName;
+  const g = (opts.patientGender ?? "").toUpperCase();
+  const displayGender = (g === "MALE" || g === "M" || g === "FEMALE" || g === "F") ? opts.patientGender : "";
+  const ageGender = [
+    opts.patientAge ? `Age ${opts.patientAge}` : "",
+    displayGender ?? "",
+  ].filter(Boolean).join(", ");
 
   const procedureList =
     opts.proceduresPerformed.length > 0
@@ -146,11 +170,11 @@ export async function generateDischargeSummary(opts: {
           .join("\n")
       : "  - None";
 
-  const userPrompt = `Generate a discharge summary with the following information:
+  const userPrompt = `Generate a formal inpatient discharge summary using ONLY the data provided below. Output every section exactly as labelled. Do not skip any section.
 
 HOSPITAL: ${safeHospital}
 ATTENDING PHYSICIAN: Dr. ${safeDoctorName}
-PATIENT: ${safePatientName}${opts.patientAge ? `, Age ${opts.patientAge}` : ""}
+PATIENT NAME: ${patientLabel}${ageGender ? ` (${ageGender})` : ""}
 ADMISSION DATE: ${safeAdmissionDate}
 DISCHARGE DATE: ${safeDischargeDate}
 ADMITTING DIAGNOSIS: ${safeAdmittingDx}
@@ -161,17 +185,26 @@ DISCHARGE MEDICATIONS:
 ${medicationList}
 FOLLOW-UP INSTRUCTIONS: ${safeFollowUp}
 
-Structure the summary with these sections:
-1. Admission Date
-2. Discharge Date
-3. Diagnosis (admitting and discharge)
-4. Procedures Performed
-5. Hospital Course (brief narrative)
-6. Discharge Medications
-7. Follow-up Instructions
-8. Signature line
+Output the summary in this exact structure — include all 8 sections, no section may be omitted:
 
-Write a formal discharge summary using the above data.`;
+Discharge Summary
+Hospital: <value>
+Attending Physician: <value>
+Patient: <value>
+
+1. Admission Date: <value>
+2. Discharge Date: <value>
+3. Diagnosis:
+   Admitting: <value>
+   Discharge: <value>
+4. Procedures Performed: <value>
+5. Hospital Course: <2-3 sentence narrative; refer to the patient as "${patientLabel}" and mention attending physician "Dr. ${safeDoctorName}" — do not use any other names>
+6. Discharge Medications: <value>
+7. Follow-up Instructions: <value>
+8. Signature:
+   Dr. ${safeDoctorName}
+   Attending Physician
+   ${safeHospital}`;
 
   const response = await sarvam.chat.completions.create({
     model: MODEL,
@@ -182,5 +215,5 @@ Write a formal discharge summary using the above data.`;
     ],
   });
 
-  return response.choices[0]?.message?.content ?? "";
+  return cleanResponse(response.choices[0]?.message?.content ?? "");
 }

@@ -163,29 +163,17 @@ const TELEMED_PARTICIPANT_ROLES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Issue #602: only the actual participants of a session (the treating
- * doctor, the patient, and ADMIN for triage/break-glass) ever need
- * `meetingId`. Coordinating roles (NURSE / RECEPTION) can see the
- * schedule but not the join-URL primitive. Strip the field before
- * serialisation so the JSON response simply doesn't carry it.
+ * Issue #602 (2026-05-09 hardening): the LIST endpoint never exposes
+ * `meetingId` or `meetingUrl` for ANY caller, regardless of role. The
+ * legitimate join path is now exclusively GET /api/v1/telemedicine/:id
+ * which mints a fresh per-request signedRoomUrl (30-minute TTL JWT).
+ * Stripping here means even a logged-in DOCTOR cannot accidentally leak
+ * the bare meetingId by sharing a screenshot of the calendar.
  */
-function stripMeetingIdForNonParticipants<
-  T extends { meetingId?: string | null; doctorId?: string | null; patientId?: string | null },
->(req: Request, session: T): T {
-  const role = req.user?.role;
-  if (!role || !TELEMED_PARTICIPANT_ROLES.has(role)) {
-    return { ...session, meetingId: null };
-  }
-  // ADMIN sees meetingId always; DOCTOR/PATIENT see it only when this
-  // session belongs to them.
-  if (role === Role.ADMIN) return session;
-  // For DOCTOR / PATIENT we'd ideally cross-check that they're THE
-  // doctor / THE patient on the session; the LIST endpoint already
-  // applies `where.doctorId/patientId = self` for those roles so the
-  // returned rows are always self-owned. The detail endpoint runs
-  // assertPatientOwnsResource for PATIENT, and DOCTOR detail-by-id is
-  // gated separately. Default safe: keep the field.
-  return session;
+function stripJoinPrimitivesFromListRow<
+  T extends { meetingId?: string | null; meetingUrl?: string | null },
+>(_req: Request, session: T): T {
+  return { ...session, meetingId: null, meetingUrl: null };
 }
 
 router.get(
@@ -254,11 +242,11 @@ router.get(
       prisma.telemedicineSession.count({ where }),
     ]);
 
-    // Issue #602: scrub `meetingId` from rows that don't belong to the
-    // caller. NURSE/RECEPTION are allowed to see the schedule but never
-    // the Jitsi room primitive.
+    // Issue #602 (2026-05-09 hardening): strip both meetingId and
+    // meetingUrl from EVERY list row. Clients that need to join must
+    // call GET /:id which returns a per-request signedRoomUrl.
     const safeSessions = sessions.map((s) =>
-      stripMeetingIdForNonParticipants(req, s),
+      stripJoinPrimitivesFromListRow(req, s),
     );
 
     res.json({
@@ -273,6 +261,26 @@ router.get(
 });
 
 // GET /api/v1/telemedicine/:id
+//
+// Issue #602 hardening (2026-05-09): the original fix (1dd2095) gated
+// list/detail by role and scrubbed `meetingId` from non-participant
+// responses. That stops casual leakage but a determined attacker who
+// learns the bare meetingId via another channel (verbal share, leaked
+// log line, screenshot) could still construct
+// `https://meet.jit.si/medcore-<meetingId>` and walk in.
+//
+// Defense in depth: this handler now NEVER returns `meetingId` or
+// `meetingUrl` to anyone — instead it mints a fresh per-request,
+// per-user, JWT-bearing `signedRoomUrl` with a 30-minute TTL. A leaked
+// URL is dead in 30 minutes; a leaked meetingId can no longer construct
+// a working room URL because the Jitsi side requires the JWT (when
+// JITSI_APP_ID + JITSI_APP_SECRET are configured on the server).
+//
+// Non-participants (NURSE / RECEPTION / DOCTOR-not-assigned) get
+// `signedRoomUrl: null` so the field exists on the wire but cannot be
+// used to join. PHARMACIST / LAB_TECH never reach here — the route's
+// `authorize(...TELEMED_LIST_ROLES)` rejects them at the gate.
+const SIGNED_ROOM_URL_TTL_SECONDS = 30 * 60; // 30 minutes
 router.get(
   "/:id",
   authorize(...TELEMED_LIST_ROLES),
@@ -282,9 +290,9 @@ router.get(
       where: { id: req.params.id },
       include: {
         patient: {
-          include: { user: { select: { name: true, phone: true, email: true } } },
+          include: { user: { select: { id: true, name: true, phone: true, email: true } } },
         },
-        doctor: { include: { user: { select: { name: true } } } },
+        doctor: { include: { user: { select: { id: true, name: true, email: true } } } },
       },
     });
     if (!session) {
@@ -297,25 +305,76 @@ router.get(
     // ("telemedicine: PATIENT-A cannot GET PATIENT-B's session").
     if (!(await assertPatientOwnsResource(req, res, session.patientId))) return;
 
-    // Issue #602: DOCTOR can fetch any session by id, but only sees
-    // `meetingId` for sessions where they're the treating clinician.
-    // PATIENT already passed assertPatientOwnsResource above so they're
-    // self-scoped. NURSE/RECEPTION get scrubbed.
+    // Decide whether this caller is a participant of THIS session and
+    // should therefore receive a freshly-minted signedRoomUrl.
     const role = req.user?.role;
-    let safe: typeof session = session;
-    if (role === Role.DOCTOR) {
+    let isParticipant = false;
+    let jitsiRole: "moderator" | "participant" = "participant";
+    let jitsiUser:
+      | { id: string; name: string; email?: string }
+      | null = null;
+
+    if (role === Role.ADMIN) {
+      // ADMIN gets moderator URL for break-glass triage.
+      isParticipant = true;
+      jitsiRole = "moderator";
+      jitsiUser = {
+        id: req.user!.userId,
+        name: "MedCore Admin",
+        email: req.user!.email,
+      };
+    } else if (role === Role.DOCTOR) {
       const doctor = await prisma.doctor.findUnique({
         where: { userId: req.user!.userId },
         select: { id: true },
       });
-      if (!doctor || doctor.id !== session.doctorId) {
-        safe = { ...session, meetingId: null };
+      if (doctor && doctor.id === session.doctorId) {
+        isParticipant = true;
+        jitsiRole = "moderator";
+        jitsiUser = {
+          id: session.doctor.user.id,
+          name: session.doctor.user.name,
+          email: session.doctor.user.email ?? undefined,
+        };
       }
-    } else if (role && !TELEMED_PARTICIPANT_ROLES.has(role)) {
-      safe = { ...session, meetingId: null };
+    } else if (role === Role.PATIENT) {
+      // assertPatientOwnsResource above already guarantees self-ownership.
+      isParticipant = true;
+      jitsiRole = "participant";
+      jitsiUser = {
+        id: session.patient.user.id,
+        name: session.patient.user.name,
+        email: session.patient.user.email ?? undefined,
+      };
     }
 
-    res.json({ success: true, data: safe, error: null });
+    // Issue #602: strip BOTH meetingId and meetingUrl from every response
+    // — even for participants. The signed URL is the only legitimate
+    // join path. Keeping the raw primitives in the response would let a
+    // participant accidentally share them out-of-band.
+    const {
+      meetingId: _droppedMeetingId,
+      meetingUrl: _droppedMeetingUrl,
+      ...rest
+    } = session;
+
+    let signedRoomUrl: string | null = null;
+    if (isParticipant && jitsiUser) {
+      const signed = signedJitsiRoomUrl(
+        session.id,
+        jitsiUser,
+        jitsiRole,
+        session.jitsiRoom ?? undefined,
+        SIGNED_ROOM_URL_TTL_SECONDS,
+      );
+      signedRoomUrl = signed.url;
+    }
+
+    res.json({
+      success: true,
+      data: { ...rest, signedRoomUrl },
+      error: null,
+    });
   } catch (err) {
     next(err);
   }

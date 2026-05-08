@@ -24,7 +24,10 @@ interface SessionLite {
   id: string;
   sessionNumber: string;
   scheduledAt: string;
-  meetingUrl?: string | null;
+  // Issue #602 (2026-05-09 hardening): meetingUrl is never returned by
+  // the API anymore. The patient receives the per-user signed URL via
+  // the Socket.IO `telemedicine:admitted` event after the doctor admits
+  // them — see the handler below.
   status: string;
   doctor: { user: { name: string }; specialization?: string | null };
 }

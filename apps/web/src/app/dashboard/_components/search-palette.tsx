@@ -135,6 +135,12 @@ export function SearchPalette({
   function go(hit: SearchHit) {
     saveRecent(q.trim());
     onClose();
+    if (!hit.href || hit.href === "null" || hit.href === "/dashboard/null") {
+      // Issue #582 #2: a malformed search hit with no href used to silently
+      // navigate to /dashboard/null and 404 the user out of their session.
+      // Defensively bail rather than push a known-bad URL.
+      return;
+    }
     router.push(hit.href);
   }
 
@@ -147,7 +153,12 @@ export function SearchPalette({
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActive((a) => Math.max(a - 1, 0));
-    } else if (e.key === "Enter" && results[active]) {
+    } else if (e.key === "Enter") {
+      // Issue #582 #2: Enter on an empty query / no results must be a
+      // no-op, not "go to undefined href". Guard explicitly so a future
+      // refactor can't introduce a regression where `go(undefined)`
+      // silently routes to /dashboard/null.
+      if (results.length === 0 || !results[active]) return;
       e.preventDefault();
       go(results[active]);
     }
@@ -156,8 +167,16 @@ export function SearchPalette({
   if (!open) return null;
 
   // Group results by type
+  // Issue #582 #4: same hit was rendered multiple times when a single
+  // result row matched both the title and a sub-field (because the API
+  // emits separate rows for partial-match types). De-dupe by `type+id`
+  // before bucketing so the user sees each entity exactly once.
+  const seen = new Set<string>();
   const groups: Array<{ type: string; items: SearchHit[] }> = [];
   for (const r of results) {
+    const dedupeKey = `${r.type}::${r.id}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
     let g = groups.find((x) => x.type === r.type);
     if (!g) {
       g = { type: r.type, items: [] };

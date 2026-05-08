@@ -331,9 +331,18 @@ export default function DashboardPage() {
       // PATIENT role fired these, which produced repeated 403s in the
       // nurse/doctor Network tab. See GitHub issue #31. We ONLY skip calls
       // client-side — we never widen backend permissions.
+      //
+      // Issue #621: PHARMACIST also fans out 12+ requests on first paint
+      // that always 403 (patients, billing, queue, wards, emergency, lab,
+      // bloodbank, shifts, complaints, visitors, immunization). Skip them
+      // for PHARMACIST so the dashboard doesn't pollute monitoring with
+      // expected 403s on every login. Pharmacist's actual surface
+      // (prescriptions, low-stock pharmacy inventory) still loads.
       const role = user?.role;
       const canSeeAnalytics = role === "ADMIN" || role === "RECEPTION";
       const canSeeAdminHR = role === "ADMIN";
+      const isPharmacist = role === "PHARMACIST";
+      const isLabTech = role === "LAB_TECH";
 
       const [
         appointments,
@@ -360,33 +369,72 @@ export default function DashboardPage() {
         visitorsActive,
       ] = await Promise.all([
         safeGet<any>(`/appointments?date=${today}&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/patients?limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/billing/invoices?status=PENDING&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/billing/invoices?status=PARTIAL&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/queue`, { data: [] }),
-        safeGet<any>(`/admissions?status=ADMITTED&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/wards`, { data: [] }),
-        safeGet<any>(`/emergency/cases/active`, { data: [] }),
+        // Issue #621: PHARMACIST + LAB_TECH have no read access to the patient
+        // roster, billing, queue, wards, emergency, bloodbank, shifts,
+        // complaints, visitors, immunization. Short-circuit to a no-op so
+        // we don't flood the monitoring/alert channel with 403s.
+        isPharmacist || isLabTech
+          ? Promise.resolve({ meta: { total: 0 } })
+          : safeGet<any>(`/patients?limit=1`, { meta: { total: 0 } }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ meta: { total: 0 } })
+          : safeGet<any>(`/billing/invoices?status=PENDING&limit=1`, { meta: { total: 0 } }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ meta: { total: 0 } })
+          : safeGet<any>(`/billing/invoices?status=PARTIAL&limit=1`, { meta: { total: 0 } }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ data: [] })
+          : safeGet<any>(`/queue`, { data: [] }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ meta: { total: 0 } })
+          : safeGet<any>(`/admissions?status=ADMITTED&limit=1`, { meta: { total: 0 } }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ data: [] })
+          : safeGet<any>(`/wards`, { data: [] }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ data: [] })
+          : safeGet<any>(`/emergency/cases/active`, { data: [] }),
         safeGet<any>(`/pharmacy/inventory?lowStock=true&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/lab/orders?status=ORDERED&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/bloodbank/inventory/summary`, { data: null }),
-        safeGet<any>(`/surgery?status=SCHEDULED&from=${today}&to=${today}&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/surgery?status=IN_PROGRESS&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/shifts/roster?date=${today}`, { data: [] }),
+        // Lab orders ARE part of LAB_TECH's surface, so don't gate it for them.
+        isPharmacist
+          ? Promise.resolve({ meta: { total: 0 } })
+          : safeGet<any>(`/lab/orders?status=ORDERED&limit=1`, { meta: { total: 0 } }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ data: null })
+          : safeGet<any>(`/bloodbank/inventory/summary`, { data: null }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ meta: { total: 0 } })
+          : safeGet<any>(`/surgery?status=SCHEDULED&from=${today}&to=${today}&limit=1`, { meta: { total: 0 } }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ meta: { total: 0 } })
+          : safeGet<any>(`/surgery?status=IN_PROGRESS&limit=1`, { meta: { total: 0 } }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ data: [] })
+          : safeGet<any>(`/shifts/roster?date=${today}`, { data: [] }),
         canSeeAdminHR
           ? safeGet<any>(`/leaves/pending`, { data: [] })
           : Promise.resolve({ data: [] }),
         canSeeAnalytics
           ? safeGet<any>(`/feedback/summary`, { data: null })
           : Promise.resolve({ data: null }),
-        safeGet<any>(`/complaints?status=OPEN&limit=1`, { meta: { total: 0 } }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ meta: { total: 0 } })
+          : safeGet<any>(`/complaints?status=OPEN&limit=1`, { meta: { total: 0 } }),
         canSeeAnalytics
           ? safeGet<any>(`/analytics/overview?from=${today}&to=${today}`, { data: null })
           : Promise.resolve({ data: null }),
-        safeGet<any>(`/medication/administrations/due`, { data: [] }),
-        safeGet<any>(`/telemedicine?date=${today}&limit=1`, { meta: { total: 0 } }),
-        safeGet<any>(`/ehr/immunizations/schedule?filter=overdue`, { data: [] }),
-        safeGet<any>(`/visitors/active`, { data: [] }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ data: [] })
+          : safeGet<any>(`/medication/administrations/due`, { data: [] }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ meta: { total: 0 } })
+          : safeGet<any>(`/telemedicine?date=${today}&limit=1`, { meta: { total: 0 } }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ data: [] })
+          : safeGet<any>(`/ehr/immunizations/schedule?filter=overdue`, { data: [] }),
+        isPharmacist || isLabTech
+          ? Promise.resolve({ data: [] })
+          : safeGet<any>(`/visitors/active`, { data: [] }),
       ]);
 
       // Compute totals

@@ -423,12 +423,22 @@ export default function UnifiedCalendarPage() {
       </div>
 
       {/* Legend */}
+      {/* Issue #659: the legend used to show every event category to every
+          role, including PHARMACIST who has no surgical / ANC / follow-up
+          context (and the calendar API doesn't even emit those event types
+          for pharmacist). For pharmacist + lab-tech the legend collapses to
+          the categories they can actually see — appointments, custom events
+          and holidays — and stays self-documenting. */}
       <div className="flex flex-wrap gap-3 rounded-xl bg-white p-3 text-xs shadow-sm">
         <Legend color="bg-blue-500" Icon={CalendarIcon} label="Appointment" />
-        <Legend color="bg-rose-500" Icon={Scissors} label="Surgery" />
-        <Legend color="bg-purple-500" Icon={Video} label="Telemedicine" />
-        <Legend color="bg-pink-500" Icon={Baby} label="ANC" />
-        <Legend color="bg-emerald-500" Icon={FileText} label="Follow-up" />
+        {user?.role !== "PHARMACIST" && user?.role !== "LAB_TECH" && (
+          <>
+            <Legend color="bg-rose-500" Icon={Scissors} label="Surgery" />
+            <Legend color="bg-purple-500" Icon={Video} label="Telemedicine" />
+            <Legend color="bg-pink-500" Icon={Baby} label="ANC" />
+            <Legend color="bg-emerald-500" Icon={FileText} label="Follow-up" />
+          </>
+        )}
         {user?.role === "ADMIN" && (
           <Legend color="bg-gray-500" Icon={UsersIcon} label="Shifts" />
         )}

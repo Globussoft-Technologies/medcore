@@ -251,8 +251,15 @@ export default function PrescriptionsPage() {
   // with ?new=1 (issue #11). Issue #439: also accept ?patientId=… so the
   // "Write Prescription" quick-action on the patient chart pre-fills the
   // form (this is the route the patient detail page links to).
+  //
+  // Issue #604: pharmacist + nurse + patient + admin opening the page with
+  // ?new=1 used to render the full New Prescription form even though the
+  // submit button is gated to DOCTOR. The form would 403 at POST. Auto-open
+  // ONLY for DOCTOR — others can read prescriptions but never see the form
+  // shell, so they don't fill clinical data they can't save.
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (user?.role !== "DOCTOR") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("new") === "1") setShowForm(true);
     const pid = params.get("patientId");
@@ -260,7 +267,7 @@ export default function PrescriptionsPage() {
       setShowForm(true);
       setForm((f) => ({ ...f, patientId: pid }));
     }
-  }, []);
+  }, [user?.role]);
 
   function applyTemplate(tplId: string) {
     const tpl = templates.find((t) => t.id === tplId);

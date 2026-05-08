@@ -19,6 +19,12 @@ export interface EditablePatient {
   address: string | null;
   emergencyContactName?: string | null;
   emergencyContactPhone?: string | null;
+  // Issue #592 (May 2026): insurance fields are editable here so RECEPTION
+  // can add/update policy data straight from the patient profile (the
+  // patient registration form does NOT capture these, so this modal is
+  // the only entry point besides the dedicated /insurance dashboard).
+  insuranceProvider?: string | null;
+  insurancePolicyNumber?: string | null;
   user: { name: string; email: string | null; phone: string | null };
 }
 
@@ -117,6 +123,14 @@ export function PatientEditModal({
   const [emergencyContactPhone, setEmergencyPhone] = useState(
     patient.emergencyContactPhone ?? ""
   );
+  // Issue #592: insurance fields, optional. Empty string PATCHes correctly —
+  // the server-side updatePatientSchema marks them `.optional()`.
+  const [insuranceProvider, setInsuranceProvider] = useState(
+    patient.insuranceProvider ?? ""
+  );
+  const [insurancePolicyNumber, setInsurancePolicyNumber] = useState(
+    patient.insurancePolicyNumber ?? ""
+  );
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const firstFieldRef = useRef<HTMLInputElement | null>(null);
@@ -134,6 +148,8 @@ export function PatientEditModal({
     setAddress(patient.address ?? "");
     setEmergencyName(patient.emergencyContactName ?? "");
     setEmergencyPhone(patient.emergencyContactPhone ?? "");
+    setInsuranceProvider(patient.insuranceProvider ?? "");
+    setInsurancePolicyNumber(patient.insurancePolicyNumber ?? "");
     setErr(null);
     const id = requestAnimationFrame(() => firstFieldRef.current?.focus());
     return () => cancelAnimationFrame(id);
@@ -182,6 +198,11 @@ export function PatientEditModal({
         payload.emergencyContactName = emergencyContactName.trim();
       if (emergencyContactPhone.trim())
         payload.emergencyContactPhone = emergencyContactPhone.trim();
+      // Issue #592: include insurance fields whether populated or cleared
+      // — sending an empty string lets the user remove a stale policy
+      // without us hiding the field. The server schema accepts both.
+      payload.insuranceProvider = insuranceProvider.trim();
+      payload.insurancePolicyNumber = insurancePolicyNumber.trim();
 
       const res = await api.patch<{ data: unknown }>(
         `/patients/${patient.id}`,
@@ -389,6 +410,47 @@ export function PatientEditModal({
                 value={emergencyContactPhone}
                 onChange={(e) => setEmergencyPhone(e.target.value)}
                 data-testid="patient-edit-field-emergencyContactPhone"
+                className="w-full rounded-md border px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+
+          {/* Issue #592 (May 2026): insurance fields. Patient registration
+              form does NOT capture insurance, so this is the only entry
+              point besides the dedicated /insurance dashboard. Required
+              by the billing/claims workflow downstream. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label
+                htmlFor="patient-edit-insurance-provider"
+                className="text-xs text-gray-600"
+              >
+                Insurance Provider
+              </label>
+              <input
+                id="patient-edit-insurance-provider"
+                type="text"
+                value={insuranceProvider}
+                onChange={(e) => setInsuranceProvider(e.target.value)}
+                placeholder="e.g. Star Health, ICICI Lombard"
+                data-testid="patient-edit-field-insuranceProvider"
+                className="w-full rounded-md border px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="patient-edit-insurance-policy-number"
+                className="text-xs text-gray-600"
+              >
+                Policy Number
+              </label>
+              <input
+                id="patient-edit-insurance-policy-number"
+                type="text"
+                value={insurancePolicyNumber}
+                onChange={(e) => setInsurancePolicyNumber(e.target.value)}
+                placeholder="Policy / member ID"
+                data-testid="patient-edit-field-insurancePolicyNumber"
                 className="w-full rounded-md border px-3 py-2 text-sm"
               />
             </div>

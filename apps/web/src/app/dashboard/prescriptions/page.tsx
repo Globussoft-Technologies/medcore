@@ -286,7 +286,13 @@ export default function PrescriptionsPage() {
       await api.post(`/prescriptions/${id}/print`, {});
       const apiBase =
         process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
-      window.open(`${apiBase}/prescriptions/${id}/pdf`, "_blank");
+      // Issue #523 (2026-05-05): Re-Print previously opened the HTML render
+      // path which surfaced as "raw, unstyled" output in some browsers when
+      // the inline <style>/CSP combo failed to apply. Prefer the real PDF
+      // buffer endpoint (`?format=pdf`) which returns `application/pdf`
+      // content the browser renders in its native PDF viewer with print
+      // layout consistent across Chrome/Firefox/Safari.
+      window.open(`${apiBase}/prescriptions/${id}/pdf?format=pdf`, "_blank");
       loadPrescriptions();
     } catch {
       /* noop */
@@ -366,6 +372,11 @@ export default function PrescriptionsPage() {
       ...medicines,
       { medicineName: "", dosage: "", frequency: "", duration: "", instructions: "" },
     ]);
+    // Issue #541: clear stale "At least one medicine is required" the moment
+    // the user adds a row.
+    if (formErrors.medicines) {
+      setFormErrors((p) => ({ ...p, medicines: "" }));
+    }
   }
 
   function removeMedicine(idx: number) {
@@ -376,6 +387,12 @@ export default function PrescriptionsPage() {
     const updated = [...medicines];
     (updated[idx] as Record<string, string>)[field] = value;
     setMedicines(updated);
+    // Issue #541: clear the medicines error as soon as any field of any row
+    // is filled — the error wording covers both "no rows" and "row missing
+    // fields"; once user is editing, the error will re-evaluate at submit.
+    if (formErrors.medicines && value.trim()) {
+      setFormErrors((p) => ({ ...p, medicines: "" }));
+    }
   }
 
   async function submitPrescription(override: boolean) {
@@ -749,12 +766,18 @@ export default function PrescriptionsPage() {
               </label>
               <Autocomplete<{ code: string; description: string }>
                 value={form.diagnosis}
-                onChange={(val, item) =>
+                onChange={(val, item) => {
                   setForm({
                     ...form,
                     diagnosis: item ? `${item.code} — ${item.description}` : val,
-                  })
-                }
+                  });
+                  // Issue #541: stale "Diagnosis is required" persisted after
+                  // the field was filled. Clear the inline error the moment
+                  // the user starts typing / selects an ICD-10 entry.
+                  if (formErrors.diagnosis) {
+                    setFormErrors((p) => ({ ...p, diagnosis: "" }));
+                  }
+                }}
                 fetchOptions={async (q) => {
                   const r = await api.get<{
                     data: Array<{ code: string; description: string }>;

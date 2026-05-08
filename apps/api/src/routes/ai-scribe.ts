@@ -669,7 +669,7 @@ router.get(
             patientId: session.patientId,
             appointmentId: { not: session.appointmentId },
             status: "COMPLETED",
-            NOT: { soapFinal: Prisma.JsonNull },
+            NOT: [{ soapFinal: { equals: Prisma.DbNull } }],
           },
           orderBy: { signedOffAt: "desc" },
           select: {

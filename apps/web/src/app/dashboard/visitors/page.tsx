@@ -11,10 +11,12 @@ import { useAuthStore } from "@/lib/store";
 import { elapsedMinutes } from "@/lib/time";
 
 // Issue #509: page-level gate matching API authorize() in
-// apps/api/src/routes/visitors.ts (ADMIN, RECEPTION, DOCTOR, NURSE on reads).
-// Page had no gate, so PATIENT / LAB_TECH / PHARMACIST could see the
-// front-desk visitor pass UI via the URL bar.
-const VIEW_ALLOWED = new Set(["ADMIN", "RECEPTION", "DOCTOR", "NURSE"]);
+// apps/api/src/routes/visitors.ts.
+// Issue #755: removed NURSE from broad listings — the API now scopes DOCTOR
+// to their own patients via Appointment relation, and NURSE to per-patient
+// endpoints only. Page had no gate, so PATIENT / LAB_TECH / PHARMACIST could
+// see the front-desk visitor pass UI via the URL bar.
+const VIEW_ALLOWED = new Set(["ADMIN", "RECEPTION", "DOCTOR"]);
 
 interface Visitor {
   id: string;

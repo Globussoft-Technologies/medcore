@@ -1,9 +1,22 @@
 "use client";
 
+// Issue #692 (BUG-A08, 2026-05-09): admin Suppliers/Holidays/Insurance
+// surfaces lacked Edit affordances; Suppliers also lacked a way to
+// deactivate a vendor without DELETE'ing (we soft-deactivate via
+// `isActive: false`). This file adds:
+//   - per-row Edit dialog (form: name, phone, GST, address,
+//     contactPerson, paymentTerms, isActive)
+//   - per-row Deactivate / Activate toggle (PATCH `isActive`, NOT DELETE
+//     — keeps PO history queryable)
+// Both go through `PATCH /api/v1/suppliers/:id` which already exists and
+// is ADMIN-only. Edit pre-fills from the row data; Deactivate is a one-
+// click PATCH with a confirm prompt.
+
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
-import { Truck, Plus, X, Mail, Phone, MapPin, FileText } from "lucide-react";
+import { useConfirm } from "@/lib/use-dialog";
+import { Truck, Plus, X, Mail, Phone, MapPin, FileText, Edit2, Power } from "lucide-react";
 
 interface SupplierRecord {
   id: string;
@@ -41,16 +54,31 @@ export default function SuppliersPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<SupplierDetail | null>(null);
+  // Issue #692: per-row Edit dialog state. Stores the row being edited;
+  // null means the dialog is closed.
+  const [editingSupplier, setEditingSupplier] =
+    useState<SupplierRecord | null>(null);
+  // Issue #692: toggle to show deactivated suppliers (for re-activation
+  // workflows). Defaults to false so the list stays focused on active
+  // vendors; flipping it queries the API with active=false.
+  const [showInactive, setShowInactive] = useState(false);
+  const confirm = useConfirm();
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search]);
+  }, [search, showInactive]);
 
   async function load() {
     setLoading(true);
     try {
-      const qs = search ? `?search=${encodeURIComponent(search)}` : "";
+      const params = new URLSearchParams();
+      if (search) params.set("search", search);
+      // Issue #692: showInactive=true → request the deactivated rows so
+      // admins can reactivate them. The API supports active=true|false;
+      // when not set it defaults to active=true (active-only).
+      if (showInactive) params.set("active", "false");
+      const qs = params.toString() ? `?${params.toString()}` : "";
       const res = await api.get<{ data: SupplierRecord[] }>(`/suppliers${qs}`);
       setSuppliers(res.data);
     } catch {
@@ -67,6 +95,41 @@ export default function SuppliersPage() {
       setDetail(res.data);
     } catch {
       setDetail(null);
+    }
+  }
+
+  // Issue #692: deactivate (or reactivate) a supplier. We soft-toggle
+  // `isActive` rather than DELETE so PO history stays queryable. The
+  // GET /suppliers list defaults to `?active=true` so deactivated rows
+  // disappear from the default view; admins can re-list them with the
+  // search box (or by passing `?active=false` directly).
+  async function toggleActive(s: SupplierRecord) {
+    const verb = s.isActive ? "Deactivate" : "Activate";
+    const body = s.isActive
+      ? `${s.name} will be hidden from the default suppliers list. Past POs and payments are preserved.`
+      : `${s.name} will become available again for new purchase orders.`;
+    if (
+      !(await confirm({
+        title: `${verb} ${s.name}?`,
+        message: body,
+        confirmLabel: verb,
+        danger: s.isActive,
+      }))
+    ) {
+      return;
+    }
+    try {
+      await api.patch(`/suppliers/${s.id}`, { isActive: !s.isActive });
+      toast.success(`${verb}d ${s.name}`);
+      // If we deactivated the row currently in the detail panel, drop it
+      // from the panel (it'll be hidden from the default list anyway).
+      if (s.isActive && selectedId === s.id) {
+        setSelectedId(null);
+        setDetail(null);
+      }
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `Failed to ${verb.toLowerCase()}`);
     }
   }
 
@@ -87,13 +150,25 @@ export default function SuppliersPage() {
         </button>
       </div>
 
-      <div className="mb-4">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search suppliers by name, contact or GST..."
           className="w-full max-w-sm rounded-lg border px-3 py-2 text-sm"
         />
+        {/* Issue #692: toggle to show deactivated suppliers — needed
+            for the re-activation workflow. */}
+        <label className="flex items-center gap-2 text-sm text-gray-600">
+          <input
+            type="checkbox"
+            checked={showInactive}
+            onChange={(e) => setShowInactive(e.target.checked)}
+            data-testid="suppliers-show-inactive"
+            className="rounded"
+          />
+          Show deactivated
+        </label>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr,400px]">
@@ -112,6 +187,8 @@ export default function SuppliersPage() {
                   <th className="px-4 py-3">Email</th>
                   <th className="px-4 py-3">GST #</th>
                   <th className="px-4 py-3">POs</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -119,9 +196,11 @@ export default function SuppliersPage() {
                   <tr
                     key={s.id}
                     onClick={() => openDetail(s.id)}
+                    data-testid={`supplier-row-${s.id}`}
+                    data-entity-id={s.id}
                     className={`cursor-pointer border-b last:border-0 hover:bg-gray-50 ${
                       selectedId === s.id ? "bg-blue-50" : ""
-                    }`}
+                    } ${!s.isActive ? "opacity-60" : ""}`}
                   >
                     <td className="px-4 py-3">
                       <p className="font-medium">{s.name}</p>
@@ -139,6 +218,49 @@ export default function SuppliersPage() {
                     </td>
                     <td className="px-4 py-3 text-sm">
                       {s._count?.purchaseOrders || 0}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={
+                          s.isActive
+                            ? "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
+                            : "rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600"
+                        }
+                      >
+                        {s.isActive ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+                    {/* Issue #692: per-row Edit + Deactivate/Activate
+                        actions. Stop propagation so clicking these
+                        buttons does NOT open the detail panel. */}
+                    <td
+                      className="px-4 py-3 text-right"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex justify-end gap-1">
+                        <button
+                          onClick={() => setEditingSupplier(s)}
+                          data-testid={`supplier-edit-${s.id}`}
+                          aria-label={`Edit ${s.name}`}
+                          title="Edit"
+                          className="rounded p-1 text-gray-600 hover:bg-gray-100"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                        <button
+                          onClick={() => toggleActive(s)}
+                          data-testid={`supplier-toggle-active-${s.id}`}
+                          aria-label={`${s.isActive ? "Deactivate" : "Activate"} ${s.name}`}
+                          title={s.isActive ? "Deactivate" : "Activate"}
+                          className={`rounded p-1 ${
+                            s.isActive
+                              ? "text-red-500 hover:bg-red-50"
+                              : "text-emerald-600 hover:bg-emerald-50"
+                          }`}
+                        >
+                          <Power size={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -246,6 +368,24 @@ export default function SuppliersPage() {
           onClose={() => setShowAdd(false)}
           onSaved={() => {
             setShowAdd(false);
+            load();
+          }}
+        />
+      )}
+
+      {/* Issue #692: per-row Edit modal — pre-fills with the row's
+          current values and PATCHes back via /suppliers/:id. */}
+      {editingSupplier && (
+        <EditSupplierModal
+          supplier={editingSupplier}
+          onClose={() => setEditingSupplier(null)}
+          onSaved={(updated) => {
+            setEditingSupplier(null);
+            // If the edited row is currently in the detail panel, refresh
+            // it so the side panel shows the saved values immediately.
+            if (selectedId === updated.id) {
+              setDetail((prev) => (prev ? { ...prev, ...updated } : prev));
+            }
             load();
           }}
         />
@@ -418,6 +558,217 @@ function AddSupplierModal({
               className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
             >
               {saving ? "Saving..." : "Create Supplier"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Issue #692: per-row Edit modal. Form fields cover the writable
+// supplier columns (name, contactPerson, phone, email, address,
+// gstNumber, paymentTerms, isActive). Submit PATCHes /suppliers/:id —
+// the API path was already wired; the bug was the missing FE
+// affordance.
+function EditSupplierModal({
+  supplier,
+  onClose,
+  onSaved,
+}: {
+  supplier: SupplierRecord;
+  onClose: () => void;
+  onSaved: (s: SupplierRecord) => void;
+}) {
+  const [form, setForm] = useState({
+    name: supplier.name,
+    contactPerson: supplier.contactPerson || "",
+    phone: supplier.phone || "",
+    email: supplier.email || "",
+    address: supplier.address || "",
+    gstNumber: supplier.gstNumber || "",
+    paymentTerms: supplier.paymentTerms || "",
+    isActive: supplier.isActive,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!form.name.trim()) {
+      setError("Name is required");
+      return;
+    }
+    setSaving(true);
+    try {
+      // Send the full set of editable fields. We pass empty strings as
+      // empty strings (not undefined) so a previously-set field can be
+      // explicitly cleared by leaving the input blank — matching the
+      // server's tolerance of empty optional strings.
+      const body: Record<string, unknown> = {
+        name: form.name,
+        contactPerson: form.contactPerson || undefined,
+        phone: form.phone || undefined,
+        email: form.email || undefined,
+        address: form.address || undefined,
+        gstNumber: form.gstNumber || undefined,
+        paymentTerms: form.paymentTerms || undefined,
+        isActive: form.isActive,
+      };
+      const res = await api.patch<{ data: SupplierRecord }>(
+        `/suppliers/${supplier.id}`,
+        body
+      );
+      toast.success("Supplier updated");
+      onSaved(res.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save");
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="edit-supplier-title"
+      data-testid="supplier-edit-modal"
+    >
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 id="edit-supplier-title" className="text-lg font-bold">
+            Edit Supplier
+          </h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X size={20} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} noValidate className="space-y-3">
+          <div>
+            <label htmlFor="edit-supplier-name" className="mb-1 block text-sm font-medium">
+              Name *
+            </label>
+            <input
+              id="edit-supplier-name"
+              data-testid="edit-supplier-name"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              className="w-full rounded-lg border px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label htmlFor="edit-supplier-contact-person" className="mb-1 block text-sm font-medium">
+              Contact Person
+            </label>
+            <input
+              id="edit-supplier-contact-person"
+              value={form.contactPerson}
+              onChange={(e) => setForm({ ...form, contactPerson: e.target.value })}
+              className="w-full rounded-lg border px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="edit-supplier-phone" className="mb-1 block text-sm font-medium">
+                Phone
+              </label>
+              <input
+                id="edit-supplier-phone"
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label htmlFor="edit-supplier-email" className="mb-1 block text-sm font-medium">
+                Email
+              </label>
+              <input
+                id="edit-supplier-email"
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+          <div>
+            <label htmlFor="edit-supplier-address" className="mb-1 block text-sm font-medium">
+              Address
+            </label>
+            <textarea
+              id="edit-supplier-address"
+              rows={2}
+              value={form.address}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
+              className="w-full rounded-lg border px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="edit-supplier-gst" className="mb-1 block text-sm font-medium">
+                GST Number
+              </label>
+              <input
+                id="edit-supplier-gst"
+                value={form.gstNumber}
+                onChange={(e) => setForm({ ...form, gstNumber: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 font-mono text-sm"
+              />
+            </div>
+            <div>
+              <label htmlFor="edit-supplier-payment-terms" className="mb-1 block text-sm font-medium">
+                Payment Terms
+              </label>
+              <input
+                id="edit-supplier-payment-terms"
+                placeholder="Net 30, Net 60..."
+                value={form.paymentTerms}
+                onChange={(e) => setForm({ ...form, paymentTerms: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.isActive}
+                onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
+                data-testid="edit-supplier-active"
+                className="rounded"
+              />
+              <span>
+                Active{" "}
+                <span className="text-xs text-gray-500">
+                  (uncheck to hide from default list)
+                </span>
+              </span>
+            </label>
+          </div>
+
+          {error && (
+            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+              {error}
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              data-testid="edit-supplier-save"
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save Changes"}
             </button>
           </div>
         </form>

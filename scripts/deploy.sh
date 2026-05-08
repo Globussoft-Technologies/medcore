@@ -234,6 +234,23 @@ else
     echo "  WARN — pharmacy seed failed (non-fatal). Investigate offline."
 fi
 
+# Issue #46: pediatric immunization rows seeded long ago show "9+ years
+# overdue" on the dashboard because their nextDueDate was anchored to
+# DOB + UIP age offset, which slid into the deep past as the demo aged.
+# fix-stale-immunizations.ts walks every PENDING row whose nextDueDate is
+# >365d old and either RECOMPUTEs to a 7-60d overdue window (kids) or
+# marks it MISSED (adults — too late for a pediatric vaccine). The script
+# is idempotent (only touches rows that ARE >365d stale) and dry-run-safe
+# by default; we pass --apply here. As with the pharmacy seed, failures
+# MUST NOT block the deploy — the overdue dashboard cosmetic is
+# non-critical relative to API/Web smoke checks above.
+echo "=== 8c. Re-clamping stale immunization due-dates (Issue #46) ==="
+if DATABASE_URL="$DB_URL" npx tsx scripts/fix-stale-immunizations.ts --apply; then
+    echo "  OK — stale immunization rows re-clamped."
+else
+    echo "  WARN — fix-stale-immunizations failed (non-fatal). Investigate offline."
+fi
+
 echo "=== Deployment complete (previous SHA recorded at /tmp/medcore-prev-sha) ==="
 
 # Optional: re-seed (destructive — triple-guarded; see env var below).

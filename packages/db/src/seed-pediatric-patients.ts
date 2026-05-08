@@ -337,6 +337,17 @@ async function main() {
 
         // Skip pediatric-newborn for older kids if already past
         const daysAgoGiven = Math.max(1, p.ageDays - v.ageMonths * 30 - randomInt(0, 10));
+
+        // Issue #46: nextDueDate used to be `addDays(dob, next.ageMonths * 30)` —
+        // for older kids (e.g. 9.5y Saanvi Joshi), that landed years in the past
+        // and the dashboard showed "DPT 3375 days overdue". Now we anchor to
+        // DOB+UIP offset only when it falls within the next 180 days; otherwise
+        // we either skip the next-due (the dose was already missed and is too
+        // far in the past to be plausible) OR clamp it to a realistic 7-60 day
+        // overdue window using a deterministic offset derived from the seed
+        // index so the demo is reproducible run-over-run. See also
+        // scripts/fix-stale-immunizations.ts which does the same correction
+        // on data already in the DB.
         const nextDue = (() => {
           // find next vaccine of same line
           const next = VACCINE_SCHEDULE.find(
@@ -344,8 +355,21 @@ async function main() {
           );
           if (!next) return null;
           const daysFromDob = next.ageMonths * 30;
-          const dueDate = addDays(dob, daysFromDob);
-          return dueDate;
+          const anchoredDueDate = addDays(dob, daysFromDob);
+          const daysOld = Math.floor(
+            (Date.now() - anchoredDueDate.getTime()) / 86_400_000,
+          );
+          // Anchor falls within "soon" (next 180d) or only mildly overdue (≤60d) — use it.
+          if (daysOld <= 60) return anchoredDueDate;
+          // For "up-to-date" kids: don't show stale pending entries.
+          if (isUpToDate) return null;
+          // For "overdue" kids: only show every 3rd stale-anchored vaccine,
+          // and clamp it to a 7-60d overdue window. Deterministic via index
+          // so re-seeding produces the same demo state.
+          const seed = (i * 31 + v.ageMonths * 7 + v.doseNumber) >>> 0;
+          if (seed % 3 !== 0) return null;
+          const overdueDays = 7 + (seed % 54); // 7..60d
+          return new Date(Date.now() - overdueDays * 86_400_000);
         })();
 
         await prisma.immunization.create({

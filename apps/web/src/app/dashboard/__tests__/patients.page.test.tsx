@@ -69,8 +69,9 @@ describe("PatientsPage", () => {
         screen.getByRole("heading", { name: /^patients$/i })
       ).toBeInTheDocument()
     );
-    // subtitle is "Patient registry" in en / "मरीज़ रजिस्ट्री" in hi — match the digit instead
-    expect(screen.getAllByText(/0/).length).toBeGreaterThan(0);
+    // Issue #590: empty state no longer shows "0 Patient registry" — the
+    // count is suppressed until total > 0. Assert the static subtitle.
+    expect(screen.getByText(/patient registry/i)).toBeInTheDocument();
   });
 
   it("renders a populated patient list", async () => {

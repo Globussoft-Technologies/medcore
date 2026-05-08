@@ -208,6 +208,22 @@ export default function PatientsPage() {
         toast.error(Object.values(fields)[0] || "Failed to register patient");
         return;
       }
+      // Issue #547: a generic "Forbidden" toast leaves the user clueless
+      // about why the action failed. The Register Patient form is visible
+      // to several roles (RECEPTION + ADMIN allowlist on the API) but the
+      // sidebar+chrome render the button to anyone who reaches the page,
+      // so a stray 403 is reachable. Translate the generic "Forbidden"
+      // (or any 403 status) into something actionable.
+      const status =
+        err && typeof err === "object" && "status" in err
+          ? (err as { status?: number }).status
+          : undefined;
+      if (status === 403) {
+        toast.error(
+          "Your role doesn't have permission to register patients. Please contact an administrator.",
+        );
+        return;
+      }
       toast.error(err instanceof Error ? err.message : "Failed to register patient");
     }
   }

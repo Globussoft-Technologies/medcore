@@ -30,20 +30,43 @@ router.use(authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR));
 
 // ─── Helpers ───────────────────────────────────────
 
+// Issue #48 (2026-05-09): the admin-console's Today-Snapshot widget sends
+// IST-anchored ISO bounds (e.g. `2026-05-08T18:30:00.000Z` for IST midnight
+// on the 9th). The previous implementation parsed those into Date objects
+// and then immediately stomped them back to server-local-midnight via
+// `from.setHours(0,0,0,0)` — which on a UTC host collapsed the window onto
+// the UTC day, missing every patient registered between 18:30 IST and
+// midnight IST. Symptom: `Registered: 0` at any time of day on a UTC-host
+// deployment despite real registrations.
+//
+// Fix: honour explicit ISO bounds as-given (the client has already done
+// the IST math; see admin-console/page.tsx::localTodayBounds()). Only the
+// default fallback (no `from`/`to` query params) rounds — and that
+// rounding now uses IST so dashboard "last 30 days" without explicit
+// bounds is also IST-aware. Mirrors the canonical pattern in
+// visitors-stats.ts::istTodayBounds().
+const IST_OFFSET_MIN = 5 * 60 + 30; // +05:30
+function istMidnightUtc(daysOffset: number): Date {
+  const now = new Date();
+  const istNow = new Date(now.getTime() + IST_OFFSET_MIN * 60_000);
+  const y = istNow.getUTCFullYear();
+  const m = istNow.getUTCMonth();
+  const d = istNow.getUTCDate() + daysOffset;
+  return new Date(Date.UTC(y, m, d, 0, 0, 0, 0) - IST_OFFSET_MIN * 60_000);
+}
+
 function parseRange(req: Request): { from: Date; to: Date } {
   const fromStr = req.query.from as string | undefined;
   const toStr = req.query.to as string | undefined;
 
-  const now = new Date();
-  const defaultFrom = new Date(now);
-  defaultFrom.setDate(defaultFrom.getDate() - 30);
-  defaultFrom.setHours(0, 0, 0, 0);
+  // Defaults: last 30 IST-days through end-of-today-IST. Used only when the
+  // caller did not pass explicit bounds (e.g. CSV exports invoked without
+  // params). Explicit bounds are passed through verbatim below.
+  const defaultFrom = istMidnightUtc(-30);
+  const defaultTo = new Date(istMidnightUtc(1).getTime() - 1); // 23:59:59.999 IST today
 
   const from = fromStr ? new Date(fromStr) : defaultFrom;
-  from.setHours(0, 0, 0, 0);
-
-  const to = toStr ? new Date(toStr) : now;
-  to.setHours(23, 59, 59, 999);
+  const to = toStr ? new Date(toStr) : defaultTo;
 
   return { from, to };
 }

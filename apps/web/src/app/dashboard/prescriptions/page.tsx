@@ -466,6 +466,36 @@ export default function PrescriptionsPage() {
     setFormErrors(errs);
     if (Object.keys(errs).length > 0) {
       toast.warning("Please fix the highlighted fields");
+      // Issue #543: previously the toast was the only UX cue when validation
+      // failed; the inline red text was easy to miss when the form scrolled
+      // off-screen and the Save button stayed visible. Find the FIRST field
+      // with an error and scroll-into-view + focus it so the user always
+      // knows where to look.
+      if (typeof window !== "undefined") {
+        const order = ["patientId", "appointmentId", "diagnosis", "medicines", "followUpDate"];
+        const firstWithError = order.find((k) => errs[k]);
+        // Map the validation key onto a stable input id/testid in the DOM.
+        const targetSelector: Record<string, string> = {
+          patientId: '[data-testid="rx-patient-picker"] input, [data-testid="rx-patient-picker"]',
+          appointmentId: '[data-testid="rx-appointment-picker-hint"], [data-testid="error-rx-appointment"]',
+          diagnosis: '[data-testid="rx-diagnosis"] input, #rx-diagnosis',
+          medicines: '[data-testid="rx-medicines"] input, [placeholder="Medicine name"]',
+          followUpDate: "#rx-followup-date",
+        };
+        if (firstWithError) {
+          const sel = targetSelector[firstWithError];
+          if (sel) {
+            const el =
+              (document.querySelector(sel) as HTMLElement | null) ?? null;
+            if (el) {
+              el.scrollIntoView({ behavior: "smooth", block: "center" });
+              if (typeof (el as HTMLInputElement).focus === "function") {
+                (el as HTMLInputElement).focus();
+              }
+            }
+          }
+        }
+      }
       return;
     }
     // Preview interaction check before saving

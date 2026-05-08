@@ -299,10 +299,26 @@ export default function LabPage() {
               data-testid="lab-orders-empty-state"
             >
               <Inbox size={28} className="text-gray-400" aria-hidden="true" />
-              <p className="text-sm font-medium">No lab orders yet</p>
-              <p className="text-xs text-gray-400 dark:text-gray-500">
-                Orders placed by doctors will appear here.
+              {/* Issue #625: when STAT-only is on, distinguish "no STAT orders right now"
+                  from "no orders at all" so the user understands non-STAT orders aren't
+                  missing — they're hidden by the active filter. */}
+              <p className="text-sm font-medium">
+                {statOnly ? "No STAT orders match this filter" : "No lab orders yet"}
               </p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                {statOnly
+                  ? "Turn off STAT Only to see all current orders."
+                  : "Orders placed by doctors will appear here."}
+              </p>
+              {statOnly && (
+                <button
+                  type="button"
+                  onClick={() => setStatOnly(false)}
+                  className="mt-2 rounded-lg border border-gray-300 px-3 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  Clear STAT filter
+                </button>
+              )}
             </div>
           ) : (
             <table className="w-full">

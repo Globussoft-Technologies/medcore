@@ -126,7 +126,34 @@ export default function LabOrderPage({
   if (loading)
     return <div className="p-8 text-center text-gray-500">Loading...</div>;
   if (!order)
-    return <div className="p-8 text-center text-gray-500">Order not found.</div>;
+    // Issue #627: previously rendered a single muted line with no escape
+    // route. Add an explicit Back link and contact pointer so a stray
+    // bookmark or stale link doesn't strand the user.
+    return (
+      <div className="mx-auto max-w-md p-8 text-center">
+        <p className="text-lg font-semibold text-gray-800 dark:text-gray-100">
+          Order not found
+        </p>
+        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+          The lab order you're looking for doesn't exist or was removed.
+        </p>
+        <div className="mt-5 flex items-center justify-center gap-3">
+          <Link
+            href="/dashboard/lab"
+            className="inline-flex items-center gap-1 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+          >
+            <ArrowLeft size={16} aria-hidden="true" /> Back to Lab Orders
+          </Link>
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+          >
+            Go back
+          </button>
+        </div>
+      </div>
+    );
 
   const allItemsHaveResults = order.items.every(
     (i) => i.results && i.results.length > 0
@@ -297,6 +324,16 @@ function OrderItemCard({
     // HTML5 min/max attrs that were dropped under A4.
     if (isNumericTest) {
       const num = parseFloat(form.value.trim());
+      // Issue #638: even when the test has no panicLow/panicHigh range,
+      // values like `1e308` or `99999999999999` are clinically impossible
+      // and likely paste accidents. Cap at ±1e9 (one billion in any unit
+      // — vastly above every real lab analyte) to catch overflow.
+      if (!Number.isFinite(num) || Math.abs(num) > 1_000_000_000) {
+        setValueError(
+          "Value is outside the supported numeric range (±1e9). Re-check the entry.",
+        );
+        return;
+      }
       if (
         typeof item.test.panicLow === "number" &&
         num < item.test.panicLow
@@ -312,13 +349,22 @@ function OrderItemCard({
         return;
       }
     }
+    // Issue #640: a Unit field that's only whitespace would be sent as a
+    // truthy string (`"   "`) and fail server-side with a generic schema
+    // error, leaving the user without a unit-specific hint. Strip whitespace
+    // and surface a unit-specific error here when the user typed only spaces.
+    const trimmedUnit = form.unit.trim();
+    if (form.unit && !trimmedUnit) {
+      toast.error("Unit cannot be only whitespace. Leave blank or enter a real unit.");
+      return;
+    }
     setValueError(null);
     try {
       await api.post("/lab/results", {
         orderItemId: item.id,
         parameter: form.parameter,
         value: form.value,
-        unit: form.unit || undefined,
+        unit: trimmedUnit || undefined,
         normalRange: form.normalRange || undefined,
         flag: form.flag,
         notes: form.notes || undefined,

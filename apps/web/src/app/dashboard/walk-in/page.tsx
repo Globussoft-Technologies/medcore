@@ -261,22 +261,47 @@ export default function WalkInPage() {
         <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
           {/* Step 1: Select Doctor */}
           <div className="mb-6">
-            <label className="mb-2 block font-medium">1. Select Doctor</label>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              {doctors.map((d) => (
-                <button
-                  key={d.id}
-                  onClick={() => setSelectedDoctor(d.id)}
-                  className={`rounded-lg border-2 p-3 text-left text-sm text-gray-900 transition dark:text-gray-100 ${
-                    selectedDoctor === d.id
-                      ? "border-primary bg-blue-50 dark:border-blue-400 dark:bg-blue-900/30"
-                      : "border-gray-200 hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-500"
-                  }`}
-                >
-                  <p className="font-medium">{d.user.name}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{d.specialization}</p>
-                </button>
-              ))}
+            <label className="mb-2 block font-medium" id="walkin-doctor-label">
+              1. Select Doctor
+            </label>
+            <div
+              className="grid grid-cols-1 gap-2 sm:grid-cols-3"
+              role="radiogroup"
+              aria-labelledby="walkin-doctor-label"
+            >
+              {doctors.map((d) => {
+                const isSelected = selectedDoctor === d.id;
+                // Issue #570: explicit selected affordance — coloured ring,
+                // a checkmark, and `aria-pressed`/`aria-selected` so SR users
+                // and keyboard navigators can confirm which card is active.
+                return (
+                  <button
+                    key={d.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={isSelected}
+                    aria-pressed={isSelected}
+                    data-selected={isSelected ? "true" : "false"}
+                    onClick={() => setSelectedDoctor(d.id)}
+                    className={`relative rounded-lg border-2 p-3 text-left text-sm text-gray-900 transition focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 dark:text-gray-100 ${
+                      isSelected
+                        ? "border-primary bg-blue-50 ring-2 ring-primary/40 dark:border-blue-400 dark:bg-blue-900/30"
+                        : "border-gray-200 hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-500"
+                    }`}
+                  >
+                    {isSelected && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute right-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-white"
+                      >
+                        ✓
+                      </span>
+                    )}
+                    <p className="font-medium">{d.user.name}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{d.specialization}</p>
+                  </button>
+                );
+              })}
             </div>
           </div>
 

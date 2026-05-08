@@ -16,6 +16,11 @@
 // once and re-authenticate — clean break, no half-state.
 import { create } from "zustand";
 import { api } from "./api";
+import {
+  broadcastAuthChanged,
+  broadcastAuthCleared,
+  onAuthBroadcast,
+} from "./auth-broadcast";
 
 interface User {
   id: string;
@@ -107,6 +112,54 @@ if (typeof window !== "undefined") {
   clearPersistedAuth();
 }
 
+// Cross-tab cookie-swap defence (#524 / #538 / #540 / #564 / #567 / #584):
+// subscribe at module init so that ANY tab of the same origin that posts
+// an auth change will trigger an immediate re-hydration here. The
+// post-hydration role/userId-clobber checks in refreshUser/loadSession
+// already handle the actual identity-mismatch decision (clear + redirect
+// to /login?reason=...); this subscription just kicks them off in
+// real-time instead of waiting for the next user-driven /me probe.
+if (typeof window !== "undefined") {
+  onAuthBroadcast((msg) => {
+    const current = useAuthStore.getState().user;
+    if (msg.kind === "auth-cleared") {
+      // Another tab just signed out. If we still hold a user, our
+      // cookies are about to be invalidated server-side (or already
+      // are); force a re-probe so refreshUser's userId-clobber check
+      // fires and we redirect to /login cleanly. If no user is set,
+      // nothing to do.
+      if (current) {
+        void useAuthStore.getState().refreshUser();
+      }
+      return;
+    }
+    if (msg.kind === "auth-changed") {
+      // Another tab just logged in. If our cached user differs from the
+      // newly-broadcast user, the cookie has been swapped underneath us
+      // and we must NOT keep rendering as the previous principal.
+      // Trigger refreshUser; the userId-clobber branch (lib/store.ts
+      // userId-clobber check) will see current.id !== res.data.id and
+      // redirect to /login?reason=session_mismatch. If our cached user
+      // matches the broadcast, nothing to do (we're the same tab user
+      // or a same-user re-login).
+      if (current && current.id !== msg.userId) {
+        if (typeof window !== "undefined") {
+          window.location.replace("/login?reason=cross_tab_session_change");
+        }
+        return;
+      }
+      // No cached user, or same user — passive re-poll keeps state
+      // fresh (e.g. role change after a permission edit in another
+      // tab) without forcing a redirect.
+      if (current && current.id === msg.userId && current.role !== msg.role) {
+        // Role-clobber path; refreshUser will detect and redirect via
+        // its existing role-clobber branch.
+        void useAuthStore.getState().refreshUser();
+      }
+    }
+  });
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   token: null,
@@ -175,6 +228,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { user } = data as { user: User };
     // Issue #477: token is a sentinel; the real one is on the cookie.
     set({ user, token: COOKIE_TOKEN_SENTINEL, isLoading: false });
+    // Cross-tab cookie-swap defence (#524 cluster): tell every other
+    // tab of the same origin that the cookie just got rewritten under
+    // them. They'll force-rehydrate if their cached userId doesn't
+    // match this one.
+    broadcastAuthChanged(user.id, user.role);
     return {};
   },
 
@@ -204,6 +262,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { user } = res.data;
     // Issue #477: token sentinel only — server set the real cookie.
     set({ user, token: COOKIE_TOKEN_SENTINEL, isLoading: false });
+    // Cross-tab cookie-swap defence (#524 cluster): same as login() —
+    // 2FA-completion is a fresh login from the cookie's perspective.
+    broadcastAuthChanged(user.id, user.role);
   },
 
   refreshUser: async () => {
@@ -258,6 +319,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       ) {
         clearPersistedAuth();
         set({ user: null, token: null });
+        // Cross-tab cookie-swap defence (#524 cluster): if WE detected
+        // the swap first, alert the other tabs so they re-hydrate too
+        // rather than waiting for their own next /me probe.
+        broadcastAuthChanged(res.data.id, res.data.role);
         if (typeof window !== "undefined") {
           window.location.replace("/login?reason=session_mismatch");
         }
@@ -286,6 +351,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       token: null,
       loginGeneration: s.loginGeneration + 1,
     }));
+    // Cross-tab cookie-swap defence (#524 cluster): tell every other
+    // tab the cookies are about to be cleared so they don't continue
+    // rendering authenticated UI against a now-dead session.
+    broadcastAuthCleared();
     try {
       await api.post("/auth/logout", undefined, { skip401Redirect: true });
     } catch {

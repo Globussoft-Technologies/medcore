@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
+import { onAuthBroadcast } from "@/lib/auth-broadcast";
 import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { DialogProvider } from "@/lib/use-dialog";
@@ -377,6 +378,49 @@ export default function DashboardLayout({
   useEffect(() => {
     loadSession();
   }, [loadSession]);
+
+  // Cross-tab cookie-swap defence (#524 / #538 / #540 / #564 / #567 / #584).
+  // Belt-and-suspenders companion to the module-init subscription in
+  // `lib/store.ts`. When this layout is mounted (i.e. the user has an
+  // authenticated dashboard tab open), we ALSO subscribe directly to
+  // `medcore-auth` broadcast events here so that the layout can force
+  // a re-poll of /auth/me the instant a sibling tab posts an
+  // identity-change event — without waiting for any user-initiated
+  // navigation. The mismatch handling itself (redirect to /login)
+  // lives in the store's role/userId-clobber branches; this hook just
+  // ensures the probe fires immediately.
+  useEffect(() => {
+    const unsub = onAuthBroadcast((msg) => {
+      const current = useAuthStore.getState().user;
+      if (msg.kind === "auth-cleared") {
+        if (current) {
+          // Force-refresh; if the cookie is dead the userId-clobber
+          // branch in store.refreshUser will redirect us to /login.
+          void useAuthStore.getState().refreshUser();
+        }
+        return;
+      }
+      // auth-changed: if our cached principal differs from the new
+      // broadcast principal, the cookie has been swapped under us —
+      // hard-redirect to /login with the cross_tab_session_change
+      // reason so the user sees an explicit "you were logged in on
+      // another tab" message instead of silently re-hydrating.
+      if (current && current.id !== msg.userId) {
+        if (typeof window !== "undefined") {
+          window.location.replace(
+            "/login?reason=cross_tab_session_change",
+          );
+        }
+        return;
+      }
+      // Same user but role has changed (e.g. permission edit in
+      // another tab) — refreshUser will detect via role-clobber.
+      if (current && current.id === msg.userId && current.role !== msg.role) {
+        void useAuthStore.getState().refreshUser();
+      }
+    });
+    return unsub;
+  }, []);
 
   // TODO.md #4 — WebKit auth-redirect residue (v2).
   //

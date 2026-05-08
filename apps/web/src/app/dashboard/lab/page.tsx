@@ -263,18 +263,31 @@ export default function LabPage() {
                       className="rounded-lg border border-gray-200 p-3 dark:border-gray-700"
                     >
                       <p className="font-medium">{t.name}</p>
-                      {t.normalRange && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {/* Issue #230: extension of #147 — only append the
-                              unit when the range string doesn't already
-                              contain it. Prevents "0.4-4.0 mIU/L mIU/L". */}
-                          Normal: {t.normalRange}
-                          {t.unit &&
-                          !t.normalRange.toLowerCase().includes(t.unit.toLowerCase())
-                            ? ` ${t.unit}`
-                            : ""}
-                        </p>
-                      )}
+                      {/* Issue #631 (2026-05-05): tests without a numeric range
+                          previously rendered NO Normal line at all, making the
+                          tile look like missing data. Always render the line —
+                          show the range when present, "Qualitative" otherwise
+                          (covers imaging like Echo/ECG/X-Ray, qualitative
+                          serology like HIV/Dengue/Widal, and microscopy where
+                          the result is a structured report rather than a
+                          number). */}
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {/* Issue #230: extension of #147 — only append the
+                            unit when the range string doesn't already
+                            contain it. Prevents "0.4-4.0 mIU/L mIU/L". */}
+                        Normal:{" "}
+                        {t.normalRange ? (
+                          <>
+                            {t.normalRange}
+                            {t.unit &&
+                            !t.normalRange.toLowerCase().includes(t.unit.toLowerCase())
+                              ? ` ${t.unit}`
+                              : ""}
+                          </>
+                        ) : (
+                          <span className="italic">Qualitative</span>
+                        )}
+                      </p>
                       {t.price !== undefined && (
                         // Issue #403: canonical INR format ("₹1,200.00") via
                         // shared formatINR — was bare "₹1200" before.

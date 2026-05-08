@@ -601,18 +601,27 @@ function NewOrderModal({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedPatient) {
-      toast.error("Select a patient");
-      return;
-    }
-    if (selectedTests.length === 0) {
-      toast.error("Select at least one test");
+    // Issue #545: "Create Order" with empty fields previously emitted a toast
+    // and exited silently — receptionists in noisy environments missed the
+    // toast and assumed the form was broken. Now we ALSO set inline
+    // `fieldErrors` keyed to the same `[data-testid="error-lab-*"]` elements
+    // already present in the form, so the user sees a per-field error in
+    // the modal itself and the toast is just a secondary confirmation.
+    const localErrors: FieldErrorMap = {};
+    if (!selectedPatient) localErrors.patientId = "Select a patient";
+    if (selectedTests.length === 0)
+      localErrors.testIds = "Select at least one test";
+    if (Object.keys(localErrors).length > 0) {
+      setFieldErrors(localErrors);
+      toast.error(
+        Object.values(localErrors)[0] || "Please fix the highlighted fields"
+      );
       return;
     }
     setFieldErrors({});
     try {
       await api.post("/lab/orders", {
-        patientId: selectedPatient.id,
+        patientId: selectedPatient!.id,
         testIds: selectedTests,
         notes: notes || undefined,
         priority,

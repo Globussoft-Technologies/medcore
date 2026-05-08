@@ -215,27 +215,91 @@ describe("paymentPlanSchema", () => {
 });
 
 describe("preAuthRequestSchema", () => {
+  const validBase = {
+    patientId: UUID,
+    insuranceProvider: "Star Health",
+    policyNumber: "POL-001234",
+    procedureName: "Knee replacement",
+    estimatedCost: 200000,
+  };
+
   it("accepts a valid pre-auth request", () => {
-    expect(
-      preAuthRequestSchema.safeParse({
-        patientId: UUID,
-        insuranceProvider: "Star Health",
-        policyNumber: "POL-1",
-        procedureName: "Knee replacement",
-        estimatedCost: 200000,
-      }).success
-    ).toBe(true);
+    expect(preAuthRequestSchema.safeParse(validBase).success).toBe(true);
   });
+
   it("rejects non-positive estimatedCost", () => {
     expect(
+      preAuthRequestSchema.safeParse({ ...validBase, estimatedCost: 0 }).success
+    ).toBe(false);
+  });
+
+  // Issue #578 — concern #1 (overflow): cap at Rs 10 crore so 1e15 / 1e10
+  // values can't reach the DB and corrupt downstream claim batches.
+  it("#578 rejects estimatedCost above the Rs 10 crore ceiling (1e15 overflow)", () => {
+    expect(
+      preAuthRequestSchema.safeParse({ ...validBase, estimatedCost: 1e15 }).success
+    ).toBe(false);
+    expect(
+      preAuthRequestSchema.safeParse({ ...validBase, estimatedCost: 10_000_001 }).success
+    ).toBe(false);
+    // Boundary: exactly 1 crore (10_000_000) is allowed.
+    expect(
+      preAuthRequestSchema.safeParse({ ...validBase, estimatedCost: 10_000_000 }).success
+    ).toBe(true);
+  });
+
+  // Issue #578 — concern #4 (policy number format): blocks SQLi payloads,
+  // empty-after-trim, and over-long inputs.
+  it("#578 rejects policyNumber that is too short, too long, or contains unsafe characters", () => {
+    expect(
+      preAuthRequestSchema.safeParse({ ...validBase, policyNumber: "AB" }).success
+    ).toBe(false); // < 3 chars
+    expect(
       preAuthRequestSchema.safeParse({
-        patientId: UUID,
-        insuranceProvider: "Star Health",
-        policyNumber: "POL-1",
-        procedureName: "Knee replacement",
-        estimatedCost: 0,
+        ...validBase,
+        policyNumber: "A".repeat(41),
+      }).success
+    ).toBe(false); // > 40 chars
+    expect(
+      preAuthRequestSchema.safeParse({
+        ...validBase,
+        policyNumber: "POL-1' OR 1=1--",
+      }).success
+    ).toBe(false); // SQLi payload (quotes / equals)
+    expect(
+      preAuthRequestSchema.safeParse({
+        ...validBase,
+        policyNumber: "<script>",
       }).success
     ).toBe(false);
+    expect(
+      preAuthRequestSchema.safeParse({ ...validBase, policyNumber: "POL/2026-001234" })
+        .success
+    ).toBe(true); // common format with slash + hyphen
+  });
+
+  // Issue #578 — concern #2 (diagnosis format): rejects 1-3 char gibberish
+  // when not an ICD-10 code; accepts both an ICD-10 code and a real clinical
+  // description.
+  it("#578 rejects junk diagnosis but accepts ICD-10 codes and prose >= 4 chars", () => {
+    expect(
+      preAuthRequestSchema.safeParse({ ...validBase, diagnosis: "abc" }).success
+    ).toBe(false); // 3-char gibberish
+    expect(
+      preAuthRequestSchema.safeParse({ ...validBase, diagnosis: "E11.9" }).success
+    ).toBe(true); // canonical ICD-10
+    expect(
+      preAuthRequestSchema.safeParse({ ...validBase, diagnosis: "S72.001A" }).success
+    ).toBe(true); // ICD-10 with extension
+    expect(
+      preAuthRequestSchema.safeParse({
+        ...validBase,
+        diagnosis: "Acute appendicitis with peritonitis",
+      }).success
+    ).toBe(true); // clinical prose
+    expect(
+      preAuthRequestSchema.safeParse({ ...validBase, diagnosis: undefined }).success
+    ).toBe(true); // optional
   });
 });
 

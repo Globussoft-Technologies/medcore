@@ -608,24 +608,74 @@ export const installmentPaymentSchema = z.object({
 // FE toast. Pin a clear, user-facing message and keep the strict > 0 floor
 // so that zero / negative values (which would corrupt downstream insurance
 // claim batches) cannot be persisted.
+//
+// Issue #578 (2026-05-08): the modal previously also accepted absurd amounts
+// (e.g. `1e15`), free-text diagnosis garbage like "abcde", and policy IDs of
+// any length / shape (incl. SQL-injection payloads). Tighten:
+//   - estimatedCost capped at PREAUTH_MAX_AMOUNT (Rs 10 crore = 1e7) — covers
+//     any realistic single-procedure pre-auth in the Indian market while
+//     blocking float-overflow / display-corrupting inputs.
+//   - diagnosis (when provided) must match ICD-10 shape (letter + 2 digits,
+//     optional .digits, optional trailing alpha) OR a free-text clinical
+//     summary of >= 4 chars. The strict ICD-10 lookup is deferred (#578.C2);
+//     the format guard at least rejects pure-junk like "abcde" or "$#@!".
+//   - policyNumber: 3-40 chars, alnum + hyphen + slash + space only. Long
+//     enough for IRDA member-IDs (typically 12-18 chars) but tight enough to
+//     reject SQLi payloads and overflow attempts.
+export const PREAUTH_MAX_AMOUNT = 10_000_000; // Rs 10 crore single pre-auth ceiling
+
+// ICD-10 canonical shape: 1 letter (A-Z, case-insensitive accepted), 2 digits,
+// optional .[1-4 alnum] suffix. Matches "I10", "E11.9", "S72.001A". We accept
+// either a recognisable code OR a >= 4-char clinical narrative — clinicians
+// frequently dictate prose ("Acute appendicitis with peritonitis") while
+// claims teams enter the code. Pure-junk strings of < 4 chars or matching
+// neither shape are rejected.
+const ICD10_REGEX = /^[A-Za-z]\d{2}(?:\.\d{1,4}[A-Za-z]?)?$/;
+const POLICY_NUMBER_REGEX = /^[A-Za-z0-9][A-Za-z0-9 \-/]{1,38}[A-Za-z0-9]$/;
+
 export const preAuthRequestSchema = z.object({
   patientId: z.string().uuid(),
-  insuranceProvider: z.string().min(1),
-  policyNumber: z.string().min(1),
-  procedureName: z.string().min(1),
-  estimatedCost: z.number().positive("Estimated cost must be greater than 0"),
-  diagnosis: z.string().optional(),
-  supportingDocs: z.array(z.string()).optional(),
-  notes: z.string().optional(),
+  insuranceProvider: z.string().min(2, "Insurance provider is required").max(120),
+  policyNumber: z
+    .string()
+    .min(3, "Policy number must be at least 3 characters")
+    .max(40, "Policy number must be at most 40 characters")
+    .regex(
+      POLICY_NUMBER_REGEX,
+      "Policy number may contain letters, digits, hyphens, slashes and spaces only",
+    ),
+  procedureName: z.string().min(1).max(200),
+  estimatedCost: z
+    .number()
+    .positive("Estimated cost must be greater than 0")
+    .max(
+      PREAUTH_MAX_AMOUNT,
+      `Estimated cost must not exceed Rs ${PREAUTH_MAX_AMOUNT.toLocaleString("en-IN")}`,
+    ),
+  diagnosis: z
+    .string()
+    .max(500)
+    .optional()
+    .refine(
+      (v) => v === undefined || v === "" || ICD10_REGEX.test(v) || v.trim().length >= 4,
+      "Diagnosis must be a valid ICD-10 code (e.g. E11.9) or a clinical description of at least 4 characters",
+    ),
+  supportingDocs: z.array(z.string()).max(20).optional(),
+  notes: z.string().max(2000).optional(),
 });
 
-export const updatePreAuthStatusSchema = z.object({
-  status: z.enum(["APPROVED", "REJECTED", "PARTIAL"]),
-  approvedAmount: z.number().nonnegative().optional(),
-  rejectionReason: z.string().optional(),
-  claimReferenceNumber: z.string().optional(),
-  notes: z.string().optional(),
-});
+export const updatePreAuthStatusSchema = z
+  .object({
+    status: z.enum(["APPROVED", "REJECTED", "PARTIAL"]),
+    approvedAmount: z
+      .number()
+      .nonnegative()
+      .max(PREAUTH_MAX_AMOUNT, `Approved amount must not exceed Rs ${PREAUTH_MAX_AMOUNT.toLocaleString("en-IN")}`)
+      .optional(),
+    rejectionReason: z.string().max(1000).optional(),
+    claimReferenceNumber: z.string().max(80).optional(),
+    notes: z.string().max(2000).optional(),
+  });
 
 // ─── Discount Approval ─────────────────────────────────
 export const discountApprovalSchema = z.object({

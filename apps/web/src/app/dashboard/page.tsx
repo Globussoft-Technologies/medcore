@@ -61,6 +61,11 @@ interface DashboardData {
   lowStockCount?: number;
   // Lab
   pendingLabOrders?: number;
+  // Issue #629 — LAB_TECH-specific KPIs
+  labOrdersInProgress?: number;
+  labOrdersStat?: number;
+  labOrdersCompletedToday?: number;
+  labOrdersSampleCollected?: number;
   // Blood bank
   bloodUnitsAvailable?: number;
   bloodUnitsExpiring?: number;
@@ -437,6 +442,27 @@ export default function DashboardPage() {
           : safeGet<any>(`/visitors/active`, { data: [] }),
       ]);
 
+      // Issue #629 — LAB_TECH-specific KPIs (others get a no-op so we don't
+      // pay the extra round-trips for roles that don't render the strip).
+      const [
+        labInProgress,
+        labStat,
+        labCompletedToday,
+        labSampleCollected,
+      ] = isLabTech
+        ? await Promise.all([
+            safeGet<any>(`/lab/orders?status=IN_PROGRESS&limit=1`, { meta: { total: 0 } }),
+            safeGet<any>(`/lab/orders?stat=true&limit=1`, { meta: { total: 0 } }),
+            safeGet<any>(`/lab/orders?status=COMPLETED&limit=1`, { meta: { total: 0 } }),
+            safeGet<any>(`/lab/orders?status=SAMPLE_COLLECTED&limit=1`, { meta: { total: 0 } }),
+          ])
+        : [
+            { meta: { total: 0 } },
+            { meta: { total: 0 } },
+            { meta: { total: 0 } },
+            { meta: { total: 0 } },
+          ];
+
       // Compute totals
       const totalInQueue = (queue.data ?? []).reduce(
         (sum: number, doc: any) => sum + (doc.waitingCount || 0),
@@ -472,6 +498,11 @@ export default function DashboardPage() {
         erCritical,
         lowStockCount: lowStock.meta?.total ?? 0,
         pendingLabOrders: labOrders.meta?.total ?? 0,
+        // Issue #629 — LAB_TECH-specific KPI counts
+        labOrdersInProgress: labInProgress.meta?.total ?? 0,
+        labOrdersStat: labStat.meta?.total ?? 0,
+        labOrdersCompletedToday: labCompletedToday.meta?.total ?? 0,
+        labOrdersSampleCollected: labSampleCollected.meta?.total ?? 0,
         bloodUnitsAvailable: bloodAvailable,
         bloodUnitsExpiring: bloodExpiring,
         surgeriesScheduledToday: surgeryScheduled.meta?.total ?? 0,
@@ -513,6 +544,11 @@ export default function DashboardPage() {
   const isNurse = role === "NURSE";
   const isReception = role === "RECEPTION";
   const isPatient = role === "PATIENT";
+  // Issue #629 — LAB_TECH gets a dedicated KPI strip + quick actions; the
+  // generic strip's tiles (appointments / patients / beds / ER / bills) all
+  // either link to Access-Denied pages or surface counts irrelevant to lab
+  // operations.
+  const isLabTechRole = role === "LAB_TECH";
 
   const fmt = (n?: number) => (n ?? 0).toLocaleString("en-IN");
   // Issue #298: canonical INR formatting (₹1,23,456.00) via shared helper.
@@ -577,6 +613,62 @@ export default function DashboardPage() {
         <>
           {/* Top KPI strip */}
           {isWidgetVisible(widgets, "kpi_top") && (
+          isLabTechRole ? (
+            // Issue #629 — LAB_TECH dashboard: replace the generic strip
+            // (appointments/patients/beds/ER/bills — all gated 403 for lab
+            // tech and irrelevant to lab work) with lab-operations KPIs.
+            <div
+              className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6"
+              data-testid="kpi-strip-lab-tech"
+            >
+              <StatCard
+                title="Pending Lab Orders"
+                value={fmt(data.pendingLabOrders)}
+                subtitle="awaiting collection"
+                icon={FlaskConical}
+                color="bg-primary"
+                href="/dashboard/lab?status=ORDERED"
+              />
+              <StatCard
+                title="Sample Collected"
+                value={fmt(data.labOrdersSampleCollected)}
+                subtitle="ready for analysis"
+                icon={CheckCircle2}
+                color="bg-blue-600"
+                href="/dashboard/lab?status=SAMPLE_COLLECTED"
+              />
+              <StatCard
+                title="In Progress"
+                value={fmt(data.labOrdersInProgress)}
+                icon={Activity}
+                color="bg-indigo-600"
+                href="/dashboard/lab?status=IN_PROGRESS"
+              />
+              <StatCard
+                title="STAT"
+                value={fmt(data.labOrdersStat)}
+                subtitle="urgent"
+                icon={AlertTriangle}
+                color={data.labOrdersStat ? "bg-red-600" : "bg-orange-600"}
+                href="/dashboard/lab?stat=true"
+              />
+              <StatCard
+                title="Completed Today"
+                value={fmt(data.labOrdersCompletedToday)}
+                icon={CheckCircle2}
+                color="bg-emerald-600"
+                href="/dashboard/lab?status=COMPLETED"
+              />
+              <StatCard
+                title="QC Queue"
+                value={"Open"}
+                subtitle="quality control"
+                icon={FileText}
+                color="bg-secondary"
+                href="/dashboard/lab/qc"
+              />
+            </div>
+          ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
             <StatCard
               title={t("dashboard.home.kpi.todayAppointments")}
@@ -639,6 +731,7 @@ export default function DashboardPage() {
               href="/dashboard/billing?status=PENDING"
             />
           </div>
+          )
           )}
 
           {/* Role-specific primary sections */}
@@ -917,7 +1010,7 @@ export default function DashboardPage() {
             <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-gray-100">
               Quick Actions
             </h2>
-            {!(isReception || isAdmin || isDoctor || isNurse) ? (
+            {!(isReception || isAdmin || isDoctor || isNurse || isLabTechRole) ? (
               <p
                 className="rounded-xl border border-dashed border-gray-300 bg-white p-4 text-center text-sm text-gray-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400"
                 data-testid="quick-actions-empty"
@@ -926,6 +1019,19 @@ export default function DashboardPage() {
               </p>
             ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              {/* Issue #629 — LAB_TECH quick actions: STAT queue, sample
+                  collection, result entry, test catalog. Replaces the
+                  empty-grid render that was confusing users. */}
+              {isLabTechRole && (
+                <>
+                  <QuickAction href="/dashboard/lab?stat=true" icon={AlertTriangle} label="STAT Queue" />
+                  <QuickAction href="/dashboard/lab?status=ORDERED" icon={FlaskConical} label="Collect Samples" />
+                  <QuickAction href="/dashboard/lab?status=SAMPLE_COLLECTED" icon={Activity} label="Enter Results" />
+                  <QuickAction href="/dashboard/lab?status=IN_PROGRESS" icon={Clock} label="In Progress" />
+                  <QuickAction href="/dashboard/lab?status=COMPLETED" icon={CheckCircle2} label="Completed" />
+                  <QuickAction href="/dashboard/lab/qc" icon={FileText} label="QC Queue" />
+                </>
+              )}
               {(isReception || isAdmin) && (
                 <>
                   <QuickAction href="/dashboard/walk-in" icon={Users} label="Walk-in" />

@@ -186,6 +186,26 @@ router.get(
       }
       if (status) where.status = status;
 
+      // Issue #728 — make the "Active" tab mutually exclusive with the
+      // "Overdue" tab. A plan that has any past-due, still-pending
+      // installment is considered Overdue, not Active. Without this
+      // exclusion the same plan rendered in BOTH tabs (the dashboard
+      // overdue list comes from /payment-plans/overdue, while this
+      // endpoint with status=ACTIVE used to return the same plan).
+      // The fix narrows the WHERE only when the caller explicitly
+      // asked for the Active tab; status=COMPLETED / DEFAULTED /
+      // CANCELLED stay untouched.
+      if (status === "ACTIVE") {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        where.installmentRecords = {
+          none: {
+            status: { in: ["PENDING", "OVERDUE"] },
+            dueDate: { lt: today },
+          },
+        };
+      }
+
       const plans = await prisma.paymentPlan.findMany({
         where,
         orderBy: { createdAt: "desc" },

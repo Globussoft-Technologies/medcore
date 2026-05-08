@@ -136,10 +136,33 @@ router.post(
   }
 );
 
+// Issue #755 — DOCTOR-scoping helper for visitor listings.
+// Previously, DOCTOR/NURSE got the entire-tenant visitor list with embedded
+// patient PII (name/phone/MR/address) for patients NOT under their care, a
+// trivial PII exfiltration vector for any logged-in clinician. Reception/Admin
+// remain unscoped (front-desk role-needs); a DOCTOR is now restricted to
+// visitors whose patientId is in the set of patients with an appointment for
+// that doctor (any status, any time). NURSE is dropped from the broad listing
+// endpoints — the per-patient endpoint /visitors/patient/:patientId still
+// serves their workflow when they already know which patient they are caring
+// for.
+async function visitorScopeForDoctor(
+  doctorUserId: string
+): Promise<{ patientId: { in: string[] } } | null> {
+  const appts = await prisma.appointment.findMany({
+    where: { doctorId: doctorUserId },
+    select: { patientId: true },
+    distinct: ["patientId"],
+  });
+  const ids = appts.map((a) => a.patientId);
+  if (ids.length === 0) return { patientId: { in: ["__none__"] } };
+  return { patientId: { in: ids } };
+}
+
 // GET /api/v1/visitors
 router.get(
   "/",
-  authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR, Role.NURSE),
+  authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const {
@@ -164,6 +187,12 @@ router.get(
       if (patientId) where.patientId = patientId;
       if (checkedOut === "true") where.checkOutAt = { not: null };
       else if (checkedOut === "false") where.checkOutAt = null;
+
+      // Issue #755 — DOCTOR sees only visitors of their own patients
+      if (req.user!.role === Role.DOCTOR) {
+        const scope = await visitorScopeForDoctor(req.user!.userId);
+        if (scope) Object.assign(where, scope);
+      }
 
       const [items, total] = await Promise.all([
         prisma.visitor.findMany({
@@ -195,11 +224,17 @@ router.get(
 // GET /api/v1/visitors/active
 router.get(
   "/active",
-  authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR, Role.NURSE),
-  async (_req: Request, res: Response, next: NextFunction) => {
+  authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const where: Record<string, unknown> = { checkOutAt: null };
+      // Issue #755 — DOCTOR sees only visitors of their own patients
+      if (req.user!.role === Role.DOCTOR) {
+        const scope = await visitorScopeForDoctor(req.user!.userId);
+        if (scope) Object.assign(where, scope);
+      }
       const items = await prisma.visitor.findMany({
-        where: { checkOutAt: null },
+        where,
         include: {
           patient: {
             include: { user: { select: { name: true, phone: true } } },

@@ -458,6 +458,12 @@ async function main() {
               discountAmount: discount,
               totalAmount,
               paymentStatus,
+              // Issue #572: without explicit createdAt every seeded invoice
+              // landed with @default(now()) — so the patient bills page's Age
+              // column showed "21d" (seed-run age) for every row including
+              // INV000001. Anchoring createdAt to the appointment date makes
+              // the aging gradient match the visit timeline.
+              createdAt: date,
               items: {
                 create: items.map(it => ({
                   description: it.desc,

@@ -251,8 +251,15 @@ export default function PrescriptionsPage() {
   // with ?new=1 (issue #11). Issue #439: also accept ?patientId=… so the
   // "Write Prescription" quick-action on the patient chart pre-fills the
   // form (this is the route the patient detail page links to).
+  //
+  // Issue #604: pharmacist + nurse + patient + admin opening the page with
+  // ?new=1 used to render the full New Prescription form even though the
+  // submit button is gated to DOCTOR. The form would 403 at POST. Auto-open
+  // ONLY for DOCTOR — others can read prescriptions but never see the form
+  // shell, so they don't fill clinical data they can't save.
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (user?.role !== "DOCTOR") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("new") === "1") setShowForm(true);
     const pid = params.get("patientId");
@@ -260,7 +267,27 @@ export default function PrescriptionsPage() {
       setShowForm(true);
       setForm((f) => ({ ...f, patientId: pid }));
     }
-  }, []);
+  }, [user?.role]);
+
+  // Issue #569: deep-linking to /dashboard/prescriptions?id=<uuid> (the URL
+  // shape used by the dashboard "View" tile + email/notification links) used
+  // to render the same list view with no detail surface. Auto-open the
+  // matching row's expand pane and scroll it into view as soon as the row
+  // exists in the loaded page. Works for every role that can read
+  // prescriptions — patient/doctor/nurse/pharmacist/admin.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("id");
+    if (!id) return;
+    const exists = prescriptions.some((rx) => rx.id === id);
+    if (!exists) return;
+    setExpanded(id);
+    const el = document.querySelector(`[data-testid="rx-row-${id}"]`);
+    if (el && "scrollIntoView" in el) {
+      (el as HTMLElement).scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [prescriptions]);
 
   function applyTemplate(tplId: string) {
     const tpl = templates.find((t) => t.id === tplId);
@@ -286,7 +313,13 @@ export default function PrescriptionsPage() {
       await api.post(`/prescriptions/${id}/print`, {});
       const apiBase =
         process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
-      window.open(`${apiBase}/prescriptions/${id}/pdf`, "_blank");
+      // Issue #523 (2026-05-05): Re-Print previously opened the HTML render
+      // path which surfaced as "raw, unstyled" output in some browsers when
+      // the inline <style>/CSP combo failed to apply. Prefer the real PDF
+      // buffer endpoint (`?format=pdf`) which returns `application/pdf`
+      // content the browser renders in its native PDF viewer with print
+      // layout consistent across Chrome/Firefox/Safari.
+      window.open(`${apiBase}/prescriptions/${id}/pdf?format=pdf`, "_blank");
       loadPrescriptions();
     } catch {
       /* noop */
@@ -366,6 +399,11 @@ export default function PrescriptionsPage() {
       ...medicines,
       { medicineName: "", dosage: "", frequency: "", duration: "", instructions: "" },
     ]);
+    // Issue #541: clear stale "At least one medicine is required" the moment
+    // the user adds a row.
+    if (formErrors.medicines) {
+      setFormErrors((p) => ({ ...p, medicines: "" }));
+    }
   }
 
   function removeMedicine(idx: number) {
@@ -376,6 +414,12 @@ export default function PrescriptionsPage() {
     const updated = [...medicines];
     (updated[idx] as Record<string, string>)[field] = value;
     setMedicines(updated);
+    // Issue #541: clear the medicines error as soon as any field of any row
+    // is filled — the error wording covers both "no rows" and "row missing
+    // fields"; once user is editing, the error will re-evaluate at submit.
+    if (formErrors.medicines && value.trim()) {
+      setFormErrors((p) => ({ ...p, medicines: "" }));
+    }
   }
 
   async function submitPrescription(override: boolean) {
@@ -466,6 +510,36 @@ export default function PrescriptionsPage() {
     setFormErrors(errs);
     if (Object.keys(errs).length > 0) {
       toast.warning("Please fix the highlighted fields");
+      // Issue #543: previously the toast was the only UX cue when validation
+      // failed; the inline red text was easy to miss when the form scrolled
+      // off-screen and the Save button stayed visible. Find the FIRST field
+      // with an error and scroll-into-view + focus it so the user always
+      // knows where to look.
+      if (typeof window !== "undefined") {
+        const order = ["patientId", "appointmentId", "diagnosis", "medicines", "followUpDate"];
+        const firstWithError = order.find((k) => errs[k]);
+        // Map the validation key onto a stable input id/testid in the DOM.
+        const targetSelector: Record<string, string> = {
+          patientId: '[data-testid="rx-patient-picker"] input, [data-testid="rx-patient-picker"]',
+          appointmentId: '[data-testid="rx-appointment-picker-hint"], [data-testid="error-rx-appointment"]',
+          diagnosis: '[data-testid="rx-diagnosis"] input, #rx-diagnosis',
+          medicines: '[data-testid="rx-medicines"] input, [placeholder="Medicine name"]',
+          followUpDate: "#rx-followup-date",
+        };
+        if (firstWithError) {
+          const sel = targetSelector[firstWithError];
+          if (sel) {
+            const el =
+              (document.querySelector(sel) as HTMLElement | null) ?? null;
+            if (el) {
+              el.scrollIntoView({ behavior: "smooth", block: "center" });
+              if (typeof (el as HTMLInputElement).focus === "function") {
+                (el as HTMLInputElement).focus();
+              }
+            }
+          }
+        }
+      }
       return;
     }
     // Preview interaction check before saving
@@ -719,12 +793,18 @@ export default function PrescriptionsPage() {
               </label>
               <Autocomplete<{ code: string; description: string }>
                 value={form.diagnosis}
-                onChange={(val, item) =>
+                onChange={(val, item) => {
                   setForm({
                     ...form,
                     diagnosis: item ? `${item.code} — ${item.description}` : val,
-                  })
-                }
+                  });
+                  // Issue #541: stale "Diagnosis is required" persisted after
+                  // the field was filled. Clear the inline error the moment
+                  // the user starts typing / selects an ICD-10 entry.
+                  if (formErrors.diagnosis) {
+                    setFormErrors((p) => ({ ...p, diagnosis: "" }));
+                  }
+                }}
                 fetchOptions={async (q) => {
                   const r = await api.get<{
                     data: Array<{ code: string; description: string }>;

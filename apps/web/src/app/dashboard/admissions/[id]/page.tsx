@@ -2042,6 +2042,18 @@ function LosPredictionCard({
   }, [admissionId]);
 
   if (!pred) return null;
+
+  // Issue #550: when the prediction is low-confidence or based on a tiny
+  // similar-case sample (<10), suppress the bold "Expected discharge"
+  // header line and demote the entire banner to a muted advisory tile so
+  // clinicians and family don't plan around an unreliable number. Bold
+  // "Expected discharge" is reserved for medium/high confidence with at
+  // least 10 similar cases. Source threshold is the same one used by the
+  // /los-prediction endpoint to compute its `confidence` label.
+  const LOW_SAMPLE_THRESHOLD = 10;
+  const isLowConfidence =
+    pred.confidence === "low" || pred.similar_cases_count < LOW_SAMPLE_THRESHOLD;
+
   const admitDate = new Date(admittedAt);
   const expectedDischarge = new Date(admitDate);
   expectedDischarge.setDate(expectedDischarge.getDate() + pred.expectedDays);
@@ -2051,11 +2063,27 @@ function LosPredictionCard({
     Math.ceil((expectedDischarge.getTime() - now.getTime()) / 86400000)
   );
 
+  if (isLowConfidence) {
+    return (
+      <div
+        className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-3 text-xs text-gray-600 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-400"
+        data-testid="los-prediction-low-confidence"
+      >
+        <span className="mr-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+          Low confidence
+        </span>
+        LOS estimate ~{pred.expectedDays}d (based on {pred.similar_cases_count}{" "}
+        similar case{pred.similar_cases_count === 1 ? "" : "s"} — too few for a
+        reliable discharge date).
+      </div>
+    );
+  }
+
   return (
-    <div className="rounded-xl bg-white p-4 shadow-sm flex items-center gap-4">
+    <div className="rounded-xl bg-white p-4 shadow-sm flex items-center gap-4 dark:bg-gray-800">
       <div className="text-2xl">LOS</div>
       <div className="flex-1">
-        <div className="text-sm font-semibold text-gray-700">
+        <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">
           Expected discharge:{" "}
           {expectedDischarge.toLocaleDateString(undefined, {
             weekday: "short",
@@ -2063,12 +2091,12 @@ function LosPredictionCard({
             month: "short",
           })}
           {daysLeft > 0 && (
-            <span className="ml-2 text-blue-600">
+            <span className="ml-2 text-blue-600 dark:text-blue-300">
               ({daysLeft} more day{daysLeft === 1 ? "" : "s"})
             </span>
           )}
         </div>
-        <div className="text-xs text-gray-500">
+        <div className="text-xs text-gray-500 dark:text-gray-400">
           Predicted LOS {pred.expectedDays}d - confidence {pred.confidence} - based
           on {pred.similar_cases_count} similar cases
         </div>

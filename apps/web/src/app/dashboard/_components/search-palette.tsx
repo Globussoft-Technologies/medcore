@@ -135,6 +135,12 @@ export function SearchPalette({
   function go(hit: SearchHit) {
     saveRecent(q.trim());
     onClose();
+    if (!hit.href || hit.href === "null" || hit.href === "/dashboard/null") {
+      // Issue #582 #2: a malformed search hit with no href used to silently
+      // navigate to /dashboard/null and 404 the user out of their session.
+      // Defensively bail rather than push a known-bad URL.
+      return;
+    }
     router.push(hit.href);
   }
 
@@ -147,7 +153,12 @@ export function SearchPalette({
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActive((a) => Math.max(a - 1, 0));
-    } else if (e.key === "Enter" && results[active]) {
+    } else if (e.key === "Enter") {
+      // Issue #582 #2: Enter on an empty query / no results must be a
+      // no-op, not "go to undefined href". Guard explicitly so a future
+      // refactor can't introduce a regression where `go(undefined)`
+      // silently routes to /dashboard/null.
+      if (results.length === 0 || !results[active]) return;
       e.preventDefault();
       go(results[active]);
     }
@@ -156,8 +167,16 @@ export function SearchPalette({
   if (!open) return null;
 
   // Group results by type
+  // Issue #582 #4: same hit was rendered multiple times when a single
+  // result row matched both the title and a sub-field (because the API
+  // emits separate rows for partial-match types). De-dupe by `type+id`
+  // before bucketing so the user sees each entity exactly once.
+  const seen = new Set<string>();
   const groups: Array<{ type: string; items: SearchHit[] }> = [];
   for (const r of results) {
+    const dedupeKey = `${r.type}::${r.id}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
     let g = groups.find((x) => x.type === r.type);
     if (!g) {
       g = { type: r.type, items: [] };
@@ -174,18 +193,21 @@ export function SearchPalette({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-xl"
+        className="w-full max-w-2xl overflow-hidden rounded-xl bg-white text-gray-900 shadow-xl dark:bg-gray-900 dark:text-gray-100"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2 border-b px-4 py-3">
+        <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-white/10">
           <Search size={18} className="text-gray-400" />
+          {/* Issue #655: typed text was invisible on dark theme — input had no
+              explicit text color so it inherited the page's dark-mode fg-muted
+              token. Force fg-default in both themes plus a visible caret. */}
           <input
             ref={inputRef}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={onKey}
             placeholder={placeholder}
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400"
+            className="flex-1 bg-transparent text-sm text-gray-900 caret-primary outline-none placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
           <kbd className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">
             ESC

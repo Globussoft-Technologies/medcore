@@ -16,6 +16,24 @@ interface SearchHit {
   href: string;
 }
 
+/**
+ * Issue #630: the global search palette previously returned raw enum
+ * status values (`IN_PROGRESS`, `SAMPLE_COLLECTED`, `NO_SHOW`) on the
+ * `meta` field, which then rendered verbatim in the dropdown. Lab tech
+ * users got `IN_PROGRESS` while the lab list page used a styled chip with
+ * the prettified `In Progress` label — visually inconsistent. Map the
+ * raw enum to title-case here so every consumer of the search API sees a
+ * presentable label without each frontend re-implementing the rule.
+ */
+function humanizeStatus(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  return raw
+    .toLowerCase()
+    .split("_")
+    .map((w) => (w.length === 0 ? w : w[0].toUpperCase() + w.slice(1)))
+    .join(" ");
+}
+
 const ALL_TYPES = [
   "patients",
   "appointments",
@@ -153,7 +171,7 @@ router.get(
             id: a.id,
             title: `${a.patient?.user?.name || "Patient"} · ${a.type}`,
             subtitle: `Dr. ${a.doctor?.user?.name || "—"} · ${new Date(a.date).toLocaleDateString()}`,
-            meta: a.status,
+            meta: humanizeStatus(a.status),
             href: `/dashboard/appointments?id=${a.id}`,
           });
         }
@@ -257,7 +275,7 @@ router.get(
             id: a.id,
             title: `${a.admissionNumber} · ${a.patient?.user?.name || ""}`,
             subtitle: `${a.reason}${a.bed?.ward ? ` · ${a.bed.ward.name} Bed ${a.bed.bedNumber}` : ""}`,
-            meta: a.status,
+            meta: humanizeStatus(a.status),
             href: `/dashboard/ipd/${a.id}`,
           });
         }
@@ -293,7 +311,7 @@ router.get(
             id: s.id,
             title: `${s.caseNumber} · ${s.procedure}`,
             subtitle: `${s.patient?.user?.name || ""} · Dr. ${s.surgeon?.user?.name || "—"}`,
-            meta: s.status,
+            meta: humanizeStatus(s.status),
             href: `/dashboard/surgery?id=${s.id}`,
           });
         }
@@ -333,7 +351,7 @@ router.get(
             id: lo.id,
             title: `Lab ${lo.orderNumber}`,
             subtitle: `${lo.patient?.user?.name || ""} · ${tests || "—"}`,
-            meta: lo.status,
+            meta: humanizeStatus(lo.status),
             href: `/dashboard/lab?id=${lo.id}`,
           });
         }

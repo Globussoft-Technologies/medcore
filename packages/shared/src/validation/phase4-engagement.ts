@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { containsHtmlOrScript } from "./security";
 
 // Issue #575 / #577 / #642 / #657: per-field length caps + phone shape
 // for free-text payloads. The previous schemas only required min(1) on
@@ -7,6 +8,17 @@ import { z } from "zod";
 // run ~1k of clinical detail) but forecloses the storage/availability
 // risk and the "future renderer flips to dangerouslySetInnerHTML"
 // XSS pivot risk surfaced in #657.
+//
+// Issue #577 (May 2026): in addition to length caps we now reject any
+// HTML/script vector via containsHtmlOrScript on the user-facing free
+// text fields (name, category, description). The global sanitize
+// middleware silently strips tags BEFORE the schema runs, so a payload
+// like `<script>alert(1)</script>` was being laundered into `alert(1)`
+// and stored as plain text — visually messy in the list view and a
+// pivot risk if a future renderer ever switches to
+// dangerouslySetInnerHTML. The route is added to SCHEMA_REJECT_PATHS
+// in apps/api/src/middleware/sanitize.ts so the schema's reject-not-
+// strip intent is preserved end-to-end.
 const VISITOR_PHONE_REGEX = /^[+]?[\d\s-]{7,20}$/;
 
 export const FEEDBACK_CATEGORIES = [
@@ -66,13 +78,31 @@ export const createComplaintSchema = z
     patientId: z.string().uuid().optional(),
     // Issue #577: cap free-text fields. Title/category lives at <=200,
     // description at <=4000 (long incident narratives are legitimate).
-    name: z.string().max(200).optional(),
+    name: z
+      .string()
+      .max(200)
+      .optional()
+      .refine((v) => v === undefined || !containsHtmlOrScript(v), {
+        message: "Name cannot contain HTML or script tags",
+      }),
     phone: z
       .string()
       .regex(VISITOR_PHONE_REGEX, "Phone must be 7-20 digits, optional leading +")
       .optional(),
-    category: z.string().min(1).max(200),
-    description: z.string().min(1).max(4000),
+    category: z
+      .string()
+      .min(1)
+      .max(200)
+      .refine((v) => !containsHtmlOrScript(v), {
+        message: "Category cannot contain HTML or script tags",
+      }),
+    description: z
+      .string()
+      .min(1)
+      .max(4000)
+      .refine((v) => !containsHtmlOrScript(v), {
+        message: "Description cannot contain HTML or script tags",
+      }),
     priority: z.enum(COMPLAINT_PRIORITIES).default("MEDIUM"),
   })
   .refine((d) => d.patientId || d.name, {
@@ -83,7 +113,16 @@ export const createComplaintSchema = z
 export const updateComplaintSchema = z.object({
   status: z.enum(COMPLAINT_STATUSES).optional(),
   assignedTo: z.string().uuid().optional(),
-  resolution: z.string().max(4000).optional(),
+  // Issue #577: resolution is operator-supplied free text rendered in the
+  // ticket detail and (eventually) the patient-facing closure email — same
+  // reject-not-strip rule as the create schema's description.
+  resolution: z
+    .string()
+    .max(4000)
+    .optional()
+    .refine((v) => v === undefined || !containsHtmlOrScript(v), {
+      message: "Resolution cannot contain HTML or script tags",
+    }),
   priority: z.enum(COMPLAINT_PRIORITIES).optional(),
 });
 
@@ -172,7 +211,16 @@ export const visitorPhotoSchema = z.object({
 });
 
 export const escalateComplaintSchema = z.object({
-  reason: z.string().min(1).max(500),
+  // Issue #577: escalation reason is rendered on the ticket detail and into
+  // the audit row payload — same reject-not-strip rule as the rest of the
+  // complaints surface.
+  reason: z
+    .string()
+    .min(1)
+    .max(500)
+    .refine((v) => !containsHtmlOrScript(v), {
+      message: "Reason cannot contain HTML or script tags",
+    }),
 });
 
 export const feedbackRequestSchema = z.object({

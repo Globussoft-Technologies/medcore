@@ -130,10 +130,15 @@ export default function DoctorWorkspacePage() {
           label="Order Labs"
           color="bg-teal-600"
         />
+        {/* Issue #552: previously labelled "Add Note" but href just routed to
+            /dashboard/patients with no composer or context — misleading the
+            user. Until a real quick-note composer exists, relabel to "Find
+            Patient" so the destination matches the action. The patient
+            registry's own per-row UI exposes notes/charts. */}
         <ShortcutBtn
           href="/dashboard/patients"
           Icon={FileText}
-          label="Add Note"
+          label="Find Patient"
           color="bg-indigo-600"
         />
       </div>

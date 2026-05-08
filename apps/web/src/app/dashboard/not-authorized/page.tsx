@@ -8,16 +8,44 @@
 //
 // File location matters: living under /dashboard/* means Next.js wraps this
 // page with the existing dashboard layout automatically.
+//
+// Issue #594: the "Sign in as a different user" link used to be a plain
+// `<Link href="/login">`. Clicking it navigated to /login but the auth
+// cookie was still valid, so the login page's own `if (user) redirect`
+// guard bounced the user straight back to /dashboard — the button looked
+// inert. Replace the Link with a button that actively logs the current
+// session out (server-side cookie clear via /auth/logout) BEFORE the
+// /login navigation, so the destination page sees an unauthenticated
+// user and renders the form.
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useState } from "react";
 import { ShieldAlert } from "lucide-react";
 import { useAuthStore } from "@/lib/store";
 
 export default function NotAuthorizedPage() {
   const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
+  const router = useRouter();
   const searchParams = useSearchParams();
   const from = searchParams.get("from") || "";
+  const [switching, setSwitching] = useState(false);
+
+  // Issue #594: clear the current session before sending the user to /login
+  // so the login form actually renders instead of being bounced back.
+  async function handleSwitchUser() {
+    if (switching) return;
+    setSwitching(true);
+    try {
+      await logout();
+    } finally {
+      // Even if /auth/logout failed (network down, server 500), local state
+      // has been cleared by `logout()` itself — fall through to /login so
+      // the user always escapes the not-authorized screen.
+      router.replace("/login");
+    }
+  }
 
   return (
     <div
@@ -51,12 +79,15 @@ export default function NotAuthorizedPage() {
         >
           Back to Dashboard
         </Link>
-        <Link
-          href="/login"
-          className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+        <button
+          type="button"
+          onClick={handleSwitchUser}
+          disabled={switching}
+          data-testid="sign-in-as-different-user"
+          className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
         >
-          Sign in as a different user
-        </Link>
+          {switching ? "Signing out…" : "Sign in as a different user"}
+        </button>
       </div>
     </div>
   );

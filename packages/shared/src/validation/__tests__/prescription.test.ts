@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   dosageStringSchema,
+  durationStringSchema,
   createPrescriptionSchema,
   copyPrescriptionSchema,
   sharePrescriptionSchema,
@@ -27,6 +28,29 @@ describe("dosageStringSchema", () => {
   });
   it("rejects empty string", () => {
     expect(dosageStringSchema.safeParse("").success).toBe(false);
+  });
+});
+
+describe("durationStringSchema (Issue #542)", () => {
+  it("accepts canonical duration strings", () => {
+    expect(durationStringSchema.safeParse("5 days").success).toBe(true);
+    expect(durationStringSchema.safeParse("2 weeks").success).toBe(true);
+    expect(durationStringSchema.safeParse("1 month").success).toBe(true);
+    expect(durationStringSchema.safeParse("8 hours").success).toBe(true);
+    expect(durationStringSchema.safeParse("3d").success).toBe(true);
+  });
+  it("accepts the em-dash placeholder used by the form", () => {
+    expect(durationStringSchema.safeParse("—").success).toBe(true);
+  });
+  it("rejects negative duration", () => {
+    expect(durationStringSchema.safeParse("-5 days").success).toBe(false);
+  });
+  it("rejects zero duration", () => {
+    expect(durationStringSchema.safeParse("0 days").success).toBe(false);
+  });
+  it("rejects free-text junk", () => {
+    expect(durationStringSchema.safeParse("a while").success).toBe(false);
+    expect(durationStringSchema.safeParse("forever").success).toBe(false);
   });
 });
 

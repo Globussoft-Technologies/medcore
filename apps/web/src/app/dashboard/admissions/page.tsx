@@ -74,10 +74,31 @@ const STATUS_COLORS: Record<string, string> = {
   TRANSFERRED: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
 };
 
+// Issue #586 (LOS off-by-one): hospital LOS convention is INCLUSIVE day
+// counting — the admit day itself counts as Day 1, so a patient admitted
+// today shows "1" (not "0"), and a patient admitted yesterday + discharged
+// today shows "2" (not "1"). Previously this used `Math.ceil((end-start)/day)`
+// which collapsed same-day admissions to 0 and yesterday→today to 1, both
+// off-by-one for billing / occupancy / claims. The fix: count discrete
+// calendar-day boundaries crossed (inclusive of admit day) by zeroing the
+// time-of-day component on both ends and computing diff + 1.
 function computeLOS(adm: Admission): number {
-  const start = new Date(adm.admittedAt).getTime();
-  const end = adm.dischargedAt ? new Date(adm.dischargedAt).getTime() : Date.now();
-  return Math.max(0, Math.ceil((end - start) / (1000 * 60 * 60 * 24)));
+  const startDate = new Date(adm.admittedAt);
+  const endDate = adm.dischargedAt ? new Date(adm.dischargedAt) : new Date();
+  // Truncate to local midnight so a 09:00 admit + 14:00 same-day discharge
+  // counts as 1 day (not floor-rounded to 0).
+  const startMidnight = new Date(
+    startDate.getFullYear(),
+    startDate.getMonth(),
+    startDate.getDate(),
+  ).getTime();
+  const endMidnight = new Date(
+    endDate.getFullYear(),
+    endDate.getMonth(),
+    endDate.getDate(),
+  ).getTime();
+  const wholeDayDiff = Math.round((endMidnight - startMidnight) / 86_400_000);
+  return Math.max(1, wholeDayDiff + 1);
 }
 
 export default function AdmissionsPage() {
@@ -316,7 +337,23 @@ export default function AdmissionsPage() {
       key: "diagnosis",
       label: "Diagnosis",
       filterable: true,
-      render: (a) => a.diagnosis || "—",
+      // Issue #589: when no diagnosis is recorded yet, show an explanatory
+      // tooltip ("Diagnosis is set by the treating doctor") instead of the
+      // bare em-dash. Reception cannot edit diagnosis from the admissions
+      // list — it's owned by the doctor's clinical workflow — so we make
+      // that contract visible rather than leaving Reception staff to guess
+      // why "—" never updates.
+      render: (a) =>
+        a.diagnosis ? (
+          a.diagnosis
+        ) : (
+          <span
+            className="cursor-help text-gray-400 dark:text-gray-500"
+            title="Diagnosis is recorded by the treating doctor in the admission detail view"
+          >
+            Pending diagnosis
+          </span>
+        ),
     },
     {
       key: "status",

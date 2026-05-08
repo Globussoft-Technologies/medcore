@@ -528,6 +528,18 @@ router.post(
       const totalPaid =
         invoice.payments.reduce((sum, p) => sum + p.amount, 0) + amount;
 
+      // Issue #559: reject payments that would push paid > totalAmount.
+      // Allow a 1-paisa rounding tolerance so legitimate cash settlements
+      // computed against tax/discount split don't false-positive.
+      if (totalPaid > invoice.totalAmount + 0.01) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `Payment exceeds invoice balance. Outstanding is Rs ${(invoice.totalAmount - (totalPaid - amount)).toFixed(2)}.`,
+        });
+        return;
+      }
+
       const result = await prisma.$transaction(async (tx) => {
         const payment = await tx.payment.create({
           data: { invoiceId, amount, mode, transactionId },

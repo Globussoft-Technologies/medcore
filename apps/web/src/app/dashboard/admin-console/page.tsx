@@ -193,7 +193,14 @@ export default function AdminConsolePage() {
         safe<any>(`/analytics/overview?from=${fromISO}&to=${toISO}`, { data: null }),
         safe<any>(`/complaints?status=OPEN&limit=50`, { data: [] }),
         safe<any>(`/pharmacy/inventory?lowStock=true&limit=1`, { meta: { total: 0 } }),
-        safe<any>(`/pharmacy/inventory?expiring=true&limit=1`, { meta: { total: 0 } }),
+        // Issue #532: previous URL `/pharmacy/inventory?expiring=true&limit=1`
+        // hit the generic list endpoint, which does NOT honour `expiring` and
+        // returned `meta.total` = total inventory rows (often a large number)
+        // instead of the expiring-medicines count. The dedicated
+        // /pharmacy/inventory/expiring?days=30 endpoint returns just the
+        // expiring rows, giving a stable, single-source-of-truth count that
+        // no longer flickers against other widgets that read the same data.
+        safe<any>(`/pharmacy/inventory/expiring?days=30`, { data: [] }),
         safe<any>(`/bloodbank/inventory/summary`, { data: null }),
         // Total audit events (used for "Audit Events" card, not errors).
         safe<any>(`/audit?from=${hourAgo}&limit=1`, { meta: { total: 0 } }),
@@ -227,7 +234,9 @@ export default function AdminConsolePage() {
       const openComps = comp.data || comp.complaints || [];
       setComplaints(Array.isArray(openComps) ? openComps : []);
       setLowStock(pharmLow.meta?.total || 0);
-      setExpiringMeds(pharmExp.meta?.total || 0);
+      // Issue #532: response shape is `{ data: InventoryItem[] }` — count the
+      // array length directly (no pagination on this endpoint).
+      setExpiringMeds(Array.isArray(pharmExp.data) ? pharmExp.data.length : 0);
       const blood = bloodSum.data;
       // Issue #49: the summary now returns `byBloodGroup` (map keyed by
       // group code, each value is a component→count map). A "low" group
@@ -364,8 +373,14 @@ export default function AdminConsolePage() {
     { total: 0, occupied: 0 }
   );
   const bedOccPct = bedStats.total ? Math.round((bedStats.occupied / bedStats.total) * 100) : 0;
+  // Issue #314: the canonical schema field is `slaDueAt` (Complaint model in
+  // packages/db). The previous keys (`slaBreachAt` / `dueAt`) never exist on
+  // the response, so this filter always returned 0 and the Admin Console SLA
+  // Overdue tile contradicted the Complaints page (which renders against the
+  // same `slaDueAt`). Match the schema field with the legacy aliases retained
+  // as a defensive fallback.
   const overdueComplaints = complaints.filter((c: any) => {
-    const due = c.slaBreachAt || c.dueAt;
+    const due = c.slaDueAt || c.slaBreachAt || c.dueAt;
     return due && new Date(due) < new Date();
   }).length;
 

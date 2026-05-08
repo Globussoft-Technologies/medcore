@@ -24,11 +24,37 @@ export const dosageStringSchema = z
     { message: "Dosage must be greater than zero" }
   );
 
+/**
+ * Issue #542: Duration must be a positive integer/decimal followed by a
+ * recognised time unit (days, weeks, months, hours). The "—" placeholder used
+ * by the web form when the field is left blank is also accepted so the
+ * existing UX (defaulting to em-dash) keeps working. Negative ("-5 days"),
+ * zero ("0 days"), and free-text garbage are rejected.
+ */
+const DURATION_REGEX =
+  /^\s*(?:\d+(?:\.\d+)?\s*(?:hour|hours|hr|hrs|h|day|days|d|week|weeks|w|wk|wks|month|months|mo|mos|m)|—|-)\s*$/i;
+
+export const durationStringSchema = z
+  .string()
+  .min(1, "Duration is required")
+  .refine((v) => DURATION_REGEX.test(v), {
+    message: "Duration must be a positive number with a unit (e.g. 5 days)",
+  })
+  .refine(
+    (v) => {
+      // The em-dash / hyphen placeholders skip the numeric check.
+      if (/^\s*[—-]\s*$/.test(v)) return true;
+      const num = parseFloat(v);
+      return Number.isFinite(num) && num > 0;
+    },
+    { message: "Duration must be greater than zero" }
+  );
+
 const prescriptionItemSchema = z.object({
   medicineName: z.string().min(1, "Medicine name is required"),
   dosage: dosageStringSchema,
   frequency: z.string().min(1, "Frequency is required"),
-  duration: z.string().min(1, "Duration is required"),
+  duration: durationStringSchema,
   instructions: z.string().optional(),
   refills: z.number().int().min(0).max(12).optional(),
 });

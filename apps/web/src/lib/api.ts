@@ -1,4 +1,5 @@
 import { toast } from "@/lib/toast";
+import { sanitizeNextPath } from "@/lib/utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
 
@@ -61,7 +62,12 @@ function handleAuthExpired(): void {
   // login form itself returns a 401 for bad credentials.
   const here = window.location.pathname;
   if (here.startsWith("/login") || here.startsWith("/register")) return;
-  const next = encodeURIComponent(here + window.location.search);
+  // Lane A (commit f1de292) mirror: sanitize the next-path even on the
+  // outbound side. The current URL is by construction a same-origin path,
+  // but threading it through the same helper the API uses guards against
+  // any future call site that might pass a tainted string here.
+  const safe = sanitizeNextPath(here + window.location.search);
+  const next = encodeURIComponent(safe);
   // Use replace() so the protected page isn't in history (back button
   // shouldn't take the user to a route that just bounced them).
   window.location.replace(`/login?next=${next}`);

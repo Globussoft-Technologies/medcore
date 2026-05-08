@@ -9,6 +9,7 @@ import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { ArrowLeft, FlaskConical, Printer } from "lucide-react";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { formatDateTime } from "@/lib/format";
 
 // Issue #90: RECEPTION must NOT see the lab order detail / result-entry UI.
 const LAB_ALLOWED = new Set(["ADMIN", "DOCTOR", "NURSE", "LAB_TECH", "PATIENT"]);
@@ -126,7 +127,34 @@ export default function LabOrderPage({
   if (loading)
     return <div className="p-8 text-center text-gray-500">Loading...</div>;
   if (!order)
-    return <div className="p-8 text-center text-gray-500">Order not found.</div>;
+    // Issue #627: previously rendered a single muted line with no escape
+    // route. Add an explicit Back link and contact pointer so a stray
+    // bookmark or stale link doesn't strand the user.
+    return (
+      <div className="mx-auto max-w-md p-8 text-center">
+        <p className="text-lg font-semibold text-gray-800 dark:text-gray-100">
+          Order not found
+        </p>
+        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+          The lab order you're looking for doesn't exist or was removed.
+        </p>
+        <div className="mt-5 flex items-center justify-center gap-3">
+          <Link
+            href="/dashboard/lab"
+            className="inline-flex items-center gap-1 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+          >
+            <ArrowLeft size={16} aria-hidden="true" /> Back to Lab Orders
+          </Link>
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+          >
+            Go back
+          </button>
+        </div>
+      </div>
+    );
 
   const allItemsHaveResults = order.items.every(
     (i) => i.results && i.results.length > 0
@@ -143,15 +171,23 @@ export default function LabOrderPage({
         </Link>
       </div>
 
+      {/* Issue #626: explicit text-gray-900 on headers and key fields. Card is
+          bg-white so dark-mode text needs to remain dark — the previous `font-bold`
+          alone inherited near-white from the parent body's color in dark theme,
+          producing white-on-white. */}
       <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="flex items-center gap-2 text-2xl font-bold">
+            <h1 className="flex items-center gap-2 text-2xl font-bold text-gray-900">
               <FlaskConical className="text-primary" /> Order{" "}
               {order.orderNumber || order.id.slice(0, 8)}
             </h1>
             <p className="mt-1 text-sm text-gray-500">
-              Ordered {new Date(order.orderedAt).toLocaleString()}
+              {/* Issue #643: previously rendered via toLocaleString() which
+                  emitted US-style `4/14/2026, 12:59:07 AM` while the orders
+                  list uses `14 Apr 2026`. Use the canonical formatDateTime so
+                  every Lab surface speaks the same date-format. */}
+              Ordered {formatDateTime(order.orderedAt)}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -173,7 +209,7 @@ export default function LabOrderPage({
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <p className="text-xs text-gray-500">Patient</p>
-            <p className="font-medium">{order.patient.user.name}</p>
+            <p className="font-medium text-gray-900">{order.patient.user.name}</p>
             <p className="text-xs text-gray-500">
               MR: {order.patient.mrNumber} · {order.patient.gender} ·{" "}
               {order.patient.age ?? "—"} yrs
@@ -182,13 +218,13 @@ export default function LabOrderPage({
           {order.doctor && (
             <div>
               <p className="text-xs text-gray-500">Ordering Doctor</p>
-              <p className="font-medium">{formatDoctorName(order.doctor.user.name)}</p>
+              <p className="font-medium text-gray-900">{formatDoctorName(order.doctor.user.name)}</p>
             </div>
           )}
           {order.notes && (
             <div className="sm:col-span-2">
               <p className="text-xs text-gray-500">Notes</p>
-              <p className="text-sm">{order.notes}</p>
+              <p className="text-sm text-gray-900">{order.notes}</p>
             </div>
           )}
         </div>
@@ -297,6 +333,16 @@ function OrderItemCard({
     // HTML5 min/max attrs that were dropped under A4.
     if (isNumericTest) {
       const num = parseFloat(form.value.trim());
+      // Issue #638: even when the test has no panicLow/panicHigh range,
+      // values like `1e308` or `99999999999999` are clinically impossible
+      // and likely paste accidents. Cap at ±1e9 (one billion in any unit
+      // — vastly above every real lab analyte) to catch overflow.
+      if (!Number.isFinite(num) || Math.abs(num) > 1_000_000_000) {
+        setValueError(
+          "Value is outside the supported numeric range (±1e9). Re-check the entry.",
+        );
+        return;
+      }
       if (
         typeof item.test.panicLow === "number" &&
         num < item.test.panicLow
@@ -312,13 +358,22 @@ function OrderItemCard({
         return;
       }
     }
+    // Issue #640: a Unit field that's only whitespace would be sent as a
+    // truthy string (`"   "`) and fail server-side with a generic schema
+    // error, leaving the user without a unit-specific hint. Strip whitespace
+    // and surface a unit-specific error here when the user typed only spaces.
+    const trimmedUnit = form.unit.trim();
+    if (form.unit && !trimmedUnit) {
+      toast.error("Unit cannot be only whitespace. Leave blank or enter a real unit.");
+      return;
+    }
     setValueError(null);
     try {
       await api.post("/lab/results", {
         orderItemId: item.id,
         parameter: form.parameter,
         value: form.value,
-        unit: form.unit || undefined,
+        unit: trimmedUnit || undefined,
         normalRange: form.normalRange || undefined,
         flag: form.flag,
         notes: form.notes || undefined,
@@ -352,7 +407,8 @@ function OrderItemCard({
     <div className="rounded-xl bg-white p-5 shadow-sm">
       <div className="mb-3 flex items-center justify-between border-b pb-3">
         <div>
-          <h3 className="font-semibold">{item.test.name}</h3>
+          {/* Issue #626: explicit dark text on white card. */}
+          <h3 className="font-semibold text-gray-900">{item.test.name}</h3>
           {item.test.normalRange && (
             <p className="text-xs text-gray-500" data-testid="lab-range-hint">
               {/*
@@ -398,8 +454,8 @@ function OrderItemCard({
             <tbody>
               {item.results.map((r) => (
                 <tr key={r.id} className="border-b last:border-0">
-                  <td className="py-1.5 font-medium">{r.parameter}</td>
-                  <td className="py-1.5">{r.value}</td>
+                  <td className="py-1.5 font-medium text-gray-900">{r.parameter}</td>
+                  <td className="py-1.5 text-gray-900">{r.value}</td>
                   <td className="py-1.5 text-gray-600">{r.unit || "—"}</td>
                   <td className="py-1.5 text-xs text-gray-600">
                     {r.normalRange || "—"}

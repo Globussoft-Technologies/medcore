@@ -154,6 +154,37 @@ export default function DutyRosterPage() {
     return shifts.filter((s) => s.userId === userId && s.type === type);
   }
 
+  // Issue #725 — Per-cell click-to-assign: open the Add-Shift modal with
+  // the staff member + date + shift type prefilled from the clicked cell.
+  // Default times come from DEFAULT_TIMES so the operator only needs to
+  // confirm and submit. Notes are intentionally cleared between opens.
+  function openAssignForCell(userId: string, type: Shift["type"]) {
+    const t = DEFAULT_TIMES[type];
+    setAddForm({
+      userId,
+      date,
+      type,
+      startTime: t.start,
+      endTime: t.end,
+      notes: "",
+    });
+    setShowAdd(true);
+  }
+
+  // Issue #725 — Toolbar "Assign Shift" opens an empty Add-Shift modal.
+  // Resets any prior cell-prefill so the operator can pick freely.
+  function openAssignBlank() {
+    setAddForm({
+      userId: "",
+      date,
+      type: "MORNING",
+      startTime: DEFAULT_TIMES.MORNING.start,
+      endTime: DEFAULT_TIMES.MORNING.end,
+      notes: "",
+    });
+    setShowAdd(true);
+  }
+
   async function submitAdd(e: React.FormEvent) {
     e.preventDefault();
     if (!addForm.userId) {
@@ -266,10 +297,11 @@ export default function DutyRosterPage() {
             <CalendarDays size={16} /> Bulk Schedule
           </button>
           <button
-            onClick={() => setShowAdd(true)}
+            data-testid="assign-shift-toolbar"
+            onClick={openAssignBlank}
             className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
           >
-            <Plus size={16} /> Add Shift
+            <Plus size={16} /> Assign Shift
           </button>
         </div>
       </div>
@@ -332,7 +364,19 @@ export default function DutyRosterPage() {
                     return (
                       <td key={t} className="px-4 py-3">
                         {cs.length === 0 ? (
-                          <span className="text-xs text-gray-300">—</span>
+                          // Issue #725 — empty cell click-to-assign: opens
+                          // the Add-Shift modal with staff + date + type
+                          // prefilled. Whole-cell hit area for ergonomics.
+                          <button
+                            type="button"
+                            data-testid={`assign-cell-${u.id}-${t}`}
+                            onClick={() => openAssignForCell(u.id, t)}
+                            className="flex w-full items-center justify-center rounded-lg border border-dashed border-transparent px-2 py-1 text-xs text-gray-300 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-500"
+                            title={`Assign ${t} shift to ${u.name}`}
+                          >
+                            <Plus size={12} className="mr-1" />
+                            Assign
+                          </button>
                         ) : (
                           <div className="space-y-1">
                             {cs.map((s) => (
@@ -396,7 +440,7 @@ export default function DutyRosterPage() {
             noValidate
             className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
           >
-            <h2 className="mb-4 text-lg font-semibold">Add Shift</h2>
+            <h2 className="mb-4 text-lg font-semibold">Assign Shift</h2>
             <div className="space-y-3">
               <div>
                 <label htmlFor="add-shift-staff" className="mb-1 block text-sm font-medium">Staff</label>
@@ -503,7 +547,7 @@ export default function DutyRosterPage() {
                 type="submit"
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
               >
-                Create
+                Assign
               </button>
             </div>
           </form>

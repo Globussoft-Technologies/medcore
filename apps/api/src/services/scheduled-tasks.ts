@@ -834,6 +834,91 @@ async function autoCheckoutStaleVisitorsTask(): Promise<void> {
   }
 }
 
+// ─── Auto-close stuck telemedicine sessions (Issue #743) ─
+//
+// Telemedicine sessions whose `status` is IN_PROGRESS but whose `startedAt`
+// is older than `MAX_TELEMED_DURATION_HOURS` (default 2h, env-overridable)
+// are stuck — either the doctor closed the tab without hitting "End",
+// the WebRTC connection dropped without a teardown signal, or the patient
+// abandoned the call. Leaving them IN_PROGRESS skews the live-sessions
+// dashboard and blocks doctor-side cleanup. This task transitions any
+// such row to COMPLETED, sets `endedAt = now`, appends a marker to
+// `doctorNotes` so a human reviewer can tell it was an auto-close, and
+// emits a single batch audit row. Mirrors the auto-checkout-stale-visitors
+// + auto-flag-expired-blood-units patterns.
+//
+// Note: `TelemedicineStatus` enum has no `AUTO_CLOSED` member — we use
+// `COMPLETED` (the natural terminal state) and rely on the `doctorNotes`
+// marker + the `TELEMEDICINE_AUTO_CLOSED_STUCK` audit action for the
+// "this was system-closed, not human-closed" signal.
+const MAX_TELEMED_DURATION_HOURS_DEFAULT = 2;
+
+export async function autoCloseStuckTelemedicineSessions(now: Date = new Date()): Promise<{
+  closed: number;
+  ids: string[];
+}> {
+  const ceilingHours = (() => {
+    const raw = process.env.MAX_TELEMED_DURATION_HOURS;
+    if (!raw) return MAX_TELEMED_DURATION_HOURS_DEFAULT;
+    const parsed = parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0
+      ? parsed
+      : MAX_TELEMED_DURATION_HOURS_DEFAULT;
+  })();
+  const cutoff = new Date(now.getTime() - ceilingHours * 60 * 60 * 1000);
+  const stuck = await prisma.telemedicineSession.findMany({
+    where: { status: "IN_PROGRESS", startedAt: { lt: cutoff } },
+    select: { id: true, sessionNumber: true, doctorNotes: true },
+    take: 500,
+  });
+  if (stuck.length === 0) return { closed: 0, ids: [] };
+  const marker = `Auto-closed: ${ceilingHours}h limit`;
+  for (const s of stuck) {
+    try {
+      await prisma.telemedicineSession.update({
+        where: { id: s.id },
+        data: {
+          status: "COMPLETED",
+          endedAt: now,
+          doctorNotes: s.doctorNotes ? `${s.doctorNotes}\n${marker}` : marker,
+        },
+      });
+    } catch (err) {
+      console.error("[auto_close_stuck_telemedicine_sessions] update", s.id, err);
+    }
+  }
+  try {
+    await prisma.auditLog.create({
+      data: {
+        action: "TELEMEDICINE_AUTO_CLOSED_STUCK",
+        entity: "telemedicine_session",
+        entityId: "batch",
+        details: {
+          count: stuck.length,
+          sessionNumbers: stuck.map((s) => s.sessionNumber),
+          ceilingHours,
+        } as any,
+      } as any,
+    });
+  } catch (err) {
+    console.error("[auto_close_stuck_telemedicine_sessions] audit", err);
+  }
+  return { closed: stuck.length, ids: stuck.map((s) => s.id) };
+}
+
+async function autoCloseStuckTelemedicineSessionsTask(): Promise<void> {
+  try {
+    const result = await autoCloseStuckTelemedicineSessions();
+    if (result.closed > 0) {
+      console.log(
+        `[auto_close_stuck_telemedicine_sessions] auto-closed ${result.closed} stuck session(s)`
+      );
+    }
+  } catch (err) {
+    console.error("[auto_close_stuck_telemedicine_sessions]", err);
+  }
+}
+
 // ─── Drain queued (deferred) notifications ─────────────
 
 async function notificationDrainQueued(): Promise<void> {
@@ -975,6 +1060,15 @@ const TASKS: ScheduledTask[] = [
     name: "auto_checkout_stale_visitors",
     intervalMinutes: 30,
     run: autoCheckoutStaleVisitorsTask,
+  },
+  // Issue #743 — every 30 min. Transitions IN_PROGRESS telemedicine
+  // sessions whose startedAt is >MAX_TELEMED_DURATION_HOURS (default 2h)
+  // ago to COMPLETED with an Auto-closed marker, so the live-sessions
+  // dashboard doesn't carry zombie rows for 24h+.
+  {
+    name: "auto_close_stuck_telemedicine_sessions",
+    intervalMinutes: 30,
+    run: autoCloseStuckTelemedicineSessionsTask,
   },
 ];
 

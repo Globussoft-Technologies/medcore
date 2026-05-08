@@ -448,8 +448,27 @@ export default function LabPage() {
                             </button>
                           )}
                           {o.status === "IN_PROGRESS" && canEnterResults && (
+                            // Issue #632 (LabTech): the previous markup relied
+                            // on the wrapping `<div onClick={stopPropagation}>`
+                            // to swallow row-expansion events. On STAT rows
+                            // and rows that were just animated into view, the
+                            // first click would race the row's expansion
+                            // re-render — Next's <Link> would lose its target
+                            // mid-paint, leaving the URL unchanged. Pin the
+                            // navigation explicitly via onClick + router.push
+                            // so the first click ALWAYS navigates regardless
+                            // of layout-shift timing, and stop propagation on
+                            // both pointer phases (mousedown + click) so the
+                            // outer row handler never fires for this CTA.
                             <Link
                               href={`/dashboard/lab/${o.id}`}
+                              data-testid="lab-enter-results-link"
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                router.push(`/dashboard/lab/${o.id}`);
+                              }}
                               className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"
                             >
                               Enter Results
@@ -457,6 +476,12 @@ export default function LabPage() {
                           )}
                           <Link
                             href={`/dashboard/lab/${o.id}`}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              router.push(`/dashboard/lab/${o.id}`);
+                            }}
                             className="rounded border px-2 py-1 text-xs hover:bg-gray-50"
                           >
                             View

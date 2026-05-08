@@ -10,7 +10,11 @@ import { useAuthStore } from "@/lib/store";
 import { ArrowLeft, FlaskConical, Printer, Upload, FileImage } from "lucide-react";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { formatDateTime } from "@/lib/format";
-import { isImagingLabTest } from "@medcore/shared";
+import {
+  isImagingLabTest,
+  getLabTestResultMode,
+  QUALITATIVE_RESULT_OPTIONS,
+} from "@medcore/shared";
 
 // Issue #90: RECEPTION must NOT see the lab order detail / result-entry UI.
 const LAB_ALLOWED = new Set(["ADMIN", "DOCTOR", "NURSE", "LAB_TECH", "PATIENT"]);
@@ -569,10 +573,22 @@ function OrderItemCard({
   // Issue #95: a test is "numeric" when it has a default unit OR panic
   // thresholds — those tests must accept a number, not free text. Parameters
   // like "Color" / "Appearance" on a urinalysis are still text-only.
-  const isNumericTest =
-    !!(item.test.unit && item.test.unit.trim().length > 0) ||
-    typeof item.test.panicLow === "number" ||
-    typeof item.test.panicHigh === "number";
+  // Issue #620: the result mode is a 3-way (imaging / qualitative / numeric).
+  // Qualitative tests (Hep B / HIV / Widal / ANA / Dengue / etc.) get a
+  // POSITIVE/NEGATIVE/REACTIVE/NON-REACTIVE picker instead of free text.
+  // Imaging is handled by the RadiologyAttachmentsPanel above.
+  const resultMode = getLabTestResultMode({
+    name: item.test.name,
+    category: item.test.category ?? null,
+    unit: item.test.unit ?? null,
+    panicLow: item.test.panicLow ?? null,
+    panicHigh: item.test.panicHigh ?? null,
+  });
+  const isNumericTest = resultMode === "numeric" &&
+    (!!(item.test.unit && item.test.unit.trim().length > 0) ||
+      typeof item.test.panicLow === "number" ||
+      typeof item.test.panicHigh === "number");
+  const isQualitativeTest = resultMode === "qualitative";
   const numericRegex = /^-?\d+(\.\d+)?$/;
 
   async function submit(e: React.FormEvent) {
@@ -770,35 +786,63 @@ function OrderItemCard({
             className="rounded-lg border px-2 py-1.5 text-sm"
           />
           <div>
-            <input
-              // Issue #95: numeric tests accept only numbers; type=number
-              // also lets browsers reject free text in supported chrome.
-              // A4: dropped HTML5 `required`/`min`/`max` — React-side checks
-              // (parameter/value presence + panic-range bounds) own truth so
-              // inline `valueError` rendering isn't short-circuited by the
-              // browser's native constraint UI.
-              type={isNumericTest ? "number" : "text"}
-              step={isNumericTest ? "any" : undefined}
-              placeholder={
-                isNumericTest
-                  ? typeof item.test.panicLow === "number" &&
-                    typeof item.test.panicHigh === "number"
-                    ? `Value (${item.test.panicLow}–${item.test.panicHigh})`
-                    : "Value (number)"
-                  : "Value"
-              }
-              value={form.value}
-              onChange={(e) => {
-                setForm({ ...form, value: e.target.value });
-                if (valueError) setValueError(null);
-              }}
-              data-testid="lab-result-value"
-              aria-invalid={valueError ? "true" : undefined}
-              className={
-                "w-full rounded-lg border px-2 py-1.5 text-sm " +
-                (valueError ? "border-red-500 bg-red-50" : "")
-              }
-            />
+            {isQualitativeTest ? (
+              // Issue #620: qualitative tests (Hep B / HIV / Widal / ANA /
+              // Dengue / urine-pregnancy / etc.) get a canonical
+              // POSITIVE/NEGATIVE/REACTIVE/NON-REACTIVE picker instead of
+              // free text. Stored as the raw string (no DB schema change —
+              // `value` is already a free-form string up to 400 chars).
+              <select
+                value={form.value}
+                onChange={(e) => {
+                  setForm({ ...form, value: e.target.value });
+                  if (valueError) setValueError(null);
+                }}
+                data-testid="lab-result-value"
+                aria-invalid={valueError ? "true" : undefined}
+                className={
+                  "w-full rounded-lg border px-2 py-1.5 text-sm bg-white dark:bg-gray-700 " +
+                  (valueError ? "border-red-500 bg-red-50" : "")
+                }
+              >
+                <option value="">Select result…</option>
+                {QUALITATIVE_RESULT_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                // Issue #95: numeric tests accept only numbers; type=number
+                // also lets browsers reject free text in supported chrome.
+                // A4: dropped HTML5 `required`/`min`/`max` — React-side checks
+                // (parameter/value presence + panic-range bounds) own truth so
+                // inline `valueError` rendering isn't short-circuited by the
+                // browser's native constraint UI.
+                type={isNumericTest ? "number" : "text"}
+                step={isNumericTest ? "any" : undefined}
+                placeholder={
+                  isNumericTest
+                    ? typeof item.test.panicLow === "number" &&
+                      typeof item.test.panicHigh === "number"
+                      ? `Value (${item.test.panicLow}–${item.test.panicHigh})`
+                      : "Value (number)"
+                    : "Value"
+                }
+                value={form.value}
+                onChange={(e) => {
+                  setForm({ ...form, value: e.target.value });
+                  if (valueError) setValueError(null);
+                }}
+                data-testid="lab-result-value"
+                aria-invalid={valueError ? "true" : undefined}
+                className={
+                  "w-full rounded-lg border px-2 py-1.5 text-sm " +
+                  (valueError ? "border-red-500 bg-red-50" : "")
+                }
+              />
+            )}
             {isNumericTest &&
               (typeof item.test.panicLow === "number" ||
                 typeof item.test.panicHigh === "number") && (

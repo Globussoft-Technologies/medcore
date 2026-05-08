@@ -506,4 +506,81 @@ describe("validateNumericLabResult", () => {
       expect(isImagingLabTest({ name: "CBC", category: null })).toBe(false);
     });
   });
+
+  // Issue #620 (May 2026): the result-entry form decides between three
+  // input modes — imaging upload, qualitative dropdown, numeric/text. The
+  // detector must flag classic qualitative serology / microbiology /
+  // parasitology panels (Hep B, HIV, Widal, ANA, Dengue, urine pregnancy,
+  // etc.) as qualitative, while keeping numeric panels (CBC, Lipid, KFT,
+  // LFT, HbA1c, TSH) on the numeric path.
+  describe("getLabTestResultMode (#620)", () => {
+    it("flags the modalities listed in the issue body as qualitative", async () => {
+      const { getLabTestResultMode } = await import("../lab");
+      const cases = [
+        "Hepatitis B Surface Antigen",
+        "Hepatitis C Antibody",
+        "HIV I & II Screening",
+        "Widal Test",
+        "ANA",
+        "Dengue NS1",
+        "Dengue IgM",
+        "Malaria Parasite",
+        "Urine Pregnancy Test",
+        "Stool Routine",
+      ];
+      for (const name of cases) {
+        expect(
+          getLabTestResultMode({ name, category: null }),
+          `expected "${name}" to be detected as qualitative`,
+        ).toBe("qualitative");
+      }
+    });
+
+    it("keeps standard numeric panels on the numeric path", async () => {
+      const { getLabTestResultMode } = await import("../lab");
+      const cases: Array<{ name: string; unit?: string | null }> = [
+        { name: "Complete Blood Count", unit: "x10^3/uL" },
+        { name: "HbA1c", unit: "%" },
+        { name: "Lipid Profile - Total Cholesterol", unit: "mg/dL" },
+        { name: "TSH", unit: "uIU/mL" },
+        { name: "Creatinine", unit: "mg/dL" },
+      ];
+      for (const t of cases) {
+        expect(
+          getLabTestResultMode({ name: t.name, category: null, unit: t.unit }),
+          `expected "${t.name}" to stay numeric`,
+        ).toBe("numeric");
+      }
+    });
+
+    it("keeps imaging tests on the imaging path", async () => {
+      const { getLabTestResultMode } = await import("../lab");
+      expect(
+        getLabTestResultMode({ name: "Ultrasound Abdomen", category: "Procedure" }),
+      ).toBe("imaging");
+      expect(
+        getLabTestResultMode({ name: "X-Ray Chest", category: null }),
+      ).toBe("imaging");
+    });
+
+    it("prefers numeric when the test has unit/panic thresholds even if the name matches a qualitative token", async () => {
+      // "HIV-1 RNA copies/mL" is quantitative even though it mentions HIV —
+      // the unit signal must win.
+      const { getLabTestResultMode } = await import("../lab");
+      expect(
+        getLabTestResultMode({
+          name: "HIV-1 RNA",
+          category: null,
+          unit: "copies/mL",
+        }),
+      ).toBe("numeric");
+    });
+
+    it("falls back to numeric for tests with no qualitative or imaging signal", async () => {
+      const { getLabTestResultMode } = await import("../lab");
+      expect(
+        getLabTestResultMode({ name: "Sodium", category: null, unit: null }),
+      ).toBe("numeric");
+    });
+  });
 });

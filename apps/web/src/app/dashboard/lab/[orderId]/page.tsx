@@ -171,10 +171,14 @@ export default function LabOrderPage({
         </Link>
       </div>
 
+      {/* Issue #626: explicit text-gray-900 on headers and key fields. Card is
+          bg-white so dark-mode text needs to remain dark — the previous `font-bold`
+          alone inherited near-white from the parent body's color in dark theme,
+          producing white-on-white. */}
       <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="flex items-center gap-2 text-2xl font-bold">
+            <h1 className="flex items-center gap-2 text-2xl font-bold text-gray-900">
               <FlaskConical className="text-primary" /> Order{" "}
               {order.orderNumber || order.id.slice(0, 8)}
             </h1>
@@ -205,7 +209,7 @@ export default function LabOrderPage({
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <p className="text-xs text-gray-500">Patient</p>
-            <p className="font-medium">{order.patient.user.name}</p>
+            <p className="font-medium text-gray-900">{order.patient.user.name}</p>
             <p className="text-xs text-gray-500">
               MR: {order.patient.mrNumber} · {order.patient.gender} ·{" "}
               {order.patient.age ?? "—"} yrs
@@ -214,13 +218,13 @@ export default function LabOrderPage({
           {order.doctor && (
             <div>
               <p className="text-xs text-gray-500">Ordering Doctor</p>
-              <p className="font-medium">{formatDoctorName(order.doctor.user.name)}</p>
+              <p className="font-medium text-gray-900">{formatDoctorName(order.doctor.user.name)}</p>
             </div>
           )}
           {order.notes && (
             <div className="sm:col-span-2">
               <p className="text-xs text-gray-500">Notes</p>
-              <p className="text-sm">{order.notes}</p>
+              <p className="text-sm text-gray-900">{order.notes}</p>
             </div>
           )}
         </div>
@@ -403,7 +407,8 @@ function OrderItemCard({
     <div className="rounded-xl bg-white p-5 shadow-sm">
       <div className="mb-3 flex items-center justify-between border-b pb-3">
         <div>
-          <h3 className="font-semibold">{item.test.name}</h3>
+          {/* Issue #626: explicit dark text on white card. */}
+          <h3 className="font-semibold text-gray-900">{item.test.name}</h3>
           {item.test.normalRange && (
             <p className="text-xs text-gray-500" data-testid="lab-range-hint">
               {/*
@@ -449,8 +454,8 @@ function OrderItemCard({
             <tbody>
               {item.results.map((r) => (
                 <tr key={r.id} className="border-b last:border-0">
-                  <td className="py-1.5 font-medium">{r.parameter}</td>
-                  <td className="py-1.5">{r.value}</td>
+                  <td className="py-1.5 font-medium text-gray-900">{r.parameter}</td>
+                  <td className="py-1.5 text-gray-900">{r.value}</td>
                   <td className="py-1.5 text-gray-600">{r.unit || "—"}</td>
                   <td className="py-1.5 text-xs text-gray-600">
                     {r.normalRange || "—"}

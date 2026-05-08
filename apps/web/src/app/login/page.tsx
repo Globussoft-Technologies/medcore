@@ -247,6 +247,7 @@ function LoginPageInner() {
             {twoFAStep ? (
               <form
                 onSubmit={handle2FA}
+                noValidate
                 className="space-y-5"
                 aria-label="2FA form"
                 // Issue #709: same noValidate convention as the email/password
@@ -306,6 +307,7 @@ function LoginPageInner() {
             ) : (
               <form
                 onSubmit={handleSubmit}
+                noValidate
                 className="space-y-5"
                 aria-label="Login form"
                 // Issue #102: suppress the browser's native email/required

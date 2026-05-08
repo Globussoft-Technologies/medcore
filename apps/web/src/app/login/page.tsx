@@ -8,6 +8,7 @@ import { useTranslation } from "@/lib/i18n";
 import { LanguageDropdown } from "@/components/LanguageDropdown";
 import { PasswordInput } from "@/components/PasswordInput";
 import { toast } from "@/lib/toast";
+import { sanitizeNextPath } from "@/lib/utils";
 import {
   Activity,
   QrCode,
@@ -17,19 +18,21 @@ import {
 } from "lucide-react";
 
 /**
- * Issue #33: return the post-login destination. Honours `?redirect=...` if
- * the dashboard auth gate forwarded the user here after session expiry, but
- * guards against:
- *  - external URLs (open-redirect risk)
- *  - redirecting to /login itself (would loop)
- *  - empty/missing params
+ * Issue #33 + Lane A (2026-05-08, commit f1de292): post-login destination.
+ *
+ * Reads `?next=` first (the canonical name shared with the API's
+ * `sanitizeNextPath`) and falls back to the legacy `?redirect=` param so any
+ * existing session-expired toast or bookmark keeps working. The actual
+ * sanitisation lives in `@/lib/utils#sanitizeNextPath` — same logic as the
+ * server helper so an attacker can't slip an open-redirect past the
+ * frontend ahead of a server-side check.
  */
-function safeRedirectTarget(param: string | null | undefined): string {
-  if (!param) return "/dashboard";
-  // Only allow same-origin, leading-slash paths to block open redirects.
-  if (!param.startsWith("/") || param.startsWith("//")) return "/dashboard";
-  if (param.startsWith("/login")) return "/dashboard";
-  return param;
+function safeRedirectTarget(
+  next: string | null | undefined,
+  legacy: string | null | undefined,
+): string {
+  // Prefer ?next=, fall back to ?redirect= for backwards compatibility.
+  return sanitizeNextPath(next ?? legacy ?? null);
 }
 
 /**
@@ -80,7 +83,10 @@ export default function LoginPage() {
 function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = safeRedirectTarget(searchParams.get("redirect"));
+  const redirectTo = safeRedirectTarget(
+    searchParams.get("next"),
+    searchParams.get("redirect"),
+  );
   const { login, verify2FA } = useAuthStore();
   const { t } = useTranslation();
   const [email, setEmail] = useState("");
@@ -243,6 +249,10 @@ function LoginPageInner() {
                 onSubmit={handle2FA}
                 className="space-y-5"
                 aria-label="2FA form"
+                // Issue #709: same noValidate convention as the email/password
+                // form so the 2FA step never surfaces the native validation
+                // tooltip either.
+                noValidate
               >
                 {error && (
                   <div
@@ -266,7 +276,7 @@ function LoginPageInner() {
                     autoComplete="one-time-code"
                     value={twoFACode}
                     onChange={(e) => setTwoFACode(e.target.value)}
-                    required
+                    aria-required="true"
                     placeholder={t("login.2fa.placeholder")}
                     className="w-full rounded-lg border border-gray-300 px-4 py-2.5 tracking-widest focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                   />
@@ -326,7 +336,14 @@ function LoginPageInner() {
                     autoComplete="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    required
+                    // Issue #709: do NOT set `required`. The form has
+                    // `noValidate` but some browsers (Safari notably) still
+                    // surface the native "Please fill out this field"
+                    // tooltip on submit if the input itself declares
+                    // `required`. We render the inline `<p data-testid=
+                    // "error-email">` below instead. `aria-required` keeps
+                    // assistive tech aware that the field is mandatory.
+                    aria-required="true"
                     className={
                       "w-full rounded-lg border px-4 py-2.5 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:bg-gray-900 dark:text-gray-100 " +
                       (fieldErrors.email
@@ -362,7 +379,9 @@ function LoginPageInner() {
                     autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    required
+                    // Issue #709: see above — inline error span replaces
+                    // the native required tooltip.
+                    aria-required="true"
                     className={
                       "rounded-lg border px-4 py-2.5 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:bg-gray-900 dark:text-gray-100 " +
                       (fieldErrors.password

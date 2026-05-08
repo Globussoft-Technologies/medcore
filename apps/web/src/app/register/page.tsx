@@ -13,6 +13,17 @@ import { toast } from "@/lib/toast";
 // field via data-testid="error-{field}") instead of toasting only the first.
 import { extractFieldErrors, type FieldErrorMap } from "@/lib/field-errors";
 
+// Issues #706, #708, #713 — schema mirror (Lane A commit f1de292).
+// The API now requires:
+//   - email matches STRICT_EMAIL_REGEX (#708)
+//   - password >= 12 chars, letter + digit, not in common-password denylist (#706)
+//   - phone (10-15 digits, optional leading +) for PATIENT (#713)
+//   - address 5-500 chars for PATIENT (#713)
+//   - emergencyContact { name, phone, relationship } for PATIENT (#713)
+//   - age in [0, 130] (#707)
+const STRICT_EMAIL_REGEX = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+const PHONE_REGEX = /^[+]?[\d\s-]{10,15}$/;
+
 export default function RegisterPage() {
   const router = useRouter();
   const { login } = useAuthStore();
@@ -22,9 +33,18 @@ export default function RegisterPage() {
     email: "",
     phone: "",
     password: "",
-    gender: "MALE",
+    // Issue #684: do NOT pre-select MALE — defaulting to a single gender
+    // introduces a bias and pre-fills a sensitive field the user never
+    // explicitly set. The first option is now an unselectable
+    // placeholder ("Select…") and we validate that the user actually
+    // picked one before submit.
+    gender: "",
     age: "",
     address: "",
+    // Issue #713: emergency contact triplet — required for PATIENT.
+    emergencyContactName: "",
+    emergencyContactPhone: "",
+    emergencyContactRelationship: "",
   });
   const [error, setError] = useState("");
   // Issue #494: when the server returns a 5xx / network failure (no field
@@ -39,12 +59,30 @@ export default function RegisterPage() {
     setForm((prev) => ({ ...prev, [field]: value }));
     // Issue #130: clear the per-field error as soon as the user edits the
     // input — keeps the inline span in sync with the new value without
-    // forcing a server round-trip.
+    // forcing a server round-trip. Also clears the matching nested
+    // emergencyContact.<field> error when the user touches the corresponding
+    // emergencyContactName/Phone/Relationship input.
     setFieldErrors((prev) => {
-      if (!(field in prev)) return prev;
       const next = { ...prev };
-      delete next[field];
-      return next;
+      let changed = false;
+      if (field in next) {
+        delete next[field];
+        changed = true;
+      }
+      // The API surfaces nested emergency-contact errors as
+      // "emergencyContact.name" etc. Map our flat field name back to the
+      // nested key so editing the input clears the inline error.
+      const nestedMap: Record<string, string> = {
+        emergencyContactName: "emergencyContact.name",
+        emergencyContactPhone: "emergencyContact.phone",
+        emergencyContactRelationship: "emergencyContact.relationship",
+      };
+      const nested = nestedMap[field];
+      if (nested && nested in next) {
+        delete next[nested];
+        changed = true;
+      }
+      return changed ? next : prev;
     });
   }
 
@@ -52,23 +90,45 @@ export default function RegisterPage() {
     const errs: FieldErrorMap = {};
     if (!form.name.trim()) errs.name = "Name is required";
     if (!form.email.trim()) errs.email = "Email is required";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
+    else if (!STRICT_EMAIL_REGEX.test(form.email))
       errs.email = "Enter a valid email address";
-    const digits = form.phone.replace(/\D/g, "");
     if (!form.phone.trim()) errs.phone = "Phone number is required";
-    else if (digits.length < 10 || digits.length > 13)
-      errs.phone = "Enter a valid 10-digit phone";
+    else if (!PHONE_REGEX.test(form.phone.trim()))
+      errs.phone = "Phone must be 10–15 digits, optional leading +";
+    // Issue #706: register password floor is 12 chars + letter + digit.
     if (!form.password) errs.password = "Password is required";
-    else if (form.password.length < 6)
-      errs.password = "Password must be at least 6 characters";
+    else if (form.password.length < 12)
+      errs.password = "Password must be at least 12 characters";
+    else if (!/[A-Za-z]/.test(form.password))
+      errs.password = "Password must contain at least one letter";
+    else if (!/\d/.test(form.password))
+      errs.password = "Password must contain at least one digit";
     if (form.age) {
       const n = parseInt(form.age, 10);
-      // Issue #167 (Apr 2026): self-registration is the adult path.
-      // Newborns can't sign themselves up — guard against the
-      // empty-input-coerces-to-0 silent failure.
-      if (Number.isNaN(n) || n < 1 || n > 150)
-        errs.age = "Enter a valid age between 1 and 150";
+      // Issue #707: age range [0, 130].
+      if (Number.isNaN(n) || n < 0 || n > 130)
+        errs.age = "Enter a valid age between 0 and 130";
     }
+    // Issue #684: gender must be a deliberate choice (not the silent
+    // pre-selected MALE that introduced bias).
+    if (!form.gender) errs.gender = "Please select a gender";
+    // Issue #713: address required (PATIENT self-registration is the only
+    // role this form supports — staff are created via the dashboard's
+    // Users page where the requirements are already enforced).
+    if (!form.address.trim()) errs.address = "Address is required";
+    else if (form.address.trim().length < 5)
+      errs.address = "Address must be at least 5 characters";
+    // Issue #713: emergency contact triplet.
+    if (!form.emergencyContactName.trim())
+      errs["emergencyContact.name"] = "Emergency contact name is required";
+    if (!form.emergencyContactPhone.trim())
+      errs["emergencyContact.phone"] = "Emergency contact phone is required";
+    else if (!PHONE_REGEX.test(form.emergencyContactPhone.trim()))
+      errs["emergencyContact.phone"] =
+        "Emergency contact phone must be 10–15 digits";
+    if (!form.emergencyContactRelationship.trim())
+      errs["emergencyContact.relationship"] =
+        "Emergency contact relationship is required";
     return errs;
   }
 
@@ -85,6 +145,11 @@ export default function RegisterPage() {
         gender: form.gender,
         age: form.age ? parseInt(form.age) : undefined,
         address: form.address || undefined,
+        emergencyContact: {
+          name: form.emergencyContactName,
+          phone: form.emergencyContactPhone,
+          relationship: form.emergencyContactRelationship,
+        },
         role: "PATIENT",
       });
 
@@ -162,6 +227,10 @@ export default function RegisterPage() {
 
   const inputClass =
     "w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100";
+  const errorInputClass = inputClass.replace(
+    "border-gray-300",
+    "border-red-500",
+  );
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100 dark:from-gray-900 dark:to-gray-950">
@@ -180,7 +249,7 @@ export default function RegisterPage() {
           onSubmit={handleSubmit}
           className="space-y-4"
           aria-label="Registration form"
-          // Issue #130 / #102: suppress browser native tooltips so all
+          // Issue #130 / #102 / #709: suppress browser native tooltips so all
           // validation feedback lives inline below each input.
           noValidate
         >
@@ -217,15 +286,11 @@ export default function RegisterPage() {
             <input
               id="reg-name"
               type="text"
-              required
+              aria-required="true"
               autoComplete="name"
               value={form.name}
               onChange={(e) => update("name", e.target.value)}
-              className={
-                fieldErrors.name
-                  ? inputClass.replace("border-gray-300", "border-red-500")
-                  : inputClass
-              }
+              className={fieldErrors.name ? errorInputClass : inputClass}
               placeholder={t("register.fullName.placeholder")}
               aria-invalid={!!fieldErrors.name}
               aria-describedby={fieldErrors.name ? "reg-name-err" : undefined}
@@ -252,15 +317,11 @@ export default function RegisterPage() {
               <input
                 id="reg-email"
                 type="email"
-                required
+                aria-required="true"
                 autoComplete="email"
                 value={form.email}
                 onChange={(e) => update("email", e.target.value)}
-                className={
-                  fieldErrors.email
-                    ? inputClass.replace("border-gray-300", "border-red-500")
-                    : inputClass
-                }
+                className={fieldErrors.email ? errorInputClass : inputClass}
                 placeholder="you@example.com"
                 aria-invalid={!!fieldErrors.email}
                 aria-describedby={fieldErrors.email ? "reg-email-err" : undefined}
@@ -285,15 +346,11 @@ export default function RegisterPage() {
               <input
                 id="reg-phone"
                 type="tel"
-                required
+                aria-required="true"
                 autoComplete="tel"
                 value={form.phone}
                 onChange={(e) => update("phone", e.target.value)}
-                className={
-                  fieldErrors.phone
-                    ? inputClass.replace("border-gray-300", "border-red-500")
-                    : inputClass
-                }
+                className={fieldErrors.phone ? errorInputClass : inputClass}
                 placeholder={t("register.phone.placeholder")}
                 aria-invalid={!!fieldErrors.phone}
                 aria-describedby={fieldErrors.phone ? "reg-phone-err" : undefined}
@@ -319,21 +376,18 @@ export default function RegisterPage() {
             </label>
             <PasswordInput
               id="reg-password"
-              required
+              aria-required="true"
               autoComplete="new-password"
-              minLength={6}
+              minLength={12}
               value={form.password}
               onChange={(e) => update("password", e.target.value)}
-              className={
-                fieldErrors.password
-                  ? inputClass.replace("border-gray-300", "border-red-500")
-                  : inputClass
-              }
+              className={fieldErrors.password ? errorInputClass : inputClass}
               placeholder={t("register.password.placeholder")}
               aria-invalid={!!fieldErrors.password}
               aria-describedby={
-                fieldErrors.password ? "reg-password-err" : undefined
+                fieldErrors.password ? "reg-password-err" : "reg-password-hint"
               }
+              hint="At least 12 characters with a letter and a digit."
             />
             {fieldErrors.password && (
               <p
@@ -358,12 +412,32 @@ export default function RegisterPage() {
                 id="reg-gender"
                 value={form.gender}
                 onChange={(e) => update("gender", e.target.value)}
-                className={inputClass}
+                aria-required="true"
+                aria-invalid={!!fieldErrors.gender}
+                aria-describedby={
+                  fieldErrors.gender ? "reg-gender-err" : undefined
+                }
+                className={fieldErrors.gender ? errorInputClass : inputClass}
               >
+                {/* Issue #684: empty default option so no gender is
+                    pre-selected. Marked disabled so the user can't
+                    submit without making a deliberate choice. */}
+                <option value="" disabled>
+                  Select…
+                </option>
                 <option value="MALE">{t("register.gender.male")}</option>
                 <option value="FEMALE">{t("register.gender.female")}</option>
                 <option value="OTHER">{t("register.gender.other")}</option>
               </select>
+              {fieldErrors.gender && (
+                <p
+                  id="reg-gender-err"
+                  data-testid="error-gender"
+                  className="mt-1 text-xs text-red-600 dark:text-red-400"
+                >
+                  {fieldErrors.gender}
+                </p>
+              )}
             </div>
             <div>
               <label
@@ -375,15 +449,11 @@ export default function RegisterPage() {
               <input
                 id="reg-age"
                 type="number"
-                min="1"
-                max="150"
+                min="0"
+                max="130"
                 value={form.age}
                 onChange={(e) => update("age", e.target.value)}
-                className={
-                  fieldErrors.age
-                    ? inputClass.replace("border-gray-300", "border-red-500")
-                    : inputClass
-                }
+                className={fieldErrors.age ? errorInputClass : inputClass}
                 placeholder={t("register.age.placeholder")}
                 aria-invalid={!!fieldErrors.age}
                 aria-describedby={fieldErrors.age ? "reg-age-err" : undefined}
@@ -410,13 +480,167 @@ export default function RegisterPage() {
             <input
               id="reg-address"
               type="text"
+              aria-required="true"
               autoComplete="street-address"
               value={form.address}
               onChange={(e) => update("address", e.target.value)}
-              className={inputClass}
+              className={fieldErrors.address ? errorInputClass : inputClass}
               placeholder={t("register.address.placeholder")}
+              aria-invalid={!!fieldErrors.address}
+              aria-describedby={
+                fieldErrors.address ? "reg-address-err" : undefined
+              }
             />
+            {fieldErrors.address && (
+              <p
+                id="reg-address-err"
+                data-testid="error-address"
+                className="mt-1 text-xs text-red-600 dark:text-red-400"
+              >
+                {fieldErrors.address}
+              </p>
+            )}
           </div>
+
+          {/* Issue #713 (Lane A commit f1de292) — emergency contact block.
+              Required for PATIENT self-registration so the front desk has
+              someone to call in an admission emergency. The API rejects
+              missing/short fields with details = [{field:"emergencyContact.X",
+              message:"..."}]; the inline spans below catch each branch. */}
+          <fieldset
+            data-testid="reg-emergency-contact"
+            className="rounded-lg border border-gray-200 p-4 dark:border-gray-700"
+          >
+            <legend className="px-2 text-sm font-medium text-gray-700 dark:text-gray-200">
+              Emergency Contact
+            </legend>
+            <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+              Someone we can reach if you can&apos;t be reached.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label
+                  htmlFor="reg-ec-name"
+                  className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200"
+                >
+                  Name
+                </label>
+                <input
+                  id="reg-ec-name"
+                  type="text"
+                  aria-required="true"
+                  autoComplete="off"
+                  value={form.emergencyContactName}
+                  onChange={(e) =>
+                    update("emergencyContactName", e.target.value)
+                  }
+                  className={
+                    fieldErrors["emergencyContact.name"]
+                      ? errorInputClass
+                      : inputClass
+                  }
+                  placeholder="e.g. Priya Sharma"
+                  aria-invalid={!!fieldErrors["emergencyContact.name"]}
+                  aria-describedby={
+                    fieldErrors["emergencyContact.name"]
+                      ? "reg-ec-name-err"
+                      : undefined
+                  }
+                />
+                {fieldErrors["emergencyContact.name"] && (
+                  <p
+                    id="reg-ec-name-err"
+                    data-testid="error-emergencyContact.name"
+                    className="mt-1 text-xs text-red-600 dark:text-red-400"
+                  >
+                    {fieldErrors["emergencyContact.name"]}
+                  </p>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label
+                    htmlFor="reg-ec-phone"
+                    className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200"
+                  >
+                    Phone
+                  </label>
+                  <input
+                    id="reg-ec-phone"
+                    type="tel"
+                    aria-required="true"
+                    autoComplete="off"
+                    value={form.emergencyContactPhone}
+                    onChange={(e) =>
+                      update("emergencyContactPhone", e.target.value)
+                    }
+                    className={
+                      fieldErrors["emergencyContact.phone"]
+                        ? errorInputClass
+                        : inputClass
+                    }
+                    placeholder="+91 98765 43210"
+                    aria-invalid={!!fieldErrors["emergencyContact.phone"]}
+                    aria-describedby={
+                      fieldErrors["emergencyContact.phone"]
+                        ? "reg-ec-phone-err"
+                        : undefined
+                    }
+                  />
+                  {fieldErrors["emergencyContact.phone"] && (
+                    <p
+                      id="reg-ec-phone-err"
+                      data-testid="error-emergencyContact.phone"
+                      className="mt-1 text-xs text-red-600 dark:text-red-400"
+                    >
+                      {fieldErrors["emergencyContact.phone"]}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label
+                    htmlFor="reg-ec-rel"
+                    className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200"
+                  >
+                    Relationship
+                  </label>
+                  <input
+                    id="reg-ec-rel"
+                    type="text"
+                    aria-required="true"
+                    autoComplete="off"
+                    value={form.emergencyContactRelationship}
+                    onChange={(e) =>
+                      update("emergencyContactRelationship", e.target.value)
+                    }
+                    className={
+                      fieldErrors["emergencyContact.relationship"]
+                        ? errorInputClass
+                        : inputClass
+                    }
+                    placeholder="e.g. Spouse, Parent"
+                    aria-invalid={
+                      !!fieldErrors["emergencyContact.relationship"]
+                    }
+                    aria-describedby={
+                      fieldErrors["emergencyContact.relationship"]
+                        ? "reg-ec-rel-err"
+                        : undefined
+                    }
+                  />
+                  {fieldErrors["emergencyContact.relationship"] && (
+                    <p
+                      id="reg-ec-rel-err"
+                      data-testid="error-emergencyContact.relationship"
+                      className="mt-1 text-xs text-red-600 dark:text-red-400"
+                    >
+                      {fieldErrors["emergencyContact.relationship"]}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </fieldset>
 
           <button
             type="submit"

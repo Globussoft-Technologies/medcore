@@ -475,6 +475,11 @@ export default function DashboardLayout({
   //     dashboard URL with an empty store used to silently drop the user at
   //     the login page with no context at all.
   const sessionToastShownRef = useRef(false);
+  // Issue #685: set by the Sign-Out button BEFORE clearing the auth
+  // store, so the redirect-effect below can distinguish a real session
+  // expiry (toast.info "session expired") from a user-initiated sign
+  // out (no toast — the button handler surfaces its own success copy).
+  const userInitiatedLogoutRef = useRef(false);
   useEffect(() => {
     if (isLoading || user) return;
     // Wait for the WebKit-grace retry block above to either arm the
@@ -493,7 +498,7 @@ export default function DashboardLayout({
     if (!redirectTarget || redirectTarget.startsWith("/login")) {
       redirectTarget = "/dashboard";
     }
-    if (!sessionToastShownRef.current) {
+    if (!sessionToastShownRef.current && !userInitiatedLogoutRef.current) {
       sessionToastShownRef.current = true;
       toast.info(t("auth.sessionExpired", "Your session has expired. Please sign in again."));
     }
@@ -893,9 +898,56 @@ export default function DashboardLayout({
           </div>
           <button
             type="button"
-            onClick={() => {
-              logout();
-              router.push("/login");
+            onClick={async () => {
+              // Issue #704: previously this handler was
+              //   () => { logout(); router.push("/login"); }
+              // — `logout()` is async (POST /auth/logout) and was
+              // fire-and-forget. The synchronous `set({ user: null })`
+              // inside logout flipped the auth store immediately, which
+              // re-rendered THIS layout. The redirect-effect at line
+              // ~478 saw `!user` and (after the WebKit-grace retry loop
+              // fully ran) called `router.push("/login?redirect=...")`
+              // — racing the explicit `router.push("/login")` here.
+              // The result on slow renders was that the FIRST click
+              // appeared inert: the user observed a flicker as the
+              // dashboard re-rendered the loading spinner, the layout's
+              // own redirect overrode this handler's push, and the
+              // toast.info "Your session has expired" appeared even
+              // though the user had clicked Sign Out deliberately. The
+              // SECOND click then worked because by then the cookie
+              // was already cleared and `redirectArmed=true` from the
+              // retry loop, and the user was already on /login.
+              //
+              // Fix: await the network logout so the cookie clear is
+              // observed BEFORE any router activity, then perform a
+              // HARD navigation (`window.location.replace`) so the
+              // dashboard layout is fully unmounted — the retry-effect
+              // can't re-arm against an already-navigated-away tree.
+              // `replace()` (not `assign()`) keeps the dashboard out of
+              // history so the back button doesn't bounce the user
+              // back into a logged-out shell.
+              //
+              // Issue #685: the redirect-effect at line ~478 fires
+              // `toast.info("Your session has expired. Please sign
+              // in again.")` whenever it sees `!user && redirectArmed`.
+              // After `await logout()` the store is wiped synchronously,
+              // and on slow networks the layout can re-render once
+              // before `window.location.replace` tears it down — long
+              // enough for the misleading toast to fire on a
+              // user-initiated sign-out. We mark the ref BEFORE awaiting
+              // so the redirect-effect (which reads the ref via the
+              // closure) skips its toast, and we surface the correct
+              // "Signed out successfully" message instead.
+              userInitiatedLogoutRef.current = true;
+              await logout();
+              toast.success(
+                t("auth.signedOut", "Signed out successfully."),
+              );
+              if (typeof window !== "undefined") {
+                window.location.replace("/login");
+              } else {
+                router.push("/login");
+              }
             }}
             aria-label={t("common.signOut")}
             data-testid="sidebar-sign-out"

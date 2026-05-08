@@ -38,6 +38,9 @@ function modelUnavailable(res: Response): void {
 export const aiDocQaRouter = Router();
 
 aiDocQaRouter.use(authenticate);
+// #511 audit (file-level, 2026-05-09): every handler applies
+// `authorize(Role.ADMIN)` (or ADMIN/DOCTOR for the report-fetch surface).
+// PATIENT is excluded. Verified-safe.
 
 // ─── POST /run-sample ─────────────────────────────────────────────────────
 

@@ -36,6 +36,9 @@ const cohortSearchSchema = z.object({
 
 const router = Router();
 router.use(authenticate);
+// #511 audit (file-level, 2026-05-09): every handler applies
+// `authorize(Role.DOCTOR, Role.ADMIN)`. PATIENT excluded from chart-search
+// (cohort + per-patient) surfaces. Verified-safe.
 // security(2026-04-23-med): F-CS-2 — chart-search hits FTS + rerank + Sarvam
 // synthesize on every call. Cap to 30/min/IP so a compromised clinician
 // token cannot burn Sarvam budget (global limit is 600/min, way too loose).

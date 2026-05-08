@@ -29,6 +29,11 @@ import {
 const router = Router();
 router.use(authenticate);
 
+// #511 audit (file-level, 2026-05-09): every handler applies
+// `authorize(Role.ADMIN, Role.RECEPTION)` (or ADMIN-only). PATIENT is
+// excluded from insurance-claims drafting and denial prediction surfaces.
+// Verified-safe.
+
 // ── POST /draft/:consultationId ──────────────────────────────────────────────
 // Draft a claim from the consultation's SOAP + ICD + invoice. Idempotency is
 // intentionally NOT enforced here: reception may legitimately want to re-draft

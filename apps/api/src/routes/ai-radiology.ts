@@ -119,6 +119,9 @@ async function attachSignedUrls(
 export const aiRadiologyRouter = Router();
 
 aiRadiologyRouter.use(authenticate);
+// #511 audit (file-level, 2026-05-09): every handler applies
+// `authorize(Role.DOCTOR, Role.ADMIN)` — PATIENT is excluded from
+// radiology drafting, study upload, and approval surfaces. Verified-safe.
 // security(2026-04-24-med): F-RAD-* — draft generation is Sarvam-backed
 // (one LLM call). Cap to 20/min/IP so one caller can't burn budget.
 if (process.env.NODE_ENV !== "test") {

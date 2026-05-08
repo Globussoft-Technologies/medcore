@@ -238,14 +238,24 @@ export default function PrescriptionsPage() {
     })();
   }, [form.patientId]);
 
+  // Issue #613 (May 2026): the initial GET /api/v1/prescriptions could fire
+  // before the auth-store finished hydrating from the cookie session, so the
+  // request went out without the Bearer header / cookie context and the API
+  // returned 401. The page then surfaced a misleading "Forbidden" error and
+  // the Retry button looked like a logout. Gate the fetch on auth being both
+  // hydrated (`!isLoading`) AND populated (`user` present + role allowed) so
+  // the first request only goes out once we know the session is established.
   useEffect(() => {
+    if (isLoading) return;
+    if (!user) return;
+    if (!RX_ALLOWED.has(user.role)) return;
     loadPrescriptions();
     api
       .get<{ data: Template[] }>("/prescriptions/templates/list")
       .then((r) => setTemplates(r.data))
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageLimit]);
+  }, [page, pageLimit, isLoading, user?.id, user?.role]);
 
   // Auto-open the Rx form when the doctor workspace quick-action links here
   // with ?new=1 (issue #11). Issue #439: also accept ?patientId=… so the

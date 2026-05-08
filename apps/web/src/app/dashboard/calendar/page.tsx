@@ -72,6 +72,23 @@ function parseEventDate(raw: string | Date): Date {
   return new Date(raw);
 }
 
+/**
+ * Issue #593: `Date.prototype.toISOString()` throws `RangeError: Invalid
+ * time value` for an invalid Date. The calendar's surgery / telemedicine
+ * tile builders previously called it raw against `new Date(s.scheduledAt)`
+ * which crashed the whole IIFE if ANY one row had a bad `scheduledAt`,
+ * leaving every role stuck on the spinner. Use this guard instead — bad
+ * rows just lose their time, the rest of the calendar still renders.
+ */
+function safeHHMM(d: Date): string | undefined {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return undefined;
+  try {
+    return d.toISOString().substring(11, 16);
+  } catch {
+    return undefined;
+  }
+}
+
 function safe<T>(p: string, fb: T): Promise<T> {
   return api.get<T>(p).catch(() => fb);
 }
@@ -131,6 +148,15 @@ export default function UnifiedCalendarPage() {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      // Issue #593 (May 2026): RECEPTION (and any role) saw the calendar
+      // stuck on "Loading events..." forever when ANY downstream data
+      // shape threw mid-mapping (e.g. a malformed `scheduledAt` causing
+      // `new Date(...).toISOString()` to throw `RangeError: Invalid time
+      // value`). The IIFE had no try/catch, so the rejection skipped
+      // `setLoading(false)` and the loader pinned. Wrap the whole body in
+      // try/finally so we always clear the loader, regardless of what any
+      // single event-mapping line does.
+      try {
       const from = fmtYmd(first);
       const to = fmtYmd(last);
       const collected: CalEvent[] = [];
@@ -197,10 +223,11 @@ export default function UnifiedCalendarPage() {
       }
       for (const s of surg.data || []) {
         const d = new Date(s.scheduledAt);
+        if (Number.isNaN(d.getTime())) continue; // Issue #593: skip bad rows
         collected.push({
           id: `surg-${s.id}`,
           date: fmtYmd(d),
-          time: d.toISOString().substring(11, 16),
+          time: safeHHMM(d),
           title: s.procedure,
           subtitle: `${s.caseNumber} · ${s.patient?.user?.name || ""}`,
           type: "surgery",
@@ -211,10 +238,11 @@ export default function UnifiedCalendarPage() {
       }
       for (const t of telemed.data || []) {
         const d = new Date(t.scheduledAt || t.startedAt || Date.now());
+        if (Number.isNaN(d.getTime())) continue; // Issue #593: skip bad rows
         collected.push({
           id: `tele-${t.id}`,
           date: fmtYmd(d),
-          time: d.toISOString().substring(11, 16),
+          time: safeHHMM(d),
           title: `Telemedicine · ${t.patient?.user?.name || ""}`,
           subtitle: `${t.doctor?.user?.name ? formatDoctorName(t.doctor.user.name) : "—"}`,
           type: "telemedicine",
@@ -272,10 +300,11 @@ export default function UnifiedCalendarPage() {
       // Issue #718: ad-hoc admin events created via the New-Event dialog.
       for (const ev of custom.data || []) {
         const start = new Date(ev.startAt);
+        if (Number.isNaN(start.getTime())) continue; // Issue #593
         collected.push({
           id: `custom-${ev.id}`,
           date: fmtYmd(start),
-          time: start.toISOString().substring(11, 16),
+          time: safeHHMM(start),
           title: ev.title,
           subtitle: ev.category
             ? `${String(ev.category).replace(/_/g, " ").toLowerCase()}${ev.description ? ` · ${ev.description}` : ""}`
@@ -303,7 +332,18 @@ export default function UnifiedCalendarPage() {
       if (!cancelled) {
         setEvents(collected);
         setHolidaysByDate(holidayMap);
-        setLoading(false);
+      }
+      } catch (err) {
+        // Issue #593: log but never block render — the loader MUST clear
+        // even on a per-row mapping crash so the user can refresh / pick
+        // a different month rather than stare at a frozen "Loading..."
+        // forever.
+        console.error("[calendar] failed to assemble events", err);
+        if (!cancelled) {
+          setEvents([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => {

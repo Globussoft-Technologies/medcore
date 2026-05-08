@@ -335,11 +335,23 @@ export default function WalkInPage() {
                 {searchResults.length > 0 && (
                   <div className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700">
                     {searchResults.map((p) => (
+                      // Issue #585 (2026-05-05): patient suggestion clicks
+                      // appeared inert because the underlying <button> had no
+                      // explicit `type` — when ANY ancestor wrapped this in a
+                      // <form> (e.g. via a future modal refactor), the
+                      // default `type="submit"` would intercept the click,
+                      // submit the form, and the suggestion never bound to
+                      // state. Pin `type="button"` AND `onMouseDown` (which
+                      // fires before the input's onBlur) so the selection
+                      // lands even when the input is racing a blur handler.
                       <button
                         key={p.id}
-                        onClick={() => {
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
                           setSelectedPatient(p);
                           setSearchResults([]);
+                          setSearch("");
                         }}
                         className="w-full border-b border-gray-200 px-3 py-2 text-left text-sm text-gray-900 last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-700"
                       >
@@ -349,6 +361,7 @@ export default function WalkInPage() {
                   </div>
                 )}
                 <button
+                  type="button"
                   onClick={() => setShowNewPatient(true)}
                   className="mt-2 text-sm font-medium text-primary"
                 >

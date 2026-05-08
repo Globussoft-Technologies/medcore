@@ -61,7 +61,14 @@ export function LanguageDropdown({
         value={lang}
         onChange={(e) => handleChange(e.target.value as Lang)}
         aria-label="Select language"
-        className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+        // Issue #536 (2026-05-05): the previous styles removed the OS focus
+        // outline (`focus:outline-none`) but only added a faint
+        // `focus:ring-primary/20` ring at 20% alpha — barely visible
+        // against the white sidebar background, failing WCAG 2.4.7 for
+        // keyboard users. Use `focus-visible:` (keyboard-only) with a
+        // fully-opaque ring at 2px width that's clearly visible in both
+        // light and dark themes.
+        className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:focus-visible:ring-offset-gray-900"
       >
         <option value="en">English</option>
         <option value="hi">हिन्दी</option>

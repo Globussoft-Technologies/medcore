@@ -64,9 +64,15 @@ async function createHandoffFixture(): Promise<{
       .send({ message: msg });
   }
 
+  // The triage session is driven by `receptionToken` above (createPatientFixture
+  // makes a patient distinct from the seed PATIENT user), so the handoff caller
+  // must also be RECEPTION — calling with the seed `patientToken` would now
+  // (correctly) return 403 from `assertPatientOwnsResource` per the BOLA fix
+  // in commit 2684b6d (#511 wave). Non-PATIENT roles bypass the helper, so
+  // RECEPTION can legitimately trigger handoff for the fixture patient.
   const handoff = await request(app)
     .post(`/api/v1/ai/triage/${sessionId}/handoff`)
-    .set("Authorization", `Bearer ${patientToken}`);
+    .set("Authorization", `Bearer ${receptionToken}`);
   expect(handoff.status).toBe(200);
   return { chatRoomId: handoff.body.data.chatRoomId, sessionId, patient };
 }

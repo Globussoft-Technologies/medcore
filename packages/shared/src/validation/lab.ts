@@ -27,7 +27,7 @@ export const createLabOrderSchema = z.object({
   doctorId: z.string().uuid().optional(),
   admissionId: z.string().uuid().optional(),
   testIds: z.array(z.string().uuid()).min(1, "At least one test is required"),
-  notes: z.string().optional(),
+  notes: z.string().max(2000).optional(),
   priority: z.enum(["ROUTINE", "URGENT", "STAT"]).optional(),
 });
 
@@ -35,14 +35,22 @@ export const updateLabOrderStatusSchema = z.object({
   status: LabTestStatus,
 });
 
+// Issue #642 / #618: per-field caps on lab result inputs. Without
+// these caps Notes/Parameter/Value accepted multi-megabyte payloads
+// and the result table broke layout (a 2000-char Parameter renders
+// off-screen). Caps mirror the realistic clinical envelopes:
+//   - parameter: <= 200 chars (e.g. "Total Cholesterol / HDL ratio")
+//   - value: <= 400 chars (long qualitative descriptions)
+//   - unit / normalRange: <= 80 chars
+//   - notes: <= 2000 chars (clinician narrative)
 export const recordLabResultSchema = z.object({
   orderItemId: z.string().uuid(),
-  parameter: z.string().min(1, "Parameter is required"),
-  value: z.string().min(1, "Value is required"),
-  unit: z.string().optional(),
-  normalRange: z.string().optional(),
+  parameter: z.string().min(1, "Parameter is required").max(200),
+  value: z.string().min(1, "Value is required").max(400),
+  unit: z.string().max(80).optional(),
+  normalRange: z.string().max(80).optional(),
   flag: LabResultFlag.optional(),
-  notes: z.string().optional(),
+  notes: z.string().max(2000).optional(),
 });
 
 /**

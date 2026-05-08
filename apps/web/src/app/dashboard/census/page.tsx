@@ -136,21 +136,41 @@ export default function CensusPage() {
       {/* Simple bar chart */}
       {data.length > 1 && (
         <div className="mb-6 p-4 bg-white border border-slate-200 rounded-lg">
-          <div className="text-sm font-semibold mb-3">Occupancy Trend</div>
-          <div className="flex items-end gap-1 h-40">
-            {data.map((r) => (
-              <div key={r.date} className="flex-1 flex flex-col items-center gap-1">
-                <div
-                  className="w-full bg-blue-500 rounded-t"
-                  style={{ height: `${(r.occupancyPercent / maxOccupancy) * 100}%` }}
-                  title={`${r.date}: ${r.occupancyPercent}%`}
-                />
-                <div className="text-[10px] text-slate-500 rotate-45 origin-left mt-1 w-8">
-                  {r.date.slice(5)}
+          <div className="text-sm font-semibold mb-3 text-slate-800">Occupancy Trend</div>
+          {data.every((r) => r.occupancyPercent === 0) ? (
+            // Issue #332: when occupancy is 0% across the window the
+            // proportional-height bars (height: 0%) collapse to invisible
+            // and the chart renders as just axis labels with no plotted
+            // series. Show a clear empty-state instead so the bug isn't
+            // mistaken for "data missing".
+            <div className="h-40 flex items-center justify-center text-sm text-slate-500">
+              No occupancy recorded for the selected window.
+            </div>
+          ) : (
+            <div className="flex items-end gap-1 h-40">
+              {data.map((r) => (
+                <div key={r.date} className="flex-1 flex flex-col items-center gap-1">
+                  <div
+                    className="w-full bg-blue-500 rounded-t"
+                    style={{
+                      // Issue #332: ensure non-zero values always render at
+                      // least a 2px sliver — the previous (occ/max)*100 math
+                      // produced sub-pixel heights for low single-digit
+                      // occupancy that disappeared on most displays.
+                      height: `${Math.max(
+                        r.occupancyPercent > 0 ? 2 : 0,
+                        (r.occupancyPercent / maxOccupancy) * 100
+                      )}%`,
+                    }}
+                    title={`${r.date}: ${r.occupancyPercent}%`}
+                  />
+                  <div className="text-[10px] text-slate-700 rotate-45 origin-left mt-1 w-8">
+                    {r.date.slice(5)}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -160,7 +180,7 @@ export default function CensusPage() {
           <div className="p-8 text-center text-slate-500">Loading...</div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
+            <thead className="bg-slate-50 text-slate-700 text-xs uppercase">
               <tr>
                 <th className="px-3 py-2 text-left">Date</th>
                 <th className="px-3 py-2 text-right">Start</th>
@@ -175,13 +195,13 @@ export default function CensusPage() {
             <tbody>
               {data.map((r) => (
                 <tr key={r.date} className="border-t border-slate-100">
-                  <td className="px-3 py-2">{r.date}</td>
-                  <td className="px-3 py-2 text-right">{r.admittedAtStartOfDay}</td>
+                  <td className="px-3 py-2 text-slate-900">{r.date}</td>
+                  <td className="px-3 py-2 text-right text-slate-900">{r.admittedAtStartOfDay}</td>
                   <td className="px-3 py-2 text-right text-green-700">{r.newAdmissions}</td>
                   <td className="px-3 py-2 text-right text-amber-700">{r.discharges}</td>
                   <td className="px-3 py-2 text-right text-red-700">{r.deaths}</td>
-                  <td className="px-3 py-2 text-right font-semibold">{r.admittedAtEndOfDay}</td>
-                  <td className="px-3 py-2 text-right">{r.totalBeds}</td>
+                  <td className="px-3 py-2 text-right font-semibold text-slate-900">{r.admittedAtEndOfDay}</td>
+                  <td className="px-3 py-2 text-right text-slate-900">{r.totalBeds}</td>
                   <td className="px-3 py-2 text-right">
                     <span
                       className={`px-2 py-0.5 rounded text-xs ${

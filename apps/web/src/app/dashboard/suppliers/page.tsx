@@ -203,20 +203,20 @@ export default function SuppliersPage() {
                     } ${!s.isActive ? "opacity-60" : ""}`}
                   >
                     <td className="px-4 py-3">
-                      <p className="font-medium">{s.name}</p>
+                      <p className="font-medium text-gray-900">{s.name}</p>
                       {s.paymentTerms && (
-                        <p className="text-xs text-gray-500">{s.paymentTerms}</p>
+                        <p className="text-xs text-gray-600">{s.paymentTerms}</p>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm">
+                    <td className="px-4 py-3 text-sm text-gray-800">
                       {s.contactPerson || "-"}
                     </td>
-                    <td className="px-4 py-3 text-sm">{s.phone || "-"}</td>
-                    <td className="px-4 py-3 text-sm">{s.email || "-"}</td>
-                    <td className="px-4 py-3 font-mono text-xs">
+                    <td className="px-4 py-3 text-sm text-gray-800">{s.phone || "-"}</td>
+                    <td className="px-4 py-3 text-sm text-gray-800">{s.email || "-"}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-800">
                       {s.gstNumber || "-"}
                     </td>
-                    <td className="px-4 py-3 text-sm">
+                    <td className="px-4 py-3 text-sm text-gray-800">
                       {s._count?.purchaseOrders || 0}
                     </td>
                     <td className="px-4 py-3">

@@ -218,6 +218,22 @@ done
 [ "$web_ok" -eq 1 ] || { echo "Web FAILED after 5 retries"; exit 1; }
 
 pm2 save
+
+# Issue #40 / #41: keep the medicine catalog rows aligned with the
+# canonical seed values on every deploy. seed-pharmacy.ts is idempotent
+# (every write is an upsert keyed by `name` for medicines, `code` for lab
+# tests, and a composite key for inventory) so re-running it on every
+# deploy fixes the demo's stale `prescriptionRequired=false` Amlodipine
+# row + empty `brand` columns without ever destroying tenant data.
+# Failures here MUST NOT fail the deploy — the catalog is non-critical
+# relative to the API/Web smoke checks above.
+echo "=== 8b. Re-applying pharmacy catalog seed (Issue #40, #41) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-pharmacy.ts; then
+    echo "  OK — pharmacy catalog re-seeded."
+else
+    echo "  WARN — pharmacy seed failed (non-fatal). Investigate offline."
+fi
+
 echo "=== Deployment complete (previous SHA recorded at /tmp/medcore-prev-sha) ==="
 
 # Optional: re-seed (destructive — triple-guarded; see env var below).

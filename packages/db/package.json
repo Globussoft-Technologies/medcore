@@ -11,6 +11,7 @@
     "db:seed": "tsx src/seed.ts",
     "db:seed-hr": "tsx src/seed-hr.ts",
     "db:seed-finance": "tsx src/seed-finance.ts",
+    "db:seed-pharmacy": "tsx src/seed-pharmacy.ts",
     "db:seed-phase4-ops": "tsx src/seed-phase4-ops.ts",
     "db:seed-ancillary": "tsx src/seed-ancillary-enhancements.ts",
     "db:seed-ops-enhancements": "tsx src/seed-ops-enhancements.ts",

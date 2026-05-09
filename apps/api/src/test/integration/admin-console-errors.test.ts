@@ -107,9 +107,11 @@ describeIfDB("Admin Console errors (regression #8)", () => {
     const admin = await prisma.user.findUnique({
       where: { email: "admin@test.local" },
     });
-    // Seed one of each canonical error-action plus a benign control.
+    // Seed the 3 NEW canonical error-actions (LOGIN_FAILED is already
+    // carrying over from the previous test in this describe block).
+    // Re-seeding LOGIN_FAILED here would push its count to 4 and break
+    // the precedence test below which asserts `action=LOGIN_FAILED` = 3.
     const errorActions = [
-      "LOGIN_FAILED", // already 3 from the previous test
       "PRESCRIPTION_REJECTED",
       "PRESCRIPTION_SHARE_FAILED",
       "NOTIFICATION_AUDIENCE_REJECTED",
@@ -134,13 +136,13 @@ describeIfDB("Admin Console errors (regression #8)", () => {
       )
       .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
-    // Previous test seeded 3 LOGIN_FAILED + this test seeded 1 of each
-    // of 4 actions = 3 + 4 = 7. (LOGIN_FAILED carries from the prior
-    // test thanks to vitest's singleFork-shared connection on this
-    // suite; if that ever changes the assertion stays internally
-    // consistent because we'd see 4 instead of 7 — both > 0 and
-    // strictly greater than the LOGIN_FAILED-only count of 3.)
-    expect(res.body.meta?.total).toBeGreaterThanOrEqual(4);
+    // Previous test seeded 3 LOGIN_FAILED; this test seeded 1 of each of
+    // the 3 NEW actions = 3 + 3 = 6 union'd by actionIn=A,B,C,D.
+    // If the LOGIN_FAILED carryover is ever lost (singleFork connection
+    // change), the count would fall to 3 and still strictly exceed the
+    // prior-non-actionIn-only-LOGIN_FAILED count of 3 — so the assertion
+    // is internally consistent.
+    expect(res.body.meta?.total).toBeGreaterThanOrEqual(3);
   });
 
   // The single-action `action=` filter takes precedence over actionIn

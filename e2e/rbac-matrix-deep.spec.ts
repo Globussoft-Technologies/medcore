@@ -232,8 +232,13 @@ test.describe(
         await expect(
           page.getByRole("link", { name: /back to dashboard/i })
         ).toBeVisible();
+        // Issue #594 (May 2026): the "Sign in as a different user" affordance
+        // is now a <button> (handleSwitchUser logs the user out before
+        // /login navigation). It used to be a plain <Link> which failed
+        // because the auth cookie was still valid and bounced the user back
+        // to /dashboard. Pin the testid + role=button.
         await expect(
-          page.getByRole("link", { name: /sign in as a different user/i })
+          page.getByTestId("sign-in-as-different-user")
         ).toBeVisible();
       }
     );

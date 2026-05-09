@@ -311,7 +311,8 @@ function dedupAuditRows<
 }
 
 function buildAuditWhere(req: Request): Record<string, unknown> {
-  const { userId, entity, action, ipContains, from, to, q } = req.query;
+  const { userId, entity, action, actionIn, ipContains, from, to, q } =
+    req.query;
   const where: Record<string, unknown> = {};
 
   // Issue #690: inverted-range guard. If both `from` and `to` are present
@@ -340,7 +341,27 @@ function buildAuditWhere(req: Request): Record<string, unknown> {
       mode: "insensitive",
     } as unknown;
   }
-  if (action) where.action = action;
+  // Issue #47 (.issue-details.txt 2026-05-09): support `actionIn=A,B,C` for
+  // multi-action filters. The Admin Console's "Errors (1h)" widget used to
+  // hard-code `action=LOGIN_FAILED`, which under-counted the other
+  // error-shaped audit actions that actually exist in the codebase
+  // (`PRESCRIPTION_REJECTED`, `PRESCRIPTION_SHARE_FAILED`,
+  // `NOTIFICATION_AUDIENCE_REJECTED`). With this param, the widget can
+  // pass the full canonical list and the row-aggregation query stays a
+  // single round-trip. `action=` (singular) still wins if both are sent —
+  // gives existing callers (the audit page filter dropdown, the regression
+  // test #8) deterministic precedence.
+  if (action) {
+    where.action = action;
+  } else if (actionIn) {
+    const list = String(actionIn)
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && /^[A-Z0-9_]{1,64}$/.test(s));
+    if (list.length > 0) {
+      where.action = { in: list } as unknown;
+    }
+  }
   if (ipContains) {
     where.ipAddress = { contains: String(ipContains) } as unknown;
   }

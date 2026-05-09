@@ -43,6 +43,55 @@ is independently shippable. Full per-session history lives under
 
 ---
 
+## 🚧 Deferred lanes — explicitly parked for next session(s)
+
+Captured here at the user's request after the 2026-05-09 PR-merge wave, so we don't lose the audit trail of what was queued but not yet shipped. Each is its own dedicated session.
+
+### Dependency-major migrations (still open as dependabot PRs)
+
+| PR | What | Why deferred |
+|---|---|---|
+| **#470** | `@prisma/client` 6.19.3 → 7.8.0 | 5 jobs failing on the dep-bump branch. Prisma 7 has client API surface changes that need surveying across every route handler that uses Prisma (which is most of `apps/api/src/routes/*.ts`). Bounded — finite surface — but every consumer needs verification. ETA: half-day dedicated session. |
+| **#469** | `vitest` 2.1.9 → 4.1.5 | `TypeError: Cannot read properties of undefined (reading 'fetchCache')` on the dep-bump branch. Largest blast radius — every test file may need updates, snapshots may need regeneration. Branch `chore/vitest-4-migration` is checked out locally with prior agents' uncommitted dep-file mods (need triage). ETA: full-day dedicated session. |
+| **#482** | JWT signed with HS256 → RS256/EdDSA | Operational/key-rollover plan needed; not engineering. Needs RSA keypair generation, secret rotation strategy, rolling deploy plan to avoid invalidating in-flight tokens. ETA: half-day with ops-side coordination. |
+
+### Workflow parity port from `globussoft-crm` (3 of 4 still missing — secret-scan landed via #763)
+
+Source of truth: `C:\Users\Admin\gbs-projects\gbs-crm\.github\workflows\` (sibling checkout).
+
+| Workflow | Effort | Why valuable |
+|---|---|---|
+| `migration-check.yml` | ~2-3 hr | **High value**. Catches NOT NULL / DROP COLUMN / TYPE_NARROWING / UNIQUE_ADDITION / FK_WITHOUT_ON_DELETE risks BEFORE the deploy job fires `prisma db push --accept-data-loss`. Depends on porting `backend/scripts/check-migration-safety.js` + fixture set under `backend/scripts/fixtures/migration-safety/` and `e2e/tests/migration-safety.spec.js` — paths shift `backend/` → `apps/api/` + `packages/db/prisma/`. CRM's MySQL DDL parser needs Postgres adaptation. |
+| `demo-monitor.yml` | ~1-2 hr | Every-2h cron + workflow_dispatch + auto-issue-on-failure. Workflow shell ports straightforwardly; the work is writing `e2e/demo-health.spec.ts` for medcore — encode regression classes hospital ops should catch on the demo box (cross-tenant patient leak, sidebar 404s, scrub-residue from prior E2E runs, ABDM webhook responding etc). CRM's spec is at `e2e/tests/demo-health.spec.js` for reference. |
+| `coverage.yml` | ~3-4 hr | Hardest. Needs c8 instrumentation wired into `apps/api/src/index.ts` + graceful-shutdown handler that flushes V8 coverage on SIGTERM (mirroring CRM's `server.js:gracefulShutdown`). Spec list = the api-tests-fast + api-tests-integration set already in `release.yml`. Postgres service container instead of MySQL. **Lower urgency** since `release.yml` already runs the suite; this just adds line-coverage telemetry as a workflow_dispatch report (CRM runs every 2 weeks). |
+
+### Seed idempotency long-tail (14 seeds, blocking auto-deploy reseed chain)
+
+Wave 6 audit of `packages/db/src/seed-*.ts` (commit `c2f7c46`) wired 7 idempotent demo-visible seeds into `scripts/deploy.sh` steps 8d-8j. `seed-realistic.ts` was made idempotent in `4554706` (step 8k). The following 14 seeds are still **non-idempotent** and would create duplicates / corrupt counters if naively wired in:
+
+1. `seed-finance.ts` — Suppliers/Packages upsert, but PO `nextPoSeq` advances each run with no content-match → duplicate POs. **Fix shape**: stable `PO-SEED-XXXX` pattern + `findUnique` guard, mirroring `seed-controlled-register.ts`.
+2. `seed-clinical.ts` — OTs upsert, but surgery `caseNumber` and referral `referralNumber` use max+1 with no content match. **Fix shape**: stable `SRG-SEED-XXXX` / `REF-SEED-XXXX` + `findUnique` guard.
+3. `seed-ipd.ts` — already partially fixed (admission idempotency, commit `5f784a2`); other IPD entities still raw `.create`.
+4. `seed-pediatric-patients.ts` — vaccine schedule now date-aware (`564eed3`); patient-side seeding still raw `.create`.
+5. `seed-immunization-data.ts`, `seed-lab-data.ts`, `seed-lab-panels.ts` (orders), `seed-clinical-enhancements.ts`, `seed-acute-care-enhancements.ts`, `seed-ancillary-enhancements.ts`, `seed-chat-conversations.ts`, `seed-asset-history.ts`, `seed-doctor-ratings.ts`, `seed-visitors-history.ts` (visitors part), `seed-complaints-data.ts`, `seed-notifications-history.ts` — all raw `.create` per row.
+6. `seed-phase4-{specialty,engagement,ops}.ts` — uses `deleteMany` upfront (destructive); needs the deleteMany removed before they can run on a live demo.
+
+Reference implementation for the idempotency pattern: `packages/db/src/seed-controlled-register.ts` uses stable `CSR-SEED-XXXX` + `findUnique` guard. Apply same shape to each.
+
+### PR backlog at session end (2026-05-09)
+
+| PR | Status | Action |
+|---|---|---|
+| **#763** secret-scan port (mine) | CI re-running after main test-fix landed; otherwise green except recurring API flake | Auto-merge once green |
+| **#762** Sourav PDF + email | **CLOSED** with comment — too divergent (110 files / 6,430 deletions vs main); cherry-picked lab regex (`6a6f360`); rest needs recreate per May 8 ask |
+| **#757** Subhadip AI features | **CLOSED** with comment — too divergent (138 files / 7,166 deletions vs main); needs split into 2-3 focused PRs per May 8 ask |
+
+### Dependabot PRs still open (other than #469/#470/#472)
+
+15+ dep-bump PRs currently open from the 2026-05-05 wave + new arrivals. Most are patch/minor and should land green. Triage via `/medcore-dependabot-triage` on the next session.
+
+---
+
 ## 🏠 PRIOR HOME PICKUP — handoff from 2026-05-08 evening (kept for log)
 
 **Production state at handoff** (commit `601a038` — `fix(web/abdm): close #758`):

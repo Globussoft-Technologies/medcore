@@ -99,14 +99,21 @@ function maskPlaceholderEmail<T extends { email?: string | null } | null | undef
 // GET /api/v1/patients/:id
 // Issue #599 (May 2026): the previous handler was authenticated-only,
 // allowing any role with a valid JWT to fetch the full patient chart
-// (PII, address, blood group, insurance, emergency contacts). PHARMACIST
-// is locked out of the /dashboard/patients UI but the endpoint was
-// returning 200 with the raw record — UI-only RBAC. Add explicit role
-// gate matching the list endpoint above. PATIENT is allowed but still
-// goes through assertPatientOwnsResource for per-row scoping.
+// (PII, address, blood group, insurance, emergency contacts). Tightened
+// to an explicit role allowlist; PATIENT is allowed but still goes
+// through assertPatientOwnsResource for per-row scoping.
+//
+// 2026-05-09 follow-up: the test at e2e/patients-id.spec.ts:268,297 pins
+// the product intent that PHARMACIST + LAB_TECH need patient demographics
+// for their workflows (Rx dispensing requires patient name/age/allergies;
+// sample collection requires patient identity). Page CTAs are still gated
+// by client-side `canEdit` / `isDoctor` flags, so these roles see the
+// chart but can't mutate. The PHI in the response is the same set every
+// allowed role sees today; if a future audit wants role-based field
+// stripping, that's a separate change.
 router.get(
   "/:id",
-  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION, Role.NURSE, Role.PATIENT),
+  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION, Role.NURSE, Role.PATIENT, Role.PHARMACIST, Role.LAB_TECH),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Issue #170 (Apr 2026): previously a single `findUnique` with a

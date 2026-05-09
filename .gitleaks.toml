@@ -1,0 +1,152 @@
+# gitleaks config — workflow-parity port from gbs-crm (2026-05-09).
+#
+# Two layers of allowlist:
+#   1. Inherit gitleaks' default rule set (`useDefault = true`). Default
+#      rules cover AWS, Slack, Stripe, GitHub PAT, generic API keys, etc.
+#   2. Allow KNOWN-INTENTIONAL strings that are demo-only seed creds,
+#      test-fixture creds, or documented dev-fallback constants. Anything
+#      not on this list is a finding.
+#
+# CRITICAL: this allowlist documents what we know is safe. NEVER add a
+# real production credential here — that's the gate's job to catch.
+
+title = "medcore gitleaks config"
+
+[extend]
+# Inherit the default rule set (AWS, Slack, Stripe, GitHub PAT, etc.).
+useDefault = true
+
+[[allowlists]]
+description = "MedCore intentional demo/test/dev-fallback credentials"
+
+# Files where the strings below legitimately appear:
+paths = [
+    # ── Realistic demo seeds (public demo box: medcore.globusdemos.com) ──
+    '''packages/db/src/seed\.ts''',
+    '''packages/db/src/seed-realistic\.ts''',
+    '''packages/db/src/seed-pediatric-patients\.ts''',
+    '''packages/db/src/seed-pharmacy\.ts''',
+    '''scripts/reseed-demo-accounts\.ts''',
+    '''scripts/sanitize-and-reseed\.ts''',
+
+    # ── Integration test scaffolding ──
+    # Test-DB seed creds (admin@test.local / MedCoreT3st-2026) live here
+    # and are referenced from every integration test under apps/api/.
+    '''apps/api/src/test/setup\.ts''',
+    '''apps/api/src/test/setup-env\.ts''',
+    '''apps/api/src/test/factories\.ts''',
+    # Every integration test mints test JWTs against the test-only
+    # JWT_SECRET fallback string `test-jwt-secret-do-not-use-in-prod`.
+    '''apps/api/src/test/integration/.+\.test\.ts''',
+    # Route-level vitest specs mint local tokens too.
+    '''apps/api/src/routes/.+\.test\.ts''',
+    '''apps/api/src/middleware/.+\.test\.ts''',
+    # Package-level unit tests use a fixed `rls-test-pw` for ephemeral users.
+    '''packages/db/src/__tests__/.+\.test\.ts''',
+    '''packages/shared/src/.+__tests__/.+\.test\.ts''',
+    '''apps/web/src/lib/__tests__/.+\.test\.ts''',
+
+    # ── E2E (Playwright) ──
+    # Demo creds + LanguageDropdown helpers + role-based login chips.
+    '''e2e/.+\.spec\.ts''',
+    '''e2e/helpers\.ts''',
+    '''apps/mobile/e2e/.+\.md''',
+
+    # ── Load-test helpers ──
+    # JWT-mint helper that uses the same test-only fallback secret.
+    '''scripts/load-tests/.+\.ts''',
+    '''scripts/capture-screenshots\.ts''',
+    '''scripts/abdm-e2e\.ts''',
+
+    # ── Documentation that references demo creds ──
+    '''CLAUDE\.md''',
+    '''README\.md''',
+    '''TODO\.md''',
+    '''CHANGELOG\.md''',
+    '''docs/.+\.md''',
+    '''docs/archive/.+\.md''',
+    '''\.claude/skills/.+/SKILL\.md''',
+    '''\.issue-details\.txt''',
+
+    # ── Env templates (placeholders, not real creds) ──
+    '''\.env\.example''',
+    '''apps/api/\.env\.example''',
+    '''apps/web/\.env\.example''',
+    '''e2e/\.env\.example''',
+]
+
+# Known-safe content patterns that may appear inside the above paths
+# (and anywhere they're referenced as documentation or default-fallback
+# strings, not as real credentials):
+regexes = [
+    # ── Realistic-seed role passwords (packages/db/src/seed*.ts) ──
+    # Public demo creds for medcore.globusdemos.com — every role has its
+    # own deterministic password so quick-login chips on the login page
+    # demonstrate role-based access. NOT real credentials.
+    '''admin123''',
+    '''doctor123''',
+    '''reception123''',
+    '''nurse123''',
+    '''pharmacist123''',
+    '''labtech123''',
+    '''patient123''',
+    '''pedpatient123''',
+
+    # ── Integration-test seed creds (apps/api/src/test/setup.ts) ──
+    # Materialised by `resetDB()` for every vitest integration suite.
+    # Documented in CLAUDE.md ("Test DB seed creds" pickup-protocol note).
+    '''MedCoreT3st-2026''',
+
+    # ── JWT secret dev-fallback strings ──
+    # Used when JWT_SECRET env var is missing — documented in
+    # apps/api/src/middleware/auth.ts and .../tenant.ts. Production MUST
+    # set JWT_SECRET; these strings exist only so dev/test environments
+    # don't crash at boot when the env var is absent.
+    '''test-jwt-secret-do-not-use-in-prod''',
+    '''dev-secret''',
+
+    # ── RLS test-user password (packages/db/src/__tests__/rls.test.ts) ──
+    # Ephemeral bcrypt source for users created/destroyed inside a single
+    # test file. Never persisted, never leaks to demos.
+    '''rls-test-pw''',
+
+    # ── Env-template placeholders (apps/api/.env.example) ──
+    # Literal placeholder strings. Real deployments override; the literal
+    # strings ARE the placeholders (lines 3, 4, 84 of apps/api/.env.example).
+    '''change-this-to-a-random-secret''',
+    '''your-super-secret-jwt-key-change-this''',
+    '''your-refresh-token-secret-change-this''',
+]
+
+# Stop matches based on the surrounding context. Useful for false
+# positives where the same string shape appears in code comments.
+stopwords = [
+    "demo",
+    "example.com",
+    "fake",
+    "dummy",
+    "TEST_",
+    "test-jwt-secret",
+    "do-not-use-in-prod",
+    "MedCoreT3st-2026",
+    "dev-secret",
+    "rls-test-pw",
+]
+
+[[allowlists]]
+description = "E2E + integration deterministic test markers"
+regexTarget = "match"
+
+# E2E specs and integration tests use deterministic-shaped tokens like
+# E2E_<NS>_<ts>, MR-TEST-<n>, INV-SEED-<n>, MRSEED<n>, TXN-SEED-<n>,
+# patient<role>@test.local etc. These can match high-entropy heuristics.
+# Allow them anywhere.
+regexes = [
+    '''E2E_[A-Z_]+_\d+''',
+    '''MR-TEST-\d+''',
+    '''MRSEED\d+''',
+    '''INV-SEED-\d+''',
+    '''TXN-SEED-\d+''',
+    '''[a-z_]+@test\.local''',
+    '''[a-z.]+@medcore\.local''',
+]

@@ -201,7 +201,10 @@ test.describe("Insurance pre-authorization", () => {
         policyNumber: `POL-R-${Date.now()}`,
         procedureName: "Cosmetic rhinoplasty",
         estimatedCost: 120000,
-        diagnosis: "N/A",
+        // Issue #729 schema (finance.ts:655-662): diagnosis must be ≥ 4 chars
+        // when present (or a valid ICD-10 code). The previous "N/A" placeholder
+        // tripped the .refine() at 3 chars and made the create POST 400.
+        diagnosis: "Not specified",
       },
     });
     expect(create.ok()).toBeTruthy();

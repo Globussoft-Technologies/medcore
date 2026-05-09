@@ -251,6 +251,92 @@ else
     echo "  WARN — fix-stale-immunizations failed (non-fatal). Investigate offline."
 fi
 
+# Steps 8d–8j: idempotent demo-fixture seeds.
+#
+# Each script below is fully idempotent (upsert on a stable unique column,
+# OR findFirst/findUnique guard before .create), and seeds dashboard-visible
+# fixture rows whose absence has previously surfaced as a "live demo bug"
+# despite the underlying code already being correct. Wired post-deploy so
+# every push to main re-asserts the canonical fixture state without ever
+# touching real user-created rows. Each step is non-fatal — a single seed
+# failure must NOT break the deploy (catalog/fixture data is non-critical
+# relative to the API/Web smoke checks above).
+#
+# Seeds NOT wired (intentionally — see chore commit body):
+#   - seed-realistic.ts       — non-idempotent: creates fresh appointments/
+#                               consultations/prescriptions/invoices/payments
+#                               on every run (users/patients ARE upserted,
+#                               but transactions duplicate).
+#   - seed-finance.ts         — non-idempotent: PO counter advances each run,
+#                               creating duplicate PO0001..PO0004 etc. with
+#                               new caseNumbers. Suppliers/packages ARE
+#                               upserted but the script can't be split.
+#   - seed-clinical.ts        — non-idempotent: surgery `caseNumber` and
+#                               referral `referralNumber` use max+1 counter
+#                               with no content match — every run creates a
+#                               fresh seed surgery. OTs ARE upserted.
+#   - seed-immunization-data, seed-lab-data, seed-lab-panels (orders),
+#     seed-clinical-enhancements, seed-acute-care-enhancements,
+#     seed-ancillary-enhancements, seed-chat-conversations,
+#     seed-asset-history, seed-doctor-ratings, seed-visitors-history,
+#     seed-complaints-data, seed-notifications-history, seed-ipd,
+#     seed-pediatric-patients, seed-ops-enhancements,
+#     seed-phase4-{specialty,engagement,ops}
+#                              — all do raw `.create` per row with no guard,
+#                                or use `deleteMany` (destructive) up-front.
+# These need an idempotency pass (see chore commit) before they can be auto-
+# applied. Until then, run them manually via the `--seed` destructive path
+# only when willing to accept a full reset.
+
+echo "=== 8d. Re-applying hospital identity SystemConfig seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-hospital-config.ts; then
+    echo "  OK — hospital config re-seeded."
+else
+    echo "  WARN — hospital-config seed failed (non-fatal). Investigate offline."
+fi
+
+echo "=== 8e. Re-applying notification templates seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-notification-templates.ts; then
+    echo "  OK — notification templates re-seeded."
+else
+    echo "  WARN — notification-templates seed failed (non-fatal). Investigate offline."
+fi
+
+echo "=== 8f. Re-applying medicine leaflets / renal / controlled flags ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-medicine-leaflets.ts; then
+    echo "  OK — medicine leaflets re-applied."
+else
+    echo "  WARN — medicine-leaflets seed failed (non-fatal). Investigate offline."
+fi
+
+echo "=== 8g. Re-applying controlled-substance register seed (Issue #93) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-controlled-register.ts; then
+    echo "  OK — controlled register re-seeded."
+else
+    echo "  WARN — controlled-register seed failed (non-fatal). Investigate offline."
+fi
+
+echo "=== 8h. Re-applying prompt registry v1 seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-prompts.ts; then
+    echo "  OK — prompt registry v1 re-seeded."
+else
+    echo "  WARN — seed-prompts failed (non-fatal). Investigate offline."
+fi
+
+echo "=== 8i. Re-applying prompt registry v2 (TRIAGE_SYSTEM) seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-prompt-v2-triage.ts; then
+    echo "  OK — prompt v2 re-seeded."
+else
+    echo "  WARN — seed-prompt-v2-triage failed (non-fatal). Investigate offline."
+fi
+
+echo "=== 8j. Re-applying SNOMED-CT curated subset seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-snomed.ts; then
+    echo "  OK — SNOMED concepts re-seeded."
+else
+    echo "  WARN — seed-snomed failed (non-fatal). Investigate offline."
+fi
+
 echo "=== Deployment complete (previous SHA recorded at /tmp/medcore-prev-sha) ==="
 
 # Optional: re-seed (destructive — triple-guarded; see env var below).

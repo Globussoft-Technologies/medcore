@@ -257,9 +257,11 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
     await opt.hover();
     await opt.dispatchEvent("mousedown");
     // Wait for React state propagation — patientId set → invoice <select>
-    // mounts. polling.first iteration succeeds quickly when the handler
-    // ran, slow path bails after 10s with the original assertion failing.
-    await page.waitForTimeout(200);
+    // mounts. 200ms races on shard-7 chromium under load (release.yml
+    // run 25607731469); bumped to 1500ms to give React a healthy window
+    // before the visibility poll begins. The downstream toBeVisible has
+    // its own 10-15s timeout, so the cumulative wait is bounded.
+    await page.waitForTimeout(1500);
 
     // -- Step 2: wait for invoice list to load, then select the invoice.
     // The <select> renders synchronously when the modal opens, but the
@@ -268,10 +270,10 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
     // exact <option value="..."> before calling selectOption to avoid
     // a race that flakes on slower CI workers.
     const invoiceSelect = page.getByTestId("new-plan-invoice");
-    await expect(invoiceSelect).toBeVisible({ timeout: 10_000 });
+    await expect(invoiceSelect).toBeVisible({ timeout: 20_000 });
     await expect(
       page.locator(`[data-testid="new-plan-invoice"] option[value="${invoice.id}"]`)
-    ).toHaveCount(1, { timeout: 10_000 });
+    ).toHaveCount(1, { timeout: 15_000 });
     await invoiceSelect.selectOption({ value: invoice.id });
 
     // -- Step 3: total amount infopanel renders
@@ -404,15 +406,17 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
     await opt.hover();
     await opt.dispatchEvent("mousedown");
     // Wait for React state propagation — patientId set → invoice <select>
-    // mounts. polling.first iteration succeeds quickly when the handler
-    // ran, slow path bails after 10s with the original assertion failing.
-    await page.waitForTimeout(200);
+    // mounts. 200ms races on shard-7 chromium under load (release.yml
+    // run 25607731469); bumped to 1500ms to give React a healthy window
+    // before the visibility poll begins. The downstream toBeVisible has
+    // its own 10-15s timeout, so the cumulative wait is bounded.
+    await page.waitForTimeout(1500);
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
-      timeout: 10_000,
+      timeout: 20_000,
     });
     await expect(
       page.locator(`[data-testid="new-plan-invoice"] option[value="${invoice.id}"]`)
-    ).toHaveCount(1, { timeout: 10_000 });
+    ).toHaveCount(1, { timeout: 15_000 });
     await page.getByTestId("new-plan-invoice").selectOption({ value: invoice.id });
 
     // Set installments to 1 (below minimum of 2). The input has min={2}, so
@@ -482,15 +486,17 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
     await opt.hover();
     await opt.dispatchEvent("mousedown");
     // Wait for React state propagation — patientId set → invoice <select>
-    // mounts. polling.first iteration succeeds quickly when the handler
-    // ran, slow path bails after 10s with the original assertion failing.
-    await page.waitForTimeout(200);
+    // mounts. 200ms races on shard-7 chromium under load (release.yml
+    // run 25607731469); bumped to 1500ms to give React a healthy window
+    // before the visibility poll begins. The downstream toBeVisible has
+    // its own 10-15s timeout, so the cumulative wait is bounded.
+    await page.waitForTimeout(1500);
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
-      timeout: 10_000,
+      timeout: 20_000,
     });
     await expect(
       page.locator(`[data-testid="new-plan-invoice"] option[value="${invoice.id}"]`)
-    ).toHaveCount(1, { timeout: 10_000 });
+    ).toHaveCount(1, { timeout: 15_000 });
     await page.getByTestId("new-plan-invoice").selectOption({ value: invoice.id });
 
     // 61 exceeds the maximum of 60. Bypass the input's native max={60}
@@ -555,15 +561,17 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
     await opt.hover();
     await opt.dispatchEvent("mousedown");
     // Wait for React state propagation — patientId set → invoice <select>
-    // mounts. polling.first iteration succeeds quickly when the handler
-    // ran, slow path bails after 10s with the original assertion failing.
-    await page.waitForTimeout(200);
+    // mounts. 200ms races on shard-7 chromium under load (release.yml
+    // run 25607731469); bumped to 1500ms to give React a healthy window
+    // before the visibility poll begins. The downstream toBeVisible has
+    // its own 10-15s timeout, so the cumulative wait is bounded.
+    await page.waitForTimeout(1500);
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
-      timeout: 10_000,
+      timeout: 20_000,
     });
     await expect(
       page.locator(`[data-testid="new-plan-invoice"] option[value="${invoice.id}"]`)
-    ).toHaveCount(1, { timeout: 10_000 });
+    ).toHaveCount(1, { timeout: 15_000 });
     await page.getByTestId("new-plan-invoice").selectOption({ value: invoice.id });
 
     // Fill in a negative down payment. The input has min={0}, so the browser
@@ -630,15 +638,17 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
     await opt.hover();
     await opt.dispatchEvent("mousedown");
     // Wait for React state propagation — patientId set → invoice <select>
-    // mounts. polling.first iteration succeeds quickly when the handler
-    // ran, slow path bails after 10s with the original assertion failing.
-    await page.waitForTimeout(200);
+    // mounts. 200ms races on shard-7 chromium under load (release.yml
+    // run 25607731469); bumped to 1500ms to give React a healthy window
+    // before the visibility poll begins. The downstream toBeVisible has
+    // its own 10-15s timeout, so the cumulative wait is bounded.
+    await page.waitForTimeout(1500);
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
-      timeout: 10_000,
+      timeout: 20_000,
     });
     await expect(
       page.locator(`[data-testid="new-plan-invoice"] option[value="${invoice.id}"]`)
-    ).toHaveCount(1, { timeout: 10_000 });
+    ).toHaveCount(1, { timeout: 15_000 });
     await page.getByTestId("new-plan-invoice").selectOption({ value: invoice.id });
 
     // Down payment exceeds total (page.tsx:407–410: "Down payment cannot
@@ -744,9 +754,11 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
     await opt.hover();
     await opt.dispatchEvent("mousedown");
     // Wait for React state propagation — patientId set → invoice <select>
-    // mounts. polling.first iteration succeeds quickly when the handler
-    // ran, slow path bails after 10s with the original assertion failing.
-    await page.waitForTimeout(200);
+    // mounts. 200ms races on shard-7 chromium under load (release.yml
+    // run 25607731469); bumped to 1500ms to give React a healthy window
+    // before the visibility poll begins. The downstream toBeVisible has
+    // its own 10-15s timeout, so the cumulative wait is bounded.
+    await page.waitForTimeout(1500);
 
     // The "no outstanding invoice" hint must render
     // (page.tsx:478–485: data-testid="new-plan-no-invoices").

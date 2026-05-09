@@ -1,18 +1,85 @@
+/**
+ * Realistic hospital data seed — STAFF + PATIENTS + 14 days of OPD flow
+ * (appointments, vitals, consultations, prescriptions, invoices, payments,
+ * insurance claims, schedule overrides, notification preferences, system
+ * config).
+ *
+ * Idempotency contract (2026-05-09): this script is safe to re-run on a
+ * populated demo without creating duplicates.
+ *
+ *   - All randomness is driven by a deterministic mulberry32 PRNG seeded
+ *     from a fixed constant. Re-runs produce byte-identical decisions
+ *     (which patients on which day, which diagnosis, which billing items,
+ *     which payment status).
+ *   - Users / Doctors / Reception / Nurses / Pharmacists / Lab Techs:
+ *     `prisma.user.upsert({ where: { email } })` — already idempotent
+ *     pre-2026-05-09.
+ *   - Patients: `upsert({ where: { userId } })`. mrNumbers are namespaced
+ *     as `MRSEED${i}` so they never collide with the production MR
+ *     counter (`MR000001` etc.) on a populated DB.
+ *   - Appointments: `upsert({ where: { doctorId_date_tokenNumber } })` —
+ *     leverages the existing `@@unique([doctorId, date, tokenNumber])`.
+ *     Same (doctor, date, slot) re-run finds the existing row.
+ *   - Vitals / Consultations / Prescriptions / Invoices: keyed off
+ *     `appointmentId` (each is `@unique` on appointmentId). Pattern is
+ *     `findUnique → if found, skip; else create`.
+ *   - Invoices: `invoiceNumber: \`INV-SEED-${seq}\`` namespaces the seed
+ *     numbers so they never collide with billing.ts's live
+ *     `INV000001..` counter on a populated DB.
+ *   - Payments: stable `transactionId: \`TXN-SEED-${seq}\`` for ALL
+ *     payment modes (including CASH — production CASH rows have null
+ *     transactionId, but the seed assigns one to drive idempotency).
+ *     Skip-or-create on `findUnique({ where: { transactionId } })`.
+ *   - InsuranceClaim (legacy): no unique — `findFirst({where:{invoiceId}})`
+ *     skip. Each invoice gets at most one claim, so the per-invoice guard
+ *     is sufficient.
+ *   - InsuranceClaim2: `providerClaimRef: \`${tpa}-SEED-${seq}\`` — keyed
+ *     on the existing `@@unique` on providerClaimRef.
+ *   - System config: removed `next_invoice_number` and `next_mr_number`
+ *     from the upsert list. Those are LIVE production counters consumed
+ *     by `apps/api/src/routes/billing.ts` and `apps/api/src/routes/patients.ts`
+ *     — overwriting them on every deploy would corrupt real-tenant
+ *     numbering. The seed-namespaced INV-SEED / MRSEED ids no longer
+ *     interact with those counters.
+ *
+ * Wired into `scripts/deploy.sh` step 8k. Failures are non-fatal (matches
+ * the policy of every other deploy-time fixture seed).
+ */
 import { PrismaClient, Role, Gender, AppointmentType, AppointmentStatus, Priority, PaymentStatus, PaymentMode } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
+
+// ─── DETERMINISTIC RNG ──────────────────────────────────
+// mulberry32: tiny, dependency-free PRNG with a 32-bit state. Re-seeding
+// from the same SEED constant guarantees the exact same number sequence
+// across runs, so the seed produces byte-identical decisions every time.
+// Replaces every `Math.random()` in this file — without this, re-runs on
+// a populated DB would still create duplicate rows because the previous
+// run's "this slot was a walk-in" would diverge from the next run's "this
+// slot was scheduled", breaking the `(doctorId, date, tokenNumber)`
+// natural key alignment.
+const SEED = 0xc0ffee_42; // arbitrary fixed constant
+let _rngState = SEED;
+function rng(): number {
+  _rngState |= 0;
+  _rngState = (_rngState + 0x6D2B79F5) | 0;
+  let t = Math.imul(_rngState ^ (_rngState >>> 15), 1 | _rngState);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+function resetRng(): void { _rngState = SEED; }
 
 function hash(pw: string) {
   return bcrypt.hashSync(pw, 10);
 }
 
 function randomItem<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+  return arr[Math.floor(rng() * arr.length)];
 }
 
 function randomInt(min: number, max: number) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  return Math.floor(rng() * (max - min + 1)) + min;
 }
 
 function dateStr(d: Date) {
@@ -130,7 +197,8 @@ const INSURANCE_PROVIDERS = [
 ];
 
 async function main() {
-  console.log("=== Populating realistic hospital data ===\n");
+  console.log("=== Populating realistic hospital data (idempotent) ===\n");
+  resetRng();
 
   // ─── 1. STAFF ─────────────────────────────────────────
   console.log("Creating staff accounts...");
@@ -179,7 +247,7 @@ async function main() {
     }
 
     doctors.push({ userId: user.id, doctorId: doctor.id, name: doc.name });
-    console.log(`  Created: ${doc.name} (${doc.spec})`);
+    console.log(`  Created/Found: ${doc.name} (${doc.spec})`);
   }
 
   // Reception staff
@@ -193,7 +261,7 @@ async function main() {
       update: {},
       create: { ...r, passwordHash: hash("reception123"), role: Role.RECEPTION },
     });
-    console.log(`  Created Reception: ${r.name}`);
+    console.log(`  Created/Found Reception: ${r.name}`);
   }
 
   // Nurses
@@ -209,7 +277,7 @@ async function main() {
       create: { ...n, passwordHash: hash("nurse123"), role: Role.NURSE },
     });
     nurseUsers.push(u.id);
-    console.log(`  Created Nurse: ${n.name}`);
+    console.log(`  Created/Found Nurse: ${n.name}`);
   }
 
   // Pharmacists (dispense + inventory ops)
@@ -222,7 +290,7 @@ async function main() {
       update: {},
       create: { ...p, passwordHash: hash("pharmacist123"), role: Role.PHARMACIST },
     });
-    console.log(`  Created Pharmacist: ${p.name}`);
+    console.log(`  Created/Found Pharmacist: ${p.name}`);
   }
 
   // Lab technicians (sample collection + result entry)
@@ -235,7 +303,7 @@ async function main() {
       update: {},
       create: { ...t, passwordHash: hash("labtech123"), role: Role.LAB_TECH },
     });
-    console.log(`  Created Lab Tech: ${t.name}`);
+    console.log(`  Created/Found Lab Tech: ${t.name}`);
   }
 
   // ─── 2. PATIENTS ──────────────────────────────────────
@@ -252,7 +320,10 @@ async function main() {
       create: { email, phone: p.phone, name: p.name, passwordHash: hash("patient123"), role: Role.PATIENT },
     });
 
-    const mrNumber = `MR${String(mrSeq).padStart(6, "0")}`;
+    // mrNumber namespaced as `MRSEED${i}` so it never collides with the
+    // production patients-route counter (which mints `MR000001..`). Keying
+    // the upsert on userId means re-runs hit the existing row.
+    const mrNumber = `MRSEED${String(mrSeq).padStart(6, "0")}`;
     const patient = await prisma.patient.upsert({
       where: { userId: user.id },
       update: {},
@@ -265,15 +336,15 @@ async function main() {
         bloodGroup: p.bloodGroup,
         emergencyContactName: randomItem(["Spouse", "Son", "Daughter", "Parent", "Sibling"]),
         emergencyContactPhone: `98765${randomInt(10000, 99999)}`,
-        insuranceProvider: Math.random() > 0.6 ? randomItem(INSURANCE_PROVIDERS) : undefined,
-        insurancePolicyNumber: Math.random() > 0.6 ? `POL${randomInt(100000, 999999)}` : undefined,
+        insuranceProvider: rng() > 0.6 ? randomItem(INSURANCE_PROVIDERS) : undefined,
+        insurancePolicyNumber: rng() > 0.6 ? `POL${randomInt(100000, 999999)}` : undefined,
       },
     });
 
     patientRecords.push({ patientId: patient.id, userId: user.id, name: p.name });
     mrSeq++;
   }
-  console.log(`  Registered ${patientRecords.length} patients`);
+  console.log(`  Registered/Found ${patientRecords.length} patients`);
 
   // ─── 3. APPOINTMENTS & FULL OPD FLOW ─────────────────
   console.log("\nCreating appointments, vitals, consultations, prescriptions & bills...");
@@ -282,6 +353,8 @@ async function main() {
   today.setHours(0, 0, 0, 0);
   let invoiceSeq = 1;
   let totalAppointments = 0;
+  let createdAppointments = 0;
+  let skippedAppointments = 0;
 
   // Generate data for the past 14 days + today + 3 days ahead
   for (let dayOffset = -14; dayOffset <= 3; dayOffset++) {
@@ -296,14 +369,24 @@ async function main() {
       let tokenNum = 0;
       // 8-18 patients per doctor per day (past), 5-12 for today, 3-8 for future
       const patientCount = isFuture ? randomInt(3, 8) : isToday ? randomInt(8, 15) : randomInt(8, 18);
-      const shuffledPatients = [...patientRecords].sort(() => Math.random() - 0.5).slice(0, patientCount);
+
+      // Deterministic shuffle: Fisher-Yates driven by the seeded PRNG so
+      // the same patients land on the same (doctor, date) across re-runs —
+      // critical for the `(doctorId, date, tokenNumber)` upsert to keep
+      // hitting the same Patient on re-run.
+      const shuffledPatients = [...patientRecords];
+      for (let k = shuffledPatients.length - 1; k > 0; k--) {
+        const j = Math.floor(rng() * (k + 1));
+        [shuffledPatients[k], shuffledPatients[j]] = [shuffledPatients[j], shuffledPatients[k]];
+      }
+      const dayPatients = shuffledPatients.slice(0, patientCount);
 
       const slots = ["09:00","09:15","09:30","09:45","10:00","10:15","10:30","10:45","11:00","11:15","11:30","11:45","12:00","12:15","12:30","12:45","17:00","17:15","17:30","17:45","18:00","18:15","18:30"];
 
-      for (let i = 0; i < shuffledPatients.length; i++) {
-        const p = shuffledPatients[i];
+      for (let i = 0; i < dayPatients.length; i++) {
+        const p = dayPatients[i];
         tokenNum++;
-        const isWalkIn = Math.random() > 0.6;
+        const isWalkIn = rng() > 0.6;
         const slotStart = isWalkIn ? null : slots[i % slots.length];
 
         let status: AppointmentStatus;
@@ -316,35 +399,51 @@ async function main() {
           else status = AppointmentStatus.BOOKED;
         } else {
           // Past days
-          const r = Math.random();
+          const r = rng();
           if (r < 0.8) status = AppointmentStatus.COMPLETED;
           else if (r < 0.9) status = AppointmentStatus.CANCELLED;
           else status = AppointmentStatus.NO_SHOW;
         }
 
-        const priority = Math.random() > 0.92 ? Priority.URGENT : Math.random() > 0.98 ? Priority.EMERGENCY : Priority.NORMAL;
+        const priorityRoll1 = rng();
+        const priorityRoll2 = rng();
+        const priority = priorityRoll1 > 0.92 ? Priority.URGENT : priorityRoll2 > 0.98 ? Priority.EMERGENCY : Priority.NORMAL;
 
-        const appointment = await prisma.appointment.create({
-          data: {
-            patientId: p.patientId,
-            doctorId: doc.doctorId,
-            date,
-            slotStart,
-            slotEnd: slotStart ? `${parseInt(slotStart.split(":")[0])}:${(parseInt(slotStart.split(":")[1]) + 15).toString().padStart(2, "0")}` : null,
-            tokenNumber: tokenNum,
-            type: isWalkIn ? AppointmentType.WALK_IN : AppointmentType.SCHEDULED,
-            status,
-            priority,
-            notes: Math.random() > 0.7 ? randomItem(["First visit", "Follow-up", "Referred by Dr. Verma", "Insurance patient", "Annual checkup"]) : null,
-          },
+        // Idempotency: upsert keyed on the existing
+        // `@@unique([doctorId, date, tokenNumber])`. On re-run this finds
+        // the same row that the previous run created (because RNG +
+        // shuffle are deterministic, the same (doctorId, date, tokenNum)
+        // tuple maps back to the same logical appointment).
+        const notesRoll = rng();
+        const notes = notesRoll > 0.7 ? randomItem(["First visit", "Follow-up", "Referred by Dr. Verma", "Insurance patient", "Annual checkup"]) : null;
+
+        const existingAppt = await prisma.appointment.findUnique({
+          where: { doctorId_date_tokenNumber: { doctorId: doc.doctorId, date, tokenNumber: tokenNum } },
         });
+        let appointment;
+        if (existingAppt) {
+          appointment = existingAppt;
+          skippedAppointments++;
+        } else {
+          appointment = await prisma.appointment.create({
+            data: {
+              patientId: p.patientId,
+              doctorId: doc.doctorId,
+              date,
+              slotStart,
+              slotEnd: slotStart ? `${parseInt(slotStart.split(":")[0])}:${(parseInt(slotStart.split(":")[1]) + 15).toString().padStart(2, "0")}` : null,
+              tokenNumber: tokenNum,
+              type: isWalkIn ? AppointmentType.WALK_IN : AppointmentType.SCHEDULED,
+              status,
+              priority,
+              notes,
+            },
+          });
+          createdAppointments++;
+        }
         totalAppointments++;
 
         // ─── Vitals (for checked-in, in-consultation, completed) ───
-        // Type narrowing: `.includes()` on a narrow tuple needs an explicit
-        // widening cast on the array side because TS infers
-        // `(CHECKED_IN | IN_CONSULTATION | COMPLETED)[]` and `status` here is
-        // the wider AppointmentStatus.
         if (
           ([
             AppointmentStatus.CHECKED_IN,
@@ -352,28 +451,49 @@ async function main() {
             AppointmentStatus.COMPLETED,
           ] as AppointmentStatus[]).includes(status)
         ) {
+          // Idempotency: Vitals.appointmentId is `@unique`. Skip if a
+          // row already exists for this appointment.
+          const existingVitals = await prisma.vitals.findUnique({ where: { appointmentId: appointment.id } });
           const patAge = PATIENT_DATA.find(pd => pd.name === p.name)?.age ?? 40;
-          await prisma.vitals.create({
-            data: {
-              appointmentId: appointment.id,
-              patientId: p.patientId,
-              nurseId: randomItem(nurseUsers),
-              bloodPressureSystolic: randomInt(patAge > 55 ? 130 : 110, patAge > 55 ? 160 : 135),
-              bloodPressureDiastolic: randomInt(patAge > 55 ? 80 : 70, patAge > 55 ? 100 : 88),
-              temperature: parseFloat((randomInt(976, 1002) / 10).toFixed(1)),
-              weight: parseFloat((randomInt(450, 950) / 10).toFixed(1)),
-              height: parseFloat((randomInt(1500, 1850) / 10).toFixed(1)),
-              pulseRate: randomInt(60, 100),
-              spO2: randomInt(95, 100),
-              notes: Math.random() > 0.8 ? randomItem(["Patient appears anxious", "Mild dehydration noted", "Pain in lower back on palpation", "Throat appears inflamed"]) : null,
-            },
-          });
+          // Always advance the RNG to keep determinism across runs
+          // (whether or not we end up creating Vitals).
+          const vitalsData = {
+            bloodPressureSystolic: randomInt(patAge > 55 ? 130 : 110, patAge > 55 ? 160 : 135),
+            bloodPressureDiastolic: randomInt(patAge > 55 ? 80 : 70, patAge > 55 ? 100 : 88),
+            temperature: parseFloat((randomInt(976, 1002) / 10).toFixed(1)),
+            weight: parseFloat((randomInt(450, 950) / 10).toFixed(1)),
+            height: parseFloat((randomInt(1500, 1850) / 10).toFixed(1)),
+            pulseRate: randomInt(60, 100),
+            spO2: randomInt(95, 100),
+            nurseId: randomItem(nurseUsers),
+            notesRoll: rng(),
+          };
+          if (!existingVitals) {
+            await prisma.vitals.create({
+              data: {
+                appointmentId: appointment.id,
+                patientId: p.patientId,
+                nurseId: vitalsData.nurseId,
+                bloodPressureSystolic: vitalsData.bloodPressureSystolic,
+                bloodPressureDiastolic: vitalsData.bloodPressureDiastolic,
+                temperature: vitalsData.temperature,
+                weight: vitalsData.weight,
+                height: vitalsData.height,
+                pulseRate: vitalsData.pulseRate,
+                spO2: vitalsData.spO2,
+                notes: vitalsData.notesRoll > 0.8 ? randomItem(["Patient appears anxious", "Mild dehydration noted", "Pain in lower back on palpation", "Throat appears inflamed"]) : null,
+              },
+            });
+          } else if (vitalsData.notesRoll > 0.8) {
+            // Even when we skip, we must consume the same number of RNG
+            // calls to keep downstream determinism. The randomItem call
+            // for the notes message is conditionally invoked above; mirror
+            // it here.
+            randomItem(["Patient appears anxious", "Mild dehydration noted", "Pain in lower back on palpation", "Throat appears inflamed"]);
+          }
         }
 
         // ─── Consultation & Prescription (for completed & in-consultation) ───
-        // Same type-narrowing pattern as above — widen the literal-typed
-        // array to AppointmentStatus[] so the strict include() typecheck
-        // passes.
         if (
           ([
             AppointmentStatus.COMPLETED,
@@ -381,149 +501,188 @@ async function main() {
           ] as AppointmentStatus[]).includes(status)
         ) {
           const diagData = randomItem(DIAGNOSES);
+          const consultNotes = randomItem(CONSULTATION_NOTES);
 
-          await prisma.consultation.create({
-            data: {
-              appointmentId: appointment.id,
-              doctorId: doc.doctorId,
-              notes: randomItem(CONSULTATION_NOTES),
-              findings: diagData.diagnosis,
-            },
-          });
-
-          if (status === AppointmentStatus.COMPLETED) {
-            const followUp = Math.random() > 0.5 ? addDays(date, randomItem([7, 14, 30])) : null;
-            await prisma.prescription.create({
+          // Idempotency: Consultation.appointmentId is `@unique`.
+          const existingConsult = await prisma.consultation.findUnique({ where: { appointmentId: appointment.id } });
+          if (!existingConsult) {
+            await prisma.consultation.create({
               data: {
                 appointmentId: appointment.id,
-                patientId: p.patientId,
                 doctorId: doc.doctorId,
-                diagnosis: diagData.diagnosis,
-                advice: randomItem(ADVICE),
-                followUpDate: followUp,
-                items: {
-                  create: diagData.medicines.map(m => ({
-                    medicineName: m.name,
-                    dosage: m.dosage,
-                    frequency: m.freq,
-                    duration: m.dur,
-                    instructions: m.instr,
-                  })),
-                },
+                notes: consultNotes,
+                findings: diagData.diagnosis,
               },
             });
+          }
+
+          if (status === AppointmentStatus.COMPLETED) {
+            // Mirror RNG consumption from the original code path.
+            const followUpRoll = rng();
+            const followUp = followUpRoll > 0.5 ? addDays(date, randomItem([7, 14, 30])) : null;
+            const adviceText = randomItem(ADVICE);
+            // Idempotency: Prescription.appointmentId is `@unique`.
+            const existingRx = await prisma.prescription.findUnique({ where: { appointmentId: appointment.id } });
+            if (!existingRx) {
+              await prisma.prescription.create({
+                data: {
+                  appointmentId: appointment.id,
+                  patientId: p.patientId,
+                  doctorId: doc.doctorId,
+                  diagnosis: diagData.diagnosis,
+                  advice: adviceText,
+                  followUpDate: followUp,
+                  items: {
+                    create: diagData.medicines.map(m => ({
+                      medicineName: m.name,
+                      dosage: m.dosage,
+                      frequency: m.freq,
+                      duration: m.dur,
+                      instructions: m.instr,
+                    })),
+                  },
+                },
+              });
+            }
           }
         }
 
         // ─── Billing (for completed and checked-in appointments) ───
+        const billCheckInRoll = rng();
         const shouldBill = status === AppointmentStatus.COMPLETED ||
-          (status === AppointmentStatus.CHECKED_IN && Math.random() > 0.5) ||
+          (status === AppointmentStatus.CHECKED_IN && billCheckInRoll > 0.5) ||
           (status === AppointmentStatus.IN_CONSULTATION);
 
         if (shouldBill) {
-          const invoiceNumber = `INV${String(invoiceSeq).padStart(6, "0")}`;
-          const isFirstVisit = Math.random() > 0.4;
+          // Namespaced: `INV-SEED-` prefix never collides with the live
+          // billing.ts counter (`INV000001..`) on a populated DB.
+          const invoiceNumber = `INV-SEED-${String(invoiceSeq).padStart(6, "0")}`;
+          const isFirstVisit = rng() > 0.4;
           const items = [isFirstVisit ? BILLING_ITEMS[0] : BILLING_ITEMS[1]];
-          if (Math.random() > 0.6) items.push(randomItem(BILLING_ITEMS.slice(2)));
-          if (Math.random() > 0.8) items.push(randomItem(BILLING_ITEMS.slice(2)));
+          if (rng() > 0.6) items.push(randomItem(BILLING_ITEMS.slice(2)));
+          if (rng() > 0.8) items.push(randomItem(BILLING_ITEMS.slice(2)));
 
           const subtotal = items.reduce((s, it) => s + it.price, 0);
-          const discount = Math.random() > 0.85 ? Math.round(subtotal * 0.1) : 0;
+          const discount = rng() > 0.85 ? Math.round(subtotal * 0.1) : 0;
           const totalAmount = subtotal - discount;
 
-          // Determine payment status:
-          // - Completed past appointments: mostly PAID, some PENDING (unpaid follow-ups)
-          // - Today's completed: PAID
-          // - Checked-in / In-consultation: PENDING or PARTIAL
-          // - Some recent ones: PARTIAL (partial payment made)
+          // Determine payment status
           let paymentStatus: PaymentStatus;
           if (status === AppointmentStatus.COMPLETED) {
-            paymentStatus = dayOffset >= -2 && Math.random() > 0.7
+            paymentStatus = dayOffset >= -2 && rng() > 0.7
               ? PaymentStatus.PENDING
               : PaymentStatus.PAID;
           } else if (status === AppointmentStatus.IN_CONSULTATION) {
-            paymentStatus = Math.random() > 0.5 ? PaymentStatus.PENDING : PaymentStatus.PARTIAL;
+            paymentStatus = rng() > 0.5 ? PaymentStatus.PENDING : PaymentStatus.PARTIAL;
           } else {
             // CHECKED_IN
             paymentStatus = PaymentStatus.PENDING;
           }
 
-          const invoice = await prisma.invoice.create({
-            data: {
-              invoiceNumber,
-              appointmentId: appointment.id,
-              patientId: p.patientId,
-              subtotal,
-              taxAmount: 0,
-              discountAmount: discount,
-              totalAmount,
-              paymentStatus,
-              // Issue #572: without explicit createdAt every seeded invoice
-              // landed with @default(now()) — so the patient bills page's Age
-              // column showed "21d" (seed-run age) for every row including
-              // INV000001. Anchoring createdAt to the appointment date makes
-              // the aging gradient match the visit timeline.
-              createdAt: date,
-              items: {
-                create: items.map(it => ({
-                  description: it.desc,
-                  category: it.cat,
-                  quantity: 1,
-                  unitPrice: it.price,
-                  amount: it.price,
-                })),
+          // Idempotency: Invoice.appointmentId is `@unique`. Skip if a
+          // row already exists; otherwise create with the namespaced
+          // invoiceNumber. (invoiceNumber is also @unique so this is
+          // belt-and-suspenders.)
+          const existingInvoice = await prisma.invoice.findUnique({ where: { appointmentId: appointment.id } });
+          let invoice = existingInvoice;
+          if (!existingInvoice) {
+            invoice = await prisma.invoice.create({
+              data: {
+                invoiceNumber,
+                appointmentId: appointment.id,
+                patientId: p.patientId,
+                subtotal,
+                taxAmount: 0,
+                discountAmount: discount,
+                totalAmount,
+                paymentStatus,
+                // Issue #572: anchor to appointment date so the patient
+                // bills page's "Age" gradient matches the visit timeline.
+                createdAt: date,
+                items: {
+                  create: items.map(it => ({
+                    description: it.desc,
+                    category: it.cat,
+                    quantity: 1,
+                    unitPrice: it.price,
+                    amount: it.price,
+                  })),
+                },
               },
-            },
-          });
+            });
+          }
 
-          // Create payment records based on status
+          // Create payment records based on status. Idempotency:
+          // transactionId is `@unique`. Stable `TXN-SEED-${seq}` for ALL
+          // modes (production CASH rows have null transactionId; the seed
+          // intentionally diverges from production by stamping a
+          // transactionId on seeded CASH rows to keep idempotency).
           if (paymentStatus === PaymentStatus.PAID) {
             const mode = randomItem([PaymentMode.CASH, PaymentMode.CASH, PaymentMode.UPI, PaymentMode.CARD, PaymentMode.ONLINE]);
-            await prisma.payment.create({
-              data: {
-                invoiceId: invoice.id,
-                amount: totalAmount,
-                mode,
-                transactionId: mode !== PaymentMode.CASH ? `TXN${randomInt(100000, 999999)}` : null,
-                paidAt: date,
-              },
-            });
+            const txnId = `TXN-SEED-${String(invoiceSeq).padStart(6, "0")}`;
+            const existingPayment = await prisma.payment.findUnique({ where: { transactionId: txnId } });
+            if (!existingPayment && invoice) {
+              await prisma.payment.create({
+                data: {
+                  invoiceId: invoice.id,
+                  amount: totalAmount,
+                  mode,
+                  transactionId: txnId,
+                  paidAt: date,
+                },
+              });
+            }
           } else if (paymentStatus === PaymentStatus.PARTIAL) {
-            // Partial: paid consultation fee only
             const partialAmount = Math.round(totalAmount * 0.4);
-            await prisma.payment.create({
-              data: {
-                invoiceId: invoice.id,
-                amount: partialAmount,
-                mode: randomItem([PaymentMode.CASH, PaymentMode.UPI]),
-                paidAt: date,
-              },
-            });
+            const mode = randomItem([PaymentMode.CASH, PaymentMode.UPI]);
+            const txnId = `TXN-SEED-${String(invoiceSeq).padStart(6, "0")}-PARTIAL`;
+            const existingPayment = await prisma.payment.findUnique({ where: { transactionId: txnId } });
+            if (!existingPayment && invoice) {
+              await prisma.payment.create({
+                data: {
+                  invoiceId: invoice.id,
+                  amount: partialAmount,
+                  mode,
+                  transactionId: txnId,
+                  paidAt: date,
+                },
+              });
+            }
           }
           // PENDING: no payment record
 
           // Insurance claim for some
           const patientData = await prisma.patient.findUnique({ where: { id: p.patientId } });
-          if (patientData?.insuranceProvider && Math.random() > 0.5) {
-            await prisma.insuranceClaim.create({
-              data: {
-                invoiceId: invoice.id,
-                patientId: p.patientId,
-                insuranceProvider: patientData.insuranceProvider,
-                policyNumber: patientData.insurancePolicyNumber || `POL${randomInt(100000, 999999)}`,
-                claimAmount: totalAmount,
-                approvedAmount: dayOffset < -5 ? totalAmount * (Math.random() > 0.2 ? 1 : 0.8) : null,
-                status: dayOffset < -5 ? (Math.random() > 0.1 ? "SETTLED" : "REJECTED") : dayOffset < -2 ? "APPROVED" : "SUBMITTED",
-                resolvedAt: dayOffset < -5 ? addDays(date, randomInt(2, 5)) : null,
-              },
-            });
+          const claimRoll = rng();
+          if (patientData?.insuranceProvider && claimRoll > 0.5 && invoice) {
+            // Idempotency (legacy InsuranceClaim has no unique key on
+            // invoiceId, but each invoice gets at most one seeded claim):
+            // findFirst on invoiceId; skip if present.
+            const existingClaim = await prisma.insuranceClaim.findFirst({ where: { invoiceId: invoice.id } });
+            const approvedRoll = rng();
+            const settledRoll = rng();
+            const approvedAmount = dayOffset < -5 ? totalAmount * (approvedRoll > 0.2 ? 1 : 0.8) : null;
+            const claimStatus = dayOffset < -5 ? (settledRoll > 0.1 ? "SETTLED" : "REJECTED") : dayOffset < -2 ? "APPROVED" : "SUBMITTED";
+            const resolvedDays = randomInt(2, 5); // consume RNG even if not used
+            if (!existingClaim) {
+              await prisma.insuranceClaim.create({
+                data: {
+                  invoiceId: invoice.id,
+                  patientId: p.patientId,
+                  insuranceProvider: patientData.insuranceProvider,
+                  policyNumber: patientData.insurancePolicyNumber || `POL${randomInt(100000, 999999)}`,
+                  claimAmount: totalAmount,
+                  approvedAmount,
+                  status: claimStatus,
+                  resolvedAt: dayOffset < -5 ? addDays(date, resolvedDays) : null,
+                },
+              });
+            } else {
+              // Mirror the policyNumber RNG consumption when skipping.
+              if (!patientData.insurancePolicyNumber) randomInt(100000, 999999);
+            }
 
-            // Issue #82: also seed the V2 row with a realistic insurer +
-            // diagnosis so the Insurance Claims page (which reads from
-            // InsuranceClaim2) doesn't show every row as "MOCK TPA / —".
-            // The migration script keeps backfilling pre-V2 history; this
-            // adds NEW rows that the page will show alongside historical
-            // legacy data.
+            // Issue #82: also seed the V2 row.
             const realInsurers = [
               { name: "Star Health and Allied Insurance", tpa: "STAR_HEALTH" as const },
               { name: "ICICI Lombard General Insurance", tpa: "ICICI_LOMBARD" as const },
@@ -541,45 +700,55 @@ async function main() {
               { dx: "Lower back pain", icd: "M54.5" },
             ];
             const dx = diagnoses[randomInt(0, diagnoses.length - 1)];
+            const v2SettledRoll = rng();
             const v2Status =
               dayOffset < -5
-                ? Math.random() > 0.1
+                ? v2SettledRoll > 0.1
                   ? ("SETTLED" as const)
                   : ("DENIED" as const)
                 : dayOffset < -2
                   ? ("APPROVED" as const)
                   : ("SUBMITTED" as const);
+            const v2ApprovedRoll = rng();
             const approved = ["APPROVED", "SETTLED"].includes(v2Status)
-              ? Math.round(totalAmount * (Math.random() > 0.2 ? 1 : 0.8))
+              ? Math.round(totalAmount * (v2ApprovedRoll > 0.2 ? 1 : 0.8))
               : null;
-            try {
-              await prisma.insuranceClaim2.create({
-                data: {
-                  billId: invoice.id,
-                  patientId: p.patientId,
-                  tpaProvider: ins.tpa,
-                  providerClaimRef: `${ins.tpa}-${randomInt(100000, 999999)}`,
-                  insurerName: ins.name,
-                  policyNumber:
-                    patientData.insurancePolicyNumber ||
-                    `POL${randomInt(100000, 999999)}`,
-                  diagnosis: dx.dx,
-                  icd10Codes: [dx.icd],
-                  amountClaimed: totalAmount,
-                  amountApproved: approved,
-                  status: v2Status,
-                  submittedAt: date,
-                  approvedAt:
-                    v2Status === "APPROVED" || v2Status === "SETTLED"
-                      ? addDays(date, randomInt(2, 5))
-                      : null,
-                  settledAt:
-                    v2Status === "SETTLED" ? addDays(date, randomInt(5, 8)) : null,
-                  createdBy: "SEED",
-                },
-              });
-            } catch {
-              // Ignore unique-collision on (billId,…) — seed is best effort.
+
+            // Idempotency: providerClaimRef is `@unique`. Stable
+            // `${tpa}-SEED-${invoiceSeq}` so re-runs hit the same row.
+            const providerClaimRef = `${ins.tpa}-SEED-${String(invoiceSeq).padStart(6, "0")}`;
+            const existingV2 = await prisma.insuranceClaim2.findUnique({ where: { providerClaimRef } });
+            const policyForV2 = patientData.insurancePolicyNumber || `POL${randomInt(100000, 999999)}`;
+            const approvedDays = randomInt(2, 5);
+            const settledDays = randomInt(5, 8);
+            if (!existingV2) {
+              try {
+                await prisma.insuranceClaim2.create({
+                  data: {
+                    billId: invoice.id,
+                    patientId: p.patientId,
+                    tpaProvider: ins.tpa,
+                    providerClaimRef,
+                    insurerName: ins.name,
+                    policyNumber: policyForV2,
+                    diagnosis: dx.dx,
+                    icd10Codes: [dx.icd],
+                    amountClaimed: totalAmount,
+                    amountApproved: approved,
+                    status: v2Status,
+                    submittedAt: date,
+                    approvedAt:
+                      v2Status === "APPROVED" || v2Status === "SETTLED"
+                        ? addDays(date, approvedDays)
+                        : null,
+                    settledAt:
+                      v2Status === "SETTLED" ? addDays(date, settledDays) : null,
+                    createdBy: "SEED",
+                  },
+                });
+              } catch {
+                // Ignore unique-collision on (billId,…) — seed is best effort.
+              }
             }
           }
 
@@ -590,8 +759,8 @@ async function main() {
     if (dayOffset % 3 === 0) console.log(`  Processed ${dateStr(date)}...`);
   }
 
-  console.log(`  Total appointments created: ${totalAppointments}`);
-  console.log(`  Total invoices: ${invoiceSeq - 1}`);
+  console.log(`  Total appointments: ${totalAppointments} (created ${createdAppointments}, skipped ${skippedAppointments} pre-existing)`);
+  console.log(`  Total invoices through seed loop: ${invoiceSeq - 1}`);
 
   // ─── 4. SCHEDULE OVERRIDES ────────────────────────────
   console.log("\nAdding schedule overrides...");
@@ -616,7 +785,7 @@ async function main() {
       await prisma.notificationPreference.upsert({
         where: { userId_channel: { userId: p.userId, channel: ch } },
         update: {},
-        create: { userId: p.userId, channel: ch, enabled: ch === "WHATSAPP" || ch === "PUSH" ? true : Math.random() > 0.4 },
+        create: { userId: p.userId, channel: ch, enabled: ch === "WHATSAPP" || ch === "PUSH" ? true : rng() > 0.4 },
       });
     }
   }
@@ -624,6 +793,13 @@ async function main() {
 
   // ─── 6. SYSTEM CONFIG ─────────────────────────────────
   console.log("\nUpdating system config...");
+  // NOTE (2026-05-09 idempotency pass): `next_invoice_number` and
+  // `next_mr_number` are LIVE production counters consumed by
+  // apps/api/src/routes/billing.ts and apps/api/src/routes/patients.ts.
+  // The pre-idempotency version of this seed overwrote both on every run,
+  // which would corrupt real-tenant numbering when wired into deploy.sh.
+  // They are now omitted — the seed-namespaced INV-SEED / MRSEED ids no
+  // longer interact with those counters.
   const configs = [
     { key: "hospital_name", value: "MedCore Hospital & Diagnostics" },
     { key: "hospital_address", value: "42 Linking Road, Bandra West, Mumbai, Maharashtra 400050" },
@@ -633,21 +809,19 @@ async function main() {
     { key: "consultation_fee", value: "500" },
     { key: "followup_fee", value: "300" },
     { key: "gst_percentage", value: "0" },
-    { key: "next_mr_number", value: String(mrSeq) },
-    { key: "next_invoice_number", value: String(invoiceSeq) },
     { key: "avg_consultation_minutes", value: "12" },
     { key: "cancellation_hours", value: "2" },
   ];
   for (const c of configs) {
     await prisma.systemConfig.upsert({ where: { key: c.key }, update: { value: c.value }, create: c });
   }
-  console.log("  System config updated");
+  console.log("  System config updated (live counters left untouched)");
 
   console.log("\n=== Seeding complete! ===");
   console.log(`  Staff: 1 admin, 3 doctors, 2 receptionists, 2 nurses`);
   console.log(`  Patients: ${patientRecords.length}`);
   console.log(`  Appointments: ${totalAppointments} (14 days history + today + 3 days future)`);
-  console.log(`  Invoices & Payments: ${invoiceSeq - 1}`);
+  console.log(`  Invoices through seed loop: ${invoiceSeq - 1}`);
 }
 
 main()

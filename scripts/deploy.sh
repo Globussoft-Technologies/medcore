@@ -263,10 +263,6 @@ fi
 # relative to the API/Web smoke checks above).
 #
 # Seeds NOT wired (intentionally — see chore commit body):
-#   - seed-realistic.ts       — non-idempotent: creates fresh appointments/
-#                               consultations/prescriptions/invoices/payments
-#                               on every run (users/patients ARE upserted,
-#                               but transactions duplicate).
 #   - seed-finance.ts         — non-idempotent: PO counter advances each run,
 #                               creating duplicate PO0001..PO0004 etc. with
 #                               new caseNumbers. Suppliers/packages ARE
@@ -335,6 +331,29 @@ if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-snomed.ts; then
     echo "  OK — SNOMED concepts re-seeded."
 else
     echo "  WARN — seed-snomed failed (non-fatal). Investigate offline."
+fi
+
+# Step 8k (2026-05-09): seed-realistic.ts is now fully idempotent — all
+# downstream `.create` calls on appointments / vitals / consultations /
+# prescriptions / invoices / payments / insurance claims now go through
+# either an upsert on a stable unique column OR a `findUnique` /
+# `findFirst` skip-or-create guard. Stable seed ids:
+#   - mrNumber          → MRSEED${i}
+#   - invoiceNumber     → INV-SEED-${seq}
+#   - transactionId     → TXN-SEED-${seq} (CASH gets one too, deviates
+#                         from production-CASH null-txnId, intentional)
+#   - providerClaimRef  → ${tpa}-SEED-${seq}
+# All RNG is driven by a fixed-seed mulberry32 so re-runs make
+# byte-identical decisions and the `(doctorId, date, tokenNumber)` upsert
+# key keeps mapping back to the same rows. `next_invoice_number` and
+# `next_mr_number` SystemConfig entries are NO LONGER touched — those are
+# the live production counters consumed by billing.ts / patients.ts.
+# Failures MUST NOT block the deploy (matches every other 8x seed step).
+echo "=== 8k. Re-applying realistic OPD flow seed (idempotent) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-realistic.ts; then
+    echo "  OK — realistic OPD flow re-seeded."
+else
+    echo "  WARN — seed-realistic failed (non-fatal). Investigate offline."
 fi
 
 echo "=== Deployment complete (previous SHA recorded at /tmp/medcore-prev-sha) ==="

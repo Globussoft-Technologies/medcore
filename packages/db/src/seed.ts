@@ -226,12 +226,15 @@ async function main() {
     { key: "consultation_fee", value: "500" },
     { key: "gst_percentage", value: "0" },
     // next_mr_number must stay above every MR allocated by the seed bundle.
-    // seed.ts seeds MR000001 (Rahul Kumar). seed-realistic.ts seeds
-    // MR000001..MR000035 (idempotent upsert on user email — Rahul Kumar
-    // matches by email, so no MR collision). seed-pediatric-patients.ts then
-    // seeds MR000036..MR000043 (8 patients). So 44 is the next free number.
-    // Bug #499 regression — must keep this aligned when seed-realistic
-    // PATIENT_DATA grows or pediatric mrSeqBase changes.
+    // seed.ts seeds MR000001 (Rahul Kumar). After the 2026-05-09 idempotency
+    // pass, seed-realistic.ts now namespaces its 35 patients as
+    // MRSEED000001..MRSEED000035 (so it can be re-run on every deploy
+    // without colliding with the live MR counter). seed-pediatric-patients.ts
+    // still seeds MR000036..MR000043 (8 patients) under the live counter.
+    // The first free MR available to real-tenant `patients.ts` registration
+    // is therefore 44 — Rahul Kumar (MR000001) + pediatric (8) = 9 used.
+    // Bug #499 regression — must keep this aligned when pediatric mrSeqBase
+    // changes; seed-realistic.ts no longer participates in the live counter.
     { key: "next_mr_number", value: "44" },
     { key: "next_invoice_number", value: "1" },
   ];

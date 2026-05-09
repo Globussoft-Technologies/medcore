@@ -274,10 +274,21 @@ test.describe("Prescriptions lifecycle — /dashboard/prescriptions (DDI safety 
       .selectOption("1-0-1 (Morning-Night)");
     await page.getByPlaceholder("Duration").first().fill("ongoing");
 
+    // 2026-05-09 hardening: under load the click can race the
+    // /check-interactions stub on chromium+webkit shard 8 (release.yml run
+    // 25603131575). Wire an explicit waitForResponse so the assertion below
+    // doesn't poll while the preview Promise is still in-flight.
+    const previewPromise = page.waitForResponse(
+      (r) =>
+        r.url().includes("/api/v1/prescriptions/check-interactions") &&
+        r.request().method() === "POST",
+      { timeout: 15_000 }
+    );
     await page.getByRole("button", { name: /save prescription/i }).click();
+    await previewPromise;
     await expect(
       page.getByRole("heading", { name: /drug interaction warning/i })
-    ).toBeVisible({ timeout: 10_000 });
+    ).toBeVisible({ timeout: 15_000 });
 
     await page.getByRole("button", { name: /override and continue/i }).click();
 

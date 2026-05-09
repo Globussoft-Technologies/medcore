@@ -109,7 +109,11 @@ test.describe("Admin operations — daily levers", () => {
     const dateInput = page.getByTestId("roster-date-filter");
     await dateInput.fill(date);
 
-    await page.getByRole("button", { name: /add shift/i }).first().click();
+    // Issue #725 (May 2026): the toolbar CTA was renamed to "Assign Shift"
+    // (data-testid="assign-shift-toolbar") when per-cell click-to-assign
+    // was introduced. The modal still ships data-testid="add-shift-modal"
+    // (legacy id) so we open it via the new toolbar testid.
+    await page.getByTestId("assign-shift-toolbar").click();
 
     // Scope to the Add Shift modal via testid; a heading-filter chain risks
     // matching too-broad an ancestor and drilling into page chrome.

@@ -42,7 +42,13 @@ async function seedStaff(
   // Mirrors freshPatientToken's strong-password recipe — accepted by
   // the same registerSchema validator.
   const password = `Pw!E2e-${stamp}-Aa9`;
-  const name = `E2E Staff ${stamp}`;
+  // strictStaffName (added in #284/#666/#686/#667/#687) only permits
+  // letters / spaces / '.' / '-' / "'", so the digit-bearing stamp can't
+  // be in the user-facing `name`. Build a letters-only suffix from the
+  // random portion of the stamp by stripping digits.
+  const nameSuffix =
+    Math.random().toString(36).replace(/[^a-z]/gi, "").slice(0, 6) || "Sample";
+  const name = `E2E Staff ${nameSuffix}`;
   const phone = `+9198${Math.floor(10_000_000 + Math.random() * 89_999_999)}`;
   const res = await api.post(`${API_BASE}/auth/register`, {
     data: { name, email, phone, password, role },

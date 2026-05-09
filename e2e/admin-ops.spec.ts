@@ -132,8 +132,11 @@ test.describe("Admin operations — daily levers", () => {
     await staffSelect.selectOption(target!.id);
     await modal.locator('input[type="date"]').first().fill(date);
 
-    // Submit ("Create" button) inside the modal form.
-    await modal.getByRole("button", { name: /^create$/i }).click();
+    // Submit ("Assign" button) inside the modal form. The modal's submit
+    // CTA was renamed Create → Assign at the same time the toolbar CTA
+    // changed Add Shift → Assign Shift (#725 wave). The form's submit
+    // button text is now "Assign" (apps/web/src/app/dashboard/duty-roster/page.tsx:550).
+    await modal.getByRole("button", { name: /^assign$/i }).click();
 
     // The modal should close and the new shift appear in the MORNING column
     // (default 07:00–15:00). Assert via the API to avoid timezone slicing of

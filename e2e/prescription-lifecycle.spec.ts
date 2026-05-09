@@ -228,11 +228,18 @@ test.describe("Prescriptions lifecycle — /dashboard/prescriptions (DDI safety 
     // is the load-bearing safety detail. If a future refactor drops
     // overrideWarnings from the payload, the DDI gate is silently broken
     // (the API would block the save AND the doctor would never know).
+    //
+    // 2026-05-09: timeout bumped 15s → 30s. The promise is set up here
+    // BEFORE form-fill / check-interactions / modal-display / click-override.
+    // Under shard-8 chromium+webkit parallel load that interaction chain
+    // can take >15s in CI, leaving no margin for the actual POST to land
+    // before the timeout fires (release.yml run 25607172246 round 2 still
+    // failed at this exact spot after the round-1 previewPromise fix).
     const savePromise = page.waitForRequest(
       (req) =>
         new URL(req.url()).pathname.endsWith("/api/v1/prescriptions") &&
         req.method() === "POST",
-      { timeout: 15_000 }
+      { timeout: 30_000 }
     );
     await page.route("**/api/v1/prescriptions", (route) => {
       if (route.request().method() === "POST") {

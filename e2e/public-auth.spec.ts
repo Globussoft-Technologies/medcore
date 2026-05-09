@@ -463,14 +463,22 @@ test.describe("/forgot-password — password reset flow", () => {
     // API returns 200 (success — it never reveals whether the email exists)
     expect(forgotRes.status()).toBe(200);
 
+    // Issue #711 (May 2026): the page now goes to an intermediate "sent"
+    // step (green confirmation banner + "I have the code" CTA) before the
+    // code-entry step. Click "I have the code" to advance to the reset
+    // step where the 6-digit input lives.
+    await expect(page.getByTestId("forgot-sent-confirmation")).toBeVisible({
+      timeout: 8_000,
+    });
+    // The confirmation message embeds the submitted email address (UX hint —
+    // this is not a security leak because it's the email the user just typed).
+    await expect(page.getByText(SEEDED_PATIENT_EMAIL)).toBeVisible();
+    await page.getByTestId("forgot-have-code-btn").click();
+
     // UI advances to the "reset" step showing the 6-digit code input
     await expect(page.locator('input[placeholder="000000"]')).toBeVisible({
       timeout: 8_000,
     });
-
-    // The confirmation message embeds the submitted email address (UX hint —
-    // this is not a security leak because it's the email the user just typed).
-    await expect(page.getByText(SEEDED_PATIENT_EMAIL)).toBeVisible();
     await expect(page.getByRole("button", { name: /reset password/i })).toBeVisible();
   });
 
@@ -505,13 +513,20 @@ test.describe("/forgot-password — password reset flow", () => {
     // does not exist. This is the anti-enumeration pin.
     expect(forgotRes.status()).toBe(200);
 
+    // Issue #711: page advances to the "sent" intermediate step first.
+    // The confirmation banner + "I have the code" CTA must appear for
+    // BOTH known and unknown emails (same UX, no enumeration leak).
+    await expect(page.getByTestId("forgot-sent-confirmation")).toBeVisible({
+      timeout: 8_000,
+    });
+    // The confirmation text embeds the email (expected UX — not a leak)
+    await expect(page.getByText(unknownEmail)).toBeVisible();
+    await page.getByTestId("forgot-have-code-btn").click();
+
     // UI must advance to the "enter your code" step — same as for a known email.
     await expect(page.locator('input[placeholder="000000"]')).toBeVisible({
       timeout: 8_000,
     });
-
-    // The confirmation text embeds the email (expected UX — not a leak)
-    await expect(page.getByText(unknownEmail)).toBeVisible();
 
     // Must NOT show any error message that reveals the email doesn't exist.
     // We can't assert `getByRole("alert")` is invisible — Next.js injects a
@@ -586,6 +601,12 @@ test.describe("/forgot-password — password reset flow", () => {
     await page.locator('input[type="email"]').fill("anyone@example.com");
     await page.getByRole("button", { name: /send reset code/i }).click();
 
+    // Issue #711: intermediate "sent" step before "reset" step.
+    await expect(page.getByTestId("forgot-sent-confirmation")).toBeVisible({
+      timeout: 8_000,
+    });
+    await page.getByTestId("forgot-have-code-btn").click();
+
     // Should advance to code-entry step
     await expect(page.locator('input[placeholder="000000"]')).toBeVisible({
       timeout: 8_000,
@@ -626,7 +647,12 @@ test.describe("/forgot-password — password reset flow", () => {
     await page.locator('input[type="email"]').fill("anyone@example.com");
     await page.getByRole("button", { name: /send reset code/i }).click();
 
-    await expect(page.locator('input[placeholder="000000"]')).toBeVisible({
+    // Issue #711: "Use a different email" lives on the intermediate "sent"
+    // step (the green confirmation banner step), NOT on the code-entry
+    // "reset" step. Pre-#711 the page jumped straight to "reset" so the
+    // button was implicitly on the same view; now it's a navigational
+    // affordance from the confirmation banner.
+    await expect(page.getByTestId("forgot-sent-confirmation")).toBeVisible({
       timeout: 8_000,
     });
 
@@ -634,7 +660,7 @@ test.describe("/forgot-password — password reset flow", () => {
     await page.getByRole("button", { name: /use a different email/i }).click();
 
     await expect(page.locator('input[type="email"]')).toBeVisible({ timeout: 5_000 });
-    await expect(page.locator('input[placeholder="000000"]')).not.toBeVisible();
+    await expect(page.getByTestId("forgot-sent-confirmation")).not.toBeVisible();
   });
 
   test("auth bounce: authenticated user visiting /forgot-password sees the form (no redirect)", async ({

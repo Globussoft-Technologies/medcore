@@ -96,6 +96,36 @@ function randomPlate(): string {
   return `${state}-${ll}-${num}`;
 }
 
+/**
+ * Plausible Indian-style driver name with a unique suffix.
+ *
+ * Issue #739 added a backend guard (POST /ambulance/trips refuses if the
+ * named driver is already on an active trip on a *different* vehicle —
+ * see ambulance.ts:267-292). The legacy spec hard-coded
+ * `driverName: "Ramesh Kumar"` for every seedAmbulance() call, which
+ * meant: re-running the spec OR the prior test in the same run leaving
+ * any active (non-COMPLETED, non-CANCELLED) trip behind on a "Ramesh
+ * Kumar" vehicle would block every subsequent `seedTrip()` with
+ *   400 "Driver Ramesh Kumar is already on active dispatch …"
+ * Concretely the first dispatch test (line 191) creates a trip via the
+ * UI and only dispatches it — it never completes/cancels — so on every
+ * subsequent test, that DISPATCHED trip's "Ramesh Kumar" driver was
+ * still active and the guard fired. Randomising the suffix makes each
+ * seeded vehicle's driver unique so the cross-vehicle guard never trips.
+ */
+function randomDriverName(): string {
+  const firsts = ["Ramesh", "Mahesh", "Suresh", "Naresh", "Dinesh", "Mukesh"];
+  const lasts = ["Kumar", "Singh", "Verma", "Gupta", "Iyer", "Reddy"];
+  const f = firsts[Math.floor(Math.random() * firsts.length)];
+  const l = lasts[Math.floor(Math.random() * lasts.length)];
+  // 4-digit suffix keeps the surface-form a plausible person name (the
+  // PATIENT_NAME_REGEX rejects digits, but Ambulance.driverName has no
+  // such constraint — only `string` in the schema). Driver collisions
+  // across parallel runs become 1-in-(6*6*9000) ≈ 1-in-324k.
+  const suffix = String(1000 + Math.floor(Math.random() * 9000));
+  return `${f} ${l} ${suffix}`;
+}
+
 async function seedAmbulance(api: APIRequestContext): Promise<SeededAmbulance> {
   const vehicleNumber = randomPlate();
   const res = await api.post(`${API_BASE}/ambulance`, {
@@ -104,7 +134,7 @@ async function seedAmbulance(api: APIRequestContext): Promise<SeededAmbulance> {
       make: "Force",
       model: "Traveller",
       type: "BLS",
-      driverName: "Ramesh Kumar",
+      driverName: randomDriverName(),
       driverPhone: "+919812345678",
       paramedicName: "Sunita Iyer",
     },

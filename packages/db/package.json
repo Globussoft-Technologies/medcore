@@ -36,7 +36,7 @@
     "bcryptjs": "^2.4.3"
   },
   "devDependencies": {
-    "prisma": "^6.5.0",
+    "prisma": "^6.19.3",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0"
   }

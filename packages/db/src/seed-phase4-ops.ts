@@ -1,3 +1,37 @@
+/**
+ * Phase 4 ops seed — blood bank (donors / donations / units), ambulance
+ * fleet + trips, and asset register (with assignments and maintenance).
+ *
+ * Idempotency contract (2026-05-11): safe to re-run on a populated demo
+ * without creating duplicate rows. Unlike its phase4 siblings, this file
+ * never used `deleteMany` — the pre-2026-05-11 version was already
+ * largely idempotent via `upsert`, `findUnique`, and coarse
+ * `count() === 0` gates. This commit tightens the last three coarse
+ * gates (AmbulanceTrip, AssetAssignment, AssetMaintenance) into
+ * per-row stable-anchor guards so partial-run recovery is precise:
+ *
+ *   - BloodDonor: `upsert({ where: { donorNumber } })` — pre-existing.
+ *   - BloodDonation: `findUnique({ where: { unitNumber } })` skip-or-
+ *     create — pre-existing.
+ *   - BloodUnit: per-row try/catch on `unitNumber @unique` — pre-existing.
+ *   - Ambulance: `upsert({ where: { vehicleNumber } })` — pre-existing.
+ *   - AmbulanceTrip (TIGHTENED 2026-05-11): per-trip `findUnique({ where:
+ *     { tripNumber } })` skip-or-create. Pre-existing coarse
+ *     `tripCount === 0` would have skipped seed trips entirely once any
+ *     human-entered trip existed.
+ *   - Asset: `upsert({ where: { assetTag } })` — pre-existing.
+ *   - AssetAssignment (TIGHTENED 2026-05-11): per-row `findFirst({ where:
+ *     { assetId, assignedTo } })` skip-or-create + a stable seed-marker
+ *     in the notes column (`[PH4-OPS-ASSIGN-SEED-NNNN]`).
+ *   - AssetMaintenance (TIGHTENED 2026-05-11): per-row `findFirst({
+ *     where: { assetId, type, performedAt } })` skip-or-create. The
+ *     three (assetId, type, performedAt) triples below are unique and
+ *     stable (performedAt quantized to UTC midnight).
+ *
+ * Wired into `scripts/deploy.sh` by the orchestrator (separate commit).
+ * Failures are non-fatal (matches the policy of every other deploy-time
+ * fixture seed).
+ */
 import {
   PrismaClient,
   BloodGroupType,
@@ -15,6 +49,15 @@ const prisma = new PrismaClient();
 
 function daysFromNow(n: number): Date {
   return new Date(Date.now() + n * 24 * 60 * 60 * 1000);
+}
+
+// Stable per-day-offset helper that quantizes to UTC midnight, so re-runs
+// at different times of day still produce the same `performedAt` and the
+// (assetId, type, performedAt) findFirst anchor lands on the same row.
+function daysFromNowAtMidnight(n: number): Date {
+  const d = daysFromNow(n);
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
 }
 
 async function main() {
@@ -104,7 +147,6 @@ async function main() {
       const group = groups[i % groups.length];
       const component = components[i % components.length];
       const collectedAt = daysFromNow(-(i % 10));
-      // Some units near expiry for demo
       const expiryDays = component === "PLATELETS" ? 5 : component === "FRESH_FROZEN_PLASMA" ? 365 : 42;
       const expiresAt = new Date(
         collectedAt.getTime() + expiryDays * 24 * 60 * 60 * 1000
@@ -140,7 +182,8 @@ async function main() {
     { vehicleNumber: "AMB-004", type: "Patient Transport", driverName: "Naresh Gupta", driverPhone: "9876543213" },
   ];
 
-  const ambulances = [];
+  type AmbulanceRow = Awaited<ReturnType<typeof prisma.ambulance.upsert>>;
+  const ambulances: AmbulanceRow[] = [];
   for (let i = 0; i < ambSpecs.length; i++) {
     const spec = ambSpecs[i];
     const a = await prisma.ambulance.upsert({
@@ -161,10 +204,16 @@ async function main() {
   console.log("\nCreating ambulance trips...");
   const patient = await prisma.patient.findFirst();
 
-  const tripCount = await prisma.ambulanceTrip.count();
-  if (tripCount === 0) {
-    await prisma.ambulanceTrip.create({
-      data: {
+  // Per-trip findUnique on stable tripNumber. Pre-2026-05-11 used a
+  // coarse `tripCount === 0` gate which would have skipped seed trips
+  // entirely once any human-entered trip existed.
+  const tripSpecs: Array<{
+    tripNumber: string;
+    build: () => Parameters<typeof prisma.ambulanceTrip.create>[0]["data"];
+  }> = [
+    {
+      tripNumber: "TRP000001",
+      build: () => ({
         tripNumber: "TRP000001",
         ambulanceId: ambulances[1].id,
         patientId: patient?.id,
@@ -178,10 +227,11 @@ async function main() {
         completedAt: daysFromNow(-3),
         distanceKm: 12.5,
         cost: 1200,
-      },
-    });
-    await prisma.ambulanceTrip.create({
-      data: {
+      }),
+    },
+    {
+      tripNumber: "TRP000002",
+      build: () => ({
         tripNumber: "TRP000002",
         ambulanceId: ambulances[0].id,
         callerName: "Mohan Rao",
@@ -192,10 +242,11 @@ async function main() {
         requestedAt: new Date(Date.now() - 30 * 60 * 1000),
         dispatchedAt: new Date(Date.now() - 25 * 60 * 1000),
         arrivedAt: new Date(Date.now() - 15 * 60 * 1000),
-      },
-    });
-    await prisma.ambulanceTrip.create({
-      data: {
+      }),
+    },
+    {
+      tripNumber: "TRP000003",
+      build: () => ({
         tripNumber: "TRP000003",
         ambulanceId: ambulances[2].id,
         callerName: "Lakshmi Devi",
@@ -203,12 +254,24 @@ async function main() {
         pickupAddress: "HSR Layout",
         chiefComplaint: "Breathing difficulty",
         status: "REQUESTED" as AmbulanceTripStatus,
-      },
+      }),
+    },
+  ];
+
+  let tripsCreated = 0;
+  let tripsSkipped = 0;
+  for (const t of tripSpecs) {
+    const existing = await prisma.ambulanceTrip.findUnique({
+      where: { tripNumber: t.tripNumber },
     });
-    console.log(`  Created 3 trips`);
-  } else {
-    console.log(`  Trips already exist (${tripCount})`);
+    if (existing) {
+      tripsSkipped++;
+      continue;
+    }
+    await prisma.ambulanceTrip.create({ data: t.build() });
+    tripsCreated++;
   }
+  console.log(`  Trips: ${tripsCreated} created, ${tripsSkipped} skipped`);
 
   // ─── Assets ────────────────────────────────────────────
   console.log("\nCreating assets...");
@@ -298,80 +361,124 @@ async function main() {
   });
 
   if (assignableUsers.length > 0) {
-    const existingAssignments = await prisma.assetAssignment.count();
-    if (existingAssignments === 0) {
-      const laptopAssets = assets.filter((a) => a.category === "IT").slice(0, 3);
-      const otherAssets = [assets[12], assets[13]]; // autoclave, suction
-      const toAssign = [...laptopAssets, ...otherAssets].filter(Boolean);
+    // Pre-2026-05-11 used a coarse `existingAssignments === 0` gate which
+    // would have skipped seed assignments entirely once any human-entered
+    // assignment existed. Replaced with per-row findFirst on
+    // (assetId, assignedTo) + a stable seed-marker in the notes column
+    // so re-runs precisely land on the same rows.
+    const laptopAssets = assets.filter((a) => a.category === "IT").slice(0, 3);
+    const otherAssets = [assets[12], assets[13]]; // autoclave, suction
+    const toAssign = [...laptopAssets, ...otherAssets].filter(Boolean);
 
-      for (let i = 0; i < toAssign.length && i < assignableUsers.length; i++) {
-        const asset = toAssign[i];
-        const user = assignableUsers[i];
-        await prisma.assetAssignment.create({
-          data: {
-            assetId: asset.id,
-            assignedTo: user.id,
-            location: asset.location,
-            notes: "Initial assignment from seed",
-          },
-        });
-        await prisma.asset.update({
-          where: { id: asset.id },
-          data: { status: "IN_USE" as AssetStatus },
-        });
+    let assignsCreated = 0;
+    let assignsSkipped = 0;
+    for (let i = 0; i < toAssign.length && i < assignableUsers.length; i++) {
+      const asset = toAssign[i];
+      const user = assignableUsers[i];
+
+      const existing = await prisma.assetAssignment.findFirst({
+        where: { assetId: asset.id, assignedTo: user.id },
+      });
+      if (existing) {
+        assignsSkipped++;
+        continue;
       }
-      console.log(`  Created ${Math.min(toAssign.length, assignableUsers.length)} asset assignments`);
-    } else {
-      console.log(`  Asset assignments already exist (${existingAssignments})`);
+
+      await prisma.assetAssignment.create({
+        data: {
+          assetId: asset.id,
+          assignedTo: user.id,
+          location: asset.location,
+          notes: `[PH4-OPS-ASSIGN-SEED-${String(i + 1).padStart(4, "0")}] Initial assignment from seed`,
+        },
+      });
+      await prisma.asset.update({
+        where: { id: asset.id },
+        data: { status: "IN_USE" as AssetStatus },
+      });
+      assignsCreated++;
     }
+    console.log(`  Asset assignments: ${assignsCreated} created, ${assignsSkipped} skipped`);
   }
 
   // ─── Asset Maintenance Logs ────────────────────────────
   console.log("\nCreating maintenance logs...");
   const technician = assignableUsers[0];
   if (technician) {
-    const existingMaint = await prisma.assetMaintenance.count();
-    if (existingMaint === 0) {
-      await prisma.assetMaintenance.create({
+    // Per-row findFirst on (assetId, type, performedAt). The three
+    // triples below are unique and stable (performedAt quantized to UTC
+    // midnight so re-runs at different times of day hit the same row).
+    const maintSpecs: Array<{
+      assetId: string;
+      type: MaintenanceType;
+      performedAt: Date;
+      data: Parameters<typeof prisma.assetMaintenance.create>[0]["data"];
+    }> = [
+      {
+        assetId: assets[0].id, // X-Ray
+        type: "CALIBRATION" as MaintenanceType,
+        performedAt: daysFromNowAtMidnight(-60),
         data: {
-          assetId: assets[0].id, // X-Ray
+          assetId: assets[0].id,
           type: "CALIBRATION" as MaintenanceType,
           performedBy: technician.id,
           vendor: "Siemens Service",
           cost: 15000,
           description: "Annual calibration and tube inspection",
-          performedAt: daysFromNow(-60),
-          nextDueDate: daysFromNow(305),
+          performedAt: daysFromNowAtMidnight(-60),
+          nextDueDate: daysFromNowAtMidnight(305),
         },
-      });
-      await prisma.assetMaintenance.create({
+      },
+      {
+        assetId: assets[12].id, // Autoclave
+        type: "SCHEDULED" as MaintenanceType,
+        performedAt: daysFromNowAtMidnight(-30),
         data: {
-          assetId: assets[12].id, // Autoclave
+          assetId: assets[12].id,
           type: "SCHEDULED" as MaintenanceType,
           performedBy: technician.id,
           vendor: "Equitron Services",
           cost: 5000,
           description: "Quarterly preventive maintenance",
-          performedAt: daysFromNow(-30),
-          nextDueDate: daysFromNow(60),
+          performedAt: daysFromNowAtMidnight(-30),
+          nextDueDate: daysFromNowAtMidnight(60),
         },
-      });
-      await prisma.assetMaintenance.create({
+      },
+      {
+        assetId: assets[14].id, // Defibrillator
+        type: "INSPECTION" as MaintenanceType,
+        performedAt: daysFromNowAtMidnight(-10),
         data: {
-          assetId: assets[14].id, // Defibrillator
+          assetId: assets[14].id,
           type: "INSPECTION" as MaintenanceType,
           performedBy: technician.id,
           vendor: "Philips Healthcare",
           cost: 2500,
           description: "Battery replacement and self-test",
-          performedAt: daysFromNow(-10),
-          nextDueDate: daysFromNow(80),
+          performedAt: daysFromNowAtMidnight(-10),
+          nextDueDate: daysFromNowAtMidnight(80),
+        },
+      },
+    ];
+
+    let maintCreated = 0;
+    let maintSkipped = 0;
+    for (const m of maintSpecs) {
+      const existing = await prisma.assetMaintenance.findFirst({
+        where: {
+          assetId: m.assetId,
+          type: m.type,
+          performedAt: m.performedAt,
         },
       });
-      console.log(`  Created 3 maintenance logs`);
-    } else {
-      console.log(`  Maintenance logs already exist (${existingMaint})`);
+      if (existing) {
+        maintSkipped++;
+        continue;
+      }
+      await prisma.assetMaintenance.create({ data: m.data });
+      maintCreated++;
     }
+    console.log(`  Maintenance logs: ${maintCreated} created, ${maintSkipped} skipped`);
   }
 
   console.log("\n=== Phase 4 Ops seeding complete ===");

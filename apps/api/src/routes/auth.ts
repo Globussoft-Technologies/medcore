@@ -1,7 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { Role } from "@prisma/client";
 import { prisma } from "@medcore/db";
@@ -27,6 +26,14 @@ import { setAuthCookies, clearAuthCookies } from "../middleware/auth-cookies";
 // through the tenant wrapper so a user never sees rows that originated in
 // another tenant — even if their userId somehow collided historically.
 import { tenantScopedPrisma } from "../services/tenant-prisma";
+// Issue #482: algorithm-agnostic JWT helpers. signAccessToken/signRefreshToken
+// route through services/jwt.ts so the algorithm + key are env-driven and
+// the rotation cutover (RS256 with HS256 fallback) is centrally controlled.
+import {
+  signAccessToken,
+  signRefreshToken,
+  verifyAccessToken,
+} from "../services/jwt";
 import { rateLimit } from "../middleware/rate-limit";
 import {
   checkLockout,
@@ -200,17 +207,15 @@ function generateTokens(
   // Issue #1: access-token TTL intentionally NOT extended by rememberMe — a
   // compromised access token should still expire within 24h regardless of
   // the user's session-persistence preference.
-  const accessToken = jwt.sign(
+  const accessToken = signAccessToken(
     { userId, email, role, tenantId: tid, jti },
-    process.env.JWT_SECRET || "dev-secret",
     { expiresIn: "24h" }
   );
   const refreshTtlSeconds = rememberMe
     ? REFRESH_TOKEN_REMEMBER_ME_TTL_SECONDS
     : REFRESH_TOKEN_TTL_SECONDS;
-  const refreshToken = jwt.sign(
+  const refreshToken = signRefreshToken(
     { userId, email, role, tenantId: tid, jti: crypto.randomUUID() },
-    process.env.JWT_REFRESH_SECRET || "dev-refresh-secret",
     { expiresIn: refreshTtlSeconds }
   );
   return { accessToken, refreshToken, refreshTtlSeconds };
@@ -312,10 +317,8 @@ function resolveRegistrationRole(req: Request, requestedRole: unknown): Role {
   if (!header?.startsWith("Bearer ")) return PUBLIC_DEFAULT;
   const token = header.split(" ")[1];
   try {
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || "dev-secret"
-    ) as { role?: string };
+    // Issue #482: algorithm-agnostic — services/jwt.ts.
+    const decoded = verifyAccessToken<{ role?: string }>(token);
     if (decoded.role === "ADMIN") return resolved;
   } catch {
     // Fall through.

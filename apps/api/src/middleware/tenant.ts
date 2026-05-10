@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
-import jwt from "jsonwebtoken";
 import type { AuthPayload } from "@medcore/shared";
 import { prisma } from "@medcore/db";
+import { verifyAccessToken } from "../services/jwt";
 
 /**
  * Tenant identifier attached to every request by {@link tenantContextMiddleware}.
@@ -115,10 +115,8 @@ export async function tenantContextMiddleware(
     if (authHeader?.startsWith("Bearer ")) {
       const token = authHeader.slice("Bearer ".length);
       try {
-        const decoded = jwt.verify(
-          token,
-          process.env.JWT_SECRET || "dev-secret",
-        ) as Partial<AuthPayload>;
+        // Issue #482: algorithm-agnostic — see services/jwt.ts.
+        const decoded = verifyAccessToken<Partial<AuthPayload>>(token);
         if (decoded && typeof decoded.tenantId === "string" && decoded.tenantId.length > 0) {
           candidate = decoded.tenantId;
         }

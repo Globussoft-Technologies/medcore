@@ -263,8 +263,7 @@ fi
 # relative to the API/Web smoke checks above).
 #
 # Seeds NOT wired (intentionally — see chore commit body):
-#   - seed-immunization-data, seed-lab-data, seed-lab-panels (orders),
-#     seed-clinical-enhancements, seed-acute-care-enhancements,
+#   - seed-clinical-enhancements, seed-acute-care-enhancements,
 #     seed-ancillary-enhancements, seed-ipd,
 #     seed-pediatric-patients, seed-ops-enhancements,
 #     seed-phase4-{specialty,engagement,ops}
@@ -281,6 +280,11 @@ fi
 #   - seed-doctor-ratings.ts         (8q) — [seed:DR-RATE-SEED-<doctorId>-<i>] comment marker findFirst-skip on PatientFeedback
 #   - seed-complaints-data.ts        (8r) — CMP-SEED-NNNN ticketNumber findUnique (does NOT poison live CMP-YYYY-NNNNN counter)
 #   - seed-notifications-history.ts  (8s) — NOTIF-SEED-NNNN dedupKey findUnique (cannot collide with broadcast `${broadcastId}:${userId}`)
+#   - seed-immunization-data.ts      (8t) — IMMUN-SEED-NNNNNN tag in `notes` + findFirst on (patientId, vaccine, doseNumber)
+#   - seed-lab-data.ts               (8u) — LAB-SEED-NNNNNN orderNumber findUnique
+#   - seed-lab-panels.ts             (8v) — LAB-SEED-PANEL-NNNNNN orderNumber findUnique + per-test reference-range count guard
+# All share the mulberry32 PRNG idempotency strategy that seed-realistic.ts
+# pioneered — re-runs make byte-identical decisions.
 
 echo "=== 8d. Re-applying hospital identity SystemConfig seed ==="
 if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-hospital-config.ts; then
@@ -440,6 +444,46 @@ if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-visitors-history.ts; then
     echo "  OK — visitor history re-seeded."
 else
     echo "  WARN — seed-visitors-history failed (non-fatal). Investigate offline."
+fi
+
+# Step 8t (deploy.sh wave 2 — 2026-05-10): seed-immunization-data.ts is now
+# fully idempotent — every Immunization row is gated by a `findFirst`
+# guard on the natural tuple `(patientId, vaccine, doseNumber)` and tagged
+# with a stable `[IMMUN-SEED-NNNNNN]` marker in the `notes` field. The
+# upcoming-booster sentinel uses doseNumber=99 so it never collides with
+# the past-dose tuple. All RNG is driven by a fixed-seed mulberry32 so
+# re-runs make byte-identical decisions. Failures MUST NOT block the deploy.
+echo "=== 8t. Re-applying immunization data seed (UIP child schedule + adult vaccines) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-immunization-data.ts; then
+    echo "  OK — immunization data re-seeded."
+else
+    echo "  WARN — seed-immunization-data failed (non-fatal). Investigate offline."
+fi
+
+# Step 8u (deploy.sh wave 2 — 2026-05-10): seed-lab-data.ts is now fully
+# idempotent — LabOrder.orderNumber uses stable `LAB-SEED-NNNNNN` keys
+# (gated by findUnique) instead of the previous max+1 counter that minted
+# fresh batches each run. LabResult creation is guarded by a per-orderItem
+# count check. Lab QC entries block was already idempotent. Failures MUST
+# NOT block the deploy.
+echo "=== 8u. Re-applying lab orders + results seed (61 scenarios + QC entries) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-lab-data.ts; then
+    echo "  OK — lab orders + results re-seeded."
+else
+    echo "  WARN — seed-lab-data failed (non-fatal). Investigate offline."
+fi
+
+# Step 8v (deploy.sh wave 2 — 2026-05-10): seed-lab-panels.ts is now fully
+# idempotent — specialty-test orders use stable `LAB-SEED-PANEL-NNNNNN`
+# keys (replacing `LAB-${YYYY}-${existingOrders+5000+i}` which compounded
+# each re-run). LabTest upsert by `code` was already idempotent;
+# LabTestReferenceRange now uses a per-test count guard. Failures MUST NOT
+# block the deploy.
+echo "=== 8v. Re-applying specialty lab panels seed (VITD/B12/IronStudies/etc.) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-lab-panels.ts; then
+    echo "  OK — specialty lab panels re-seeded."
+else
+    echo "  WARN — seed-lab-panels failed (non-fatal). Investigate offline."
 fi
 
 echo "=== Deployment complete (previous SHA recorded at /tmp/medcore-prev-sha) ==="

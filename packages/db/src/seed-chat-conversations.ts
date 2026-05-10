@@ -1,13 +1,53 @@
+/**
+ * Chat conversations seed — realistic doctor / nursing / admin / emergency
+ * room dialog history (4 rooms x ~25-30 messages each).
+ *
+ * Idempotency contract (2026-05-10): safe to re-run on a populated demo
+ * without creating duplicate rooms or duplicate messages.
+ *
+ *   - Rooms: findFirst({ where: { name, department } }) skip-or-create
+ *     (this part was already idempotent before this commit).
+ *   - Participants: upsert({ where: { roomId_userId } }) (already
+ *     idempotent — leverages existing @@unique([roomId, userId])).
+ *   - Messages (NEW): every seed-created message gets a stable seed-tag
+ *     prefix [CHAT-SEED-<roomKey>-<NNNN>] embedded at the start of the
+ *     content column. Re-runs do findFirst({ where: { roomId, content:
+ *     { startsWith: '[CHAT-SEED-<roomKey>-<NNNN>]' } } }) and skip if
+ *     present. This survives the case where a human user has posted real
+ *     messages into the seeded room — we no longer rely on a coarse
+ *     existing >= 10 count.
+ *   - All randomness is driven by a deterministic mulberry32 PRNG seeded
+ *     from a fixed constant (matches the seed-realistic.ts pattern).
+ *     Re-runs produce byte-identical decisions for which messages get
+ *     reactions / pins / mentions, so re-running doesn't drift the row
+ *     content even if some rows already exist and others don't.
+ *
+ * Wired into scripts/deploy.sh step 8n. Failures are non-fatal
+ * (matches the policy of every other deploy-time fixture seed).
+ */
 import { PrismaClient, MessageType, Role } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+// Deterministic mulberry32 PRNG — same fixed-seed pattern as
+// seed-realistic.ts so re-runs pick the same senders / reactions / pins /
+// mentions even if some messages already exist (partial-run recovery).
+const SEED_RNG = 0xc4a72042;
+let _rngState = SEED_RNG;
+function rng(): number {
+  _rngState |= 0;
+  _rngState = (_rngState + 0x6D2B79F5) | 0;
+  let t = Math.imul(_rngState ^ (_rngState >>> 15), 1 | _rngState);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
 function randomItem<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+  return arr[Math.floor(rng() * arr.length)];
 }
 
 function randomInt(min: number, max: number) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  return Math.floor(rng() * (max - min + 1)) + min;
 }
 
 function hoursAgo(n: number): Date {
@@ -16,10 +56,13 @@ function hoursAgo(n: number): Date {
   return d;
 }
 
-/**
- * Enrich existing chat rooms with realistic, diverse conversations.
- * Falls back to creating rooms if none exist.
- */
+// Per-room target message counts (deterministic — stable index → seed-tag).
+const FILLER_BY_ROOM: Record<string, number> = {
+  "doctors-lounge": 9,
+  "nursing-handover": 8,
+  "all-staff-announcements": 10,
+  "emergency-coordination": 7,
+};
 
 const DOCTOR_DISCUSSION_MESSAGES = [
   "Got a 58 y/o male with atypical chest pain, troponin trending up. ECG shows new T-wave inversion in V2-V4. Cardiology consult?",
@@ -203,8 +246,9 @@ async function main() {
     };
   }
 
-  // ─── Build messages ───────────────────────────────────
+  // Build messages (seed-tagged, idempotent).
   let messagesCreated = 0;
+  let messagesSkipped = 0;
   let reactionsAdded = 0;
   let pinnedCount = 0;
   let mentionsCount = 0;
@@ -220,28 +264,41 @@ async function main() {
     const msgs = messageSets[room.messageSet];
     if (!msgs || room.participants.length === 0) continue;
 
-    // check existing message count — only add if fewer than 10
-    const existing = await prisma.chatMessage.count({ where: { roomId: room.id } });
-    if (existing >= 10) {
-      console.log(`  ${key}: already has ${existing} messages — skipping`);
-      continue;
-    }
-
-    // Base messages from set + some short filler to exceed 40 total per room
-    const totalForRoom = msgs.length + randomInt(6, 12);
-    let i = 0;
-    let lastTs = hoursAgo(randomInt(72, 96));
-    const pinsForThisRoom = randomInt(1, 2);
+    // Deterministic per-room totals — stable across re-runs so seed-tag
+    // indexes always map to the same content slot.
+    const fillerCount = FILLER_BY_ROOM[key] ?? 8;
+    const totalForRoom = msgs.length + fillerCount;
+    let perRoomCreated = 0;
+    let perRoomSkipped = 0;
+    let lastTs = hoursAgo(72 + (msgs.length % 24));
+    const pinsForThisRoom = key === "all-staff-announcements" ? 2 : 1;
     let pinsDone = 0;
 
-    const createdMessages: string[] = [];
-
     for (let n = 0; n < totalForRoom; n++) {
-      const content = n < msgs.length ? msgs[n] : randomItem(SHORT_MESSAGES);
-      // advance timestamp 5–90 minutes
+      const seedTag = `[CHAT-SEED-${key}-${String(n + 1).padStart(4, "0")}]`;
+
+      // Idempotency guard: skip if a seed-tagged row with this index
+      // already exists in this room. Tag is embedded at the start of the
+      // content column so we can detect via startsWith.
+      const exists = await prisma.chatMessage.findFirst({
+        where: { roomId: room.id, content: { startsWith: seedTag } },
+        select: { id: true, isPinned: true },
+      });
+      if (exists) {
+        perRoomSkipped++;
+        if (exists.isPinned) pinsDone++;
+        // advance the simulated timestamp anyway so subsequent NEW rows
+        // land in chronological order.
+        lastTs = new Date(lastTs.getTime() + randomInt(5, 90) * 60_000);
+        // burn rng rolls so downstream decisions stay aligned with the
+        // original seeded run when only some rows were inserted.
+        rng(); rng(); rng();
+        continue;
+      }
+
+      const baseContent = n < msgs.length ? msgs[n] : randomItem(SHORT_MESSAGES);
       lastTs = new Date(lastTs.getTime() + randomInt(5, 90) * 60_000);
 
-      // Sender rotates across participants; admin channel mostly from admin users
       let senderId: string;
       if (key === "all-staff-announcements") {
         senderId = randomItem(adminUsers.length > 0 ? adminUsers.map((u) => u.id) : room.participants);
@@ -249,34 +306,31 @@ async function main() {
         senderId = room.participants[n % room.participants.length];
       }
 
-      // @mentions — ~15% of messages reference a participant
       let mentionIds: string | null = null;
-      let finalContent = content;
-      if (Math.random() < 0.15 && room.participants.length > 1) {
+      let mentionPrefix = "";
+      if (rng() < 0.15 && room.participants.length > 1) {
         const mentioned = randomItem(room.participants.filter((p) => p !== senderId));
         const mentionedUser = [...doctorUsers, ...nurseUsers, ...adminUsers, ...receptionUsers].find(
           (u) => u.id === mentioned,
         );
         if (mentionedUser) {
-          finalContent = `@${mentionedUser.name.split(" ")[0]} ${content}`;
+          mentionPrefix = `@${mentionedUser.name.split(" ")[0]} `;
           mentionIds = mentioned;
           mentionsCount++;
         }
       }
 
-      // Reactions — 30% of messages
       let reactions: Record<string, string[]> | null = null;
-      if (Math.random() < 0.3) {
+      if (rng() < 0.3) {
         const numReactors = randomInt(1, Math.min(4, room.participants.length));
         const emoji = randomItem(REACTIONS);
         const reactors = [...room.participants]
-          .sort(() => Math.random() - 0.5)
+          .sort(() => rng() - 0.5)
           .slice(0, numReactors)
           .filter((p) => p !== senderId);
         if (reactors.length > 0) {
           reactions = { [emoji]: reactors };
-          // sometimes a second emoji
-          if (Math.random() < 0.3) {
+          if (rng() < 0.3) {
             const emoji2 = randomItem(REACTIONS.filter((e) => e !== emoji));
             reactions[emoji2] = reactors.slice(0, 1);
           }
@@ -284,12 +338,15 @@ async function main() {
         }
       }
 
-      // Pin some messages (announcements & notable)
       const shouldPin =
         pinsDone < pinsForThisRoom &&
-        (key === "all-staff-announcements" ? n < 3 : n < msgs.length && Math.random() < 0.1);
+        (key === "all-staff-announcements" ? n < 3 : n < msgs.length && rng() < 0.1);
 
-      const msg = await prisma.chatMessage.create({
+      // Embed seed-tag at the start of content so the next run can detect
+      // and skip this row. Visible in the chat UI (acceptable for demo).
+      const finalContent = `${seedTag} ${mentionPrefix}${baseContent}`;
+
+      await prisma.chatMessage.create({
         data: {
           roomId: room.id,
           senderId,
@@ -307,23 +364,27 @@ async function main() {
         pinsDone++;
         pinnedCount++;
       }
-      createdMessages.push(msg.id);
+      perRoomCreated++;
       messagesCreated++;
     }
 
-    // Update room lastMessageAt
-    await prisma.chatRoom.update({
-      where: { id: room.id },
-      data: { lastMessageAt: lastTs },
-    });
+    messagesSkipped += perRoomSkipped;
 
-    console.log(`  ${key}: added ${createdMessages.length} messages`);
+    if (perRoomCreated > 0) {
+      await prisma.chatRoom.update({
+        where: { id: room.id },
+        data: { lastMessageAt: lastTs },
+      });
+    }
+
+    console.log(`  ${key}: created ${perRoomCreated}, skipped ${perRoomSkipped} (already seeded)`);
   }
 
-  console.log(`\n✔ Messages created:  ${messagesCreated}`);
-  console.log(`✔ With reactions:    ${reactionsAdded}`);
-  console.log(`✔ Pinned messages:   ${pinnedCount}`);
-  console.log(`✔ Mentions included: ${mentionsCount}`);
+  console.log(`\n  Messages created:  ${messagesCreated}`);
+  console.log(`  Messages skipped:  ${messagesSkipped} (idempotent re-run)`);
+  console.log(`  With reactions:    ${reactionsAdded}`);
+  console.log(`  Pinned messages:   ${pinnedCount}`);
+  console.log(`  Mentions included: ${mentionsCount}`);
 }
 
 main()

@@ -126,8 +126,8 @@ function daysAgo(n: number): Date {
   return d;
 }
 
-function padSeq(n: number): string {
-  return String(n).padStart(6, "0");
+function padSeed(n: number): string {
+  return String(n).padStart(4, "0");
 }
 
 async function main() {
@@ -197,11 +197,12 @@ async function main() {
     return;
   }
 
-  // ── Seed PO number counter ────────────────────────
-  const poConfig = await prisma.systemConfig.findUnique({
-    where: { key: "next_po_number" },
-  });
-  let nextPoSeq = poConfig ? parseInt(poConfig.value) : 1;
+  // ── Seeded PO numbers use a stable, namespaced prefix (`PO-SEED-NNNN`)
+  //   so re-running the seed never collides with the live `next_po_number`
+  //   SystemConfig counter consumed by `apps/api/src/routes/purchase-orders.ts`
+  //   (which mints production POs as `PO000001..`). DO NOT read or write
+  //   `next_po_number` here — overwriting it on every deploy would corrupt
+  //   real-tenant numbering.
 
   // ── Get a few medicines to reference ──────────────
   const medicines = await prisma.medicine.findMany({ take: 6 });
@@ -276,15 +277,23 @@ async function main() {
     },
   ];
 
-  for (const spec of poSpecs) {
+  let createdPoCount = 0;
+  let skippedPoCount = 0;
+  for (let i = 0; i < poSpecs.length; i++) {
+    const spec = poSpecs[i];
     const supplierId = supplierIds[spec.supplierIdx];
-    const poNumber = `PO${padSeq(nextPoSeq)}`;
-    nextPoSeq++;
+    // Stable namespaced PO numbers (`PO-SEED-0001`, ...). Indices are
+    // deterministic, so re-runs always map back to the same row and the
+    // findUnique guard below short-circuits the create.
+    const poNumber = `PO-SEED-${padSeed(i + 1)}`;
 
     const existing = await prisma.purchaseOrder.findUnique({
       where: { poNumber },
     });
-    if (existing) continue;
+    if (existing) {
+      skippedPoCount++;
+      continue;
+    }
 
     const subtotal = spec.items.reduce(
       (sum, it) => sum + it.quantity * it.unitPrice,
@@ -322,15 +331,11 @@ async function main() {
         },
       },
     });
+    createdPoCount++;
   }
-  console.log(`  Purchase orders: ${poSpecs.length}`);
-
-  // Update sequence counter
-  await prisma.systemConfig.upsert({
-    where: { key: "next_po_number" },
-    create: { key: "next_po_number", value: String(nextPoSeq) },
-    update: { value: String(nextPoSeq) },
-  });
+  console.log(
+    `  Purchase orders: ${createdPoCount} created, ${skippedPoCount} skipped (already present)`
+  );
 
   // ── Expenses ──────────────────────────────────────
   let expenseCount = 0;

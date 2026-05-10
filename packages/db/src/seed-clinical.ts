@@ -60,16 +60,10 @@ async function main() {
   // ─── 3. SAMPLE REFERRALS ─────────────────────────────
   console.log("\nCreating sample referrals...");
 
-  // Compute next referral number
-  const lastRef = await prisma.referral.findFirst({
-    orderBy: { referralNumber: "desc" },
-    select: { referralNumber: true },
-  });
-  let refSeq = 1;
-  if (lastRef?.referralNumber) {
-    const m = lastRef.referralNumber.match(/(\d+)$/);
-    if (m) refSeq = parseInt(m[1], 10) + 1;
-  }
+  // Stable namespaced referralNumbers (`REF-SEED-NNNN`) so re-running the
+  // seed never collides with the runtime `REF000001..` counter consumed by
+  // the production referrals route. The `findUnique` guard below makes
+  // every entry idempotent.
 
   const refSamples = [
     {
@@ -95,13 +89,18 @@ async function main() {
     },
   ];
 
-  for (const r of refSamples) {
-    const referralNumber = `REF${String(refSeq).padStart(6, "0")}`;
-    refSeq++;
+  let createdReferrals = 0;
+  let skippedReferrals = 0;
+  for (let i = 0; i < refSamples.length; i++) {
+    const r = refSamples[i];
+    const referralNumber = `REF-SEED-${String(i + 1).padStart(4, "0")}`;
     const exists = await prisma.referral.findUnique({
       where: { referralNumber },
     });
-    if (exists) continue;
+    if (exists) {
+      skippedReferrals++;
+      continue;
+    }
     await prisma.referral.create({
       data: {
         referralNumber,
@@ -110,21 +109,19 @@ async function main() {
         respondedAt: r.status !== "PENDING" ? new Date() : null,
       },
     });
+    createdReferrals++;
     console.log(`  Created referral: ${referralNumber} (${r.status})`);
   }
+  console.log(
+    `  Referrals: ${createdReferrals} created, ${skippedReferrals} skipped (already present)`
+  );
 
   // ─── 4. SAMPLE SURGERIES ─────────────────────────────
   console.log("\nCreating sample surgeries...");
 
-  const lastSrg = await prisma.surgery.findFirst({
-    orderBy: { caseNumber: "desc" },
-    select: { caseNumber: true },
-  });
-  let srgSeq = 1;
-  if (lastSrg?.caseNumber) {
-    const m = lastSrg.caseNumber.match(/(\d+)$/);
-    if (m) srgSeq = parseInt(m[1], 10) + 1;
-  }
+  // Stable namespaced caseNumbers (`SRG-SEED-NNNN`) — same rationale as
+  // referralNumbers above. Production case numbers (`SRG000001..`) are
+  // minted by the surgery route and we must not collide with them.
 
   const now = new Date();
   const tomorrow = new Date(now);
@@ -166,16 +163,25 @@ async function main() {
     },
   ];
 
-  for (const s of surgerySamples) {
-    const caseNumber = `SRG${String(srgSeq).padStart(6, "0")}`;
-    srgSeq++;
+  let createdSurgeries = 0;
+  let skippedSurgeries = 0;
+  for (let i = 0; i < surgerySamples.length; i++) {
+    const s = surgerySamples[i];
+    const caseNumber = `SRG-SEED-${String(i + 1).padStart(4, "0")}`;
     const exists = await prisma.surgery.findUnique({ where: { caseNumber } });
-    if (exists) continue;
+    if (exists) {
+      skippedSurgeries++;
+      continue;
+    }
     await prisma.surgery.create({
       data: { caseNumber, ...s },
     });
+    createdSurgeries++;
     console.log(`  Created surgery: ${caseNumber} — ${s.procedure}`);
   }
+  console.log(
+    `  Surgeries: ${createdSurgeries} created, ${skippedSurgeries} skipped (already present)`
+  );
 
   console.log("\n=== Clinical seed complete ===");
   await prisma.$disconnect();

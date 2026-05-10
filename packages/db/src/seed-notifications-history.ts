@@ -1,3 +1,24 @@
+/**
+ * Notification delivery-log seed.
+ *
+ * Idempotency contract (2026-05-10): wired into `scripts/deploy.sh` step 8s,
+ * safe to re-run on a populated demo without creating duplicates.
+ *
+ *   - Notification.dedupKey is `@unique` (added 2026 for Issue #750
+ *     broadcast-fanout dedup; nullable for non-broadcast rows). The
+ *     seed reuses this column with stable `NOTIF-SEED-<NNNN>` keys,
+ *     skipping creation if the key exists. Live runtime broadcasts
+ *     use `${broadcastId}:${userId}` (uuid prefix) so collisions are
+ *     impossible.
+ *   - Math.random() is replaced by mulberry32 so each seed iteration
+ *     deterministically picks the same template / recipient / channel /
+ *     status combination across runs.
+ *   - The pre-existing `count() < target` short-circuit was removed —
+ *     it was never a real idempotency guard (it short-circuited on
+ *     ANY 220+ notifications globally, including non-seed live rows),
+ *     and now the per-iteration findUnique on dedupKey is the canonical
+ *     skip mechanism.
+ */
 import {
   PrismaClient,
   NotificationChannel,
@@ -8,12 +29,24 @@ import {
 
 const prisma = new PrismaClient();
 
+// Deterministic RNG so re-runs make the same per-iteration picks.
+const SEED = 0x70771c47;
+let _rngState = SEED;
+function rng(): number {
+  _rngState |= 0;
+  _rngState = (_rngState + 0x6d2b79f5) | 0;
+  let t = Math.imul(_rngState ^ (_rngState >>> 15), 1 | _rngState);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+function resetRng() { _rngState = SEED; }
+
 function randomItem<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+  return arr[Math.floor(rng() * arr.length)];
 }
 
 function randomInt(min: number, max: number) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  return Math.floor(rng() * (max - min + 1)) + min;
 }
 
 // Issue #272 (Apr 28 2026): each template is tagged with the audience role(s)
@@ -40,7 +73,12 @@ export const TEMPLATES: TemplateDef[] = [
     type: NotificationType.APPOINTMENT_REMINDER,
     title: "Appointment Reminder",
     audience: [Role.PATIENT],
-    messageFn: () => `Reminder: Your appointment is scheduled tomorrow at ${randomInt(9, 19)}:${randomInt(0, 3) * 15 || "00"}. Please arrive 15 min early.`,
+    messageFn: () => {
+      const hr = randomInt(9, 19);
+      const minIdx = randomInt(0, 3);
+      const min = minIdx === 0 ? "00" : String(minIdx * 15);
+      return `Reminder: Your appointment is scheduled tomorrow at ${hr}:${min}. Please arrive 15 min early.`;
+    },
   },
   {
     type: NotificationType.APPOINTMENT_CANCELLED,
@@ -122,7 +160,8 @@ function randomInPast30Days(): Date {
 }
 
 async function main() {
-  console.log("\n=== Seeding Notification Delivery Logs ===\n");
+  console.log("\n=== Seeding Notification Delivery Logs (idempotent) ===\n");
+  resetRng();
 
   const users = await prisma.user.findMany({ where: { isActive: true }, take: 80 });
   if (users.length === 0) {
@@ -141,15 +180,6 @@ async function main() {
   }
 
   const totalToCreate = 220;
-  const existing = await prisma.notification.count();
-  const target = Math.max(0, 200 - existing);
-  const numToCreate = Math.max(target, totalToCreate - existing);
-  const actualCount = Math.max(0, Math.min(totalToCreate, numToCreate));
-
-  if (actualCount === 0) {
-    console.log(`  Already have ${existing} notifications — skipping`);
-    return;
-  }
 
   const CHANNELS: NotificationChannel[] = [
     NotificationChannel.WHATSAPP,
@@ -161,13 +191,22 @@ async function main() {
   ];
 
   let created = 0;
+  let skipped = 0;
   let statusCounts: Record<string, number> = {};
 
-  for (let i = 0; i < actualCount; i++) {
+  for (let i = 0; i < totalToCreate; i++) {
+    // Idempotency: stable per-iteration `dedupKey` namespaced
+    // `NOTIF-SEED-<NNNN>` (1-indexed). Notification.dedupKey is
+    // `@unique` and nullable — live broadcast-originated rows use
+    // `${broadcastId}:${userId}` (uuid) so collisions are impossible.
+    const dedupKey = `NOTIF-SEED-${String(i + 1).padStart(4, "0")}`;
+    const exists = await prisma.notification.findUnique({
+      where: { dedupKey },
+      select: { id: true },
+    });
+
     const tpl = randomItem(TEMPLATES);
     // Issue #272: pick recipient from the template's audience pool only.
-    // If no users with that role exist (e.g. no PATIENT seeded yet) skip
-    // this iteration rather than fall back to a wrong-role recipient.
     const audiencePool = tpl.audience.flatMap(
       (r) => usersByRole.get(r) ?? []
     );
@@ -177,7 +216,7 @@ async function main() {
     const createdAt = randomInPast30Days();
 
     // Status distribution: 85% sent/delivered, 10% read, 5% failed
-    const r = Math.random();
+    const r = rng();
     let deliveryStatus: NotificationDeliveryStatus;
     let failureReason: string | null = null;
     let deliveredAt: Date | null = null;
@@ -202,6 +241,11 @@ async function main() {
       sentAt = new Date(createdAt.getTime() + randomInt(1, 20) * 1000);
     }
 
+    if (exists) {
+      skipped++;
+      continue;
+    }
+
     statusCounts[deliveryStatus] = (statusCounts[deliveryStatus] ?? 0) + 1;
 
     await prisma.notification.create({
@@ -217,12 +261,13 @@ async function main() {
         deliveredAt,
         readAt,
         createdAt,
+        dedupKey,
       },
     });
     created++;
   }
 
-  console.log(`\n✔ Notifications created: ${created}`);
+  console.log(`\n✔ Notifications created: ${created} (skipped ${skipped} pre-existing)`);
   Object.entries(statusCounts).forEach(([k, v]) => console.log(`  ${k}: ${v}`));
 }
 

@@ -8,11 +8,40 @@
  *  - Asset warranty/AMC + maintenance + calibration data
  *
  * Run: tsx packages/db/src/seed-ancillary-enhancements.ts
+ *
+ * Idempotency contract (2026-05-11): safe to re-run on a populated demo
+ * without creating duplicate rows.
+ *   - LabTest, LabTestReferenceRange, InventoryItem(@@unique medicineId+batchNumber),
+ *     DrugInteraction(@@unique drugA+drugB), BloodScreening(donationId @unique),
+ *     LabResult(per orderItemId) already guarded via findUnique/findFirst.
+ *   - AmbulanceTrip: now uses stable namespaced tripNumber
+ *     `TRP-SEED-NNNN` (was reading the live TRP###### counter — removed).
+ *   - AmbulanceFuelLog and BloodTemperatureLog (no natural unique key): we
+ *     skip the section entirely if any fuel log / temperature log already
+ *     exists for that ambulance / location (so re-runs are no-ops).
+ *   - AssetMaintenance (no natural unique key): skip per-asset if any
+ *     maintenance log already exists for that asset.
+ *   - Math.random() replaced by fixed-seed mulberry32 PRNG so re-runs
+ *     produce byte-identical decisions.
  */
 
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
+
+// Deterministic mulberry32 PRNG — same fixed-seed pattern as
+// seed-realistic.ts so re-runs of the partial set produce the same
+// downstream decisions for which lab values are abnormal / critical,
+// which donations fail screening, ambulance fuel litres, etc.
+const SEED_RNG = 0xa5c11051;
+let _rngState = SEED_RNG;
+function rng(): number {
+  _rngState |= 0;
+  _rngState = (_rngState + 0x6d2b79f5) | 0;
+  let t = Math.imul(_rngState ^ (_rngState >>> 15), 1 | _rngState);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
 
 function daysFromNow(days: number): Date {
   return new Date(Date.now() + days * 24 * 3600 * 1000);
@@ -251,9 +280,9 @@ async function seedLab() {
       let flag: "NORMAL" | "LOW" | "HIGH" | "CRITICAL" = "NORMAL";
       let normalRange = item.test.normalRange || "";
 
-      // Inject a mix of normal/abnormal
-      const abnormal = Math.random() < 0.4;
-      const critical = Math.random() < 0.1;
+      // Inject a mix of normal/abnormal — deterministic via mulberry32.
+      const abnormal = rng() < 0.4;
+      const critical = rng() < 0.1;
       switch (code) {
         case "RBS":
           value = critical ? "38" : abnormal ? "210" : "98";
@@ -346,9 +375,9 @@ async function seedPharmacy() {
       data: {
         medicineId: m.id,
         batchNumber,
-        quantity: 50 + Math.floor(Math.random() * 300),
-        unitCost: parseFloat((5 + Math.random() * 95).toFixed(2)),
-        sellingPrice: parseFloat((10 + Math.random() * 140).toFixed(2)),
+        quantity: 50 + Math.floor(rng() * 300),
+        unitCost: parseFloat((5 + rng() * 95).toFixed(2)),
+        sellingPrice: parseFloat((10 + rng() * 140).toFixed(2)),
         expiryDate: daysFromNow(180 + i * 30),
         reorderLevel: 25,
         reorderQuantity: 100,
@@ -457,15 +486,16 @@ async function seedBloodBank() {
       where: { donationId: d.id },
     });
     if (exists) continue;
-    // 90% pass, 10% random positive
-    const fail = Math.random() < 0.1;
-    const positive = () => (Math.random() < 0.5 ? "POSITIVE" : "INDETERMINATE");
+    // 90% pass, 10% deterministic-positive — driven by mulberry32 so re-runs
+    // produce byte-identical screening verdicts.
+    const fail = rng() < 0.1;
+    const positive = () => (rng() < 0.5 ? "POSITIVE" : "INDETERMINATE");
     await prisma.bloodScreening.create({
       data: {
         donationId: d.id,
         hivResult: fail ? positive() : "NEGATIVE",
         hcvResult: "NEGATIVE",
-        hbsAgResult: fail && Math.random() > 0.5 ? positive() : "NEGATIVE",
+        hbsAgResult: fail && rng() > 0.5 ? positive() : "NEGATIVE",
         syphilisResult: "NEGATIVE",
         malariaResult: "NEGATIVE",
         bloodGrouping: "Confirmed",
@@ -477,13 +507,27 @@ async function seedBloodBank() {
     screens++;
   }
 
-  // Temperature log entries
+  // Temperature log entries — BloodTemperatureLog has no natural unique
+  // key. We skip the section per-location if any log already exists for
+  // that location, so re-runs are no-ops without duping rows.
   const locations = ["Fridge A (RBC)", "Fridge B (RBC)", "Freezer Plasma-1"];
   let temps = 0;
+  let tempsSkipped = 0;
   for (const loc of locations) {
+    const existingTempCount = await prisma.bloodTemperatureLog.count({
+      where: { location: loc },
+    });
+    if (existingTempCount > 0) {
+      tempsSkipped++;
+      // Burn 15 rng rolls (5 iters * 3 rolls each) to keep downstream
+      // decisions aligned with the original run when only some locations
+      // were inserted.
+      for (let k = 0; k < 5 * 3; k++) rng();
+      continue;
+    }
     for (let i = 0; i < 5; i++) {
       const base = loc.includes("Freezer") ? -30 : 4;
-      const variance = (Math.random() - 0.5) * 3;
+      const variance = (rng() - 0.5) * 3;
       const temp = base + variance;
       const inRange = loc.includes("Freezer") ? temp <= -18 : temp >= 2 && temp <= 6;
       await prisma.bloodTemperatureLog.create({
@@ -499,7 +543,9 @@ async function seedBloodBank() {
     }
   }
 
-  console.log(`  ✓ ${screens} screenings + ${temps} temperature logs`);
+  console.log(
+    `  ✓ ${screens} screenings + ${temps} temperature logs (skipped ${tempsSkipped} locations already populated)`,
+  );
 }
 
 async function seedAmbulance() {
@@ -512,17 +558,28 @@ async function seedAmbulance() {
     return;
   }
 
-  // Fuel logs
+  // Fuel logs — AmbulanceFuelLog has no natural unique key. Skip the
+  // 3-row insert per ambulance if any fuel log already exists for it.
   let fuels = 0;
+  let fuelsSkipped = 0;
   for (const amb of ambulances) {
+    const existingFuel = await prisma.ambulanceFuelLog.count({
+      where: { ambulanceId: amb.id },
+    });
+    if (existingFuel > 0) {
+      fuelsSkipped++;
+      // Burn 6 rng rolls (3 iters * 2 rolls each) to keep alignment.
+      for (let k = 0; k < 3 * 2; k++) rng();
+      continue;
+    }
     for (let i = 0; i < 3; i++) {
-      const litres = 20 + Math.random() * 30;
+      const litres = 20 + rng() * 30;
       await prisma.ambulanceFuelLog.create({
         data: {
           ambulanceId: amb.id,
           litres: Math.round(litres * 10) / 10,
           costTotal: Math.round(litres * 100 * 100) / 100,
-          odometerKm: 10000 + Math.floor(Math.random() * 20000),
+          odometerKm: 10000 + Math.floor(rng() * 20000),
           stationName: ["HP", "IOC", "Shell", "BP"][i % 4],
           filledAt: daysAgo(i * 7),
           filledBy: anyUser.id,
@@ -532,20 +589,23 @@ async function seedAmbulance() {
     }
   }
 
-  // Extra trips (completed + in-progress)
-  const last = await prisma.ambulanceTrip.findFirst({
-    orderBy: { createdAt: "desc" },
-    select: { tripNumber: true },
-  });
-  let nextN = 1;
-  if (last?.tripNumber) {
-    const m = last.tripNumber.match(/TRP(\d+)/);
-    if (m) nextN = parseInt(m[1]) + 1;
-  }
-
+  // Extra trips — stable seed-id namespace via TRP-SEED-NNNN, never
+  // touches the live TRP###### counter (used by runtime allocator).
   let trips = 0;
+  let tripsSkipped = 0;
   for (let i = 0; i < 5; i++) {
-    const tripNumber = "TRP" + String(nextN + i).padStart(6, "0");
+    const tripNumber = `TRP-SEED-${String(i + 1).padStart(4, "0")}`;
+    const existingTrip = await prisma.ambulanceTrip.findUnique({
+      where: { tripNumber },
+      select: { id: true },
+    });
+    if (existingTrip) {
+      tripsSkipped++;
+      // Burn 4 rng rolls (pickupLat, pickupLng, distanceKm, cost) to
+      // keep downstream alignment.
+      for (let k = 0; k < 4; k++) rng();
+      continue;
+    }
     const amb = ambulances[i % ambulances.length];
     const isCompleted = i < 3;
     await prisma.ambulanceTrip.create({
@@ -561,12 +621,12 @@ async function seedAmbulance() {
           "Malad West",
           "Kurla Station",
         ][i],
-        pickupLat: 19.0 + Math.random() * 0.2,
-        pickupLng: 72.8 + Math.random() * 0.2,
+        pickupLat: 19.0 + rng() * 0.2,
+        pickupLng: 72.8 + rng() * 0.2,
         dropAddress: "MedCore Hospital, Main Campus",
         dropLat: 19.12,
         dropLng: 72.86,
-        distanceKm: isCompleted ? 5 + Math.random() * 20 : null,
+        distanceKm: isCompleted ? 5 + rng() * 20 : null,
         chiefComplaint: ["Chest pain", "Trauma - RTA", "Breathing difficulty", "Pregnancy labor", "Fever + seizure"][i],
         priority: ["RED", "RED", "YELLOW", "YELLOW", "GREEN"][i],
         equipmentChecked: true,
@@ -576,13 +636,15 @@ async function seedAmbulance() {
         arrivedAt: isCompleted ? daysAgo(i) : null,
         completedAt: isCompleted ? daysAgo(i) : null,
         status: isCompleted ? "COMPLETED" : "EN_ROUTE_HOSPITAL",
-        cost: isCompleted ? 1500 + Math.random() * 1500 : null,
+        cost: isCompleted ? 1500 + rng() * 1500 : null,
       },
     });
     trips++;
   }
 
-  console.log(`  ✓ ${fuels} fuel logs + ${trips} extra trips`);
+  console.log(
+    `  ✓ ${fuels} fuel logs (skipped ${fuelsSkipped} ambulances) + ${trips} extra trips (skipped ${tripsSkipped} already present)`,
+  );
 }
 
 async function seedAssets() {
@@ -620,10 +682,20 @@ async function seedAssets() {
     updated++;
   }
 
-  // Maintenance logs with next-due-dates on first 5 assets
+  // Maintenance logs with next-due-dates on first 5 assets.
+  // AssetMaintenance has no natural unique key — skip per-asset if any
+  // maintenance log already exists for it.
   let maintLogs = 0;
+  let maintSkipped = 0;
   for (let i = 0; i < Math.min(5, assets.length); i++) {
     const a = assets[i];
+    const existingMaint = await prisma.assetMaintenance.count({
+      where: { assetId: a.id },
+    });
+    if (existingMaint > 0) {
+      maintSkipped++;
+      continue;
+    }
     const types = ["SCHEDULED", "INSPECTION", "CALIBRATION"] as const;
     await prisma.assetMaintenance.create({
       data: {
@@ -643,7 +715,9 @@ async function seedAssets() {
     maintLogs++;
   }
 
-  console.log(`  ✓ ${updated} assets enriched + ${maintLogs} maintenance logs`);
+  console.log(
+    `  ✓ ${updated} assets enriched + ${maintLogs} maintenance logs (skipped ${maintSkipped} assets already populated)`,
+  );
 }
 
 async function main() {

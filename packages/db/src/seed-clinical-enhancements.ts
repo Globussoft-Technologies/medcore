@@ -9,6 +9,16 @@
  * Creates follow-up appointment reminders & immunization reminders.
  *
  * Run AFTER seed-realistic so there are patients to enrich.
+ *
+ * Idempotency contract (2026-05-11): safe to re-run on a populated demo
+ * without creating duplicate rows.
+ *   - Icd10Code, PrescriptionTemplate: already upserted on natural keys.
+ *   - Patient demographic enrichment: keyed on Patient.id with stable
+ *     per-row payload (no Math.random()), so re-runs idempotent.
+ *   - Notification rows (follow-up + immunization reminders) get a
+ *     stable dedupKey of the form `CLINENH-SEED-<kind>-<NNNN>` and we
+ *     skip-if-exists via findUnique on the @@unique dedupKey field
+ *     before .create.
  */
 import { PrismaClient } from "@prisma/client";
 
@@ -453,6 +463,8 @@ async function main() {
   console.log(`  Enriched ${enriched} patients.`);
 
   // ─── 4. Follow-up reminders (notifications) for patients with upcoming follow-up dates ──
+  // Idempotency: each row gets a stable dedupKey "CLINENH-SEED-FOLLOWUP-NNNN"
+  // gated by findUnique on the @@unique(dedupKey) field.
   console.log(`\nCreating follow-up reminders...`);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -466,10 +478,22 @@ async function main() {
       patient: { include: { user: { select: { id: true, name: true } } } },
       doctor: { include: { user: { select: { name: true } } } },
     },
+    orderBy: { id: "asc" },
     take: 50,
   });
   let followUpCount = 0;
-  for (const rx of upcomingFollowUps) {
+  let followUpSkipped = 0;
+  for (let i = 0; i < upcomingFollowUps.length; i++) {
+    const rx = upcomingFollowUps[i];
+    const dedupKey = `CLINENH-SEED-FOLLOWUP-${String(i + 1).padStart(4, "0")}`;
+    const existing = await prisma.notification.findUnique({
+      where: { dedupKey },
+      select: { id: true },
+    });
+    if (existing) {
+      followUpSkipped += 1;
+      continue;
+    }
     await prisma.notification.create({
       data: {
         userId: rx.patient.user.id,
@@ -481,13 +505,17 @@ async function main() {
         } is due on ${rx.followUpDate!.toISOString().split("T")[0]}.`,
         data: { prescriptionId: rx.id } as any,
         sentAt: new Date(),
+        dedupKey,
       },
     });
     followUpCount += 1;
   }
-  console.log(`  Created ${followUpCount} follow-up reminders.`);
+  console.log(
+    `  Created ${followUpCount} follow-up reminders (skipped ${followUpSkipped} pre-existing).`,
+  );
 
   // ─── 5. Immunization reminders for pediatric patients ───
+  // Idempotency: each row gets a stable dedupKey "CLINENH-SEED-IMMUN-NNNN".
   console.log(`\nCreating pediatric immunization reminders...`);
   const children = await prisma.patient.findMany({
     where: {
@@ -496,11 +524,23 @@ async function main() {
       },
     },
     include: { user: { select: { id: true, name: true } } },
+    orderBy: { id: "asc" },
     take: 30,
   });
   let pedReminders = 0;
-  for (const child of children) {
+  let pedSkipped = 0;
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
     if (!child.dateOfBirth) continue;
+    const dedupKey = `CLINENH-SEED-IMMUN-${String(i + 1).padStart(4, "0")}`;
+    const existing = await prisma.notification.findUnique({
+      where: { dedupKey },
+      select: { id: true },
+    });
+    if (existing) {
+      pedSkipped += 1;
+      continue;
+    }
     // Queue one reminder per child for the next DPT/MMR/etc due
     await prisma.notification.create({
       data: {
@@ -511,11 +551,14 @@ async function main() {
         message: `Hi ${child.user.name}, please check your immunization schedule. We'll share the next due vaccines at your upcoming visit.`,
         data: { kind: "immunization-reminder" } as any,
         sentAt: new Date(),
+        dedupKey,
       },
     });
     pedReminders += 1;
   }
-  console.log(`  Created ${pedReminders} pediatric immunization reminders.`);
+  console.log(
+    `  Created ${pedReminders} pediatric immunization reminders (skipped ${pedSkipped} pre-existing).`,
+  );
 
   console.log("\n=== Clinical Enhancements seed complete ===");
 }

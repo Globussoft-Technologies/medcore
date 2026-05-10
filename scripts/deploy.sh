@@ -263,14 +263,6 @@ fi
 # relative to the API/Web smoke checks above).
 #
 # Seeds NOT wired (intentionally — see chore commit body):
-#   - seed-finance.ts         — non-idempotent: PO counter advances each run,
-#                               creating duplicate PO0001..PO0004 etc. with
-#                               new caseNumbers. Suppliers/packages ARE
-#                               upserted but the script can't be split.
-#   - seed-clinical.ts        — non-idempotent: surgery `caseNumber` and
-#                               referral `referralNumber` use max+1 counter
-#                               with no content match — every run creates a
-#                               fresh seed surgery. OTs ARE upserted.
 #   - seed-immunization-data, seed-lab-data, seed-lab-panels (orders),
 #     seed-clinical-enhancements, seed-acute-care-enhancements,
 #     seed-ancillary-enhancements, seed-chat-conversations,
@@ -354,6 +346,32 @@ if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-realistic.ts; then
     echo "  OK — realistic OPD flow re-seeded."
 else
     echo "  WARN — seed-realistic failed (non-fatal). Investigate offline."
+fi
+
+# Step 8l (deploy.sh wave 2): seed-finance.ts is now idempotent — POs use
+# stable namespaced `PO-SEED-NNNN` numbers guarded by a `findUnique` skip,
+# and the live `next_po_number` SystemConfig counter is no longer touched
+# (that counter is consumed by the runtime PO-creation route in
+# apps/api/src/routes/purchase-orders.ts). Suppliers and HealthPackages
+# were already upserted. Failures MUST NOT block the deploy.
+echo "=== 8l. Re-applying finance seed (suppliers, packages, sample POs) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-finance.ts; then
+    echo "  OK — finance fixtures re-seeded."
+else
+    echo "  WARN — seed-finance failed (non-fatal). Investigate offline."
+fi
+
+# Step 8m (deploy.sh wave 2): seed-clinical.ts is now idempotent —
+# referrals use stable `REF-SEED-NNNN` and surgeries use `SRG-SEED-NNNN`,
+# both guarded by `findUnique` skip-or-create. The previous max+1 counter
+# scan that produced fresh `caseNumber`s on every run has been removed.
+# Operating theaters (`OperatingTheater`) were already upserted. Failures
+# MUST NOT block the deploy.
+echo "=== 8m. Re-applying clinical seed (OTs, sample referrals, surgeries) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-clinical.ts; then
+    echo "  OK — clinical fixtures re-seeded."
+else
+    echo "  WARN — seed-clinical failed (non-fatal). Investigate offline."
 fi
 
 echo "=== Deployment complete (previous SHA recorded at /tmp/medcore-prev-sha) ==="

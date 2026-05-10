@@ -363,7 +363,13 @@ test.describe("Demo health monitor (read-only)", () => {
     // Successful login lands on /dashboard. The layout renders the
     // "MedCore" wordmark — its presence confirms /auth/me succeeded
     // and the auth guard didn't bounce back to /login.
-    await page.waitForURL(/\/dashboard/, { timeout: REQUEST_TIMEOUT });
+    //
+    // 2026-05-11: bumped 20s → 45s. The live demo's first cold-boot
+    // login after a deploy can take 25-30s for the auth-state hydration
+    // + dashboard chrome render (Next.js prod build + tour-prompt
+    // bootstrap + AuthStore zustand hydration). The API itself responds
+    // in <500ms (curl-verified) — the timing is browser-side.
+    await page.waitForURL(/\/dashboard/, { timeout: 45_000 });
     await expect(page.locator("text=MedCore").first()).toBeVisible({
       timeout: 15_000,
     });

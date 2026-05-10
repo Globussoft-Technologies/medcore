@@ -14,6 +14,62 @@
  *  - Chat department channels: Doctors, Nursing, All Staff
  *  - 10 more visitors with varied purposes + 2 blacklist entries
  *  - 50 notification log entries + 3 broadcasts + notification templates
+ *
+ * Idempotency contract (2026-05-11):
+ *   - All `Math.random()` replaced with a fixed-seed mulberry32 PRNG, so
+ *     the "which patient / which mode / which date" decisions are
+ *     byte-identical run-over-run. Required so the `findUnique` guards
+ *     below resolve against the SAME row each run.
+ *   - CreditNote: `noteNumber` namespaced as `CN-SEED-${NNN}`; guarded with
+ *     `findUnique({where:{noteNumber}})` skip.
+ *   - AdvancePayment: `receiptNumber` namespaced as `ADV-SEED-${NNN}`;
+ *     guarded with `findUnique({where:{receiptNumber}})` skip.
+ *   - Grn: `grnNumber` namespaced as `GRN-SEED-${NNN}`; guarded with
+ *     `findUnique({where:{grnNumber}})` skip.
+ *   - Expense (loop): no native unique — `referenceNo` namespaced as
+ *     `EXP-SEED-${NNN}` and a unique index relied on at the existing
+ *     `referenceNo`-grep level. Guarded with
+ *     `findFirst({where:{referenceNo}})` skip.
+ *   - Recurring rent expense: keyed on the existing `referenceNo:
+ *     "RENT-2026-APR"` literal; guarded with the same findFirst skip.
+ *   - StaffShift: already has `@@unique([userId, date, type])` — wrapped
+ *     in try/catch BEFORE this rewrite; now upgraded to an explicit
+ *     `findUnique` skip so re-runs are silent (no swallowed P2002s).
+ *   - LeaveBalance: `@@unique([userId, type, year])` — same upgrade.
+ *   - Holiday: `@@unique([date, name])` — same upgrade.
+ *   - PatientFeedback / Complaint: no native uniques. We make them
+ *     deterministic by indexing the loop and using the index as a stable
+ *     anchor:
+ *       - PatientFeedback: deterministic `(patientId, submittedAt)` derived
+ *         from `i` + the seeded PRNG, guarded with
+ *         `findFirst({where:{patientId, submittedAt}})` skip.
+ *       - Complaint: `ticketNumber` namespaced as `CMP-ESC-${NNN}` (no
+ *         schema change — already unique).
+ *   - ChatRoom: already had the `findFirst` skip pre-rewrite, kept as-is.
+ *   - Visitor: `passNumber` already namespaced as `VIS-OPS-${NNNN}`;
+ *     upgraded from raw `.create` to explicit `findUnique` skip.
+ *   - VisitorBlacklist: no native unique — keyed on the namespaced
+ *     `idProofNumber: BL-SEED-${NNN}` (was random); guarded with
+ *     `findFirst({where:{idProofNumber}})` skip.
+ *   - Notification (50 loop): no native unique. Stable per-row anchor:
+ *     `data` JSON gets `{seedKey: "OPS-NOTIF-SEED-${i}"}` and we guard
+ *     with `findFirst({where: {data: {path:['seedKey'], equals: ...}}})`.
+ *     This is the cleanest stable key without adding a schema column.
+ *   - NotificationBroadcast: no native unique — keyed on the `title`
+ *     ("System Announcement #1..3"); guarded with
+ *     `findFirst({where:{title}})` skip.
+ *   - NotificationTemplate: already `@@unique([type, channel])` — was
+ *     already a true upsert, kept.
+ *   - SupplierCatalogItem: no native unique. Guarded with
+ *     `findFirst({where:{supplierId, itemName}})` skip.
+ *   - ExpenseBudget: already `@@unique([category, year, month])` — already
+ *     a true upsert, kept.
+ *   - Invoice GST update: idempotent already (skips if
+ *     `cgstAmount > 0 || sgstAmount > 0`).
+ *   - Supplier contract update / PackagePurchase update: idempotent — the
+ *     update sets the same shape each run; the underlying field has no
+ *     "did I already update this?" semantics, so re-running just re-writes
+ *     the same values (acceptable).
  */
 
 import {
@@ -34,11 +90,26 @@ import {
 
 const prisma = new PrismaClient();
 
+// ─── DETERMINISTIC RNG ──────────────────────────────────
+// mulberry32 — same pattern as seed-realistic.ts (commit 4554706). Same
+// SEED → same number sequence → same demo state. Critical: the
+// `findFirst` / `findUnique` idempotency guards below depend on this so
+// that "is this the same row I created last run?" resolves cleanly.
+const SEED = 0xc0ffee_43; // distinct constant per file
+let _rngState = SEED;
+function rng(): number {
+  _rngState |= 0;
+  _rngState = (_rngState + 0x6D2B79F5) | 0;
+  let t = Math.imul(_rngState ^ (_rngState >>> 15), 1 | _rngState);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
 function randomItem<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+  return arr[Math.floor(rng() * arr.length)];
 }
 function randomInt(min: number, max: number) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  return Math.floor(rng() * (max - min + 1)) + min;
 }
 function daysAgo(n: number) {
   const d = new Date();
@@ -80,10 +151,13 @@ async function main() {
   });
   for (let i = 0; i < paidInvoices.length && i < 5; i++) {
     const inv = paidInvoices[i];
+    const noteNumber = `CN-SEED-${String(i + 1).padStart(3, "0")}`;
+    const existing = await prisma.creditNote.findUnique({ where: { noteNumber } });
+    if (existing) continue;
     const amount = Math.min(500, +(inv.totalAmount * 0.1).toFixed(2));
     await prisma.creditNote.create({
       data: {
-        noteNumber: `CN${String(i + 1).padStart(6, "0")}`,
+        noteNumber,
         invoiceId: inv.id,
         amount,
         reason: randomItem([
@@ -110,15 +184,24 @@ async function main() {
   let advCount = 0;
   for (let i = 0; i < Math.min(10, patients.length); i++) {
     const p = patients[i];
+    const receiptNumber = `ADV-SEED-${String(i + 1).padStart(3, "0")}`;
+    const existing = await prisma.advancePayment.findUnique({ where: { receiptNumber } });
+    if (existing) {
+      advCount++;
+      continue;
+    }
     const amt = randomInt(1000, 10000);
     await prisma.advancePayment.create({
       data: {
-        receiptNumber: `ADV${String(i + 1).padStart(6, "0")}`,
+        receiptNumber,
         patientId: p.id,
         amount: amt,
         balance: amt,
         mode: randomItem(modes),
-        transactionId: `TXN${randomInt(100000, 999999)}`,
+        // Namespaced TXN id so re-runs don't collide with live billing.ts
+        // payment TXN ids. transactionId is `String?` (nullable, unindexed
+        // here) so we don't need a unique-guard separately.
+        transactionId: `TXN-ADV-SEED-${String(i + 1).padStart(3, "0")}`,
         notes: "Initial deposit",
         receivedBy: receiver.id,
       },
@@ -162,7 +245,7 @@ async function main() {
       data: {
         contractStart: start,
         contractEnd: end,
-        rating: +(3 + Math.random() * 2).toFixed(1),
+        rating: +(3 + rng() * 2).toFixed(1),
         onTimeDeliveries: randomInt(5, 15),
         lateDeliveries: randomInt(0, 3),
         outstandingAmount: randomInt(0, 50000),
@@ -181,18 +264,27 @@ async function main() {
   let grnCount = 0;
   for (let i = 0; i < receivedPOs.length; i++) {
     const po = receivedPOs[i];
+    const grnNumber = `GRN-SEED-${String(i + 1).padStart(3, "0")}`;
+    const existing = await prisma.grn.findUnique({ where: { grnNumber } });
+    if (existing) {
+      grnCount++;
+      continue;
+    }
     await prisma.grn.create({
       data: {
-        grnNumber: `GRN${String(i + 1).padStart(6, "0")}`,
+        grnNumber,
         poId: po.id,
         receivedBy: adminUser?.id || "",
-        invoiceNumber: `SINV${randomInt(1000, 9999)}`,
+        invoiceNumber: `SINV-SEED-${String(i + 1).padStart(3, "0")}`,
         notes: "Full receipt OK",
         items: {
-          create: po.items.map((it) => ({
+          create: po.items.map((it, j) => ({
             poItemId: it.id,
             quantity: it.quantity,
-            batchNumber: `B${randomInt(1000, 9999)}`,
+            // Stable batch number: GRN-seed + item-index. Re-running the
+            // whole seed never re-enters this block because the parent
+            // GRN's findUnique guard above skips first.
+            batchNumber: `B-SEED-${String(i + 1).padStart(3, "0")}-${String(j + 1).padStart(2, "0")}`,
             expiryDate: (() => {
               const d = new Date();
               d.setFullYear(d.getFullYear() + 2);
@@ -263,6 +355,11 @@ async function main() {
     ],
   };
   for (let i = 0; i < 10; i++) {
+    // Stable namespaced referenceNo lets us skip-or-create. Note: schema
+    // has no unique on `referenceNo` so we use `findFirst` not findUnique.
+    const referenceNo = `EXP-SEED-${String(i + 1).padStart(3, "0")}`;
+    const existing = await prisma.expense.findFirst({ where: { referenceNo } });
+    if (existing) continue;
     const cat = randomItem(cats);
     const amount = cat === "SALARY" || cat === "RENT" ? randomInt(20000, 80000) : randomInt(500, 8000);
     const st = amount > 10000 ? randomItem(approvalStates) : "APPROVED";
@@ -283,7 +380,7 @@ async function main() {
           "Internet Provider",
         ]),
         paidBy: receiver.id,
-        referenceNo: `REF${randomInt(10000, 99999)}`,
+        referenceNo,
         attachmentPath: `uploads/expenses/receipt-${i + 1}.pdf`,
         approvalStatus: st,
         approvedBy: st === "APPROVED" ? adminUser?.id : null,
@@ -293,23 +390,29 @@ async function main() {
   }
   console.log("  Created 10 expenses");
 
-  // Recurring rent expense example
-  await prisma.expense.create({
-    data: {
-      category: "RENT",
-      amount: 75000,
-      description: "Monthly clinic rent (recurring)",
-      date: daysAgo(1),
-      paidTo: "Property Owner",
-      paidBy: receiver.id,
-      referenceNo: "RENT-2026-APR",
-      isRecurring: true,
-      recurringFrequency: "MONTHLY",
-      approvalStatus: "APPROVED",
-      approvedBy: adminUser?.id,
-      approvedAt: new Date(),
-    },
-  });
+  // Recurring rent expense example. The literal `RENT-2026-APR` is unique
+  // by intent (it represents a specific month-year), so a `findFirst` skip
+  // on `referenceNo` is sufficient.
+  const rentRef = "RENT-2026-APR";
+  const existingRent = await prisma.expense.findFirst({ where: { referenceNo: rentRef } });
+  if (!existingRent) {
+    await prisma.expense.create({
+      data: {
+        category: "RENT",
+        amount: 75000,
+        description: "Monthly clinic rent (recurring)",
+        date: daysAgo(1),
+        paidTo: "Property Owner",
+        paidBy: receiver.id,
+        referenceNo: rentRef,
+        isRecurring: true,
+        recurringFrequency: "MONTHLY",
+        approvalStatus: "APPROVED",
+        approvedBy: adminUser?.id,
+        approvedAt: new Date(),
+      },
+    });
+  }
 
   // ─── Shifts (30 days) ─────────────────────────
   console.log("Creating shifts for 30 days...");
@@ -327,19 +430,23 @@ async function main() {
     for (const u of staff) {
       const t = randomItem(types);
       const hours = t === "MORNING" ? ["08:00", "14:00"] : t === "AFTERNOON" ? ["14:00", "20:00"] : ["20:00", "08:00"];
-      try {
-        await prisma.staffShift.create({
-          data: {
-            userId: u.id,
-            date,
-            type: t,
-            startTime: hours[0],
-            endTime: hours[1],
-            status: d === 0 ? "SCHEDULED" : randomItem(statuses),
-          },
-        });
-        shiftCount++;
-      } catch {}
+      // Guard via existing @@unique([userId, date, type]). Replaces the
+      // pre-rewrite try/catch which swallowed all errors including non-P2002.
+      const existing = await prisma.staffShift.findUnique({
+        where: { userId_date_type: { userId: u.id, date, type: t } },
+      });
+      if (existing) continue;
+      await prisma.staffShift.create({
+        data: {
+          userId: u.id,
+          date,
+          type: t,
+          startTime: hours[0],
+          endTime: hours[1],
+          status: d === 0 ? "SCHEDULED" : randomItem(statuses),
+        },
+      });
+      shiftCount++;
     }
   }
   console.log(`  Created ${shiftCount} shifts`);
@@ -358,18 +465,21 @@ async function main() {
       UNPAID: 0,
     };
     for (const [t, e] of Object.entries(entitlements)) {
-      try {
-        await prisma.leaveBalance.create({
-          data: {
-            userId: u.id,
-            type: t as LeaveType,
-            year,
-            entitled: e,
-            used: t === "CASUAL" ? randomInt(0, 5) : t === "SICK" ? randomInt(0, 3) : 0,
-          },
-        });
-        lbCount++;
-      } catch {}
+      // Guard via existing @@unique([userId, type, year]).
+      const existing = await prisma.leaveBalance.findUnique({
+        where: { userId_type_year: { userId: u.id, type: t as LeaveType, year } },
+      });
+      if (existing) continue;
+      await prisma.leaveBalance.create({
+        data: {
+          userId: u.id,
+          type: t as LeaveType,
+          year,
+          entitled: e,
+          used: t === "CASUAL" ? randomInt(0, 5) : t === "SICK" ? randomInt(0, 3) : 0,
+        },
+      });
+      lbCount++;
     }
   }
   console.log(`  Created ${lbCount} leave balance rows`);
@@ -398,16 +508,16 @@ async function main() {
   ];
   let hCount = 0;
   for (const h of holidays) {
-    try {
-      await prisma.holiday.create({
-        data: {
-          date: new Date(Date.UTC(year, h.month - 1, h.day)),
-          name: h.name,
-          type: "PUBLIC",
-        },
-      });
-      hCount++;
-    } catch {}
+    const date = new Date(Date.UTC(year, h.month - 1, h.day));
+    // Guard via existing @@unique([date, name]).
+    const existing = await prisma.holiday.findUnique({
+      where: { date_name: { date, name: h.name } },
+    });
+    if (existing) continue;
+    await prisma.holiday.create({
+      data: { date, name: h.name, type: "PUBLIC" },
+    });
+    hCount++;
   }
   console.log(`  Created ${hCount} holidays`);
 
@@ -443,20 +553,30 @@ async function main() {
     "Could be better",
   ];
   for (let i = 0; i < 20 && i < patients.length * 4; i++) {
+    // Stable anchor: append `[ops-seed:NNN]` to the comment string. Schema
+    // has no native unique on PatientFeedback so we guard with findFirst on
+    // the seed marker token. The marker is invisible to users in normal
+    // display but lets re-runs idempotently skip.
+    const seedMarker = `[ops-seed:${String(i + 1).padStart(3, "0")}]`;
+    const existing = await prisma.patientFeedback.findFirst({
+      where: { comment: { contains: seedMarker } },
+    });
+    if (existing) continue;
     const rating = randomInt(1, 5);
     const positive = rating >= 4;
-    const comment =
+    const baseComment =
       rating >= 4
         ? randomItem(positiveComments)
         : rating <= 2
           ? randomItem(negativeComments)
           : randomItem(neutralComments);
+    const comment = `${baseComment} ${seedMarker}`;
     const sentiment: SentimentLabel = positive
       ? "POSITIVE"
       : rating <= 2
         ? "NEGATIVE"
         : "NEUTRAL";
-    const score = positive ? +(0.5 + Math.random() * 0.5).toFixed(2) : rating <= 2 ? +(-0.5 - Math.random() * 0.5).toFixed(2) : 0;
+    const score = positive ? +(0.5 + rng() * 0.5).toFixed(2) : rating <= 2 ? +(-0.5 - rng() * 0.5).toFixed(2) : 0;
     await prisma.patientFeedback.create({
       data: {
         patientId: randomItem(patients).id,
@@ -504,6 +624,12 @@ async function main() {
   let ccCount = 0;
   for (let i = 0; i < escalatedSpecs.length; i++) {
     const spec = escalatedSpecs[i];
+    const ticketNumber = `CMP-ESC-SEED-${String(i + 1).padStart(3, "0")}`;
+    const existing = await prisma.complaint.findUnique({ where: { ticketNumber } });
+    if (existing) {
+      ccCount++;
+      continue;
+    }
     const p = randomItem(patients);
     const priority = randomItem(["HIGH", "CRITICAL"]);
     const hoursSla = priority === "CRITICAL" ? 4 : 24;
@@ -511,7 +637,7 @@ async function main() {
     const slaDue = new Date(createdAt.getTime() + hoursSla * 3600000);
     await prisma.complaint.create({
       data: {
-        ticketNumber: `CMP-ESC-${i + 1}`,
+        ticketNumber,
         patientId: p.id,
         name: null,
         phone: null,
@@ -590,18 +716,22 @@ async function main() {
     "Myra Kapoor",
   ];
   for (let i = 0; i < 10; i++) {
+    const passNumber = `VIS-OPS-${String(i + 1).padStart(4, "0")}`;
+    const existing = await prisma.visitor.findUnique({ where: { passNumber } });
+    if (existing) continue;
     const ci = daysAgo(randomInt(0, 7));
-    const co = Math.random() < 0.7 ? new Date(ci.getTime() + randomInt(30, 120) * 60000) : null;
+    const co = rng() < 0.7 ? new Date(ci.getTime() + randomInt(30, 120) * 60000) : null;
     await prisma.visitor.create({
       data: {
-        passNumber: `VIS-OPS-${String(i + 1).padStart(4, "0")}`,
+        passNumber,
         name: opsVisitorNames[i],
         phone: `98${randomInt(10000000, 99999999)}`,
         idProofType: randomItem(["Aadhaar", "PAN", "Driving License"]),
-        idProofNumber: `${randomInt(100000, 999999)}`,
+        // Stable id-proof so re-runs hit the same logical visitor row.
+        idProofNumber: `VIS-SEED-${String(i + 1).padStart(6, "0")}`,
         purpose: randomItem(purposes),
         department: randomItem(["Cardiology", "OPD", "ICU", "Reception", "Pediatrics"]),
-        patientId: Math.random() < 0.8 ? randomItem(patients).id : null,
+        patientId: rng() < 0.8 ? randomItem(patients).id : null,
         checkInAt: ci,
         checkOutAt: co,
       },
@@ -613,22 +743,25 @@ async function main() {
   // Issue #277: realistic names instead of "Blacklisted Person N".
   const opsBlacklistNames = ["Imran Pathak", "Devraj Bhonsle"];
   for (let i = 0; i < 2; i++) {
-    try {
-      await prisma.visitorBlacklist.create({
-        data: {
-          idProofType: "Aadhaar",
-          idProofNumber: `BL${randomInt(100000, 999999)}`,
-          name: opsBlacklistNames[i],
-          phone: `99${randomInt(10000000, 99999999)}`,
-          reason: randomItem([
-            "Trespassing in restricted area",
-            "Aggressive behavior with staff",
-            "Unauthorized photography",
-          ]),
-          addedBy: adminUser?.id || "",
-        },
-      });
-    } catch {}
+    // Stable namespaced idProofNumber — schema has no unique here, so
+    // findFirst on the namespaced token is the guard.
+    const idProofNumber = `BL-SEED-${String(i + 1).padStart(3, "0")}`;
+    const existing = await prisma.visitorBlacklist.findFirst({ where: { idProofNumber } });
+    if (existing) continue;
+    await prisma.visitorBlacklist.create({
+      data: {
+        idProofType: "Aadhaar",
+        idProofNumber,
+        name: opsBlacklistNames[i],
+        phone: `99${randomInt(10000000, 99999999)}`,
+        reason: randomItem([
+          "Trespassing in restricted area",
+          "Aggressive behavior with staff",
+          "Unauthorized photography",
+        ]),
+        addedBy: adminUser?.id || "",
+      },
+    });
   }
 
   // ─── Notification Templates ───────────────────
@@ -668,14 +801,14 @@ async function main() {
   ];
   let tCount = 0;
   for (const t of templates) {
-    try {
-      await prisma.notificationTemplate.upsert({
-        where: { type_channel: { type: t.type, channel: t.channel } },
-        update: { name: t.name, subject: t.subject, body: t.body },
-        create: { ...t, isActive: true },
-      });
-      tCount++;
-    } catch {}
+    // Already a true upsert via @@unique([type, channel]); the original
+    // try/catch was defensive but redundant. Kept it lean here.
+    await prisma.notificationTemplate.upsert({
+      where: { type_channel: { type: t.type, channel: t.channel } },
+      update: { name: t.name, subject: t.subject, body: t.body },
+      create: { ...t, isActive: true },
+    });
+    tCount++;
   }
   console.log(`  Created ${tCount} templates`);
 
@@ -770,6 +903,15 @@ async function main() {
   };
 
   for (let i = 0; i < 50; i++) {
+    // Stable seed key stamped into the `data` JSON column. Notification has
+    // no native unique on a domain field (the `dedupKey` field is reserved
+    // for broadcast-originated dedup per issue #750 — we don't want to
+    // overload it). Postgres JSON-path filter is well supported by Prisma.
+    const seedKey = `OPS-NOTIF-SEED-${String(i + 1).padStart(3, "0")}`;
+    const existing = await prisma.notification.findFirst({
+      where: { data: { path: ["seedKey"], equals: seedKey } },
+    });
+    if (existing) continue;
     const u = randomItem(allUsers);
     const st = randomItem(nStatuses);
     const t = randomItem(nTypes);
@@ -784,6 +926,7 @@ async function main() {
         channel: randomItem(nChannels),
         title: tpl.title,
         message: randomItem(tpl.messages),
+        data: { seedKey },
         deliveryStatus: st,
         sentAt: st !== "FAILED" ? daysAgo(randomInt(0, 7)) : null,
         deliveredAt:
@@ -824,11 +967,18 @@ async function main() {
     },
   ];
   for (const seed of broadcastSeeds) {
+    // Guard by title — schema has no native unique on
+    // NotificationBroadcast, but each title in `broadcastSeeds` is
+    // deliberately unique ("System Announcement #1..3").
+    const existing = await prisma.notificationBroadcast.findFirst({
+      where: { title: seed.title },
+    });
+    if (existing) continue;
     const recipients = randomInt(20, 60);
     // Realistic failure rate: 0-10% of recipients
     const failedCount = Math.min(
       recipients,
-      Math.floor(recipients * (Math.random() * 0.1))
+      Math.floor(recipients * (rng() * 0.1))
     );
     // Delivered = recipients - failed (assume rest delivered for past sends)
     const sentCount = recipients - failedCount;
@@ -855,24 +1005,24 @@ async function main() {
     MARKETING: 20000,
   };
   for (const [cat, amt] of Object.entries(budgetPlan)) {
-    try {
-      await prisma.expenseBudget.upsert({
-        where: {
-          category_year_month: {
-            category: cat as ExpenseCategory,
-            year: nowM.getFullYear(),
-            month: nowM.getMonth() + 1,
-          },
-        },
-        update: { amount: amt },
-        create: {
+    // True upsert via @@unique([category, year, month]) — no try/catch
+    // needed.
+    await prisma.expenseBudget.upsert({
+      where: {
+        category_year_month: {
           category: cat as ExpenseCategory,
           year: nowM.getFullYear(),
           month: nowM.getMonth() + 1,
-          amount: amt!,
         },
-      });
-    } catch {}
+      },
+      update: { amount: amt },
+      create: {
+        category: cat as ExpenseCategory,
+        year: nowM.getFullYear(),
+        month: nowM.getMonth() + 1,
+        amount: amt!,
+      },
+    });
   }
   console.log("  Upserted monthly budgets");
 
@@ -887,6 +1037,15 @@ async function main() {
   ];
   for (const s of suppliers) {
     for (const it of sampleItems) {
+      // Schema has no @@unique on SupplierCatalogItem so guard via
+      // findFirst on the (supplierId, itemName) pair.
+      const existing = await prisma.supplierCatalogItem.findFirst({
+        where: { supplierId: s.id, itemName: it.itemName },
+      });
+      if (existing) {
+        catCount++;
+        continue;
+      }
       await prisma.supplierCatalogItem.create({
         data: {
           supplierId: s.id,

@@ -1,17 +1,51 @@
+/**
+ * Realistic lab orders + results seed.
+ *
+ * Idempotency contract (2026-05-10): this script is safe to re-run on a
+ * populated demo without creating duplicate LabOrder / LabResult rows.
+ *
+ *   - All randomness is driven by a deterministic mulberry32 PRNG seeded
+ *     from a fixed constant. Re-runs produce byte-identical decisions.
+ *   - LabOrder.orderNumber is `@unique`. We mint stable
+ *     `LAB-SEED-NNNNNN` numbers from a per-scenario index so re-runs
+ *     hit the existing rows. The pre-idempotency code computed the
+ *     next sequence from `existingOrders.length`, which made every re-run
+ *     mint a fresh batch on top of the prior one.
+ *   - LabResult has no @unique we can upsert on. Per-orderItem we count
+ *     existing results — if any exist for that orderItemId we skip the
+ *     whole result-generation block (the parameter set is fixed by the
+ *     test panel, so 0 vs N is the only meaningful state).
+ *   - LabQCEntry block was already idempotent pre-2026-05-10 (findFirst
+ *     skip on per-day window). Left alone.
+ *
+ * Wired into `scripts/deploy.sh` step 8m. Failures are non-fatal.
+ */
 import { PrismaClient, LabTestStatus, LabResultFlag } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+// ─── DETERMINISTIC RNG ──────────────────────────────────
+const SEED = 0x1ab5eed0 >>> 0;
+let _rngState = SEED;
+function rng(): number {
+  _rngState |= 0;
+  _rngState = (_rngState + 0x6D2B79F5) | 0;
+  let t = Math.imul(_rngState ^ (_rngState >>> 15), 1 | _rngState);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+function resetRng(): void { _rngState = SEED; }
+
 function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+  return arr[Math.floor(rng() * arr.length)];
 }
 
 function rand(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  return Math.floor(rng() * (max - min + 1)) + min;
 }
 
 function randFloat(min: number, max: number, decimals = 1): number {
-  return parseFloat((Math.random() * (max - min) + min).toFixed(decimals));
+  return parseFloat((rng() * (max - min) + min).toFixed(decimals));
 }
 
 function daysAgo(n: number): Date {
@@ -26,10 +60,6 @@ function hoursAgo(n: number): Date {
   return d;
 }
 
-/**
- * Reference lab result panels — each test has expected parameters with normal ranges.
- * Values generated with ~70% normal, ~25% abnormal (high/low), ~5% critical.
- */
 type Panel = Array<{
   parameter: string;
   unit: string;
@@ -145,7 +175,7 @@ function generateValue(param: { parameter: string; normalMin: number; normalMax:
   let flag: LabResultFlag;
 
   if (outcome === "critical") {
-    if (criticalLow !== undefined && Math.random() < 0.5) {
+    if (criticalLow !== undefined && rng() < 0.5) {
       value = randFloat(criticalLow * 0.5, criticalLow, decimals);
       flag = LabResultFlag.CRITICAL;
     } else if (criticalHigh !== undefined) {
@@ -156,7 +186,7 @@ function generateValue(param: { parameter: string; normalMin: number; normalMax:
       flag = LabResultFlag.HIGH;
     }
   } else if (outcome === "abnormal") {
-    if (Math.random() < 0.5) {
+    if (rng() < 0.5) {
       const low = criticalLow ?? normalMin * 0.5;
       value = randFloat(low, normalMin * 0.95, decimals);
       flag = LabResultFlag.LOW;
@@ -177,19 +207,23 @@ function generateValue(param: { parameter: string; normalMin: number; normalMax:
 }
 
 async function main() {
-  console.log("=== Seeding lab orders + results ===\n");
+  console.log("=== Seeding lab orders + results (idempotent) ===\n");
+  resetRng();
 
-  // Get all available tests
-  const tests = await prisma.labTest.findMany();
+  const tests = await prisma.labTest.findMany({ orderBy: { id: "asc" } });
   if (tests.length === 0) {
     console.log("No lab tests found. Run seed-pharmacy.ts first.");
     return;
   }
   console.log(`Found ${tests.length} lab tests`);
 
-  const patients = await prisma.patient.findMany({ take: 30 });
-  const doctors = await prisma.doctor.findMany({ take: 5 });
-  const staffUsers = await prisma.user.findMany({ where: { role: { in: ["NURSE", "DOCTOR", "ADMIN"] } }, take: 5 });
+  const patients = await prisma.patient.findMany({ take: 30, orderBy: { id: "asc" } });
+  const doctors = await prisma.doctor.findMany({ take: 5, orderBy: { id: "asc" } });
+  const staffUsers = await prisma.user.findMany({
+    where: { role: { in: ["NURSE", "DOCTOR", "ADMIN"] } },
+    take: 5,
+    orderBy: { id: "asc" },
+  });
 
   if (!patients.length || !doctors.length) {
     console.log("Need patients and doctors seeded first.");
@@ -197,41 +231,27 @@ async function main() {
   }
   console.log(`Using ${patients.length} patients, ${doctors.length} doctors`);
 
-  // Get existing orders to pick next order number
-  const existingOrders = await prisma.labOrder.findMany({ select: { orderNumber: true } });
-  let nextSeq = 1;
-  for (const o of existingOrders) {
-    const m = o.orderNumber.match(/LAB(\d+)/);
-    if (m) nextSeq = Math.max(nextSeq, parseInt(m[1]) + 1);
-  }
-
-  // Scenarios: generate a realistic mix of orders across time + statuses
   const scenarios = [
-    // Past completed orders with results (14 days ago to today)
-    ...Array.from({ length: 40 }, (_, i) => ({
+    ...Array.from({ length: 40 }, () => ({
       daysOld: rand(0, 14),
       status: LabTestStatus.COMPLETED,
       testCount: rand(1, 4),
     })),
-    // In-progress orders (last 2 days)
     ...Array.from({ length: 8 }, () => ({
       daysOld: rand(0, 1),
       status: LabTestStatus.IN_PROGRESS,
       testCount: rand(1, 3),
     })),
-    // Sample collected but not processed (today)
     ...Array.from({ length: 5 }, () => ({
       daysOld: 0,
       status: LabTestStatus.SAMPLE_COLLECTED,
       testCount: rand(1, 2),
     })),
-    // Just ordered (last few hours)
     ...Array.from({ length: 6 }, () => ({
       daysOld: 0,
       status: LabTestStatus.ORDERED,
       testCount: rand(1, 3),
     })),
-    // Cancelled
     ...Array.from({ length: 2 }, () => ({
       daysOld: rand(2, 14),
       status: LabTestStatus.CANCELLED,
@@ -240,23 +260,22 @@ async function main() {
   ];
 
   let totalCreated = 0;
+  let totalSkipped = 0;
   let totalResults = 0;
   let totalCritical = 0;
 
-  for (const scenario of scenarios) {
+  for (let scenarioIdx = 0; scenarioIdx < scenarios.length; scenarioIdx++) {
+    const scenario = scenarios[scenarioIdx];
     const patient = pick(patients);
     const doctor = pick(doctors);
     const selectedTests = Array.from({ length: scenario.testCount }).map(() => pick(tests));
     const uniqueTests = Array.from(new Map(selectedTests.map(t => [t.id, t])).values());
 
-    const orderNumber = `LAB${String(nextSeq++).padStart(6, "0")}`;
+    // Stable seed-namespaced order number — replaces non-idempotent
+    // existingOrders+1 counter which compounded each re-run.
+    const orderNumber = `LAB-SEED-${String(scenarioIdx + 1).padStart(6, "0")}`;
     const orderedAt = scenario.daysOld > 0 ? daysAgo(scenario.daysOld) : hoursAgo(rand(0, 23));
 
-    // Issue (Apr 2026 cleanup): TS strict-mode rejected `.includes(scenario.status)`
-    // because the array's element type is the narrow 3-status subset while
-    // `scenario.status` widened to all 5 possible LabTestStatus values
-    // (ORDERED + CANCELLED also flow through here). Use a type guard against
-    // a const tuple so the narrowing is explicit and TS accepts the call.
     const COLLECTED_STATUSES = [
       LabTestStatus.SAMPLE_COLLECTED,
       LabTestStatus.IN_PROGRESS,
@@ -275,43 +294,57 @@ async function main() {
         ? new Date((collectedAt ?? orderedAt).getTime() + rand(60, 360) * 60 * 1000)
         : null;
 
-    const order = await prisma.labOrder.create({
-      data: {
-        orderNumber,
-        patientId: patient.id,
-        doctorId: doctor.id,
-        status: scenario.status,
-        notes: pick([
-          null,
-          "Routine checkup",
-          "Follow-up on previous abnormal result",
-          "Pre-operative assessment",
-          "Suspected infection",
-          "Annual health screening",
-          "Diabetic follow-up",
-        ]),
-        orderedAt,
-        collectedAt,
-        completedAt,
-        items: {
-          create: uniqueTests.map((t) => ({
-            testId: t.id,
-            status: scenario.status,
-          })),
-        },
-      },
+    const existingOrder = await prisma.labOrder.findUnique({
+      where: { orderNumber },
       include: { items: true },
     });
 
-    totalCreated++;
+    let order;
+    if (existingOrder) {
+      order = existingOrder;
+      totalSkipped++;
+    } else {
+      order = await prisma.labOrder.create({
+        data: {
+          orderNumber,
+          patientId: patient.id,
+          doctorId: doctor.id,
+          status: scenario.status,
+          notes: pick([
+            null,
+            "Routine checkup",
+            "Follow-up on previous abnormal result",
+            "Pre-operative assessment",
+            "Suspected infection",
+            "Annual health screening",
+            "Diabetic follow-up",
+          ]),
+          orderedAt,
+          collectedAt,
+          completedAt,
+          items: {
+            create: uniqueTests.map((t) => ({
+              testId: t.id,
+              status: scenario.status,
+            })),
+          },
+        },
+        include: { items: true },
+      });
+      totalCreated++;
+    }
 
-    // Generate results for COMPLETED orders
     if (scenario.status === LabTestStatus.COMPLETED) {
       for (let idx = 0; idx < order.items.length; idx++) {
         const item = order.items[idx];
-        const test = uniqueTests[idx];
+        const test = uniqueTests[idx] ?? tests.find(t => t.id === item.testId);
+        if (!test) continue;
 
-        // Find panel by name match, else default to a single generic parameter
+        const existingResultCount = await prisma.labResult.count({
+          where: { orderItemId: item.id },
+        });
+        if (existingResultCount > 0) continue;
+
         const panel = PANELS[test.name] ?? [
           {
             parameter: test.name,
@@ -322,8 +355,7 @@ async function main() {
           },
         ];
 
-        // ~70% normal, 25% abnormal, 5% critical
-        const r = Math.random();
+        const r = rng();
         const outcome: "normal" | "abnormal" | "critical" =
           r < 0.7 ? "normal" : r < 0.95 ? "abnormal" : "critical";
 
@@ -350,11 +382,11 @@ async function main() {
     }
   }
 
-  console.log(`\n  Created ${totalCreated} lab orders`);
-  console.log(`  Generated ${totalResults} result entries`);
+  console.log(`\n  Created ${totalCreated} new lab orders`);
+  console.log(`  Skipped ${totalSkipped} pre-existing seeded orders`);
+  console.log(`  Generated ${totalResults} new result entries`);
   console.log(`  Critical findings flagged: ${totalCritical}`);
 
-  // Summary by status
   const statusCounts = await prisma.labOrder.groupBy({
     by: ["status"],
     _count: true,
@@ -364,31 +396,16 @@ async function main() {
     console.log(`    ${sc.status}: ${sc._count}`);
   }
 
-  // ─── Lab QC entries (Issue #172) ──────────────────────────
-  // The QC dashboard read empty even on tenants with hundreds of completed
-  // orders because nothing seeded `LabQCEntry`. This block creates ~10
-  // Levey-Jennings-style daily QC runs per common test (CBC, KFT, LFT,
-  // Lipid Profile, Thyroid Profile, FBS, HbA1c) with normal-distributed
-  // recorded values around a known mean/SD pair so the LJ chart renders
-  // realistic ±2SD / ±3SD deviations and a believable pass-rate.
   await seedLabQCEntries(staffUsers);
 
   console.log("\n=== Lab seed complete ===");
 }
 
-/**
- * Idempotent QC entries. Each (testName, instrument, runDate) combo is
- * unique, so we re-run by skipping when the rows already exist for the
- * current 10-day window.
- */
 async function seedLabQCEntries(
   staffUsers: Array<{ id: string }>
 ): Promise<void> {
   console.log("\n  Seeding Lab QC entries (Levey-Jennings)...");
 
-  // Reference QC targets — mean + SD per parameter group. Chosen to match
-  // mid-range physiologic values so the recorded points land within the
-  // ±2SD band ~95% of the time (clinically realistic pass-rate).
   const qcTargets: Array<{
     testName: string;
     instrument: string;
@@ -406,10 +423,9 @@ async function seedLabQCEntries(
     { testName: "HbA1c", instrument: "Bio-Rad D-10", qcLevel: "NORMAL", mean: 5.5, sd: 0.15 },
   ];
 
-  // Box-Muller normal-distributed sample.
   function gaussian(mean: number, sd: number): number {
-    const u1 = Math.random() || 1e-9;
-    const u2 = Math.random() || 1e-9;
+    const u1 = rng() || 1e-9;
+    const u2 = rng() || 1e-9;
     const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
     return mean + z * sd;
   }
@@ -430,8 +446,6 @@ async function seedLabQCEntries(
     for (let dayBack = 9; dayBack >= 0; dayBack--) {
       const runDate = daysAgo(dayBack);
 
-      // Skip if a row for this exact (testId, instrument, qcLevel,
-      // run-day) already exists — keeps the seed idempotent.
       const dayStart = new Date(runDate);
       dayStart.setHours(0, 0, 0, 0);
       const dayEnd = new Date(runDate);
@@ -449,7 +463,7 @@ async function seedLabQCEntries(
 
       const recorded = gaussian(target.mean, target.sd);
       const z = (recorded - target.mean) / target.sd;
-      const withinRange = Math.abs(z) <= 2; // ±2SD pass band
+      const withinRange = Math.abs(z) <= 2;
       const cv = (target.sd / target.mean) * 100;
 
       await prisma.labQCEntry.create({

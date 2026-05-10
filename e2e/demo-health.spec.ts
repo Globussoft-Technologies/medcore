@@ -129,6 +129,21 @@ async function injectAuthCookies(
 }
 
 test.describe("Demo health monitor (read-only)", () => {
+  // This spec is DESIGNED to run against the live demo box
+  // (medcore.globusdemos.com) via .github/workflows/demo-monitor.yml.
+  // release.yml runs the full e2e suite against a LOCAL Playwright stack
+  // where /api/health, demo-seeded users, and the visitor/patient list
+  // shapes don't exist — every assertion here would 404 / time out.
+  // Skip on local-stack runs so demo-monitor.yml is the canonical
+  // execution path; release.yml's local-stack canary stays focused on
+  // app-level smoke checks.
+  const BASE = process.env.BASE_URL || process.env.E2E_BASE_URL || "http://127.0.0.1:3000";
+  const IS_LOCAL_STACK = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/.test(BASE);
+  test.skip(
+    IS_LOCAL_STACK,
+    `BASE_URL=${BASE} is local — this spec only runs on remote demo-monitor.yml.`
+  );
+
   let adminToken: string | null = null;
   let pharmacistToken: string | null = null;
   let pharmacistRefresh: string | null = null;

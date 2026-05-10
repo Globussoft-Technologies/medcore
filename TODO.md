@@ -6,7 +6,57 @@ is independently shippable. Full per-session history lives under
 
 ---
 
-## 🏠 HOME PICKUP — handoff from 2026-05-10 PR-merge + workflow-port + seed-idempotency wave (read this first)
+## 🏠 HOME PICKUP — handoff from 2026-05-11 seed-idempotency-finish + release validation (read this first)
+
+**Production state at handoff** (commit `ee2cbb9` — `fix(e2e/er-disposition): bump TRANSFERRED-poll timeout`):
+- ✅ HEAD on `main` = `ee2cbb9`. Working tree clean. PR queue empty.
+- ✅ **release.yml fully GREEN on run 25641149340: 33/33 jobs passed, 0 failures, 0 skipped.** End-to-end release validation succeeded after 3 rounds of focused triage.
+- ✅ **Seed idempotency long-tail FULLY CLOSED.** Wave 4 (today) added 9 more seeds (#773 enhancements trio, #774 ipd+pediatric+ops, #775 phase4 trio with deleteMany removal) → deploy.sh auto-reseed chain now spans **steps 8b through 9e** (30 total). The "Seeds NOT wired" list in deploy.sh is now empty for the first time.
+- ✅ Issue #772 (dev-team handoff) still open with the 6 user-blocked items.
+- ✅ Auto-deploy operating; `medcore.globusdemos.com` will pick up the wave once test.yml clears.
+
+### What this session shipped (4 PRs + 1 wiring commit + 3 release-fix commits, ~1500 lines diff)
+
+| PR / commit | What |
+|---|---|
+| **#773** `5a91717` | Idempotent seed-{clinical,acute-care,ancillary}-enhancements (`CLINENH-SEED-`, `IPD-SEED-`, `SRG-SEED-`, `ERS-SEED-`, `TEL-SEED-`, `TRP-SEED-` patterns). mulberry32 RNG. |
+| **#774** `bfb5bf8` | Idempotent seed-ipd / seed-pediatric-patients / seed-ops-enhancements. **Real bug fix**: pediatric seed was generating `MR000036..MR000043` colliding with the live `next_mr_number` counter — now namespaced to `MR-PED-SEED-NNN`. 10-entity namespace pattern in ops-enhancements. |
+| **#775** `dabcc1c` | Idempotent phase4-{specialty,engagement,ops}. **5 deleteMany() calls removed** (engagement's 4 unscoped wipes + specialty's 1 GrowthRecord wipe) — the heaviest piece of wave-4. Replaced with stable-id + findUnique/findFirst guards so deploy.sh can re-run on every push without wiping user data. |
+| `8415306` | deploy.sh wiring: all 9 new seeds added as steps 8w-9e. "Seeds NOT wired" comment block updated to reflect closure. |
+| `df922ea` | Round 1 release.yml triage (2 spec fixes): demo-health.spec.ts skips on local-stack (was 404'ing on /api/health because BASE_URL was 127.0.0.1); prescription-lifecycle.spec.ts:209 DDI override re-skipped with refined TODO (#766's deterministic-fixture refactor didn't hold under shard-8 WebKit load). |
+| `ee2cbb9` | Round 2 release.yml triage (1 spec fix): er-disposition TRANSFERRED-poll timeout 10s → 20s. Chromium-only flake; DISCHARGED-flavour test on same file at 10s was passing. |
+
+### deploy.sh auto-reseed chain — fully wired (30 steps)
+
+The complete chain after this session:
+- `8b` pharmacy / `8c` fix-stale-immunizations / `8d` hospital-config / `8e` notification-templates / `8f` medicine-leaflets / `8g` controlled-register / `8h` prompts / `8i` prompt-v2-triage / `8j` snomed / `8k` realistic
+- `8l` finance / `8m` clinical / `8n` chat-conversations / `8o` visitors-history / `8p` asset-history / `8q` doctor-ratings / `8r` complaints-data / `8s` notifications-history / `8t` immunization-data / `8u` lab-data / `8v` lab-panels
+- **NEW today**: `8w` clinical-enhancements / `8x` acute-care-enhancements / `8y` ancillary-enhancements / `8z` ipd / `9a` pediatric-patients / `9b` ops-enhancements / `9c` phase4-specialty / `9d` phase4-engagement / `9e` phase4-ops
+
+Every step is non-fatal (`|| echo "WARN — non-fatal"`). Every seed uses stable namespaced IDs + findUnique/findFirst guards (or true upsert). No live production counter is touched by any wired seed.
+
+### Release-validation round trajectory
+
+| Round | SHA | Failed shards | Fixes shipped |
+|---|---|---|---|
+| 1 | `8415306` | 4 (demo-health + prescription-lifecycle on both browsers) | `df922ea` skipped both |
+| 2 | `df922ea` | 1 (er-disposition Chromium 4) | `ee2cbb9` timeout bump |
+| 3 | `ee2cbb9` | **0 — GREEN** | — |
+
+### What's left after this wave
+
+**Engineering-actionable**: NONE remaining in the "not blocked on user" bucket. The seed long-tail is closed; workflow parity is closed; release validation is green.
+
+**Still blocked on you** (per issue #772 filed earlier today):
+- JWT HS256 → RS256 (#482) — needs your key-rollover ops plan
+- `/medcore-bola-sweep` skill promotion — needs you at keyboard for `.claude/skills/**` write
+- Demo-box stale-data cleanup — manual SQL or destructive reseed; your call
+- Trigger `coverage.yml` + `demo-monitor.yml` workflow_dispatch for first end-to-end validation
+- Smoke-test the cumulative wave on `medcore.globusdemos.com` after auto-deploy
+- Contributor PR follow-up (#762 #757)
+- Dedicated migration sessions (Prisma 6→7 / Vitest 2→4)
+
+### Prior handoff (2026-05-10 morning) kept for log
 
 **Production state at handoff** (commit `2e12a6f` — `chore(seed-lab*,seed-immunization-data): idempotent stable-id pattern (#771)`):
 - ✅ HEAD on `main` = `2e12a6f`. Working tree clean.

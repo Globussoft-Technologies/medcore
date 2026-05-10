@@ -1,22 +1,62 @@
+/**
+ * Pediatric patient seed — 8 children, growth records, immunizations.
+ *
+ * Idempotency contract (2026-05-11):
+ *   - Users: `upsert({ where: { email: ped.patient${i}@medcore.local } })`.
+ *   - Patients: `upsert({ where: { userId } })`. mrNumbers are namespaced
+ *     as `MR-PED-SEED-${NNN}` so they NEVER collide with the live
+ *     `next_mr_number` counter (`MR000001..`) consumed by
+ *     `apps/api/src/routes/patients.ts` and `apps/api/src/routes/auth.ts`.
+ *     Earlier the seed used contiguous `MR000036..MR000043` which DID
+ *     collide — if the live counter passed 36, patient creation would
+ *     P2002 on the next deploy. Now the seed runs in its own namespace.
+ *   - GrowthRecord: no native unique; guarded with `findFirst({patientId,
+ *     ageMonths})` skip per measurement point. The schedule is computed
+ *     deterministically from `ageMonthsNow` so re-runs produce the same
+ *     point set.
+ *   - Immunization: no native unique either; guarded with `findFirst(
+ *     {patientId, vaccine, doseNumber})` skip per dose.
+ *
+ *   - Replaced every `Math.random()` with a fixed-seed mulberry32 PRNG so
+ *     the "skip random vaccine 30% of the time" / "weight jitter" / "Indian
+ *     language pick" decisions are byte-identical run-over-run. Without
+ *     this, the `randomItem(["Serum Institute", "Bharat Biotech", ...])`
+ *     manufacturer choice could differ across runs, but the find-guard
+ *     would still keep idempotency.
+ */
 import { PrismaClient, Role, Gender } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
+
+// ─── DETERMINISTIC RNG ──────────────────────────────────
+// mulberry32 — same pattern as seed-realistic.ts (commit 4554706). Same
+// SEED → same number sequence → same demo state. resetRng() lets a future
+// caller restart the sequence between passes if needed.
+const SEED = 0xc0ffee_44; // distinct constant per file
+let _rngState = SEED;
+function rng(): number {
+  _rngState |= 0;
+  _rngState = (_rngState + 0x6D2B79F5) | 0;
+  let t = Math.imul(_rngState ^ (_rngState >>> 15), 1 | _rngState);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
 
 function hash(pw: string) {
   return bcrypt.hashSync(pw, 10);
 }
 
 function randomItem<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+  return arr[Math.floor(rng() * arr.length)];
 }
 
 function randomInt(min: number, max: number) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  return Math.floor(rng() * (max - min + 1)) + min;
 }
 
 function randomFloat(min: number, max: number, decimals = 1) {
-  return parseFloat((Math.random() * (max - min) + min).toFixed(decimals));
+  return parseFloat((rng() * (max - min) + min).toFixed(decimals));
 }
 
 function daysAgo(n: number): Date {
@@ -178,7 +218,7 @@ function expectedHeadCirc(ageMonths: number): number | null {
 }
 
 function jitter(v: number, pct = 0.06): number {
-  const delta = v * pct * (Math.random() * 2 - 1);
+  const delta = v * pct * (rng() * 2 - 1);
   return parseFloat((v + delta).toFixed(2));
 }
 
@@ -195,15 +235,14 @@ async function main() {
     return;
   }
 
-  // Bug #499: pediatric used to start at MR009000, leaving an 8965-row gap
-  // after seed-realistic.ts's MR000001..MR000035 range. The "9000 reserved
-  // for pediatric" carve-out was undocumented and confused users browsing
-  // /dashboard/patients (they saw MR000001..MR000035, then MR009000..009007
-  // with no MR000036..MR008999 in between). Pediatric MR numbers now sit
-  // contiguous with the realistic-seed block. Keep this in sync with
-  // PATIENT_DATA.length in seed-realistic.ts (currently 35) — and with the
-  // `next_mr_number` SystemConfig key written by seed.ts.
-  let mrSeqBase = 36; // contiguous: MR000036..MR000043 (8 pediatric patients)
+  // 2026-05-11 idempotency rewrite: previously pediatric used contiguous
+  // `MR000036..MR000043` (sat right after seed-realistic.ts's MR000001..035
+  // range). That format DID collide with the live `next_mr_number`
+  // SystemConfig counter consumed by patients.ts and auth.ts — once the
+  // counter passed 36, the next deploy's seed would P2002 on the unique
+  // mrNumber. Now namespaced as `MR-PED-SEED-${NNN}`. Live customer patients
+  // continue to get `MR000001..` from the SystemConfig counter, untouched
+  // by this seed.
   let patientsCreated = 0;
   let growthRecordsCreated = 0;
   let immunizationsCreated = 0;
@@ -229,7 +268,7 @@ async function main() {
     const ageMonthsNow = Math.floor(p.ageDays / 30);
     const ageYears = Math.floor(p.ageDays / 365);
 
-    const mrNumber = `MR${String(mrSeqBase + i).padStart(6, "0")}`;
+    const mrNumber = `MR-PED-SEED-${String(i + 1).padStart(3, "0")}`;
     const patient = await prisma.patient.upsert({
       where: { userId: user.id },
       update: {},
@@ -310,7 +349,7 @@ async function main() {
                 ? "School readiness OK"
                 : null,
             developmentalNotes:
-              Math.random() > 0.7 ? randomItem([
+              rng() > 0.7 ? randomItem([
                 "Active, responsive",
                 "Meets age-appropriate milestones",
                 "Slightly behind peers — recheck in 1 month",
@@ -333,7 +372,7 @@ async function main() {
         if (v.ageMonths > ageMonthsNow) break; // future vaccines not yet due
         // For "overdue" kids skip ~30% of recent-scheduled vaccines (close to today)
         const monthsSince = ageMonthsNow - v.ageMonths;
-        if (!isUpToDate && monthsSince < 4 && Math.random() > 0.4) continue;
+        if (!isUpToDate && monthsSince < 4 && rng() > 0.4) continue;
 
         // Skip pediatric-newborn for older kids if already past
         const daysAgoGiven = Math.max(1, p.ageDays - v.ageMonths * 30 - randomInt(0, 10));
@@ -383,7 +422,7 @@ async function main() {
             manufacturer: randomItem(["Serum Institute", "Bharat Biotech", "GSK", "Pfizer", "Sanofi"]),
             site: randomItem(["Left thigh", "Right thigh", "Left deltoid", "Right deltoid", "Oral"]),
             nextDueDate: nextDue,
-            notes: Math.random() > 0.8 ? "Mild fever post-vaccination, subsided in 24h" : null,
+            notes: rng() > 0.8 ? "Mild fever post-vaccination, subsided in 24h" : null,
           },
         });
         immunizationsCreated++;

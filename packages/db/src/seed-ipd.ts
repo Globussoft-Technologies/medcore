@@ -1,3 +1,22 @@
+/**
+ * IPD seed — wards, beds, admissions, and seeded vitals.
+ *
+ * Idempotency contract (2026-05-11):
+ *   - Wards: `upsert({ where: { name } })` — already idempotent.
+ *   - Beds: `upsert({ where: { wardId_bedNumber } })` — already idempotent.
+ *   - Admissions: gated by `findFirst({patientId, status: ADMITTED})` skip
+ *     (commit `5f784a2`) PLUS the bed-side `status !== AVAILABLE` skip. The
+ *     `admissionNumber` uses the format `IPD${seq}` derived from existing
+ *     count; re-runs no-op because the patient-side guard hits first.
+ *   - IpdVitals: this seed creates ONE sample vitals row per new admission,
+ *     inside the same `$transaction` that creates the admission. So the
+ *     admission-side guard above transitively guards the vitals: if the
+ *     admission is skipped, the vitals create never runs. No separate
+ *     vitals-side guard needed.
+ *
+ *   - No `Math.random()` is used in this file, so no PRNG seeding is
+ *     required. (The vitals values are hard-coded constants.)
+ */
 import { PrismaClient, WardType, BedStatus, AdmissionStatus } from "@prisma/client";
 
 const prisma = new PrismaClient();

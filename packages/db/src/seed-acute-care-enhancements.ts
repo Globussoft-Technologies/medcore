@@ -1,8 +1,36 @@
 // Seed additional Acute Care module data (Apr 2026 enhancements)
 // Run: npx tsx packages/db/src/seed-acute-care-enhancements.ts
+//
+// Idempotency contract (2026-05-11): safe to re-run on a populated demo
+// without creating duplicate rows. Every top-level seeded entity gets a
+// stable namespaced key from a deterministic index:
+//   - Admission:           IPD-SEED-NNNN              (admissionNumber, @unique)
+//   - Surgery:             SRG-SEED-NNNN              (caseNumber, @unique)
+//   - EmergencyCase:       ERS-SEED-NNNN              (caseNumber, @unique)
+//   - TelemedicineSession: TEL-SEED-NNNN              (sessionNumber, @unique)
+// Child rows (NurseRound, MedicationOrder/Administration, IpdIntakeOutput,
+// UltrasoundRecord, AncVisit, GrowthRecord, Immunization) are guarded by a
+// count-vs-expected check on the parent so re-runs don't dup-write.
+// Live runtime counters (IPD###### / SRG###### / ER###### / TEL######)
+// are no longer read or written — those belong to the runtime allocator,
+// not the seed. Math.random() is replaced by a fixed-seed mulberry32 PRNG
+// so re-runs produce byte-identical decisions.
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
+
+// Deterministic mulberry32 PRNG — same fixed-seed pattern as
+// seed-realistic.ts so re-runs of the partial set produce the same
+// downstream decisions.
+const SEED_RNG = 0xacc70511;
+let _rngState = SEED_RNG;
+function rng(): number {
+  _rngState |= 0;
+  _rngState = (_rngState + 0x6d2b79f5) | 0;
+  let t = Math.imul(_rngState ^ (_rngState >>> 15), 1 | _rngState);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
 
 function daysAgo(n: number): Date {
   return new Date(Date.now() - n * 24 * 60 * 60 * 1000);
@@ -76,15 +104,26 @@ async function main() {
   ];
 
   const createdAdmissions: { id: string; bedId: string }[] = [];
-  const countBefore = await prisma.admission.count();
-  let nextSeq = countBefore + 1;
+  let admCreated = 0;
+  let admSkipped = 0;
 
   for (let i = 0; i < admissionSpecs.length && i < availableBeds.length; i++) {
     const bed = availableBeds[i];
     const patient = patients[i % patients.length];
     const doc = doctors[i % doctors.length];
     const s = admissionSpecs[i];
-    const admissionNumber = `IPD${String(nextSeq++).padStart(6, "0")}`;
+    // Stable seed-id namespace — never touches the live IPD###### counter.
+    const admissionNumber = `IPD-SEED-${String(i + 1).padStart(4, "0")}`;
+
+    const existingAdm = await prisma.admission.findUnique({
+      where: { admissionNumber },
+      select: { id: true, bedId: true },
+    });
+    if (existingAdm) {
+      admSkipped++;
+      createdAdmissions.push({ id: existingAdm.id, bedId: existingAdm.bedId });
+      continue;
+    }
 
     const adm = await prisma.admission.create({
       data: {
@@ -105,91 +144,107 @@ async function main() {
       data: { status: "OCCUPIED" },
     });
     createdAdmissions.push({ id: adm.id, bedId: bed.id });
+    admCreated++;
 
-    // Nurse rounds (1 per day)
+    // Nurse rounds (1 per day). Child-rows are guarded by an existing-count
+    // check on the parent — if any round exists for this admission, the seed
+    // already ran successfully for it and we skip the whole block.
     if (nurses.length > 0) {
-      for (let d = s.daysAgo; d >= 0; d--) {
-        await prisma.nurseRound.create({
+      const existingRounds = await prisma.nurseRound.count({
+        where: { admissionId: adm.id },
+      });
+      if (existingRounds === 0) {
+        for (let d = s.daysAgo; d >= 0; d--) {
+          await prisma.nurseRound.create({
+            data: {
+              admissionId: adm.id,
+              nurseId: nurses[d % nurses.length].id,
+              notes:
+                d === 0
+                  ? "Patient stable, afebrile, tolerating orals."
+                  : "Morning round — vitals within normal limits, oriented.",
+              performedAt: daysAgo(d),
+            },
+          });
+        }
+      }
+    }
+
+    // Medication order + scheduled administrations — skip if any order
+    // already exists for this admission.
+    const existingOrder = await prisma.medicationOrder.findFirst({
+      where: { admissionId: adm.id },
+      select: { id: true },
+    });
+    if (!existingOrder) {
+      const order = await prisma.medicationOrder.create({
+        data: {
+          admissionId: adm.id,
+          doctorId: doc.id,
+          medicineName: i === 2 ? "Insulin (Regular)" : "Ceftriaxone 1g",
+          dosage: i === 2 ? "10 units SC" : "1g IV",
+          frequency: i === 2 ? "every 6 hours" : "BID",
+          route: i === 2 ? "SC" : "IV",
+          startDate: daysAgo(s.daysAgo),
+          isActive: true,
+        },
+      });
+
+      const interval = i === 2 ? 6 : 12;
+      const doses: Date[] = [];
+      let t = daysAgo(s.daysAgo).getTime();
+      const endMs = Date.now();
+      while (t <= endMs) {
+        doses.push(new Date(t));
+        t += interval * 60 * 60 * 1000;
+      }
+      for (let d = 0; d < doses.length; d++) {
+        const isPast = doses[d].getTime() < Date.now() - 30 * 60 * 1000;
+        await prisma.medicationAdministration.create({
           data: {
-            admissionId: adm.id,
-            nurseId: nurses[d % nurses.length].id,
-            notes:
-              d === 0
-                ? "Patient stable, afebrile, tolerating orals."
-                : "Morning round — vitals within normal limits, oriented.",
-            performedAt: daysAgo(d),
+            medicationOrderId: order.id,
+            scheduledAt: doses[d],
+            status: isPast ? "ADMINISTERED" : "SCHEDULED",
+            administeredAt: isPast ? doses[d] : null,
+            administeredBy: isPast && nurses[0] ? nurses[0].id : null,
+            notes: isPast ? "Given on time" : null,
           },
         });
       }
     }
 
-    // Medication order + scheduled administrations
-    const order = await prisma.medicationOrder.create({
-      data: {
-        admissionId: adm.id,
-        doctorId: doc.id,
-        medicineName: i === 2 ? "Insulin (Regular)" : "Ceftriaxone 1g",
-        dosage: i === 2 ? "10 units SC" : "1g IV",
-        frequency: i === 2 ? "every 6 hours" : "BID",
-        route: i === 2 ? "SC" : "IV",
-        startDate: daysAgo(s.daysAgo),
-        isActive: true,
-      },
-    });
-
-    const interval = i === 2 ? 6 : 12;
-    const doses: Date[] = [];
-    let t = daysAgo(s.daysAgo).getTime();
-    const endMs = Date.now();
-    while (t <= endMs) {
-      doses.push(new Date(t));
-      t += interval * 60 * 60 * 1000;
-    }
-    for (let d = 0; d < doses.length; d++) {
-      const isPast = doses[d].getTime() < Date.now() - 30 * 60 * 1000;
-      await prisma.medicationAdministration.create({
-        data: {
-          medicationOrderId: order.id,
-          scheduledAt: doses[d],
-          status: isPast ? "ADMINISTERED" : "SCHEDULED",
-          administeredAt: isPast ? doses[d] : null,
-          administeredBy: isPast && nurses[0] ? nurses[0].id : null,
-          notes: isPast ? "Given on time" : null,
-        },
-      });
-    }
-
-    // I/O records (last 24h)
+    // I/O records (last 24h) — skip if any record exists for this admission.
     if (nurses.length > 0) {
-      const ioSpecs: Array<{
-        type:
-          | "INTAKE_ORAL"
-          | "INTAKE_IV"
-          | "OUTPUT_URINE"
-          | "OUTPUT_STOOL";
-        amountMl: number;
-        hoursBack: number;
-        description?: string;
-      }> = [
-        { type: "INTAKE_IV", amountMl: 500, hoursBack: 20, description: "Normal saline" },
-        { type: "INTAKE_ORAL", amountMl: 150, hoursBack: 18 },
-        { type: "OUTPUT_URINE", amountMl: 300, hoursBack: 16 },
-        { type: "INTAKE_IV", amountMl: 500, hoursBack: 12, description: "RL" },
-        { type: "OUTPUT_URINE", amountMl: 400, hoursBack: 8 },
-        { type: "INTAKE_ORAL", amountMl: 200, hoursBack: 4 },
-        { type: "OUTPUT_URINE", amountMl: 250, hoursBack: 2 },
-      ];
-      for (const io of ioSpecs) {
-        await prisma.ipdIntakeOutput.create({
-          data: {
-            admissionId: adm.id,
-            type: io.type,
-            amountMl: io.amountMl,
-            description: io.description,
-            recordedAt: hoursAgo(io.hoursBack),
-            recordedBy: nurses[0].id,
-          },
-        });
+      const existingIO = await prisma.ipdIntakeOutput.count({
+        where: { admissionId: adm.id },
+      });
+      if (existingIO === 0) {
+        const ioSpecs: Array<{
+          type: "INTAKE_ORAL" | "INTAKE_IV" | "OUTPUT_URINE" | "OUTPUT_STOOL";
+          amountMl: number;
+          hoursBack: number;
+          description?: string;
+        }> = [
+          { type: "INTAKE_IV", amountMl: 500, hoursBack: 20, description: "Normal saline" },
+          { type: "INTAKE_ORAL", amountMl: 150, hoursBack: 18 },
+          { type: "OUTPUT_URINE", amountMl: 300, hoursBack: 16 },
+          { type: "INTAKE_IV", amountMl: 500, hoursBack: 12, description: "RL" },
+          { type: "OUTPUT_URINE", amountMl: 400, hoursBack: 8 },
+          { type: "INTAKE_ORAL", amountMl: 200, hoursBack: 4 },
+          { type: "OUTPUT_URINE", amountMl: 250, hoursBack: 2 },
+        ];
+        for (const io of ioSpecs) {
+          await prisma.ipdIntakeOutput.create({
+            data: {
+              admissionId: adm.id,
+              type: io.type,
+              amountMl: io.amountMl,
+              description: io.description,
+              recordedAt: hoursAgo(io.hoursBack),
+              recordedBy: nurses[0].id,
+            },
+          });
+        }
       }
     }
 
@@ -201,7 +256,9 @@ async function main() {
       data: { totalBillAmount: bill },
     });
   }
-  console.log(`  Created ${createdAdmissions.length} additional admissions`);
+  console.log(
+    `  Admissions: ${admCreated} created, ${admSkipped} skipped (already present).`,
+  );
 
   // ─── 2. Surgeries with pre-op / complications ────────
   console.log("\nSeeding surgeries with enhancements...");
@@ -243,15 +300,24 @@ async function main() {
     },
   ];
 
-  const surgeryCountBefore = await prisma.surgery.count();
-  let srgSeq = surgeryCountBefore + 1;
-
+  let srgCreated = 0;
+  let srgSkipped = 0;
   for (let i = 0; i < surgerySpecs.length; i++) {
     const s = surgerySpecs[i];
     const patient = patients[i % patients.length];
     const surgeon = doctors[i % doctors.length];
     const ot = ots[i % ots.length];
-    const caseNumber = `SRG${String(srgSeq++).padStart(6, "0")}`;
+    // Stable seed-id namespace — never touches the live SRG###### counter.
+    const caseNumber = `SRG-SEED-${String(i + 1).padStart(4, "0")}`;
+
+    const existingSurgery = await prisma.surgery.findUnique({
+      where: { caseNumber },
+      select: { id: true },
+    });
+    if (existingSurgery) {
+      srgSkipped++;
+      continue;
+    }
     const scheduledAt = daysAgo(s.daysAgo);
     const startAt = new Date(scheduledAt.getTime() + 30 * 60 * 1000);
     const endAt = new Date(startAt.getTime() + s.duration * 60 * 1000);
@@ -292,13 +358,14 @@ async function main() {
         cost: 45000 + i * 5000,
       },
     });
+    srgCreated++;
   }
-  console.log(`  Created ${surgerySpecs.length} surgery cases`);
+  console.log(
+    `  Surgeries: ${srgCreated} created, ${srgSkipped} skipped (already present).`,
+  );
 
   // ─── 3. ER Cases at various triage levels ─────────────
   console.log("\nSeeding ER cases...");
-  const erCountBefore = await prisma.emergencyCase.count();
-  let erSeq = erCountBefore + 1;
 
   const erSpecs: Array<{
     chiefComplaint: string;
@@ -382,8 +449,21 @@ async function main() {
     },
   ];
 
-  for (const e of erSpecs) {
-    const caseNumber = `ER${String(erSeq++).padStart(6, "0")}`;
+  let erCreated = 0;
+  let erSkipped = 0;
+  for (let i = 0; i < erSpecs.length; i++) {
+    const e = erSpecs[i];
+    // Stable seed-id namespace — never touches the live ER###### counter.
+    const caseNumber = `ERS-SEED-${String(i + 1).padStart(4, "0")}`;
+
+    const existingER = await prisma.emergencyCase.findUnique({
+      where: { caseNumber },
+      select: { id: true },
+    });
+    if (existingER) {
+      erSkipped++;
+      continue;
+    }
     const arrivedAt = hoursAgo(e.hoursAgo);
     const patient =
       e.patientIdx != null ? patients[e.patientIdx % patients.length] : null;
@@ -426,13 +506,14 @@ async function main() {
           : null,
       },
     });
+    erCreated++;
   }
-  console.log(`  Created ${erSpecs.length} ER cases`);
+  console.log(
+    `  ER cases: ${erCreated} created, ${erSkipped} skipped (already present).`,
+  );
 
   // ─── 4. Past Telemedicine Sessions with ratings ─────
   console.log("\nSeeding telemedicine sessions...");
-  const telCountBefore = await prisma.telemedicineSession.count();
-  let telSeq = telCountBefore + 1;
 
   const telSpecs = [
     {
@@ -477,11 +558,25 @@ async function main() {
     },
   ];
 
-  for (const t of telSpecs) {
-    const sessionNumber = `TEL${String(telSeq++).padStart(6, "0")}`;
+  let telCreated = 0;
+  let telSkipped = 0;
+  for (let i = 0; i < telSpecs.length; i++) {
+    const t = telSpecs[i];
+    // Stable seed-id namespace — never touches the live TEL###### counter.
+    const sessionNumber = `TEL-SEED-${String(i + 1).padStart(4, "0")}`;
+
+    const existingTel = await prisma.telemedicineSession.findUnique({
+      where: { sessionNumber },
+      select: { id: true },
+    });
+    if (existingTel) {
+      telSkipped++;
+      continue;
+    }
     const scheduled = daysAgo(t.daysAgo);
     const started = new Date(scheduled.getTime() + 2 * 60 * 1000);
     const ended = new Date(started.getTime() + t.duration * 60 * 1000);
+    const meetingTag = `seed-${String(i + 1).padStart(4, "0")}`;
     await prisma.telemedicineSession.create({
       data: {
         sessionNumber,
@@ -491,8 +586,8 @@ async function main() {
         startedAt: started,
         endedAt: ended,
         durationMin: t.duration,
-        meetingId: `mtg${telSeq}`,
-        meetingUrl: `https://meet.jit.si/medcore-seed-${telSeq}`,
+        meetingId: `mtg-${meetingTag}`,
+        meetingUrl: `https://meet.jit.si/medcore-${meetingTag}`,
         status: "COMPLETED",
         chiefComplaint: t.complaint,
         doctorNotes: t.notes,
@@ -503,8 +598,11 @@ async function main() {
         patientJoinedAt: new Date(scheduled.getTime() - 5 * 60 * 1000),
       },
     });
+    telCreated++;
   }
-  console.log(`  Created ${telSpecs.length} telemedicine sessions`);
+  console.log(
+    `  Telemedicine sessions: ${telCreated} created, ${telSkipped} skipped (already present).`,
+  );
 
   // ─── 5. ANC Enhancements — visits + USG ───────────────
   console.log("\nSeeding ANC enhancements...");

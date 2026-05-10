@@ -6,7 +6,65 @@ is independently shippable. Full per-session history lives under
 
 ---
 
-## 🏠 HOME PICKUP — handoff from 2026-05-10 PR-merge + release-validation wave (read this first)
+## 🏠 HOME PICKUP — handoff from 2026-05-10 PR-merge + workflow-port + seed-idempotency wave (read this first)
+
+**Production state at handoff** (commit `2e12a6f` — `chore(seed-lab*,seed-immunization-data): idempotent stable-id pattern (#771)`):
+- ✅ HEAD on `main` = `2e12a6f`. Working tree clean.
+- ✅ **PR queue empty.** 8 PRs merged today: #764-#771.
+- ✅ **All 4 missing globussoft-crm workflows now ported** (was the open parity gap from prior handoffs): `secret-scan` (#763 yesterday), `migration-check` (#764), `coverage` (#765), `demo-monitor` (#767).
+- ✅ **deploy.sh auto-reseed chain extended from 8 to 21 idempotent steps** (8b-8v). Demo-box stale-data class is functionally closed for the seeds the agents could safely fix; only 7 truly hard seeds remain (require deleteMany removal or full restructure — listed in deferred lanes below).
+- ✅ Auto-deploy operating; `medcore.globusdemos.com` will pick up the wave once test.yml clears.
+
+### What this session shipped (8 PRs, ~2200 lines diff)
+
+| PR | What | Notes |
+|---|---|---|
+| **#764** | Port `migration-check.yml` from globussoft-crm | Postgres-adapted detector for 5 risk classes (NOT_NULL_WITHOUT_DEFAULT / COLUMN_DROP / TYPE_NARROWING / UNIQUE_ADDITION / FK_WITHOUT_ON_DELETE). 14 e2e regression tests. Two-job workflow with PR comment + step summary. |
+| **#765** | Port `coverage.yml` from globussoft-crm | Full c8 instrumentation via `NODE_V8_COVERAGE` env var (composes cleanly with tsx). New SIGTERM/SIGINT graceful-shutdown handler at `apps/api/src/server.ts` (+32 LOC). Biweekly cron + workflow_dispatch. lcov + json-summary + top-10 under-covered CSV as 30-day artifact. |
+| **#766** | Re-enable prescription-lifecycle DDI override test (was `test.skip` from `aaa4e17`) | Refactored with `page.route` fulfillment for /patients and /appointments list endpoints — synthetic patient/appointment IDs, no DB writes, no EntityPicker mousedown race. Same contract surface (override-click → POST /prescriptions with overrideWarnings:true). |
+| **#767** | Port `demo-monitor.yml` from globussoft-crm | Every-2h cron + workflow_dispatch + auto-issue-on-failure. 9-test `e2e/demo-health.spec.ts` covering API canary / admin+pharmacist demo logins / cross-tenant patient list integrity / PHARMACIST nav 4-route smoke / visitors placeholder seed contamination / login form happy path. |
+| **#768** | Idempotency: `seed-finance.ts` + `seed-clinical.ts` | `PO-SEED-NNNN` PO numbers, `SRG-SEED-NNNN` surgery cases, `REF-SEED-NNNN` referrals. Wired as deploy.sh steps 8l + 8m. |
+| **#769** | Idempotency: `seed-chat-conversations.ts` + `seed-visitors-history.ts` | `[CHAT-SEED-roomKey-NNNN]` content prefix on chat messages, `VIS-HIST-SEED-NNNN` on visitor passNumber. mulberry32 RNG for stable per-row decisions. Wired as 8n + 8o. |
+| **#770** | Idempotency: 4 bulk-fixture seeds (asset-history / doctor-ratings / complaints-data / notifications-history) | `[seed:ASSET-HIST-SEED-tag-j]` markers, `CMP-SEED-NNNN` ticketNumber, `NOTIF-SEED-NNNN` dedupKey. Wired as 8p/8q/8r/8s. |
+| **#771** | Idempotency: `seed-immunization-data.ts` + `seed-lab-data.ts` + `seed-lab-panels.ts` | `[IMMUN-SEED-NNNNNN]` notes marker on Immunization, `LAB-SEED-NNNNNN` orderNumber on lab orders, `LAB-SEED-PANEL-NNNNNN` for specialty panels. Wired as 8t/8u/8v. No live `LAB######` counter touched. |
+
+### deploy.sh auto-reseed chain (21 idempotent post-deploy steps now)
+
+| Step | Seed |
+|---|---|
+| 8b | seed-pharmacy |
+| 8c | fix-stale-immunizations --apply |
+| 8d | seed-hospital-config |
+| 8e | seed-notification-templates |
+| 8f | seed-medicine-leaflets |
+| 8g | seed-controlled-register |
+| 8h | seed-prompts |
+| 8i | seed-prompt-v2-triage |
+| 8j | seed-snomed |
+| 8k | seed-realistic |
+| 8l | seed-finance (#768) |
+| 8m | seed-clinical (#768) |
+| 8n | seed-chat-conversations (#769) |
+| 8o | seed-visitors-history (#769) |
+| 8p | seed-asset-history (#770) |
+| 8q | seed-doctor-ratings (#770) |
+| 8r | seed-complaints-data (#770) |
+| 8s | seed-notifications-history (#770) |
+| 8t | seed-immunization-data (#771) |
+| 8u | seed-lab-data (#771) |
+| 8v | seed-lab-panels (#771) |
+
+Each step is non-fatal (`|| echo "WARN — non-fatal"`) so a single seed failure doesn't break a deploy.
+
+### What's left after this wave
+
+- **`/medcore-bola-sweep` skill promotion**: cross-patient identity-mismatch class is 2nd-recurrence ripe per CLAUDE.md cron-learnings. Needs you at keyboard for the `.claude/skills/**` write (harness blocks unattended writes).
+- **7 still-non-idempotent seeds**: `seed-clinical-enhancements`, `seed-acute-care-enhancements`, `seed-ancillary-enhancements`, `seed-ipd`, `seed-pediatric-patients`, `seed-ops-enhancements`, `seed-phase4-{specialty,engagement,ops}`. The `phase4-*` trio uses `deleteMany` upfront (destructive) — needs that removal before they can run on a live demo.
+- **Prisma 6→7 migration**: someone's stale PR #470 attempt left `node_modules` drift in this checkout (Prisma 7.8.0 installed locally, 6.19.3 pinned in lockfile). `npm install prisma@6.19.3` reverts; CI's `npm ci` is unaffected. The production schema still uses Prisma-6 datasource format with `url = env("DATABASE_URL")`. Half-day dedicated session per the prior handoff's recommendation; my migration-check workflow's flag use (`--from-schema-datamodel`) will need to flip to `--from-schema` when this lands.
+- **Vitest 2→4 migration** (PR #469 was open / now stale): full-day session, largest blast radius.
+- **JWT HS256 → RS256/EdDSA** (#482): needs your key-rollover ops plan.
+
+### Prior handoff (2026-05-10 morning) kept for log
 
 **Production state at handoff** (commit `aaa4e17` — `fix(e2e): round-3 release.yml failures — 3 spec fixes`):
 - ✅ HEAD on `main` = `aaa4e17`. Working tree clean.

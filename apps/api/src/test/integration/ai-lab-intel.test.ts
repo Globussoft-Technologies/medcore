@@ -91,7 +91,7 @@ describeIfDB("AI Lab Intelligence API (integration)", () => {
 
   it("returns 404 for an unknown lab result", async () => {
     const res = await request(app)
-      .get(`/api/v1/ai/lab-intel/00000000-0000-0000-0000-000000000000`)
+      .get(`/api/v1/ai/lab-intel/550e8400-e29b-41d4-a716-446655440000`)
       .set("Authorization", `Bearer ${doctorToken}`);
     expect(res.status).toBe(404);
   });
@@ -156,7 +156,7 @@ describeIfDB("AI Lab Intelligence API (integration)", () => {
 
   it("returns 404 when persisting against an unknown lab result", async () => {
     const res = await request(app)
-      .post(`/api/v1/ai/lab-intel/00000000-0000-0000-0000-000000000000/persist`)
+      .post(`/api/v1/ai/lab-intel/550e8400-e29b-41d4-a716-446655440000/persist`)
       .set("Authorization", `Bearer ${doctorToken}`)
       .send({});
     expect(res.status).toBe(404);

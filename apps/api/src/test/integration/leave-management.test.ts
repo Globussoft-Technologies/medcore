@@ -121,7 +121,7 @@ describeIfDB("Leave management workflow (integration)", () => {
   it("approve returns 404 for unknown leave id", async () => {
     const res = await request(app)
       .patch(
-        "/api/v1/leaves/00000000-0000-0000-0000-000000000000/approve"
+        "/api/v1/leaves/550e8400-e29b-41d4-a716-446655440000/approve"
       )
       .set("Authorization", `Bearer ${adminToken}`)
       .send({ status: "APPROVED" });

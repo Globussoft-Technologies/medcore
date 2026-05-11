@@ -66,7 +66,7 @@ describeIfDB("Public verification API (integration)", () => {
 
   it("verify/rx/:id returns 404 for unknown id (JSON mode)", async () => {
     const res = await request(app).get(
-      "/api/v1/public/verify/rx/00000000-0000-0000-0000-000000000000?format=json"
+      "/api/v1/public/verify/rx/550e8400-e29b-41d4-a716-446655440000?format=json"
     );
     expect(res.status).toBe(404);
     expect(res.body?.ok).toBe(false);

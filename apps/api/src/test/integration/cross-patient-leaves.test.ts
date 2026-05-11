@@ -139,7 +139,7 @@ describeIfDB("Cross-patient BOLA — leaves (issue #511)", () => {
 
   it("leaves/:id/letter: nonexistent id → 404", async () => {
     const res = await request(app)
-      .get(`/api/v1/leaves/00000000-0000-0000-0000-000000000000/letter`)
+      .get(`/api/v1/leaves/550e8400-e29b-41d4-a716-446655440000/letter`)
       .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(404);
   });

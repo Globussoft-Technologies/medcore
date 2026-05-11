@@ -360,7 +360,7 @@ describeIfDB(
 
     it("DELETE /ai/knowledge/:id — PATIENT denied (403) [router-level admin gate]", async () => {
       const res = await request(app)
-        .delete(`/api/v1/ai/knowledge/00000000-0000-0000-0000-000000000000`)
+        .delete(`/api/v1/ai/knowledge/550e8400-e29b-41d4-a716-446655440000`)
         .set("Authorization", `Bearer ${patientAToken}`);
       expect(res.status).toBe(403);
     });

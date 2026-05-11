@@ -150,7 +150,7 @@ describeIfDB("Queue API (integration)", () => {
 
   it("notify-position requires auth (401)", async () => {
     const res = await request(app).post(
-      "/api/v1/queue/notify-position/00000000-0000-0000-0000-000000000000"
+      "/api/v1/queue/notify-position/550e8400-e29b-41d4-a716-446655440000"
     );
     expect(res.status).toBe(401);
   });

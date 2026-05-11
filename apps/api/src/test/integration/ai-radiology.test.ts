@@ -318,7 +318,7 @@ describeIfDB("AI Radiology API (integration)", () => {
     if (!schemaReady) return;
     const { token: doctorToken } = await createDoctorWithToken();
     const res = await request(app)
-      .get("/api/v1/ai/radiology/studies/00000000-0000-0000-0000-000000000000")
+      .get("/api/v1/ai/radiology/studies/550e8400-e29b-41d4-a716-446655440000")
       .set("Authorization", `Bearer ${doctorToken}`);
 
     expect(res.status).toBe(404);

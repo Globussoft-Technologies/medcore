@@ -120,7 +120,7 @@ describeIfDB("AI Adherence API (integration)", () => {
     const res = await request(app)
       .post("/api/v1/ai/adherence/enroll")
       .set("Authorization", `Bearer ${doctorToken}`)
-      .send({ prescriptionId: "00000000-0000-0000-0000-000000000000" });
+      .send({ prescriptionId: "550e8400-e29b-41d4-a716-446655440000" });
 
     expect(res.status).toBe(404);
   });
@@ -335,7 +335,7 @@ describeIfDB("AI Adherence API (integration)", () => {
 
   it("returns 404 when unenrolling a non-existent schedule", async () => {
     const res = await request(app)
-      .delete("/api/v1/ai/adherence/00000000-0000-0000-0000-000000000000")
+      .delete("/api/v1/ai/adherence/550e8400-e29b-41d4-a716-446655440000")
       .set("Authorization", `Bearer ${adminToken}`);
 
     expect(res.status).toBe(404);
@@ -343,7 +343,7 @@ describeIfDB("AI Adherence API (integration)", () => {
 
   it("requires authentication for DELETE /:scheduleId", async () => {
     const res = await request(app).delete(
-      "/api/v1/ai/adherence/00000000-0000-0000-0000-000000000000"
+      "/api/v1/ai/adherence/550e8400-e29b-41d4-a716-446655440000"
     );
     expect(res.status).toBe(401);
   });
@@ -503,7 +503,7 @@ describeIfDB("AI Adherence API (integration)", () => {
     const { token: doctorToken } = await createDoctorWithToken();
 
     const res = await request(app)
-      .post(`/api/v1/ai/adherence/00000000-0000-0000-0000-000000000000/doses`)
+      .post(`/api/v1/ai/adherence/550e8400-e29b-41d4-a716-446655440000/doses`)
       .set("Authorization", `Bearer ${doctorToken}`)
       .send({
         medicationName: "Paracetamol",

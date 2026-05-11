@@ -160,7 +160,7 @@ describeIfDB("Payment-Plans API (integration)", () => {
     const res = await request(app)
       .post("/api/v1/payment-plans")
       .send({
-        invoiceId: "00000000-0000-0000-0000-000000000000",
+        invoiceId: "550e8400-e29b-41d4-a716-446655440000",
         installments: 3,
         frequency: "MONTHLY",
         startDate: todayDateString(),
@@ -269,7 +269,7 @@ describeIfDB("Payment-Plans API (integration)", () => {
 
   it("rejects GET /:id unauthenticated (401)", async () => {
     const res = await request(app).get(
-      "/api/v1/payment-plans/00000000-0000-0000-0000-000000000000"
+      "/api/v1/payment-plans/550e8400-e29b-41d4-a716-446655440000"
     );
     expect(res.status).toBe(401);
   });
@@ -376,7 +376,7 @@ describeIfDB("Payment-Plans API (integration)", () => {
   it("rejects pay-installment unauthenticated (401)", async () => {
     const res = await request(app)
       .patch(
-        "/api/v1/payment-plans/00000000-0000-0000-0000-000000000000/pay-installment"
+        "/api/v1/payment-plans/550e8400-e29b-41d4-a716-446655440000/pay-installment"
       )
       .send({});
     expect(res.status).toBe(401);
@@ -412,7 +412,7 @@ describeIfDB("Payment-Plans API (integration)", () => {
   it("rejects cancel unauthenticated (401)", async () => {
     const res = await request(app)
       .patch(
-        "/api/v1/payment-plans/00000000-0000-0000-0000-000000000000/cancel"
+        "/api/v1/payment-plans/550e8400-e29b-41d4-a716-446655440000/cancel"
       )
       .send({});
     expect(res.status).toBe(401);

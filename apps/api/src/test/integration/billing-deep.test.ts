@@ -60,7 +60,7 @@ describeIfDB("Billing API — deep edges", () => {
       .post("/api/v1/billing/refunds")
       .set("Authorization", `Bearer ${adminToken}`)
       .send({
-        invoiceId: "00000000-0000-0000-0000-000000000000",
+        invoiceId: "550e8400-e29b-41d4-a716-446655440000",
         amount: 1,
         reason: "x",
         mode: "CASH",
@@ -178,7 +178,7 @@ describeIfDB("Billing API — deep edges", () => {
 
   it("tax-breakdown 404 on unknown invoice", async () => {
     const res = await request(app)
-      .get(`/api/v1/billing/invoices/00000000-0000-0000-0000-000000000000/tax-breakdown`)
+      .get(`/api/v1/billing/invoices/550e8400-e29b-41d4-a716-446655440000/tax-breakdown`)
       .set("Authorization", `Bearer ${receptionToken}`);
     expect(res.status).toBe(404);
   });
@@ -208,7 +208,7 @@ describeIfDB("Billing API — deep edges", () => {
       .post("/api/v1/billing/credit-notes")
       .set("Authorization", `Bearer ${adminToken}`)
       .send({
-        invoiceId: "00000000-0000-0000-0000-000000000000",
+        invoiceId: "550e8400-e29b-41d4-a716-446655440000",
         amount: 1,
         reason: "x",
       });
@@ -311,7 +311,7 @@ describeIfDB("Billing API — deep edges", () => {
   it("remove nonexistent item returns 404", async () => {
     const { invoice } = await mkInv();
     const res = await request(app)
-      .delete(`/api/v1/billing/invoices/${invoice.id}/items/00000000-0000-0000-0000-000000000000`)
+      .delete(`/api/v1/billing/invoices/${invoice.id}/items/550e8400-e29b-41d4-a716-446655440000`)
       .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(404);
   });

@@ -83,7 +83,7 @@ describeIfDB("Emergency API — deep edges", () => {
       .post("/api/v1/emergency/cases")
       .set("Authorization", `Bearer ${nurse}`)
       .send({
-        patientId: "00000000-0000-0000-0000-000000000000",
+        patientId: "550e8400-e29b-41d4-a716-446655440000",
         chiefComplaint: "x",
       });
     expect(res.status).toBe(404);
@@ -130,7 +130,7 @@ describeIfDB("Emergency API — deep edges", () => {
 
   it("triage unknown case returns 404", async () => {
     const res = await request(app)
-      .patch(`/api/v1/emergency/cases/00000000-0000-0000-0000-000000000000/triage`)
+      .patch(`/api/v1/emergency/cases/550e8400-e29b-41d4-a716-446655440000/triage`)
       .set("Authorization", `Bearer ${nurse}`)
       .send({ triageLevel: "URGENT" });
     expect(res.status).toBe(404);
@@ -168,7 +168,7 @@ describeIfDB("Emergency API — deep edges", () => {
     const res = await request(app)
       .patch(`/api/v1/emergency/cases/${ec.id}/assign`)
       .set("Authorization", `Bearer ${doctor}`)
-      .send({ attendingDoctorId: "00000000-0000-0000-0000-000000000000" });
+      .send({ attendingDoctorId: "550e8400-e29b-41d4-a716-446655440000" });
     expect(res.status).toBe(404);
   });
 
@@ -215,7 +215,7 @@ describeIfDB("Emergency API — deep edges", () => {
 
   it("close unknown case → 404", async () => {
     const res = await request(app)
-      .patch(`/api/v1/emergency/cases/00000000-0000-0000-0000-000000000000/close`)
+      .patch(`/api/v1/emergency/cases/550e8400-e29b-41d4-a716-446655440000/close`)
       .set("Authorization", `Bearer ${doctor}`)
       .send({
         status: "DISCHARGED",
@@ -259,7 +259,7 @@ describeIfDB("Emergency API — deep edges", () => {
 
   it("mlc on unknown case → 404", async () => {
     const res = await request(app)
-      .patch(`/api/v1/emergency/cases/00000000-0000-0000-0000-000000000000/mlc`)
+      .patch(`/api/v1/emergency/cases/550e8400-e29b-41d4-a716-446655440000/mlc`)
       .set("Authorization", `Bearer ${doctor}`)
       .send({ isMLC: true });
     expect(res.status).toBe(404);
@@ -391,7 +391,7 @@ describeIfDB("Emergency API — deep edges", () => {
   // ─── Get ──────────────────────────────────────────────────
   it("get unknown case 404", async () => {
     const res = await request(app)
-      .get(`/api/v1/emergency/cases/00000000-0000-0000-0000-000000000000`)
+      .get(`/api/v1/emergency/cases/550e8400-e29b-41d4-a716-446655440000`)
       .set("Authorization", `Bearer ${doctor}`);
     expect(res.status).toBe(404);
   });

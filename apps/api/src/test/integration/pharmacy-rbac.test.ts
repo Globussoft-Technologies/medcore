@@ -474,7 +474,7 @@ describeIfDB("Pharmacy RBAC + Rx-rejection (integration, Gap #8)", () => {
   it("POST /pharmacy/prescriptions/:id/reject: 404 for unknown Rx", async () => {
     const res = await request(app)
       .post(
-        "/api/v1/pharmacy/prescriptions/00000000-0000-0000-0000-000000000000/reject"
+        "/api/v1/pharmacy/prescriptions/550e8400-e29b-41d4-a716-446655440000/reject"
       )
       .set("Authorization", `Bearer ${pharmacistToken}`)
       .send({ reason: "Unknown prescription id" });

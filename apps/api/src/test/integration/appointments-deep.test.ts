@@ -40,7 +40,7 @@ describeIfDB("Appointments API — deep edges", () => {
   // ─── Reschedule ────────────────────────────────────────────
   it("reschedule 404 on unknown appointment", async () => {
     const res = await request(app)
-      .patch(`/api/v1/appointments/00000000-0000-0000-0000-000000000000/reschedule`)
+      .patch(`/api/v1/appointments/550e8400-e29b-41d4-a716-446655440000/reschedule`)
       .set("Authorization", `Bearer ${reception}`)
       .send({ date: daysFromNow(1), slotStart: "10:00" });
     expect(res.status).toBe(404);
@@ -342,7 +342,7 @@ describeIfDB("Appointments API — deep edges", () => {
       .post(`/api/v1/appointments/${appt.id}/transfer`)
       .set("Authorization", `Bearer ${reception}`)
       .send({
-        newDoctorId: "00000000-0000-0000-0000-000000000000",
+        newDoctorId: "550e8400-e29b-41d4-a716-446655440000",
         reason: "refer out",
       });
     expect(res.status).toBe(404);
@@ -455,7 +455,7 @@ describeIfDB("Appointments API — deep edges", () => {
 
   it("calendar.ics 404 on unknown id", async () => {
     const res = await request(app)
-      .get(`/api/v1/appointments/00000000-0000-0000-0000-000000000000/calendar.ics`)
+      .get(`/api/v1/appointments/550e8400-e29b-41d4-a716-446655440000/calendar.ics`)
       .set("Authorization", `Bearer ${reception}`);
     expect(res.status).toBe(404);
   });
@@ -463,7 +463,7 @@ describeIfDB("Appointments API — deep edges", () => {
   // ─── Unknown get ───────────────────────────────────────────
   it("GET /:id 404 on unknown", async () => {
     const res = await request(app)
-      .get(`/api/v1/appointments/00000000-0000-0000-0000-000000000000`)
+      .get(`/api/v1/appointments/550e8400-e29b-41d4-a716-446655440000`)
       .set("Authorization", `Bearer ${reception}`);
     expect(res.status).toBe(404);
   });

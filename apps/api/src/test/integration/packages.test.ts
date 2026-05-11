@@ -133,7 +133,7 @@ describeIfDB("Packages API (integration)", () => {
       .post("/api/v1/packages/purchase")
       .set("Authorization", `Bearer ${receptionToken}`)
       .send({
-        packageId: "00000000-0000-0000-0000-000000000000",
+        packageId: "550e8400-e29b-41d4-a716-446655440000",
         patientId: patient.id,
         amountPaid: 100,
       });

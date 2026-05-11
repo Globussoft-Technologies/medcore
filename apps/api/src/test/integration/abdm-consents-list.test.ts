@@ -96,7 +96,7 @@ describeIfDB("ABDM consents list (integration)", () => {
   // ── 2 ─────────────────────────────────────────────────────────────────
   it("404s when the patient does not exist", async () => {
     const res = await request(app)
-      .get("/api/v1/abdm/consents?patientId=00000000-0000-0000-0000-000000000000")
+      .get("/api/v1/abdm/consents?patientId=550e8400-e29b-41d4-a716-446655440000")
       .set("Authorization", `Bearer ${adminToken}`);
 
     expect(res.status).toBe(404);
@@ -154,7 +154,7 @@ describeIfDB("ABDM consents list (integration)", () => {
   // ── 7 ─────────────────────────────────────────────────────────────────
   it("GET /consents/:id returns 404 for an unknown id", async () => {
     const res = await request(app)
-      .get("/api/v1/abdm/consents/00000000-0000-0000-0000-000000000000")
+      .get("/api/v1/abdm/consents/550e8400-e29b-41d4-a716-446655440000")
       .set("Authorization", `Bearer ${adminToken}`);
 
     expect(res.status).toBe(404);

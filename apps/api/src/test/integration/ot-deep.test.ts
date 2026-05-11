@@ -82,7 +82,7 @@ describeIfDB("OT/Surgery API — DEEP (integration)", () => {
     const res = await scheduleSurgery({
       patientId: patient.id,
       surgeonId: surgeon.id,
-      otId: "00000000-0000-0000-0000-000000000000",
+      otId: "550e8400-e29b-41d4-a716-446655440000",
       procedure: "Appendectomy",
       scheduledAt: new Date().toISOString(),
     });
@@ -346,7 +346,7 @@ describeIfDB("OT/Surgery API — DEEP (integration)", () => {
 
   it("utilization endpoint 404 unknown OT", async () => {
     const res = await request(app)
-      .get("/api/v1/surgery/ots/00000000-0000-0000-0000-000000000000/utilization")
+      .get("/api/v1/surgery/ots/550e8400-e29b-41d4-a716-446655440000/utilization")
       .set("Authorization", `Bearer ${doctorToken}`);
     expect(res.status).toBe(404);
   });
@@ -395,7 +395,7 @@ describeIfDB("OT/Surgery API — DEEP (integration)", () => {
 
   it("anesthesia record unknown surgery (404)", async () => {
     const res = await request(app)
-      .post("/api/v1/surgery/00000000-0000-0000-0000-000000000000/anesthesia-record")
+      .post("/api/v1/surgery/550e8400-e29b-41d4-a716-446655440000/anesthesia-record")
       .set("Authorization", `Bearer ${doctorToken}`)
       .send({ anesthetist: "A", anesthesiaType: "LOCAL" });
     expect(res.status).toBe(404);
@@ -403,7 +403,7 @@ describeIfDB("OT/Surgery API — DEEP (integration)", () => {
 
   it("surgery 404 GET unknown", async () => {
     const res = await request(app)
-      .get("/api/v1/surgery/00000000-0000-0000-0000-000000000000")
+      .get("/api/v1/surgery/550e8400-e29b-41d4-a716-446655440000")
       .set("Authorization", `Bearer ${doctorToken}`);
     expect(res.status).toBe(404);
   });

@@ -47,7 +47,7 @@ describeIfDB("Patient extras API (integration)", () => {
 
   it("id-card returns 404 for unknown patient", async () => {
     const res = await request(app)
-      .get("/api/v1/patients/00000000-0000-0000-0000-000000000000/id-card")
+      .get("/api/v1/patients/550e8400-e29b-41d4-a716-446655440000/id-card")
       .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(404);
   });
@@ -84,7 +84,7 @@ describeIfDB("Patient extras API (integration)", () => {
 
   it("CCDA returns 404 for unknown patient", async () => {
     const res = await request(app)
-      .get("/api/v1/patients/00000000-0000-0000-0000-000000000000/ccda")
+      .get("/api/v1/patients/550e8400-e29b-41d4-a716-446655440000/ccda")
       .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(404);
   });

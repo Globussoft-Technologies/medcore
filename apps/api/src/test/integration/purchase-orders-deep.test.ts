@@ -89,7 +89,7 @@ describeIfDB("Purchase Orders API — DEEP (integration)", () => {
       .post("/api/v1/purchase-orders")
       .set("Authorization", `Bearer ${adminToken}`)
       .send({
-        supplierId: "00000000-0000-0000-0000-000000000000",
+        supplierId: "550e8400-e29b-41d4-a716-446655440000",
         items: [{ description: "X", quantity: 1, unitPrice: 1 }],
       });
     expect(res.status).toBe(404);
@@ -210,7 +210,7 @@ describeIfDB("Purchase Orders API — DEEP (integration)", () => {
 
   it("receive 404 unknown PO", async () => {
     const r = await request(app)
-      .post("/api/v1/purchase-orders/00000000-0000-0000-0000-000000000000/receive")
+      .post("/api/v1/purchase-orders/550e8400-e29b-41d4-a716-446655440000/receive")
       .set("Authorization", `Bearer ${adminToken}`)
       .send({});
     expect(r.status).toBe(404);
@@ -278,7 +278,7 @@ describeIfDB("Purchase Orders API — DEEP (integration)", () => {
 
   it("GET /:id 404 unknown", async () => {
     const r = await request(app)
-      .get("/api/v1/purchase-orders/00000000-0000-0000-0000-000000000000")
+      .get("/api/v1/purchase-orders/550e8400-e29b-41d4-a716-446655440000")
       .set("Authorization", `Bearer ${adminToken}`);
     expect(r.status).toBe(404);
   });

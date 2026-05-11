@@ -6,7 +6,63 @@ is independently shippable. Full per-session history lives under
 
 ---
 
-## 🏠 HOME PICKUP — handoff from 2026-05-11 evening: workflow validation + scaffold PRs (read this first)
+## 🏠 HOME PICKUP — handoff from 2026-05-11 late-evening: 13-PR merge wave (read this first)
+
+**Production state at handoff** (after merging 13 PRs across the dep-bump + contributor backlog):
+- ✅ **13 PRs merged today** (#776 #777 #778 #779 #780 #781 #785 #786 #787 #789 #791 #881 #796).
+- ✅ **2 closed-with-explanation**: #792 (superseded by #881), #882 (divergent — Subhadip asked to recreate with AI-only scope, dropping the 411-line JWT duplicate + #881/#776 overlap).
+- ✅ **5 PRs left open with migration-class notes**: #782 (patch-minor group rebase in flight), #784 + #783 (next 15→16 paired, dedicated session), #788 (vitest-coverage 2→4, paired with vitest core migration), #790 (zod 3→4, half-day dedicated session).
+- ✅ Auto-deploy operating; `medcore.globusdemos.com` will reflect the wave once test.yml clears.
+
+### Wave detail (13 merges + 2 closes)
+
+**Engineering scaffold PRs**:
+| PR | What |
+|---|---|
+| #776 | JWT HS256→RS256/EdDSA dual-mode scaffold (closes engineering side of #482; rotation runbook in `docs/JWT_ROTATION.md`) |
+| #777 | Prisma 6→7 migration **planning doc** (281-line research artifact with 3 architecture-choice stop-points documented) |
+
+**Action bump majors** (touch yml files only, no package-lock contention):
+| PR | What |
+|---|---|
+| #778 | `actions/upload-artifact` 4→7 |
+| #779 | `actions/github-script` 7→9 |
+| #780 | `actions/setup-node` 5→6 |
+| #781 | `actions/checkout` 5→6 |
+
+**Dependency bumps** (auto-rebased by dependabot after each merge to clear package-lock conflicts):
+| PR | What |
+|---|---|
+| #785 | `expo-linking` 7→55 (Expo SDK alignment) |
+| #786 | `jest-expo` 53→55 (Expo SDK alignment) |
+| #787 | `@types/supertest` 6→7 (types-only) |
+| #789 | `expo-notifications` 0.29→55 (Expo SDK alignment) |
+| #791 | `jest` + `@types/jest` |
+
+**Contributor recreates** (per the May 8 evening ask):
+| PR | What |
+|---|---|
+| #881 | Sourav payment + PDF integration (1137/220 lines, 18 files) — Razorpay lib + billing route extension + /verify/patient route + PDF improvements. Supersedes #792. |
+| #796 | Subhadip logo + branding (108/32 lines, 16 files) — marketing nav/footer + dashboard layout + login/forgot-password/register UI tweaks + 7 logo PNG assets. |
+
+### Still open (5 PRs — all deferred to dedicated migration sessions)
+
+| PR | Why deferred |
+|---|---|
+| #782 | Patch-minor group with 13 updates — Web bundle + components fail. Rebased mid-wave; CI may clear on next cycle. |
+| #783 + #784 | Next 15→16 (paired — must merge together). Web bundle size fails on #784. Known migration class; ~2-3hr dedicated session. |
+| #788 | `@vitest/coverage-v8` 2→4 — paired with the deferred vitest core 2→4 migration; cannot merge standalone (version-skew between core + coverage plugin). |
+| #790 | `zod` 3→4 — API tests + type-check + bundle fail. Real breaking API surface (\`z.string().email()\` → \`z.email()\`, refine signature shifts, etc.). ~half-day dedicated session with the official zod codemod. |
+
+### Still on you (issue #772 unchanged, plus 2 new since morning)
+
+- All 7 items from issue #772.
+- **Review the Razorpay integration in #881** before the next deploy — payment integration is security-sensitive and a contributor's first attempt at it deserves a review pass.
+- **Investigate why `/api/v1/auth/login` rejects GH Actions runner IPs** (low priority — demo-monitor's API-only auth probe now uses `/api/health` instead).
+
+### Prior handoff (2026-05-11 evening — workflow validation) kept for log
+
+## 🏠 PRIOR HOME PICKUP — handoff from 2026-05-11 evening: workflow validation + scaffold PRs
 
 **Production state at handoff** (commit `651f436` — `fix(e2e/demo-health): skip 2 known-failing tests`):
 - ✅ HEAD on `main` = `651f436`. Working tree clean. **2 review-ready PRs open** (#776 JWT scaffold + #777 Prisma 7 planning doc).

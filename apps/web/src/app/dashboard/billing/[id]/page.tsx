@@ -25,7 +25,9 @@ import {
   Receipt,
   CreditCard,
   X,
+  Globe,
 } from "lucide-react";
+import { fetchRazorpayConfig, openRazorpayCheckout } from "@/lib/razorpay";
 
 interface HospitalProfile {
   name: string;
@@ -150,6 +152,19 @@ export default function InvoiceDetailPage() {
   }>>([]);
   const [planOpen, setPlanOpen] = useState(false);
 
+  // Razorpay availability — server tells us whether keys are configured + test mode.
+  const [razorpay, setRazorpay] = useState<{
+    enabled: boolean;
+    isTestMode: boolean;
+  }>({ enabled: false, isTestMode: false });
+  const [payingOnline, setPayingOnline] = useState(false);
+
+  // Partial-payment picker (A1). Opens before Razorpay so the caller can
+  // choose how much to charge. `payOnlineAmount` defaults to the full
+  // remaining balance; user can lower it.
+  const [payOnlineOpen, setPayOnlineOpen] = useState(false);
+  const [payOnlineAmount, setPayOnlineAmount] = useState("");
+
   const loadInvoice = useCallback(async () => {
     setLoading(true);
     try {
@@ -190,6 +205,64 @@ export default function InvoiceDetailPage() {
   useEffect(() => {
     loadInvoice();
   }, [loadInvoice]);
+
+  // Best-effort: tells us whether to render the Pay-Online button + TEST badge.
+  useEffect(() => {
+    fetchRazorpayConfig().then(setRazorpay).catch(() => {
+      setRazorpay({ enabled: false, isTestMode: false });
+    });
+  }, []);
+
+  // Razorpay handler — used by:
+  //   1. Standalone "Pay Online" button via the amount-picker modal (A1).
+  //   2. The existing Record-Payment modal when mode=ONLINE (A2).
+  // `amount` is optional: omitted → full balance, provided → that exact
+  // partial. Server validates the cap so a tampered client can't overpay.
+  const payOnline = useCallback(
+    async (amount?: number) => {
+      if (!invoice) return;
+      if (!razorpay.enabled) {
+        toast.error("Online payments are not configured. Use Cash or Card.");
+        return;
+      }
+      setPayingOnline(true);
+      setPayOpen(false);
+      setPayOnlineOpen(false);
+      try {
+        await openRazorpayCheckout({
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          amount,
+          patient: {
+            name: invoice.patient.user.name,
+            email: invoice.patient.user.email,
+            phone: invoice.patient.user.phone,
+          },
+          onSuccess: () => {
+            toast.success("Payment captured");
+            loadInvoice();
+          },
+          onFailure: (reason) => {
+            if (reason !== "Payment cancelled") toast.error(reason);
+          },
+        });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Online payment failed");
+      } finally {
+        setPayingOnline(false);
+      }
+    },
+    [invoice, razorpay.enabled, loadInvoice]
+  );
+
+  // A1: open the amount-picker modal pre-filled with the full remaining
+  // balance. Called by the standalone "Pay Online" action-bar button.
+  // `balance` is computed in render scope, so we just trust the click
+  // origin to pass it. We keep the picker open until the user confirms.
+  function openPayOnlinePicker(remainingBalance: number) {
+    setPayOnlineAmount(String(remainingBalance.toFixed(2)));
+    setPayOnlineOpen(true);
+  }
 
   async function addItem() {
     if (!newDesc.trim()) {
@@ -270,6 +343,19 @@ export default function InvoiceDetailPage() {
   }
 
   async function submitPayment() {
+    // If the user picked ONLINE in the modal, hand off to Razorpay instead
+    // of recording a manual payment row. The amount they typed in the modal
+    // becomes the partial-payment value sent to /pay-online — backend caps
+    // at the remaining balance and rejects nonsense values.
+    if (payMode === "ONLINE") {
+      const parsed = parseFloat(payAmount);
+      if (Number.isNaN(parsed) || parsed <= 0) {
+        toast.error("Enter a valid amount to pay online");
+        return;
+      }
+      payOnline(parsed);
+      return;
+    }
     setPaySubmitting(true);
     setPayFieldErrors({});
     try {
@@ -457,6 +543,22 @@ export default function InvoiceDetailPage() {
               className="flex items-center gap-1 rounded-lg bg-green-500 px-3 py-1.5 text-sm text-white hover:bg-green-600"
             >
               <Receipt size={14} /> Record Payment
+            </button>
+          )}
+          {balance > 0 && razorpay.enabled && (
+            <button
+              onClick={() => openPayOnlinePicker(balance)}
+              disabled={payingOnline}
+              data-testid="pay-online-btn"
+              className="flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-60"
+            >
+              <Globe size={14} />
+              {payingOnline ? "Opening..." : "Pay Online"}
+              {razorpay.isTestMode && (
+                <span className="ml-1 rounded bg-yellow-300 px-1 py-0.5 text-[10px] font-bold text-yellow-900">
+                  TEST
+                </span>
+              )}
             </button>
           )}
           {netPaid > 0 && (
@@ -1176,6 +1278,90 @@ export default function InvoiceDetailPage() {
           onClose={() => setPlanOpen(false)}
           onSaved={loadInvoice}
         />
+      )}
+
+      {/* A1 — Pay Online amount picker. Opens before Razorpay so the user
+          (patient or staff) can choose a partial amount. Defaults to the
+          full remaining balance; the server validates the cap so a
+          tampered client can't overpay. */}
+      {payOnlineOpen && invoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
+            <h2 className="mb-1 text-lg font-bold">Pay Online</h2>
+            <p className="mb-4 text-xs text-gray-500">
+              Outstanding balance: {fmtMoney(balance)}
+              {razorpay.isTestMode && (
+                <span className="ml-2 rounded bg-yellow-300 px-1 py-0.5 text-[10px] font-bold text-yellow-900">
+                  TEST MODE
+                </span>
+              )}
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label
+                  htmlFor="pay-online-amount"
+                  className="mb-1 block text-xs text-gray-500"
+                >
+                  Amount to pay now (Rs.)
+                </label>
+                <input
+                  id="pay-online-amount"
+                  data-testid="pay-online-amount"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  max={balance}
+                  value={payOnlineAmount}
+                  onChange={(e) => setPayOnlineAmount(e.target.value)}
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  autoFocus
+                />
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setPayOnlineAmount(String((balance / 2).toFixed(2)))}
+                    className="rounded border px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50"
+                  >
+                    Half
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPayOnlineAmount(String(balance.toFixed(2)))}
+                    className="rounded border px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50"
+                  >
+                    Full
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setPayOnlineOpen(false)}
+                className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const parsed = parseFloat(payOnlineAmount);
+                  if (Number.isNaN(parsed) || parsed <= 0) {
+                    toast.error("Enter a valid amount");
+                    return;
+                  }
+                  if (parsed > balance + 0.01) {
+                    toast.error("Amount cannot exceed outstanding balance");
+                    return;
+                  }
+                  payOnline(parsed);
+                }}
+                disabled={payingOnline || !payOnlineAmount}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+              >
+                {payingOnline ? "Opening..." : "Continue to Razorpay"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

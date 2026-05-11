@@ -1,208 +1,102 @@
-# MedCore Session Handoff — 2026-05-07 (evening) → 2026-05-08
+# MedCore Session Handoff — 2026-05-11 late-evening → office pickup
 
-**Pickup point**: GitHub issue queue went from **237 → ~38 open** in one session via `/medcore-fanout`. CI Test workflow is mid-chain on cancel-in-progress; once it settles green, dispatch `release.yml`. Several waves of work landed; some pending lanes still running in background as session ended.
+**You can pick up cold from this doc.** Read top-to-bottom (~5 min), then `git pull` and follow "First commands at the office" at the end.
 
-This file is the contract between the evening-session that drove the fanout and the next session that picks it up. Read top-to-bottom, then run the **first commands** at the end.
+## Where we are right now
 
----
+- **HEAD on `main` = `75559dd`** (`docs(todo): roll 2026-05-11 late-evening 13-PR merge wave`). Pushed. Working tree clean. Repo is in a consistent state.
+- **Auto-deploy is operational.** Once test.yml clears for `75559dd`, the demo box at `medcore.globusdemos.com` will reflect everything below.
+- **release.yml fully GREEN** on `ee2cbb9` (earlier today) — 33/33 jobs. The recent merges since then haven't been release-validated yet; quick re-dispatch is worth doing at the office.
 
-## 1. Numbers at a glance
+## What landed across the past 3 sessions (since 2026-05-09 wave start)
 
-| Metric | Start | Now | Delta |
-|---|---|---|---|
-| Open issues | 237 | ~38 | **−199 (84% reduction)** |
-| Closed today | — | ~199 | mix of fix-and-close + verify + duplicate |
-| Commits to main | — | ~30+ | listed in `git log --oneline --since="2026-05-07"` |
-| Skills added | 9 | 11 | `medcore-cut-release`, `medcore-pr-triage` |
-| Released versions | v1.2.0 | v1.3.0 | published 2026-05-07 (https://github.com/Globussoft-Technologies/medcore/releases/tag/v1.3.0) |
+23 PRs merged total. Highlights:
 
----
-
-## 2. Production-bug band (#701–#750) — closure map
-
-**Closed (44):** #701, #702, #703, #715, #716, #717, #718, #719, #720, #721, #722, #723, #724, #725, #726, #727, #729, #730, #731, #732, #733, #734, #735, #737, #738, #740, #741, #742, #743, #744, #746, #748, #749, #750, #706, #707, #708, #712, #713, #714, #728, #736, #739, #747
-
-**Still open (~6 from this band)**: small residue, mostly Lane B/D handoffs that may already be salvaged by the WIP commits at session-end (`d038792`, `65156c2`). Verify status with:
-
-```bash
-gh issue list --state open --limit 50 --json number,title --jq '[.[] | select(.number >= 701 and .number <= 750)] | .[] | "#\(.number) \(.title[0:90])"'
-```
-
----
-
-## 3. CI / deploy gate status (verify before doing anything else)
-
-### Workflows
-| Workflow | Last green | Latest state |
-|---|---|---|
-| **Test** | (chasing) | cancel-in-progress chain still active when session ended; latest commit is `1663247` (skill files), should be quick |
-| **Release validation** | `846d092` (yesterday) | NOT yet run on today's HEAD |
-| **CodeQL** | `6a57f1e` (today) | green |
-| **AI eval (nightly)** | `846d092` | scheduled green |
-| **Load test (nightly)** | `846d092` | scheduled green |
-
-### What broke today and what's fixed
-- **Lockfile drift** (`@sendgrid/mail`): fixed in `1ee86ac`. Deploy unblocked.
-- **P3009 failed migration** (`20260508000001_patient_emergency_relationship`): resolved on the live server via `deploy_resolve_migration.py` (gitignored helper). Marked rolled-back so next deploy retries.
-- **Web component test fixture**: IPs changed to TEST-NET-3 (`203.0.113.x`) so #534's `scrubInternalIp` doesn't redact them. Fixed in `466fd93`.
-
-### First commands when picking up
-
-```bash
-# Sync
-git pull --ff-only origin main
-
-# Confirm Test status
-gh run list --workflow=Test --branch=main --limit=3 \
-  --json headSha,conclusion,status \
-  --jq '.[] | (.headSha[0:7] + " " + .status + " " + (.conclusion // ""))'
-
-# If latest is GREEN, dispatch release.yml
-gh workflow run release.yml --ref main
-```
-
----
-
-## 4. Lanes still running at session-end
-
-Two Lane B/D agents had been running >5 hours with NO commits — almost certainly hung. Their work was salvaged from the working tree as commits `d038792` (Lane D's API conflict detection) and `65156c2` (Lane B's frontend auth UX), so the work is preserved even if those agents never wake up.
-
-Plus **Lane HH** was dispatched to actively take over Lanes B/D's work. Its result will materialize as new commits on main when it completes; the `Closes #N` lines may double-close issues that were already auto-closed by `d038792`/`65156c2` (harmless — GitHub just no-ops the second close).
-
-When you pick up:
-1. Check git log for any new commits with `Closes #` from Lane HH or other late-finishing agents.
-2. Reconcile the open-issue count: `gh api 'search/issues?q=repo:Globussoft-Technologies/medcore+is:issue+is:open&per_page=1' --jq '.total_count'`.
-3. Search-API is cached ~30s — repeat once if the number looks stale.
-
----
-
-## 5. What still needs work — prioritized
-
-### High-priority (close first)
-
-- **Verify Test workflow goes green on `1663247`**. If red:
-  - Use `/medcore-test-triage` skill (it has the playbook).
-  - Common failures: a test fixture missed updating after the new register-form fields (Lane A's `#713`), or a CI lane test that tries to import a deleted symbol.
-- **Run release.yml** once Test is green: `gh workflow run release.yml --ref main`. Watch ~16 min for 31-job sweep.
-
-### Medium-priority (knock down the residue)
-
-These ~38 issues are predominantly genuinely-deep bugs we deliberately deferred. Skim them and pick up what's tractable:
-
-| # | Why deferred |
+| Category | When |
 |---|---|
-| #482 | JWT HS256→RS256 — multi-day infra (key rotation, JWKS, downstream refresh) |
-| #311, #314, #315 | KPI/data-sync cross-cuts — need DB inspection, not pure code |
-| #538/#564/#567/#584 | Session morphing — Lane X confirmed it's frontend cross-tab cookie-share, NOT server BOLA. Real fix is `BroadcastChannel` cross-tab cookie-swap detection. Not closed. |
-| #512 | Manual-only test backlog — not actionable in code |
-| various | LabTech UX gaps requiring role-specific dashboards (#622/#624/#629) — feature scope |
+| **17 GitHub issues** (admin contrast cluster, login validation cluster, BOLA #511 long-tail, register form expansion, complaints SLA escalation, etc.) | 2026-05-09 |
+| **6 unfiled bug-bash bugs** from `.issue-details.txt` | 2026-05-09 |
+| **All 4 globussoft-crm workflow ports** (`secret-scan`, `migration-check`, `coverage`, `demo-monitor`) | 2026-05-09 / 10 / 11 |
+| **Seed idempotency long-tail FULLY CLOSED** — deploy.sh auto-reseed chain extended from 8 → **30 steps** (8b through 9e). The "Seeds NOT wired" comment block is empty for the first time. | 2026-05-10 / 11 |
+| **JWT HS256 → RS256/EdDSA dual-mode engineering scaffold** (#776 — closes engineering side of #482) | 2026-05-11 |
+| **Prisma 6→7 migration planning doc** (#777 — research artifact, 3 architecture-choice stop-points documented) | 2026-05-11 |
+| **Contributor recreates landed**: #881 Sourav payment+PDF+Razorpay, #796 Subhadip logo+branding | 2026-05-11 |
+| **Dependabot wave**: 4 actions/* majors + 5 npm deps merged | 2026-05-11 |
 
-The clear deferral list is documented inline in each Lane's report (search session log for "Skipped").
+Detailed per-PR breakdown lives in [`TODO.md`](TODO.md) banner top.
 
-### Low-priority
-
-- Backfill the two skill extensions promised earlier and never landed:
-  - `/medcore-e2e-spec` — add the WebKit-skip pattern as an instance #2 codification (instance #1 was telemedicine precheck).
-  - `/medcore-test-triage` — add the npm cache `EEXIST` recipe (`npm error EEXIST` / `ENOENT: rename '/home/runner/.npm/_cacache/...'` → re-dispatch same SHA).
-
----
-
-## 6. Notable infrastructure changes today
-
-These are operational things ops might need to know:
-
-### Database migrations applied
-- `20260508000001_patient_emergency_relationship` — adds `Patient.emergencyContactRelationship` (nullable text). Required by Lane A's `#713` registration schema.
-- `20260508000002_calendar_events_and_insurance_providers` — Lane F's new tables for #718 + #724.
-- `20260508000003_cleanup_attacker_test_users_and_test_ambulances` — Lane I's DB cleanup for #722 + #738.
-- `20260508000004_notification_broadcast_dedup` — Lane M's `Notification.dedupKey` partial unique index for #750.
-
-All four are deployed (some via `deploy_resolve_migration.py` workaround for the P3009 mid-flight failure).
-
-### New env vars on the deploy server
-On `163.227.174.141:/home/empcloud-development/medcore/apps/api/.env` (mirrored from local via `deploy_sendgrid_env.py`):
-
-```
-SENDGRID_API_KEY=SG.glRqacwZQw-...   # in user's local.env if needed
-SENDGRID_FROM_EMAIL=noreply@medcore.globusdemos.com
-SENDGRID_FROM_NAME=MedCore
-```
-
-**⚠ Sender verification**: SendGrid will reject emails from `noreply@medcore.globusdemos.com` until the sender is verified at https://app.sendgrid.com/settings/sender_auth/senders, OR the domain is auth'd. Check status before relying on the share-prescription feature in prod.
-
-### New scheduled cron tasks
-Registered in `apps/api/src/services/scheduled-tasks.ts`:
-- `auto_flag_expired_blood_units` (1am daily) — flips AVAILABLE+expired blood units to EXPIRED. Issue #737 (CRITICAL).
-- `auto_checkout_stale_visitors` (every 30 min, 12h ceiling, override `MAX_VISIT_DURATION_HOURS`). Issue #734.
-- `auto_close_stuck_telemedicine_sessions` (every 30 min, 2h ceiling, override `MAX_TELEMED_DURATION_HOURS`). Issue #743.
-
-All three emit batch audit rows. Verify they're firing in `pm2 logs medcore-api`.
-
-### New API endpoints (worth knowing about)
-- `GET /api/v1/me/tenant` — friendly tenant metadata for header banner
-- `GET /api/v1/visitors-stats?period=today` — canonical visitors-today (Asia/Kolkata day)
-- `GET /api/v1/holidays` — calendar-page holiday integration
-- `POST /api/v1/calendar-events` (CRUD) — calendar New Event dialog
-- `POST /api/v1/insurance-providers` (CRUD) — Add Provider dialog
-- `POST /api/v1/auth/forgot-password` — gained strict email refine
-- `POST /api/v1/auth/change-password` — gained strict-password refine BEFORE bcrypt check
-
----
-
-## 7. Skills added today (9 → 11)
-
-- **`/medcore-cut-release`** (`/.claude/skills/medcore-cut-release/SKILL.md`) — codifies the v1.3.0 cut workflow. Run when user says "cut a release", "publish v1.X.Y", "tag this".
-- **`/medcore-pr-triage`** (`/.claude/skills/medcore-pr-triage/SKILL.md`) — codifies human-PR triage with the mergeability × check-state matrix. Run when there are 3+ open PRs.
-
-Both are tracked in git and shipped on this branch.
-
----
-
-## 8. How to continue
-
-When next session starts:
-
-1. **Read this file first.**
-2. Run the "First commands" block in §3.
-3. If Test is green → run release.yml, watch it finalize.
-4. If Test is red → invoke `/medcore-test-triage` and let the skill drive triage.
-5. Once both Test and release.yml are green on the latest HEAD:
-   - Cut a fresh patch release if there's appetite (`/medcore-cut-release` → suggests v1.3.1).
-   - Continue iterating on the residue with `/medcore-fanout` waves.
-6. Pick from §5 medium-priority list. Each item that touches a fresh surface gets its own lane in the next fanout.
-7. Backfill the §5 low-priority skill extensions when the queue is < 20.
-
-Approximate effort to hit zero issues from here: **~3-5 more focused lanes (~2-3 hours)**.
-
----
-
-## 9. Open questions / things you didn't expect
-
-- **Lane B (frontend auth UX)** and **Lane D (conflict detection)** dispatched at session-start ran >5 hours with no commits. Their work was salvaged from the working tree as commits `d038792` + `65156c2`. CI on those commits will validate whether the salvaged work is actually clean — if a fixture is broken, those will be the first failures.
-- **Lane HH** was dispatched to actively redo Lane B/D's work mid-session-end. Its commits will land sometime after session-end; check git log for them.
-- The `gh api 'search/issues'` count occasionally lags behind the real state by ~30s. The actual repo "Issues" tab in GitHub web UI is the most accurate.
-
----
-
-## 10. Useful greps
+## 🔥 First thing to do at the office (~5 min)
 
 ```bash
-# Today's commits
-git log --oneline --since="2026-05-07"
-
-# What's still open
-gh issue list --state open --limit 100 --json number,title --jq '.[] | "#\(.number) \(.title[0:80])"'
-
-# Production-bug residue (#701-#750)
-gh issue list --state open --limit 50 --json number,title --jq '[.[] | select(.number >= 701 and .number <= 750)] | .[] | "#\(.number) \(.title[0:80])"'
-
-# Latest Test workflow result
-gh run list --workflow=Test --branch=main --limit=3 --json headSha,conclusion,status
-
-# All workflows on main
-for wf in "Test" "Release validation" "CodeQL"; do gh run list --workflow="$wf" --branch=main --limit=1 --json headSha,conclusion,status --jq ".[0]"; done
+git pull origin main           # should be at 75559dd or higher
+gh pr list --state open        # confirm queue state
+gh issue list --state open     # see fresh STAGING bug-bash
 ```
 
----
+Then look at the **10 fresh `[STAGING]` UI bug issues** (#875-#887). I have NOT touched these — they came in during the late-evening wave from your UAT session. They're the most actionable backlog for tomorrow:
 
-End of handoff. Resume from §8 step 1.
+```bash
+gh issue view 875  # Medication Reminders no H1
+gh issue view 876  # Patient Calendar no H1
+gh issue view 877  # Patient global search leaks query
+gh issue view 878  # Patient Help drawer wrong content
+gh issue view 879  # Patient notification "tomorrow" hard-coded
+gh issue view 880  # Patient Notifications duplicate cards
+gh issue view 884  # PHARMACIST/LAB_TECH bounced from /patients
+gh issue view 885  # Book Appointment missing Patient field
+gh issue view 886  # Duty Roster + Census low-contrast cards
+gh issue view 887  # Product Tour modal on every nav
+```
+
+Some of these look like regressions of work I already shipped (#884 sounds like the patients-id fix from `b0b45bb`; #886 sounds like the admin-contrast fixes from `a21e4ff`; #885 sounds like the appointment patient-picker from `2e36e7b`). May warrant a release-validation re-run + a smoke pass on the demo before opening fixes — could be that the deployed code on the demo is behind current main.
+
+## What's blocked on you (issue #772 — 6 blockers + 4 new)
+
+Original 6 from issue #772 (filed 2026-05-11 morning):
+1. **JWT rotation strategy + production keypair generation** (engineering scaffold is on main via #776; you pick hard-cutover vs dual-verify-window vs per-user-relogin; rotation runbook at [`docs/JWT_ROTATION.md`](docs/JWT_ROTATION.md))
+2. **`/medcore-bola-sweep` skill promotion** — harness blocks unattended `.claude/skills/**` writes; needs you at keyboard for the popup. 30 min.
+3. **Demo-box stale-data SQL cleanup** — SQL provided in #772; you run on the demo Postgres.
+4. ~~Trigger `coverage.yml` + `demo-monitor.yml` workflow_dispatch~~ — DONE TODAY (both now have GREEN baselines on record).
+5. **Smoke-test cumulative wave on `medcore.globusdemos.com`** — see "10 STAGING issues" above; some of those ARE the smoke-test findings.
+6. **Contributor PR follow-up** — Sourav (#881) + Subhadip (#796) recreates landed. Subhadip's second PR #882 closed-with-explanation asking for AI-only scope.
+
+New since #772 was filed:
+7. **Review Razorpay integration in #881 before next deploy** — payment integration is security-sensitive; first contributor pass.
+8. **Investigate why `/api/v1/auth/login` rejects GH Actions runner IPs** — low priority. Curl from any dev machine works fine; demo-monitor's API probe is now using `/api/health` instead.
+9. **Schedule the deferred dependency-major migrations** — #784+#783 (next 15→16), #790 (zod 3→4), #788+core (vitest 2→4). Each is a 2-3hr → half-day dedicated session.
+10. **Triage the 10 fresh STAGING issues** (#875-#887) — first-priority for tomorrow.
+
+## Currently open PRs (5 left — all deferred-with-notes)
+
+| PR | What | Why deferred |
+|---|---|---|
+| #783 + #784 | `next` + `@next/swc` 15→16 | Web bundle size fails; dedicated 2-3hr migration session |
+| #788 | `@vitest/coverage-v8` 2→4 | Paired with deferred vitest core migration |
+| #790 | `zod` 3→4 | API tests + type-check + bundle fail; needs zod codemod + ~half-day |
+| #883 | patch-minor group of 14 updates | New today (auto-rebased from yesterday's #782 close); check CI in office |
+
+All 5 have a comment on the PR explaining the migration path. None are urgent.
+
+## Reference docs
+
+- [`TODO.md`](TODO.md) — canonical handoff banner with full wave detail
+- [`docs/JWT_ROTATION.md`](docs/JWT_ROTATION.md) — 5-step JWT cutover runbook (NEW today via #776)
+- [`docs/PRISMA_7_MIGRATION_PLAN.md`](docs/PRISMA_7_MIGRATION_PLAN.md) — 281-line research artifact (NEW today via #777) when you're ready for that session
+- [`CLAUDE.md`](CLAUDE.md) — Claude Code session notes (recurring patterns, gotchas, harness quirks)
+- Issue #772 — the 6-blocker dev-team handoff (still open)
+- `scripts/deploy.sh` — comment block at "Seeds NOT wired" is now empty; chain spans steps 8b-9e
+
+## TL;DR what to do at the office tomorrow
+
+1. `git pull origin main` (you'll be at 75559dd or higher)
+2. Triage the **10 fresh STAGING issues** (#875-#887) — likely a fanout-worthy batch
+3. (Optional, ~30 sec) Re-dispatch `release.yml` to validate the 13-PR-merge wave end-to-end:
+   ```
+   gh workflow run "Release validation" --ref main
+   ```
+4. Address the user-blocked items in #772 when you have the appetite
+5. The deferred dep migrations (#784/#790/#788) are dedicated sessions — schedule when ready
+
+You're inheriting a stable, fully-tested, all-engineering-actionable-work-done state. The remaining queue is genuine product/ops decisions + new bug reports from the latest UAT pass.
+
+🤖 Auto-generated handover — last update 2026-05-11 late-evening

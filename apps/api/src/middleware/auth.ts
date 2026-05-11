@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
-import jwt from "jsonwebtoken";
 import { Role, type AuthPayload } from "@medcore/shared";
+import { verifyAccessToken } from "../services/jwt";
 
 // Re-export AuthPayload so downstream code that imports it from this module
 // (pre-dating the shared-types refactor) keeps working.
@@ -52,10 +52,12 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
   }
 
   try {
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || "dev-secret"
-    ) as Partial<AuthPayload> & { userId: string; email: string; role: Role };
+    // Issue #482: algorithm-agnostic verification — HS256 (default), RS256,
+    // or EdDSA, with optional HS256-fallback during rotation cutover. See
+    // services/jwt.ts and docs/JWT_ROTATION.md.
+    const decoded = verifyAccessToken<
+      Partial<AuthPayload> & { userId: string; email: string; role: Role }
+    >(token);
     // Build the payload explicitly so `tenantId` is propagated when present
     // but stays `undefined` for legacy tokens. We do NOT want to force a
     // `null` here because that would hide the "legacy" signal from tenant.ts.

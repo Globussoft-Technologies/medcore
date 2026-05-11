@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
-import jwt from "jsonwebtoken";
+import { verifyAccessToken } from "../services/jwt";
 // Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
 // auto-injects tenantId on create and auto-filters on read for the 20
 // tenant-scoped models (see services/tenant-prisma.ts). We alias it to
@@ -57,10 +57,10 @@ feedbackRouter.post(
       const authHeader = req.headers.authorization;
       if (authHeader?.startsWith("Bearer ")) {
         try {
-          const payload = jwt.verify(
-            authHeader.split(" ")[1],
-            process.env.JWT_SECRET || "dev-secret"
-          ) as { userId: string; role: string };
+          // Issue #482: algorithm-agnostic — services/jwt.ts.
+          const payload = verifyAccessToken<{ userId: string; role: string }>(
+            authHeader.split(" ")[1]
+          );
           if (payload.role === "PATIENT" && patient.userId !== payload.userId) {
             res.status(403).json({
               success: false,

@@ -1,7 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import jwt from "jsonwebtoken";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "./auth";
+// Issue #482: services/jwt.ts caches getJwtConfig() at module scope. Under
+// vitest's singleFork: true the cache survives across files, so we MUST
+// reset it after every case that mutates env vars (per CLAUDE.md test-infra
+// gotcha #2). Also clear any RS256/dual-verify state another test file
+// might have left behind so this suite stays on the HS256 default path.
+import { __resetJwtConfigForTests } from "../services/jwt";
 
 function makeRes() {
   const res: any = {};
@@ -13,7 +19,17 @@ function makeRes() {
 const SECRET = "test-jwt-secret-do-not-use-in-prod";
 
 beforeEach(() => {
+  // Wipe any RS256 / dual-verify env vars another test may have set.
+  delete process.env.JWT_ALG;
+  delete process.env.JWT_PRIVATE_KEY;
+  delete process.env.JWT_PUBLIC_KEY;
+  delete process.env.JWT_DUAL_VERIFY_HS256_FALLBACK;
   process.env.JWT_SECRET = SECRET;
+  __resetJwtConfigForTests();
+});
+
+afterEach(() => {
+  __resetJwtConfigForTests();
 });
 
 describe("authenticate", () => {

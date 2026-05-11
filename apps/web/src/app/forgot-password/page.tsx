@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { PasswordInput } from "@/components/PasswordInput";
+import logoIcon from "../assets/HD_Icon.png";
 
 type Step = "email" | "sent" | "reset" | "done";
 
@@ -106,8 +108,19 @@ export default function ForgotPasswordPage() {
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100 dark:from-gray-900 dark:via-gray-950 dark:to-gray-900">
       <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl ring-1 ring-gray-200 dark:bg-gray-800 dark:ring-gray-700">
         <div className="mb-8 text-center">
+          <div className="mb-4 flex justify-center">
+            <Image
+              src={logoIcon}
+              alt="MedCore"
+              width={52}
+              height={52}
+              className="rounded-xl"
+            />
+          </div>
           <h1 className="text-3xl font-bold text-primary">MedCore</h1>
-          <p className="mt-2 text-gray-500 dark:text-gray-400">Reset Your Password</p>
+          <p className="mt-2 text-gray-500 dark:text-gray-400">
+            Reset Your Password
+          </p>
         </div>
 
         {/* Issue #710: signed-in advisory. Never blocks the form, just
@@ -230,7 +243,9 @@ export default function ForgotPasswordPage() {
                 id="forgot-password-code"
                 type="text"
                 value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                onChange={(e) =>
+                  setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                }
                 aria-required="true"
                 maxLength={6}
                 className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-center text-2xl tracking-widest text-gray-900 placeholder-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"

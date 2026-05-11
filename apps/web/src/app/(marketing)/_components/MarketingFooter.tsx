@@ -1,6 +1,8 @@
 import Link from "next/link";
-import { Stethoscope, Github, Twitter, Linkedin } from "lucide-react";
+import Image from "next/image";
+import { Github, Twitter, Linkedin } from "lucide-react";
 import { Container } from "./Container";
+import logoIcon from "../../assets/HD_Icon.png";
 
 const cols = [
   {
@@ -44,31 +46,53 @@ export function MarketingFooter() {
       <Container className="py-14">
         <div className="grid gap-10 md:grid-cols-5">
           <div className="md:col-span-2">
-            <Link href="/" className="flex items-center gap-2 text-lg font-bold text-gray-900 dark:text-white">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-emerald-500 text-white">
-                <Stethoscope className="h-5 w-5" />
-              </span>
+            <Link
+              href="/"
+              className="flex items-center gap-2 text-lg font-bold text-gray-900 dark:text-white"
+            >
+              <Image
+                src={logoIcon}
+                alt="MedCore"
+                width={32}
+                height={32}
+                className="rounded-lg"
+              />
               MedCore
             </Link>
             <p className="mt-4 max-w-sm text-sm text-gray-600 dark:text-gray-400">
               Hospital management software engineered for Indian clinics and
-              hospitals. GST-aware billing, DLT-compliant SMS, UPI-first payments.
+              hospitals. GST-aware billing, DLT-compliant SMS, UPI-first
+              payments.
             </p>
             <div className="mt-6 flex gap-3">
-              <a href="#" aria-label="Twitter" className="rounded-full p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
+              <a
+                href="#"
+                aria-label="Twitter"
+                className="rounded-full p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
                 <Twitter className="h-5 w-5" />
               </a>
-              <a href="#" aria-label="LinkedIn" className="rounded-full p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
+              <a
+                href="#"
+                aria-label="LinkedIn"
+                className="rounded-full p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
                 <Linkedin className="h-5 w-5" />
               </a>
-              <a href="#" aria-label="GitHub" className="rounded-full p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
+              <a
+                href="#"
+                aria-label="GitHub"
+                className="rounded-full p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
                 <Github className="h-5 w-5" />
               </a>
             </div>
           </div>
           {cols.map((c) => (
             <div key={c.title}>
-              <h4 className="text-sm font-semibold text-gray-900 dark:text-white">{c.title}</h4>
+              <h4 className="text-sm font-semibold text-gray-900 dark:text-white">
+                {c.title}
+              </h4>
               <ul className="mt-4 space-y-2">
                 {c.links.map((l) => (
                   <li key={l.label}>

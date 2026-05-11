@@ -94,6 +94,8 @@ import {
   HeartPulse,
 } from "lucide-react";
 import clsx from "clsx";
+import Image from "next/image";
+import logoIcon from "../assets/HD_Icon.png";
 import { SearchPalette } from "./_components/search-palette";
 
 // Role-based bottom nav shortcuts (5 items, mobile only)
@@ -855,11 +857,21 @@ export default function DashboardLayout({
       >
         <div className="border-b border-gray-200 p-5 dark:border-white/10">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-bold">MedCore</h1>
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {user.name} ({user.role})
-              </p>
+            <div className="flex min-w-0 items-center gap-2">
+              <Image
+                src={logoIcon}
+                alt="MedCore"
+                width={28}
+                height={28}
+                className="rounded-lg object-contain shrink-0"
+                priority
+              />
+              <div className="min-w-0">
+                <h1 className="text-xl font-bold leading-tight whitespace-nowrap">MedCore</h1>
+                <p className="mt-0.5 text-xs text-gray-500 truncate dark:text-gray-400">
+                  {user.name} ({user.role})
+                </p>
+              </div>
             </div>
             <button
               onClick={() => setSearchOpen(true)}

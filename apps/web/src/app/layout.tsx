@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ToastContainer } from "@/components/Toast";
 import { ThemeBootstrap } from "@/components/ThemeBootstrap";
+import logo from "./assets/HD_Icon.png";
 
 export const metadata: Metadata = {
   title: "MedCore - Hospital Operations",
@@ -13,11 +14,8 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
   },
   icons: {
-    icon: [
-      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
-      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
-    ],
-    apple: [{ url: "/icon-192.png", sizes: "192x192", type: "image/png" }],
+    icon: [{ url: logo.src, type: "image/png" }],
+    apple: [{ url: logo.src, type: "image/png" }],
   },
 };
 
@@ -33,6 +31,11 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <script
+          src="https://analytics.ahrefs.com/analytics.js"
+          data-key="2lN5NX8XNzPNcaliBIYppA"
+          async
+        />
         {/*
           Issue #591 / #634: this inline script runs before hydration so the
           .dark class is on <html> by first paint — no white flash on dark

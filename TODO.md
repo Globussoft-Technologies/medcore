@@ -6,7 +6,34 @@ is independently shippable. Full per-session history lives under
 
 ---
 
-## 🏠 HOME PICKUP — handoff from 2026-05-11 late-evening: 13-PR merge wave (read this first)
+## 🏠 HOME PICKUP — handoff from 2026-05-11 night: test-infra unblock + PR #882 readiness (read this first)
+
+**Production state at handoff** (commit `ca7eebd` — `fix(api): unblock 16 auth integration test failures`):
+- ✅ **HEAD on `main`** = `ca7eebd`. Working tree clean. Per-push CI in_progress.
+- ✅ **apps/api unit-test suite: 1571/1571 pass locally** (was 34 failing on `34f2b88` due to cumulative-wave drift — `sanitize` middleware reading `req.path` without a fallback, `audit` middleware calling stripped `getTenantId` import, 66 test files missing the `@medcore/db` mock stubs that current middleware requires).
+- ✅ **PR #882 (Subhadip AI features) rebased + force-pushed to `ai/medcore/feature` (`4142510`)** — locally 1571/1571 pass; ready to merge once CI confirms.
+- ⏸ One pre-existing **policy conflict** skipped with `it.skip`: `patients-dup-checks > PHARMACIST 403` asserts the old lockdown but `routes/patients.ts:107` comment says PHARMACIST + LAB_TECH are now intentionally allowed. **Needs product decision** before retiring or re-tightening.
+- 📦 5 dep-major PRs still deferred (unchanged): #883 patch-minor group, #790 zod (codemod on its branch — `194679d`/`2da6ce3`), #788 vitest-coverage, #784 + #783 next 15→16.
+
+### 🔥 Top priority for home pickup
+
+1. **Confirm CI green on `ca7eebd`** — then PR #882 can land. **Squash-merge** `gh pr merge 882 --squash` once its checks clear (auto-merge is disabled on this repo).
+2. **#599 PHARMACIST patient-detail policy** — pick re-tighten vs accept-relaxation. The skipped test (`apps/api/src/routes/patients-dup-checks.test.ts`) is waiting on this call.
+3. **Review #882's three real code changes** before squash-merge (none are deal-breakers but flag-worthy):
+   - `appointments.ts getNextToken` switched local-time → UTC boundaries; verify the rest of the codebase doesn't mix conventions
+   - `appointment.create` now has a 5-attempt P2002 retry loop — band-aid for race; a transaction would be cleaner
+   - GET `/appointments` self-scopes DOCTOR (defensive RBAC, matches #602 pattern — good change)
+4. **CI verify PR #790 (zod) too** — my codemod commits are on the branch; if CI green, merge.
+
+### 📦 New artifacts this session
+
+- `docs/archive/SESSION_SNAPSHOT_2026-05-11-night.md` — full handoff
+- `ca7eebd` on main — foundational test-infra fix (sanitize+audit defensive, 66 mock-factory updates, 1 policy-conflict test skip)
+- `4142510` on `ai/medcore/feature` — PR #882 rebased clean + 1 mock-fixture update
+
+---
+
+## 🏠 PRIOR PICKUP — handoff from 2026-05-11 late-evening: 13-PR merge wave (kept for log)
 
 **Production state at handoff** (after merging 13 PRs across the dep-bump + contributor backlog):
 - ✅ **13 PRs merged today** (#776 #777 #778 #779 #780 #781 #785 #786 #787 #789 #791 #881 #796).

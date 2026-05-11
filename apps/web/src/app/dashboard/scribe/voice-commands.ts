@@ -93,16 +93,28 @@ const FUZZY_VOCAB: Array<[string, number]> = [
  * Correct individual words that are close to known command vocabulary.
  * Very short words (≤ 2 chars) are not fuzzy-corrected to avoid false
  * positives on articles and prepositions.
+ *
+ * Picks the CLOSEST in-threshold canonical (not the first), so e.g.
+ * "objective" (dist 0 to "objective", dist 3 to "subjective") resolves
+ * to "objective" instead of being snapped to "subjective" by list order.
+ * An exact match (distance 0) short-circuits the search.
  */
 function fuzzyCorrect(text: string): string {
   return text
     .split(/\s+/)
     .map((word) => {
       if (word.length <= 2) return word;
+      let bestCanon = word;
+      let bestDist = Infinity;
       for (const [canon, maxDist] of FUZZY_VOCAB) {
-        if (levenshtein(word, canon) <= maxDist) return canon;
+        const d = levenshtein(word, canon);
+        if (d <= maxDist && d < bestDist) {
+          bestDist = d;
+          bestCanon = canon;
+          if (d === 0) break;
+        }
       }
-      return word;
+      return bestCanon;
     })
     .join(" ");
 }

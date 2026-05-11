@@ -207,7 +207,7 @@ jobs:
         # Don't fail the gate just because we couldn't post the comment —
         # the step summary + final-gate verdict still surface in the run.
         continue-on-error: true
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');

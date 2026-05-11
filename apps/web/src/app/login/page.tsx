@@ -8,6 +8,8 @@ import { useTranslation } from "@/lib/i18n";
 import { LanguageDropdown } from "@/components/LanguageDropdown";
 import { PasswordInput } from "@/components/PasswordInput";
 import { toast } from "@/lib/toast";
+import Image from "next/image";
+import logoHorizontal from "../assets/MedCore_Logo1_0001_Layer-3.png";
 import { sanitizeNextPath } from "@/lib/utils";
 import {
   Activity,
@@ -202,6 +204,15 @@ function LoginPageInner() {
           aria-labelledby="marketing-heading"
           className="order-1 text-center md:order-none md:text-left"
         >
+          <div className="mb-6 -mt-10 flex justify-center md:justify-start">
+            <Image
+              src={logoHorizontal}
+              alt="MedCore"
+              height={56}
+              width={220}
+              className="h-8 w-auto sm:h-10 md:h-12 lg:h-14"
+            />
+          </div>
           <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-primary dark:bg-primary/20">
             <span
               className="h-2 w-2 rounded-full bg-primary"
@@ -338,10 +349,7 @@ function LoginPageInner() {
                     intended for the Password field to land in Email (the
                     wrong input took focus mid-keystroke). The fixed-height
                     container removes the layout jump entirely. */}
-                <div
-                  className="min-h-[3rem]"
-                  data-testid="login-error-slot"
-                >
+                <div className="min-h-[3rem]" data-testid="login-error-slot">
                   {error && (
                     <div
                       role="alert"

@@ -9,6 +9,8 @@ import { useTranslation } from "@/lib/i18n";
 import { LanguageDropdown } from "@/components/LanguageDropdown";
 import { PasswordInput } from "@/components/PasswordInput";
 import { toast } from "@/lib/toast";
+import Image from "next/image";
+import logoIcon from "../assets/HD_Icon.png";
 import { Check, X } from "lucide-react";
 // Issue #130: surface ALL zod validation errors at once (one inline span per
 // field via data-testid="error-{field}") instead of toasting only the first.
@@ -309,6 +311,9 @@ export default function RegisterPage() {
       </div>
       <div className="w-full max-w-lg rounded-2xl bg-white p-8 shadow-xl dark:bg-gray-800">
         <div className="mb-8 text-center">
+          <div className="mb-4 flex justify-center">
+            <Image src={logoIcon} alt="MedCore" width={52} height={52} className="rounded-xl" />
+          </div>
           <h1 className="text-3xl font-bold text-primary">{t("app.name")}</h1>
           <p className="mt-2 text-gray-500 dark:text-gray-400">
             {t("register.title")}

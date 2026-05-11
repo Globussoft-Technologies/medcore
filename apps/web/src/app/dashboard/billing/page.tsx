@@ -4,11 +4,12 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
+import { fetchRazorpayConfig } from "@/lib/razorpay";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { EmptyState } from "@/components/EmptyState";
-import { derivePaymentStatus } from "@medcore/shared";
+import { derivePaymentStatus, computeInvoiceTotals } from "@medcore/shared";
 
 // Issue #89: DOCTOR must NOT see Billing / invoices. PATIENT keeps own-data
 // access; ADMIN + RECEPTION are the operational roles.
@@ -21,16 +22,25 @@ import {
   BellRing,
   Download,
   MoreHorizontal,
+  Globe,
 } from "lucide-react";
 
 interface InvoiceRecord {
   id: string;
   invoiceNumber: string;
+  // Persisted aggregates. `totalAmount` is the legacy column and may be
+  // pre-GST on older rows — never use it directly for display; pass through
+  // computeInvoiceTotals(...) along with `items` so the screen always agrees
+  // with the invoice detail page.
   totalAmount: number;
+  subtotal?: number;
+  taxAmount?: number;
+  discountAmount?: number;
   paymentStatus: string;
   createdAt: string;
   patientId: string;
   patient: { user: { name: string; phone: string } };
+  items: Array<{ id: string; amount: number; category: string }>;
   payments: Array<{ id: string; amount: number; mode: string; paidAt: string; transactionId?: string | null }>;
 }
 
@@ -45,15 +55,6 @@ interface OutstandingRow {
   daysOverdue: number;
   paymentStatus: string;
   createdAt: string;
-}
-
-interface PayOnlineData {
-  orderId: string;
-  amount: number;
-  currency: string;
-  keyId: string;
-  invoiceId: string;
-  invoiceNumber: string;
 }
 
 type Tab = "all" | "PENDING" | "PARTIAL" | "PAID" | "REFUNDED" | "outstanding";
@@ -130,11 +131,12 @@ export default function BillingPage() {
     monthRefunds: 0,
   });
 
-  // Pay Online modal state
-  const [payModalInvoice, setPayModalInvoice] = useState<InvoiceRecord | null>(null);
-  const [payLoading, setPayLoading] = useState(false);
-  const [payError, setPayError] = useState<string | null>(null);
-  const [payOrderData, setPayOrderData] = useState<PayOnlineData | null>(null);
+  // Razorpay availability — drives whether the row's "Pay Online" menu item
+  // renders + whether it shows the yellow TEST badge. Mirrors the detail page.
+  const [razorpay, setRazorpay] = useState<{
+    enabled: boolean;
+    isTestMode: boolean;
+  }>({ enabled: false, isTestMode: false });
 
   // Record Payment modal
   const [payInv, setPayInv] = useState<InvoiceRecord | null>(null);
@@ -239,34 +241,11 @@ export default function BillingPage() {
     }
   }, [user, loadSummary]);
 
-  function openPayOnlineModal(inv: InvoiceRecord) {
-    setPayModalInvoice(inv);
-    setPayError(null);
-    setPayOrderData(null);
-  }
-
-  function closePayOnlineModal() {
-    setPayModalInvoice(null);
-    setPayError(null);
-    setPayOrderData(null);
-    setPayLoading(false);
-  }
-
-  async function handleProceedToPay() {
-    if (!payModalInvoice) return;
-    setPayLoading(true);
-    setPayError(null);
-    try {
-      const res = await api.post<{ data: PayOnlineData }>("/billing/pay-online", {
-        invoiceId: payModalInvoice.id,
-      });
-      setPayOrderData(res.data);
-    } catch (err) {
-      setPayError(err instanceof Error ? err.message : "Failed to create payment order");
-    } finally {
-      setPayLoading(false);
-    }
-  }
+  useEffect(() => {
+    fetchRazorpayConfig().then(setRazorpay).catch(() => {
+      setRazorpay({ enabled: false, isTestMode: false });
+    });
+  }, []);
 
   async function submitRecordPayment() {
     if (!payInv) return;
@@ -359,14 +338,26 @@ export default function BillingPage() {
             const refunded = inv.payments
               .filter((p) => p.amount < 0)
               .reduce((s, p) => s + Math.abs(p.amount), 0);
+            // CSV must match what's on screen — use the GST-corrected total
+            // from computeInvoiceTotals when we have items, otherwise fall
+            // back to the persisted column so rows without an items payload
+            // don't silently collapse to 0 in the export.
+            const csvHasItems = Array.isArray(inv.items) && inv.items.length > 0;
+            const totals = computeInvoiceTotals(inv.items || [], {
+              subtotal: inv.subtotal,
+              taxAmount: inv.taxAmount,
+              discountAmount: inv.discountAmount,
+              totalAmount: inv.totalAmount,
+            });
+            const csvTotal = csvHasItems ? totals.totalAmount : inv.totalAmount;
             return {
               invoice: inv.invoiceNumber,
               patient: inv.patient.user.name,
               phone: inv.patient.user.phone,
-              total: inv.totalAmount,
+              total: csvTotal,
               paid,
               refunded,
-              balance: inv.totalAmount - (paid - refunded),
+              balance: csvTotal - (paid - refunded),
               status: inv.paymentStatus,
               createdAt: new Date(inv.createdAt).toISOString(),
             };
@@ -428,16 +419,45 @@ export default function BillingPage() {
           .filter((p) => p.amount < 0)
           .reduce((s, p) => s + Math.abs(p.amount), 0);
         const netPaid = paid - refunded;
-        const balance = Math.max(0, inv.totalAmount - netPaid);
+        // GST-corrected total — matches the detail page's `displayTotal` so
+        // the list and detail never disagree on Amount / Balance. Legacy
+        // invoice rows persisted `totalAmount` as subtotal-minus-discount
+        // (no GST); computeInvoiceTotals re-derives the correct figure from
+        // line items + their categories.
+        //
+        // Fallback chain (matches what a previous-generation row produces):
+        //   1. If we have items, trust the helper's recomputed total.
+        //   2. Otherwise fall back to the persisted `inv.totalAmount` so
+        //      list rows without an `items` payload (legacy API responses,
+        //      test fixtures) keep the previously-displayed value rather
+        //      than silently collapsing to 0.
+        const hasItems = Array.isArray(inv.items) && inv.items.length > 0;
+        const totals = computeInvoiceTotals(inv.items || [], {
+          subtotal: inv.subtotal,
+          taxAmount: inv.taxAmount,
+          discountAmount: inv.discountAmount,
+          totalAmount: inv.totalAmount,
+        });
+        const displayTotal = hasItems ? totals.totalAmount : inv.totalAmount;
+        const balance = Math.max(0, displayTotal - netPaid);
         const age = daysAgo(inv.createdAt);
         // Issue #235: a row stored as PAID with non-zero balance must
         // display as PARTIAL — derivePaymentStatus is the single rule.
         const displayStatus = derivePaymentStatus(
           inv.paymentStatus,
-          inv.totalAmount,
+          displayTotal,
           netPaid
         );
-        return { ...inv, paid, refunded, netPaid, balance, age, displayStatus };
+        return {
+          ...inv,
+          paid,
+          refunded,
+          netPaid,
+          balance,
+          age,
+          displayStatus,
+          displayTotal,
+        };
       }),
     [invoices]
   );
@@ -629,7 +649,7 @@ export default function BillingPage() {
                     )}
                   </td>
                   <td className="px-4 py-3 font-medium">
-                    <MoneyValue amount={inv.totalAmount} />
+                    <MoneyValue amount={inv.displayTotal} />
                   </td>
                   <td className="px-4 py-3 text-sm">
                     <MoneyValue amount={inv.netPaid} />
@@ -693,16 +713,20 @@ export default function BillingPage() {
                               <Receipt size={14} /> Record Payment
                             </button>
                           )}
-                          {inv.displayStatus !== "PAID" && (
-                            <button
-                              onClick={() => {
-                                openPayOnlineModal(inv);
-                                setOpenActionsFor(null);
-                              }}
+                          {inv.displayStatus !== "PAID" && razorpay.enabled && (
+                            <Link
+                              href={`/dashboard/billing/${inv.id}`}
+                              onClick={() => setOpenActionsFor(null)}
                               className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50"
                             >
-                              <Receipt size={14} /> Pay Online
-                            </button>
+                              <Globe size={14} />
+                              <span>Pay Online</span>
+                              {razorpay.isTestMode && (
+                                <span className="ml-auto rounded bg-yellow-300 px-1 py-0.5 text-[10px] font-bold text-yellow-900">
+                                  TEST
+                                </span>
+                              )}
+                            </Link>
                           )}
                           {inv.netPaid > 0 && (
                             <button
@@ -974,83 +998,6 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Pay Online Modal */}
-      {payModalInvoice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-2xl"
-          >
-            <h2 className="mb-4 text-lg font-bold">Online Payment</h2>
-
-            <div className="mb-4 space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Invoice</span>
-                <span className="font-mono font-medium">{payModalInvoice.invoiceNumber}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Patient</span>
-                <span className="font-medium">{payModalInvoice.patient.user.name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Total Amount</span>
-                <span className="font-medium">{fmtMoney(payModalInvoice.totalAmount)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Already Paid</span>
-                <span>
-                  {fmtMoney(
-                    payModalInvoice.payments.reduce((s, p) => s + p.amount, 0)
-                  )}
-                </span>
-              </div>
-              <div className="flex justify-between border-t pt-2">
-                <span className="font-semibold text-gray-700">Amount to Pay</span>
-                <span className="text-lg font-bold text-primary">
-                  {fmtMoney(
-                    payModalInvoice.totalAmount -
-                      payModalInvoice.payments.reduce((s, p) => s + p.amount, 0)
-                  )}
-                </span>
-              </div>
-            </div>
-
-            {payError && (
-              <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-                {payError}
-              </div>
-            )}
-
-            {payOrderData && (
-              <div className="mb-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
-                <p className="font-medium">Order created successfully</p>
-                <p className="mt-1 font-mono text-xs">Order ID: {payOrderData.orderId}</p>
-                <p className="mt-2 text-xs text-gray-500">
-                  Razorpay checkout will be triggered with the loaded script.
-                </p>
-              </div>
-            )}
-
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={closePayOnlineModal}
-                className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
-              >
-                Cancel
-              </button>
-              {!payOrderData && (
-                <button
-                  onClick={handleProceedToPay}
-                  disabled={payLoading}
-                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
-                >
-                  {payLoading ? "Creating Order..." : "Proceed to Pay"}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

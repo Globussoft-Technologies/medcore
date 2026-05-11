@@ -448,7 +448,7 @@ export default function PatientDetailPage() {
       {/* Back link */}
       <Link
         href="/dashboard/patients"
-        className="mb-4 inline-flex items-center gap-2 text-sm text-gray-600 hover:text-primary"
+        className="no-print mb-4 inline-flex items-center gap-2 text-sm text-gray-600 hover:text-primary"
       >
         <ArrowLeft size={16} /> Back to Patients
       </Link>
@@ -765,7 +765,7 @@ export default function PatientDetailPage() {
         )}
 
         {/* Quick Actions */}
-        <div className="mt-4 flex flex-wrap gap-2 border-t pt-4">
+        <div className="no-print mt-4 flex flex-wrap gap-2 border-t pt-4">
           {(isReception || isAdmin || isDoctor) && (
             <button
               onClick={() => setQuickModal("book")}
@@ -823,7 +823,7 @@ export default function PatientDetailPage() {
       </div>
 
       {/* Tabs */}
-      <div className="mb-6 flex gap-1 overflow-x-auto border-b">
+      <div className="no-print mb-6 flex gap-1 overflow-x-auto border-b">
         {tabs.map((t) => (
           <button
             key={t.key}
@@ -4068,7 +4068,7 @@ function Patient360Tab({
         {/* Left column */}
         <div className="space-y-4 lg:col-span-2">
           {/* Quick actions strip */}
-          <div className="rounded-xl bg-white p-4 shadow-sm">
+          <div className="no-print rounded-xl bg-white p-4 shadow-sm">
             <h3 className="mb-3 text-sm font-semibold text-gray-700">Quick Actions</h3>
             <div className="flex flex-wrap gap-2">
               <QuickBtn

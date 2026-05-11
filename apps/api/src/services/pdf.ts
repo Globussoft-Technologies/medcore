@@ -1,5 +1,8 @@
 import { prisma } from "@medcore/db";
-import { generatePrescriptionQrDataUrl } from "./pdf-generator";
+import {
+  generatePrescriptionQrDataUrl,
+  generatePatientQrDataUrl,
+} from "./pdf-generator";
 import {
   computeInvoiceTotals,
   computeLineItemTax,
@@ -884,39 +887,74 @@ export async function generatePatientIdCardHTML(
     ? `<img src="${escapeHtml(patient.photoUrl)}" alt="Photo" style="width:60px;height:75px;object-fit:cover;border:1px solid #e2e8f0;" />`
     : `<div style="width:60px;height:75px;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:10px;">PHOTO</div>`;
 
-  const body = `
-  <div style="display:flex;justify-content:center;padding:24px;">
-    <div style="width:340px;height:220px;border:2px solid #2563eb;border-radius:10px;padding:14px;font-family:Arial,sans-serif;background:linear-gradient(135deg,#fff 0%,#f0f9ff 100%);">
-      <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #2563eb;padding-bottom:5px;margin-bottom:8px;">
-        <div>
-          <div style="font-size:12px;font-weight:700;color:#2563eb;">${escapeHtml(h.name)}</div>
-          <div style="font-size:8px;color:#64748b;">PATIENT ID CARD</div>
-        </div>
-        <div style="width:30px;height:30px;background:#2563eb;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;">+</div>
+  const qrDataUrl = await generatePatientQrDataUrl(patient.id, patient.mrNumber);
+  const qrImg = `<img src="${qrDataUrl}" alt="Verification QR" style="width:42px;height:42px;display:block;" />`;
+
+  const title = `ID Card - ${patient.user.name}`;
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8" />
+<title>${escapeHtml(title)}</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{background:#f1f5f9;font-family:Arial,sans-serif;}
+  .id-wrap{display:flex;justify-content:center;align-items:center;min-height:100vh;padding:24px;}
+  .id-card{
+    width:85.6mm;height:53.98mm;
+    border:2px solid #2563eb;border-radius:3mm;padding:3mm;
+    background:linear-gradient(135deg,#fff 0%,#f0f9ff 100%);
+    page-break-inside:avoid;break-inside:avoid;
+    overflow:hidden;
+  }
+  .id-head{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #2563eb;padding-bottom:1mm;margin-bottom:1.5mm;}
+  .id-name{font-size:10pt;font-weight:700;color:#2563eb;}
+  .id-sub{font-size:6pt;color:#64748b;}
+  .id-plus{width:7mm;height:7mm;background:#2563eb;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10pt;font-weight:700;}
+  .id-body{display:flex;gap:2mm;}
+  .id-info{flex:1;font-size:7pt;line-height:1.4;}
+  .id-info .pname{font-weight:700;font-size:8pt;color:#1e293b;}
+  .id-foot{display:flex;justify-content:space-between;align-items:flex-end;margin-top:1.5mm;}
+  .id-meta{font-size:6pt;color:#64748b;text-align:right;}
+  .no-print{text-align:center;margin-top:16px;}
+  .no-print button{background:#2563eb;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;}
+  @media print {
+    @page { size: 90mm 60mm; margin: 0; }
+    html,body{background:#fff;}
+    .id-wrap{padding:0;min-height:auto;}
+    .no-print{display:none !important;}
+  }
+</style>
+</head><body>
+<div class="id-wrap">
+  <div class="id-card">
+    <div class="id-head">
+      <div>
+        <div class="id-name">${escapeHtml(h.name)}</div>
+        <div class="id-sub">PATIENT ID CARD</div>
       </div>
-      <div style="display:flex;gap:10px;">
-        ${photo}
-        <div style="flex:1;font-size:10px;line-height:1.5;">
-          <div style="font-weight:700;font-size:12px;color:#1e293b;">${escapeHtml(patient.user.name)}</div>
-          <div><strong>MR#:</strong> ${escapeHtml(patient.mrNumber)}</div>
-          <div><strong>Age/Sex:</strong> ${patient.age ?? "—"} / ${escapeHtml(patient.gender)}</div>
-          ${patient.bloodGroup ? `<div><strong>Blood:</strong> ${escapeHtml(patient.bloodGroup)}</div>` : ""}
-          ${patient.emergencyContactPhone ? `<div><strong>Emerg:</strong> ${escapeHtml(patient.emergencyContactPhone)}</div>` : ""}
-        </div>
+      <div class="id-plus">+</div>
+    </div>
+    <div class="id-body">
+      ${photo}
+      <div class="id-info">
+        <div class="pname">${escapeHtml(patient.user.name)}</div>
+        <div><strong>MR#:</strong> ${escapeHtml(patient.mrNumber)}</div>
+        <div><strong>Age/Sex:</strong> ${patient.age ?? "—"} / ${escapeHtml(patient.gender)}</div>
+        ${patient.bloodGroup ? `<div><strong>Blood:</strong> ${escapeHtml(patient.bloodGroup)}</div>` : ""}
+        ${patient.emergencyContactPhone ? `<div><strong>Emerg:</strong> ${escapeHtml(patient.emergencyContactPhone)}</div>` : ""}
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:6px;">
-        <div style="width:42px;height:42px;background:repeating-linear-gradient(0deg,#000 0 3px,#fff 3px 6px),repeating-linear-gradient(90deg,#000 0 3px,transparent 3px 6px);border:1px solid #000;"></div>
-        <div style="font-size:8px;color:#64748b;text-align:right;">
-          <div>Issued: ${formatDate(patient.user ? new Date() : new Date())}</div>
-          ${h.phone ? `<div>${escapeHtml(h.phone)}</div>` : ""}
-        </div>
+    </div>
+    <div class="id-foot">
+      ${qrImg}
+      <div class="id-meta">
+        <div>Issued: ${formatDate(new Date())}</div>
+        ${h.phone ? `<div>${escapeHtml(h.phone)}</div>` : ""}
       </div>
     </div>
   </div>
-  <style>@page { size: 90mm 60mm; margin: 0; }</style>
-  `;
-
-  return htmlDoc(`ID Card - ${patient.user.name}`, body);
+</div>
+<div class="no-print"><button onclick="window.print()">Print / Save as PDF</button></div>
+<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});</script>
+</body></html>`;
 }
 
 // ─── 7. VITALS HISTORY (enhanced) ───────────────────────

@@ -170,7 +170,7 @@ describe("RegisterPage — server-error feedback (Issue #494)", () => {
       (screen.getByLabelText(/^email/i) as HTMLInputElement).value,
     ).toBe(validForm.email);
     expect(
-      (screen.getByLabelText(/^phone/i) as HTMLInputElement).value,
+      (screen.getByLabelText(/^phone$/i) as HTMLInputElement).value,
     ).toBe(validForm.phone);
   });
 

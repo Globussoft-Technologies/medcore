@@ -29,6 +29,7 @@ import {
   ADVANCE_RECEIPT_PREFIX,
   DEFAULT_GST_PERCENT,
   computeLineItemTax,
+  computeInvoiceTotals,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
@@ -44,7 +45,7 @@ import {
 import {
   createPaymentOrder,
   verifyPayment,
-  fetchOrderAmountPaid,
+  fetchOrderAmount,
   verifyWebhookSignature,
 } from "../services/razorpay";
 import { onBillGenerated, onPaymentReceived } from "../services/notification-triggers";
@@ -517,7 +518,7 @@ router.post(
 
       const invoice = await prisma.invoice.findUnique({
         where: { id: invoiceId },
-        include: { payments: true },
+        include: { payments: true, items: true },
       });
 
       if (!invoice) {
@@ -525,17 +526,29 @@ router.post(
         return;
       }
 
+      // Legacy-seed correction (same pattern as /pay-online + /verify-payment):
+      // some Invoice.totalAmount rows were persisted pre-GST. Without this,
+      // a manual ₹234 payment to close the GST gap on a row whose raw
+      // totalAmount is ₹1,300 would 400 with "Payment exceeds invoice
+      // balance". Trust computeInvoiceTotals as the single source of truth.
+      const recPayTotals = computeInvoiceTotals(invoice.items, {
+        subtotal: invoice.subtotal,
+        taxAmount: invoice.taxAmount,
+        discountAmount: invoice.discountAmount,
+        totalAmount: invoice.totalAmount,
+      });
+      const recPayCorrectedTotal = recPayTotals.totalAmount;
       const totalPaid =
         invoice.payments.reduce((sum, p) => sum + p.amount, 0) + amount;
 
       // Issue #559: reject payments that would push paid > totalAmount.
       // Allow a 1-paisa rounding tolerance so legitimate cash settlements
       // computed against tax/discount split don't false-positive.
-      if (totalPaid > invoice.totalAmount + 0.01) {
+      if (totalPaid > recPayCorrectedTotal + 0.01) {
         res.status(400).json({
           success: false,
           data: null,
-          error: `Payment exceeds invoice balance. Outstanding is Rs ${(invoice.totalAmount - (totalPaid - amount)).toFixed(2)}.`,
+          error: `Payment exceeds invoice balance. Outstanding is Rs ${(recPayCorrectedTotal - (totalPaid - amount)).toFixed(2)}.`,
         });
         return;
       }
@@ -547,7 +560,7 @@ router.post(
 
         // Update invoice payment status
         const newStatus =
-          totalPaid >= invoice.totalAmount ? "PAID" : "PARTIAL";
+          totalPaid >= recPayCorrectedTotal ? "PAID" : "PARTIAL";
         await tx.invoice.update({
           where: { id: invoiceId },
           data: { paymentStatus: newStatus },
@@ -694,6 +707,26 @@ router.get(
   }
 );
 
+// GET /api/v1/billing/razorpay-config — public-safe Razorpay status for the UI.
+// Returns whether online payments are configured + whether we're on a test key.
+// Never returns the secret; the Key ID is delivered per-order via /pay-online.
+router.get(
+  "/razorpay-config",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT, Role.DOCTOR, Role.NURSE),
+  async (_req: Request, res: Response) => {
+    const keyId = process.env.RAZORPAY_KEY_ID ?? "";
+    const enabled = Boolean(keyId && process.env.RAZORPAY_KEY_SECRET);
+    res.json({
+      success: true,
+      data: {
+        enabled,
+        isTestMode: keyId.startsWith("rzp_test_"),
+      },
+      error: null,
+    });
+  }
+);
+
 // POST /api/v1/billing/pay-online — create Razorpay order for an invoice
 // RBAC (issue #89): DOCTOR excluded.
 router.post(
@@ -701,7 +734,15 @@ router.post(
   authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { invoiceId } = req.body;
+      // `amount` is OPTIONAL — when present, the caller wants a partial
+      // payment of that exact rupee value (≤ remaining balance). When
+      // absent, we charge the full GST-corrected remaining as before. The
+      // server still enforces the cap so a tampered browser can't ask for
+      // a negative or oversized partial.
+      const { invoiceId, amount: requestedAmount } = req.body as {
+        invoiceId?: string;
+        amount?: number;
+      };
 
       if (!invoiceId) {
         res.status(400).json({ success: false, data: null, error: "invoiceId is required" });
@@ -710,7 +751,7 @@ router.post(
 
       const invoice = await prisma.invoice.findUnique({
         where: { id: invoiceId },
-        include: { payments: true },
+        include: { payments: true, items: true },
       });
 
       if (!invoice) {
@@ -724,21 +765,84 @@ router.post(
       // stranger's invoice and stamp razorpayOrderId on it.
       if (!(await assertPatientOwnsResource(req, res, invoice.patientId))) return;
 
-      if (invoice.paymentStatus === "PAID") {
-        res.status(400).json({ success: false, data: null, error: "Invoice is already paid" });
-        return;
-      }
-
-      // Calculate remaining amount
+      // Legacy seed path: some Invoice.totalAmount rows were persisted as
+      // subtotal (pre-GST). The detail page renders the GST-corrected total
+      // via computeInvoiceTotals; we MUST charge that same number through
+      // Razorpay or the patient pays less than they see and the invoice
+      // settles short by the GST amount. Single source of truth lives in
+      // @medcore/shared so list/detail/checkout always agree.
+      //
+      // We also use the corrected math as the authority for "already paid"
+      // — the persisted `paymentStatus` column can lag the truth (a row
+      // that was flipped to PAID under the old pre-GST math is now really
+      // PARTIAL with the GST gap outstanding). Trusting the column would
+      // refuse a legitimate "pay the remaining ₹234" attempt with a
+      // confusing "Invoice is already paid" error.
+      const totals = computeInvoiceTotals(invoice.items, {
+        subtotal: invoice.subtotal,
+        taxAmount: invoice.taxAmount,
+        discountAmount: invoice.discountAmount,
+        totalAmount: invoice.totalAmount,
+      });
       const totalPaid = invoice.payments.reduce((sum, p) => sum + p.amount, 0);
-      const remaining = invoice.totalAmount - totalPaid;
+      const remaining = totals.totalAmount - totalPaid;
 
       if (remaining <= 0) {
-        res.status(400).json({ success: false, data: null, error: "No balance due" });
+        res
+          .status(400)
+          .json({ success: false, data: null, error: "Invoice is already paid" });
         return;
       }
 
-      const order = await createPaymentOrder(invoiceId, remaining);
+      // Partial-payment selection. If the caller supplied an `amount`, validate
+      // it falls in (0, remaining] (1 paisa rounding tolerance to match the
+      // manual-payment endpoint at line 535). Otherwise charge the full
+      // remaining balance — preserves existing "Pay Online" full-balance UX
+      // for callers that don't pass an amount.
+      let chargeAmount = remaining;
+      if (requestedAmount !== undefined && requestedAmount !== null) {
+        const n = Number(requestedAmount);
+        if (!Number.isFinite(n) || n <= 0) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "amount must be a positive number",
+          });
+          return;
+        }
+        if (n > remaining + 0.01) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: `amount cannot exceed remaining balance of Rs ${remaining.toFixed(2)}`,
+          });
+          return;
+        }
+        chargeAmount = Math.min(n, remaining);
+      }
+
+      // Stale-order detection: if this invoice already has a razorpayOrderId
+      // whose STATED amount no longer matches our current chargeAmount (e.g.
+      // a partial payment was recorded since, the GST-corrected total
+      // changed, or the user is now asking to pay a different partial),
+      // discard the stale id. Without this the user pays the stale amount
+      // and /verify-payment can't reconcile.
+      const expectedPaiseForNewOrder = Math.round(chargeAmount * 100);
+      if (invoice.razorpayOrderId) {
+        const existingPaise = await fetchOrderAmount(invoice.razorpayOrderId);
+        if (existingPaise !== null && existingPaise !== expectedPaiseForNewOrder) {
+          console.warn("[billing] discarding stale razorpayOrderId", {
+            invoiceId,
+            staleOrderId: invoice.razorpayOrderId,
+            staleAmountPaise: existingPaise,
+            newAmountPaise: expectedPaiseForNewOrder,
+          });
+          // Fall through — createPaymentOrder below will mint a fresh order
+          // and the razorpayOrderId update will overwrite the stale one.
+        }
+      }
+
+      const order = await createPaymentOrder(invoiceId, chargeAmount);
 
       // Persist the order id on the invoice so the webhook handler can look up
       // the invoice in O(1) and the /verify-payment route can sanity-check
@@ -832,7 +936,7 @@ router.post(
       // Record the payment
       const invoice = await prisma.invoice.findUnique({
         where: { id: invoiceId },
-        include: { payments: true },
+        include: { payments: true, items: true },
       });
 
       if (!invoice) {
@@ -857,27 +961,45 @@ router.post(
         return;
       }
 
+      // Same legacy-seed correction as /pay-online: trust the GST-inclusive
+      // total from computeInvoiceTotals, not the raw `invoice.totalAmount`.
+      const verifyTotals = computeInvoiceTotals(invoice.items, {
+        subtotal: invoice.subtotal,
+        taxAmount: invoice.taxAmount,
+        discountAmount: invoice.discountAmount,
+        totalAmount: invoice.totalAmount,
+      });
+      const correctedTotal = verifyTotals.totalAmount;
       const totalPaid = invoice.payments.reduce((sum, p) => sum + p.amount, 0);
-      const remaining = invoice.totalAmount - totalPaid;
-      const expectedPaise = Math.round(remaining * 100);
 
-      // Cross-check the captured amount with Razorpay (server-to-server) to
-      // defeat a tampered browser POST that flips the rupee total. In mock
-      // mode (no creds) fetchOrderAmountPaid returns null and we skip the
-      // check — that's fine for dev but the production env always has creds.
-      const amountPaidPaise = await fetchOrderAmountPaid(razorpayOrderId);
-      if (amountPaidPaise !== null && amountPaidPaise < expectedPaise) {
-        console.warn("[billing] suspicious amount mismatch", {
-          invoiceId,
-          razorpayOrderId,
-          razorpayPaymentId,
-          expectedPaise,
-          amountPaidPaise,
-        });
-        res.status(400).json({
-          success: false,
-          data: null,
-          error: "Captured amount is less than invoice balance",
+      // Trust the HMAC signature as proof of payment. The signature was checked
+      // above (verifyPayment) — only Razorpay's secret can sign a valid one, and
+      // they only sign when a real payment authorized on their end.
+      //
+      // For the captured amount we ask Razorpay what the ORDER was created for
+      // (its stated `amount`, not the laggy `amount_paid` field that caused
+      // the prior 400-on-success bug). This works correctly for both full and
+      // partial payments — the order was minted at /pay-online time with the
+      // exact rupee amount the user agreed to pay, and Razorpay's modal won't
+      // accept a different amount. If the lookup fails (mock mode / network
+      // blip), fall back to charging the full remaining as before.
+      const orderStatedPaise = await fetchOrderAmount(razorpayOrderId).catch(
+        () => null
+      );
+      const capturedAmount =
+        orderStatedPaise !== null
+          ? orderStatedPaise / 100
+          : Math.max(0, correctedTotal - totalPaid);
+
+      if (capturedAmount <= 0) {
+        // Invoice already settled by a prior capture (idempotency fast-path
+        // for webhook + browser-callback races). Return success so the UI
+        // doesn't show a confusing red toast on what is effectively a
+        // duplicate-success.
+        res.json({
+          success: true,
+          data: { alreadyPaid: true },
+          error: null,
         });
         return;
       }
@@ -887,15 +1009,23 @@ router.post(
           const payment = await tx.payment.create({
             data: {
               invoiceId,
-              amount: remaining,
+              // Record the EXACT amount Razorpay captured — preserves audit
+              // trail accuracy even when it's a short payment against the
+              // corrected total (invoice will stay PARTIAL, not flip to PAID).
+              amount: capturedAmount,
               mode: "ONLINE",
               transactionId: razorpayPaymentId,
               status: "CAPTURED",
             },
           });
 
-          const newTotalPaid = totalPaid + remaining;
-          const newStatus = newTotalPaid >= invoice.totalAmount ? "PAID" : "PARTIAL";
+          const newTotalPaid = totalPaid + capturedAmount;
+          // Compare against the GST-corrected total so the status flip is
+          // consistent with what was actually charged. A short payment via
+          // a stale order leaves the invoice as PARTIAL with the residual
+          // owed — the next Pay Online click creates a fresh order for the
+          // remaining balance.
+          const newStatus = newTotalPaid >= correctedTotal ? "PAID" : "PARTIAL";
 
           await tx.invoice.update({
             where: { id: invoiceId },

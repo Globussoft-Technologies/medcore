@@ -171,3 +171,25 @@ export async function fetchOrderAmountPaid(
     return null;
   }
 }
+
+/**
+ * Fetch an order's STATED amount (what we asked Razorpay to charge), not what
+ * was actually paid. Used at /pay-online to detect "stale order" — an existing
+ * razorpayOrderId stamped on the invoice for the wrong rupee total, e.g.
+ * because the invoice totals changed after the order was created. Returns
+ * `null` in mock mode or when Razorpay can't be reached.
+ */
+export async function fetchOrderAmount(
+  orderId: string
+): Promise<number | null> {
+  const instance = getRazorpayInstance();
+  if (!instance) return null;
+  try {
+    const order = await instance.orders.fetch(orderId);
+    if (!order || typeof order.amount !== "number") return null;
+    return order.amount; // paise
+  } catch (e) {
+    console.error("[Razorpay] orders.fetch failed", e);
+    return null;
+  }
+}

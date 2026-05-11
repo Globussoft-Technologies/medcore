@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from "express";
+import express, { Router, Request, Response, NextFunction } from "express";
 // Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
 // auto-injects tenantId on create and auto-filters on read for the 20
 // tenant-scoped models (see services/tenant-prisma.ts). We alias it to
@@ -22,6 +22,7 @@ import {
   labQCSchema,
   verifyResultSchema,
   shareLinkSchema,
+  isImagingLabTest,
   validateNumericLabResult,
   deriveLabResultFlag,
 } from "@medcore/shared";
@@ -32,6 +33,18 @@ import { auditLog } from "../middleware/audit";
 import { generateLabReportHTML } from "../services/pdf";
 import { sendNotification } from "../services/notification";
 import { ingestLabResult, fireAndForgetIngest } from "../services/ai/rag-ingest";
+import { detectMime, ALLOWED_MIMES } from "../services/file-magic";
+import { uploadFile, getSignedDownloadUrl, isS3Enabled } from "../services/storage";
+
+// Issue #622: imaging-report attachments (PDF / JPEG / PNG / DICOM) for
+// radiology orders use the same 10 MB cap and base64 transport shape as
+// /api/v1/uploads. The lab router is mounted under the global
+// `express.json()` (default 100 KB), so the attachment endpoints below
+// declare their own JSON parser with the higher cap. UPLOAD_MAX_BYTES
+// stays in sync with uploads.ts and the nginx `client_max_body_size`.
+const LAB_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+const LAB_ATTACHMENT_JSON_LIMIT = "14mb";
+const labAttachmentBodyParser = express.json({ limit: LAB_ATTACHMENT_JSON_LIMIT });
 
 const router = Router();
 router.use(authenticate);
@@ -361,9 +374,14 @@ router.post(
 );
 
 // PATCH /api/v1/lab/orders/:id/status
+// Issue #624: LAB_TECH is the canonical role for the pre-analytical
+// transition ORDERED → SAMPLE_COLLECTED. The legacy allow-list omitted
+// LAB_TECH which meant the new "Mark Sample Collected" CTA on the order
+// detail page would 403 — defeating the workflow. Add LAB_TECH alongside
+// NURSE so either role can stamp the collection time.
 router.patch(
   "/orders/:id/status",
-  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE),
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH),
   validate(updateLabOrderStatusSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -392,6 +410,227 @@ router.patch(
       }).catch(console.error);
 
       res.json({ success: true, data: order, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// IMAGING / RADIOLOGY ATTACHMENTS (issue #622)
+// ───────────────────────────────────────────────────────
+//
+// Radiology / imaging orders (Ultrasound, X-Ray, ECG, Echocardiogram, MRI,
+// CT, etc.) produce a file artefact — DICOM, PDF report, JPEG/PNG image —
+// that the numeric Add-Result form cannot represent. These endpoints let
+// LAB_TECH attach an imaging report to a lab order.
+//
+// Storage path: existing storage abstraction (services/storage.ts) → local
+// disk in dev, S3 in prod. Persisted as a PatientDocument row with
+// `type: IMAGING` so it surfaces in /ehr/documents listings as well.
+//
+// RBAC: LAB_TECH | ADMIN | DOCTOR | NURSE — same roles that can read the
+// order itself. Restricted to orders containing at least one imaging test
+// (catalog-aware, see isImagingLabTest in @medcore/shared/validation/lab).
+// Body: { filename, base64Content, title, notes? }
+// Limits: 10 MB hard cap; allow-list PDF / JPEG / PNG / WEBP / DICOM.
+//
+// #511 (BOLA): the order's patientId is enforced server-side; the caller
+// cannot redirect the upload to another patient.
+
+// POST /api/v1/lab/orders/:id/attachments
+router.post(
+  "/orders/:id/attachments",
+  labAttachmentBodyParser,
+  authorize(Role.LAB_TECH, Role.ADMIN, Role.DOCTOR, Role.NURSE),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { filename, base64Content, title, notes } = req.body as {
+        filename?: string;
+        base64Content?: string;
+        title?: string;
+        notes?: string;
+      };
+      if (!filename || !base64Content || !title) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "filename, base64Content and title are required",
+        });
+        return;
+      }
+
+      const order = await prisma.labOrder.findUnique({
+        where: { id: req.params.id },
+        include: { items: { include: { test: true } } },
+      });
+      if (!order) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Lab order not found" });
+        return;
+      }
+
+      // CANCELLED orders cannot accept new artefacts. COMPLETED orders may
+      // still receive attachments (the radiologist's signed report often
+      // arrives after the order is marked complete).
+      if (order.status === "CANCELLED") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: "Order is cancelled; attachments cannot be added.",
+        });
+        return;
+      }
+
+      // Issue #622 scope guard: only orders containing at least one imaging
+      // test get the upload surface. Orders with only Hematology /
+      // Biochemistry panels keep the numeric Add-Result form.
+      const hasImagingTest = order.items.some((it) =>
+        isImagingLabTest({
+          name: it.test.name,
+          category: it.test.category ?? null,
+        })
+      );
+      if (!hasImagingTest) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error:
+            "Attachments are only supported for imaging / radiology orders.",
+        });
+        return;
+      }
+
+      // Strip data: URL prefix if present (data:application/pdf;base64,...).
+      const commaIdx = base64Content.indexOf(",");
+      const rawB64 =
+        base64Content.startsWith("data:") && commaIdx > -1
+          ? base64Content.slice(commaIdx + 1)
+          : base64Content;
+
+      let buffer: Buffer;
+      try {
+        buffer = Buffer.from(rawB64, "base64");
+      } catch {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Invalid base64 content",
+        });
+        return;
+      }
+      if (buffer.length === 0) {
+        res
+          .status(400)
+          .json({ success: false, data: null, error: "Empty file" });
+        return;
+      }
+      if (buffer.length > LAB_ATTACHMENT_MAX_BYTES) {
+        res.status(413).json({
+          success: false,
+          data: null,
+          error: `File exceeds ${LAB_ATTACHMENT_MAX_BYTES} bytes (10 MB)`,
+        });
+        return;
+      }
+
+      const sniffed = detectMime(buffer);
+      if (!sniffed || !ALLOWED_MIMES.has(sniffed)) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `File type not allowed (detected: ${sniffed ?? "unknown"})`,
+        });
+        return;
+      }
+
+      const safeBase = filename
+        .replace(/[^a-zA-Z0-9._-]+/g, "-")
+        .slice(0, 96);
+      const storedName = `${crypto.randomUUID()}-${safeBase}`;
+      const stored = await uploadFile(buffer, storedName, sniffed);
+
+      const doc = await prisma.patientDocument.create({
+        data: {
+          patientId: order.patientId,
+          type: "IMAGING",
+          title,
+          filePath: stored.key,
+          fileSize: buffer.length,
+          mimeType: sniffed,
+          uploadedBy: req.user!.userId,
+          notes: notes
+            ? `Lab order ${order.orderNumber} — ${notes}`
+            : `Lab order ${order.orderNumber}`,
+        },
+      });
+
+      auditLog(req, "LAB_ORDER_ATTACHMENT_CREATE", "lab_order", order.id, {
+        documentId: doc.id,
+        size: buffer.length,
+        mimeType: sniffed,
+        storageProvider: isS3Enabled() ? "s3" : "local",
+      }).catch(console.error);
+
+      res.status(201).json({
+        success: true,
+        data: {
+          documentId: doc.id,
+          filePath: stored.key,
+          fileSize: buffer.length,
+          mimeType: sniffed,
+          title,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/lab/orders/:id/attachments — list imaging artefacts
+router.get(
+  "/orders/:id/attachments",
+  authorize(Role.LAB_TECH, Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PATIENT),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const order = await prisma.labOrder.findUnique({
+        where: { id: req.params.id },
+        select: { patientId: true, orderedAt: true, orderNumber: true },
+      });
+      if (!order) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Lab order not found" });
+        return;
+      }
+      // BOLA: patient self-only; staff roles fall through.
+      if (!(await assertPatientOwnsResource(req, res, order.patientId))) return;
+
+      // Match by the lab-order tag stamped into `notes` at upload time.
+      // Avoids needing a new schema column while still scoping artefacts to
+      // this specific order.
+      const docs = await prisma.patientDocument.findMany({
+        where: {
+          patientId: order.patientId,
+          type: "IMAGING",
+          notes: { contains: `Lab order ${order.orderNumber}` },
+        },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          title: true,
+          filePath: true,
+          fileSize: true,
+          mimeType: true,
+          createdAt: true,
+          uploadedBy: true,
+        },
+      });
+
+      res.json({ success: true, data: docs, error: null });
     } catch (err) {
       next(err);
     }

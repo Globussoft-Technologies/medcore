@@ -1,3 +1,37 @@
+/**
+ * Phase 4 specialty seed — Antenatal (ANC) cases + pediatric growth records.
+ *
+ * Idempotency contract (2026-05-11): safe to re-run on a populated demo
+ * without creating duplicate ANC cases, duplicate visits, or wiping
+ * user-created growth records.
+ *
+ *   - AntenatalCase: stable seed-namespaced `caseNumber = ANC-SEED-<NNNN>`
+ *     (1..3) — distinct from the live production ANC counter (`ANC000001..`)
+ *     so the seed never reuses or collides with a real-tenant case number.
+ *     Skip-or-create via `findUnique({ where: { caseNumber } })`.
+ *     Note: AntenatalCase.patientId is `@unique` (one active case per
+ *     patient), so we also tolerate prior seed-runs where a patient
+ *     already has a non-seed case — those patients are skipped from
+ *     the eligible set (this part was already idempotent pre-2026-05-11).
+ *   - AncVisit: no natural unique key; anchored by `(ancCaseId, type,
+ *     visitDate)` triple via findFirst skip-or-create. Per-case visit
+ *     definitions are deterministic (hard-coded list below), so this
+ *     triple is stable across re-runs.
+ *   - GrowthRecord: previously did `deleteMany({ where: { patientId } })`
+ *     before re-creating, which would WIPE real growth records logged by
+ *     a clinician for that patient on every deploy. Replaced with
+ *     `findFirst({ where: { patientId, ageMonths } })` skip-or-create
+ *     keyed on (patientId, ageMonths). The seed only re-creates the
+ *     specific milestone ages (0, 2, 4, 6, 12 months); any human-entered
+ *     records at other ages or with different anchor dates are preserved.
+ *
+ * No `Math.random()` is used in this file — all decisions are already
+ * deterministic — so no PRNG is needed.
+ *
+ * Wired into `scripts/deploy.sh` by the orchestrator (separate commit).
+ * Failures are non-fatal (matches the policy of every other deploy-time
+ * fixture seed).
+ */
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -6,19 +40,6 @@ function addDays(date: Date, days: number): Date {
   const d = new Date(date);
   d.setUTCDate(d.getUTCDate() + days);
   return d;
-}
-
-async function nextAncCaseNumber(): Promise<string> {
-  const last = await prisma.antenatalCase.findFirst({
-    orderBy: { caseNumber: "desc" },
-    select: { caseNumber: true },
-  });
-  let n = 1;
-  if (last?.caseNumber) {
-    const m = last.caseNumber.match(/(\d+)$/);
-    if (m) n = parseInt(m[1], 10) + 1;
-  }
-  return `ANC${String(n).padStart(6, "0")}`;
 }
 
 async function main() {
@@ -41,7 +62,10 @@ async function main() {
     return;
   }
 
-  // Pick 3 female patients who don't already have an ANC case
+  // Pick 3 female patients who don't already have an ANC case (per the
+  // patientId @unique constraint). On a re-run, the patients seeded
+  // previously will already have a case and re-enter this branch via the
+  // findUnique-on-caseNumber path below, NOT via `eligible[]`.
   const eligible: typeof femalePatients = [];
   for (const p of femalePatients) {
     const exists = await prisma.antenatalCase.findUnique({
@@ -51,40 +75,137 @@ async function main() {
     if (eligible.length === 3) break;
   }
 
-  if (eligible.length < 3) {
-    console.log(
-      `Only ${eligible.length} eligible patient(s) without existing ANC cases — continuing with what we have.`
-    );
-  }
-
   const doctor = doctors[0];
   const now = new Date();
 
-  // Case 1: Active normal — LMP 14 weeks ago
-  if (eligible[0]) {
-    const lmp = addDays(now, -14 * 7);
-    const edd = addDays(lmp, 280);
-    const caseNumber = await nextAncCaseNumber();
-    const c = await prisma.antenatalCase.create({
-      data: {
-        caseNumber,
-        patientId: eligible[0].id,
-        doctorId: doctor.id,
-        lmpDate: lmp,
-        eddDate: edd,
-        gravida: 1,
-        parity: 0,
-        bloodGroup: "O+",
-        isHighRisk: false,
+  // ─── Canonical 3-case seed definition ───────────────
+  // Each case has a stable seed-namespaced caseNumber so re-runs hit the
+  // existing row via findUnique. The patient binding is sticky: once a
+  // seed case is created for a particular patient, that case keeps living
+  // there even if a different female patient appears earlier in
+  // `femalePatients` on the next run.
+  const seedCases: Array<{
+    seedIdx: number;
+    lmpOffsetWeeks: number; // negative = LMP weeks ago
+    gravida: number;
+    parity: number;
+    bloodGroup: string;
+    isHighRisk: boolean;
+    riskFactors?: string;
+    delivered?: {
+      deliveryType: string;
+      babyGender: string;
+      babyWeight: number;
+      outcomeNotes: string;
+      preEddDays: number; // delivered preEddDays before EDD
+    };
+  }> = [
+    {
+      seedIdx: 1,
+      lmpOffsetWeeks: -14,
+      gravida: 1,
+      parity: 0,
+      bloodGroup: "O+",
+      isHighRisk: false,
+    },
+    {
+      seedIdx: 2,
+      lmpOffsetWeeks: -28,
+      gravida: 3,
+      parity: 1,
+      bloodGroup: "A+",
+      isHighRisk: true,
+      riskFactors: "Previous C-section, Hypertension, GDM",
+    },
+    {
+      seedIdx: 3,
+      lmpOffsetWeeks: -42,
+      gravida: 2,
+      parity: 1,
+      bloodGroup: "B+",
+      isHighRisk: false,
+      delivered: {
+        deliveryType: "NORMAL",
+        babyGender: "FEMALE",
+        babyWeight: 3.1,
+        outcomeNotes: "Normal vaginal delivery. Apgar 9/10. Baby healthy.",
+        preEddDays: 14,
       },
-    });
-    console.log(`  Created ANC case ${caseNumber} (active, normal) for ${eligible[0].user.name}`);
+    },
+  ];
 
-    // 3 routine visits
-    await prisma.ancVisit.createMany({
-      data: [
+  for (const sc of seedCases) {
+    const caseNumber = `ANC-SEED-${String(sc.seedIdx).padStart(4, "0")}`;
+
+    // Skip-or-create on stable caseNumber.
+    let c = await prisma.antenatalCase.findUnique({ where: { caseNumber } });
+    if (c) {
+      console.log(`  ANC case ${caseNumber} already exists — skip create, ensure visits.`);
+    } else {
+      // Need a patient slot. If we have no eligible patient for this seed
+      // index AND no existing case, skip this seed entry.
+      const patient = eligible[sc.seedIdx - 1];
+      if (!patient) {
+        console.log(`  No eligible patient for ${caseNumber} — skipping.`);
+        continue;
+      }
+
+      const lmp = addDays(now, sc.lmpOffsetWeeks * 7);
+      const edd = addDays(lmp, 280);
+      const deliveredAt = sc.delivered ? addDays(edd, -sc.delivered.preEddDays) : null;
+
+      c = await prisma.antenatalCase.create({
+        data: {
+          caseNumber,
+          patientId: patient.id,
+          doctorId: doctor.id,
+          lmpDate: lmp,
+          eddDate: edd,
+          gravida: sc.gravida,
+          parity: sc.parity,
+          bloodGroup: sc.bloodGroup,
+          isHighRisk: sc.isHighRisk,
+          riskFactors: sc.riskFactors,
+          ...(sc.delivered && deliveredAt
+            ? {
+                deliveredAt,
+                deliveryType: sc.delivered.deliveryType,
+                babyGender: sc.delivered.babyGender,
+                babyWeight: sc.delivered.babyWeight,
+                outcomeNotes: sc.delivered.outcomeNotes,
+              }
+            : {}),
+        },
+      });
+      console.log(`  Created ANC case ${caseNumber} for ${patient.user.name}`);
+    }
+
+    // Build the deterministic visit list for this case. Re-derive lmp
+    // from the row itself so re-runs always re-anchor to whatever LMP
+    // was first seeded.
+    const lmp = c.lmpDate;
+    const edd = c.eddDate;
+    type VisitInput = {
+      type: string;
+      visitDate: Date;
+      weeksOfGestation?: number;
+      weight?: number;
+      bloodPressure?: string;
+      fundalHeight?: string;
+      fetalHeartRate?: number;
+      presentation?: string;
+      hemoglobin?: number;
+      urineProtein?: string;
+      urineSugar?: string;
+      prescribedMeds?: string;
+      notes?: string;
+      nextVisitDate?: Date;
+    };
+    const visitsForCase: VisitInput[] = [];
+
+    if (sc.seedIdx === 1) {
+      visitsForCase.push(
         {
-          ancCaseId: c.id,
           type: "FIRST_VISIT",
           visitDate: addDays(lmp, 6 * 7),
           weeksOfGestation: 6,
@@ -98,7 +219,6 @@ async function main() {
           nextVisitDate: addDays(lmp, 10 * 7),
         },
         {
-          ancCaseId: c.id,
           type: "ROUTINE",
           visitDate: addDays(lmp, 10 * 7),
           weeksOfGestation: 10,
@@ -112,7 +232,6 @@ async function main() {
           nextVisitDate: addDays(lmp, 14 * 7),
         },
         {
-          ancCaseId: c.id,
           type: "ROUTINE",
           visitDate: addDays(lmp, 14 * 7),
           weeksOfGestation: 14,
@@ -125,39 +244,11 @@ async function main() {
           urineSugar: "nil",
           prescribedMeds: "Iron, Calcium",
           notes: "Fetal heart tones audible. Mother feeling well.",
-          nextVisitDate: addDays(now, 28),
         },
-      ],
-    });
-  }
-
-  // Case 2: Active high-risk — LMP 28 weeks ago
-  if (eligible[1]) {
-    const lmp = addDays(now, -28 * 7);
-    const edd = addDays(lmp, 280);
-    const caseNumber = await nextAncCaseNumber();
-    const c = await prisma.antenatalCase.create({
-      data: {
-        caseNumber,
-        patientId: eligible[1].id,
-        doctorId: doctor.id,
-        lmpDate: lmp,
-        eddDate: edd,
-        gravida: 3,
-        parity: 1,
-        bloodGroup: "A+",
-        isHighRisk: true,
-        riskFactors: "Previous C-section, Hypertension, GDM",
-      },
-    });
-    console.log(
-      `  Created ANC case ${caseNumber} (active, high risk) for ${eligible[1].user.name}`
-    );
-
-    await prisma.ancVisit.createMany({
-      data: [
+      );
+    } else if (sc.seedIdx === 2) {
+      visitsForCase.push(
         {
-          ancCaseId: c.id,
           type: "FIRST_VISIT",
           visitDate: addDays(lmp, 8 * 7),
           weeksOfGestation: 8,
@@ -171,7 +262,6 @@ async function main() {
           nextVisitDate: addDays(lmp, 12 * 7),
         },
         {
-          ancCaseId: c.id,
           type: "HIGH_RISK_FOLLOWUP",
           visitDate: addDays(lmp, 16 * 7),
           weeksOfGestation: 16,
@@ -187,7 +277,6 @@ async function main() {
           nextVisitDate: addDays(lmp, 22 * 7),
         },
         {
-          ancCaseId: c.id,
           type: "SCAN_REVIEW",
           visitDate: addDays(lmp, 22 * 7),
           weeksOfGestation: 22,
@@ -203,7 +292,6 @@ async function main() {
           nextVisitDate: addDays(lmp, 26 * 7),
         },
         {
-          ancCaseId: c.id,
           type: "HIGH_RISK_FOLLOWUP",
           visitDate: addDays(lmp, 28 * 7),
           weeksOfGestation: 28,
@@ -217,44 +305,12 @@ async function main() {
           urineSugar: "nil",
           prescribedMeds: "Labetalol, Aspirin, Iron",
           notes: "GTT ordered. Increased monitoring.",
-          nextVisitDate: addDays(now, 14),
         },
-      ],
-    });
-  }
-
-  // Case 3: Delivered — LMP 42 weeks ago (delivered 2 weeks ago)
-  if (eligible[2]) {
-    const lmp = addDays(now, -42 * 7);
-    const edd = addDays(lmp, 280);
-    const deliveredAt = addDays(edd, -2 * 7);
-    const caseNumber = await nextAncCaseNumber();
-    const c = await prisma.antenatalCase.create({
-      data: {
-        caseNumber,
-        patientId: eligible[2].id,
-        doctorId: doctor.id,
-        lmpDate: lmp,
-        eddDate: edd,
-        gravida: 2,
-        parity: 1,
-        bloodGroup: "B+",
-        isHighRisk: false,
-        deliveredAt,
-        deliveryType: "NORMAL",
-        babyGender: "FEMALE",
-        babyWeight: 3.1,
-        outcomeNotes: "Normal vaginal delivery. Apgar 9/10. Baby healthy.",
-      },
-    });
-    console.log(
-      `  Created ANC case ${caseNumber} (delivered) for ${eligible[2].user.name}`
-    );
-
-    await prisma.ancVisit.createMany({
-      data: [
+      );
+    } else if (sc.seedIdx === 3 && sc.delivered) {
+      const deliveredAt = addDays(edd, -sc.delivered.preEddDays);
+      visitsForCase.push(
         {
-          ancCaseId: c.id,
           type: "FIRST_VISIT",
           visitDate: addDays(lmp, 8 * 7),
           weeksOfGestation: 8,
@@ -264,7 +320,6 @@ async function main() {
           notes: "Booking visit for 2nd pregnancy.",
         },
         {
-          ancCaseId: c.id,
           type: "ROUTINE",
           visitDate: addDays(lmp, 20 * 7),
           weeksOfGestation: 20,
@@ -276,7 +331,6 @@ async function main() {
           notes: "Progressing well.",
         },
         {
-          ancCaseId: c.id,
           type: "ROUTINE",
           visitDate: addDays(lmp, 36 * 7),
           weeksOfGestation: 36,
@@ -289,7 +343,6 @@ async function main() {
           notes: "Term approaching.",
         },
         {
-          ancCaseId: c.id,
           type: "DELIVERY",
           visitDate: deliveredAt,
           weeksOfGestation: 38,
@@ -298,13 +351,37 @@ async function main() {
           notes: "Normal vaginal delivery. Live female baby 3.1 kg.",
         },
         {
-          ancCaseId: c.id,
           type: "POSTNATAL",
           visitDate: addDays(deliveredAt, 7),
           notes: "Mother and baby doing well. Breastfeeding established.",
         },
-      ],
-    });
+      );
+    }
+
+    // Skip-or-create each visit anchored on (ancCaseId, type, visitDate).
+    let visitsCreated = 0;
+    for (const v of visitsForCase) {
+      const existing = await prisma.ancVisit.findFirst({
+        where: {
+          ancCaseId: c.id,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          type: v.type as any,
+          visitDate: v.visitDate,
+        },
+      });
+      if (existing) continue;
+      await prisma.ancVisit.create({
+        data: {
+          ancCaseId: c.id,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ...(v as any),
+        },
+      });
+      visitsCreated++;
+    }
+    if (visitsCreated > 0) {
+      console.log(`    + ${visitsCreated} visits for ${caseNumber}`);
+    }
   }
 
   // ─── Growth Records for a young patient ───────────────
@@ -328,11 +405,12 @@ async function main() {
       (await prisma.user.findFirst({ where: { role: "NURSE" } }));
     const recordedBy = anyStaff?.id || doctor.userId;
 
-    // Remove existing growth records to prevent duplicates on re-run
-    await prisma.growthRecord.deleteMany({
-      where: { patientId: pediatricPatient.id },
-    });
-
+    // Pre-2026-05-11 this block did:
+    //   `await prisma.growthRecord.deleteMany({ where: { patientId: ... } })`
+    // — which would WIPE any clinician-entered growth records for this
+    // patient on every deploy. Replaced with per-row skip-or-create
+    // anchored on (patientId, ageMonths). The 5 milestone ages below are
+    // hard-coded so re-runs always hit the same logical row.
     const measurements = [
       { ageMonths: 0, weightKg: 3.2, heightCm: 49, headCircumference: 34 },
       { ageMonths: 2, weightKg: 5.4, heightCm: 57, headCircumference: 38, milestoneNotes: "Smiling, cooing" },
@@ -341,10 +419,18 @@ async function main() {
       { ageMonths: 12, weightKg: 9.5, heightCm: 74, headCircumference: 45, milestoneNotes: "Walking, first words", developmentalNotes: "Meeting all expected milestones." },
     ];
 
+    let growthCreated = 0;
     for (const m of measurements) {
+      const exists = await prisma.growthRecord.findFirst({
+        where: {
+          patientId: pediatricPatient.id,
+          ageMonths: m.ageMonths,
+        },
+      });
+      if (exists) continue;
+
       const hMeters = m.heightCm / 100;
       const bmi = Math.round((m.weightKg / (hMeters * hMeters)) * 10) / 10;
-      // Rough percentile computation
       const medians: Record<number, { w: number; h: number }> = {
         0: { w: 3.3, h: 49.9 },
         2: { w: 5.6, h: 58.4 },
@@ -375,10 +461,15 @@ async function main() {
           recordedBy,
         },
       });
+      growthCreated++;
     }
-    console.log(
-      `  Seeded ${measurements.length} growth records for ${pediatricPatient.user.name}`
-    );
+    if (growthCreated > 0) {
+      console.log(
+        `  Seeded ${growthCreated} new growth record(s) for ${pediatricPatient.user.name} (skipped any already present)`,
+      );
+    } else {
+      console.log(`  All milestone growth records already present for ${pediatricPatient.user.name}.`);
+    }
   }
 
   console.log("\n=== Phase 4 Specialty seed complete ===");

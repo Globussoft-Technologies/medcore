@@ -163,19 +163,19 @@ export default function AssetsPage() {
       {/* Header stats */}
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
         <div className="rounded-lg bg-white p-4 shadow">
-          <p className="text-xs text-gray-500">Total Assets</p>
-          <p className="text-2xl font-bold">{totalAssets}</p>
+          <p className="text-xs text-gray-600">Total Assets</p>
+          <p className="text-2xl font-bold text-gray-900">{totalAssets}</p>
         </div>
         <div className="rounded-lg bg-white p-4 shadow">
-          <p className="text-xs text-gray-500">In Use</p>
+          <p className="text-xs text-gray-600">In Use</p>
           <p className="text-2xl font-bold text-blue-600">{inUse}</p>
         </div>
         <div className="rounded-lg bg-white p-4 shadow">
-          <p className="text-xs text-gray-500">Under Maintenance</p>
+          <p className="text-xs text-gray-600">Under Maintenance</p>
           <p className="text-2xl font-bold text-yellow-600">{underMaint}</p>
         </div>
         <div className="rounded-lg bg-white p-4 shadow">
-          <p className="text-xs text-gray-500">Warranty Expiring</p>
+          <p className="text-xs text-gray-600">Warranty Expiring</p>
           <p className="text-2xl font-bold text-red-600">{warrantyAlerts.length}</p>
         </div>
       </div>
@@ -253,10 +253,10 @@ export default function AssetsPage() {
                     className="border-b hover:bg-gray-50 cursor-pointer"
                     onClick={() => openAssetDetail(a)}
                   >
-                    <td className="p-3 font-mono text-xs">{a.assetTag}</td>
-                    <td className="p-3 font-medium">{a.name}</td>
-                    <td className="p-3">{a.category}</td>
-                    <td className="p-3 text-xs text-gray-500">{a.location || "—"}</td>
+                    <td className="p-3 font-mono text-xs text-gray-800">{a.assetTag}</td>
+                    <td className="p-3 font-medium text-gray-900">{a.name}</td>
+                    <td className="p-3 text-gray-800">{a.category}</td>
+                    <td className="p-3 text-xs text-gray-600">{a.location || "—"}</td>
                     <td className="p-3">
                       <span
                         className={`rounded px-2 py-0.5 text-xs ${
@@ -266,7 +266,7 @@ export default function AssetsPage() {
                         {a.status.replace(/_/g, " ")}
                       </span>
                     </td>
-                    <td className="p-3 text-xs">
+                    <td className="p-3 text-xs text-gray-800">
                       {active?.assignee?.name || "—"}
                     </td>
                     {tab === "warranty" && (

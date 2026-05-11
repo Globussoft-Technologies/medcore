@@ -114,6 +114,39 @@ describe("AdherencePage", () => {
     ).toBeInTheDocument();
   });
 
+  // Issue #603: PATIENTs reported a ~30-40% reproducibility silent logout
+  // when navigating to /dashboard/adherence. Cause: lib/api.ts's global
+  // 401 handler treated any 401 — including the hydration-race transient
+  // 401 from /ai/adherence/mine before the auth cookie was hot — as a
+  // real session expiry, wiped storage, and bounced to /login. The fix
+  // passes skip401Redirect on the initial-load fetches so the page
+  // shows an inline "session reconnecting" banner instead.
+  it("on a 401 from /ai/adherence/mine surfaces an inline 'reconnecting' banner instead of letting the global 401 redirect fire (#603)", async () => {
+    apiMock.get.mockImplementation((url: string, opts?: any) => {
+      if (url.startsWith("/ai/adherence/mine")) {
+        // Verify the call opted out of the global 401 redirect — that
+        // is the actual mechanism that prevents the silent logout.
+        expect(opts?.skip401Redirect).toBe(true);
+        const err = Object.assign(new Error("Unauthorized"), {
+          status: 401,
+        });
+        return Promise.reject(err);
+      }
+      return Promise.resolve({ data: [] });
+    });
+    render(<AdherencePage />);
+    await waitFor(() =>
+      expect(
+        screen.getByText(/session is reconnecting/i),
+      ).toBeInTheDocument(),
+    );
+    // The "no patient profile" copy must NOT render — that empty state
+    // is reserved for definitive 404, not a transient 401.
+    expect(
+      screen.queryByText(/no patient profile found/i),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows a validation error when enrolling without a prescription ID", async () => {
     apiMock.get.mockResolvedValue({ data: [] });
     const user = userEvent.setup();

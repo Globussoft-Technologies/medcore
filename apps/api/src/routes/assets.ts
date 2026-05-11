@@ -18,6 +18,12 @@ import { auditLog } from "../middleware/audit";
 const router = Router();
 router.use(authenticate);
 
+// #511 audit (file-level, 2026-05-09): every handler in this file applies
+// `authorize(Role.ADMIN, ...)` (often Role.RECEPTION or Role.ADMIN-only) —
+// PATIENT is excluded from every surface. Asset list / detail / maintenance /
+// transfer / depreciation / disposal are admin/ops-only by design (Issue
+// #174 already locked this down). Verified-safe.
+
 // ───────────────────────────────────────────────────────
 // MAINTENANCE & WARRANTY (specific routes first)
 // ───────────────────────────────────────────────────────

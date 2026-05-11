@@ -36,6 +36,10 @@ function safeAudit(
 export const aiLettersRouter = Router();
 
 aiLettersRouter.use(authenticate);
+// #511 audit (file-level, 2026-05-09): every handler applies
+// `authorize(Role.DOCTOR, Role.ADMIN)` — PATIENT is excluded. Referral and
+// discharge letters are clinician-authored documents; PATIENT has no
+// generate-letter surface here. Verified-safe.
 // security(2026-04-23-med): F-LET-* — letter generation is Sarvam-backed (one
 // LLM call per request). Cap to 20/min/IP so one caller can't burn budget.
 if (process.env.NODE_ENV !== "test") {

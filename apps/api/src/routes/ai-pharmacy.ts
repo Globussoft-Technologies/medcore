@@ -26,6 +26,9 @@ export const aiPharmacyRouter = Router();
 
 // All routes require authentication
 aiPharmacyRouter.use(authenticate);
+// #511 audit (file-level, 2026-05-09): router-level
+// `authorize(Role.ADMIN, Role.PHARMACIST)` excludes PATIENT from every
+// handler in this file. Verified-safe.
 aiPharmacyRouter.use(authorize(Role.ADMIN, Role.PHARMACIST));
 
 const URGENCY_ORDER: Record<string, number> = { CRITICAL: 0, LOW: 1, OK: 2 };

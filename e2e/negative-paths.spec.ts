@@ -197,11 +197,25 @@ test.describe("Negative paths — error surfaces, retries, and offline (E2E_COVE
     ).toBeVisible({ timeout: PAGE_TIMEOUT });
 
     // Fill a valid form (passes both client + server validation).
+    // Issue #617 / #684 / #713 (May 2026): the register page now also
+    // requires confirmPassword, gender, dateOfBirth, address, an emergency
+    // contact triplet, and a T&C consent checkbox before the client-side
+    // submit will fire. Without these, validateClient() fails and the
+    // /auth/register POST stub never receives the request — the retry
+    // banner never appears.
     const uniqueEmail = `e2e-neg-${Date.now()}@medcore.local`;
     await page.locator("#reg-name").fill("Priya Sharma");
     await page.locator("#reg-email").fill(uniqueEmail);
     await page.locator("#reg-phone").fill("9871234567");
     await page.locator("#reg-password").fill("Medcore@E2e9!");
+    await page.locator("#reg-confirm-password").fill("Medcore@E2e9!");
+    await page.locator("#reg-gender").selectOption("FEMALE");
+    await page.locator("#reg-dob").fill("1990-04-12");
+    await page.locator("#reg-address").fill("12 MG Road, Bengaluru 560001");
+    await page.locator("#reg-ec-name").fill("Ravi Sharma");
+    await page.locator("#reg-ec-phone").fill("9881234567");
+    await page.locator("#reg-ec-rel").fill("Sibling");
+    await page.getByTestId("reg-accept-terms").check();
 
     await page
       .getByRole("button", { name: /register|create account|sign up/i })
@@ -257,10 +271,21 @@ test.describe("Negative paths — error surfaces, retries, and offline (E2E_COVE
       page.getByRole("form", { name: /registration form/i })
     ).toBeVisible({ timeout: PAGE_TIMEOUT });
 
+    // Issue #617 / #684 / #713 (May 2026): see the 500-retry test above for
+    // the full reasoning — the register form now requires the full PATIENT
+    // intake set up front.
     await page.locator("#reg-name").fill("Anjali Verma");
     await page.locator("#reg-email").fill(`e2e-408-${Date.now()}@medcore.local`);
     await page.locator("#reg-phone").fill("9881234567");
     await page.locator("#reg-password").fill("Medcore@E2e9!");
+    await page.locator("#reg-confirm-password").fill("Medcore@E2e9!");
+    await page.locator("#reg-gender").selectOption("FEMALE");
+    await page.locator("#reg-dob").fill("1992-08-25");
+    await page.locator("#reg-address").fill("9 Brigade Road, Bengaluru 560025");
+    await page.locator("#reg-ec-name").fill("Sunita Verma");
+    await page.locator("#reg-ec-phone").fill("9881234568");
+    await page.locator("#reg-ec-rel").fill("Mother");
+    await page.getByTestId("reg-accept-terms").check();
 
     await page
       .getByRole("button", { name: /register|create account|sign up/i })

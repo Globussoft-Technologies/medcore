@@ -25,6 +25,13 @@ function safeAudit(
 const router = Router();
 router.use(authenticate);
 
+// #511 audit (file-level, 2026-05-09): every handler in this file applies
+// `authorize(Role.PATIENT)` AND scopes Prisma queries through
+// `getCallerPatient(req)` (self-self surface — patient.id is derived from
+// req.user.userId, never trusted from URL/body). PATIENT-A cannot reach
+// PATIENT-B's diary entries. Staff are excluded from this surface entirely.
+// Verified-safe (criterion option c — getCallerPatient self-self).
+
 /**
  * Resolve the Patient row for the authenticated user. Only PATIENT role users
  * have a 1:1 Patient record via `userId`.

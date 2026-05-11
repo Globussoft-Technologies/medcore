@@ -43,7 +43,7 @@
  *   coverage in the auth route tests. We test the UI behaviour up to the
  *   "code sent" confirmation, which is the observable surface.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { API_BASE } from "./helpers";
 
 // Generous timeout for public pages (they don't need auth but still need the
@@ -54,9 +54,13 @@ const PAGE_TIMEOUT = 15_000;
 //   >= 8 chars, >= 1 letter, >= 1 digit, not on the common-password denylist.
 const STRONG_PASSWORD = "Medcore@E2e9!";
 
-// A password that satisfies the page's own client-side minimum (>= 6 chars)
-// but is rejected by the API (8 chars, all letters — no digit).
-const WEAK_FOR_API = "abcdefgH";
+// A password that satisfies the page's own client-side floor (>= 12 chars,
+// >= 1 letter, >= 1 digit) but is rejected by the API. We can't use a
+// "no-digit" or "<12" password anymore — those trip the client guard so the
+// submit never fires. Instead we pick a denylisted entry: `password1234` is
+// 12 chars with letter+digit (passes client) but is on the curated top-100
+// common-password denylist (fails server `strongPassword`).
+const WEAK_FOR_API = "password1234";
 
 // The seeded patient email — guaranteed to exist in a freshly seeded DB.
 const SEEDED_PATIENT_EMAIL = "patient1@medcore.local";
@@ -76,6 +80,52 @@ function uniquePhone(): string {
   // 10-digit Indian-style number. Vary the last 7 digits.
   const tail = String(Math.floor(1_000_000 + Math.random() * 8_999_999));
   return `987${tail}`;
+}
+
+/**
+ * Fill all required register form fields with valid data so the client
+ * validateClient() doesn't block the submit. Each test can override
+ * specific fields by passing an `overrides` object, then fill its OWN bad
+ * field over the top with `page.locator(...).fill(badValue)` afterwards.
+ *
+ * Required by the post-#713/#684/#706/#617 form: name, email, phone,
+ * password (>=12), confirm-password (matching), gender (no default), DOB,
+ * address (>=5 chars), emergency-contact triplet (name + phone + rel),
+ * and the T&C / Privacy Policy checkbox.
+ *
+ * Note on a few specific fields:
+ *  - `#reg-gender` has an empty `disabled` placeholder option, so we
+ *    explicitly select "FEMALE" to land on a real value.
+ *  - `#reg-ec-rel` is a free-text `<input>` (not a `<select>`), so we
+ *    `.fill()` it.
+ *  - `#reg-dob` is a `<input type="date">` — Playwright accepts an ISO
+ *    YYYY-MM-DD string via `.fill()`.
+ */
+async function fillValidRegisterForm(
+  page: Page,
+  overrides: Partial<{
+    name: string;
+    email: string;
+    phone: string;
+    password: string;
+    confirmPassword: string;
+  }> = {}
+): Promise<void> {
+  const password = overrides.password ?? STRONG_PASSWORD;
+  await page.locator("#reg-name").fill(overrides.name ?? "Priya Sharma");
+  await page.locator("#reg-email").fill(overrides.email ?? uniqueEmail());
+  await page.locator("#reg-phone").fill(overrides.phone ?? uniquePhone());
+  await page.locator("#reg-password").fill(password);
+  await page
+    .locator("#reg-confirm-password")
+    .fill(overrides.confirmPassword ?? password);
+  await page.locator("#reg-gender").selectOption("FEMALE");
+  await page.locator("#reg-dob").fill("1995-06-15");
+  await page.locator("#reg-address").fill("12 MG Road, Bengaluru 560001");
+  await page.locator("#reg-ec-name").fill("Test Contact");
+  await page.locator("#reg-ec-phone").fill(uniquePhone());
+  await page.locator("#reg-ec-rel").fill("Sibling");
+  await page.locator("#reg-accept-terms").check();
 }
 
 // ─── /register ────────────────────────────────────────────────────────────────
@@ -115,11 +165,11 @@ test.describe("/register — public registration", () => {
       page.getByRole("form", { name: /registration form/i })
     ).toBeVisible({ timeout: PAGE_TIMEOUT });
 
-    await page.locator("#reg-name").fill("Priya Sharma");
-    await page.locator("#reg-email").fill(email);
-    await page.locator("#reg-phone").fill(uniquePhone());
-    await page.locator("#reg-password").fill(STRONG_PASSWORD);
-    // Gender defaults to MALE; leave it. Age and address are optional.
+    // Post-#617/#713/#684/#706: name + email + phone + strong-password +
+    // confirm-password + gender + DOB + address + emergency contact triplet
+    // + T&C consent are all required by validateClient(). The helper fills
+    // every required field with a valid value so submit isn't blocked.
+    await fillValidRegisterForm(page, { email });
 
     // Wait for the register API call + subsequent login + redirect.
     const [registerRes] = await Promise.all([
@@ -188,21 +238,20 @@ test.describe("/register — public registration", () => {
       page.getByRole("form", { name: /registration form/i })
     ).toBeVisible({ timeout: PAGE_TIMEOUT });
 
-    await page.locator("#reg-name").fill("Test User");
-    await page.locator("#reg-email").fill(uniqueEmail());
-    await page.locator("#reg-phone").fill("123"); // too short
-    await page.locator("#reg-password").fill(STRONG_PASSWORD);
+    // Fill every required field validly, then override phone with the bad
+    // value so phone is the ONLY field validateClient() complains about.
+    await fillValidRegisterForm(page, { phone: "123" });
 
     await page.getByRole("button", { name: /register|create account|sign up/i }).click();
 
     await expect(page.getByTestId("error-phone")).toBeVisible({ timeout: 5_000 });
     await expect(page.getByTestId("error-phone")).toContainText(
-      /valid.*phone|10.digit/i
+      /valid.*phone|10.digit|10.{0,3}15/i
     );
     await expect(page).toHaveURL(/\/register/);
   });
 
-  test("validation: password shorter than 6 characters shows inline error", async ({
+  test("validation: password shorter than 12 characters shows inline error", async ({
     page,
   }) => {
     await page.goto("/register");
@@ -210,21 +259,24 @@ test.describe("/register — public registration", () => {
       page.getByRole("form", { name: /registration form/i })
     ).toBeVisible({ timeout: PAGE_TIMEOUT });
 
-    await page.locator("#reg-name").fill("Test User");
-    await page.locator("#reg-email").fill(uniqueEmail());
-    await page.locator("#reg-phone").fill(uniquePhone());
-    await page.locator("#reg-password").fill("abc"); // < 6 chars — trips client guard
+    // Issue #706 raised the floor from 6 → 12 chars. "abc" is short enough
+    // to trip the new threshold; the helper fills every other required
+    // field so password is the ONLY one validateClient() complains about.
+    await fillValidRegisterForm(page, {
+      password: "abc",
+      confirmPassword: "abc",
+    });
 
     await page.getByRole("button", { name: /register|create account|sign up/i }).click();
 
     await expect(page.getByTestId("error-password")).toBeVisible({ timeout: 5_000 });
     await expect(page.getByTestId("error-password")).toContainText(
-      /at least 6 characters/i
+      /at least 12 characters/i
     );
     await expect(page).toHaveURL(/\/register/);
   });
 
-  test("validation: invalid age (zero) shows inline error", async ({
+  test("validation: out-of-range age shows inline error", async ({
     page,
   }) => {
     await page.goto("/register");
@@ -232,11 +284,11 @@ test.describe("/register — public registration", () => {
       page.getByRole("form", { name: /registration form/i })
     ).toBeVisible({ timeout: PAGE_TIMEOUT });
 
-    await page.locator("#reg-name").fill("Test User");
-    await page.locator("#reg-email").fill(uniqueEmail());
-    await page.locator("#reg-phone").fill(uniquePhone());
-    await page.locator("#reg-password").fill(STRONG_PASSWORD);
-    await page.locator("#reg-age").fill("0"); // below the 1-150 range
+    // Issue #707 widened the range to [0, 130] so the previous "0 is invalid"
+    // pin is no longer true. Use 200 — comfortably above the new max — to
+    // continue exercising the same validateClient() branch.
+    await fillValidRegisterForm(page);
+    await page.locator("#reg-age").fill("200");
 
     await page.getByRole("button", { name: /register|create account|sign up/i }).click();
 
@@ -256,10 +308,10 @@ test.describe("/register — public registration", () => {
       page.getByRole("form", { name: /registration form/i })
     ).toBeVisible({ timeout: PAGE_TIMEOUT });
 
-    await page.locator("#reg-name").fill("Duplicate User");
-    await page.locator("#reg-email").fill(SEEDED_PATIENT_EMAIL);
-    await page.locator("#reg-phone").fill(uniquePhone());
-    await page.locator("#reg-password").fill(STRONG_PASSWORD);
+    await fillValidRegisterForm(page, {
+      name: "Duplicate User",
+      email: SEEDED_PATIENT_EMAIL,
+    });
 
     const [registerRes] = await Promise.all([
       page.waitForResponse(
@@ -291,17 +343,19 @@ test.describe("/register — public registration", () => {
   test("server-side weak-password rejection shows user-facing error", async ({
     page,
   }) => {
-    // WEAK_FOR_API passes the page's own >=6-char client guard but is rejected
-    // by the API's strongPassword rule (>= 1 digit required, "abcdefgH" has none).
+    // WEAK_FOR_API (`password1234`) passes the page's >=12-char + letter +
+    // digit client guard so the submit fires, but is rejected by the API's
+    // `strongPassword` rule because it's on the common-password denylist.
     await page.goto("/register");
     await expect(
       page.getByRole("form", { name: /registration form/i })
     ).toBeVisible({ timeout: PAGE_TIMEOUT });
 
-    await page.locator("#reg-name").fill("Weak Pass User");
-    await page.locator("#reg-email").fill(uniqueEmail());
-    await page.locator("#reg-phone").fill(uniquePhone());
-    await page.locator("#reg-password").fill(WEAK_FOR_API);
+    await fillValidRegisterForm(page, {
+      name: "Weak Pass User",
+      password: WEAK_FOR_API,
+      confirmPassword: WEAK_FOR_API,
+    });
 
     const [registerRes] = await Promise.all([
       page.waitForResponse(
@@ -409,14 +463,22 @@ test.describe("/forgot-password — password reset flow", () => {
     // API returns 200 (success — it never reveals whether the email exists)
     expect(forgotRes.status()).toBe(200);
 
+    // Issue #711 (May 2026): the page now goes to an intermediate "sent"
+    // step (green confirmation banner + "I have the code" CTA) before the
+    // code-entry step. Click "I have the code" to advance to the reset
+    // step where the 6-digit input lives.
+    await expect(page.getByTestId("forgot-sent-confirmation")).toBeVisible({
+      timeout: 8_000,
+    });
+    // The confirmation message embeds the submitted email address (UX hint —
+    // this is not a security leak because it's the email the user just typed).
+    await expect(page.getByText(SEEDED_PATIENT_EMAIL)).toBeVisible();
+    await page.getByTestId("forgot-have-code-btn").click();
+
     // UI advances to the "reset" step showing the 6-digit code input
     await expect(page.locator('input[placeholder="000000"]')).toBeVisible({
       timeout: 8_000,
     });
-
-    // The confirmation message embeds the submitted email address (UX hint —
-    // this is not a security leak because it's the email the user just typed).
-    await expect(page.getByText(SEEDED_PATIENT_EMAIL)).toBeVisible();
     await expect(page.getByRole("button", { name: /reset password/i })).toBeVisible();
   });
 
@@ -451,13 +513,20 @@ test.describe("/forgot-password — password reset flow", () => {
     // does not exist. This is the anti-enumeration pin.
     expect(forgotRes.status()).toBe(200);
 
+    // Issue #711: page advances to the "sent" intermediate step first.
+    // The confirmation banner + "I have the code" CTA must appear for
+    // BOTH known and unknown emails (same UX, no enumeration leak).
+    await expect(page.getByTestId("forgot-sent-confirmation")).toBeVisible({
+      timeout: 8_000,
+    });
+    // The confirmation text embeds the email (expected UX — not a leak)
+    await expect(page.getByText(unknownEmail)).toBeVisible();
+    await page.getByTestId("forgot-have-code-btn").click();
+
     // UI must advance to the "enter your code" step — same as for a known email.
     await expect(page.locator('input[placeholder="000000"]')).toBeVisible({
       timeout: 8_000,
     });
-
-    // The confirmation text embeds the email (expected UX — not a leak)
-    await expect(page.getByText(unknownEmail)).toBeVisible();
 
     // Must NOT show any error message that reveals the email doesn't exist.
     // We can't assert `getByRole("alert")` is invisible — Next.js injects a
@@ -532,6 +601,12 @@ test.describe("/forgot-password — password reset flow", () => {
     await page.locator('input[type="email"]').fill("anyone@example.com");
     await page.getByRole("button", { name: /send reset code/i }).click();
 
+    // Issue #711: intermediate "sent" step before "reset" step.
+    await expect(page.getByTestId("forgot-sent-confirmation")).toBeVisible({
+      timeout: 8_000,
+    });
+    await page.getByTestId("forgot-have-code-btn").click();
+
     // Should advance to code-entry step
     await expect(page.locator('input[placeholder="000000"]')).toBeVisible({
       timeout: 8_000,
@@ -572,7 +647,12 @@ test.describe("/forgot-password — password reset flow", () => {
     await page.locator('input[type="email"]').fill("anyone@example.com");
     await page.getByRole("button", { name: /send reset code/i }).click();
 
-    await expect(page.locator('input[placeholder="000000"]')).toBeVisible({
+    // Issue #711: "Use a different email" lives on the intermediate "sent"
+    // step (the green confirmation banner step), NOT on the code-entry
+    // "reset" step. Pre-#711 the page jumped straight to "reset" so the
+    // button was implicitly on the same view; now it's a navigational
+    // affordance from the confirmation banner.
+    await expect(page.getByTestId("forgot-sent-confirmation")).toBeVisible({
       timeout: 8_000,
     });
 
@@ -580,7 +660,7 @@ test.describe("/forgot-password — password reset flow", () => {
     await page.getByRole("button", { name: /use a different email/i }).click();
 
     await expect(page.locator('input[type="email"]')).toBeVisible({ timeout: 5_000 });
-    await expect(page.locator('input[placeholder="000000"]')).not.toBeVisible();
+    await expect(page.getByTestId("forgot-sent-confirmation")).not.toBeVisible();
   });
 
   test("auth bounce: authenticated user visiting /forgot-password sees the form (no redirect)", async ({

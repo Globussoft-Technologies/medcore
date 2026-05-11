@@ -21,6 +21,12 @@ function safeAudit(
 
 const router = Router();
 router.use(authenticate);
+// #511 audit (file-level, 2026-05-09): /enroll is staff-only
+// (`authorize(Role.DOCTOR, Role.ADMIN)`). /plans/:patientId admits PATIENT
+// and uses `assertPatientOwnsResource` against the URL `:patientId`.
+// /plans/:id/check-in is `authorize(Role.PATIENT)`-only and verifies the
+// loaded plan's `patientId` via `assertPatientOwnsResource` so a patient
+// cannot post check-ins against another patient's plan. Verified-safe.
 
 const VALID_CONDITIONS = new Set([
   "DIABETES",

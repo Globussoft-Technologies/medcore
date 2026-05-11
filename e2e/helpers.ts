@@ -760,6 +760,18 @@ export async function freshPatientToken(
       phone: `+9198${Math.floor(10_000_000 + Math.random() * 89_999_999)}`,
       password,
       role: "PATIENT",
+      // Issue #713 (May 2026): address + emergencyContact are now required
+      // for PATIENT self-registration (post-parse check in auth.ts:635). The
+      // pre-#713 helper sent the minimal payload and started failing release.yml
+      // E2E shards with `400 Address is required` on every spec that calls
+      // freshPatientToken. Send a plausible-shaped emergency contact + a
+      // ≥5-char address so the route accepts the registration.
+      address: "12 MG Road, Bengaluru 560001",
+      emergencyContact: {
+        name: "Test Contact",
+        phone: `+9197${Math.floor(10_000_000 + Math.random() * 89_999_999)}`,
+        relationship: "Sibling",
+      },
     },
   });
   if (!res.ok()) {

@@ -16,7 +16,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
-import { Plus, Shield, X, Loader2 } from "lucide-react";
+import { Plus, Shield, X, Loader2, Edit2 } from "lucide-react";
 
 const INSURANCE_ALLOWED = new Set(["ADMIN", "RECEPTION"]);
 
@@ -38,6 +38,13 @@ export default function InsuranceProvidersPage() {
   const [providers, setProviders] = useState<ProviderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  // Issue #692 (BUG-A08, 2026-05-09): per-row Edit dialog. Stores the
+  // provider being edited; null means the dialog is closed. The PATCH
+  // endpoint already exists at /api/v1/insurance-providers/:id; this is
+  // the missing FE affordance.
+  const [editingProvider, setEditingProvider] = useState<ProviderRow | null>(
+    null
+  );
 
   useEffect(() => {
     if (!authLoading && user && !INSURANCE_ALLOWED.has(user.role)) {
@@ -139,6 +146,11 @@ export default function InsuranceProvidersPage() {
                 <th className="px-4 py-2 text-left font-medium text-gray-600 dark:text-gray-300">
                   Status
                 </th>
+                {canCreate && (
+                  <th className="px-4 py-2 text-right font-medium text-gray-600 dark:text-gray-300">
+                    Actions
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -178,6 +190,20 @@ export default function InsuranceProvidersPage() {
                       {p.isActive ? "Active" : "Inactive"}
                     </span>
                   </td>
+                  {canCreate && (
+                    <td className="px-4 py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setEditingProvider(p)}
+                        data-testid={`provider-edit-${p.id}`}
+                        aria-label={`Edit ${p.name}`}
+                        title={`Edit ${p.name}`}
+                        className="rounded p-1 text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -190,6 +216,20 @@ export default function InsuranceProvidersPage() {
           onClose={() => setShowForm(false)}
           onCreated={() => {
             setShowForm(false);
+            load();
+          }}
+        />
+      )}
+
+      {/* Issue #692: per-row Edit modal — re-uses the same field set
+          as the Add dialog plus an isActive toggle. PATCHes back to
+          /insurance-providers/:id. */}
+      {editingProvider && (
+        <EditProviderModal
+          provider={editingProvider}
+          onClose={() => setEditingProvider(null)}
+          onSaved={() => {
+            setEditingProvider(null);
             load();
           }}
         />
@@ -436,6 +476,269 @@ function AddProviderModal({
             className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
           >
             {submitting ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// Issue #692 (BUG-A08): per-row Edit dialog. Same field set as the
+// Add dialog plus an isActive toggle (only Edit can deactivate a
+// provider — the Add dialog implicitly creates active rows). Submits
+// PATCH /api/v1/insurance-providers/:id which already exists and is
+// ADMIN-gated.
+function EditProviderModal({
+  provider,
+  onClose,
+  onSaved,
+}: {
+  provider: ProviderRow;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    name: provider.name,
+    code: provider.code,
+    contactPerson: provider.contactPerson || "",
+    contactEmail: provider.contactEmail || "",
+    contactPhone: provider.contactPhone || "",
+    coverageDetails: provider.coverageDetails || "",
+    isActive: provider.isActive,
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const errs: Record<string, string> = {};
+    if (!form.name.trim() || form.name.trim().length < 2) {
+      errs.name = "Provider name is required (min 2 chars)";
+    }
+    const code = form.code.trim().toUpperCase();
+    if (!/^[A-Z][A-Z0-9_]{1,30}$/.test(code)) {
+      errs.code =
+        "Code must be 2–31 chars, uppercase letters/digits/underscore, starting with a letter";
+    }
+    if (
+      form.contactEmail.trim() &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.contactEmail)
+    ) {
+      errs.contactEmail = "Enter a valid email address";
+    }
+    if (
+      form.contactPhone.trim() &&
+      !/^\+?\d[\d\s\-]{6,29}$/.test(form.contactPhone.trim())
+    ) {
+      errs.contactPhone = "Enter a valid phone number";
+    }
+    setErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+
+    setSubmitting(true);
+    try {
+      await api.patch(`/insurance-providers/${provider.id}`, {
+        name: form.name.trim(),
+        code,
+        contactPerson: form.contactPerson.trim() || undefined,
+        contactEmail: form.contactEmail.trim() || undefined,
+        contactPhone: form.contactPhone.trim() || undefined,
+        coverageDetails: form.coverageDetails.trim() || undefined,
+        isActive: form.isActive,
+      });
+      toast.success("Provider updated.");
+      onSaved();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to update";
+      if (/already exists/i.test(msg)) {
+        setErrors({ code: "Provider code already exists" });
+      } else {
+        toast.error(msg);
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="insurance-provider-edit-modal-title"
+      data-testid="insurance-provider-edit-modal"
+    >
+      <form
+        onSubmit={submit}
+        noValidate
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800"
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h2
+            id="insurance-provider-edit-modal-title"
+            className="text-lg font-semibold"
+          >
+            Edit Provider — {provider.name}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded p-1 text-gray-500 hover:bg-gray-100"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label htmlFor="edit-provider-name" className="block text-xs font-medium">
+              Name
+            </label>
+            <input
+              id="edit-provider-name"
+              data-testid="edit-provider-name"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
+                errors.name ? "border-red-500" : "border-gray-200"
+              }`}
+            />
+            {errors.name && (
+              <p className="mt-1 text-xs text-red-600">{errors.name}</p>
+            )}
+          </div>
+          <div>
+            <label htmlFor="edit-provider-code" className="block text-xs font-medium">
+              Code
+            </label>
+            <input
+              id="edit-provider-code"
+              data-testid="edit-provider-code"
+              value={form.code}
+              onChange={(e) =>
+                setForm({ ...form, code: e.target.value.toUpperCase() })
+              }
+              className={`mt-1 w-full rounded-lg border px-3 py-2 font-mono text-sm uppercase ${
+                errors.code ? "border-red-500" : "border-gray-200"
+              }`}
+            />
+            {errors.code && (
+              <p className="mt-1 text-xs text-red-600">{errors.code}</p>
+            )}
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label
+                htmlFor="edit-provider-contact-person"
+                className="block text-xs font-medium"
+              >
+                Contact Person
+              </label>
+              <input
+                id="edit-provider-contact-person"
+                value={form.contactPerson}
+                onChange={(e) =>
+                  setForm({ ...form, contactPerson: e.target.value })
+                }
+                className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="edit-provider-contact-phone"
+                className="block text-xs font-medium"
+              >
+                Phone
+              </label>
+              <input
+                id="edit-provider-contact-phone"
+                value={form.contactPhone}
+                onChange={(e) =>
+                  setForm({ ...form, contactPhone: e.target.value })
+                }
+                className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
+                  errors.contactPhone ? "border-red-500" : "border-gray-200"
+                }`}
+              />
+              {errors.contactPhone && (
+                <p className="mt-1 text-xs text-red-600">{errors.contactPhone}</p>
+              )}
+            </div>
+          </div>
+          <div>
+            <label
+              htmlFor="edit-provider-contact-email"
+              className="block text-xs font-medium"
+            >
+              Email
+            </label>
+            <input
+              id="edit-provider-contact-email"
+              type="email"
+              value={form.contactEmail}
+              onChange={(e) =>
+                setForm({ ...form, contactEmail: e.target.value })
+              }
+              className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
+                errors.contactEmail ? "border-red-500" : "border-gray-200"
+              }`}
+            />
+            {errors.contactEmail && (
+              <p className="mt-1 text-xs text-red-600">{errors.contactEmail}</p>
+            )}
+          </div>
+          <div>
+            <label
+              htmlFor="edit-provider-coverage"
+              className="block text-xs font-medium"
+            >
+              Coverage Details
+            </label>
+            <textarea
+              id="edit-provider-coverage"
+              value={form.coverageDetails}
+              onChange={(e) =>
+                setForm({ ...form, coverageDetails: e.target.value })
+              }
+              rows={3}
+              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.isActive}
+                onChange={(e) =>
+                  setForm({ ...form, isActive: e.target.checked })
+                }
+                data-testid="edit-provider-active"
+                className="rounded"
+              />
+              <span>
+                Active{" "}
+                <span className="text-xs text-gray-500">
+                  (uncheck to mark inactive)
+                </span>
+              </span>
+            </label>
+          </div>
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-gray-200 px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={submitting}
+            data-testid="edit-provider-save"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {submitting ? "Saving..." : "Save Changes"}
           </button>
         </div>
       </form>

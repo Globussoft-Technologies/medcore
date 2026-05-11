@@ -65,12 +65,19 @@ interface Patient {
 
 type Tab = "orders" | "catalog";
 
+// Issue #624: status keys must match the LabTestStatus DB enum
+// (ORDERED / SAMPLE_COLLECTED / IN_PROGRESS / COMPLETED / CANCELLED /
+// SAMPLE_REJECTED). The legacy "PENDING" key was a holdover that meant
+// the "Collect" pre-analytical button never rendered (DB rows are
+// created with status=ORDERED), so lab orders silently skipped the
+// SAMPLE_COLLECTED state.
 const STATUS_COLORS: Record<string, string> = {
-  PENDING: "bg-yellow-100 text-yellow-700",
+  ORDERED: "bg-yellow-100 text-yellow-700",
   SAMPLE_COLLECTED: "bg-blue-100 text-blue-700",
   IN_PROGRESS: "bg-indigo-100 text-indigo-700",
   COMPLETED: "bg-green-100 text-green-700",
   CANCELLED: "bg-red-100 text-red-700",
+  SAMPLE_REJECTED: "bg-red-100 text-red-700",
 };
 
 const FLAG_COLORS: Record<string, string> = {
@@ -415,8 +422,15 @@ export default function LabPage() {
                           className="flex gap-1"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          {o.status === "PENDING" && (
+                          {/* Issue #624: lab order rows start at status
+                              ORDERED (not PENDING — the legacy key never
+                              matched), so the pre-analytical "Collect"
+                              CTA never rendered. Show it for ORDERED, the
+                              actual default state, so LAB_TECH/NURSE can
+                              capture sample-collected before result entry. */}
+                          {o.status === "ORDERED" && (
                             <button
+                              data-testid="lab-collect-sample-btn"
                               onClick={() =>
                                 updateStatus(o.id, "SAMPLE_COLLECTED")
                               }
@@ -434,8 +448,27 @@ export default function LabPage() {
                             </button>
                           )}
                           {o.status === "IN_PROGRESS" && canEnterResults && (
+                            // Issue #632 (LabTech): the previous markup relied
+                            // on the wrapping `<div onClick={stopPropagation}>`
+                            // to swallow row-expansion events. On STAT rows
+                            // and rows that were just animated into view, the
+                            // first click would race the row's expansion
+                            // re-render — Next's <Link> would lose its target
+                            // mid-paint, leaving the URL unchanged. Pin the
+                            // navigation explicitly via onClick + router.push
+                            // so the first click ALWAYS navigates regardless
+                            // of layout-shift timing, and stop propagation on
+                            // both pointer phases (mousedown + click) so the
+                            // outer row handler never fires for this CTA.
                             <Link
                               href={`/dashboard/lab/${o.id}`}
+                              data-testid="lab-enter-results-link"
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                router.push(`/dashboard/lab/${o.id}`);
+                              }}
                               className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"
                             >
                               Enter Results
@@ -443,6 +476,12 @@ export default function LabPage() {
                           )}
                           <Link
                             href={`/dashboard/lab/${o.id}`}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              router.push(`/dashboard/lab/${o.id}`);
+                            }}
                             className="rounded border px-2 py-1 text-xs hover:bg-gray-50"
                           >
                             View

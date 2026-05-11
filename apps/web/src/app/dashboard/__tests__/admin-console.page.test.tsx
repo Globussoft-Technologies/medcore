@@ -146,15 +146,20 @@ describe("AdminConsolePage", () => {
     );
   });
 
-  // Regression guard for Issue #47 (2026-04-24): when Errors (1h) > 0, the
-  // admin-console must render a breakdown table so ops can distinguish bot
-  // traffic from a real auth outage. The table is hidden when count is 0.
+  // Regression guard for Issue #47 (2026-04-24, expanded 2026-05-09):
+  // when Errors (1h) > 0, the admin-console must render a breakdown table
+  // so ops can distinguish bot traffic from a real auth outage. The table
+  // is hidden when count is 0. As of 2026-05-09 the URL shape is
+  // `actionIn=LOGIN_FAILED,PRESCRIPTION_REJECTED,...` (canonical
+  // ERROR_ACTIONS list) instead of `action=LOGIN_FAILED` so the count
+  // covers every error-shaped audit action, not just login failures.
   it("Issue #47: renders error breakdown table when errors > 0", async () => {
     apiMock.get.mockImplementation((url: string) => {
-      // Pretend there are 125 LOGIN_FAILED hits; the scalar /audit?limit=1
-      // returns meta.total and the /audit?limit=100 returns sample rows the
-      // page uses to derive (uniqueIps, topIp, topIpCount).
-      if (url.includes("action=LOGIN_FAILED&limit=100")) {
+      // Pretend there are 125 errors; the scalar /audit?limit=1 returns
+      // meta.total and the /audit?limit=100 returns sample rows the page
+      // uses to derive (uniqueIps, topIp, topIpCount). The page now sends
+      // `actionIn=...,...&limit=N` rather than `action=LOGIN_FAILED&limit=N`.
+      if (url.includes("actionIn=") && url.includes("limit=100")) {
         const data = Array.from({ length: 100 }, (_, i) => ({
           id: `a${i}`,
           action: "LOGIN_FAILED",
@@ -163,7 +168,7 @@ describe("AdminConsolePage", () => {
         }));
         return Promise.resolve({ data });
       }
-      if (url.includes("action=LOGIN_FAILED&limit=1")) {
+      if (url.includes("actionIn=") && url.includes("limit=1")) {
         return Promise.resolve({ meta: { total: 125 } });
       }
       if (url.includes("/audit?")) {

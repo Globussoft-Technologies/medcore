@@ -92,18 +92,28 @@ function inOneYear() {
   return d.toISOString().slice(0, 10);
 }
 
+// Issue #758: previously defaulted to "sandbox" when NEXT_PUBLIC_ABDM_MODE
+// was unset, which made the production deploy show the SANDBOX banner +
+// mock OTP placeholder when the env var hadn't been wired through. The
+// safer default is `production`: dev/staging environments opt-IN to
+// sandbox via `NEXT_PUBLIC_ABDM_MODE=sandbox`, missing-env never advertises
+// sandbox-mode to real users. Hoisted to module scope so sub-components
+// (LinkAbhaTab, ConsentsTab, CareContextsTab) can read it without prop
+// threading.
+function isSandbox(): boolean {
+  return (
+    typeof process !== "undefined" &&
+    process.env.NEXT_PUBLIC_ABDM_MODE === "sandbox"
+  );
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function AbdmPage() {
   const router = useRouter();
   const { user, isLoading } = useAuthStore();
   const [tab, setTab] = useState<TabKey>("link");
-
-  // Detect SANDBOX MODE purely client-side — no env var on the browser,
-  // so fall back to a prop we ship via NEXT_PUBLIC or default to sandbox.
-  const sandbox =
-    typeof process !== "undefined" &&
-    (process.env.NEXT_PUBLIC_ABDM_MODE ?? "sandbox") !== "production";
+  const sandbox = isSandbox();
 
   // Patient search (shared across tabs)
   const [patientSearch, setPatientSearch] = useState("");
@@ -376,7 +386,7 @@ function LinkAbhaTab({ patient }: { patient: PatientOpt | null }) {
             type="text"
             value={abhaAddress}
             onChange={(e) => setAbhaAddress(e.target.value)}
-            placeholder="rahul@sbx"
+            placeholder={isSandbox() ? "rahul@sbx" : "username@abdm"}
             className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
           />
         </div>
@@ -395,14 +405,14 @@ function LinkAbhaTab({ patient }: { patient: PatientOpt | null }) {
         </div>
         <div>
           <label htmlFor="abdm-link-otp" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            OTP (mock)
+            {isSandbox() ? "OTP (mock)" : "OTP"}
           </label>
           <input
             id="abdm-link-otp"
             type="text"
             value={otp}
             onChange={(e) => setOtp(e.target.value)}
-            placeholder="123456"
+            placeholder={isSandbox() ? "123456" : "••••••"}
             className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
           />
         </div>
@@ -555,7 +565,7 @@ function ConsentsTab({ patient }: { patient: PatientOpt | null }) {
               type="text"
               value={abhaAddress}
               onChange={(e) => setAbhaAddress(e.target.value)}
-              placeholder="rahul@sbx"
+              placeholder={isSandbox() ? "rahul@sbx" : "username@abdm"}
               className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
             />
           </div>
@@ -778,7 +788,7 @@ function CareContextsTab({ patient }: { patient: PatientOpt | null }) {
             type="text"
             value={abhaAddress}
             onChange={(e) => setAbhaAddress(e.target.value)}
-            placeholder="rahul@sbx"
+            placeholder={isSandbox() ? "rahul@sbx" : "username@abdm"}
             className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
           />
         </div>

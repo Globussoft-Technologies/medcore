@@ -356,8 +356,8 @@ export default function DutyRosterPage() {
               {filteredStaff.map((u) => (
                 <tr key={u.id} className="border-b last:border-0">
                   <td className="px-4 py-3">
-                    <p className="font-medium">{u.name}</p>
-                    <p className="text-xs text-gray-500">{u.role}</p>
+                    <p className="font-medium text-gray-900">{u.name}</p>
+                    <p className="text-xs text-gray-600">{u.role}</p>
                   </td>
                   {SHIFT_TYPES.map((t) => {
                     const cs = cellShifts(u.id, t);

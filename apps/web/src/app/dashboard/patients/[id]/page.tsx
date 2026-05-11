@@ -58,7 +58,11 @@ interface PatientDetail {
   bloodGroup: string | null;
   address: string | null;
   insuranceProvider: string | null;
-  insuranceId: string | null;
+  // Issue #592 (May 2026): the API returns the column as `insurancePolicyNumber`
+  // (matches the Prisma schema). The page used to type it as `insuranceId`
+  // and so the policy number never rendered even when set. Renamed to
+  // match the wire shape; legacy `insuranceId` reads were never populated.
+  insurancePolicyNumber: string | null;
   emergencyContactName?: string | null;
   emergencyContactPhone?: string | null;
   noShowCount?: number;
@@ -663,15 +667,49 @@ export default function PatientDetailPage() {
                   <p className="text-sm text-gray-900 dark:text-gray-100">{patient.user.email}</p>
                 </div>
               )}
-              {patient.insuranceProvider && (
-                <div>
-                  <p className="text-xs text-gray-600 dark:text-gray-300">Insurance</p>
-                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                    {patient.insuranceProvider}
-                    {patient.insuranceId ? ` (${patient.insuranceId})` : ""}
+              {/* Issue #592 (May 2026): the Insurance section used to only
+                  render when `insuranceProvider` was already populated AND
+                  had no edit affordance — RECEPTION had no way to add a
+                  new policy from the patient profile, blocking every
+                  downstream claim/billing workflow. Always render the row
+                  with an explicit empty state, and surface an Edit button
+                  for staff who can mutate demographics. The actual editor
+                  reuses `PatientEditModal` (extended in the same wave to
+                  include insuranceProvider + insurancePolicyNumber). */}
+              <div>
+                <p className="text-xs text-gray-600 dark:text-gray-300">Insurance</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100" data-testid="patient-insurance-display">
+                    {patient.insuranceProvider ? (
+                      <>
+                        {patient.insuranceProvider}
+                        {patient.insurancePolicyNumber
+                          ? ` (${patient.insurancePolicyNumber})`
+                          : ""}
+                      </>
+                    ) : (
+                      <span className="text-gray-400 dark:text-gray-500">
+                        Not on file
+                      </span>
+                    )}
                   </p>
+                  {canEditDemographics && (
+                    <button
+                      type="button"
+                      onClick={() => setEditOpen(true)}
+                      data-testid="patient-insurance-edit"
+                      aria-label={
+                        patient.insuranceProvider
+                          ? "Edit insurance"
+                          : "Add insurance"
+                      }
+                      className="rounded border border-gray-200 px-2 py-0.5 text-[10px] font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                    >
+                      {patient.insuranceProvider ? "Edit" : "Add"}
+                    </button>
+                  )}
                 </div>
-              )}
+              </div>
               {patient.address && (
                 <div className="col-span-2">
                   <p className="text-xs text-gray-600 dark:text-gray-300">Address</p>
@@ -2455,15 +2493,38 @@ function QuickBookModal({
     setSaving(true);
     setError(null);
     try {
-      await api.post("/appointments/book", {
-        patientId,
-        doctorId,
-        date,
-        slotId: slotStart,
-      });
+      // Issue #566: clicking a slot tile here was logging the user out
+      // ("Your session has expired. Please sign in again.") because the
+      // global 401-redirect in lib/api.ts treats ANY POST 401 as a real
+      // session expiry and bounces to /login?next=. In practice the
+      // /appointments/book POST can return 401 transiently during cookie
+      // rotation between the slot-list load and the click, or 403 from
+      // CSRF when the X-CSRF-Token cookie has gone out of sync — neither
+      // should terminate an otherwise-healthy session. We surface the
+      // server's error message inline (the modal already renders an
+      // error banner above the slot grid) so the user can retry. If the
+      // session truly IS dead, the user's next navigation hits a
+      // non-skipping endpoint and the global redirect fires as designed.
+      await api.post(
+        "/appointments/book",
+        {
+          patientId,
+          doctorId,
+          date,
+          slotId: slotStart,
+        },
+        { skip401Redirect: true }
+      );
       onSaved();
     } catch (e) {
-      setError((e as Error).message);
+      const status = (e as Error & { status?: number }).status;
+      if (status === 401) {
+        setError(
+          "Your session is out of sync. Please refresh the page and try again."
+        );
+      } else {
+        setError((e as Error).message);
+      }
     }
     setSaving(false);
   }

@@ -371,7 +371,12 @@ test.describe("ER reassessment & disposition pathing — /dashboard/emergency (N
       );
     await page.getByTestId("close-case-btn").click();
 
-    await expect.poll(() => captured, { timeout: 10_000 }).not.toBeNull();
+    // 2026-05-11: bumped timeout 10s → 20s. release.yml run 25640751010
+    // shard-4 chromium hit the 10s ceiling on this exact poll while the
+    // DISCHARGED test directly above passed cleanly — the TRANSFERRED
+    // branch's status/disposition/notes validation chain is incrementally
+    // slower to settle in chromium and 10s was right on the edge.
+    await expect.poll(() => captured, { timeout: 20_000 }).not.toBeNull();
     expect(captured!.status).toBe("TRANSFERRED");
     expect(captured!.disposition).toMatch(/City General|neuro ICU/i);
     expect(captured!.outcomeNotes).toMatch(/Referral packet|neurosurgeon/i);

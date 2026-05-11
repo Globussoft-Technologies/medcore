@@ -29,6 +29,12 @@ aiSentimentRouter.use(authenticate);
 // reception role). Mirror the authorize list already used by
 // GET /api/v1/feedback/summary which accepts ADMIN + RECEPTION.
 aiSentimentRouter.use(authorize(Role.ADMIN, Role.RECEPTION));
+// #511 audit (file-level, 2026-05-09): router-level
+// `authorize(Role.ADMIN, Role.RECEPTION)` gates every handler — PATIENT (and
+// every other role) is rejected before any handler runs. `/analyze/:feedbackId`
+// further narrows to ADMIN-only via a per-handler authorize. Sentiment
+// resources are aggregate ops-data, not patient-keyed; no per-row PATIENT
+// scoping needed. Verified-safe.
 
 // ─── POST /analyze/:feedbackId ────────────────────────────────────────────
 // Re-analysis writes to the FeedbackSentiment table and should remain

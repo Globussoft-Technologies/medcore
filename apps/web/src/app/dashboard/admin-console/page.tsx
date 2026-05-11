@@ -70,6 +70,26 @@ interface ErrorBreakdownRow {
   topIpCount?: number;
 }
 
+/**
+ * Issue #47 (.issue-details.txt 2026-05-09 wave): canonical list of
+ * audit-log action names that the codebase actually writes when something
+ * goes wrong. Used by the System Health "Errors (1h)" widget so the count
+ * isn't pinned to LOGIN_FAILED only — the previous behaviour silently
+ * under-counted the other failure paths and made the tile look like a
+ * vanity number that always ~matched the "Audit Events (1h)" tile in
+ * low-traffic windows. Sourced via codebase grep for `auditLog(...,
+ * "*FAILED|REJECTED|...")` against actual handler call sites; admin-only
+ * audit actions like CONFIG_FAILED haven't been added because they don't
+ * exist yet — they'll appear in the breakdown automatically once a
+ * handler starts writing them.
+ */
+const ERROR_ACTIONS = [
+  "LOGIN_FAILED",
+  "PRESCRIPTION_REJECTED",
+  "PRESCRIPTION_SHARE_FAILED",
+  "NOTIFICATION_AUDIENCE_REJECTED",
+] as const;
+
 export default function AdminConsolePage() {
   const router = useRouter();
   const { user, isLoading } = useAuthStore();
@@ -204,18 +224,28 @@ export default function AdminConsolePage() {
         safe<any>(`/bloodbank/inventory/summary`, { data: null }),
         // Total audit events (used for "Audit Events" card, not errors).
         safe<any>(`/audit?from=${hourAgo}&limit=1`, { meta: { total: 0 } }),
-        // Real errors: login failures and other explicitly-failed actions.
-        // The audit route does not support LIKE-matching; use action= filter.
-        safe<any>(`/audit?from=${hourAgo}&action=LOGIN_FAILED&limit=1`, {
-          meta: { total: 0 },
-        }),
-        // Issue #47 (2026-04-24): also pull a recent page of error rows so
-        // we can render a breakdown (action · count · top-src-ip) beside
-        // the raw count. `limit=100` is enough to characterise a noisy
-        // hour without paging through thousands of entries.
-        safe<any>(`/audit?from=${hourAgo}&action=LOGIN_FAILED&limit=100`, {
-          data: [],
-        }),
+        // Issue #47 (2026-05-09): "real errors" is the union of the canonical
+        // ERROR_ACTIONS allowlist, not just LOGIN_FAILED. The audit route now
+        // supports `actionIn=A,B,C` (added 2026-05-09) so a single round-trip
+        // returns the full count instead of one-per-action. The old
+        // `action=LOGIN_FAILED` shape was historically narrow and made
+        // "Errors (1h)" look ~equal to "Audit Events (1h)" in low-traffic
+        // windows where the only audit writes were login failures.
+        safe<any>(
+          `/audit?from=${hourAgo}&actionIn=${ERROR_ACTIONS.join(",")}&limit=1`,
+          { meta: { total: 0 } }
+        ),
+        // Issue #47 (2026-04-24, refactored 2026-05-09): also pull a recent
+        // page of error rows so we can render a breakdown (action · count ·
+        // top-src-ip) beside the raw count. `limit=100` is enough to
+        // characterise a noisy hour without paging through thousands of
+        // entries. Same `actionIn` allowlist as the count query so the
+        // numbers reconcile (sum of breakdown rows = displayed count, modulo
+        // the 100-row page cap which we surface in the panel header).
+        safe<any>(
+          `/audit?from=${hourAgo}&actionIn=${ERROR_ACTIONS.join(",")}&limit=100`,
+          { data: [] }
+        ),
         safe<any>(`/leaves/pending`, { data: [] }),
         safe<any>(`/expenses?status=PENDING&limit=20`, { data: [] }),
         safe<any>(`/purchase-orders?status=PENDING&limit=20`, { data: [] }),
@@ -476,7 +506,14 @@ export default function AdminConsolePage() {
             label="Errors (1h)"
             status={String(errorCount)}
             ok={errorCount < 10}
-            href={`/dashboard/audit?action=LOGIN_FAILED&from=${hourAgoQs}`}
+            // Issue #47 (2026-05-09): the count now spans the canonical
+            // ERROR_ACTIONS allowlist, so the drill-in can no longer
+            // pre-filter to a single `action=`. The audit-page filter
+            // dropdown accepts only one action at a time; per-action
+            // drill-down lives in the breakdown table below this tile.
+            // The tile itself just lands on the audit log scoped to the
+            // last hour so admins land on a meaningful slice immediately.
+            href={`/dashboard/audit?from=${hourAgoQs}`}
           />
           <Health
             Icon={UserCheck}

@@ -40,8 +40,13 @@ interface TelemedicineSession {
   startedAt?: string | null;
   endedAt?: string | null;
   durationMin?: number | null;
+  // Issue #602 (2026-05-09 hardening): the API never returns `meetingUrl`
+  // or `meetingId` from list/detail responses anymore — only a fresh
+  // `signedRoomUrl` from GET /:id (30-min TTL JWT, per-user). Both
+  // legacy fields kept here as `null` for back-compat decoding.
   meetingUrl?: string | null;
   meetingId?: string | null;
+  signedRoomUrl?: string | null;
   status:
     | "SCHEDULED"
     | "WAITING"
@@ -315,6 +320,30 @@ export default function TelemedicinePage() {
     }
   }
 
+  /**
+   * Issue #602 (2026-05-09 hardening): the list endpoint no longer
+   * exposes the Jitsi join URL. To open a session, fetch GET /:id which
+   * mints a fresh 30-minute-TTL JWT URL just for this caller, then
+   * open it in a new tab.
+   */
+  async function joinCall(id: string) {
+    try {
+      const res = await api.get<{
+        data: { signedRoomUrl?: string | null };
+      }>(`/telemedicine/${id}`);
+      const url = res.data?.signedRoomUrl;
+      if (!url) {
+        toast.error(
+          "Join URL not available. The session may not be live yet, or your role does not permit joining.",
+        );
+        return;
+      }
+      window.open(url, "_blank", "noopener");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not open call");
+    }
+  }
+
   async function admitPatient(id: string, admit: boolean) {
     let reason: string | undefined;
     if (!admit) {
@@ -487,15 +516,14 @@ export default function TelemedicinePage() {
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {canJoin && s.meetingUrl && (
-                    <a
-                      href={s.meetingUrl}
-                      target="_blank"
-                      rel="noreferrer"
+                  {canJoin && (
+                    <button
+                      type="button"
+                      onClick={() => joinCall(s.id)}
                       className="flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
                     >
                       <Video size={14} /> Join Call
-                    </a>
+                    </button>
                   )}
                   {canStartEnd && s.status === "SCHEDULED" && (
                     <button

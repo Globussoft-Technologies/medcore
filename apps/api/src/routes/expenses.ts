@@ -380,16 +380,27 @@ router.get(
       for (const e of expenses) {
         actualByCat[e.category] = (actualByCat[e.category] || 0) + e.amount;
       }
-      const rows = budgets.map((b) => ({
-        category: b.category,
-        budget: b.amount,
-        actual: +(actualByCat[b.category] || 0).toFixed(2),
-        variance: +((actualByCat[b.category] || 0) - b.amount).toFixed(2),
-        utilisation:
-          b.amount > 0
-            ? +(((actualByCat[b.category] || 0) / b.amount) * 100).toFixed(1)
-            : 0,
-      }));
+      // Issue #699 (BUG-A19): same row was displaying contradictory
+      // utilisation percentages across the card / table / chart because the
+      // server returned a 1-decimal value (toFixed(1)) while the FE
+      // recomputed its own integer-rounded value (Math.round). On a row
+      // like actual=999, budget=1000 the server returned 99.9% and the FE
+      // displayed 100% — same data, three different surfaces. Single
+      // canonical formula now: utilisation = round(actual / budget * 100)
+      // returned ONCE from the server so every surface (card KPI, row
+      // pill, View Details modal, chart label) reads the same field.
+      const rows = budgets.map((b) => {
+        const actual = +(actualByCat[b.category] || 0).toFixed(2);
+        const utilisation =
+          b.amount > 0 ? Math.round((actual / b.amount) * 100) : 0;
+        return {
+          category: b.category,
+          budget: b.amount,
+          actual,
+          variance: +(actual - b.amount).toFixed(2),
+          utilisation,
+        };
+      });
       // Issue #76 (Apr 2026): the dashboard "Total Spent" KPI was previously
       // derived client-side as sum(rows.actual), which silently dropped any
       // category whose budget hadn't been set yet (e.g. ₹85k of Equipment

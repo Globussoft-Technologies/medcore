@@ -218,6 +218,381 @@ done
 [ "$web_ok" -eq 1 ] || { echo "Web FAILED after 5 retries"; exit 1; }
 
 pm2 save
+
+# Issue #40 / #41: keep the medicine catalog rows aligned with the
+# canonical seed values on every deploy. seed-pharmacy.ts is idempotent
+# (every write is an upsert keyed by `name` for medicines, `code` for lab
+# tests, and a composite key for inventory) so re-running it on every
+# deploy fixes the demo's stale `prescriptionRequired=false` Amlodipine
+# row + empty `brand` columns without ever destroying tenant data.
+# Failures here MUST NOT fail the deploy — the catalog is non-critical
+# relative to the API/Web smoke checks above.
+echo "=== 8b. Re-applying pharmacy catalog seed (Issue #40, #41) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-pharmacy.ts; then
+    echo "  OK — pharmacy catalog re-seeded."
+else
+    echo "  WARN — pharmacy seed failed (non-fatal). Investigate offline."
+fi
+
+# Issue #46: pediatric immunization rows seeded long ago show "9+ years
+# overdue" on the dashboard because their nextDueDate was anchored to
+# DOB + UIP age offset, which slid into the deep past as the demo aged.
+# fix-stale-immunizations.ts walks every PENDING row whose nextDueDate is
+# >365d old and either RECOMPUTEs to a 7-60d overdue window (kids) or
+# marks it MISSED (adults — too late for a pediatric vaccine). The script
+# is idempotent (only touches rows that ARE >365d stale) and dry-run-safe
+# by default; we pass --apply here. As with the pharmacy seed, failures
+# MUST NOT block the deploy — the overdue dashboard cosmetic is
+# non-critical relative to API/Web smoke checks above.
+echo "=== 8c. Re-clamping stale immunization due-dates (Issue #46) ==="
+if DATABASE_URL="$DB_URL" npx tsx scripts/fix-stale-immunizations.ts --apply; then
+    echo "  OK — stale immunization rows re-clamped."
+else
+    echo "  WARN — fix-stale-immunizations failed (non-fatal). Investigate offline."
+fi
+
+# Steps 8d–8j: idempotent demo-fixture seeds.
+#
+# Each script below is fully idempotent (upsert on a stable unique column,
+# OR findFirst/findUnique guard before .create), and seeds dashboard-visible
+# fixture rows whose absence has previously surfaced as a "live demo bug"
+# despite the underlying code already being correct. Wired post-deploy so
+# every push to main re-asserts the canonical fixture state without ever
+# touching real user-created rows. Each step is non-fatal — a single seed
+# failure must NOT break the deploy (catalog/fixture data is non-critical
+# relative to the API/Web smoke checks above).
+#
+# Seeds NOT wired: NONE remaining. Wave 4 (2026-05-11) closed the
+# idempotency long-tail. Every seed-*.ts in packages/db/src/ that produces
+# demo-visible rows is now safe to re-run on every deploy (each uses
+# stable namespaced IDs + findUnique/findFirst guards or true upserts;
+# no `deleteMany` upfront on any wired step; no live production counter
+# touched).
+#
+# Wired below (deploy.sh wave 2 — idempotency lifted 2026-05-10):
+#   - seed-chat-conversations.ts     (8n) — [CHAT-SEED-<roomKey>-NNNN] tag findFirst on content startsWith
+#   - seed-visitors-history.ts       (8o) — VIS-HIST-SEED-NNNN passNumber findUnique skip-or-create
+#   - seed-asset-history.ts          (8p) — [seed:ASSET-HIST-SEED-<tag>-<j>] description marker + [seed:ASSET-XFER-SEED-<tag>] notes marker findFirst-skip
+#   - seed-doctor-ratings.ts         (8q) — [seed:DR-RATE-SEED-<doctorId>-<i>] comment marker findFirst-skip on PatientFeedback
+#   - seed-complaints-data.ts        (8r) — CMP-SEED-NNNN ticketNumber findUnique (does NOT poison live CMP-YYYY-NNNNN counter)
+#   - seed-notifications-history.ts  (8s) — NOTIF-SEED-NNNN dedupKey findUnique (cannot collide with broadcast `${broadcastId}:${userId}`)
+#   - seed-immunization-data.ts      (8t) — IMMUN-SEED-NNNNNN tag in `notes` + findFirst on (patientId, vaccine, doseNumber)
+#   - seed-lab-data.ts               (8u) — LAB-SEED-NNNNNN orderNumber findUnique
+#   - seed-lab-panels.ts             (8v) — LAB-SEED-PANEL-NNNNNN orderNumber findUnique + per-test reference-range count guard
+#
+# Wired below (deploy.sh wave 4 — idempotency lifted 2026-05-11):
+#   - seed-clinical-enhancements.ts   (8w) — Notification.dedupKey CLINENH-SEED-{FOLLOWUP|IMMUN}-NNNN @@unique
+#   - seed-acute-care-enhancements.ts (8x) — IPD-SEED- / SRG-SEED- / ERS-SEED- / TEL-SEED- on existing @unique business-keys
+#   - seed-ancillary-enhancements.ts  (8y) — TRP-SEED-NNNN ambulance tripNumber + parent count-guards
+#   - seed-ipd.ts                     (8z) — patient-side admission idempotency (5f784a2) gates in-tx vitals
+#   - seed-pediatric-patients.ts      (9a) — MR-PED-SEED-NNN namespace (fixes live next_mr_number collision)
+#   - seed-ops-enhancements.ts        (9b) — 10 entity namespaces + Notification.data.seedKey JSON path findFirst
+#   - seed-phase4-specialty.ts        (9c) — ANC-SEED-NNNN + (patientId, ageMonths) anchor (1 deleteMany removed)
+#   - seed-phase4-engagement.ts       (9d) — CMP-PH4-/VIS-PH4-/[PH4-ENG-CHAT-…] (4 deleteMany calls removed)
+#   - seed-phase4-ops.ts              (9e) — [PH4-OPS-ASSIGN-SEED-NNNN] + per-row stable-id guards (3 coarse gates tightened)
+#
+# All share the mulberry32 PRNG idempotency strategy that seed-realistic.ts
+# pioneered — re-runs make byte-identical decisions.
+
+echo "=== 8d. Re-applying hospital identity SystemConfig seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-hospital-config.ts; then
+    echo "  OK — hospital config re-seeded."
+else
+    echo "  WARN — hospital-config seed failed (non-fatal). Investigate offline."
+fi
+
+echo "=== 8e. Re-applying notification templates seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-notification-templates.ts; then
+    echo "  OK — notification templates re-seeded."
+else
+    echo "  WARN — notification-templates seed failed (non-fatal). Investigate offline."
+fi
+
+echo "=== 8f. Re-applying medicine leaflets / renal / controlled flags ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-medicine-leaflets.ts; then
+    echo "  OK — medicine leaflets re-applied."
+else
+    echo "  WARN — medicine-leaflets seed failed (non-fatal). Investigate offline."
+fi
+
+echo "=== 8g. Re-applying controlled-substance register seed (Issue #93) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-controlled-register.ts; then
+    echo "  OK — controlled register re-seeded."
+else
+    echo "  WARN — controlled-register seed failed (non-fatal). Investigate offline."
+fi
+
+echo "=== 8h. Re-applying prompt registry v1 seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-prompts.ts; then
+    echo "  OK — prompt registry v1 re-seeded."
+else
+    echo "  WARN — seed-prompts failed (non-fatal). Investigate offline."
+fi
+
+echo "=== 8i. Re-applying prompt registry v2 (TRIAGE_SYSTEM) seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-prompt-v2-triage.ts; then
+    echo "  OK — prompt v2 re-seeded."
+else
+    echo "  WARN — seed-prompt-v2-triage failed (non-fatal). Investigate offline."
+fi
+
+echo "=== 8j. Re-applying SNOMED-CT curated subset seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-snomed.ts; then
+    echo "  OK — SNOMED concepts re-seeded."
+else
+    echo "  WARN — seed-snomed failed (non-fatal). Investigate offline."
+fi
+
+# Step 8k (2026-05-09): seed-realistic.ts is now fully idempotent — all
+# downstream `.create` calls on appointments / vitals / consultations /
+# prescriptions / invoices / payments / insurance claims now go through
+# either an upsert on a stable unique column OR a `findUnique` /
+# `findFirst` skip-or-create guard. Stable seed ids:
+#   - mrNumber          → MRSEED${i}
+#   - invoiceNumber     → INV-SEED-${seq}
+#   - transactionId     → TXN-SEED-${seq} (CASH gets one too, deviates
+#                         from production-CASH null-txnId, intentional)
+#   - providerClaimRef  → ${tpa}-SEED-${seq}
+# All RNG is driven by a fixed-seed mulberry32 so re-runs make
+# byte-identical decisions and the `(doctorId, date, tokenNumber)` upsert
+# key keeps mapping back to the same rows. `next_invoice_number` and
+# `next_mr_number` SystemConfig entries are NO LONGER touched — those are
+# the live production counters consumed by billing.ts / patients.ts.
+# Failures MUST NOT block the deploy (matches every other 8x seed step).
+echo "=== 8k. Re-applying realistic OPD flow seed (idempotent) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-realistic.ts; then
+    echo "  OK — realistic OPD flow re-seeded."
+else
+    echo "  WARN — seed-realistic failed (non-fatal). Investigate offline."
+fi
+
+# Step 8p (deploy.sh wave 3 — 2026-05-10): seed-asset-history.ts is now
+# fully idempotent — every AssetMaintenance row is tagged with
+# `[seed:ASSET-HIST-SEED-<assetTag>-<j>]` in `description` and gated by
+# findFirst-on-marker; AssetTransfer rows use `[seed:ASSET-XFER-SEED-<tag>]`
+# in `notes`. Asset row updates (amcExpiry / nextCalibration) are gated on
+# the `calibrationInterval=365` marker so re-runs preserve the first run's
+# AMC mix instead of resampling random offsets each deploy. All RNG goes
+# through a fixed-seed mulberry32. Failures MUST NOT block the deploy.
+echo "=== 8p. Re-applying asset history seed (maintenance / transfers / disposal) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-asset-history.ts; then
+    echo "  OK — asset history re-seeded."
+else
+    echo "  WARN — seed-asset-history failed (non-fatal). Investigate offline."
+fi
+
+# Step 8q (deploy.sh wave 3 — 2026-05-10): seed-doctor-ratings.ts is now
+# fully idempotent — every PatientFeedback row's `comment` carries a
+# stable `[seed:DR-RATE-SEED-<doctorId>-<i>]` marker, gated by findFirst.
+# All RNG (rating distribution, sentiment score, NPS, requestedVia,
+# patient pick) is driven by a fixed-seed mulberry32 so re-runs reuse the
+# same per-(doctor, i) tuple. Failures MUST NOT block the deploy.
+echo "=== 8q. Re-applying doctor ratings seed (per-doctor PatientFeedback rows) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-doctor-ratings.ts; then
+    echo "  OK — doctor ratings re-seeded."
+else
+    echo "  WARN — seed-doctor-ratings failed (non-fatal). Investigate offline."
+fi
+
+# Step 8r (deploy.sh wave 3 — 2026-05-10): seed-complaints-data.ts is now
+# fully idempotent — sample tickets use a stable `CMP-SEED-NNNN`
+# `ticketNumber` namespace (1..16) gated by findUnique. The runtime
+# generator at apps/api/src/routes/feedback.ts mints `CMP-YYYY-NNNNN`
+# (digits only in the tail), so its DESC sort + trailing-digit parse can
+# never get poisoned by the seed's `0001..0016` tail (those numbers are
+# below any realistic live ticket count). Failures MUST NOT block the
+# deploy.
+echo "=== 8r. Re-applying complaints seed (16 fixture tickets) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-complaints-data.ts; then
+    echo "  OK — complaints re-seeded."
+else
+    echo "  WARN — seed-complaints-data failed (non-fatal). Investigate offline."
+fi
+
+# Step 8s (deploy.sh wave 3 — 2026-05-10): seed-notifications-history.ts is
+# now fully idempotent — each of 220 sample notifications carries a stable
+# `NOTIF-SEED-NNNN` value in `dedupKey` (a `@unique` column added 2026
+# for the broadcast-fanout dedup feature, Issue #750). Live broadcast rows
+# use the form `${broadcastId}:${userId}` (uuid-prefixed) so collisions
+# are impossible. RNG is mulberry32-seeded for stable template / channel /
+# status picks per iteration. Failures MUST NOT block the deploy.
+echo "=== 8s. Re-applying notifications history seed (220 audience-aware delivery logs) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-notifications-history.ts; then
+    echo "  OK — notifications history re-seeded."
+else
+    echo "  WARN — seed-notifications-history failed (non-fatal). Investigate offline."
+fi
+
+# Step 8n (deploy.sh wave 2 — 2026-05-10): seed-chat-conversations.ts is now
+# fully idempotent — every seed-created chat message starts with a stable
+# `[CHAT-SEED-<roomKey>-NNNN]` content prefix and is guarded by
+# `findFirst({roomId, content:{startsWith}})` skip-or-create. Rooms +
+# participants were already idempotent (findFirst by name+department,
+# upsert on `@@unique([roomId, userId])`). All RNG goes through a fixed-seed
+# mulberry32 so re-runs pick the same senders / reactions / pins / mentions
+# even on partial-run recovery. Failures MUST NOT block the deploy.
+echo "=== 8n. Re-applying chat conversations seed (rooms + seeded message history) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-chat-conversations.ts; then
+    echo "  OK — chat conversations re-seeded."
+else
+    echo "  WARN — seed-chat-conversations failed (non-fatal). Investigate offline."
+fi
+
+# Step 8o (deploy.sh wave 2 — 2026-05-10): seed-visitors-history.ts is now
+# fully idempotent — historical Visitor rows use a stable
+# `VIS-HIST-SEED-NNNN` `passNumber` prefix guarded by `findUnique` skip.
+# Distinct from the live production format (`VIS<digits>-<YYYYMMDD>`,
+# generated by apps/api/src/routes/visitors.ts) AND from the
+# ops-enhancement seed prefix (`VIS-OPS-NNNN`) so the live `nextPassNumber`
+# logic is never advanced by this seed. Blacklist entries already use a
+# `findFirst` guard on idProofNumber/phone. Failures MUST NOT block the
+# deploy.
+echo "=== 8o. Re-applying visitor history seed (30-day rolling history + blacklist) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-visitors-history.ts; then
+    echo "  OK — visitor history re-seeded."
+else
+    echo "  WARN — seed-visitors-history failed (non-fatal). Investigate offline."
+fi
+
+# Step 8t (deploy.sh wave 2 — 2026-05-10): seed-immunization-data.ts is now
+# fully idempotent — every Immunization row is gated by a `findFirst`
+# guard on the natural tuple `(patientId, vaccine, doseNumber)` and tagged
+# with a stable `[IMMUN-SEED-NNNNNN]` marker in the `notes` field. The
+# upcoming-booster sentinel uses doseNumber=99 so it never collides with
+# the past-dose tuple. All RNG is driven by a fixed-seed mulberry32 so
+# re-runs make byte-identical decisions. Failures MUST NOT block the deploy.
+echo "=== 8t. Re-applying immunization data seed (UIP child schedule + adult vaccines) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-immunization-data.ts; then
+    echo "  OK — immunization data re-seeded."
+else
+    echo "  WARN — seed-immunization-data failed (non-fatal). Investigate offline."
+fi
+
+# Step 8u (deploy.sh wave 2 — 2026-05-10): seed-lab-data.ts is now fully
+# idempotent — LabOrder.orderNumber uses stable `LAB-SEED-NNNNNN` keys
+# (gated by findUnique) instead of the previous max+1 counter that minted
+# fresh batches each run. LabResult creation is guarded by a per-orderItem
+# count check. Lab QC entries block was already idempotent. Failures MUST
+# NOT block the deploy.
+echo "=== 8u. Re-applying lab orders + results seed (61 scenarios + QC entries) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-lab-data.ts; then
+    echo "  OK — lab orders + results re-seeded."
+else
+    echo "  WARN — seed-lab-data failed (non-fatal). Investigate offline."
+fi
+
+# Step 8v (deploy.sh wave 2 — 2026-05-10): seed-lab-panels.ts is now fully
+# idempotent — specialty-test orders use stable `LAB-SEED-PANEL-NNNNNN`
+# keys (replacing `LAB-${YYYY}-${existingOrders+5000+i}` which compounded
+# each re-run). LabTest upsert by `code` was already idempotent;
+# LabTestReferenceRange now uses a per-test count guard. Failures MUST NOT
+# block the deploy.
+echo "=== 8v. Re-applying specialty lab panels seed (VITD/B12/IronStudies/etc.) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-lab-panels.ts; then
+    echo "  OK — specialty lab panels re-seeded."
+else
+    echo "  WARN — seed-lab-panels failed (non-fatal). Investigate offline."
+fi
+
+# ─── deploy.sh wave 4 (2026-05-11) — final 9 seeds wired in ──────────
+# After PRs #773 (clinical/acute-care/ancillary enhancements), #774 (ipd /
+# pediatric-patients / ops-enhancements), and #775 (phase4 trio with
+# deleteMany removal), the long-tail of non-idempotent seeds is functionally
+# closed. All 9 new steps are non-fatal in keeping with every other 8x step.
+# Each seed uses stable namespaced IDs + findUnique/findFirst guards (or
+# upsert on an existing @unique column) and never touches a live production
+# counter.
+
+# Step 8w: seed-clinical-enhancements.ts — Notification.dedupKey =
+# "CLINENH-SEED-{FOLLOWUP|IMMUN}-NNNN" (existing @@unique guard).
+echo "=== 8w. Re-applying clinical enhancements seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-clinical-enhancements.ts; then
+    echo "  OK — clinical enhancements re-seeded."
+else
+    echo "  WARN — seed-clinical-enhancements failed (non-fatal). Investigate offline."
+fi
+
+# Step 8x: seed-acute-care-enhancements.ts — IPD-SEED-NNNN admissionNumber,
+# SRG-SEED-NNNN caseNumber, ERS-SEED-NNNN er-case caseNumber, TEL-SEED-NNNN
+# sessionNumber. Removed live count()+1 counter touches.
+echo "=== 8x. Re-applying acute care enhancements seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-acute-care-enhancements.ts; then
+    echo "  OK — acute care enhancements re-seeded."
+else
+    echo "  WARN — seed-acute-care-enhancements failed (non-fatal). Investigate offline."
+fi
+
+# Step 8y: seed-ancillary-enhancements.ts — TRP-SEED-NNNN ambulance
+# tripNumber + parent-row count guards for fuel-logs / blood-temp-logs /
+# asset-maintenance children.
+echo "=== 8y. Re-applying ancillary enhancements seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-ancillary-enhancements.ts; then
+    echo "  OK — ancillary enhancements re-seeded."
+else
+    echo "  WARN — seed-ancillary-enhancements failed (non-fatal). Investigate offline."
+fi
+
+# Step 8z: seed-ipd.ts — patient-side admission idempotency (already in
+# place since 5f784a2); transitively gates the in-transaction IpdVitals
+# .create. Kept fatal-tolerant for safety.
+echo "=== 8z. Re-applying IPD seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-ipd.ts; then
+    echo "  OK — IPD fixtures re-seeded."
+else
+    echo "  WARN — seed-ipd failed (non-fatal). Investigate offline."
+fi
+
+# Step 9a: seed-pediatric-patients.ts — MR-PED-SEED-NNN mrNumber namespace
+# (was MR000036..MR000043 colliding with live next_mr_number counter — real
+# bug fix shipped with the idempotency pass).
+echo "=== 9a. Re-applying pediatric patients seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-pediatric-patients.ts; then
+    echo "  OK — pediatric patients re-seeded."
+else
+    echo "  WARN — seed-pediatric-patients failed (non-fatal). Investigate offline."
+fi
+
+# Step 9b: seed-ops-enhancements.ts — 10 entity namespaces (CN-/ADV-/GRN-/
+# SINV-/B-/EXP-/CMP-ESC-/VIS-/BL-SEED-) + Notification.data.seedKey JSON
+# path findFirst + PatientFeedback `[ops-seed:NNN]` comment-token guard.
+echo "=== 9b. Re-applying ops enhancements seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-ops-enhancements.ts; then
+    echo "  OK — ops enhancements re-seeded."
+else
+    echo "  WARN — seed-ops-enhancements failed (non-fatal). Investigate offline."
+fi
+
+# Step 9c: seed-phase4-specialty.ts — ANC-SEED-NNNN antenatal caseNumber
+# + (patientId, ageMonths) anchor for GrowthRecord. Partial deleteMany
+# removal (1 of 1).
+echo "=== 9c. Re-applying phase4 specialty seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-phase4-specialty.ts; then
+    echo "  OK — phase4 specialty re-seeded."
+else
+    echo "  WARN — seed-phase4-specialty failed (non-fatal). Investigate offline."
+fi
+
+# Step 9d: seed-phase4-engagement.ts — CMP-PH4-SEED-NNNN ticketNumber,
+# VIS-PH4-SEED-NNNN passNumber, [PH4-ENG-CHAT-SEED-…] message prefix.
+# FULL deleteMany removal (4 of 4 unscoped wipes replaced with stable-id
+# guards) — the heaviest piece of wave-4 idempotency.
+echo "=== 9d. Re-applying phase4 engagement seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-phase4-engagement.ts; then
+    echo "  OK — phase4 engagement re-seeded."
+else
+    echo "  WARN — seed-phase4-engagement failed (non-fatal). Investigate offline."
+fi
+
+# Step 9e: seed-phase4-ops.ts — [PH4-OPS-ASSIGN-SEED-NNNN] AssetAssignment
+# notes-prefix + per-row stable-id guards (replaced 3 coarse count() === 0
+# gates).
+echo "=== 9e. Re-applying phase4 ops seed ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-phase4-ops.ts; then
+    echo "  OK — phase4 ops re-seeded."
+else
+    echo "  WARN — seed-phase4-ops failed (non-fatal). Investigate offline."
+fi
+
 echo "=== Deployment complete (previous SHA recorded at /tmp/medcore-prev-sha) ==="
 
 # Optional: re-seed (destructive — triple-guarded; see env var below).

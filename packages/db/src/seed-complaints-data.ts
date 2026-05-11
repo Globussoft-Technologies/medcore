@@ -1,9 +1,41 @@
+/**
+ * Complaints seed.
+ *
+ * Idempotency contract (2026-05-10): wired into `scripts/deploy.sh` step 8r,
+ * safe to re-run on a populated demo without creating duplicates.
+ *
+ *   - Complaint.ticketNumber is `@unique`. Seed tickets are namespaced
+ *     `CMP-SEED-<NNNN>` (one per fixture entry, 1..16) so they never
+ *     collide with the live API generator's `CMP-YYYY-NNNNN` form
+ *     emitted by apps/api/src/routes/feedback.ts. The runtime's
+ *     `nextTicketNumber()` probe sorts by ticketNumber DESC and parses
+ *     the trailing digit run; the seed's `0001..0016` tail is small
+ *     enough to never poison the live counter (it would only be picked
+ *     as max if no live ticket exists, in which case the runtime simply
+ *     resumes counting from there — same behavior as the legacy seed).
+ *   - findUnique on the namespaced `ticketNumber` skips re-creates.
+ *   - Math.random() is replaced by mulberry32 so the per-fixture
+ *     patient/assignee picks stay stable.
+ */
 import { PrismaClient, ComplaintStatus, Role } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+// Deterministic RNG so re-runs make stable per-fixture picks (assignee,
+// patient link selection).
+const SEED = 0xc0117a17;
+let _rngState = SEED;
+function rng(): number {
+  _rngState |= 0;
+  _rngState = (_rngState + 0x6d2b79f5) | 0;
+  let t = Math.imul(_rngState ^ (_rngState >>> 15), 1 | _rngState);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+function resetRng() { _rngState = SEED; }
+
 function randomItem<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+  return arr[Math.floor(rng() * arr.length)];
 }
 
 function hoursFromNow(h: number): Date {
@@ -203,7 +235,8 @@ const COMPLAINTS: ComplaintSpec[] = [
 ];
 
 async function main() {
-  console.log("\n=== Seeding Complaints ===\n");
+  console.log("\n=== Seeding Complaints (idempotent) ===\n");
+  resetRng();
 
   // Assignees: reception/admin users
   const assignees = await prisma.user.findMany({
@@ -217,22 +250,23 @@ async function main() {
   });
 
   let created = 0;
-  let seq = 1;
-  // Start from a high ticket number to avoid collisions
-  const existing = await prisma.complaint.count();
-  seq = existing + 1;
+  let skipped = 0;
 
-  for (const c of COMPLAINTS) {
-    // Issue #275 (Apr 2026): unify on the canonical `CMP-YYYY-NNNNN`
-    // prefix used by the API generator (apps/api/src/routes/feedback.ts).
-    // Previously the seed emitted `COMP-...` while the runtime emitted
-    // `CMP...`, leaving reception with a mix of formats in the list.
-    const ticketNumber = `CMP-${new Date().getFullYear()}-${String(seq).padStart(5, "0")}`;
-    seq++;
+  for (let idx = 0; idx < COMPLAINTS.length; idx++) {
+    const c = COMPLAINTS[idx];
+    // Idempotency: stable per-fixture ticket number namespaced
+    // `CMP-SEED-<NNNN>` (1-indexed). This deliberately diverges from
+    // the live API generator's `CMP-${year}-${NNNNN}` form to guarantee
+    // re-runs hit the same row via `findUnique({ where: { ticketNumber } })`.
+    // See file header for runtime-counter impact analysis.
+    const ticketNumber = `CMP-SEED-${String(idx + 1).padStart(4, "0")}`;
 
     // Check idempotency by ticketNumber
     const exists = await prisma.complaint.findUnique({ where: { ticketNumber } });
-    if (exists) continue;
+    if (exists) {
+      skipped++;
+      continue;
+    }
 
     const createdAt = daysAgo(c.createdDaysAgo);
     const slaDueAt = new Date(createdAt.getTime() + SLA_HOURS[c.priority] * 3600_000);
@@ -243,7 +277,8 @@ async function main() {
     let patientId: string | null = null;
     let name: string | undefined = c.name;
     let phone: string | undefined = c.phone;
-    if (!name && patients.length > 0 && Math.random() > 0.4) {
+    const patientRoll = rng();
+    if (!name && patients.length > 0 && patientRoll > 0.4) {
       const p = randomItem(patients);
       patientId = p.id;
       name = p.user.name;
@@ -287,7 +322,7 @@ async function main() {
   const byPriority = await prisma.complaint.groupBy({ by: ["priority"], _count: true });
   const byStatus = await prisma.complaint.groupBy({ by: ["status"], _count: true });
 
-  console.log(`\n✔ Complaints created: ${created}`);
+  console.log(`\n✔ Complaints created: ${created} (skipped ${skipped} pre-existing)`);
   console.log(`  By priority:`);
   byPriority.forEach((p) => console.log(`    ${p.priority}: ${p._count}`));
   console.log(`  By status:`);

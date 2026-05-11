@@ -83,8 +83,11 @@ test.describe("Doctor Workspace — /dashboard/workspace (DOCTOR-only personal c
     await expect(
       page.getByRole("link", { name: /order labs/i })
     ).toBeVisible();
+    // Issue #552 (May 2026): the 4th shortcut was relabelled from "Add Note"
+    // to "Find Patient" because the previous label routed to /dashboard/patients
+    // with no composer or context. The test now pins the new copy + destination.
     await expect(
-      page.getByRole("link", { name: /add note/i })
+      page.getByRole("link", { name: /find patient/i })
     ).toBeVisible();
   });
 

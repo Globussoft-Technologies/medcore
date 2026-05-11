@@ -26,6 +26,13 @@ import { triggerFeedbackAnalysis } from "../services/ai/sentiment-ai";
 
 const feedbackRouter = Router();
 
+// #511 audit (file-level, 2026-05-09): the public POST `/feedback` already
+// enforces "PATIENT can only submit for own record" via inline JWT decode +
+// patient.userId compare (lines 50-66). Every authenticated handler below
+// the `feedbackRouter.use(authenticate)` line applies `authorize(...)` that
+// excludes PATIENT (ADMIN/RECEPTION/DOCTOR/NURSE-only). Same for the
+// complaintsRouter handlers. Verified-safe.
+
 // POST /api/v1/feedback — public endpoint for patient feedback forms (SMS/WhatsApp link).
 // If authenticated as PATIENT, restrict to own patient record.
 feedbackRouter.post(

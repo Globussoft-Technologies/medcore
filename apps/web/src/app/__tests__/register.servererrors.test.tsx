@@ -21,7 +21,7 @@
 // success branch handles it; testing it here would require asserting
 // what the user *can't* see, which is the whole point of #480.
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const { apiMock, loginMock, pushMock, toastMock } = vi.hoisted(() => ({
@@ -73,14 +73,52 @@ const validForm = {
   name: "Aarav Mehta",
   email: "aarav@example.com",
   phone: "9876543210",
-  password: "correct-horse",
+  // Issue #706: register password floor is 12 chars + letter + digit.
+  password: "CorrectHorse12",
+  // Issue #617: confirm-password must match `password` or validateClient()
+  // short-circuits before the API mock is hit.
+  confirmPassword: "CorrectHorse12",
+  // Issue #617: DOB required (ISO YYYY-MM-DD).
+  dateOfBirth: "1990-05-15",
+  // Issue #713: PATIENT self-registration requires address + EC triplet.
+  address: "12 MG Road, Bangalore",
+  emergencyContactName: "Priya Mehta",
+  emergencyContactPhone: "9000000002",
+  emergencyContactRelationship: "Spouse",
 };
 
 async function fillValid(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText(/full name/i), validForm.name);
   await user.type(screen.getByLabelText(/^email/i), validForm.email);
   await user.type(screen.getByLabelText(/^phone$/i), validForm.phone);
-  await user.type(screen.getByLabelText(/^password/i), validForm.password);
+  await user.type(screen.getByLabelText(/^password$/i), validForm.password);
+  // Issue #617: confirm-password second input.
+  await user.type(
+    screen.getByLabelText(/^confirm password$/i),
+    validForm.confirmPassword,
+  );
+  // Issue #684: gender must be a deliberate choice.
+  await user.selectOptions(screen.getByLabelText(/gender/i), "FEMALE");
+  // Issue #617: DOB — userEvent.type on `<input type="date">` is flaky in
+  // jsdom (the YYYY-MM-DD parser is finicky about the order of keystrokes).
+  // fireEvent.change with the wire-format value is the canonical reliable
+  // path for date inputs in RTL.
+  fireEvent.change(screen.getByLabelText(/date of birth/i), {
+    target: { value: validForm.dateOfBirth },
+  });
+  // Issue #713: address + emergency-contact triplet.
+  await user.type(screen.getByLabelText(/address/i), validForm.address);
+  await user.type(screen.getByLabelText(/^name$/i), validForm.emergencyContactName);
+  await user.type(
+    screen.getByLabelText(/^emergency phone$/i),
+    validForm.emergencyContactPhone,
+  );
+  await user.type(
+    screen.getByLabelText(/^relationship$/i),
+    validForm.emergencyContactRelationship,
+  );
+  // Issue #617: T&C consent — submit is blocked without it.
+  await user.click(screen.getByTestId("reg-accept-terms"));
 }
 
 describe("RegisterPage — server-error feedback (Issue #494)", () => {

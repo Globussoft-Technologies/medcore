@@ -24,6 +24,12 @@ import { auditLog } from "../middleware/audit";
 const router = Router();
 router.use(authenticate);
 
+// #511 audit (file-level, 2026-05-09): every handler in this file applies
+// `authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION)` (or a
+// stricter staff-only subset) — PATIENT is excluded from every surface.
+// ER cases include MLC numbers, police info, vitals, and GCS for every
+// patient in the ER, which is operational/clinical data. Verified-safe.
+
 async function nextCaseNumber(): Promise<string> {
   const last = await rawPrisma.emergencyCase.findFirst({
     orderBy: { caseNumber: "desc" },

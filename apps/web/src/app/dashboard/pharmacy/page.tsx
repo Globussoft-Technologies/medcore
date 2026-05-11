@@ -278,9 +278,11 @@ export default function PharmacyPage() {
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      {/* Issue #619: header row reflows on phones so the Add Stock CTA
+          drops below the title block instead of pushing it off-screen. */}
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold text-gray-900 dark:text-gray-100">
+          <h1 className="flex items-center gap-2 text-xl font-bold text-gray-900 sm:text-2xl dark:text-gray-100">
             <Package className="text-primary" /> Pharmacy
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">Inventory management</p>
@@ -339,7 +341,10 @@ export default function PharmacyPage() {
         </div>
       )}
 
-      <div className="rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
+      {/* Issue #619: tables overflowed off-screen on 375×667 phones. Wrap
+          the card in `overflow-x-auto` so the user can horizontally scroll
+          on narrow viewports while desktop layout stays unchanged. */}
+      <div className="overflow-x-auto rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         {loading ? (
           // Issue #367 (Apr 30 2026): replaced the bare "Loading..." line
           // with a row skeleton so the Returns / Transfers tabs no longer
@@ -477,19 +482,22 @@ export default function PharmacyPage() {
           )
         ) : tab === "valuation" ? (
           <div>
-            <div className="flex items-center gap-3 border-b px-4 py-3">
-              <label htmlFor="pharmacy-valuation-method" className="text-sm text-gray-600">Method:</label>
+            {/* Issue #634: dark-mode pairing on the valuation toolbar.
+                Issue #619: flex-wrap so the toolbar reflows on narrow viewports
+                instead of overflowing horizontally. */}
+            <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+              <label htmlFor="pharmacy-valuation-method" className="text-sm text-gray-600 dark:text-gray-300">Method:</label>
               <select
                 id="pharmacy-valuation-method"
                 value={valuationMethod}
                 onChange={(e) => setValuationMethod(e.target.value)}
-                className="rounded border px-2 py-1 text-sm"
+                className="rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
               >
                 <option value="WEIGHTED_AVG">Weighted Average</option>
                 <option value="FIFO">FIFO</option>
                 <option value="LIFO">LIFO</option>
               </select>
-              <div className="ml-auto text-sm text-gray-600">
+              <div className="ml-auto text-sm text-gray-600 dark:text-gray-300">
                 Total Value:{" "}
                 <span className="text-lg font-bold text-primary">
                   ₹
@@ -705,10 +713,14 @@ function ReturnModal({
         single source of truth. HTML5 attrs on the inputs below are stripped
         accordingly.
       */}
+      {/* Issue #634: pharmacist light-mode toggle previously left this
+          modal with a white card AND `text-slate-700` labels with no dark
+          variants — flipping to dark left dark-grey text on white. Pair
+          every surface with `dark:` so both modes stay readable. */}
       <form
         onSubmit={submit}
         noValidate
-        className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+        className="w-full max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
       >
         <h2 className="mb-4 text-lg font-bold">
           Return {item.medicine.name} ({item.batchNumber})
@@ -720,7 +732,7 @@ function ReturnModal({
           <div>
             <label
               htmlFor="pharmacy-return-qty"
-              className="mb-1 block text-xs font-medium text-slate-700"
+              className="mb-1 block text-xs font-medium text-slate-700 dark:text-gray-200"
               data-testid="label-pharmacy-return-qty"
             >
               Quantity to Return
@@ -731,17 +743,17 @@ function ReturnModal({
               placeholder={`Quantity (max ${item.quantity})`}
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
-              className="w-full rounded border px-3 py-2"
+              className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
               data-testid="pharmacy-return-qty"
             />
-            <p className="mt-1 text-xs text-gray-500" data-testid="pharmacy-return-onhand">
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400" data-testid="pharmacy-return-onhand">
               On hand: {item.quantity}
             </p>
           </div>
           <div>
             <label
               htmlFor="pharmacy-return-reason"
-              className="mb-1 block text-xs font-medium text-slate-700"
+              className="mb-1 block text-xs font-medium text-slate-700 dark:text-gray-200"
               data-testid="label-pharmacy-return-reason"
             >
               Reason for Return
@@ -750,7 +762,7 @@ function ReturnModal({
               id="pharmacy-return-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              className="w-full rounded border px-3 py-2"
+              className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
             >
               <option value="PATIENT_RETURNED">Patient Returned</option>
               <option value="WRONG_ITEM">Wrong Item</option>
@@ -761,7 +773,7 @@ function ReturnModal({
           <div>
             <label
               htmlFor="pharmacy-return-refund"
-              className="mb-1 block text-xs font-medium text-slate-700"
+              className="mb-1 block text-xs font-medium text-slate-700 dark:text-gray-200"
               data-testid="label-pharmacy-return-refund"
             >
               Refund Amount
@@ -773,7 +785,7 @@ function ReturnModal({
               placeholder="Refund Amount (optional)"
               value={refundAmount}
               onChange={(e) => setRefundAmount(e.target.value)}
-              className="w-full rounded border px-3 py-2"
+              className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
             />
           </div>
         </div>
@@ -781,7 +793,7 @@ function ReturnModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded border px-4 py-2 text-sm"
+            className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             Cancel
           </button>
@@ -864,10 +876,11 @@ function TransferModal({
         pre-flight checks (locations + quantity) — otherwise dropping
         `required` would silently let blank submits through.
       */}
+      {/* Issue #634: dark-mode pairing — same fix as ReturnModal above. */}
       <form
         onSubmit={submit}
         noValidate
-        className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+        className="w-full max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
       >
         <h2 className="mb-4 text-lg font-bold">
           Transfer {item.medicine.name} ({item.batchNumber})
@@ -877,26 +890,26 @@ function TransferModal({
             placeholder="From Location"
             value={fromLocation}
             onChange={(e) => setFromLocation(e.target.value)}
-            className="w-full rounded border px-3 py-2"
+            className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
           />
           <input
             placeholder="To Location"
             value={toLocation}
             onChange={(e) => setToLocation(e.target.value)}
-            className="w-full rounded border px-3 py-2"
+            className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
           />
           <input
             type="number"
             placeholder="Quantity"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
-            className="w-full rounded border px-3 py-2"
+            className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
           />
           <textarea
             placeholder="Notes (optional)"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            className="w-full rounded border px-3 py-2"
+            className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
             rows={2}
           />
         </div>
@@ -904,7 +917,7 @@ function TransferModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded border px-4 py-2 text-sm"
+            className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             Cancel
           </button>

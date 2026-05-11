@@ -109,19 +109,35 @@ function LoginPageInner() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    // Issue #537: trim leading/trailing whitespace before validation so that
+    // a whitespace-only submission (the user pressed space N times) fails the
+    // "required" check instead of silently hitting the API. We also enforce
+    // sensible length caps client-side so a 1,000-char paste is rejected
+    // before it reaches the wire — the server is authoritative but a fast
+    // client error is the right UX. Caps mirror the server schema:
+    // email <= 254 (RFC 5321), password <= 200.
+    const trimmedEmail = email.trim();
     const fe: { email?: string; password?: string } = {};
-    if (!email.trim()) fe.email = "Email is required";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    if (!trimmedEmail) fe.email = "Email is required";
+    else if (trimmedEmail.length > 254)
+      fe.email = "Email is too long (max 254 characters)";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail))
       fe.email = "Enter a valid email address";
     if (!password) fe.password = "Password is required";
+    else if (password.trim().length === 0)
+      // Issue #537: whitespace-only passwords must not be accepted.
+      fe.password = "Password is required";
     else if (password.length < 4) fe.password = "Password is too short";
+    else if (password.length > 200)
+      fe.password = "Password is too long (max 200 characters)";
     setFieldErrors(fe);
     if (Object.keys(fe).length > 0) return;
     setLoading(true);
 
     try {
       // Issue #1: forward rememberMe so the API can decide the refresh-token TTL.
-      const result = await login(email, password, rememberMe);
+      // Pass the trimmed email so leading/trailing spaces never reach the API.
+      const result = await login(trimmedEmail, password, rememberMe);
       if (result.twoFactorRequired && result.tempToken) {
         setTempToken(result.tempToken);
         setTwoFAStep(true);
@@ -247,12 +263,12 @@ function LoginPageInner() {
             {twoFAStep ? (
               <form
                 onSubmit={handle2FA}
-                className="space-y-5"
-                aria-label="2FA form"
                 // Issue #709: same noValidate convention as the email/password
                 // form so the 2FA step never surfaces the native validation
                 // tooltip either.
                 noValidate
+                className="space-y-5"
+                aria-label="2FA form"
               >
                 {error && (
                   <div
@@ -306,22 +322,35 @@ function LoginPageInner() {
             ) : (
               <form
                 onSubmit={handleSubmit}
-                className="space-y-5"
-                aria-label="Login form"
                 // Issue #102: suppress the browser's native email/required
                 // validation tooltip — it positioned itself over the Password
                 // label on Chromium. We render our own per-field error spans
                 // (data-testid="error-email" / "error-password") below.
                 noValidate
+                className="space-y-5"
+                aria-label="Login form"
               >
-                {error && (
-                  <div
-                    role="alert"
-                    className="rounded-lg bg-red-50 p-3 text-sm text-danger dark:bg-red-900/30 dark:text-red-300"
-                  >
-                    {error}
-                  </div>
-                )}
+                {/* Issue #548: reserve vertical space for the error banner
+                    even when no error is present. Without this, the banner
+                    pops in BETWEEN render passes and shifts the email input
+                    downward — combined with the on-screen keyboard appearing
+                    on mobile, that relayout race could cause a keystroke
+                    intended for the Password field to land in Email (the
+                    wrong input took focus mid-keystroke). The fixed-height
+                    container removes the layout jump entirely. */}
+                <div
+                  className="min-h-[3rem]"
+                  data-testid="login-error-slot"
+                >
+                  {error && (
+                    <div
+                      role="alert"
+                      className="rounded-lg bg-red-50 p-3 text-sm text-danger dark:bg-red-900/30 dark:text-red-300"
+                    >
+                      {error}
+                    </div>
+                  )}
+                </div>
 
                 <div>
                   <label
@@ -332,10 +361,31 @@ function LoginPageInner() {
                   </label>
                   <input
                     id="login-email"
+                    // Issue #528: explicit `name` so password managers
+                    // (1Password / Bitwarden / browser autofill) can target
+                    // the field reliably. Without `name` some bridges
+                    // .value-set the wrong input or skip the field entirely.
+                    name="email"
                     type="email"
                     autoComplete="email"
+                    // Issue #537: hard-cap input length at the field level so
+                    // the user physically cannot paste a 1,000-char string.
+                    // RFC 5321 puts email at <= 254 chars; the server schema
+                    // matches. Client cap = belt + braces with the validator.
+                    maxLength={254}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    // Issue #528: belt-and-braces — some autofill bridges
+                    // dispatch only `input` events (not React's synthetic
+                    // change), or .value-set without dispatching anything.
+                    // Mirroring onChange via onInput catches every variant of
+                    // input event browsers emit. onBlur re-syncs from the DOM
+                    // as a final fallback for the .value-set-without-event
+                    // case (rare, but observed with some accessibility tools).
+                    onInput={(e) =>
+                      setEmail((e.target as HTMLInputElement).value)
+                    }
+                    onBlur={(e) => setEmail(e.target.value)}
                     // Issue #709: do NOT set `required`. The form has
                     // `noValidate` but some browsers (Safari notably) still
                     // surface the native "Please fill out this field"
@@ -356,15 +406,19 @@ function LoginPageInner() {
                       fieldErrors.email ? "login-email-err" : undefined
                     }
                   />
-                  {fieldErrors.email && (
-                    <p
-                      id="login-email-err"
-                      data-testid="error-email"
-                      className="mt-1 text-xs text-red-600"
-                    >
-                      {fieldErrors.email}
-                    </p>
-                  )}
+                  {/* Issue #548: reserve a fixed line of space for the error
+                      message so the password input below never shifts when
+                      the error toggles on/off. role="alert" is only set when
+                      an error is actually present so empty paragraphs don't
+                      announce on initial render. */}
+                  <p
+                    id="login-email-err"
+                    data-testid="error-email"
+                    role={fieldErrors.email ? "alert" : undefined}
+                    className="mt-1 min-h-[1rem] text-xs text-red-600"
+                  >
+                    {fieldErrors.email ?? ""}
+                  </p>
                 </div>
 
                 <div>
@@ -376,9 +430,23 @@ function LoginPageInner() {
                   </label>
                   <PasswordInput
                     id="login-password"
+                    // Issue #528: explicit `name` so password managers can
+                    // target this field by name; mirrors the email input.
+                    name="password"
                     autoComplete="current-password"
+                    // Issue #537: cap at 200 chars to mirror the server
+                    // password schema and reject a 1,000-char paste at the
+                    // field level. Real passwords never need this much.
+                    maxLength={200}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    // Issue #528: same belt-and-braces as the email field —
+                    // mirror onChange via onInput / onBlur so paste, autofill,
+                    // and programmatic .value sets all reach React state.
+                    onInput={(e) =>
+                      setPassword((e.target as HTMLInputElement).value)
+                    }
+                    onBlur={(e) => setPassword(e.target.value)}
                     // Issue #709: see above — inline error span replaces
                     // the native required tooltip.
                     aria-required="true"
@@ -394,15 +462,16 @@ function LoginPageInner() {
                       fieldErrors.password ? "login-password-err" : undefined
                     }
                   />
-                  {fieldErrors.password && (
-                    <p
-                      id="login-password-err"
-                      data-testid="error-password"
-                      className="mt-1 text-xs text-red-600"
-                    >
-                      {fieldErrors.password}
-                    </p>
-                  )}
+                  {/* Issue #548: reserved space for the password error so the
+                      submit button never shifts when the error toggles. */}
+                  <p
+                    id="login-password-err"
+                    data-testid="error-password"
+                    role={fieldErrors.password ? "alert" : undefined}
+                    className="mt-1 min-h-[1rem] text-xs text-red-600"
+                  >
+                    {fieldErrors.password ?? ""}
+                  </p>
                 </div>
 
                 {/* Issue #1: Remember-me checkbox. Unchecked = session-only

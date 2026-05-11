@@ -236,4 +236,111 @@ describeIfDB("Lab API (integration)", () => {
     const res = await request(app).get("/api/v1/lab/orders");
     expect(res.status).toBe(401);
   });
+
+  // Issue #622: imaging / radiology orders need a file artefact (DICOM,
+  // PDF report, JPEG/PNG image), not a numeric value. POST /lab/orders/:id/
+  // attachments stores the artefact via services/storage and creates a
+  // PatientDocument row tagged `type: IMAGING`. The endpoint is gated to
+  // orders that contain at least one imaging-shaped test.
+  it("accepts an imaging attachment for a radiology order (#622)", async () => {
+    const { doctor } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    const test = await createLabTestFixture({
+      name: "Ultrasound Abdomen",
+      category: "Imaging",
+      unit: undefined,
+      panicLow: undefined,
+      panicHigh: undefined,
+    });
+    const order = await createLabOrderFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      testIds: [test.id],
+    });
+
+    // 8-byte PNG signature is enough for the magic-byte sniffer.
+    const png = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x00,
+    ]);
+    const res = await request(app)
+      .post(`/api/v1/lab/orders/${order.id}/attachments`)
+      .set("Authorization", `Bearer ${labTechToken}`)
+      .send({
+        filename: "usg-abdomen.png",
+        base64Content: png.toString("base64"),
+        title: "USG Abdomen final report",
+        notes: "Hepatomegaly noted",
+      });
+    expect([200, 201]).toContain(res.status);
+    expect(res.body.data?.documentId).toBeTruthy();
+    expect(res.body.data?.mimeType).toBe("image/png");
+
+    // The PatientDocument row exists, scoped to this patient + IMAGING.
+    const prisma = await getPrisma();
+    const doc = await prisma.patientDocument.findUnique({
+      where: { id: res.body.data.documentId },
+    });
+    expect(doc?.patientId).toBe(patient.id);
+    expect(doc?.type).toBe("IMAGING");
+    expect(doc?.notes).toContain(order.orderNumber);
+  });
+
+  it("refuses imaging attachment for non-imaging orders (#622)", async () => {
+    const { doctor } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    // CBC = Hematology — not an imaging study.
+    const test = await createLabTestFixture({
+      name: "Complete Blood Count",
+      category: "Hematology",
+    });
+    const order = await createLabOrderFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      testIds: [test.id],
+    });
+    const png = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ]);
+    const res = await request(app)
+      .post(`/api/v1/lab/orders/${order.id}/attachments`)
+      .set("Authorization", `Bearer ${labTechToken}`)
+      .send({
+        filename: "cbc.png",
+        base64Content: png.toString("base64"),
+        title: "stray report",
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/imaging|radiology/i);
+  });
+
+  // Issue #624: the legacy UI mistakenly checked status === "PENDING" for
+  // the Collect-Sample CTA, so the SAMPLE_COLLECTED transition never
+  // triggered. The DB default is ORDERED — this test pins the canonical
+  // ORDERED → SAMPLE_COLLECTED happy path used by the new UI button and
+  // asserts collectedAt is stamped server-side.
+  it("ORDERED → SAMPLE_COLLECTED stamps collectedAt (#624)", async () => {
+    const { doctor } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    const test = await createLabTestFixture();
+    const order = await createLabOrderFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      testIds: [test.id],
+    });
+    expect(order.status).toBe("ORDERED");
+
+    const res = await request(app)
+      .patch(`/api/v1/lab/orders/${order.id}/status`)
+      .set("Authorization", `Bearer ${labTechToken}`)
+      .send({ status: "SAMPLE_COLLECTED" });
+    expect([200, 201]).toContain(res.status);
+    expect(res.body.data?.status).toBe("SAMPLE_COLLECTED");
+
+    const prisma = await getPrisma();
+    const refreshed = await prisma.labOrder.findUnique({
+      where: { id: order.id },
+    });
+    expect(refreshed?.status).toBe("SAMPLE_COLLECTED");
+    expect(refreshed?.collectedAt).toBeTruthy();
+  });
 });

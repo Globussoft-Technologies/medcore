@@ -7,6 +7,7 @@ import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import {
   Role,
   createHolidaySchema,
+  updateHolidaySchema,
   payrollCalcSchema,
   certificationSchema,
   updateCertificationSchema,
@@ -108,6 +109,66 @@ router.delete(
       await prisma.holiday.delete({ where: { id: req.params.id } });
       auditLog(req, "HOLIDAY_DELETE", "holiday", req.params.id).catch(console.error);
       res.json({ success: true, data: { id: req.params.id }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/hr-ops/holidays/:id
+// Issue #692 (BUG-A08, 2026-05-09): admin had to delete + recreate a
+// holiday to fix a typo or reclassification (PUBLIC ↔ OPTIONAL),
+// breaking the audit trail. This endpoint patches in place. Same
+// dedup rule as POST: if the new date already has a different
+// holiday, return 409 with a clear message rather than letting the
+// @@unique([date, name]) leak through as a 500.
+router.patch(
+  "/holidays/:id",
+  authorize(Role.ADMIN),
+  validate(updateHolidaySchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const existing = await prisma.holiday.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!existing) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Holiday not found" });
+        return;
+      }
+      const data: Record<string, unknown> = {};
+      if (typeof req.body.date === "string") {
+        const newDate = parseDate(req.body.date);
+        // Only run the dedup check if the date is actually changing.
+        if (newDate.getTime() !== existing.date.getTime()) {
+          const collision = await prisma.holiday.findFirst({
+            where: { date: newDate, NOT: { id: existing.id } },
+          });
+          if (collision) {
+            res.status(409).json({
+              success: false,
+              data: null,
+              error: `A holiday already exists on ${req.body.date}: "${collision.name}". Delete it first to replace.`,
+            });
+            return;
+          }
+        }
+        data.date = newDate;
+      }
+      if (typeof req.body.name === "string") data.name = req.body.name;
+      if (typeof req.body.type === "string") data.type = req.body.type;
+      if (req.body.description !== undefined)
+        data.description = req.body.description;
+
+      const updated = await prisma.holiday.update({
+        where: { id: existing.id },
+        data,
+      });
+      auditLog(req, "HOLIDAY_UPDATE", "holiday", updated.id, req.body).catch(
+        console.error
+      );
+      res.json({ success: true, data: updated, error: null });
     } catch (err) {
       next(err);
     }

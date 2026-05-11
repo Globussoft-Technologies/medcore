@@ -116,20 +116,28 @@ test.describe("AI-Assisted Booking — /dashboard/ai-booking (PATIENT-primary tr
       .toBeVisible();
   });
 
-  test("DOCTOR also lands on the same pre-chat selector — there is NO VIEW_ALLOWED gate on this page (universal-access route shape)", async ({
+  test("DOCTOR is bounced to /dashboard/not-authorized — Issue #674 restricts AI Booking to PATIENT + ADMIN only", async ({
     doctorPage,
   }) => {
     const page = doctorPage;
-    await gotoAuthed(page, "/dashboard/ai-booking");
+    // Issue #674 (May 2026): AI Booking is a patient-facing intake flow.
+    // Pharmacist / LabTech / Nurse / Doctor / Reception must not be able to
+    // start a triage session under their own identity — that creates clinical
+    // records attached to a non-patient user. The page now hard-redirects
+    // any role outside AI_BOOKING_ALLOWED = {"PATIENT","ADMIN"} to
+    // /dashboard/not-authorized?from=/dashboard/ai-booking.
+    await page.goto("/dashboard/ai-booking", { waitUntil: "domcontentloaded" });
     await dismissTourIfPresent(page);
 
-    // Same pre-chat header for the doctor — no /not-authorized redirect, no
-    // inline admin-gate placeholder. This is the "universally accessible"
-    // archetype (CLAUDE.md gotcha #7).
-    await expect(page.getByText(/Who is this appointment for\?/i).first())
-      .toBeVisible({ timeout: 15_000 });
-    await expect(page.getByRole("button", { name: /Start AI Consultation/i }))
-      .toBeVisible();
+    await expect(page).toHaveURL(/\/dashboard\/not-authorized/, {
+      timeout: 15_000,
+    });
+    expect(page.url()).toContain(
+      "from=" + encodeURIComponent("/dashboard/ai-booking")
+    );
+    await expect(
+      page.getByTestId("access-denied-page")
+    ).toBeVisible({ timeout: 10_000 });
   });
 
   test("PATIENT seeing the API error envelope from /triage/start surfaces a toast and stays on the pre-chat selector", async ({

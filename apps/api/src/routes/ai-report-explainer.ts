@@ -42,6 +42,12 @@ const explainBodySchema = z.object({
 });
 
 const router = Router();
+// #511 audit (file-level, 2026-05-09): /explain, /:explanationId/approve,
+// and /pending are staff-only (`authorize(Role.DOCTOR, Role.ADMIN)`) — PATIENT
+// excluded. GET /:labOrderId is reachable to any authed user but loads the
+// row first then runs `assertPatientOwnsResource` against `explanation.patientId`,
+// so a PATIENT can only read their own lab-report explanation; staff pass
+// through. Verified-safe.
 
 // security(2026-04-23-med): F-REX-2 — /explain triggers Sarvam-backed LLM work
 // on every request. Cap to 20/min/IP so one clinician token can't burn budget.

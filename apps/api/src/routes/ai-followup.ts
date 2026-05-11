@@ -13,6 +13,11 @@ import { sendNotification } from "../services/notification";
 
 const router = Router();
 router.use(authenticate);
+// #511 audit (file-level, 2026-05-09): /suggest/:consultationId is staff-only
+// (`authorize(Role.DOCTOR, Role.ADMIN)`). /:consultationId/book includes
+// Role.PATIENT but loads the consultation's `appointment.patientId` and
+// invokes `assertPatientOwnsResource` so a PATIENT cannot self-book a
+// follow-up against another patient's consultation. Verified-safe.
 
 // POST /api/v1/ai/followup/suggest/:consultationId — compute a suggestion
 router.post(

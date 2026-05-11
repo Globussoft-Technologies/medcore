@@ -509,13 +509,40 @@ export default function ComplaintsPage() {
                 </tr>
               </thead>
               <tbody>
-                {complaints.map((c) => {
+                {/* Issue #760 (May 2026): rank rows by SLA-overdue descending
+                    on the OPEN/UNDER_REVIEW/ESCALATED tabs so 798h-overdue
+                    CRITICAL tickets always rise to the top instead of
+                    sitting under fresh rows by `createdAt desc`. Resolved /
+                    closed rows go to the bottom (unsorted relative order).
+                    The "All" tab still respects createdAt ordering. */}
+                {[...complaints]
+                  .sort((a, b) => {
+                    if (tab === "ALL") return 0;
+                    const aResolved =
+                      a.status === "RESOLVED" || a.status === "CLOSED";
+                    const bResolved =
+                      b.status === "RESOLVED" || b.status === "CLOSED";
+                    if (aResolved !== bResolved) return aResolved ? 1 : -1;
+                    if (aResolved && bResolved) return 0;
+                    const aMs = computeSlaDue(a).getTime();
+                    const bMs = computeSlaDue(b).getTime();
+                    // Most-overdue first → smallest slaDueAt first.
+                    return aMs - bMs;
+                  })
+                  .map((c) => {
                   const assignee = users.find((u) => u.id === c.assignedTo);
                   const isResolved =
                     c.status === "RESOLVED" || c.status === "CLOSED";
                   const sla = !isResolved
                     ? formatSla(computeSlaDue(c), now)
                     : null;
+                  // Issue #760: surface "Days open" alongside the SLA cell
+                  // so even when the SLA computation is short (e.g. SLA
+                  // window not yet defined for a category) the absolute
+                  // age is unmistakable.
+                  const ageDays = Math.floor(
+                    (now - new Date(c.createdAt).getTime()) / 86400000
+                  );
                   return (
                     <tr key={c.id} className="border-b last:border-0">
                       <td className="px-4 py-3 font-mono text-xs font-semibold">
@@ -565,15 +592,36 @@ export default function ComplaintsPage() {
                       </td>
                       <td className="px-4 py-3 text-xs">
                         {sla ? (
-                          <span
-                            className={
-                              sla.overdue
-                                ? "font-semibold text-red-600"
-                                : "text-gray-600"
-                            }
-                          >
-                            {sla.text}
-                          </span>
+                          <div className="flex flex-col gap-0.5">
+                            <span
+                              className={
+                                sla.overdue
+                                  ? "font-semibold text-red-600"
+                                  : "text-gray-600"
+                              }
+                              data-testid={`complaint-sla-${c.ticketNumber}`}
+                            >
+                              {sla.text}
+                            </span>
+                            {/* Issue #760: absolute age badge so a 33-day-
+                                old ticket is unmistakable even if the SLA
+                                figure looks ambiguous. */}
+                            {ageDays >= 1 && (
+                              <span
+                                className={`inline-block w-fit rounded-full px-1.5 py-0 text-[10px] font-medium ${
+                                  ageDays >= 7
+                                    ? "bg-red-100 text-red-700"
+                                    : ageDays >= 3
+                                      ? "bg-amber-100 text-amber-700"
+                                      : "bg-gray-100 text-gray-600"
+                                }`}
+                                data-testid={`complaint-age-${c.ticketNumber}`}
+                                aria-label={`Open for ${ageDays} day${ageDays === 1 ? "" : "s"}`}
+                              >
+                                {ageDays}d open
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-gray-400">—</span>
                         )}

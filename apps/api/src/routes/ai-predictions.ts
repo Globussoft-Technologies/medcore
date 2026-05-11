@@ -38,6 +38,11 @@ const noShowBatchQuerySchema = z.object({
 
 const router = Router();
 
+// #511 audit (file-level, 2026-05-09): every handler applies
+// `authorize(Role.ADMIN, Role.RECEPTION)` (or DOCTOR/ADMIN/RECEPTION for
+// the per-appointment variant). PATIENT is excluded from no-show prediction
+// surfaces. Verified-safe.
+
 // GET /api/v1/ai/predictions/no-show/batch?date=YYYY-MM-DD
 // Must be declared BEFORE /:appointmentId to avoid "batch" being consumed as a param
 router.get(

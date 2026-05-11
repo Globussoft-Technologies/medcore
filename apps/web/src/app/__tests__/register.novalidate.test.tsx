@@ -104,7 +104,10 @@ describe("RegisterPage — noValidate + inline field errors (Issue #102 / #130)"
     await user.click(screen.getByRole("button", { name: /^register$/i }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("error-phone")).toHaveTextContent(/10-digit/i);
+      // #713 widened the format to "10–15 digits, optional leading +" (em-dash).
+      expect(screen.getByTestId("error-phone")).toHaveTextContent(
+        /10[‐-―−-]\s?15.*digits?/i,
+      );
     });
     expect(apiMock.post).not.toHaveBeenCalled();
   });
@@ -120,23 +123,28 @@ describe("RegisterPage — noValidate + inline field errors (Issue #102 / #130)"
     await user.click(screen.getByRole("button", { name: /^register$/i }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("error-password")).toHaveTextContent(/at least 6/i);
+      // Issue #706 raised the floor from 6 → 12 chars + letter + digit.
+      expect(screen.getByTestId("error-password")).toHaveTextContent(
+        /at least 12 characters/i,
+      );
     });
     expect(apiMock.post).not.toHaveBeenCalled();
   });
 
-  it("rejects age=0 with a 'between 1 and 150' message (Issue #167)", async () => {
+  it("rejects an out-of-range age with a 'between 0 and 130' message (Issue #167 / #707)", async () => {
+    // Issue #707 widened the range to [0, 130] (newborns valid; cap at 130).
+    // Use 131 to trigger the out-of-range error (0 is now valid).
     const user = userEvent.setup();
     render(<RegisterPage />);
     await user.type(screen.getByLabelText(/full name/i), "Aarav Mehta");
     await user.type(screen.getByLabelText(/^email/i), "aarav@example.com");
     await user.type(screen.getByLabelText(/^phone$/i), "9876543210");
     await user.type(screen.getByLabelText(/^password/i), "correct-horse");
-    await user.type(screen.getByLabelText(/^age/i), "0");
+    await user.type(screen.getByLabelText(/^age/i), "131");
     await user.click(screen.getByRole("button", { name: /^register$/i }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("error-age")).toHaveTextContent(/between 1 and 150/i);
+      expect(screen.getByTestId("error-age")).toHaveTextContent(/between 0 and 130/i);
     });
     expect(apiMock.post).not.toHaveBeenCalled();
   });

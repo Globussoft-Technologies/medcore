@@ -9,6 +9,7 @@ import { useTranslation } from "@/lib/i18n";
 import { LanguageDropdown } from "@/components/LanguageDropdown";
 import { PasswordInput } from "@/components/PasswordInput";
 import { toast } from "@/lib/toast";
+import { Check, X } from "lucide-react";
 // Issue #130: surface ALL zod validation errors at once (one inline span per
 // field via data-testid="error-{field}") instead of toasting only the first.
 import { extractFieldErrors, type FieldErrorMap } from "@/lib/field-errors";
@@ -33,6 +34,10 @@ export default function RegisterPage() {
     email: "",
     phone: "",
     password: "",
+    // Issue #617: confirm-password second input. Validated locally against
+    // `password`; never sent to the server (the server only stores the hashed
+    // primary password — confirm is purely a typo guard).
+    confirmPassword: "",
     // Issue #684: do NOT pre-select MALE — defaulting to a single gender
     // introduces a bias and pre-fills a sensitive field the user never
     // explicitly set. The first option is now an unselectable
@@ -40,12 +45,18 @@ export default function RegisterPage() {
     // picked one before submit.
     gender: "",
     age: "",
+    // Issue #617: ISO calendar string (YYYY-MM-DD) — required for PATIENT.
+    // Downstream workflows (appointments, prescriptions, billing) all expect
+    // a real DOB, so we collect it at signup rather than on a follow-up edit.
+    dateOfBirth: "",
     address: "",
     // Issue #713: emergency contact triplet — required for PATIENT.
     emergencyContactName: "",
     emergencyContactPhone: "",
     emergencyContactRelationship: "",
   });
+  // Issue #617: T&C / Privacy Policy consent. Submit is blocked until ticked.
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState("");
   // Issue #494: when the server returns a 5xx / network failure (no field
   // breakdown to render inline), surface a top-of-form banner with a "Retry"
@@ -103,6 +114,30 @@ export default function RegisterPage() {
       errs.password = "Password must contain at least one letter";
     else if (!/\d/.test(form.password))
       errs.password = "Password must contain at least one digit";
+    // Issue #617: confirm-password — surface the mismatch inline rather than
+    // letting the user submit a typo'd password and lock themselves out.
+    if (!form.confirmPassword)
+      errs.confirmPassword = "Please confirm your password";
+    else if (form.password && form.confirmPassword !== form.password)
+      errs.confirmPassword = "Passwords do not match";
+    // Issue #617: DOB required. We don't double-validate against `age` — the
+    // user can supply both and the server keeps both columns. Reject obviously
+    // bogus shapes (future date, > 130 years ago) up front.
+    if (!form.dateOfBirth) {
+      errs.dateOfBirth = "Date of birth is required";
+    } else {
+      const dob = new Date(form.dateOfBirth);
+      const now = new Date();
+      const minDob = new Date();
+      minDob.setFullYear(now.getFullYear() - 130);
+      if (Number.isNaN(dob.getTime())) {
+        errs.dateOfBirth = "Enter a valid date";
+      } else if (dob > now) {
+        errs.dateOfBirth = "Date of birth cannot be in the future";
+      } else if (dob < minDob) {
+        errs.dateOfBirth = "Date of birth must be within the last 130 years";
+      }
+    }
     if (form.age) {
       const n = parseInt(form.age, 10);
       // Issue #707: age range [0, 130].
@@ -129,7 +164,35 @@ export default function RegisterPage() {
     if (!form.emergencyContactRelationship.trim())
       errs["emergencyContact.relationship"] =
         "Emergency contact relationship is required";
+    // Issue #617: T&C / Privacy Policy consent gate. Surfaced inline so the
+    // user sees exactly which checkbox to tick rather than a generic banner.
+    if (!acceptedTerms)
+      errs.acceptedTerms =
+        "Please accept the Terms & Conditions and Privacy Policy to continue";
     return errs;
+  }
+
+  // Issue #617: lightweight password strength heuristic. No new dependency —
+  // we score on length tiers + character-class variety. Surfaces a 4-step
+  // bar so the user gets feedback before submit.
+  function passwordStrength(pw: string): {
+    score: 0 | 1 | 2 | 3 | 4;
+    label: string;
+  } {
+    if (!pw) return { score: 0, label: "" };
+    let score = 0;
+    if (pw.length >= 12) score++;
+    if (pw.length >= 16) score++;
+    const classes =
+      Number(/[a-z]/.test(pw)) +
+      Number(/[A-Z]/.test(pw)) +
+      Number(/\d/.test(pw)) +
+      Number(/[^A-Za-z0-9]/.test(pw));
+    if (classes >= 2) score++;
+    if (classes >= 3) score++;
+    const clamped = Math.min(score, 4) as 0 | 1 | 2 | 3 | 4;
+    const labels = ["Too weak", "Weak", "Fair", "Good", "Strong"] as const;
+    return { score: clamped, label: labels[clamped] };
   }
 
   async function submitRegistration() {
@@ -144,12 +207,19 @@ export default function RegisterPage() {
         password: form.password,
         gender: form.gender,
         age: form.age ? parseInt(form.age) : undefined,
+        // Issue #617: ISO calendar date (YYYY-MM-DD) — server schema accepts
+        // it as optional and persists onto Patient.dateOfBirth.
+        dateOfBirth: form.dateOfBirth || undefined,
         address: form.address || undefined,
         emergencyContact: {
           name: form.emergencyContactName,
           phone: form.emergencyContactPhone,
           relationship: form.emergencyContactRelationship,
         },
+        // Issue #617: T&C consent telemetry — server logs it for compliance,
+        // server schema accepts only `true`. Client-side we already gated
+        // submit so this is always true at this point.
+        acceptedTerms: true,
         role: "PATIENT",
       });
 
@@ -389,6 +459,42 @@ export default function RegisterPage() {
               }
               hint="At least 12 characters with a letter and a digit."
             />
+            {/* Issue #617: 4-step strength meter — shows once the user starts
+                typing. Pure heuristic (length tiers + character-class variety),
+                no zxcvbn dep. */}
+            {form.password && (
+              <div
+                className="mt-2"
+                data-testid="password-strength"
+                data-strength={passwordStrength(form.password).score}
+              >
+                <div className="flex gap-1" aria-hidden="true">
+                  {[1, 2, 3, 4].map((tier) => {
+                    const score = passwordStrength(form.password).score;
+                    const filled = tier <= score;
+                    const color =
+                      score <= 1
+                        ? "bg-red-500"
+                        : score === 2
+                          ? "bg-yellow-500"
+                          : score === 3
+                            ? "bg-blue-500"
+                            : "bg-green-500";
+                    return (
+                      <div
+                        key={tier}
+                        className={`h-1 flex-1 rounded ${
+                          filled ? color : "bg-gray-200 dark:bg-gray-700"
+                        }`}
+                      />
+                    );
+                  })}
+                </div>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Strength: {passwordStrength(form.password).label}
+                </p>
+              </div>
+            )}
             {fieldErrors.password && (
               <p
                 id="reg-password-err"
@@ -396,6 +502,68 @@ export default function RegisterPage() {
                 className="mt-1 text-xs text-red-600 dark:text-red-400"
               >
                 {fieldErrors.password}
+              </p>
+            )}
+          </div>
+
+          {/* Issue #617: confirm-password — second password input bound to
+              its own state. Validated against `form.password` in
+              validateClient(); inline mismatch surfaced as
+              data-testid="error-confirmPassword". A small live indicator
+              shows match/mismatch as soon as both fields have content so the
+              user catches typos before submit. */}
+          <div>
+            <label
+              htmlFor="reg-confirm-password"
+              className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200"
+            >
+              Confirm Password
+            </label>
+            <PasswordInput
+              id="reg-confirm-password"
+              aria-required="true"
+              autoComplete="new-password"
+              minLength={12}
+              value={form.confirmPassword}
+              onChange={(e) => update("confirmPassword", e.target.value)}
+              className={
+                fieldErrors.confirmPassword ? errorInputClass : inputClass
+              }
+              placeholder="Re-type your password"
+              aria-invalid={!!fieldErrors.confirmPassword}
+              aria-describedby={
+                fieldErrors.confirmPassword
+                  ? "reg-confirm-password-err"
+                  : undefined
+              }
+            />
+            {form.password && form.confirmPassword && !fieldErrors.confirmPassword && (
+              <p
+                className={`mt-1 flex items-center gap-1 text-xs ${
+                  form.password === form.confirmPassword
+                    ? "text-green-600 dark:text-green-400"
+                    : "text-red-600 dark:text-red-400"
+                }`}
+                data-testid="confirm-password-indicator"
+              >
+                {form.password === form.confirmPassword ? (
+                  <>
+                    <Check size={12} aria-hidden="true" /> Passwords match
+                  </>
+                ) : (
+                  <>
+                    <X size={12} aria-hidden="true" /> Passwords do not match
+                  </>
+                )}
+              </p>
+            )}
+            {fieldErrors.confirmPassword && (
+              <p
+                id="reg-confirm-password-err"
+                data-testid="error-confirmPassword"
+                className="mt-1 text-xs text-red-600 dark:text-red-400"
+              >
+                {fieldErrors.confirmPassword}
               </p>
             )}
           </div>
@@ -468,6 +636,45 @@ export default function RegisterPage() {
                 </p>
               )}
             </div>
+          </div>
+
+          {/* Issue #617: Date of Birth — required for PATIENT. Native
+              `type="date"` so the user gets the platform date picker and
+              keyboard input both work. Stored as ISO YYYY-MM-DD which is
+              exactly what the server schema expects. The native picker's
+              max attribute caps at today (no future DOBs). */}
+          <div>
+            <label
+              htmlFor="reg-dob"
+              className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200"
+            >
+              Date of Birth
+            </label>
+            <input
+              id="reg-dob"
+              type="date"
+              aria-required="true"
+              autoComplete="bday"
+              max={new Date().toISOString().slice(0, 10)}
+              value={form.dateOfBirth}
+              onChange={(e) => update("dateOfBirth", e.target.value)}
+              className={
+                fieldErrors.dateOfBirth ? errorInputClass : inputClass
+              }
+              aria-invalid={!!fieldErrors.dateOfBirth}
+              aria-describedby={
+                fieldErrors.dateOfBirth ? "reg-dob-err" : undefined
+              }
+            />
+            {fieldErrors.dateOfBirth && (
+              <p
+                id="reg-dob-err"
+                data-testid="error-dateOfBirth"
+                className="mt-1 text-xs text-red-600 dark:text-red-400"
+              >
+                {fieldErrors.dateOfBirth}
+              </p>
+            )}
           </div>
 
           <div>
@@ -563,7 +770,7 @@ export default function RegisterPage() {
                     htmlFor="reg-ec-phone"
                     className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200"
                   >
-                    Phone
+                    Emergency phone
                   </label>
                   <input
                     id="reg-ec-phone"
@@ -641,6 +848,73 @@ export default function RegisterPage() {
               </div>
             </div>
           </fieldset>
+
+          {/* Issue #617: T&C / Privacy Policy consent. Submit is blocked
+              until the box is ticked (validateClient() surfaces the inline
+              error on submit; the button itself stays enabled so screen
+              readers / keyboard users can attempt to submit and read the
+              error message). Links open `/terms` and `/privacy` in a new
+              tab — those routes are tracked separately, this surface only
+              owns the consent capture. */}
+          <div>
+            <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-200">
+              <input
+                type="checkbox"
+                id="reg-accept-terms"
+                data-testid="reg-accept-terms"
+                checked={acceptedTerms}
+                onChange={(e) => {
+                  setAcceptedTerms(e.target.checked);
+                  if (e.target.checked) {
+                    setFieldErrors((prev) => {
+                      if (!("acceptedTerms" in prev)) return prev;
+                      const next = { ...prev };
+                      delete next.acceptedTerms;
+                      return next;
+                    });
+                  }
+                }}
+                aria-required="true"
+                aria-invalid={!!fieldErrors.acceptedTerms}
+                aria-describedby={
+                  fieldErrors.acceptedTerms
+                    ? "reg-accept-terms-err"
+                    : undefined
+                }
+                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary focus:ring-2 focus:ring-primary"
+              />
+              <span>
+                I agree to the{" "}
+                <Link
+                  href="/terms"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-primary hover:underline"
+                >
+                  Terms &amp; Conditions
+                </Link>{" "}
+                and{" "}
+                <Link
+                  href="/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-primary hover:underline"
+                >
+                  Privacy Policy
+                </Link>
+                .
+              </span>
+            </label>
+            {fieldErrors.acceptedTerms && (
+              <p
+                id="reg-accept-terms-err"
+                data-testid="error-acceptedTerms"
+                className="mt-1 text-xs text-red-600 dark:text-red-400"
+              >
+                {fieldErrors.acceptedTerms}
+              </p>
+            )}
+          </div>
 
           <button
             type="submit"

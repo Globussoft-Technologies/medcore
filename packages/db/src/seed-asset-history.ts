@@ -1,13 +1,47 @@
+/**
+ * Asset history seed — maintenance logs, transfers, disposals.
+ *
+ * Idempotency contract (2026-05-10): wired into `scripts/deploy.sh` step 8p,
+ * safe to re-run on a populated demo without creating duplicates.
+ *
+ *   - AssetMaintenance has no @unique besides id. Each generated row's
+ *     `description` is post-fixed with a stable marker
+ *     `[seed:ASSET-HIST-SEED-<assetTag>-<j>]` and `findFirst` on that
+ *     marker substring (description contains) skips re-creates.
+ *   - AssetTransfer has no @unique. Each transfer's `notes` is set to a
+ *     stable marker `[seed:ASSET-XFER-SEED-<assetTag>]` and findFirst-skip
+ *     on the marker handles re-runs even if user-created transfers exist.
+ *   - Asset row updates (amcExpiry / nextCalibration / disposal) are
+ *     gated on `calibrationInterval=365 && amcExpiryDate != null` —
+ *     re-runs no longer overwrite the previous run's randomized AMC
+ *     dates with fresh ones (keeps the demo's overdue/expiring/valid
+ *     mix stable across deploys).
+ *   - Math.random() is replaced by a deterministic mulberry32 PRNG so
+ *     re-runs make byte-identical decisions per asset.
+ */
 import { PrismaClient, MaintenanceType, AssetStatus, Role } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+// Deterministic RNG so re-runs make stable decisions and the
+// description-marker findFirst guard reliably matches.
+const SEED = 0xa55e7042;
+let _rngState = SEED;
+function rng(): number {
+  _rngState |= 0;
+  _rngState = (_rngState + 0x6d2b79f5) | 0;
+  let t = Math.imul(_rngState ^ (_rngState >>> 15), 1 | _rngState);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+function resetRng() { _rngState = SEED; }
+
 function randomItem<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+  return arr[Math.floor(rng() * arr.length)];
 }
 
 function randomInt(min: number, max: number) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  return Math.floor(rng() * (max - min + 1)) + min;
 }
 
 function daysFromNow(n: number): Date {
@@ -52,7 +86,8 @@ const INSPECTION_DESCRIPTIONS = [
 ];
 
 async function main() {
-  console.log("\n=== Seeding Asset History ===\n");
+  console.log("\n=== Seeding Asset History (idempotent) ===\n");
+  resetRng();
 
   const assets = await prisma.asset.findMany({ orderBy: { assetTag: "asc" }, take: 20 });
   if (assets.length === 0) {

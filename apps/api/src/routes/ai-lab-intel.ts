@@ -19,6 +19,11 @@ import {
 const router = Router();
 router.use(authenticate);
 
+// #511 audit (file-level, 2026-05-09): every handler applies either
+// `authorize(...READ_ROLES)` (DOCTOR/ADMIN/NURSE — see line 35) or
+// `authorize(Role.DOCTOR, Role.ADMIN)`. PATIENT excluded from lab-intel
+// surfaces (compute, persist, baseline-deviation). Verified-safe.
+
 // security(2026-04-23-med): F-LAB-INTEL-1 — LLM-backed; cap to 20/min/IP.
 if (process.env.NODE_ENV !== "test") {
   router.use(rateLimit(20, 60_000));

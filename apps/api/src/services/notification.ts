@@ -1,4 +1,8 @@
 import { prisma } from "@medcore/db";
+import {
+  NotificationType as PrismaNotificationType,
+  Role as PrismaRole,
+} from "@prisma/client";
 import { NotificationType, NotificationChannel } from "@medcore/shared";
 import { sendWhatsApp } from "./channels/whatsapp";
 import { sendSMS } from "./channels/sms";
@@ -9,6 +13,33 @@ import { isWithinQuietHours } from "./ops-helpers";
 
 // Re-export channel senders so existing call sites keep working.
 export { sendWhatsApp, sendSMS, sendEmail, sendPush };
+
+// Issue #759 — patient-copy notification types must NEVER land in a
+// non-PATIENT inbox. The seed code was tagged with audience scoping by
+// #272, but a runtime caller can still construct a sendNotification({
+// userId: <a staff userId>, type: NotificationType.DISCHARGE }) call —
+// nothing in the type system stops it. This set is the runtime guard:
+// if a caller targets one of these types AND the recipient User.role
+// is anything other than PATIENT, we drop the send and emit an audit
+// row so ops can investigate. Keep this list in sync with
+// apps/api/src/test/integration/notification-audience-272.test.ts.
+//
+// Source-of-truth is the Prisma enum (`@prisma/client`); the
+// `@medcore/shared` enum is a narrower subset that pre-dates the
+// admission/discharge work.
+const PATIENT_ONLY_NOTIFICATION_TYPES = new Set<string>([
+  PrismaNotificationType.DISCHARGE,
+  PrismaNotificationType.ADMISSION,
+  PrismaNotificationType.PRESCRIPTION_READY,
+  PrismaNotificationType.BILL_GENERATED,
+  PrismaNotificationType.PAYMENT_RECEIVED,
+  PrismaNotificationType.LAB_RESULT_READY,
+  PrismaNotificationType.MEDICATION_DUE,
+  PrismaNotificationType.APPOINTMENT_BOOKED,
+  PrismaNotificationType.APPOINTMENT_REMINDER,
+  PrismaNotificationType.APPOINTMENT_CANCELLED,
+  PrismaNotificationType.TOKEN_CALLED,
+]);
 
 interface SendNotificationParams {
   userId: string;
@@ -113,10 +144,47 @@ export async function sendNotification(params: SendNotificationParams): Promise<
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, email: true, phone: true, name: true },
+    select: { id: true, email: true, phone: true, name: true, role: true },
   });
   if (!user) {
     console.warn(`[Notification] User not found: ${userId}`);
+    return;
+  }
+
+  // Issue #759: hard-reject patient-copy notification types when the
+  // recipient's role is not PATIENT. The seed templates were already
+  // tagged audience=[PATIENT] by #272, but a stray runtime caller can
+  // still pass a staff userId — this is the defense-in-depth gate so
+  // the routing bug can't re-surface. Drop the send (no row written,
+  // no channel dispatch) and emit an audit row so ops can find the
+  // offending caller.
+  if (
+    PATIENT_ONLY_NOTIFICATION_TYPES.has(type as unknown as string) &&
+    user.role !== PrismaRole.PATIENT
+  ) {
+    console.warn(
+      "[Notification] Patient-copy notification rejected — wrong recipient role",
+      JSON.stringify({ userId, role: user.role, type })
+    );
+    try {
+      await prisma.auditLog.create({
+        data: {
+          action: "NOTIFICATION_AUDIENCE_REJECTED",
+          entity: "notification",
+          entityId: userId,
+          details: {
+            severity: "WARNING",
+            recipientUserId: userId,
+            recipientRole: user.role,
+            type,
+            title,
+            reason: "patient-copy notification type targeted at non-PATIENT recipient",
+          } as any,
+        } as any,
+      });
+    } catch (auditErr) {
+      console.error("[Notification] failed to write audit row for rejected send", auditErr);
+    }
     return;
   }
 

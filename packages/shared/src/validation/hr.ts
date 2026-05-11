@@ -131,6 +131,25 @@ export const createHolidaySchema = z.object({
   description: _noHtmlString(500).optional(),
 });
 
+// Issue #692 (BUG-A08): the admin Holidays page lacked an Edit
+// affordance — typo correction or PUBLIC↔OPTIONAL reclassification
+// required deleting and re-creating the row, which broke the audit
+// trail. PATCH /hr-ops/holidays/:id now uses this schema. All fields
+// are optional so the FE can send only what changed; date stays
+// ISO-string (YYYY-MM-DD) and the no-HTML guard mirrors the create
+// schema so an XSS payload can't be smuggled in via an Edit either.
+export const updateHolidaySchema = z
+  .object({
+    date: dateString.optional(),
+    name: _noHtmlString(200).optional(),
+    type: z.string().optional(),
+    description: _noHtmlString(500).optional(),
+  })
+  .refine(
+    (data) => Object.keys(data).length > 0,
+    { message: "At least one field must be provided" }
+  );
+
 // ─── Payroll (simple calculation) ──────────────────────
 // Issue #283 (2026-04-26): basicSalary was `.nonnegative()`, which let
 // negative values slip through if the user pasted "-50000" into the form
@@ -159,6 +178,7 @@ export type ApproveLeaveInput = z.infer<typeof approveLeaveSchema>;
 export type RejectLeaveInput = z.infer<typeof rejectLeaveSchema>;
 export type LeaveBalanceInput = z.infer<typeof leaveBalanceSchema>;
 export type CreateHolidayInput = z.infer<typeof createHolidaySchema>;
+export type UpdateHolidayInput = z.infer<typeof updateHolidaySchema>;
 export type PayrollCalcInput = z.infer<typeof payrollCalcSchema>;
 
 // ─── STAFF CERTIFICATIONS ───────────────────────────────

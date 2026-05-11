@@ -468,6 +468,19 @@ const strictRegisterSchema = registerSchema
       .max(500, "Address must be at most 500 characters")
       .optional(),
     emergencyContact: emergencyContactSchema.optional(),
+    // Issue #617: optional DOB + T&C consent on the public /register surface.
+    // Both are sent by the web register form but kept optional so older clients
+    // (mobile app, dashboard staff-creation) keep working unchanged. The web
+    // form's client-side validator gates submit on both being present so the
+    // required-on-the-wire contract is enforced upstream of the API.
+    //   - dateOfBirth: ISO calendar date (YYYY-MM-DD). Persisted onto Patient.dateOfBirth.
+    //   - acceptedTerms: literal `true` — submitting the body without ticking
+    //     the checkbox sends `false` which the literal rejects with a 400.
+    dateOfBirth: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Date of birth must be YYYY-MM-DD")
+      .optional(),
+    acceptedTerms: z.literal(true).optional(),
   });
 
 // Issue #712: forgot-password schema with the strict email refine on top of
@@ -579,7 +592,7 @@ router.post(
   validate(strictRegisterSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { email, phone, password, address, emergencyContact } = req.body as {
+      const { email, phone, password, address, emergencyContact, dateOfBirth } = req.body as {
         email: string;
         phone: string;
         password: string;
@@ -589,6 +602,8 @@ router.post(
           phone: string;
           relationship: string;
         };
+        // Issue #617: ISO calendar string YYYY-MM-DD when sent by the web form.
+        dateOfBirth?: string;
       };
       // Issue #489: sanitize the display name as a defence-in-depth pass on
       // top of the schema-level XSS rejection. Strips tags, normalises whitespace,
@@ -715,6 +730,12 @@ router.post(
             emergencyContactPhone: emergencyContact?.phone?.trim() || null,
             emergencyContactRelationship:
               emergencyContact?.relationship?.trim() || null,
+            // Issue #617: persist the registration-time DOB onto the new
+            // Patient row so downstream workflows (appointments, prescriptions,
+            // billing) have it from the first signup. Kept optional — older
+            // clients that don't send it land null and can fill in via the
+            // patient-edit modal later.
+            dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
           },
         });
 

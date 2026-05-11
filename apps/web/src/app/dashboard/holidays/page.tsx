@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Upload } from "lucide-react";
+import { Plus, Trash2, Upload, Edit2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { extractFieldErrors } from "@/lib/field-errors";
@@ -64,6 +64,11 @@ export default function HolidaysPage() {
     type: "PUBLIC",
     description: "",
   });
+  // Issue #692 (BUG-A08, 2026-05-09): per-row Edit. The form below is
+  // re-used for both create + edit; `editingHoliday` flips the dialog
+  // into PATCH mode and pre-fills the form fields. Null means we are
+  // in create mode.
+  const [editingHoliday, setEditingHoliday] = useState<Holiday | null>(null);
 
   useEffect(() => {
     if (user && user.role !== "ADMIN") {
@@ -98,7 +103,7 @@ export default function HolidaysPage() {
     type?: string;
   }>({});
 
-  async function createHoliday() {
+  async function saveHoliday() {
     setHolidayFieldErrors({});
     const errs: typeof holidayFieldErrors = {};
     if (!form.date) errs.date = "Date is required";
@@ -114,14 +119,24 @@ export default function HolidaysPage() {
       setHolidayFieldErrors(errs);
       return;
     }
+    const body = {
+      date: form.date,
+      name: nameCheck.value,
+      type: form.type,
+      description: form.description || undefined,
+    };
     try {
-      await api.post("/hr-ops/holidays", {
-        date: form.date,
-        name: nameCheck.value,
-        type: form.type,
-        description: form.description || undefined,
-      });
+      // Issue #692: Edit mode → PATCH /hr-ops/holidays/:id; create mode
+      // continues to POST. Same form, same field-error handling, just
+      // different verb + path.
+      if (editingHoliday) {
+        await api.patch(`/hr-ops/holidays/${editingHoliday.id}`, body);
+        toast.success(`Updated "${body.name}"`);
+      } else {
+        await api.post("/hr-ops/holidays", body);
+      }
       setShowForm(false);
+      setEditingHoliday(null);
       setForm({ date: "", name: "", type: "PUBLIC", description: "" });
       load();
     } catch (err) {
@@ -132,6 +147,21 @@ export default function HolidaysPage() {
         toast.error(err instanceof Error ? err.message : "Failed");
       }
     }
+  }
+
+  // Issue #692: open the same form pre-populated with the row's data.
+  function openEdit(h: Holiday) {
+    setEditingHoliday(h);
+    setHolidayFieldErrors({});
+    setForm({
+      // h.date is an ISO string from the server — strip the time portion
+      // so the <input type="date"> accepts it.
+      date: h.date.slice(0, 10),
+      name: h.name,
+      type: h.type,
+      description: h.description || "",
+    });
+    setShowForm(true);
   }
 
   // Issue #726 (2026-05-08): the trash icon was already wired to this
@@ -266,15 +296,26 @@ export default function HolidaysPage() {
                       {h.description || "—"}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => deleteHoliday(h.id, h.name)}
-                        data-testid={`holiday-delete-${h.id}`}
-                        aria-label={`Delete ${h.name}`}
-                        title={`Delete ${h.name}`}
-                        className="rounded p-1 text-red-500 hover:bg-red-50"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      <div className="flex justify-end gap-1">
+                        <button
+                          onClick={() => openEdit(h)}
+                          data-testid={`holiday-edit-${h.id}`}
+                          aria-label={`Edit ${h.name}`}
+                          title={`Edit ${h.name}`}
+                          className="rounded p-1 text-gray-600 hover:bg-gray-100"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                        <button
+                          onClick={() => deleteHoliday(h.id, h.name)}
+                          data-testid={`holiday-delete-${h.id}`}
+                          aria-label={`Delete ${h.name}`}
+                          title={`Delete ${h.name}`}
+                          className="rounded p-1 text-red-500 hover:bg-red-50"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -286,8 +327,13 @@ export default function HolidaysPage() {
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <h3 className="mb-4 text-lg font-semibold">Add Holiday</h3>
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            data-testid="holiday-form-modal"
+          >
+            <h3 className="mb-4 text-lg font-semibold">
+              {editingHoliday ? `Edit Holiday — ${editingHoliday.name}` : "Add Holiday"}
+            </h3>
             <div className="space-y-3">
               <div>
                 <label htmlFor="add-holiday-date" className="mb-1 block text-xs font-medium text-gray-600">
@@ -372,16 +418,21 @@ export default function HolidaysPage() {
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <button
-                onClick={() => setShowForm(false)}
+                onClick={() => {
+                  setShowForm(false);
+                  setEditingHoliday(null);
+                  setForm({ date: "", name: "", type: "PUBLIC", description: "" });
+                }}
                 className="rounded-lg border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
               >
                 Cancel
               </button>
               <button
-                onClick={createHoliday}
+                onClick={saveHoliday}
+                data-testid="holiday-save"
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
               >
-                Save
+                {editingHoliday ? "Update Holiday" : "Save"}
               </button>
             </div>
           </div>

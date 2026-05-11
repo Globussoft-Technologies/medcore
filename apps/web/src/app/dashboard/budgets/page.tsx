@@ -240,13 +240,13 @@ export default function BudgetsPage() {
               const budgetPct = (r.budget / maxValue) * 100;
               const actualPct = (r.actual / maxValue) * 100;
               const overBudget = r.variance > 0;
-              // Issue #296: variance % and utilisation % were computed two
-              // different ways here vs server, producing contradictory
-              // numbers per row (e.g. 110% utilisation alongside 8% over).
-              // Single canonical formula: utilisation = actual / budget,
-              // variancePct = utilisation − 100 so the two are consistent.
-              const utilisationPct =
-                r.budget > 0 ? Math.round((r.actual / r.budget) * 100) : 0;
+              // Issue #699 (BUG-A19) + #296: utilisation is now computed
+              // ONCE on the server (round(actual/budget*100)) and consumed
+              // verbatim here. variancePct is derived from the SAME field
+              // so the row pill and the "Utilisation: N%" label below
+              // cannot drift. Display: utilisation 110% ⇒ variance pill
+              // "10% over" — always internally consistent.
+              const utilisationPct = r.utilisation;
               const variancePct = utilisationPct - 100;
               return (
                 <div
@@ -470,14 +470,10 @@ export default function BudgetsPage() {
               </div>
               <div className="flex justify-between">
                 <dt className="text-gray-500">Utilisation</dt>
-                <dd className="font-semibold">
-                  {viewingRow.budget > 0
-                    ? Math.round(
-                        (viewingRow.actual / viewingRow.budget) * 100,
-                      )
-                    : 0}
-                  %
-                </dd>
+                {/* Issue #699: read the server-computed canonical
+                    utilisation field so the modal always agrees with
+                    the row pill and chart label above. */}
+                <dd className="font-semibold">{viewingRow.utilisation}%</dd>
               </div>
             </dl>
             <div className="mt-5 flex justify-end gap-2">

@@ -25,7 +25,10 @@ const MEDICINES: Array<{
   // ── OTC analgesics / vitamins / electrolytes ─────────
   { name: "Paracetamol 500mg", genericName: "Paracetamol", form: "Tablet", strength: "500mg", category: "Analgesic", prescriptionRequired: false, manufacturer: "GSK", sideEffects: "Rare: rash, nausea", contraindications: "Severe liver disease" },
   { name: "Ibuprofen 400mg", genericName: "Ibuprofen", form: "Tablet", strength: "400mg", category: "Analgesic", prescriptionRequired: false, manufacturer: "Cipla", sideEffects: "GI upset, dizziness", contraindications: "Peptic ulcer, renal failure" },
-  { name: "Aspirin 75mg", genericName: "Acetylsalicylic acid", form: "Tablet", strength: "75mg", category: "Antiplatelet", prescriptionRequired: true, manufacturer: "USV", sideEffects: "Bleeding, GI upset", contraindications: "Active bleeding, children <16" },
+  // Aspirin 75mg low-dose cardio-prevention is OTC in India per the issue
+  // brief (#40). Higher strengths and aspirin-paracetamol combos remain RX
+  // and SHOULD be flagged true if added to the catalog later.
+  { name: "Aspirin 75mg", genericName: "Acetylsalicylic acid", form: "Tablet", strength: "75mg", category: "Antiplatelet", prescriptionRequired: false, manufacturer: "USV", sideEffects: "Bleeding, GI upset", contraindications: "Active bleeding, children <16" },
   // ── Antibiotics (ALL prescription-only) ──────────────
   { name: "Amoxicillin 500mg", genericName: "Amoxicillin", form: "Capsule", strength: "500mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Cipla", sideEffects: "Rash, diarrhea", contraindications: "Penicillin allergy" },
   { name: "Azithromycin 500mg", genericName: "Azithromycin", form: "Tablet", strength: "500mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Alembic", sideEffects: "Nausea, QT prolongation", contraindications: "Macrolide allergy" },

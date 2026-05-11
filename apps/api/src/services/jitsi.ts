@@ -28,11 +28,17 @@ export interface JitsiUser {
  * Follows the standard Jitsi JWT claims shape (app_id / aud / sub / room /
  * context.user). Returns an empty string when the app is not configured
  * (caller should treat empty as "no JWT" and just use the bare URL).
+ *
+ * `ttlSeconds` (default 4 hours) controls the JWT `exp` window. For the
+ * admit-flow URL pushed via Socket.IO at session start, 4h is appropriate.
+ * For the GET /:id rotating join URL (issue #602 hardening), pass 1800
+ * (30 minutes) so a leaked URL can't be replayed for the rest of the day.
  */
 export function generateJitsiJWT(
   room: string,
   user: JitsiUser,
-  role: JitsiRole
+  role: JitsiRole,
+  ttlSeconds: number = 60 * 60 * 4
 ): string {
   const appId = process.env.JITSI_APP_ID;
   const appSecret = process.env.JITSI_APP_SECRET;
@@ -47,8 +53,7 @@ export function generateJitsiJWT(
     sub: domain,
     room,
     iat: now,
-    // Sessions expire 4 h after issue — long enough for a real consult.
-    exp: now + 60 * 60 * 4,
+    exp: now + ttlSeconds,
     context: {
       user: {
         id: user.id,
@@ -86,15 +91,20 @@ export function buildJitsiRoomUrl(
 
 /**
  * Convenience wrapper — sign + build URL in one call.
+ *
+ * `ttlSeconds` is forwarded to `generateJitsiJWT`. Default 4h matches the
+ * legacy admit-flow URL behaviour. Pass 1800 for the issue #602 hardening
+ * GET /:id rotating join URL (30-minute TTL, fresh on every fetch).
  */
 export function signedJitsiRoomUrl(
   sessionId: string,
   user: JitsiUser,
   role: JitsiRole,
-  roomOverride?: string
+  roomOverride?: string,
+  ttlSeconds?: number
 ): { url: string; room: string; jwt: string } {
   const room = roomOverride || `medcore-${sessionId}`;
-  const token = generateJitsiJWT(room, user, role);
+  const token = generateJitsiJWT(room, user, role, ttlSeconds);
   const url = buildJitsiRoomUrl(sessionId, { jwt: token, room });
   return { url, room, jwt: token };
 }

@@ -1,13 +1,51 @@
+/**
+ * Realistic immunization data seed — UIP child schedule + adult vaccines.
+ *
+ * Idempotency contract (2026-05-10): this script is safe to re-run on a
+ * populated demo without creating duplicate Immunization rows.
+ *
+ *   - All randomness is driven by a deterministic mulberry32 PRNG seeded
+ *     from a fixed constant. Re-runs produce byte-identical decisions
+ *     (which adult vaccines, which "wasGiven" outcome, which manufacturer).
+ *   - The Immunization model has no `@unique` field we can upsert on. We
+ *     gate every `.create` with a `findFirst({where:{patientId, vaccine,
+ *     doseNumber}})` guard — that tuple is the natural logical-identity
+ *     for an immunization row. With deterministic RNG the same (patient,
+ *     vaccine, doseNumber) decisions are made on each run, so the guard
+ *     keeps re-runs idempotent.
+ *   - Each row's `notes` field is stamped with a stable
+ *     `IMMUN-SEED-NNNNNN` marker so DB-side audits can identify
+ *     seed-created rows separately from real clinical data.
+ *
+ * Wired into `scripts/deploy.sh` step 8l. Failures are non-fatal (matches
+ * the policy of every other deploy-time fixture seed).
+ */
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+// ─── DETERMINISTIC RNG ──────────────────────────────────
+// mulberry32 — same pattern as seed-realistic.ts. Replaces every
+// Math.random() so re-runs make byte-identical decisions and the
+// (patientId, vaccine, doseNumber) idempotency guard keeps mapping back
+// to the same logical row.
+const SEED = 0xfeed_5eed >>> 0; // arbitrary fixed constant
+let _rngState = SEED;
+function rng(): number {
+  _rngState |= 0;
+  _rngState = (_rngState + 0x6D2B79F5) | 0;
+  let t = Math.imul(_rngState ^ (_rngState >>> 15), 1 | _rngState);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+function resetRng(): void { _rngState = SEED; }
+
 function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+  return arr[Math.floor(rng() * arr.length)];
 }
 
 function rand(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  return Math.floor(rng() * (max - min + 1)) + min;
 }
 
 function daysAgo(n: number): Date {
@@ -22,16 +60,12 @@ function daysFromNow(n: number): Date {
   return d;
 }
 
-/**
- * India National Immunization Schedule (UIP)
- * Plus common adult vaccines.
- */
 interface VaccineEntry {
   vaccine: string;
-  dueAgeDays: number;    // Age in days when due (for children)
+  dueAgeDays: number;
   doseNumber?: number;
   manufacturer?: string;
-  interval?: number;     // If follow-up dose, days after previous
+  interval?: number;
   site?: string;
 }
 
@@ -83,8 +117,58 @@ function randomBatch(vaccine: string): string {
   return `${prefix}${String(rand(2024, 2026)).slice(2)}${String(rand(1, 999)).padStart(3, "0")}${String.fromCharCode(65 + rand(0, 25))}`;
 }
 
+/**
+ * Idempotency guard: skip the create if a row matching (patientId, vaccine,
+ * doseNumber) already exists. With deterministic RNG, the same logical
+ * decisions are made on each run, so this tuple-as-natural-key approach
+ * keeps re-runs from duplicating rows.
+ */
+async function createIfMissing(data: {
+  patientId: string;
+  vaccine: string;
+  doseNumber: number;
+  dateGiven: Date;
+  administeredBy: string;
+  batchNumber: string | null;
+  manufacturer: string | null;
+  site?: string;
+  nextDueDate: Date | null;
+  notes: string | null;
+  seedSeq: number;
+}): Promise<boolean> {
+  const existing = await prisma.immunization.findFirst({
+    where: {
+      patientId: data.patientId,
+      vaccine: data.vaccine,
+      doseNumber: data.doseNumber,
+    },
+    select: { id: true },
+  });
+  if (existing) return false;
+
+  const seedTag = `IMMUN-SEED-${String(data.seedSeq).padStart(6, "0")}`;
+  const stampedNotes = data.notes ? `[${seedTag}] ${data.notes}` : `[${seedTag}]`;
+
+  await prisma.immunization.create({
+    data: {
+      patientId: data.patientId,
+      vaccine: data.vaccine,
+      doseNumber: data.doseNumber,
+      dateGiven: data.dateGiven,
+      administeredBy: data.administeredBy,
+      batchNumber: data.batchNumber,
+      manufacturer: data.manufacturer,
+      site: data.site,
+      nextDueDate: data.nextDueDate,
+      notes: stampedNotes,
+    },
+  });
+  return true;
+}
+
 async function main() {
-  console.log("=== Seeding immunization data ===\n");
+  console.log("=== Seeding immunization data (idempotent) ===\n");
+  resetRng();
 
   const patients = await prisma.patient.findMany({
     select: {
@@ -93,6 +177,7 @@ async function main() {
       dateOfBirth: true,
       user: { select: { name: true } },
     },
+    orderBy: { id: "asc" },
   });
 
   if (!patients.length) {
@@ -101,172 +186,157 @@ async function main() {
   }
   console.log(`Found ${patients.length} patients`);
 
-  // Clear existing immunizations to avoid duplicates (we want fresh realistic data)
   const existing = await prisma.immunization.count();
   if (existing > 0) {
-    console.log(`Found ${existing} existing immunization records — keeping those and adding more.`);
+    console.log(`Found ${existing} existing immunization records — keeping those and re-asserting fixtures.`);
   }
 
   const staffUsers = await prisma.user.findMany({
     where: { role: { in: ["NURSE", "DOCTOR"] } },
     take: 5,
+    orderBy: { id: "asc" },
   });
   const adminUserId = staffUsers[0]?.id ?? "system";
 
   let totalChildDoses = 0;
   let totalAdultDoses = 0;
   let totalUpcomingDue = 0;
+  let totalSkipped = 0;
   let patientsProcessed = 0;
+  let seedSeq = 1;
 
   for (const patient of patients) {
     const age = patient.age ?? 30;
-
-    // Treat patients under 10 as "pediatric" for full schedule
     const isPediatric = age < 10;
 
     if (isPediatric) {
-      // For pediatric patients, simulate partial completion of schedule
-      // Generate hypothetical birth date (age years ago)
       const birthDate = patient.dateOfBirth
         ? new Date(patient.dateOfBirth)
         : daysAgo(age * 365);
       const ageInDays = Math.floor((Date.now() - birthDate.getTime()) / (1000 * 60 * 60 * 24));
 
-      // Apply schedule entries where dueAgeDays <= ageInDays (vaccine should have been given)
       for (const entry of CHILD_SCHEDULE) {
         if (entry.dueAgeDays > ageInDays) {
-          // Future vaccine — create upcoming-due entry if within next 180 days
           if (entry.dueAgeDays - ageInDays <= 180) {
             const nextDueDate = new Date(birthDate.getTime() + entry.dueAgeDays * 86400000);
-            await prisma.immunization.create({
-              data: {
-                patientId: patient.id,
-                vaccine: entry.vaccine,
-                doseNumber: entry.doseNumber ?? 1,
-                dateGiven: daysAgo(0), // placeholder; use notes to mark as upcoming
-                administeredBy: "Scheduled",
-                batchNumber: null,
-                manufacturer: null,
-                site: entry.site,
-                nextDueDate,
-                notes: `UPCOMING — Next scheduled dose`,
-              },
-            }).catch(() => {});
-            totalUpcomingDue++;
+            const created = await createIfMissing({
+              patientId: patient.id,
+              vaccine: entry.vaccine,
+              doseNumber: entry.doseNumber ?? 1,
+              dateGiven: daysAgo(0),
+              administeredBy: "Scheduled",
+              batchNumber: null,
+              manufacturer: null,
+              site: entry.site,
+              nextDueDate,
+              notes: `UPCOMING — Next scheduled dose`,
+              seedSeq: seedSeq++,
+            });
+            if (created) totalUpcomingDue++; else totalSkipped++;
           }
           continue;
         }
 
-        // Past due — 85% chance given, 15% chance overdue (missed)
-        const wasGiven = Math.random() < 0.85;
+        const wasGiven = rng() < 0.85;
         const dateGiven = new Date(birthDate.getTime() + entry.dueAgeDays * 86400000);
 
         if (wasGiven) {
-          // Maybe slight delay
           dateGiven.setDate(dateGiven.getDate() + rand(0, 14));
           if (dateGiven > new Date()) dateGiven.setTime(Date.now() - rand(1, 30) * 86400000);
 
-          await prisma.immunization.create({
-            data: {
-              patientId: patient.id,
-              vaccine: entry.vaccine,
-              doseNumber: entry.doseNumber ?? 1,
-              dateGiven,
-              administeredBy: pick(staffUsers)?.id ?? adminUserId,
-              batchNumber: randomBatch(entry.vaccine),
-              manufacturer: pick(MANUFACTURERS),
-              site: entry.site,
-              nextDueDate: null,
-              notes: null,
-            },
-          }).catch(() => {});
-          totalChildDoses++;
+          const created = await createIfMissing({
+            patientId: patient.id,
+            vaccine: entry.vaccine,
+            doseNumber: entry.doseNumber ?? 1,
+            dateGiven,
+            administeredBy: pick(staffUsers)?.id ?? adminUserId,
+            batchNumber: randomBatch(entry.vaccine),
+            manufacturer: pick(MANUFACTURERS),
+            site: entry.site,
+            nextDueDate: null,
+            notes: null,
+            seedSeq: seedSeq++,
+          });
+          if (created) totalChildDoses++; else totalSkipped++;
         } else {
-          // Overdue — Issue #46: clamp to a realistic demo window (7-60 days)
-          // instead of showing a due date from years ago. The record is still
-          // "pending", but the dashboard won't display "3375 days overdue".
           const overdueDays = rand(7, 60);
           const clampedDueDate = daysAgo(overdueDays);
-          await prisma.immunization.create({
-            data: {
-              patientId: patient.id,
-              vaccine: entry.vaccine,
-              doseNumber: entry.doseNumber ?? 1,
-              dateGiven: daysAgo(1), // mock placeholder since date is required
-              administeredBy: "Not given",
-              batchNumber: null,
-              manufacturer: null,
-              site: entry.site,
-              nextDueDate: clampedDueDate,
-              notes: `OVERDUE — was due ${clampedDueDate.toLocaleDateString(
-                "en-IN"
-              )} (${overdueDays}d), not yet administered`,
-            },
-          }).catch(() => {});
-          totalUpcomingDue++;
+          const created = await createIfMissing({
+            patientId: patient.id,
+            vaccine: entry.vaccine,
+            doseNumber: entry.doseNumber ?? 1,
+            dateGiven: daysAgo(1),
+            administeredBy: "Not given",
+            batchNumber: null,
+            manufacturer: null,
+            site: entry.site,
+            nextDueDate: clampedDueDate,
+            notes: `OVERDUE — was due ${clampedDueDate.toLocaleDateString(
+              "en-IN"
+            )} (${overdueDays}d), not yet administered`,
+            seedSeq: seedSeq++,
+          });
+          if (created) totalUpcomingDue++; else totalSkipped++;
         }
       }
     } else {
-      // Adult patients — pick 2-5 random adult vaccines
       const count = rand(2, 5);
-      const picked = new Set<string>();
-      for (let i = 0; i < count * 2 && picked.size < count; i++) {
-        const v = pick(ADULT_VACCINES);
-        if (picked.has(v.vaccine)) continue;
-        picked.add(v.vaccine);
+      const shuffled = [...ADULT_VACCINES];
+      for (let k = shuffled.length - 1; k > 0; k--) {
+        const j = Math.floor(rng() * (k + 1));
+        [shuffled[k], shuffled[j]] = [shuffled[j], shuffled[k]];
+      }
+      const picked = shuffled.slice(0, count);
 
-        const daysAgoGiven = rand(30, 730); // 1 month to 2 years ago
+      for (const v of picked) {
+        const daysAgoGiven = rand(30, 730);
         const dateGiven = daysAgo(daysAgoGiven);
 
-        // Some vaccines have boosters due
         let nextDueDate: Date | null = null;
-        let nextNotes: string | null = null;
+        const nextNotes: string | null = null;
         if (v.vaccine.includes("Influenza") || v.vaccine === "COVID-19 (Covishield)" || v.vaccine === "COVID-19 (Covaxin)") {
-          // annual
           nextDueDate = daysFromNow(365 - daysAgoGiven);
         }
         if (v.vaccine.includes("Tdap") || v.vaccine === "Td") {
-          nextDueDate = daysFromNow(3650 - daysAgoGiven); // 10y
+          nextDueDate = daysFromNow(3650 - daysAgoGiven);
         }
 
-        await prisma.immunization.create({
-          data: {
-            patientId: patient.id,
-            vaccine: v.vaccine,
-            doseNumber: v.vaccine.includes("COVID") ? rand(1, 3) : 1,
-            dateGiven,
-            administeredBy: pick(staffUsers)?.id ?? adminUserId,
-            batchNumber: randomBatch(v.vaccine),
-            manufacturer: v.manufacturer,
-            site: v.site,
-            nextDueDate,
-            notes: nextNotes,
-          },
-        }).catch(() => {});
-        totalAdultDoses++;
+        const doseNumber = v.vaccine.includes("COVID") ? rand(1, 3) : 1;
+        const created = await createIfMissing({
+          patientId: patient.id,
+          vaccine: v.vaccine,
+          doseNumber,
+          dateGiven,
+          administeredBy: pick(staffUsers)?.id ?? adminUserId,
+          batchNumber: randomBatch(v.vaccine),
+          manufacturer: v.manufacturer,
+          site: v.site,
+          nextDueDate,
+          notes: nextNotes,
+          seedSeq: seedSeq++,
+        });
+        if (created) totalAdultDoses++; else totalSkipped++;
 
         if (nextDueDate && nextDueDate < new Date()) totalUpcomingDue++;
       }
 
-      // 30% chance of an upcoming due booster
-      if (Math.random() < 0.3) {
+      if (rng() < 0.3) {
         const v = pick(ADULT_VACCINES);
         const nextDueDate = daysFromNow(rand(1, 90));
-        await prisma.immunization.create({
-          data: {
-            patientId: patient.id,
-            vaccine: v.vaccine,
-            doseNumber: 1,
-            dateGiven: daysAgo(1),
-            administeredBy: "Scheduled",
-            batchNumber: null,
-            manufacturer: null,
-            site: v.site,
-            nextDueDate,
-            notes: "UPCOMING — Due within 90 days",
-          },
-        }).catch(() => {});
-        totalUpcomingDue++;
+        const created = await createIfMissing({
+          patientId: patient.id,
+          vaccine: v.vaccine,
+          doseNumber: 99,
+          dateGiven: daysAgo(1),
+          administeredBy: "Scheduled",
+          batchNumber: null,
+          manufacturer: null,
+          site: v.site,
+          nextDueDate,
+          notes: "UPCOMING — Due within 90 days",
+          seedSeq: seedSeq++,
+        });
+        if (created) totalUpcomingDue++; else totalSkipped++;
       }
     }
 
@@ -277,6 +347,7 @@ async function main() {
   console.log(`  Pediatric doses given: ${totalChildDoses}`);
   console.log(`  Adult doses given: ${totalAdultDoses}`);
   console.log(`  Upcoming / overdue entries: ${totalUpcomingDue}`);
+  console.log(`  Skipped (already present): ${totalSkipped}`);
 
   const totalInDB = await prisma.immunization.count();
   console.log(`  Total immunization records in DB: ${totalInDB}`);

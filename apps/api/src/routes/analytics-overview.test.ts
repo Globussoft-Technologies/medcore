@@ -127,3 +127,58 @@ describe("Issue #78 — GET /api/v1/analytics/overview avg consult math", () => 
     expect(res.body.data.avgConsultationTime).toBe(30);
   });
 });
+
+/**
+ * Issue #48 (2026-05-09) — Today-Snapshot "Registered: 0" regression.
+ *
+ * The admin-console widget sends IST-anchored ISO bounds (e.g.
+ * `2026-05-08T18:30:00.000Z` for IST midnight on the 9th). Before the
+ * fix, parseRange() called `from.setHours(0,0,0,0)` after parsing the
+ * client's ISO string — which on a UTC host stomped the IST midnight
+ * back to UTC midnight, dropping every patient registered between
+ * 18:30 IST and midnight IST out of the window.
+ *
+ * These tests pin the new behaviour: explicit ISO bounds are passed
+ * through to Prisma verbatim. The newPatients alias on the response
+ * surfaces the count via the Today-Snapshot tile path.
+ */
+describe("Issue #48 — GET /api/v1/analytics/overview honours IST-anchored bounds", () => {
+  beforeEach(() => {
+    prismaMock.patient.count.mockReset();
+    prismaMock.patient.count.mockResolvedValue(0);
+  });
+
+  it("forwards client-supplied IST midnight ISO bounds to prisma without rounding", async () => {
+    // What the admin-console actually sends on 2026-05-09 IST: midnight
+    // local = 2026-05-08T18:30:00.000Z UTC.
+    const fromIso = "2026-05-08T18:30:00.000Z";
+    const toIso = "2026-05-09T18:29:59.999Z";
+
+    // The second prisma.patient.count call is the "newPatientsInPeriod"
+    // one with the user.createdAt range filter. The first is the
+    // unconditional totalPatients count.
+    let observedRange: { gte?: Date; lte?: Date } | null = null;
+    prismaMock.patient.count.mockImplementationOnce(async () => 100); // totalPatients
+    prismaMock.patient.count.mockImplementationOnce(async (args: any) => {
+      observedRange = args?.where?.user?.createdAt ?? null;
+      return 6;
+    });
+
+    const app = buildApp();
+    const res = await request(app)
+      .get(`/api/v1/analytics/overview?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`)
+      .set("Authorization", `Bearer ${adminToken()}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.newPatients).toBe(6);
+    expect(res.body.data.newPatientsInPeriod).toBe(6);
+
+    // The crux: the range Prisma saw must be the EXACT instants the
+    // client supplied. Before the fix these were rounded to server-local
+    // midnight, which on a UTC host produced 2026-05-08T00:00:00.000Z
+    // — 18.5 hours earlier than the IST midnight the client meant.
+    expect(observedRange).not.toBeNull();
+    expect(observedRange!.gte!.toISOString()).toBe(fromIso);
+    expect(observedRange!.lte!.toISOString()).toBe(toIso);
+  });
+});

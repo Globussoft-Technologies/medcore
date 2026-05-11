@@ -125,13 +125,30 @@ export default function AdherencePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId]);
 
+  // Issue #603: this page reproducibly bounced PATIENTs to /login on
+  // ~30-40% of fresh navigations to /dashboard/adherence. Root cause was
+  // a hydration race: the auth-store's loadSession() call (in
+  // dashboard/layout.tsx) and this page's effect both fire on mount, and
+  // when the layout's /auth/me probe lost the race the medcore_at cookie
+  // had not yet been re-attached to outgoing requests — the first
+  // /ai/adherence/mine call returned 401, lib/api.ts's global
+  // handleAuthExpired wiped the session and redirected to /login. Other
+  // dashboard routes were not affected because their initial fetches
+  // happened to land after the cookie was hot.
+  //
+  // Fix: pass skip401Redirect on the INITIAL load so a transient 401 no
+  // longer takes the session down. We surface a "session out of sync"
+  // inline message instead. If the cookie really IS dead, the user's
+  // next navigation will hit a non-skipping endpoint and the global
+  // redirect will fire as designed — we only suppress the false-positive
+  // logout path.
   async function loadSchedulesMine() {
     setLoading(true);
     setError(null);
     try {
       const res = await api.get<{
         data: AdherenceSchedule[];
-      }>(`/ai/adherence/mine`);
+      }>(`/ai/adherence/mine`, { skip401Redirect: true });
       const list = res.data ?? [];
       setSchedules(list);
       setHasPatientProfile(true);
@@ -143,6 +160,12 @@ export default function AdherencePage() {
       if (err?.status === 404) {
         setHasPatientProfile(false);
         setPatientId(null);
+      } else if (err?.status === 401) {
+        // Issue #603: hydration race — surface a recoverable banner
+        // instead of letting the global 401 redirect log the user out.
+        setError(
+          "Your session is reconnecting. Please refresh the page if this persists."
+        );
       } else {
         setError(err.message ?? "Failed to load schedules");
       }
@@ -156,11 +179,19 @@ export default function AdherencePage() {
     setError(null);
     try {
       const res = await api.get<{ data: AdherenceSchedule[] }>(
-        `/ai/adherence/${pid}`
+        `/ai/adherence/${pid}`,
+        { skip401Redirect: true }
       );
       setSchedules(res.data ?? []);
     } catch (err: any) {
-      setError(err.message ?? "Failed to load schedules");
+      if (err?.status === 401) {
+        // Issue #603: same hydration-race tolerance for staff-side load.
+        setError(
+          "Your session is reconnecting. Please refresh the page if this persists."
+        );
+      } else {
+        setError(err.message ?? "Failed to load schedules");
+      }
     } finally {
       setLoading(false);
     }

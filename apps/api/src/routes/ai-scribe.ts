@@ -40,6 +40,14 @@ function safeAudit(
 
 const router = Router();
 router.use(authenticate);
+// #511 audit (file-level, 2026-05-09): every staff handler applies
+// `authorize(Role.DOCTOR, Role.ADMIN)` (or DOCTOR-only for /finalize) — PATIENT
+// excluded from list / start / transcript / soap / drafts / previous-consultation
+// / speaker-tag / finalize. The DELETE /:sessionId consent-withdraw endpoint
+// has no router-level role gate (intentional — patients must be able to
+// withdraw consent on their own session) and instead loads the session row
+// then runs `assertPatientOwnsResource` against `session.patientId` to scope
+// PATIENT callers to their own session; staff pass through. Verified-safe.
 
 // GET /api/v1/ai/scribe — list scribe sessions for the EntityPicker
 //

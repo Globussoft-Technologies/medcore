@@ -1,0 +1,277 @@
+name: Backend coverage measurement
+
+# Boots the API + Web with V8 line-coverage instrumentation enabled
+# (NODE_V8_COVERAGE), runs the Playwright `smoke` project against them,
+# then SIGTERMs the API so V8 flushes coverage to disk. c8 v10 aggregates
+# the dumped JSON into lcov + text-summary + per-file json-summary, plus a
+# top-10 under-covered table for the next coverage push.
+#
+# Methodology note (mirrors gbs-crm/.github/workflows/coverage.yml):
+# the absolute % depends entirely on which spec set runs against the
+# instrumented backend. We use Playwright's `smoke` project here because
+# (a) it's a stable canary set (auth + cross-cutting + quick-actions) so
+# the number drifts only when feature code lands, not when specs flake,
+# and (b) it runs in ~5 min so the biweekly cron stays within the 30-min
+# job timeout. To raise this number, add a spec to the `smoke` testMatch
+# in playwright.config.ts.
+#
+# c8 v10 wiring detail: instead of the CRM's `c8 node server.js` wrapper
+# (which doesn't compose with `tsx watch` cleanly), we set
+# NODE_V8_COVERAGE=./coverage/tmp on the API process and let Node itself
+# dump V8 coverage on clean process.exit(). The graceful-shutdown handler
+# in apps/api/src/server.ts is what guarantees a clean exit when the
+# workflow's stop-server step sends SIGTERM. After that, `c8 report
+# --temp-directory=./coverage/tmp` reads those JSON dumps and renders
+# lcov + the summary tables.
+#
+# Trigger: biweekly cron (the 1st and 15th of each month at 06:00 UTC)
+# plus workflow_dispatch for ad-hoc runs.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 06:00 UTC on the 1st and 15th of every month — biweekly cadence
+    # matching the CRM coverage job. UTC chosen so the run lands in
+    # quiet US-night / IN-late-morning hours regardless of DST.
+    - cron: "0 6 1,15 * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-coverage
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: medcore
+          POSTGRES_PASSWORD: medcore
+          POSTGRES_DB: medcore_coverage
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://medcore:medcore@localhost:5432/medcore_coverage
+      JWT_SECRET: ci-jwt-secret
+      JWT_REFRESH_SECRET: ci-jwt-refresh-secret
+      NODE_ENV: production
+      DISABLE_RATE_LIMITS: "true"
+      NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
+      E2E_BASE_URL: http://localhost:3000
+      E2E_API_URL: http://localhost:4000/api/v1
+    outputs:
+      lines_pct: ${{ steps.report.outputs.LINES_PCT }}
+      branches_pct: ${{ steps.report.outputs.BRANCHES_PCT }}
+      functions_pct: ${{ steps.report.outputs.FUNCTIONS_PCT }}
+      statements_pct: ${{ steps.report.outputs.STATEMENTS_PCT }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+
+      - name: Install dependencies
+        # `--include=dev` is mandatory under NODE_ENV=production (the
+        # release.yml e2e-rbac job has the same comment). Without it npm
+        # skips devDependencies — including c8 itself, vitest, and the
+        # @types/* packages tsx needs to load the API.
+        run: npm install --include=dev
+
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Push schema and seed
+        run: |
+          npx prisma db push --schema packages/db/prisma/schema.prisma --force-reset --skip-generate
+          npm run db:seed
+
+      - name: Build Web (warm bundle)
+        run: npm --prefix apps/web run build
+
+      - name: Boot API with V8 coverage instrumentation on :4000
+        env:
+          PORT: "4000"
+          # NODE_V8_COVERAGE makes Node itself write per-process V8
+          # coverage JSON to this dir on clean process.exit(). The
+          # graceful-shutdown handler in apps/api/src/server.ts (added in
+          # this same PR) ensures we get there on SIGTERM. We do NOT
+          # wrap the entrypoint with `c8` because c8's CLI doesn't
+          # compose well with `tsx watch` and the dev script — letting
+          # Node emit the dumps directly is cleaner and the c8 `report`
+          # subcommand reads the same dumps off disk afterward.
+          NODE_V8_COVERAGE: ${{ github.workspace }}/coverage/tmp
+        run: |
+          set -euo pipefail
+          mkdir -p coverage/tmp
+          cd apps/api
+          nohup npm run dev > ../../api.log 2>&1 &
+          echo $! > /tmp/api.pid
+          cd ../..
+
+      - name: Boot Web on :3000 (no instrumentation)
+        env:
+          PORT: "3000"
+        run: |
+          set -euo pipefail
+          cd apps/web
+          nohup npm start > ../../web.log 2>&1 &
+          cd ../..
+
+      - name: Wait for API and Web
+        run: npx wait-on http://localhost:4000/api/health http://localhost:3000/login --timeout 90000
+
+      - name: Run Playwright smoke specs against instrumented API
+        # `--project=smoke` is the canary set (auth + cross-cutting +
+        # quick-actions). Coverage is methodology-stable across runs as
+        # long as the smoke project's testMatch doesn't churn — see
+        # workflow header for the rationale.
+        # `continue-on-error: true` so a flaky spec doesn't drop the
+        # coverage data we already collected. The report step still
+        # runs and reports whatever V8 coverage was dumped.
+        continue-on-error: true
+        run: npx playwright test --project=smoke --reporter=list
+
+      - name: Stop API (SIGTERM → graceful-shutdown → V8 flushes coverage)
+        run: |
+          # SIGTERM the API process; server.ts's gracefulShutdown handler
+          # closes httpServer then process.exit(0); V8 writes
+          # $NODE_V8_COVERAGE/*.json on clean exit. Wait up to 15s for
+          # the process to be gone, then belt-and-braces with kill -9.
+          set -euo pipefail
+          if [ -f /tmp/api.pid ]; then
+            API_PID="$(cat /tmp/api.pid)"
+            # `npm run dev` is a parent shell; the actual tsx process is
+            # the child. Send SIGTERM to the whole process group so tsx
+            # itself (which holds the V8 coverage process) gets it.
+            kill -TERM -- -"$API_PID" 2>/dev/null || kill -TERM "$API_PID" 2>/dev/null || true
+            for i in $(seq 1 15); do
+              if ! kill -0 "$API_PID" 2>/dev/null; then
+                echo "API stopped after ${i}s"
+                break
+              fi
+              sleep 1
+            done
+            kill -9 -- -"$API_PID" 2>/dev/null || kill -9 "$API_PID" 2>/dev/null || true
+          fi
+          # List the V8 dumps so failures here are easy to spot in logs.
+          ls -la coverage/tmp/ || true
+
+      - name: Generate coverage report + extract summary
+        id: report
+        run: |
+          set -euo pipefail
+          # `c8 report` reads the V8 dumps in --temp-directory and renders
+          # lcov (machine-readable) + text-summary (humans) + json-summary
+          # (CI output extraction below). Excludes mirror release.yml's
+          # test exclusion patterns + Prisma generated client + scripts.
+          npx c8 report \
+            --temp-directory=./coverage/tmp \
+            --reports-dir=./coverage \
+            --include='apps/api/src/**' \
+            --exclude='**/*.test.ts' \
+            --exclude='**/*.spec.ts' \
+            --exclude='apps/api/src/test/**' \
+            --exclude='**/node_modules/**' \
+            --reporter=text-summary \
+            --reporter=json-summary \
+            --reporter=lcov
+
+          # Pull totals from coverage-summary.json into job outputs.
+          if [ -f coverage/coverage-summary.json ]; then
+            node -e "
+              const sum = require('./coverage/coverage-summary.json').total;
+              console.log('LINES_PCT='     + (sum.lines.pct      ?? 0));
+              console.log('STATEMENTS_PCT='+ (sum.statements.pct ?? 0));
+              console.log('FUNCTIONS_PCT=' + (sum.functions.pct  ?? 0));
+              console.log('BRANCHES_PCT='  + (sum.branches.pct   ?? 0));
+            " | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "::warning::coverage-summary.json missing — V8 coverage probably did not flush. Check the API log."
+          fi
+
+          # Step summary for humans browsing the Actions UI.
+          {
+            echo "## Backend coverage"
+            echo ""
+            echo '```'
+            npx c8 report \
+              --temp-directory=./coverage/tmp \
+              --reports-dir=./coverage \
+              --include='apps/api/src/**' \
+              --exclude='**/*.test.ts' \
+              --exclude='**/*.spec.ts' \
+              --exclude='apps/api/src/test/**' \
+              --exclude='**/node_modules/**' \
+              --reporter=text-summary
+            echo '```'
+            echo ""
+            echo "Methodology: Playwright \`smoke\` project against an API booted with \`NODE_V8_COVERAGE\`. Numbers are NOT comparable to ad-hoc \`vitest run --coverage\` (which measures the in-process supertest path)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Identify top under-covered files (next coverage push)
+        if: ${{ hashFiles('coverage/coverage-summary.json') != '' }}
+        run: |
+          set -euo pipefail
+          # Render the per-file under-covered table to BOTH the step
+          # summary (UI) and a CSV in the artifact (machine-friendly).
+          node -e "
+            const fs = require('fs');
+            const sum = require('./coverage/coverage-summary.json');
+            const rows = Object.entries(sum)
+              .filter(([k]) => k !== 'total')
+              .filter(([_, v]) => v.statements && v.statements.total >= 30)
+              .map(([file, v]) => ({
+                file: file.replace(process.cwd() + '/', ''),
+                lines: v.lines.pct,
+                stmts: v.statements.total
+              }))
+              .sort((a, b) => a.lines - b.lines)
+              .slice(0, 10);
+            const md = ['## Top under-covered files (>= 30 stmts)', '', '| File | Lines % | Stmts |', '|------|---------|-------|',
+              ...rows.map(r => '| ' + r.file + ' | ' + r.lines + ' | ' + r.stmts + ' |')].join('\n');
+            console.log('::group::Top under-covered files');
+            console.log(md);
+            console.log('::endgroup::');
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n');
+            const csv = ['file,lines_pct,stmts', ...rows.map(r => r.file + ',' + r.lines + ',' + r.stmts)].join('\n');
+            fs.writeFileSync('coverage/top-under-covered.csv', csv);
+          "
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ github.sha }}
+          path: |
+            coverage/
+            api.log
+            web.log
+          retention-days: 30
+
+      - name: Final exit gate
+        run: |
+          # Don't fail on a flaky spec — coverage was the goal. But DO
+          # fail if the report step couldn't extract a percentage (which
+          # signals V8 coverage didn't flush — typically a missing
+          # NODE_V8_COVERAGE env or a non-graceful API exit).
+          if [ -z "${{ steps.report.outputs.LINES_PCT }}" ]; then
+            echo "::error::Coverage report failed to extract LINES_PCT — see api.log + earlier logs."
+            tail -200 api.log || true
+            exit 1
+          fi
+          echo "::notice title=Coverage::lines=${{ steps.report.outputs.LINES_PCT }}% / branches=${{ steps.report.outputs.BRANCHES_PCT }}% / functions=${{ steps.report.outputs.FUNCTIONS_PCT }}% / statements=${{ steps.report.outputs.STATEMENTS_PCT }}%"

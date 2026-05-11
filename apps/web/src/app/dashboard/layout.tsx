@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
+import { onAuthBroadcast } from "@/lib/auth-broadcast";
 import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { DialogProvider } from "@/lib/use-dialog";
@@ -320,6 +321,42 @@ const navByRole: Record<
     // approved explanation via notification, so the sidebar entry used to
     // render a "Forbidden" toast for them. See GitHub issue #23.
   ],
+  // Issue #606 / #615 / #637: PHARMACIST previously fell through to the
+  // PATIENT nav (line 746 fallback), so they saw "Bills", "AI Booking" and
+  // "Medication Reminders" — none of which they have access to (#615
+  // documents Bills then routing to /dashboard/not-authorized, #637
+  // documents AI Booking and Medication Reminders being role-irrelevant).
+  // Pharmacy + Medicines + Prescriptions are the real work surfaces for
+  // this role.
+  PHARMACIST: [
+    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/dashboard/pharmacy", label: "Pharmacy", icon: Package },
+    { href: "/dashboard/medicines", label: "Medicines", icon: Pill },
+    { href: "/dashboard/prescriptions", label: "Prescriptions", icon: FileText },
+    { href: "/dashboard/controlled-substances", label: "Controlled Register", icon: ShieldAlert },
+    { href: "/dashboard/suppliers", label: "Suppliers", icon: Truck },
+    { href: "/dashboard/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },
+    { href: "/dashboard/patients", label: "Patients", icon: Users },
+    { href: "/dashboard/chat", label: "Chat", icon: MessageCircle },
+    { href: "/dashboard/my-schedule", label: "My Schedule", icon: CalendarDays },
+    { href: "/dashboard/my-leaves", label: "My Leaves", icon: PlaneTakeoff },
+    { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
+  ],
+  // Issue #628: LAB_TECH previously fell through to PATIENT nav, so the
+  // "Lab" item was missing and they saw "Bills" + "Prescriptions" instead.
+  // Lab + Lab QC + Patients (sample-collection context) are the work
+  // surfaces.
+  LAB_TECH: [
+    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/dashboard/lab", label: "Lab", icon: FlaskConical },
+    { href: "/dashboard/lab/qc", label: "Lab QC", icon: Activity },
+    { href: "/dashboard/patients", label: "Patients", icon: Users },
+    { href: "/dashboard/lab-explainer", label: "Lab Explainer", icon: Languages },
+    { href: "/dashboard/chat", label: "Chat", icon: MessageCircle },
+    { href: "/dashboard/my-schedule", label: "My Schedule", icon: CalendarDays },
+    { href: "/dashboard/my-leaves", label: "My Leaves", icon: PlaneTakeoff },
+    { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
+  ],
 };
 
 export default function DashboardLayout({
@@ -341,6 +378,49 @@ export default function DashboardLayout({
   useEffect(() => {
     loadSession();
   }, [loadSession]);
+
+  // Cross-tab cookie-swap defence (#524 / #538 / #540 / #564 / #567 / #584).
+  // Belt-and-suspenders companion to the module-init subscription in
+  // `lib/store.ts`. When this layout is mounted (i.e. the user has an
+  // authenticated dashboard tab open), we ALSO subscribe directly to
+  // `medcore-auth` broadcast events here so that the layout can force
+  // a re-poll of /auth/me the instant a sibling tab posts an
+  // identity-change event — without waiting for any user-initiated
+  // navigation. The mismatch handling itself (redirect to /login)
+  // lives in the store's role/userId-clobber branches; this hook just
+  // ensures the probe fires immediately.
+  useEffect(() => {
+    const unsub = onAuthBroadcast((msg) => {
+      const current = useAuthStore.getState().user;
+      if (msg.kind === "auth-cleared") {
+        if (current) {
+          // Force-refresh; if the cookie is dead the userId-clobber
+          // branch in store.refreshUser will redirect us to /login.
+          void useAuthStore.getState().refreshUser();
+        }
+        return;
+      }
+      // auth-changed: if our cached principal differs from the new
+      // broadcast principal, the cookie has been swapped under us —
+      // hard-redirect to /login with the cross_tab_session_change
+      // reason so the user sees an explicit "you were logged in on
+      // another tab" message instead of silently re-hydrating.
+      if (current && current.id !== msg.userId) {
+        if (typeof window !== "undefined") {
+          window.location.replace(
+            "/login?reason=cross_tab_session_change",
+          );
+        }
+        return;
+      }
+      // Same user but role has changed (e.g. permission edit in
+      // another tab) — refreshUser will detect via role-clobber.
+      if (current && current.id === msg.userId && current.role !== msg.role) {
+        void useAuthStore.getState().refreshUser();
+      }
+    });
+    return unsub;
+  }, []);
 
   // TODO.md #4 — WebKit auth-redirect residue (v2).
   //

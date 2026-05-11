@@ -176,6 +176,183 @@ export function deriveLabResultFlag(input: {
   return submitted;
 }
 
+/**
+ * Issue #622: detect whether a LabTest represents an imaging / radiology
+ * study (Ultrasound, X-Ray, ECG, Echocardiogram, MRI, CT, etc.) so the
+ * order detail UI can offer a file-upload control instead of forcing the
+ * narrative report through the numeric parameter/value form. The
+ * `category` column on LabTest is free-form (seed data uses
+ * "Procedure", "Imaging", "Radiology"), so we match on either category or
+ * the test name. Conservative regex — keeps Hematology/Biochemistry
+ * panels OUT of the imaging surface.
+ */
+// Tokens that uniquely indicate an imaging study. Each is matched as a
+// standalone word (\b word boundary) so we don't accidentally tag
+// "echo" inside "echocardiogram-pre-test" pre-screens etc.
+const IMAGING_TOKENS = [
+  "radiology",
+  "radiologic",
+  "imaging",
+  "ultrasound",
+  "ultrasonography",
+  "ultrasonogram",
+  "sonography",
+  "sonogram",
+  "usg",
+  "x-ray",
+  "xray",
+  "echocardiogram",
+  "echocardiography",
+  "ecg",
+  "ekg",
+  "mri",
+  "ct",
+  "cat-scan",
+  "tomography",
+  "tomogram",
+  "fluoroscopy",
+  "mammography",
+  "mammogram",
+  "dexa",
+  "densitometry",
+  "scintigraphy",
+];
+const IMAGING_PATTERN = new RegExp(
+  String.raw`\b(?:${IMAGING_TOKENS.join("|")})\b`,
+  "i",
+);
+
+export function isImagingLabTest(test: {
+  name: string;
+  category?: string | null;
+}): boolean {
+  if (test.category && IMAGING_PATTERN.test(test.category)) return true;
+  if (test.name && IMAGING_PATTERN.test(test.name)) return true;
+  return false;
+}
+
+/**
+ * Issue #620 (LabTech): qualitative serology / microbiology / parasitology
+ * tests must NOT be entered through a numeric value field — clinically
+ * meaningful results are POSITIVE/NEGATIVE/REACTIVE/NON-REACTIVE/DETECTED/
+ * NOT-DETECTED, not numbers. The catalog category column is free-form (and
+ * the legacy seed sometimes leaves it blank), so we match by both category
+ * and test name. Conservative regex — only flips qualitative tests; any
+ * numeric panel (CBC, Lipid Profile, KFT, LFT, HbA1c, TSH, etc.) keeps
+ * the existing numeric flow.
+ *
+ * Drives the `getLabTestResultMode()` decision below.
+ */
+const QUALITATIVE_TOKENS = [
+  // Viral serology — antibody / antigen detection
+  "hepatitis", // covers Hep A/B/C/E surface-antigen / antibody panels
+  "hbsag",
+  "hbeag",
+  "anti-hbs",
+  "anti-hcv",
+  "hcv",
+  "hiv",
+  "elisa", // qualitative ELISA result lines
+  "western\\s*blot",
+  "rapid\\s*test",
+  // Bacterial serology
+  "widal",
+  "vdrl",
+  "rpr",
+  "tpha",
+  "asom?", // ASO / ASOM
+  "crp", // qualitative variant; actual quantitative CRP has unit mg/L
+  "rf", // rheumatoid factor (qualitative)
+  // Auto-immune
+  "ana",
+  "antinuclear",
+  "anca",
+  "ds-?dna",
+  // Vector-borne
+  "dengue",
+  "chikungunya",
+  "malaria\\s*parasite",
+  "mp\\s*slide",
+  "mp\\s*card",
+  "filaria",
+  "leptospira",
+  // Pregnancy / hormones (qualitative urine strip)
+  "urine\\s*pregnancy",
+  "upt",
+  "hcg\\s*qualitative",
+  // Routine microscopy / wet mount — structured but not numeric
+  "stool\\s*routine",
+  "stool\\s*examination",
+  "stool\\s*culture",
+  "urine\\s*culture",
+  "occult\\s*blood",
+  "fobt",
+  // COVID / influenza rapids
+  "covid",
+  "sars-?cov-?2",
+  "influenza\\s*rapid",
+];
+const QUALITATIVE_PATTERN = new RegExp(
+  String.raw`\b(?:${QUALITATIVE_TOKENS.join("|")})\b`,
+  "i",
+);
+
+/**
+ * Issue #620: Decide which input mode the result-entry UI should render.
+ *
+ *   - "imaging"     → upload a PDF/JPEG/PNG/DICOM artefact (no numeric form).
+ *                     Already handled by RadiologyAttachmentsPanel.
+ *   - "qualitative" → render a select with REACTIVE/NON-REACTIVE/POSITIVE/
+ *                     NEGATIVE/DETECTED/NOT-DETECTED choices. Free-text
+ *                     fall-through allowed via "Other" for edge cases.
+ *   - "numeric"     → existing number/text input gated by `validateNumericLabResult`.
+ *
+ * The decision is conservative: unit/panic-threshold tests stay numeric even
+ * if their NAME matches a qualitative token (handles e.g. "HIV viral load
+ * copies/mL" which is quantitative despite the HIV match).
+ */
+export type LabTestResultMode = "imaging" | "qualitative" | "numeric";
+
+export function getLabTestResultMode(test: {
+  name: string;
+  category?: string | null;
+  unit?: string | null;
+  panicLow?: number | null;
+  panicHigh?: number | null;
+}): LabTestResultMode {
+  if (isImagingLabTest({ name: test.name, category: test.category ?? null })) {
+    return "imaging";
+  }
+  // If the test has a unit OR panic thresholds, it's truly numeric — even if
+  // the name happens to mention a qualitative token (e.g. "HIV-1 RNA copies").
+  const hasNumericSignal =
+    (typeof test.unit === "string" && test.unit.trim().length > 0) ||
+    typeof test.panicLow === "number" ||
+    typeof test.panicHigh === "number";
+  if (hasNumericSignal) return "numeric";
+  if (test.category && QUALITATIVE_PATTERN.test(test.category)) return "qualitative";
+  if (test.name && QUALITATIVE_PATTERN.test(test.name)) return "qualitative";
+  return "numeric";
+}
+
+/**
+ * Issue #620: canonical qualitative-result enum surfaced by the LabTech UI.
+ * Keeping it as a single ordered list lets the UI render a `<select>` and
+ * the API store the chosen string verbatim (it already accepts free-form
+ * `value` up to 400 chars — see `recordLabResultSchema`).
+ */
+export const QUALITATIVE_RESULT_OPTIONS = [
+  "POSITIVE",
+  "NEGATIVE",
+  "REACTIVE",
+  "NON-REACTIVE",
+  "DETECTED",
+  "NOT DETECTED",
+  "INDETERMINATE",
+  "INSUFFICIENT SAMPLE",
+] as const;
+export type QualitativeResultOption = (typeof QUALITATIVE_RESULT_OPTIONS)[number];
+
 export const labQCSchema = z.object({
   testId: z.string().uuid(),
   qcLevel: z.enum(["LOW", "NORMAL", "HIGH", "INTERNAL"]),

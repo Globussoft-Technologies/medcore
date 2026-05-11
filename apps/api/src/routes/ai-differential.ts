@@ -13,6 +13,10 @@ import { analyzeDifferential } from "../services/ai/differential";
 const router = Router();
 router.use(authenticate);
 
+// #511 audit (file-level, 2026-05-09): every handler applies
+// `authorize(Role.DOCTOR, Role.ADMIN)`. PATIENT excluded from differential
+// diagnosis surfaces. Verified-safe.
+
 // security(2026-04-23-med): F-DDX-1 — LLM-backed; cap to 20/min/IP so a single
 // clinician token cannot burn Sarvam budget.
 if (process.env.NODE_ENV !== "test") {

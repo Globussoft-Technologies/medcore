@@ -40,6 +40,9 @@ function parseHorizon(raw: unknown): CapacityHorizonHours | null {
 export const aiCapacityRouter = Router();
 
 aiCapacityRouter.use(authenticate);
+// #511 audit (file-level, 2026-05-09): every handler applies
+// `authorize(Role.ADMIN, Role.NURSE)` (or ADMIN-only for OT). PATIENT
+// excluded from capacity-forecast surfaces. Verified-safe.
 
 // GET /api/v1/ai/capacity/beds?horizon=24|48|72
 aiCapacityRouter.get(

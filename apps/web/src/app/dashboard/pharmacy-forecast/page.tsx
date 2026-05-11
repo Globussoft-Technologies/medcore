@@ -74,7 +74,62 @@ function rowClass(urgency: ItemForecast["urgency"]) {
 
 function daysLeftDisplay(days: number) {
   if (days >= 9999) return "∞";
-  return days.toFixed(1);
+  return String(Math.floor(days));
+}
+
+// ─── Insights renderer ────────────────────────────────
+
+function InsightsText({ text }: { text: string }) {
+  // Strip <think>...</think> and any unclosed <think> block client-side
+  const clean = text
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<think>[\s\S]*/gi, "")
+    .trim();
+
+  return (
+    <div className="space-y-1 text-sm text-blue-900">
+      {clean.split("\n").map((line, i) => {
+        const trimmed = line.trim();
+        if (!trimmed) return <div key={i} className="h-2" />;
+
+        // Numbered section headings: "1. Title" or "1. **Title**"
+        const numberedMatch = trimmed.match(/^(\d+)\.\s+(.+)/);
+        if (numberedMatch) {
+          const title = numberedMatch[2].replace(/\*\*(.+?)\*\*/g, "$1");
+          return (
+            <p key={i} className="mt-4 font-semibold text-blue-800 first:mt-0">
+              {numberedMatch[1]}. {title}
+            </p>
+          );
+        }
+
+        // Bold-only headings: **Heading**
+        const headingMatch = trimmed.match(/^\*\*(.+)\*\*$/);
+        if (headingMatch) {
+          return (
+            <p key={i} className="mt-3 font-semibold text-blue-800 first:mt-0">
+              {headingMatch[1]}
+            </p>
+          );
+        }
+
+        // Bullet lines: - text or * text
+        const bulletMatch = trimmed.match(/^[-*•]\s+(.+)/);
+        if (bulletMatch) {
+          const content = bulletMatch[1].replace(/\*\*(.+?)\*\*/g, "$1");
+          return (
+            <div key={i} className="ml-3 flex gap-2">
+              <span className="mt-0.5 shrink-0 text-blue-400">•</span>
+              <span>{content}</span>
+            </div>
+          );
+        }
+
+        // Plain line — strip inline bold markers
+        return <p key={i}>{trimmed.replace(/\*\*(.+?)\*\*/g, "$1")}</p>;
+      })}
+    </div>
+  );
 }
 
 // ─── Page Component ────────────────────────────────────
@@ -84,6 +139,7 @@ export default function PharmacyForecastPage() {
   const [daysAhead, setDaysAhead] = useState(30);
   const [withInsights, setWithInsights] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingInsights, setLoadingInsights] = useState(false);
   const [forecast, setForecast] = useState<ItemForecast[] | null>(null);
   const [insights, setInsights] = useState<string | null>(null);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
@@ -97,22 +153,41 @@ export default function PharmacyForecastPage() {
     setGeneratedAt(null);
 
     try {
-      const params = new URLSearchParams({
-        days: String(daysAhead),
-        ...(withInsights ? { insights: "true" } : {}),
-      });
-
+      // Load forecast data first (fast)
+      const forecastParams = new URLSearchParams({ days: String(daysAhead) });
       const res = await api.get<ForecastResponse>(
-        `/ai/pharmacy/forecast?${params.toString()}`,
+        `/ai/pharmacy/forecast?${forecastParams.toString()}`,
         { token: token ?? undefined }
       );
 
-      if (res.success) {
-        setForecast(res.data.forecast);
-        setInsights(res.data.insights ?? null);
-        setGeneratedAt(res.data.generatedAt);
-      } else {
+      if (!res.success) {
         setError(res.error ?? "Failed to load forecast");
+        return;
+      }
+
+      setForecast(res.data.forecast);
+      setGeneratedAt(res.data.generatedAt);
+
+      // Then load AI insights separately so table appears immediately
+      if (withInsights) {
+        setLoadingInsights(true);
+        try {
+          const insightsParams = new URLSearchParams({
+            days: String(daysAhead),
+            insights: "true",
+          });
+          const insightsRes = await api.get<ForecastResponse>(
+            `/ai/pharmacy/forecast?${insightsParams.toString()}`,
+            { token: token ?? undefined }
+          );
+          if (insightsRes.success) {
+            setInsights(insightsRes.data.insights ?? null);
+          }
+        } catch {
+          // insights are non-critical — don't block the table
+        } finally {
+          setLoadingInsights(false);
+        }
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load forecast");
@@ -176,7 +251,7 @@ export default function PharmacyForecastPage() {
           {/* Load button */}
           <button
             onClick={loadForecast}
-            disabled={loading}
+            disabled={loading || loadingInsights}
             className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? (
@@ -220,13 +295,21 @@ export default function PharmacyForecastPage() {
       )}
 
       {/* AI Insights panel */}
-      {insights && (
+      {(loadingInsights || insights) && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-          <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-blue-800">
+          <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-blue-800">
             <Info className="h-4 w-4" />
             AI Pharmacy Insights
+            {loadingInsights && (
+              <Loader2 className="ml-1 h-4 w-4 animate-spin text-blue-500" />
+            )}
           </div>
-          <div className="whitespace-pre-line text-sm text-blue-900">{insights}</div>
+          {loadingInsights && !insights && (
+            <p className="text-sm text-blue-500 italic">
+              Analysing inventory with Sarvam AI…
+            </p>
+          )}
+          {insights && <InsightsText text={insights} />}
         </div>
       )}
 

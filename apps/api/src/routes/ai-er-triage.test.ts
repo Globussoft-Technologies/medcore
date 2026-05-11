@@ -29,9 +29,12 @@ const { prismaMock, assessMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@medcore/db", () => ({
-  getTenantId: () => undefined,
+  prisma: prismaMock,
+  tenantScopedPrisma: prismaMock,
+  getTenantId: vi.fn().mockReturnValue("test-tenant"),
   runWithTenant: (_t: string, fn: () => unknown) => fn(),
-  requireTenantId: () => { throw new Error("tenant ctx required"); }, prisma: prismaMock }));
+  requireTenantId: () => "test-tenant",
+}));
 vi.mock("../services/tenant-prisma", () => ({ tenantScopedPrisma: prismaMock }));
 vi.mock("../services/ai/er-triage", () => ({ assessERPatient: assessMock }));
 
@@ -176,7 +179,7 @@ describe("POST /api/v1/ai/er-triage/assess (Issue #81)", () => {
     );
     expect(inferenceCall).toBeDefined();
     const details = inferenceCall![0].data.details;
-    expect(details.model).toBe("sarvam-105b");
+    expect(details.model).toBe(process.env.SARVAM_MODEL ?? "sarvam-m");
     expect(typeof details.promptSize).toBe("number");
     expect(details.promptSize).toBeGreaterThan(0);
     expect(typeof details.responseSize).toBe("number");

@@ -1,5 +1,10 @@
 import OpenAI from "openai";
-import type { SOAPNote, SpecialtySuggestion, SymptomCapture, TranscriptEntry } from "@medcore/shared";
+import type {
+  SOAPNote,
+  SpecialtySuggestion,
+  SymptomCapture,
+  TranscriptEntry,
+} from "@medcore/shared";
 import { PROMPTS, type PromptKey } from "./prompts";
 import { retrieveContext } from "./rag";
 import { sanitizeUserInput } from "./prompt-safety";
@@ -14,7 +19,12 @@ import { withSpan } from "./tracing";
 // `openai` module still work because the router also constructs an `OpenAI`.
 const sarvam = getChatClient();
 
-const MODEL = "sarvam-105b";
+const MODEL =
+  process.env.AI_PROVIDER === "openai"
+    ? (process.env.OPENAI_MODEL ?? "gpt-5.5")
+    : (process.env.SARVAM_MODEL ?? "sarvam-105b");
+
+console.log(`[sarvam] AI_PROVIDER=${process.env.AI_PROVIDER} MODEL=${MODEL}`);
 
 // Re-export so existing callers that `import { logAICall } from ".../sarvam"`
 // keep working after the logging split into sarvam-logging.ts.
@@ -67,11 +77,21 @@ function isRetryableError(err: unknown): boolean {
       return true;
     }
     const asAny = err as any;
-    if (typeof asAny.status === "number" && asAny.status >= 500) {
+    if (typeof asAny.status === "number" && (asAny.status >= 500 || asAny.status === 429)) {
       return true;
     }
   }
   return false;
+}
+
+function retryDelayMs(err: unknown, attempt: number): number {
+  const asAny = err as any;
+  if (asAny?.status === 429) {
+    const retryAfter = Number(asAny?.headers?.["retry-after"] ?? 0);
+    if (Number.isFinite(retryAfter) && retryAfter > 0) return retryAfter * 1000;
+    return Math.min(2000 * 2 ** attempt, 30_000);
+  }
+  return 1000;
 }
 
 async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
@@ -91,7 +111,7 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
         // Retries exhausted on a genuinely retryable error — degrade to 503.
         throw new AIServiceUnavailableError();
       }
-      await new Promise<void>((resolve) => setTimeout(resolve, 1000));
+      await new Promise<void>((resolve) => setTimeout(resolve, retryDelayMs(err, attempt)));
     }
   }
   // Unreachable — loop either returns or throws. Kept for TS exhaustiveness.
@@ -134,8 +154,8 @@ export async function generateText(opts: {
               { role: "system", content: opts.systemPrompt },
               { role: "user", content: opts.userPrompt },
             ],
-          })
-        )
+          }),
+        ),
     );
     logAICall({
       feature: "scribe",
@@ -196,7 +216,10 @@ const LANGUAGE_NAMES: Record<string, string> = {
  *                   `en`, missing or unknown codes are no-ops and return `text`
  *                   unchanged without making an LLM call.
  */
-export async function translateText(text: string, targetLang: string): Promise<string> {
+export async function translateText(
+  text: string,
+  targetLang: string,
+): Promise<string> {
   // Fast-path: nothing to translate, or target language is English / unknown.
   if (!text || !targetLang || targetLang === "en") return text;
   const languageName = LANGUAGE_NAMES[targetLang];
@@ -212,7 +235,11 @@ export async function translateText(text: string, targetLang: string): Promise<s
   try {
     const response = await withSpan(
       "ai.translateText",
-      { "ai.feature": "scribe", "ai.model": MODEL, "ai.target_lang": targetLang },
+      {
+        "ai.feature": "scribe",
+        "ai.model": MODEL,
+        "ai.target_lang": targetLang,
+      },
       () =>
         withRetry(() =>
           sarvam.chat.completions.create({
@@ -223,8 +250,8 @@ export async function translateText(text: string, targetLang: string): Promise<s
               { role: "system", content: systemPrompt },
               { role: "user", content: text },
             ],
-          })
-        )
+          }),
+        ),
     );
     logAICall({
       feature: "scribe",
@@ -248,7 +275,7 @@ export async function translateText(text: string, targetLang: string): Promise<s
     });
     console.warn(
       `[translateText] Sarvam translate failed for targetLang=${targetLang}; falling back to English. Reason:`,
-      err instanceof Error ? err.message : err
+      err instanceof Error ? err.message : err,
     );
     return text;
   }
@@ -302,8 +329,8 @@ export async function generateStructured<T>(opts: {
             { role: "system", content: opts.systemPrompt },
             { role: "user", content: opts.userPrompt },
           ],
-        })
-      )
+        }),
+      ),
   );
 
   const toolCall = getFnCall(response);
@@ -327,7 +354,7 @@ export async function generateStructured<T>(opts: {
  */
 export async function runTriageTurn(
   messages: { role: "user" | "assistant"; content: string }[],
-  language: string
+  language: string,
 ): Promise<{ reply: string; isEmergency: boolean; emergencyReason?: string }> {
   // security(2026-04-23-low): F-INJ-1 — sanitize every user-role message so
   // injection markers (e.g. "ignore previous instructions") are neutralised
@@ -335,10 +362,13 @@ export async function runTriageTurn(
   // responses and are left as-is. Latest user turn is also sanitized for RAG
   // retrieval so the vector query can't be steered either.
   const sanitizedMessages = messages.map((m) =>
-    m.role === "user" ? { ...m, content: sanitizeUserInput(m.content) } : m
+    m.role === "user" ? { ...m, content: sanitizeUserInput(m.content) } : m,
   );
   const lastUserMsg = sanitizedMessages.at(-1)?.content ?? "";
-  const ragContext = await retrieveContext(lastUserMsg, 3, ["ICD10", "MEDICINE"]).catch(() => "");
+  const ragContext = await retrieveContext(lastUserMsg, 3, [
+    "ICD10",
+    "MEDICINE",
+  ]).catch(() => "");
 
   // GAP-P3: read prompt + Hindi suffix from the versioned registry instead
   // of compiled constants. resolvePrompt transparently falls back to the
@@ -346,10 +376,14 @@ export async function runTriageTurn(
   // is safe to roll out before any DB row is seeded.
   const [triageSystem, hindiSuffix] = await Promise.all([
     resolvePrompt("TRIAGE_SYSTEM"),
-    language === "hi" ? resolvePrompt("TRIAGE_SYSTEM_HINDI_SUFFIX") : Promise.resolve(""),
+    language === "hi"
+      ? resolvePrompt("TRIAGE_SYSTEM_HINDI_SUFFIX")
+      : Promise.resolve(""),
   ]);
-  const baseSystemPrompt = language === "hi" ? triageSystem + hindiSuffix : triageSystem;
-  const systemPrompt = baseSystemPrompt + (ragContext ? "\n\n" + ragContext : "");
+  const baseSystemPrompt =
+    language === "hi" ? triageSystem + hindiSuffix : triageSystem;
+  const systemPrompt =
+    baseSystemPrompt + (ragContext ? "\n\n" + ragContext : "");
 
   const t0 = Date.now();
   let response: OpenAI.Chat.Completions.ChatCompletion | undefined;
@@ -373,8 +407,14 @@ export async function runTriageTurn(
                   parameters: {
                     type: "object",
                     properties: {
-                      reason: { type: "string", description: "The specific emergency symptom detected" },
-                      urgency: { type: "string", enum: ["CALL_EMERGENCY", "GO_TO_ER_NOW"] },
+                      reason: {
+                        type: "string",
+                        description: "The specific emergency symptom detected",
+                      },
+                      urgency: {
+                        type: "string",
+                        enum: ["CALL_EMERGENCY", "GO_TO_ER_NOW"],
+                      },
                     },
                     required: ["reason", "urgency"],
                   },
@@ -382,9 +422,12 @@ export async function runTriageTurn(
               },
             ],
             tool_choice: "auto",
-            messages: [{ role: "system", content: systemPrompt }, ...sanitizedMessages],
-          })
-        )
+            messages: [
+              { role: "system", content: systemPrompt },
+              ...sanitizedMessages,
+            ],
+          }),
+        ),
     );
   } catch (err) {
     logAICall({
@@ -416,7 +459,10 @@ export async function runTriageTurn(
   });
 
   if (toolCall?.function.name === "flag_emergency") {
-    const input = JSON.parse(toolCall.function.arguments) as { reason: string; urgency: string };
+    const input = JSON.parse(toolCall.function.arguments) as {
+      reason: string;
+      urgency: string;
+    };
     return { reply: "", isEmergency: true, emergencyReason: input.reason };
   }
 
@@ -434,8 +480,10 @@ export async function runTriageTurn(
  * @param messages The full triage conversation history.
  */
 export async function extractSymptomSummary(
-  messages: { role: "user" | "assistant"; content: string }[]
-): Promise<SymptomCapture & { specialties: SpecialtySuggestion[]; confidence: number }> {
+  messages: { role: "user" | "assistant"; content: string }[],
+): Promise<
+  SymptomCapture & { specialties: SpecialtySuggestion[]; confidence: number }
+> {
   const t0 = Date.now();
   let response: OpenAI.Chat.Completions.ChatCompletion | undefined;
 
@@ -457,54 +505,79 @@ export async function extractSymptomSummary(
                 type: "function",
                 function: {
                   name: "structured_symptom_summary",
-              description:
-                "Extract a structured symptom summary and specialty recommendations from the conversation",
-              parameters: {
-                type: "object",
-                properties: {
-                  chiefComplaint: { type: "string" },
-                  onset: { type: "string" },
-                  duration: { type: "string" },
-                  severity: { type: "number", minimum: 1, maximum: 10 },
-                  location: { type: "string" },
-                  associatedSymptoms: { type: "array", items: { type: "string" } },
-                  relevantHistory: { type: "string" },
-                  currentMedications: { type: "array", items: { type: "string" } },
-                  knownAllergies: { type: "array", items: { type: "string" } },
-                  age: { type: "number" },
-                  gender: { type: "string" },
-                  specialties: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        specialty: { type: "string" },
-                        subSpecialty: { type: "string" },
-                        confidence: { type: "number", minimum: 0, maximum: 1 },
-                        reasoning: { type: "string" },
+                  description:
+                    "Extract a structured symptom summary and specialty recommendations from the conversation",
+                  parameters: {
+                    type: "object",
+                    properties: {
+                      chiefComplaint: { type: "string" },
+                      onset: { type: "string" },
+                      duration: { type: "string" },
+                      severity: { type: "number", minimum: 1, maximum: 10 },
+                      location: { type: "string" },
+                      associatedSymptoms: {
+                        type: "array",
+                        items: { type: "string" },
                       },
-                      required: ["specialty", "confidence", "reasoning"],
+                      relevantHistory: { type: "string" },
+                      currentMedications: {
+                        type: "array",
+                        items: { type: "string" },
+                      },
+                      knownAllergies: {
+                        type: "array",
+                        items: { type: "string" },
+                      },
+                      age: { type: "number" },
+                      gender: { type: "string" },
+                      specialties: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            specialty: { type: "string" },
+                            subSpecialty: { type: "string" },
+                            confidence: {
+                              type: "number",
+                              minimum: 0,
+                              maximum: 1,
+                            },
+                            reasoning: { type: "string" },
+                          },
+                          required: ["specialty", "confidence", "reasoning"],
+                        },
+                      },
+                      overallConfidence: {
+                        type: "number",
+                        minimum: 0,
+                        maximum: 1,
+                      },
                     },
+                    required: [
+                      "chiefComplaint",
+                      "specialties",
+                      "overallConfidence",
+                    ],
                   },
-                  overallConfidence: { type: "number", minimum: 0, maximum: 1 },
                 },
-                required: ["chiefComplaint", "specialties", "overallConfidence"],
               },
+            ],
+            tool_choice: {
+              type: "function",
+              function: { name: "structured_symptom_summary" },
             },
-          },
-        ],
-        tool_choice: { type: "function", function: { name: "structured_symptom_summary" } },
-        messages: [
-          // GAP-P3: versioned prompt via registry (fallback to PROMPTS constant).
-          { role: "system", content: triageSystemPrompt },
-          ...messages,
-          {
-            role: "user",
-            content: "Now produce a structured summary of the symptoms and recommend the top 3 specialties.",
-          },
-        ],
-          })
-        )
+            messages: [
+              // GAP-P3: versioned prompt via registry (fallback to PROMPTS constant).
+              { role: "system", content: triageSystemPrompt },
+              ...messages,
+              {
+                role: "user",
+                content:
+                  "Now produce a structured summary of the symptoms and recommend the top 3 specialties.",
+              },
+            ],
+          }),
+        ),
     );
   } catch (err) {
     logAICall({
@@ -544,10 +617,12 @@ export async function extractSymptomSummary(
   const specialties: SpecialtySuggestion[] = Array.isArray(input.specialties)
     ? (input.specialties as SpecialtySuggestion[])
     : [];
-  const confidenceNum = typeof input.overallConfidence === "number" ? input.overallConfidence : 0;
+  const confidenceNum =
+    typeof input.overallConfidence === "number" ? input.overallConfidence : 0;
   const alreadyHasGP = specialties.some(
-    (s) => s?.specialty?.toLowerCase?.().includes("general physician")
-      || s?.specialty?.toLowerCase?.().includes("general practitioner"),
+    (s) =>
+      s?.specialty?.toLowerCase?.().includes("general physician") ||
+      s?.specialty?.toLowerCase?.().includes("general practitioner"),
   );
   const finalSpecialties: SpecialtySuggestion[] =
     confidenceNum < 0.5 && !alreadyHasGP
@@ -583,7 +658,10 @@ export async function extractSymptomSummary(
 
 // ── validateSOAPHallucinations (internal) ─────────────────────────────────────
 
-async function validateSOAPHallucinations(soap: SOAPNote, transcriptText: string): Promise<SOAPNote> {
+async function validateSOAPHallucinations(
+  soap: SOAPNote,
+  transcriptText: string,
+): Promise<SOAPNote> {
   const itemsToVerify: string[] = [
     ...(soap.plan?.medications?.map((m) => m.name) ?? []),
     ...(soap.assessment?.impression ? [soap.assessment.impression] : []),
@@ -610,37 +688,40 @@ async function validateSOAPHallucinations(soap: SOAPNote, transcriptText: string
                 type: "function",
                 function: {
                   name: "verify_items",
-              description:
-                "For each item, report whether it appears verbatim or as a clear paraphrase in the transcript",
-              parameters: {
-                type: "object",
-                properties: {
-                  results: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        item: { type: "string" },
-                        found: { type: "boolean" },
+                  description:
+                    "For each item, report whether it appears verbatim or as a clear paraphrase in the transcript",
+                  parameters: {
+                    type: "object",
+                    properties: {
+                      results: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            item: { type: "string" },
+                            found: { type: "boolean" },
+                          },
+                          required: ["item", "found"],
+                        },
                       },
-                      required: ["item", "found"],
                     },
+                    required: ["results"],
                   },
                 },
-                required: ["results"],
               },
+            ],
+            tool_choice: {
+              type: "function",
+              function: { name: "verify_items" },
             },
-          },
-        ],
-        tool_choice: { type: "function", function: { name: "verify_items" } },
-        messages: [
-          {
-            role: "user",
-            content: `Transcript:\n${transcriptText}\n\nFor each item below, answer found:true only if it appears verbatim or is a clear paraphrase of what was said in the transcript.\nItems: ${JSON.stringify(itemsToVerify)}`,
-          },
-        ],
-          })
-        )
+            messages: [
+              {
+                role: "user",
+                content: `Transcript:\n${transcriptText}\n\nFor each item below, answer found:true only if it appears verbatim or is a clear paraphrase of what was said in the transcript.\nItems: ${JSON.stringify(itemsToVerify)}`,
+              },
+            ],
+          }),
+        ),
     );
   } catch (err) {
     logAICall({
@@ -688,8 +769,11 @@ async function validateSOAPHallucinations(soap: SOAPNote, transcriptText: string
       if (medIndex !== -1) {
         const updatedMedications = soap.plan.medications.map((med, idx) =>
           idx === medIndex
-            ? { ...med, notes: `${med.notes ?? ""}${med.notes ? " " : ""}[NOT CONFIRMED IN TRANSCRIPT]` }
-            : med
+            ? {
+                ...med,
+                notes: `${med.notes ?? ""}${med.notes ? " " : ""}[NOT CONFIRMED IN TRANSCRIPT]`,
+              }
+            : med,
         );
         soap = {
           ...soap,
@@ -723,9 +807,11 @@ export async function generateSOAPNote(
     chronicConditions: string[];
     age?: number;
     gender?: string;
-  }
+  },
 ): Promise<SOAPNote> {
-  const transcriptText = transcript.map((e) => `[${e.speaker}]: ${e.text}`).join("\n");
+  const transcriptText = transcript
+    .map((e) => `[${e.speaker}]: ${e.text}`)
+    .join("\n");
 
   const contextText = `
 Patient Context:
@@ -758,143 +844,179 @@ Patient Context:
                 type: "function",
                 function: {
                   name: "generate_soap_note",
-              description: "Generate a structured SOAP note from the consultation transcript",
-              parameters: {
-                type: "object",
-                properties: {
-                  subjective: {
+                  description:
+                    "Generate a structured SOAP note from the consultation transcript",
+                  parameters: {
                     type: "object",
                     properties: {
-                      chiefComplaint: { type: "string" },
-                      hpi: { type: "string" },
-                      pastMedicalHistory: { type: "string" },
-                      medications: { type: "array", items: { type: "string" } },
-                      allergies: { type: "array", items: { type: "string" } },
-                      socialHistory: { type: "string" },
-                      familyHistory: { type: "string" },
-                      confidence: {
-                        type: "number",
-                        minimum: 0,
-                        maximum: 1,
-                        description: "Confidence 0-1 that this section is well-supported by the transcript",
-                      },
-                      evidenceSpan: {
-                        type: "string",
-                        description: "Verbatim quote from transcript most strongly supporting this section",
-                      },
-                    },
-                    required: ["chiefComplaint", "hpi"],
-                  },
-                  objective: {
-                    type: "object",
-                    properties: {
-                      vitals: { type: "string" },
-                      examinationFindings: { type: "string" },
-                      confidence: {
-                        type: "number",
-                        minimum: 0,
-                        maximum: 1,
-                        description: "Confidence 0-1 that this section is well-supported by the transcript",
-                      },
-                      evidenceSpan: {
-                        type: "string",
-                        description: "Verbatim quote from transcript most strongly supporting this section",
-                      },
-                    },
-                  },
-                  assessment: {
-                    type: "object",
-                    properties: {
-                      impression: { type: "string" },
-                      icd10Codes: {
-                        type: "array",
-                        items: {
-                          type: "object",
-                          properties: {
-                            code: { type: "string" },
-                            description: { type: "string" },
-                            confidence: { type: "number" },
-                            evidenceSpan: { type: "string" },
+                      subjective: {
+                        type: "object",
+                        properties: {
+                          chiefComplaint: { type: "string" },
+                          hpi: { type: "string" },
+                          pastMedicalHistory: { type: "string" },
+                          medications: {
+                            type: "array",
+                            items: { type: "string" },
                           },
-                          required: ["code", "description", "confidence"],
+                          allergies: {
+                            type: "array",
+                            items: { type: "string" },
+                          },
+                          socialHistory: { type: "string" },
+                          familyHistory: { type: "string" },
+                          confidence: {
+                            type: "number",
+                            minimum: 0,
+                            maximum: 1,
+                            description:
+                              "Confidence 0-1 that this section is well-supported by the transcript",
+                          },
+                          evidenceSpan: {
+                            type: "string",
+                            description:
+                              "Verbatim quote from transcript most strongly supporting this section",
+                          },
+                        },
+                        required: ["chiefComplaint", "hpi"],
+                      },
+                      objective: {
+                        type: "object",
+                        properties: {
+                          vitals: { type: "string" },
+                          examinationFindings: { type: "string" },
+                          confidence: {
+                            type: "number",
+                            minimum: 0,
+                            maximum: 1,
+                            description:
+                              "Confidence 0-1 that this section is well-supported by the transcript",
+                          },
+                          evidenceSpan: {
+                            type: "string",
+                            description:
+                              "Verbatim quote from transcript most strongly supporting this section",
+                          },
                         },
                       },
-                      confidence: {
-                        type: "number",
-                        minimum: 0,
-                        maximum: 1,
-                        description: "Confidence 0-1 that this section is well-supported by the transcript",
-                      },
-                      evidenceSpan: {
-                        type: "string",
-                        description: "Verbatim quote from transcript most strongly supporting this section",
-                      },
-                    },
-                    required: ["impression"],
-                  },
-                  plan: {
-                    type: "object",
-                    properties: {
-                      medications: {
-                        type: "array",
-                        items: {
-                          type: "object",
-                          properties: {
-                            name: { type: "string" },
-                            dose: { type: "string" },
-                            frequency: { type: "string" },
-                            duration: { type: "string" },
-                            notes: { type: "string" },
+                      assessment: {
+                        type: "object",
+                        properties: {
+                          impression: { type: "string" },
+                          icd10Codes: {
+                            type: "array",
+                            items: {
+                              type: "object",
+                              properties: {
+                                code: { type: "string" },
+                                description: { type: "string" },
+                                confidence: { type: "number" },
+                                evidenceSpan: { type: "string" },
+                              },
+                              required: ["code", "description", "confidence"],
+                            },
                           },
-                          required: ["name", "dose", "frequency", "duration"],
+                          confidence: {
+                            type: "number",
+                            minimum: 0,
+                            maximum: 1,
+                            description:
+                              "Confidence 0-1 that this section is well-supported by the transcript",
+                          },
+                          evidenceSpan: {
+                            type: "string",
+                            description:
+                              "Verbatim quote from transcript most strongly supporting this section",
+                          },
+                        },
+                        required: ["impression"],
+                      },
+                      plan: {
+                        type: "object",
+                        properties: {
+                          medications: {
+                            type: "array",
+                            items: {
+                              type: "object",
+                              properties: {
+                                name: { type: "string" },
+                                dose: { type: "string" },
+                                frequency: { type: "string" },
+                                duration: { type: "string" },
+                                notes: { type: "string" },
+                              },
+                              required: [
+                                "name",
+                                "dose",
+                                "frequency",
+                                "duration",
+                              ],
+                            },
+                          },
+                          investigations: {
+                            type: "array",
+                            items: { type: "string" },
+                          },
+                          procedures: {
+                            type: "array",
+                            items: { type: "string" },
+                          },
+                          referrals: {
+                            type: "array",
+                            items: { type: "string" },
+                          },
+                          followUpTimeline: { type: "string" },
+                          patientInstructions: { type: "string" },
+                          cptCodes: {
+                            type: "array",
+                            items: {
+                              type: "object",
+                              properties: {
+                                code: { type: "string" },
+                                description: { type: "string" },
+                                justification: { type: "string" },
+                              },
+                              required: [
+                                "code",
+                                "description",
+                                "justification",
+                              ],
+                            },
+                          },
+                          confidence: {
+                            type: "number",
+                            minimum: 0,
+                            maximum: 1,
+                            description:
+                              "Confidence 0-1 that this section is well-supported by the transcript",
+                          },
+                          evidenceSpan: {
+                            type: "string",
+                            description:
+                              "Verbatim quote from transcript most strongly supporting this section",
+                          },
                         },
                       },
-                      investigations: { type: "array", items: { type: "string" } },
-                      procedures: { type: "array", items: { type: "string" } },
-                      referrals: { type: "array", items: { type: "string" } },
-                      followUpTimeline: { type: "string" },
-                      patientInstructions: { type: "string" },
-                      cptCodes: {
-                        type: "array",
-                        items: {
-                          type: "object",
-                          properties: {
-                            code: { type: "string" },
-                            description: { type: "string" },
-                            justification: { type: "string" },
-                          },
-                          required: ["code", "description", "justification"],
-                        },
-                      },
-                      confidence: {
-                        type: "number",
-                        minimum: 0,
-                        maximum: 1,
-                        description: "Confidence 0-1 that this section is well-supported by the transcript",
-                      },
-                      evidenceSpan: {
-                        type: "string",
-                        description: "Verbatim quote from transcript most strongly supporting this section",
-                      },
                     },
+                    required: ["subjective", "objective", "assessment", "plan"],
                   },
                 },
-                required: ["subjective", "objective", "assessment", "plan"],
               },
+            ],
+            tool_choice: {
+              type: "function",
+              function: { name: "generate_soap_note" },
             },
-          },
-        ],
-        tool_choice: { type: "function", function: { name: "generate_soap_note" } },
-        messages: [
-          // GAP-P3: versioned prompt via registry (fallback to PROMPTS constant).
-          { role: "system", content: scribeSystemPrompt },
-          {
-            role: "user",
-            content: `${contextText}${ragContext ? "\n\n" + ragContext + "\n" : ""}\n\nConsultation Transcript:\n${transcriptText}\n\nGenerate the SOAP note. Only include information explicitly stated in the transcript.\n\nSPEAKER-ROLE GUIDANCE (GAP-S4):\n- The Subjective section should be drawn primarily from [PATIENT] speech — symptom narrative, history, what the patient reports.\n- The Objective, Assessment and Plan sections should be drawn primarily from [DOCTOR] speech — exam findings, impressions and treatment decisions.\n- [ATTENDANT] utterances (family members, caregivers) may supplement either section but should never be the sole source for Assessment or Plan.`,
-          },
-        ],
-          })
-        )
+            messages: [
+              // GAP-P3: versioned prompt via registry (fallback to PROMPTS constant).
+              { role: "system", content: scribeSystemPrompt },
+              {
+                role: "user",
+                content: `${contextText}${ragContext ? "\n\n" + ragContext + "\n" : ""}\n\nConsultation Transcript:\n${transcriptText}\n\nGenerate the SOAP note. Only include information explicitly stated in the transcript.\n\nSPEAKER-ROLE GUIDANCE (GAP-S4):\n- The Subjective section should be drawn primarily from [PATIENT] speech — symptom narrative, history, what the patient reports.\n- The Objective, Assessment and Plan sections should be drawn primarily from [DOCTOR] speech — exam findings, impressions and treatment decisions.\n- [ATTENDANT] utterances (family members, caregivers) may supplement either section but should never be the sole source for Assessment or Plan.`,
+              },
+            ],
+          }),
+        ),
     );
   } catch (err) {
     logAICall({

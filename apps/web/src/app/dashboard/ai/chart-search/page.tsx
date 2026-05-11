@@ -8,7 +8,7 @@
  * Role-gated to DOCTOR + ADMIN (matches /api/v1/ai/chart-search).
  */
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
@@ -78,6 +78,106 @@ const DOC_TYPE_META: Record<string, { label: string; icon: React.ElementType; cl
 
 function docMeta(t: string) {
   return DOC_TYPE_META[t] ?? DOC_TYPE_META.DEFAULT;
+}
+
+const SKIP_KEYS = new Set(["confidence", "evidenceSpan"]);
+
+const SECTION_LABELS = ["Notes", "Subjective", "Objective", "Assessment", "Plan", "Findings"];
+const SECTION_RE = new RegExp(`(${SECTION_LABELS.join("|")}):\\s*`, "g");
+
+function formatValue(val: unknown): string {
+  if (val === null || val === undefined || val === "") return "—";
+  if (Array.isArray(val)) return val.length === 0 ? "None" : val.map((v) => (typeof v === "object" ? JSON.stringify(v) : String(v))).join(", ");
+  if (typeof val === "object") return JSON.stringify(val);
+  return String(val);
+}
+
+function parseChunkContent(content: string): { label: string; data: Record<string, unknown> | string }[] {
+  // Split on section headers, capturing the label name
+  const parts = content.split(SECTION_RE);
+  // parts = [pre, label1, value1, label2, value2, ...]
+  const sections: { label: string; data: Record<string, unknown> | string }[] = [];
+  for (let i = 1; i < parts.length; i += 2) {
+    const label = parts[i];
+    const raw = (parts[i + 1] ?? "").trim();
+    let data: Record<string, unknown> | string = raw;
+    if (raw.startsWith("{") && raw.endsWith("}")) {
+      try { data = JSON.parse(raw); } catch { data = raw; }
+    }
+    sections.push({ label, data });
+  }
+  return sections;
+}
+
+function ChunkSummary({ content }: { content: string }) {
+  const sections = parseChunkContent(content);
+  const plainSections = sections.filter((s) => typeof s.data === "string" && s.data.trim());
+  if (plainSections.length === 0) {
+    const first = sections[0];
+    if (!first) return <p className="text-sm text-gray-500">No summary available.</p>;
+    const preview = typeof first.data === "object"
+      ? Object.entries(first.data).filter(([k, v]) => !SKIP_KEYS.has(k) && v && (!Array.isArray(v) || v.length > 0)).slice(0, 3)
+      : [];
+    return (
+      <div className="space-y-1">
+        {preview.map(([k, v]) => (
+          <p key={k} className="text-sm text-gray-700 dark:text-gray-300">
+            <span className="font-medium capitalize">{k.replace(/([A-Z])/g, " $1").trim()}:</span>{" "}
+            {formatValue(v)}
+          </p>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-1">
+      {plainSections.map((s, i) => (
+        <p key={i} className="text-sm text-gray-700 dark:text-gray-300">
+          <span className="font-medium">{s.label}:</span> {s.data as string}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function ChunkContent({ content }: { content: string }) {
+  const sections = parseChunkContent(content);
+
+  if (sections.length === 0) {
+    return <p className="text-sm text-gray-700 dark:text-gray-300">{content}</p>;
+  }
+
+  return (
+    <div className="max-h-56 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] space-y-3">
+      {sections.map((sec, i) => (
+        <div key={i}>
+          <p className="text-xs font-semibold uppercase tracking-wide text-indigo-500 dark:text-indigo-400 mb-1">
+            {sec.label}
+          </p>
+          {typeof sec.data === "string" ? (
+            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+              {sec.data || "—"}
+            </p>
+          ) : (
+            <div className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
+              {Object.entries(sec.data)
+                .filter(([k]) => !SKIP_KEYS.has(k))
+                .map(([k, v]) => (
+                  <React.Fragment key={k}>
+                    <span className="text-xs text-gray-500 dark:text-gray-400 capitalize whitespace-nowrap pt-0.5">
+                      {k.replace(/([A-Z])/g, " $1").trim()}
+                    </span>
+                    <span className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed">
+                      {formatValue(v)}
+                    </span>
+                  </React.Fragment>
+                ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // ─── Page ───────────────────────────────────────────────────────────────────
@@ -362,13 +462,11 @@ export default function ChartSearchPage() {
               )}
             </div>
             {expandedChunkId && hitsById.get(expandedChunkId) && (
-              <div className="mt-4 rounded-lg border border-indigo-200 bg-white p-3 text-sm dark:border-indigo-900 dark:bg-gray-900">
-                <div className="mb-1 font-medium">
+              <div className="mt-4 rounded-lg border border-indigo-200 bg-white p-3 dark:border-indigo-900 dark:bg-gray-900">
+                <div className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-400">
                   Source: {hitsById.get(expandedChunkId)?.title}
                 </div>
-                <p className="whitespace-pre-line text-gray-700 dark:text-gray-300">
-                  {hitsById.get(expandedChunkId)?.content}
-                </p>
+                <ChunkSummary content={hitsById.get(expandedChunkId)!.content} />
               </div>
             )}
           </section>
@@ -414,9 +512,7 @@ export default function ChartSearchPage() {
                           </span>
                         )}
                       </div>
-                      <p className="text-sm text-gray-700 dark:text-gray-300">
-                        {h.content}
-                      </p>
+                      <ChunkContent content={h.content} />
                     </li>
                   );
                 })}

@@ -67,7 +67,10 @@ vi.mock("./notification", () => ({
   // throw a "No export defined" error inside the scheduler.
   drainScheduled: vi.fn(async () => {}),
 }));
-vi.mock("@medcore/db", () => ({ prisma: prismaMock }));
+vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); }, prisma: prismaMock }));
 
 import {
   registerScheduledTasks,

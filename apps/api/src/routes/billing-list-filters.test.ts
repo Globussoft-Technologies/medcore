@@ -41,6 +41,9 @@ const { prismaMock } = vi.hoisted(() => {
 });
 
 vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); },
   prisma: prismaMock,
   tenantScopedPrisma: prismaMock,
 }));

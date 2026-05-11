@@ -27,7 +27,13 @@ const { findUniqueMock } = vi.hoisted(() => {
   };
 });
 vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); },
   prisma: {
+    tenant: { findUnique: findUniqueMock },
+  },
+  tenantScopedPrisma: {
     tenant: { findUnique: findUniqueMock },
   },
 }));

@@ -27,7 +27,11 @@ const { prismaMock, indexChunkMock, seedMock } = vi.hoisted(() => ({
   seedMock: vi.fn(async () => ({ icd10: 0, medicines: 0 })),
 }));
 
-vi.mock("@medcore/db", () => ({ prisma: prismaMock }));
+vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  tenantScopedPrisma: prismaMock,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); }, prisma: prismaMock }));
 vi.mock("../services/ai/rag", () => ({
   indexChunk: indexChunkMock,
   seedFromExistingData: seedMock,

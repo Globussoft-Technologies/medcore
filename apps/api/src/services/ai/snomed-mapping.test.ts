@@ -7,7 +7,10 @@ import { describe, it, expect, vi } from "vitest";
 // Mock @medcore/db BEFORE importing snomed-mapping so the import-time
 // `prisma` symbol points to a noop client — these tests exercise only
 // the pure scoring core.
-vi.mock("@medcore/db", () => ({ prisma: {} }));
+vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); }, prisma: {} }));
 
 import {
   scoreSymptomsAgainstConcepts,

@@ -22,7 +22,11 @@ const { prismaMock } = vi.hoisted(() => ({
   } as any,
 }));
 
-vi.mock("@medcore/db", () => ({ prisma: prismaMock }));
+vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  tenantScopedPrisma: prismaMock,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); }, prisma: prismaMock }));
 
 import {
   generatePrescriptionPDFBuffer,

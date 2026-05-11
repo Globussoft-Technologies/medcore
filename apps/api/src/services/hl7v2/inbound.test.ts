@@ -162,6 +162,9 @@ const mockPrisma: Row = {
 (globalThis as Record<string, unknown>).__hl7InboundTestPrisma = mockPrisma;
 
 vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); },
   get prisma() {
     return (globalThis as Record<string, unknown>).__hl7InboundTestPrisma;
   },

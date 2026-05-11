@@ -16,7 +16,10 @@ const { mockPrisma, mockIndexChunk } = vi.hoisted(() => {
   };
 });
 
-vi.mock("@medcore/db", () => ({ prisma: mockPrisma }));
+vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); }, prisma: mockPrisma }));
 vi.mock("./rag", () => ({ indexChunk: mockIndexChunk }));
 
 import {

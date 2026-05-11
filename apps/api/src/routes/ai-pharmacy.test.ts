@@ -40,7 +40,11 @@ vi.mock("../services/ai/pharmacy-forecast", () => ({
 // The single-item route does a `await import("@medcore/db")` to fetch
 // the 90-day movement history. That dynamic import resolves through this
 // mock just like any static import would.
-vi.mock("@medcore/db", () => ({ prisma: prismaMock }));
+vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  tenantScopedPrisma: prismaMock,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); }, prisma: prismaMock }));
 
 import { aiPharmacyRouter } from "./ai-pharmacy";
 

@@ -36,7 +36,11 @@ const { prismaMock } = vi.hoisted(() => {
   return { prismaMock: base };
 });
 
-vi.mock("@medcore/db", () => ({ prisma: prismaMock }));
+vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  tenantScopedPrisma: prismaMock,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); }, prisma: prismaMock }));
 // Side-effect imports the route pulls in for PDF generation; stub them
 // out so the test stays a pure unit test.
 vi.mock("../services/pdf", () => ({

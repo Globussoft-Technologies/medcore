@@ -66,6 +66,9 @@ const { prismaMock } = vi.hoisted(() => {
 // runtime import graph. Without this, `tenantScopedPrisma` resolves to
 // undefined and the handler 500s on `tenantScopedPrisma.auditLog.findMany`.
 vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); },
   prisma: prismaMock,
   tenantScopedPrisma: prismaMock,
 }));

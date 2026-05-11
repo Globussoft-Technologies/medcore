@@ -36,7 +36,15 @@ export async function auditLog(
   // paths consistent. Fall back to `req.tenantId` (set by
   // `tenantContextMiddleware` directly on the request) for callers that
   // bypassed the ALS wrap (some test apps don't mount it).
-  const tenantId = getTenantId() ?? req.tenantId ?? null;
+  // Defensive: tests that `vi.mock("@medcore/db", { prisma })` strip the
+  // re-exported `getTenantId`; the import resolves to `undefined`. The
+  // audit middleware must keep working under those mocks because every
+  // route test that exercises a write path eventually lands here. Fall
+  // back to `req.tenantId` (set by tenantContextMiddleware directly).
+  const tenantId =
+    (typeof getTenantId === "function" ? getTenantId() : undefined) ??
+    req.tenantId ??
+    null;
   if (!tenantId) {
     // Bootstrap / system path — known and tolerated. We still emit a warn
     // so a sustained spike (which would indicate the tenant middleware is

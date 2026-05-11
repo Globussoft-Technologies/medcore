@@ -49,7 +49,11 @@ const { prismaMock } = vi.hoisted(() => ({
   } as any,
 }));
 
-vi.mock("@medcore/db", () => ({ prisma: prismaMock }));
+vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  tenantScopedPrisma: prismaMock,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); }, prisma: prismaMock }));
 
 // Stub out the QR generator so the snapshot does not contain a ~12 kB
 // base64 blob that would produce massive diffs on unrelated QR lib bumps.

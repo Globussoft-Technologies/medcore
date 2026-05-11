@@ -42,6 +42,9 @@ const { prismaMock } = vi.hoisted(() => {
 // findMany/findUnique/etc. calls land on a single object the test can
 // drive. (Same pattern as the admissions-concurrency test.)
 vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); },
   prisma: prismaMock,
   tenantScopedPrisma: prismaMock,
 }));

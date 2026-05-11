@@ -15,7 +15,11 @@ const { prismaMock } = vi.hoisted(() => {
   return { prismaMock: base };
 });
 
-vi.mock("@medcore/db", () => ({ prisma: prismaMock }));
+vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  tenantScopedPrisma: prismaMock,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); }, prisma: prismaMock }));
 // Keep the heavy fraud/doc-qa/sentiment imports out of the scheduler module
 // graph for this test — they're not needed here.
 vi.mock("../routes/ai-fraud", () => ({ runDailyFraudScan: vi.fn() }));

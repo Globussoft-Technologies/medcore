@@ -19,7 +19,10 @@ const { mockPrisma, mockGenerateText, mockRerankChunks } = vi.hoisted(() => ({
   ),
 }));
 
-vi.mock("@medcore/db", () => ({ prisma: mockPrisma }));
+vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); }, prisma: mockPrisma }));
 vi.mock("./sarvam", () => ({ generateText: mockGenerateText }));
 vi.mock("./reranker", () => ({ rerankChunks: mockRerankChunks }));
 

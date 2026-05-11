@@ -137,7 +137,11 @@ function matchesAllergy(a: any, where: any): boolean {
 
 const { prismaMock } = vi.hoisted(() => ({ prismaMock: {} as any }));
 
-vi.mock("@medcore/db", () => ({ prisma: prismaMock }));
+vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  tenantScopedPrisma: prismaMock,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); }, prisma: prismaMock }));
 
 prismaMock.patient = {
   count: async ({ where }: any) => state.current.patients.filter((p) => matchesPatient(p, where)).length,

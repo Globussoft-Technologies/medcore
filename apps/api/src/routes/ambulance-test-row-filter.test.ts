@@ -47,7 +47,11 @@ const { prismaMock } = vi.hoisted(() => {
   return { prismaMock: base };
 });
 
-vi.mock("@medcore/db", () => ({ prisma: prismaMock }));
+vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  tenantScopedPrisma: prismaMock,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); }, prisma: prismaMock }));
 
 import { ambulanceRouter } from "./ambulance";
 import { errorHandler } from "../middleware/error";

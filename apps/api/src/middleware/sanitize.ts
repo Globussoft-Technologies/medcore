@@ -54,7 +54,11 @@ function stripHtmlTags(value: unknown): unknown {
 
 export function sanitize(req: Request, _res: Response, next: NextFunction) {
   // Bypass for paths whose schema explicitly rejects raw HTML (#489).
-  if (SCHEMA_REJECT_PATHS.some((p) => req.path === p || req.path.startsWith(p + "/"))) {
+  // `req.path` is set by Express in production but tests sometimes mock the
+  // request without it — fall back to empty string so the startsWith check
+  // is a no-op (every SCHEMA_REJECT_PATH is non-empty), not a TypeError.
+  const reqPath = req.path ?? "";
+  if (SCHEMA_REJECT_PATHS.some((p) => reqPath === p || reqPath.startsWith(p + "/"))) {
     return next();
   }
   if (req.body && typeof req.body === "object") {

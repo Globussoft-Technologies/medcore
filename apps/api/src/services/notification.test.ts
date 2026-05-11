@@ -24,7 +24,11 @@ const { prismaMock } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@medcore/db", () => ({ prisma: prismaMock }));
+vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  tenantScopedPrisma: prismaMock,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); }, prisma: prismaMock }));
 
 // Channel adapters are stubbed at the module level so the dispatcher's
 // `sendOnce` switch can resolve without hitting any real provider.

@@ -18,7 +18,11 @@ const { prismaMock, sendNotificationMock } = vi.hoisted(() => ({
   sendNotificationMock: vi.fn(),
 }));
 
-vi.mock("@medcore/db", () => ({ prisma: prismaMock }));
+vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  tenantScopedPrisma: prismaMock,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); }, prisma: prismaMock }));
 vi.mock("./notification", () => ({ sendNotification: sendNotificationMock }));
 
 import {

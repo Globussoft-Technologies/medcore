@@ -41,7 +41,10 @@ const { prismaMock, explainLabReportMock } = vi.hoisted(() => ({
   explainLabReportMock: vi.fn(),
 }));
 
-vi.mock("@medcore/db", () => ({ prisma: prismaMock }));
+vi.mock("@medcore/db", () => ({
+  getTenantId: () => undefined,
+  runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  requireTenantId: () => { throw new Error("tenant ctx required"); }, prisma: prismaMock }));
 vi.mock("../services/tenant-prisma", () => ({ tenantScopedPrisma: prismaMock }));
 vi.mock("../services/ai/report-explainer", () => ({
   explainLabReport: explainLabReportMock,

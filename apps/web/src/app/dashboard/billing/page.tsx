@@ -339,21 +339,25 @@ export default function BillingPage() {
               .filter((p) => p.amount < 0)
               .reduce((s, p) => s + Math.abs(p.amount), 0);
             // CSV must match what's on screen — use the GST-corrected total
-            // from computeInvoiceTotals, not the raw legacy `totalAmount`.
+            // from computeInvoiceTotals when we have items, otherwise fall
+            // back to the persisted column so rows without an items payload
+            // don't silently collapse to 0 in the export.
+            const csvHasItems = Array.isArray(inv.items) && inv.items.length > 0;
             const totals = computeInvoiceTotals(inv.items || [], {
               subtotal: inv.subtotal,
               taxAmount: inv.taxAmount,
               discountAmount: inv.discountAmount,
               totalAmount: inv.totalAmount,
             });
+            const csvTotal = csvHasItems ? totals.totalAmount : inv.totalAmount;
             return {
               invoice: inv.invoiceNumber,
               patient: inv.patient.user.name,
               phone: inv.patient.user.phone,
-              total: totals.totalAmount,
+              total: csvTotal,
               paid,
               refunded,
-              balance: totals.totalAmount - (paid - refunded),
+              balance: csvTotal - (paid - refunded),
               status: inv.paymentStatus,
               createdAt: new Date(inv.createdAt).toISOString(),
             };
@@ -419,15 +423,22 @@ export default function BillingPage() {
         // the list and detail never disagree on Amount / Balance. Legacy
         // invoice rows persisted `totalAmount` as subtotal-minus-discount
         // (no GST); computeInvoiceTotals re-derives the correct figure from
-        // line items + their categories. Falls back to the persisted value
-        // when items are missing (older API responses).
+        // line items + their categories.
+        //
+        // Fallback chain (matches what a previous-generation row produces):
+        //   1. If we have items, trust the helper's recomputed total.
+        //   2. Otherwise fall back to the persisted `inv.totalAmount` so
+        //      list rows without an `items` payload (legacy API responses,
+        //      test fixtures) keep the previously-displayed value rather
+        //      than silently collapsing to 0.
+        const hasItems = Array.isArray(inv.items) && inv.items.length > 0;
         const totals = computeInvoiceTotals(inv.items || [], {
           subtotal: inv.subtotal,
           taxAmount: inv.taxAmount,
           discountAmount: inv.discountAmount,
           totalAmount: inv.totalAmount,
         });
-        const displayTotal = totals.totalAmount;
+        const displayTotal = hasItems ? totals.totalAmount : inv.totalAmount;
         const balance = Math.max(0, displayTotal - netPaid);
         const age = daysAgo(inv.createdAt);
         // Issue #235: a row stored as PAID with non-zero balance must

@@ -52,13 +52,21 @@ declare global {
 let razorpayScriptPromise: Promise<void> | null = null;
 
 export async function fetchRazorpayConfig(): Promise<RazorpayConfig> {
+  const FALLBACK: RazorpayConfig = { enabled: false, isTestMode: false };
   try {
-    const res = await api.get<{ data: RazorpayConfig }>(
+    const res = await api.get<{ data: RazorpayConfig | null | undefined }>(
       "/billing/razorpay-config"
     );
-    return res.data;
+    // Test fixtures and 404-ish responses can return `{ data: null }` or
+    // omit the field entirely; coerce to the safe default rather than
+    // letting consumers crash on `config.enabled` when config is null.
+    if (!res?.data) return FALLBACK;
+    return {
+      enabled: Boolean(res.data.enabled),
+      isTestMode: Boolean(res.data.isTestMode),
+    };
   } catch {
-    return { enabled: false, isTestMode: false };
+    return FALLBACK;
   }
 }
 

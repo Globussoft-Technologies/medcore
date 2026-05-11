@@ -74,7 +74,7 @@ describe("Issue #198 — POST /admissions/:id/vitals", () => {
   });
 
   it("accepts the canonical schema field names and returns 201", async () => {
-    const admissionId = "11111111-1111-1111-1111-111111111111";
+    const admissionId = "550e8400-e29b-41d4-a716-446655441111";
     prismaMock.admission.findUnique.mockResolvedValueOnce({
       id: admissionId,
       status: "ADMITTED",
@@ -109,7 +109,7 @@ describe("Issue #198 — POST /admissions/:id/vitals", () => {
   });
 
   it("400s with field-level details when admissionId is missing — frontend can render per-field errors", async () => {
-    const admissionId = "22222222-2222-2222-2222-222222222222";
+    const admissionId = "550e8400-e29b-41d4-a716-446655442222";
     // Pre-flight findUnique should never even run because zod fails first.
     const res = await request(buildApp())
       .post(`/api/v1/admissions/${admissionId}/vitals`)

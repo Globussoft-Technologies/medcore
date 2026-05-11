@@ -45,11 +45,13 @@ export const marketingEnquirySchema = z.object({
     .trim()
     .min(2, "Hospital name must be at least 2 characters")
     .max(200, "Hospital name is too long"),
+  // zod 4: errorMap → error (function returning a string or an issue-shaped
+  // object; bare string also accepted).
   hospitalSize: z.enum(["1-10", "10-50", "50-200", "200+"], {
-    errorMap: () => ({ message: "Select a hospital size" }),
+    error: () => "Select a hospital size",
   }),
   role: z.enum(["Administrator", "Doctor", "IT", "Other"], {
-    errorMap: () => ({ message: "Select your role" }),
+    error: () => "Select your role",
   }),
   message: z
     .string()

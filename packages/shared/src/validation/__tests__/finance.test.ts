@@ -13,7 +13,7 @@ import {
   discountApprovalSchema,
 } from "../finance";
 
-const UUID = "11111111-1111-1111-1111-111111111111";
+const UUID = "550e8400-e29b-41d4-a716-446655441111";
 
 describe("createPackageSchema", () => {
   const valid = { name: "Master Health Checkup", services: "CBC, ECG", price: 1999 };

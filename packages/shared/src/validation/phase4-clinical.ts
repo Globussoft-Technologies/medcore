@@ -92,7 +92,7 @@ const arrivalModeSchema = z
   .min(1)
   .transform((v) => ARRIVAL_MODE_ALIASES[v] ?? v)
   .pipe(z.enum(ARRIVAL_MODES, {
-    errorMap: () => ({
+    error: () => ({
       message: `Arrival mode must be one of: ${ARRIVAL_MODES.join(", ")}`,
     }),
   }));
@@ -257,7 +257,7 @@ export const updateEmergencyStatusSchema = z.object({
   status: z.enum(EMERGENCY_STATUS),
   attendingDoctorId: z.string().uuid().optional(),
   disposition: z
-    .string({ required_error: "Disposition is required" })
+    .string({ error: "Disposition is required" })
     .trim()
     .min(1, "Disposition is required")
     .refine((v) => !containsHtmlOrScript(v), {
@@ -265,7 +265,7 @@ export const updateEmergencyStatusSchema = z.object({
         "Disposition contains characters that aren't allowed (e.g. < > or HTML tags)",
     }),
   outcomeNotes: z
-    .string({ required_error: "Outcome notes are required" })
+    .string({ error: "Outcome notes are required" })
     .trim()
     .min(1, "Outcome notes are required")
     .refine((v) => !containsHtmlOrScript(v), {

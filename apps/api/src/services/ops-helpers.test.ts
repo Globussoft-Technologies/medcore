@@ -94,10 +94,10 @@ describe("computeSlaDueAt", () => {
 describe("extractMentions", () => {
   it("extracts @[uuid] tokens", () => {
     const ids = extractMentions(
-      "Hi @[11111111-1111-1111-1111-111111111111] and @[22222222-2222-2222-2222-222222222222]"
+      "Hi @[550e8400-e29b-41d4-a716-446655441111] and @[550e8400-e29b-41d4-a716-446655442222]"
     );
-    expect(ids).toContain("11111111-1111-1111-1111-111111111111");
-    expect(ids).toContain("22222222-2222-2222-2222-222222222222");
+    expect(ids).toContain("550e8400-e29b-41d4-a716-446655441111");
+    expect(ids).toContain("550e8400-e29b-41d4-a716-446655442222");
   });
 
   it("deduplicates repeated mentions", () => {

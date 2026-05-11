@@ -17,7 +17,7 @@ import {
   postOpObservationSchema,
 } from "../phase4-clinical";
 
-const UUID = "11111111-1111-1111-1111-111111111111";
+const UUID = "550e8400-e29b-41d4-a716-446655441111";
 const FUTURE_ISO = "2099-01-01T10:00:00.000Z";
 
 describe("createTelemedicineSchema", () => {

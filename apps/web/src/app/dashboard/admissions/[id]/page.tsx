@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use, useId } from "react";
+import { useEffect, useState, use, useId, type FormEvent } from "react";
 import Link from "next/link";
 import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
@@ -275,13 +275,13 @@ export default function AdmissionDetailPage({
         <ErrorBoundary testId="admission-vitals-error">
           <VitalsTab
             admissionId={id}
-            canRecord={user?.role === "NURSE" || user?.role === "DOCTOR"}
+            canRecord={user?.role === "NURSE" || user?.role === "DOCTOR" || user?.role === "ADMIN"}
           />
         </ErrorBoundary>
       )}
       {tab === "medications" && (
         <ErrorBoundary testId="admission-medications-error">
-          <MedicationsTab admissionId={id} canOrder={user?.role === "DOCTOR"} />
+          <MedicationsTab admissionId={id} canOrder={user?.role === "DOCTOR" || user?.role === "ADMIN"} />
         </ErrorBoundary>
       )}
       {tab === "rounds" && (
@@ -627,8 +627,9 @@ function OverviewTab({
               </button>
               <button
                 onClick={() => discharge(false)}
-                disabled={!summary.trim()}
+                disabled={!summary.trim() || !dischargeForm.followUpInstructions.trim() || !dischargeForm.dischargeMedications.trim()}
                 className="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-50"
+                title={!summary.trim() ? "Discharge summary required" : !dischargeForm.followUpInstructions.trim() ? "Follow-up instructions required" : !dischargeForm.dischargeMedications.trim() ? "Discharge medications required" : undefined}
               >
                 Confirm Discharge
               </button>
@@ -834,7 +835,7 @@ function VitalsTab({
   for (const [k, v] of Object.entries(serverFieldErrors)) fieldErrors[k] = v;
   const hasFieldErrors = Object.keys(fieldErrors).length > 0;
 
-  async function submit(e: React.FormEvent) {
+  async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (hasFieldErrors) {
       toast.error("Please fix the highlighted vitals before saving");
@@ -1139,7 +1140,7 @@ function MedicationsTab({
     setLoading(false);
   }
 
-  async function submit(e: React.FormEvent) {
+  async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!selectedMed) {
       toast.error("Select a medicine");
@@ -1497,7 +1498,7 @@ function RoundsTab({
     setLoading(false);
   }
 
-  async function submit(e: React.FormEvent) {
+  async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     // Issue #458 — replace HTML5 `required` with explicit guard so the
     // React error path beats the browser tooltip.
@@ -1660,7 +1661,7 @@ function LabsTab({
     setLoading(false);
   }
 
-  async function submit(e: React.FormEvent) {
+  async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (selectedTests.length === 0) {
       toast.error("Select at least one test");
@@ -2483,9 +2484,7 @@ function DischargeReadinessModal({
     !!data &&
     (data.outstandingAmount > 0 ||
       data.pendingLabOrders > 0 ||
-      data.pendingMedications > 0 ||
-      !data.dischargeSummaryWritten ||
-      !data.medsOnDischargeSpecified);
+      data.pendingMedications > 0);
 
   const Row = ({
     label,
@@ -3128,7 +3127,7 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
     else if (n > IO_MAX_ML) amountError = "Volume must be ≤ 10000 mL per entry";
   }
 
-  async function submit(e: React.FormEvent) {
+  async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!form.amountMl) return;
     if (amountError) {

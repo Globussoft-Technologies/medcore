@@ -295,13 +295,13 @@ function SectionReadView({ sectionKey, soap }: { sectionKey: SectionKey; soap: S
             </div>
           ) : null}
           {p.investigations?.length ? (
-            <ReadRow label="Investigations" value={p.investigations.join(", ")} />
+            <ReadRow label="Investigations" value={Array.isArray(p.investigations) ? p.investigations.join(", ") : p.investigations} />
           ) : null}
           {p.procedures?.length ? (
-            <ReadRow label="Procedures" value={p.procedures.join(", ")} />
+            <ReadRow label="Procedures" value={Array.isArray(p.procedures) ? p.procedures.join(", ") : p.procedures} />
           ) : null}
           {p.referrals?.length ? (
-            <ReadRow label="Referrals" value={p.referrals.join(", ")} />
+            <ReadRow label="Referrals" value={Array.isArray(p.referrals) ? p.referrals.join(", ") : p.referrals} />
           ) : null}
           {p.followUpTimeline && <ReadRow label="Follow-up" value={p.followUpTimeline} />}
           {p.patientInstructions && (
@@ -310,6 +310,140 @@ function SectionReadView({ sectionKey, soap }: { sectionKey: SectionKey; soap: S
         </div>
       );
     }
+  }
+}
+
+// ─── Section edit helpers ─────────────────────────────────
+
+function initDraftFields(section: SectionKey, soap: SOAPNote): Record<string, string> {
+  switch (section) {
+    case "S": {
+      const s = soap.subjective;
+      return {
+        chiefComplaint: s.chiefComplaint ?? "",
+        hpi: s.hpi ?? "",
+        pastMedicalHistory: s.pastMedicalHistory ?? "",
+        medications: Array.isArray(s.medications) ? s.medications.join(", ") : (s.medications ?? ""),
+        allergies: Array.isArray(s.allergies) ? s.allergies.join(", ") : (s.allergies ?? ""),
+        socialHistory: s.socialHistory ?? "",
+        familyHistory: s.familyHistory ?? "",
+      };
+    }
+    case "O": {
+      const o = soap.objective;
+      return { vitals: o.vitals ?? "", examinationFindings: o.examinationFindings ?? "" };
+    }
+    case "A":
+      return { impression: soap.assessment.impression ?? "" };
+    case "P": {
+      const p = soap.plan;
+      return {
+        investigations: Array.isArray(p.investigations) ? p.investigations.join(", ") : (p.investigations ?? ""),
+        procedures: Array.isArray(p.procedures) ? p.procedures.join(", ") : (p.procedures ?? ""),
+        referrals: Array.isArray(p.referrals) ? p.referrals.join(", ") : (p.referrals ?? ""),
+        followUpTimeline: p.followUpTimeline ?? "",
+        patientInstructions: p.patientInstructions ?? "",
+      };
+    }
+  }
+}
+
+function draftFieldsToText(section: SectionKey, fields: Record<string, string>): string {
+  const lines: string[] = [];
+  switch (section) {
+    case "S":
+      if (fields.chiefComplaint) lines.push(`Chief Complaint: ${fields.chiefComplaint}`);
+      if (fields.hpi) lines.push(`HPI: ${fields.hpi}`);
+      if (fields.pastMedicalHistory) lines.push(`Past Medical History: ${fields.pastMedicalHistory}`);
+      if (fields.medications) lines.push(`Medications: ${fields.medications}`);
+      if (fields.allergies) lines.push(`Allergies: ${fields.allergies}`);
+      if (fields.socialHistory) lines.push(`Social History: ${fields.socialHistory}`);
+      if (fields.familyHistory) lines.push(`Family History: ${fields.familyHistory}`);
+      break;
+    case "O":
+      if (fields.vitals) lines.push(`Vitals: ${fields.vitals}`);
+      if (fields.examinationFindings) lines.push(`Examination Findings: ${fields.examinationFindings}`);
+      break;
+    case "A":
+      if (fields.impression) lines.push(`Impression: ${fields.impression}`);
+      break;
+    case "P":
+      if (fields.investigations) lines.push(`Investigations: ${fields.investigations}`);
+      if (fields.procedures) lines.push(`Procedures: ${fields.procedures}`);
+      if (fields.referrals) lines.push(`Referrals: ${fields.referrals}`);
+      if (fields.followUpTimeline) lines.push(`Follow-up: ${fields.followUpTimeline}`);
+      if (fields.patientInstructions) lines.push(`Instructions: ${fields.patientInstructions}`);
+      break;
+  }
+  return lines.join("\n");
+}
+
+function EditField({ label, value, onChange, multiline = false }: {
+  label: string; value: string; onChange: (v: string) => void; multiline?: boolean;
+}) {
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
+      {multiline ? (
+        <textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          rows={3}
+          className="w-full border border-blue-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+        />
+      ) : (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full border border-blue-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      )}
+    </div>
+  );
+}
+
+function SectionEditFields({ sectionKey, fields, onChange }: {
+  sectionKey: SectionKey; fields: Record<string, string>; onChange: (key: string, value: string) => void;
+}) {
+  const f = (key: string) => fields[key] ?? "";
+  const set = (key: string) => (v: string) => onChange(key, v);
+  switch (sectionKey) {
+    case "S":
+      return (
+        <div className="space-y-3">
+          <EditField label="Chief Complaint" value={f("chiefComplaint")} onChange={set("chiefComplaint")} />
+          <EditField label="History of Present Illness" value={f("hpi")} onChange={set("hpi")} multiline />
+          <EditField label="Past Medical History" value={f("pastMedicalHistory")} onChange={set("pastMedicalHistory")} multiline />
+          <EditField label="Medications (comma-separated)" value={f("medications")} onChange={set("medications")} />
+          <EditField label="Allergies (comma-separated)" value={f("allergies")} onChange={set("allergies")} />
+          <EditField label="Social History" value={f("socialHistory")} onChange={set("socialHistory")} multiline />
+          <EditField label="Family History" value={f("familyHistory")} onChange={set("familyHistory")} multiline />
+        </div>
+      );
+    case "O":
+      return (
+        <div className="space-y-3">
+          <EditField label="Vitals" value={f("vitals")} onChange={set("vitals")} multiline />
+          <EditField label="Examination Findings" value={f("examinationFindings")} onChange={set("examinationFindings")} multiline />
+        </div>
+      );
+    case "A":
+      return (
+        <div className="space-y-3">
+          <EditField label="Clinical Impression" value={f("impression")} onChange={set("impression")} multiline />
+        </div>
+      );
+    case "P":
+      return (
+        <div className="space-y-3">
+          <EditField label="Investigations (comma-separated)" value={f("investigations")} onChange={set("investigations")} />
+          <EditField label="Procedures (comma-separated)" value={f("procedures")} onChange={set("procedures")} />
+          <EditField label="Referrals (comma-separated)" value={f("referrals")} onChange={set("referrals")} />
+          <EditField label="Follow-up" value={f("followUpTimeline")} onChange={set("followUpTimeline")} />
+          <EditField label="Patient Instructions" value={f("patientInstructions")} onChange={set("patientInstructions")} multiline />
+        </div>
+      );
   }
 }
 
@@ -336,15 +470,15 @@ function ReviewCard({
 }) {
   const [open, setOpen] = useState(true);
   const [editing, setEditing] = useState(false);
-  const [draftText, setDraftText] = useState("");
+  const [draftFields, setDraftFields] = useState<Record<string, string>>({});
 
   const handleEditClick = () => {
-    setDraftText(soapSectionToText(sectionKey, soap));
+    setDraftFields(initDraftFields(sectionKey, soap));
     setEditing(true);
   };
 
   const handleSave = () => {
-    onSaveEdit(draftText);
+    onSaveEdit(draftFieldsToText(sectionKey, draftFields));
     setEditing(false);
   };
 
@@ -376,17 +510,11 @@ function ReviewCard({
         <div className="p-4 space-y-4">
           {/* Content */}
           {editing ? (
-            <div className="space-y-2">
-              <textarea
-                value={draftText}
-                onChange={(e) => setDraftText(e.target.value)}
-                rows={8}
-                className="w-full border border-blue-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <p className="text-xs text-gray-400">
-                Edit freely. Keep label prefixes (e.g. &ldquo;Chief Complaint:&rdquo;) for accurate parsing.
-              </p>
-            </div>
+            <SectionEditFields
+              sectionKey={sectionKey}
+              fields={draftFields}
+              onChange={(key, value) => setDraftFields((prev) => ({ ...prev, [key]: value }))}
+            />
           ) : (
             <SectionReadView sectionKey={sectionKey} soap={soap} />
           )}
@@ -477,10 +605,12 @@ function EditableField({
   label,
   value,
   onChange,
+  readOnly = false,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  readOnly?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -488,7 +618,7 @@ function EditableField({
     <div className="space-y-1">
       <div className="flex items-center justify-between">
         <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
-        {!editing ? (
+        {!readOnly && !editing ? (
           <button
             onClick={() => { setDraft(value); setEditing(true); }}
             className="text-xs text-blue-500 hover:underline flex items-center gap-1"
@@ -792,9 +922,16 @@ export default function ScribePage() {
   const [soapDraft, setSoapDraft] = useState<SOAPNote | null>(null);
   const [editedSOAP, setEditedSOAP] = useState<SOAPNote | null>(null);
   const [signedOff, setSignedOff] = useState(false);
+  const [isCompletedSession, setIsCompletedSession] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [transcriptLength, setTranscriptLength] = useState(0);
   const [liveText, setLiveText] = useState("");
+  useEffect(() => {
+    if (liveTextRef.current) {
+      liveTextRef.current.scrollTop = liveTextRef.current.scrollHeight;
+    }
+  }, [liveText]);
   const [rxSafetyReport, setRxSafetyReport] = useState<DrugSafetyReport | null>(null);
   const [alertsAcknowledged, setAlertsAcknowledged] = useState(false);
   const [consentTarget, setConsentTarget] = useState<any>(null);
@@ -812,7 +949,7 @@ export default function ScribePage() {
   const [transcriptEntries, setTranscriptEntries] = useState<
     { speaker: "DOCTOR" | "PATIENT" | "ATTENDANT" | "UNKNOWN"; text: string; timestamp: string; confidence?: number }[]
   >([]);
-  const [transcriptPanelOpen, setTranscriptPanelOpen] = useState(false);
+
 
   // GAP-S6: compare-to-previous-visit.
   const [compareOpen, setCompareOpen] = useState(false);
@@ -850,11 +987,21 @@ export default function ScribePage() {
   );
 
   const recognitionRef = useRef<any>(null);
+  const liveTextRef = useRef<HTMLDivElement>(null);
+  const userStoppedRef = useRef(false);
+  const finalBufferRef = useRef<string[]>([]);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const asrIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const asrIntervalRef = useRef<any>(null);
+  const serverASRActiveRef = useRef(false);
+  const liveDisplayRecognitionRef = useRef<any>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const stopServerASRResolveRef = useRef<(() => void) | null>(null);
+  // Set to true when a transcript POST just triggered a SOAP regen so the
+  // stop-time forceRegen call can be skipped (avoids a redundant round-trip).
+  const soapJustUpdatedRef = useRef(false);
 
   // Fetch today's appointments for this doctor.
   // Issue #62: previously we swallowed errors silently — when the appointments
@@ -867,7 +1014,7 @@ export default function ScribePage() {
       try {
         const today = new Date().toISOString().split("T")[0];
         const res = await api.get<any>(
-          `/appointments?date=${today}&status=CHECKED_IN,BOOKED`,
+          `/appointments?date=${today}&status=BOOKED,CHECKED_IN,IN_CONSULTATION&limit=100`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         // Issue #156: the api wrapper returns the parsed JSON directly,
@@ -911,7 +1058,8 @@ export default function ScribePage() {
       }
     };
     fetchAppts();
-  }, [token, urlAppointmentId, urlPatientId, autoStartedFromUrl, sessionId, apptRetryNonce]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, urlAppointmentId, urlPatientId, apptRetryNonce]);
 
   // Poll for SOAP updates while recording
   useEffect(() => {
@@ -921,18 +1069,16 @@ export default function ScribePage() {
           const res = await api.get<any>(`/ai/scribe/${sessionId}/soap`, {
             headers: { Authorization: `Bearer ${token}` },
           });
-          if (res.data.data?.soapDraft) {
-            setSoapDraft(res.data.data.soapDraft);
-            setEditedSOAP(res.data.data.soapDraft);
+          if (res.data?.soapDraft) {
+            setSoapDraft(res.data.soapDraft);
+            setEditedSOAP(res.data.soapDraft);
           }
-          if (res.data.data?.rxDraft?.alerts) {
-            setRxSafetyReport(res.data.data.rxDraft);
+          if (res.data?.rxDraft?.alerts) {
+            setRxSafetyReport(res.data.rxDraft);
             setAlertsAcknowledged(false);
           }
-          // GAP-S4: keep transcript panel in sync with server-side edits
-          // (reconnects, multi-tab usage).
-          if (Array.isArray(res.data.data?.transcript)) {
-            setTranscriptEntries(res.data.data.transcript);
+          if (Array.isArray(res.data?.transcript)) {
+            setTranscriptEntries(res.data.transcript);
           }
         } catch { /* silent */ }
       }, 15000);
@@ -959,12 +1105,34 @@ export default function ScribePage() {
         toast.error("Scribe started but no session id was returned");
         return;
       }
+      const isCompleted = res?.data?.completed === true;
+      setIsCompletedSession(isCompleted);
+      setIsEditMode(false);
       setSessionId(sid);
       setSelectedAppointment(appointment);
+      setTranscriptEntries([]);
+      setTranscriptLength(0);
+      setSoapDraft(null);
+      setEditedSOAP(null);
       setEditLog([]);
       setPatientPreferredLanguage(
         res?.data?.patientContext?.preferredLanguage ?? null
       );
+      // Hydrate existing SOAP + transcript for resumed sessions so the UI
+      // shows prior state immediately without waiting for recording to start.
+      try {
+        const soapRes = await api.get<any>(`/ai/scribe/${sid}/soap`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (soapRes?.data?.soapDraft) {
+          setSoapDraft(soapRes.data.soapDraft);
+          setEditedSOAP(soapRes.data.soapDraft);
+        }
+        if (Array.isArray(soapRes?.data?.transcript) && soapRes.data.transcript.length > 0) {
+          setTranscriptEntries(soapRes.data.transcript);
+          setTranscriptLength(soapRes.data.transcript.length);
+        }
+      } catch { /* non-fatal — UI degrades gracefully */ }
       toast.success("Scribe session started");
     } catch (err: any) {
       // Surface the API's actual error message (fetch-style payload, not
@@ -994,16 +1162,15 @@ export default function ScribePage() {
           { entries },
           { headers: { Authorization: `Bearer ${token}` } }
         );
-        setTranscriptLength(res.data.data.transcriptLength);
-        // GAP-S4: keep local transcript state in sync so the doctor can edit
-        // speaker tags on entries we just sent.
+        setTranscriptLength(res.data.transcriptLength);
         setTranscriptEntries((prev) => [...prev, newEntry]);
-        if (res.data.data.soapDraft) {
-          setSoapDraft(res.data.data.soapDraft);
-          setEditedSOAP(res.data.data.soapDraft);
+        if (res.data.soapDraft) {
+          setSoapDraft(res.data.soapDraft);
+          setEditedSOAP(res.data.soapDraft);
+          soapJustUpdatedRef.current = true;
         }
-        if (res.data.data.rxSafetyReport?.alerts) {
-          setRxSafetyReport(res.data.data.rxSafetyReport);
+        if (res.data.rxSafetyReport?.alerts) {
+          setRxSafetyReport(res.data.rxSafetyReport);
           setAlertsAcknowledged(false);
         }
       } catch {
@@ -1048,7 +1215,7 @@ export default function ScribePage() {
         `/ai/scribe/${sessionId}/previous-consultation`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
-      setPreviousConsultation(res.data.data?.previous ?? null);
+      setPreviousConsultation(res.data?.previous ?? null);
     } catch {
       setPreviousConsultation(null);
     } finally {
@@ -1066,115 +1233,131 @@ export default function ScribePage() {
   // (or when the provider returns a single un-labeled segment), we fall
   // back to the legacy behaviour: emit one entry tagged with the `speaker`
   // the doctor currently has selected.
-  const flushAudioChunks = useCallback(
-    async (speaker: "DOCTOR" | "PATIENT") => {
-      if (audioChunksRef.current.length === 0) return;
-      const chunks = [...audioChunksRef.current];
-      audioChunksRef.current = [];
-      const blob = new Blob(chunks, { type: "audio/webm" });
+  // Send a single clean audio blob to Sarvam and push transcript into session.
+  const sendAudioToSarvam = useCallback(
+    async (blob: Blob, speaker: "DOCTOR" | "PATIENT") => {
+      if (blob.size < 1000) return; // skip near-silent / empty chunks
       try {
         const arrayBuffer = await blob.arrayBuffer();
-        const base64 = btoa(
-          String.fromCharCode(...new Uint8Array(arrayBuffer))
-        );
+        const uint8 = new Uint8Array(arrayBuffer);
+        let binary = "";
+        const CHUNK = 8192;
+        for (let i = 0; i < uint8.length; i += CHUNK) {
+          binary += String.fromCharCode(...uint8.subarray(i, i + CHUNK));
+        }
+        const base64 = btoa(binary);
         const res = await api.post<any>(
           "/ai/transcribe",
-          {
-            audioBase64: base64,
-            language: "en-IN",
-          },
+          { audioBase64: base64, language: "en-IN" },
           { headers: { Authorization: `Bearer ${token}` } }
         );
-        const data = res.data.data ?? {};
-        const segments: Array<{ text: string; speaker?: string }> = Array.isArray(
-          data.segments,
-        )
-          ? data.segments
-          : [];
-        // Prefer per-segment emission when diarization actually labelled
-        // speakers (more than just a single un-labeled entry).
-        const hasAcousticLabels = segments.some(
-          (s) => s.speaker === "DOCTOR" || s.speaker === "PATIENT" || s.speaker === "ATTENDANT",
-        );
-        if (acousticDiarize && hasAcousticLabels) {
-          for (const seg of segments) {
-            const segText = (seg.text ?? "").trim();
-            if (!segText) continue;
-            const segSpeaker: "DOCTOR" | "PATIENT" | "ATTENDANT" =
-              seg.speaker === "PATIENT" || seg.speaker === "ATTENDANT"
-                ? seg.speaker
-                : "DOCTOR";
-            await handleFinalTranscript(segText, segSpeaker);
-          }
-          return;
-        }
-        const transcript: string = data.transcript ?? "";
+        const transcript: string = res.data?.transcript ?? "";
         if (transcript.trim()) {
           await handleFinalTranscript(transcript, speaker);
         }
-      } catch {
-        /* silent */
+      } catch (err: any) {
+        const msg = err?.payload?.error || err?.message || "Sarvam transcription failed";
+        toast.error(`ASR: ${msg}`);
       }
     },
-    [token, handleFinalTranscript, acousticDiarize]
+    [token, handleFinalTranscript]
   );
 
+  // Rotate-recorder pattern: each 8-second window is a fresh MediaRecorder
+  // so Sarvam receives a clean, self-contained WebM file every time.
   const startServerASR = useCallback(
     async (speaker: "DOCTOR" | "PATIENT") => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        micStreamRef.current = stream;
+        serverASRActiveRef.current = true;
+
         const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
           ? "audio/webm;codecs=opus"
           : "audio/webm";
-        const recorder = new MediaRecorder(stream, { mimeType });
-        audioChunksRef.current = [];
 
-        recorder.ondataavailable = (e) => {
-          if (e.data.size > 0) {
-            audioChunksRef.current.push(e.data);
-          }
+        const startChunk = () => {
+          if (!serverASRActiveRef.current) return;
+          const recorder = new MediaRecorder(stream, { mimeType });
+          const chunks: Blob[] = [];
+
+          recorder.ondataavailable = (e) => {
+            if (e.data.size > 0) chunks.push(e.data);
+          };
+
+          recorder.onstop = async () => {
+            await sendAudioToSarvam(new Blob(chunks, { type: mimeType }), speaker);
+            if (serverASRActiveRef.current) {
+              startChunk(); // rotate to next 8-second window
+            } else {
+              stopServerASRResolveRef.current?.(); // signal stop complete
+            }
+          };
+
+          recorder.start();
+          mediaRecorderRef.current = recorder;
+
+          // Stop after 8 s to produce a clean file, then onstop rotates
+          asrIntervalRef.current = setTimeout(() => {
+            if (recorder.state !== "inactive") recorder.stop();
+          }, 8_000);
         };
 
-        recorder.start(1000); // collect data every 1 s
-        mediaRecorderRef.current = recorder;
-
-        // Flush every 30 s
-        asrIntervalRef.current = setInterval(() => {
-          flushAudioChunks(speaker);
-        }, 30_000);
-
+        startChunk();
         setRecording(true);
+
+        // Run browser STT in parallel for interim live-text display only.
+        // Final results from this instance are discarded — Sarvam owns finals.
+        const SpeechRecognition =
+          (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          const liveRec = new SpeechRecognition();
+          liveRec.continuous = true;
+          liveRec.interimResults = true;
+          liveRec.lang = "en-IN";
+          liveRec.onresult = (e: any) => {
+            let interim = "";
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+              if (!e.results[i].isFinal) interim += e.results[i][0].transcript;
+            }
+            if (interim) setLiveText(interim);
+          };
+          liveRec.onend = () => {
+            if (serverASRActiveRef.current) liveRec.start();
+          };
+          liveRec.start();
+          liveDisplayRecognitionRef.current = liveRec;
+        } else {
+          setLiveText("🎤 Listening...");
+        }
       } catch {
         toast.error("Microphone access denied");
       }
     },
-    [flushAudioChunks]
+    [sendAudioToSarvam]
   );
 
-  const stopServerASR = useCallback(
-    async (speaker: "DOCTOR" | "PATIENT") => {
-      if (asrIntervalRef.current) {
-        clearInterval(asrIntervalRef.current);
-        asrIntervalRef.current = null;
-      }
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-        // Stop recorder; flush remaining chunks after it fully stops
-        await new Promise<void>((resolve) => {
-          mediaRecorderRef.current!.onstop = async () => {
-            await flushAudioChunks(speaker);
-            // Stop all tracks to release mic
-            mediaRecorderRef.current?.stream?.getTracks().forEach((t) => t.stop());
-            resolve();
-          };
-          mediaRecorderRef.current!.stop();
-        });
-      }
-      mediaRecorderRef.current = null;
-      setRecording(false);
-      setLiveText("");
-    },
-    [flushAudioChunks]
-  );
+  const stopServerASR = useCallback(async () => {
+    serverASRActiveRef.current = false;
+    if (asrIntervalRef.current) {
+      clearTimeout(asrIntervalRef.current);
+      asrIntervalRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      await new Promise<void>((resolve) => {
+        stopServerASRResolveRef.current = resolve;
+        mediaRecorderRef.current!.stop();
+      });
+    }
+    micStreamRef.current?.getTracks().forEach((t) => t.stop());
+    micStreamRef.current = null;
+    mediaRecorderRef.current = null;
+    audioChunksRef.current = [];
+    liveDisplayRecognitionRef.current?.stop();
+    liveDisplayRecognitionRef.current = null;
+    setRecording(false);
+    setLiveText("");
+  }, []);
 
   const startRecording = useCallback(() => {
     if (useServerASR) {
@@ -1196,11 +1379,14 @@ export default function ScribePage() {
     recognition.interimResults = true;
     recognition.lang = "en-IN";
 
-    let finalBuffer: string[] = [];
+    finalBufferRef.current = [];
+    userStoppedRef.current = false;
 
-    const flushBuffer = async (buffer: string[]) => {
-      if (buffer.length === 0) return;
-      for (const text of buffer) {
+    const flushBuffer = async () => {
+      if (finalBufferRef.current.length === 0) return;
+      const toFlush = [...finalBufferRef.current];
+      finalBufferRef.current = [];
+      for (const text of toFlush) {
         await handleFinalTranscript(text, activeSpeaker);
       }
     };
@@ -1210,20 +1396,12 @@ export default function ScribePage() {
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          finalBuffer.push(transcript);
+          finalBufferRef.current.push(transcript);
           if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
-          if (finalBuffer.length >= 5) {
-            const toFlush = [...finalBuffer];
-            finalBuffer = [];
-            await flushBuffer(toFlush);
+          if (finalBufferRef.current.length >= 5) {
+            await flushBuffer();
           } else {
-            flushTimerRef.current = setTimeout(async () => {
-              if (finalBuffer.length > 0) {
-                const toFlush = [...finalBuffer];
-                finalBuffer = [];
-                await flushBuffer(toFlush);
-              }
-            }, 20000);
+            flushTimerRef.current = setTimeout(flushBuffer, 2000);
           }
         } else {
           interim += transcript;
@@ -1232,26 +1410,72 @@ export default function ScribePage() {
       setLiveText(interim);
     };
 
-    recognition.onerror = () => setRecording(false);
-    recognition.onend = () => setRecording(false);
+    recognition.onerror = async () => { await flushBuffer(); };
+    recognition.onend = async () => {
+      // Clear the pending flush timer first to prevent double-send
+      if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushTimerRef.current = null; }
+      await flushBuffer();
+      // Auto-restart if the user hasn't explicitly stopped — Chrome fires onend
+      // on silence/timeout even with continuous:true.
+      if (!userStoppedRef.current && recognitionRef.current === recognition) {
+        try { recognition.start(); return; } catch { /* fallthrough to stop */ }
+      }
+      setRecording(false);
+    };
     recognition.start();
     recognitionRef.current = recognition;
     setRecording(true);
   }, [sessionId, token, activeSpeaker, useServerASR, startServerASR, handleFinalTranscript]);
 
-  const stopRecording = useCallback(() => {
+  const stopRecording = useCallback(async () => {
+    // Shared: force SOAP generation immediately after all audio is flushed
+    const doForceRegen = async () => {
+      if (!sessionId || !token) return;
+      // Skip if the last transcript POST already triggered a SOAP regen —
+      // calling again immediately would be a redundant round-trip.
+      if (soapJustUpdatedRef.current) {
+        soapJustUpdatedRef.current = false;
+        return;
+      }
+      soapJustUpdatedRef.current = false;
+      try {
+        const res = await api.post<any>(
+          `/ai/scribe/${sessionId}/transcript`,
+          { entries: [], forceRegen: true },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (res.data?.soapDraft) {
+          setSoapDraft(res.data.soapDraft);
+          setEditedSOAP(res.data.soapDraft);
+        }
+      } catch { /* silent */ }
+    };
+
     if (useServerASR) {
-      stopServerASR(activeSpeaker);
+      await stopServerASR();
+      await doForceRegen();
       return;
     }
-    recognitionRef.current?.stop();
+
+    userStoppedRef.current = true;
     if (flushTimerRef.current) {
       clearTimeout(flushTimerRef.current);
       flushTimerRef.current = null;
     }
+    // Flush any buffered finals before stopping so no speech is lost
+    if (finalBufferRef.current.length > 0) {
+      const toFlush = [...finalBufferRef.current];
+      finalBufferRef.current = [];
+      for (const text of toFlush) {
+        await handleFinalTranscript(text, activeSpeaker);
+      }
+    }
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
     setRecording(false);
     setLiveText("");
-  }, [useServerASR, activeSpeaker, stopServerASR]);
+    await doForceRegen();
+  }, [useServerASR, activeSpeaker, stopServerASR, handleFinalTranscript, sessionId, token]);
 
   const updateSOAPField = (path: string[], value: string) => {
     setEditedSOAP((prev) => {
@@ -1497,6 +1721,10 @@ export default function ScribePage() {
         { soapFinal: reviewSoap, rxApproved: true, doctorEdits: editLog },
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      // Stop the main recording mic and the voice-command recognition mic.
+      if (recording) await stopRecording();
+      setReviewMode(false);
+      setIsCompletedSession(true);
       setSignedOff(true);
       toast.success("SOAP note signed and saved to EHR");
     } catch (err: any) {
@@ -1521,6 +1749,9 @@ export default function ScribePage() {
       setEditedSOAP(null);
       setReviewMode(false);
       setReviewSoap(null);
+      setIsCompletedSession(false);
+      setIsEditMode(false);
+      setApptRetryNonce((n) => n + 1);
       toast.info("Consent withdrawn — transcript purged");
     } catch { /* silent */ }
   };
@@ -1543,6 +1774,9 @@ export default function ScribePage() {
               setReviewMode(false);
               setReviewSoap(null);
               setSectionStatus({ ...INITIAL_SECTION_STATUS });
+              setIsCompletedSession(false);
+              setTranscriptEntries([]);
+              setTranscriptLength(0);
             }}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
           >
@@ -1945,9 +2179,10 @@ export default function ScribePage() {
       )}
       <div className="flex h-[calc(100vh-4rem)] gap-4 p-4 overflow-hidden">
         {/* ── Left: appointment picker + controls ────────── */}
-        <div className="w-72 flex flex-col gap-3">
+        <div className="w-72 flex flex-col gap-3 h-full">
           {/* Appointment selector */}
-          <div className="bg-white rounded-2xl shadow border border-gray-100 p-4">
+          {!sessionId && (
+          <div className="bg-white rounded-2xl shadow border border-gray-100 p-4 flex-1 flex flex-col overflow-hidden">
             <p className="font-semibold text-sm text-gray-700 mb-3 flex items-center gap-2">
               <UserCheck className="w-4 h-4 text-blue-600" /> Today&apos;s Patients
             </p>
@@ -1983,29 +2218,52 @@ export default function ScribePage() {
             {appointments.length === 0 && !apptLoadError ? (
               <p className="text-xs text-gray-400 text-center py-4">No appointments today</p>
             ) : appointments.length === 0 ? null : (
-              <div className="space-y-1.5">
-                {appointments.map((appt) => (
-                  <button
-                    key={appt.id}
-                    onClick={() => !sessionId && setConsentTarget(appt)}
-                    disabled={!!sessionId || loading}
-                    className={`w-full text-left px-3 py-2 rounded-xl border text-sm transition-all ${
-                      selectedAppointment?.id === appt.id
-                        ? "border-blue-500 bg-blue-50"
-                        : "border-gray-200 hover:border-blue-200 disabled:opacity-50"
-                    }`}
-                  >
-                    <p className="font-medium text-gray-800 truncate">
-                      {appt.patient?.user?.name}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      Token #{appt.tokenNumber} · {appt.slotStart || "Walk-in"}
-                    </p>
-                  </button>
-                ))}
+              <div className="space-y-1.5 flex-1 overflow-y-auto scrollbar-hide">
+                {appointments.map((appt) => {
+                  const scribeStatus = appt.scribeSession?.status ?? null;
+                  const isCompleted = scribeStatus === "COMPLETED";
+                  const isPending = scribeStatus === "ACTIVE" || scribeStatus === "PAUSED";
+                  return (
+                    <button
+                      key={appt.id}
+                      onClick={() => {
+                        if (sessionId || loading) return;
+                        if (isCompleted) {
+                          startScribe(appt);
+                        } else {
+                          setConsentTarget(appt);
+                        }
+                      }}
+                      disabled={!!sessionId || loading}
+                      className={`w-full text-left px-3 py-2 rounded-xl border text-sm transition-all ${
+                        selectedAppointment?.id === appt.id
+                          ? "border-blue-500 bg-blue-50"
+                          : "border-gray-200 hover:border-blue-200 disabled:opacity-50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <p className="font-medium text-gray-800 truncate">{appt.patient?.user?.name}</p>
+                        {isCompleted && (
+                          <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
+                            Completed
+                          </span>
+                        )}
+                        {isPending && (
+                          <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600">
+                            Pending
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        Token #{appt.tokenNumber} · {appt.slotStart || "Walk-in"}
+                      </p>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
+          )}
 
           {/* Scribe controls */}
           {sessionId && (
@@ -2027,7 +2285,7 @@ export default function ScribePage() {
               </div>
 
               {liveText && (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 text-xs text-gray-600 italic">
+                <div ref={liveTextRef} className="bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 text-xs text-gray-600 italic h-10 overflow-y-auto scrollbar-hide break-words">
                   {liveText}
                 </div>
               )}
@@ -2113,66 +2371,66 @@ export default function ScribePage() {
           )}
 
           {/* GAP-S4: Transcript with per-entry speaker dropdowns. */}
-          {sessionId && transcriptEntries.length > 0 && (
-            <div className="bg-white rounded-2xl shadow border border-gray-100 overflow-hidden flex-1 min-h-0 flex flex-col">
-              <button
-                onClick={() => setTranscriptPanelOpen((o) => !o)}
-                className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors flex-shrink-0"
-              >
+          {sessionId && (
+            <div className="bg-white rounded-2xl shadow border border-gray-100 overflow-hidden flex-1 flex flex-col">
+              <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-100">
                 <span className="flex items-center gap-2 text-xs font-semibold text-gray-700">
                   <FileText className="w-3.5 h-3.5 text-gray-500" />
-                  Transcript · {transcriptEntries.length}
+                  Transcript
+                  <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {transcriptEntries.length}
+                  </span>
                 </span>
-                {transcriptPanelOpen ? (
-                  <ChevronUp className="w-3.5 h-3.5 text-gray-400" />
-                ) : (
-                  <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
-                )}
-              </button>
-              {transcriptPanelOpen && (
-                <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                  {transcriptEntries.map((entry, i) => {
-                    const speakerClass =
-                      entry.speaker === "DOCTOR"
-                        ? "bg-blue-50 border-blue-200"
-                        : entry.speaker === "PATIENT"
-                        ? "bg-emerald-50 border-emerald-200"
-                        : entry.speaker === "ATTENDANT"
-                        ? "bg-purple-50 border-purple-200"
-                        : "bg-gray-50 border-gray-200";
+              </div>
+              <div className="flex-1 overflow-y-auto scrollbar-hide p-3 space-y-2">
+                {transcriptEntries.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-4">No transcript entries yet</p>
+                ) : transcriptEntries.map((entry, i) => {
+                    const isDoctor = entry.speaker === "DOCTOR" || entry.speaker === "UNKNOWN";
+                    const isPatient = entry.speaker === "PATIENT";
+                    const isAttendant = entry.speaker === "ATTENDANT";
+                    const bubbleBg = isDoctor
+                      ? "bg-blue-50 border-blue-200"
+                      : isPatient
+                      ? "bg-emerald-50 border-emerald-200"
+                      : isAttendant
+                      ? "bg-purple-50 border-purple-200"
+                      : "bg-gray-50 border-gray-200";
+                    const badgeColor = isDoctor
+                      ? "bg-blue-100 text-blue-700"
+                      : isPatient
+                      ? "bg-emerald-100 text-emerald-700"
+                      : isAttendant
+                      ? "bg-purple-100 text-purple-700"
+                      : "bg-gray-100 text-gray-600";
                     return (
                       <div
                         key={i}
-                        className={`rounded-lg border px-2.5 py-2 text-xs ${speakerClass}`}
+                        className={`rounded-xl border p-2.5 ${bubbleBg}`}
                       >
-                        <div className="flex items-center justify-between gap-1 mb-1">
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
                           <select
-                            value={
-                              entry.speaker === "UNKNOWN" ? "DOCTOR" : entry.speaker
-                            }
+                            value={entry.speaker === "UNKNOWN" ? "DOCTOR" : entry.speaker}
                             onChange={(e) =>
                               updateEntrySpeaker(
                                 i,
                                 e.target.value as "DOCTOR" | "PATIENT" | "ATTENDANT",
                               )
                             }
-                            className="text-[10px] font-semibold border border-gray-200 rounded px-1 py-0.5 bg-white"
+                            className={`text-[10px] font-semibold rounded-full px-2 py-0.5 border-0 cursor-pointer ${badgeColor}`}
                             aria-label={`Speaker for entry ${i + 1}`}
                           >
-                            <option value="DOCTOR">DOCTOR</option>
-                            <option value="PATIENT">PATIENT</option>
-                            <option value="ATTENDANT">ATTENDANT</option>
+                            <option value="DOCTOR">Doctor</option>
+                            <option value="PATIENT">Patient</option>
+                            <option value="ATTENDANT">Attendant</option>
                           </select>
-                          <span className="text-[10px] text-gray-400">
-                            #{i + 1}
-                          </span>
+                          <span className="text-[10px] text-gray-400 flex-shrink-0">#{i + 1}</span>
                         </div>
-                        <p className="text-gray-700 break-words">{entry.text}</p>
+                        <p className="text-xs text-gray-700 leading-relaxed break-words">{entry.text}</p>
                       </div>
                     );
                   })}
-                </div>
-              )}
+              </div>
             </div>
           )}
         </div>
@@ -2183,22 +2441,51 @@ export default function ScribePage() {
             <div className="flex items-center gap-2">
               <FileText className="w-4 h-4 text-blue-600" />
               <p className="font-semibold text-sm text-gray-800">AI-Drafted SOAP Note</p>
-              {soapDraft && (
+              {isCompletedSession ? (
+                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                  Completed
+                </span>
+              ) : soapDraft ? (
                 <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
                   Auto-updating
                 </span>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2">
+              {isCompletedSession && editedSOAP && (
+                <button
+                  onClick={() => setIsEditMode((v) => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                    isEditMode
+                      ? "bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100"
+                      : "bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100"
+                  }`}
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  {isEditMode ? "Stop Editing" : "Edit"}
+                </button>
+              )}
+              {editedSOAP && !signedOff && !isCompletedSession && (
+                <button
+                  onClick={handleEnterReview}
+                  disabled={loading}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  Review &amp; Sign Off
+                </button>
+              )}
+              {editedSOAP && !signedOff && isCompletedSession && isEditMode && (
+                <button
+                  onClick={handleEnterReview}
+                  disabled={loading}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  Review &amp; Sign Off
+                </button>
               )}
             </div>
-            {editedSOAP && !signedOff && (
-              <button
-                onClick={handleEnterReview}
-                disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <CheckCircle className="w-4 h-4" />
-                Review &amp; Sign Off
-              </button>
-            )}
           </div>
 
           {!sessionId ? (
@@ -2345,7 +2632,7 @@ export default function ScribePage() {
                     )}
                   <EditableField
                     label="Investigations Ordered"
-                    value={editedSOAP?.plan?.investigations?.join(", ") || ""}
+                    value={Array.isArray(editedSOAP?.plan?.investigations) ? editedSOAP.plan.investigations.join(", ") : editedSOAP?.plan?.investigations || ""}
                     onChange={(v) => updateSOAPField(["plan", "investigations"], v)}
                   />
                   <EditableField

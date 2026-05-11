@@ -59,7 +59,8 @@ export const addTranscriptChunkSchema = z.object({
       timestamp: z.string(),
       confidence: z.number().min(0).max(1).optional(),
     })
-  ).min(1),
+  ).min(0),
+  forceRegen: z.boolean().optional(),
 });
 
 /** Validates the doctor's sign-off payload that finalises a scribe session and optionally approves the AI-generated prescription. */

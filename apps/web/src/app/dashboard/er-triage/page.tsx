@@ -91,6 +91,20 @@ const MEWS_COLOR = (score: number) => {
   return "text-green-700 bg-green-100";
 };
 
+const MEWS_LABEL = (score: number) => {
+  if (score >= 5) return "High Risk";
+  if (score >= 3) return "Moderate Risk";
+  return "Low Risk";
+};
+
+const ESI_TIME: Record<number, string> = {
+  1: "Immediate",
+  2: "≤ 15 min",
+  3: "≤ 30 min",
+  4: "≤ 60 min",
+  5: "≤ 2 hrs",
+};
+
 // ── Component ─────────────────────────────────────────────
 
 export default function ERTriagePage() {
@@ -148,7 +162,7 @@ export default function ERTriagePage() {
       const res = await api.post<{ success: boolean; data: ERTriageAssessment }>(
         "/ai/er-triage/assess",
         body,
-        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+        { timeoutMs: 60_000, ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}) }
       );
 
       setAssessment(res.data);
@@ -374,7 +388,7 @@ export default function ERTriagePage() {
       {assessment && cfg && (
         <div className="space-y-4">
           {/* Triage level badge + MEWS + disposition */}
-          <div className="bg-white rounded-2xl shadow border border-gray-100 p-6">
+          <div className="bg-white rounded-2xl shadow border border-gray-100 p-6 space-y-4">
             <div className="flex flex-wrap items-center gap-4">
               {/* Level badge */}
               <div
@@ -396,15 +410,37 @@ export default function ERTriagePage() {
                 >
                   <span className="text-2xl font-black">{assessment.calculatedMEWS}</span>
                   <span className="text-xs font-medium">MEWS Score</span>
+                  <span className="text-xs font-medium">{MEWS_LABEL(assessment.calculatedMEWS)}</span>
                 </div>
               )}
 
-              {/* Disposition */}
+              {/* Disposition + time target */}
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-gray-500 font-medium">Disposition</p>
                 <p className="text-base font-semibold text-gray-800">{assessment.disposition}</p>
+                <p className="mt-1 text-xs font-semibold text-gray-500">
+                  Time to physician:{" "}
+                  <span className={`font-bold ${assessment.suggestedTriageLevel <= 2 ? "text-red-600" : "text-gray-700"}`}>
+                    {ESI_TIME[assessment.suggestedTriageLevel] ?? "—"}
+                  </span>
+                </p>
               </div>
             </div>
+
+            {/* Vitals recap strip */}
+            {(form.bp || form.pulse || form.resp || form.spO2 || form.temp || form.gcs) && (
+              <div className="border-t border-gray-100 pt-3">
+                <p className="text-xs font-semibold text-gray-500 mb-2">Vitals at Assessment</p>
+                <div className="flex flex-wrap gap-2">
+                  {form.bp && <span className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700"><span className="font-medium">BP</span> {form.bp}</span>}
+                  {form.pulse && <span className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700"><span className="font-medium">HR</span> {form.pulse} bpm</span>}
+                  {form.resp && <span className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700"><span className="font-medium">RR</span> {form.resp}/min</span>}
+                  {form.spO2 && <span className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700"><span className="font-medium">SpO₂</span> {form.spO2}%</span>}
+                  {form.temp && <span className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700"><span className="font-medium">Temp</span> {form.temp}°C</span>}
+                  {form.gcs && <span className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700"><span className="font-medium">GCS</span> {form.gcs}/15</span>}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Immediate actions */}

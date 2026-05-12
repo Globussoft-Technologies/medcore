@@ -66,13 +66,31 @@ function buildApp() {
 
 function tokenFor(role: string, userId = "u-1") {
   return jwt.sign(
-    { userId, email: `${role.toLowerCase()}@test.local`, role },
+    {
+      userId,
+      email: `${role.toLowerCase()}@test.local`,
+      role,
+      // Issue #895: patient-create now requires a tenantId on the JWT to
+      // defend against legacy-token writes that produced rows with
+      // tenantId:null. All existing dup-check assertions still hold;
+      // adding the claim here just lets the request pass the new guard
+      // and reach the actual duplicate-detection path.
+      tenantId: "t-test-1",
+    },
     "test-secret",
   );
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Issue #892: patient-create now also calls findMany() for the
+  // name+DOB / name+gender soft-duplicate check. The existing tests
+  // only stubbed findFirst (phone + email pre-checks); unstubbed
+  // findMany returns undefined and 500s the request before the
+  // intended assertion. Default to [] (no duplicates by name) so the
+  // request flows past my new check and into the legacy phone/email
+  // checks each test is actually targeting.
+  prismaMock.patient.findMany.mockResolvedValue([]);
 });
 
 describe("POST /patients — Issue #595 (email duplicate pre-check)", () => {

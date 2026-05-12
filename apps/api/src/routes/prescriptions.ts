@@ -520,6 +520,39 @@ router.post(
       // prescription; staff already cleared the authorize() gate above.
       if (!(await assertPatientOwnsResource(req, res, existing.patientId))) return;
 
+      // Issue #897 (clinical-safety CRITICAL): refuse to share a
+      // prescription that hasn't actually been signed by the doctor.
+      // Pre-fix, the share-link endpoint emitted EMAIL / WHATSAPP / SMS
+      // to patients regardless of `signatureUrl`, so a prescription
+      // written but never signed (doctor's `User.signatureUrl` is null
+      // → row's `signatureUrl` is null too) reached the patient looking
+      // identical to a signed one. A pharmacy could dispense, the
+      // patient could self-administer, and there's no doctor's name on
+      // the legal hook. We block on signatureUrl null AND on the
+      // already-terminal statuses (CANCELLED / REJECTED) so a cancelled
+      // prescription can't be retroactively shared.
+      if (
+        !existing.signatureUrl ||
+        existing.status === "CANCELLED" ||
+        existing.status === "REJECTED"
+      ) {
+        const reason = !existing.signatureUrl
+          ? "Prescription has not been signed by the doctor. Cannot share an unsigned prescription with the patient."
+          : `Prescription is ${existing.status}; cannot share.`;
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: reason,
+          details: [
+            {
+              field: "status",
+              message: reason,
+            },
+          ],
+        });
+        return;
+      }
+
       // Same fallback as the QR-generation sites in pdf.ts / pdf-generator.ts
       // — keep them in lockstep so that on a live host where PUBLIC_APP_URL
       // is unset, the QR, the email link, AND the WhatsApp link all point at

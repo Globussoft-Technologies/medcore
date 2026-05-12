@@ -509,6 +509,57 @@ router.patch(
         disposition: req.body.disposition,
       }).catch(console.error);
 
+      // Issue #893: when a patient triaged RESUSCITATION / EMERGENT / URGENT
+      // leaves without being seen, the case is a patient-safety event — the
+      // QA review flagged that no alert, no complaint, no audit row, no
+      // recall task was generated. The CMO / charge nurse needed to be
+      // notified so a recall call could happen within 4h. We can't ship the
+      // full multi-channel escalation in one session (recall scheduling +
+      // complaint auto-creation are bigger features), so the minimum safety
+      // net is a HIGH-severity audit row with a greppable action name. The
+      // canonical action `ER_LWBS_SAFETY_EVENT` is what dashboards + nightly
+      // reports should pick up. `severity: "HIGH"` in `details` lets the
+      // audit viewer filter for clinical-safety events specifically.
+      const HIGH_TRIAGE = ["RESUSCITATION", "EMERGENT", "URGENT"];
+      const isLwbs = req.body.status === "LEFT_WITHOUT_BEING_SEEN";
+      const isHighTriage = HIGH_TRIAGE.includes(updated.triageLevel ?? "");
+      if (isLwbs && isHighTriage) {
+        auditLog(
+          req,
+          "ER_LWBS_SAFETY_EVENT",
+          "emergencyCase",
+          updated.id,
+          {
+            severity: "HIGH",
+            triageLevel: updated.triageLevel,
+            patientId: updated.patientId,
+            patientName: updated.patient?.user?.name ?? null,
+            patientPhone: updated.patient?.user?.phone ?? null,
+            attendingDoctorId: updated.attendingDoctorId ?? null,
+            outcomeNotes: req.body.outcomeNotes ?? null,
+            closedAt: updated.closedAt?.toISOString() ?? null,
+            recallNeededWithinHours: 4,
+            reason:
+              "Patient left ER without being seen despite high-acuity triage; clinical leadership must follow up.",
+          },
+        ).catch((e) =>
+          console.warn("[emergency] LWBS safety audit failed (non-fatal):", e),
+        );
+        // Broadcast a separate socket event so the live ER board + dashboard
+        // banners can surface a safety alert immediately, rather than the
+        // generic `emergency:update` that fires for every disposition change.
+        const io2 = req.app.get("io");
+        if (io2) {
+          io2.emit("emergency:lwbs-safety-event", {
+            caseId: updated.id,
+            triageLevel: updated.triageLevel,
+            patientId: updated.patientId,
+            patientName: updated.patient?.user?.name ?? null,
+            severity: "HIGH",
+          });
+        }
+      }
+
       const io = req.app.get("io");
       if (io) {
         io.emit("emergency:update", {

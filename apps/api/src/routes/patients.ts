@@ -215,6 +215,38 @@ router.post(
     try {
       const data = req.body;
 
+      // Issue #895 (CRITICAL — multi-tenant isolation): tenantScopedPrisma
+      // injects tenantId on create only when AsyncLocalStorage has one. ALS
+      // is populated by withTenantContext middleware from req.tenantId,
+      // which in turn comes from req.user.tenantId resolved by authenticate.
+      // If the caller's JWT was minted before tenant rollout (or their User
+      // row has tenantId: null), the entire chain silently no-ops and a new
+      // Patient row gets written with tenantId: null — orphan PHI invisible
+      // to scoped reads but still leakable via raw client. Refuse the write
+      // with a clear "re-login required" message instead. Legacy-token
+      // users hit this once, log out, log back in, and their re-issued JWT
+      // carries the now-populated User.tenantId. Note: this is a defence-
+      // in-depth guard at the WRITE endpoint specifically because patient
+      // creation is the canonical example in the issue report; the same
+      // pattern should be applied to other tenant-scoped POST endpoints
+      // (admissions, prescriptions, lab orders, pharmacy inventory) in
+      // follow-up PRs.
+      if (!req.user?.tenantId) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Your session is missing tenant context. Please log out and log back in.",
+          details: [
+            {
+              field: "tenant",
+              message:
+                "No tenantId on access token. This usually means a legacy token issued before tenant rollout — sign out and sign in again to refresh.",
+            },
+          ],
+        });
+        return;
+      }
+
       // Issue #103 (Apr 2026): pre-check for an existing patient with the
       // same phone before creating a duplicate MR record. We surface the
       // matching MR number so reception can pull up the existing chart
@@ -246,6 +278,80 @@ router.post(
               mrNumber: existing.mrNumber,
               name: existing.user?.name ?? null,
             },
+          });
+          return;
+        }
+      }
+
+      // Issue #892 (May 2026): the phone+email guards above protect against
+      // identical contact details, but reception was still able to create
+      // two patients with the same name and DOB but different phones —
+      // splitting one real person's medical history across two MR numbers.
+      // The fix is a soft block: when the (name, DOB) tuple already exists
+      // (or, when DOB is absent, (name, gender)), 409 with the existing
+      // record(s) so reception can pick the existing chart. Reception can
+      // override the block by sending `confirmDuplicate: true` in the body
+      // (when they're sure it's a different person who happens to share a
+      // name) — that path is audited so we can review intentional overrides.
+      const trimmedName =
+        typeof data.name === "string" ? data.name.trim() : "";
+      const confirmDuplicate = data.confirmDuplicate === true;
+      if (trimmedName.length > 0 && !confirmDuplicate) {
+        // Build the soft-match where clause. Use a tighter (name + DOB)
+        // match when DOB is supplied; fall back to (name + gender) when
+        // DOB is absent. Name match is case-insensitive but exact — we do
+        // NOT do Levenshtein-distance fuzzy matching here because that
+        // would false-positive across genuinely-distinct patients.
+        const matchClause = data.dateOfBirth
+          ? {
+              mergedIntoId: null,
+              dateOfBirth: new Date(data.dateOfBirth),
+              user: {
+                name: { equals: trimmedName, mode: "insensitive" as const },
+              },
+            }
+          : {
+              mergedIntoId: null,
+              gender: data.gender,
+              user: {
+                name: { equals: trimmedName, mode: "insensitive" as const },
+              },
+            };
+        const candidates = await prisma.patient.findMany({
+          where: matchClause,
+          select: {
+            id: true,
+            mrNumber: true,
+            dateOfBirth: true,
+            gender: true,
+            user: {
+              select: { name: true, phone: true },
+            },
+          },
+          take: 5,
+        });
+        if (candidates.length > 0) {
+          const matchedOn = data.dateOfBirth
+            ? "name + date of birth"
+            : "name + gender";
+          res.status(409).json({
+            success: false,
+            data: null,
+            error: `A patient with the same ${matchedOn} already exists. Pick the existing chart, or resubmit with confirmDuplicate=true if this is a different person.`,
+            details: [
+              {
+                field: "name",
+                message: `Possible duplicate of ${candidates[0].user?.name ?? "existing patient"} (MR: ${candidates[0].mrNumber}).`,
+              },
+            ],
+            existingPatients: candidates.map((c) => ({
+              id: c.id,
+              mrNumber: c.mrNumber,
+              name: c.user?.name ?? null,
+              phone: c.user?.phone ?? null,
+              dateOfBirth: c.dateOfBirth?.toISOString() ?? null,
+              gender: c.gender,
+            })),
           });
           return;
         }
@@ -359,6 +465,21 @@ router.post(
 
         return { ...patient, user: { id: user.id, name: user.name, email: user.email, phone: user.phone } };
       });
+
+      // Issue #892: audit the duplicate-override path so we can review
+      // intentional "different person, same name" creations later. The
+      // normal create path is not audited (would balloon the audit table
+      // with routine reception traffic); only the soft-block bypass is.
+      if (confirmDuplicate) {
+        auditLog(req, "PATIENT_DUPLICATE_OVERRIDE", "patient", result.id, {
+          mrNumber: result.mrNumber,
+          name: trimmedName,
+          dateOfBirth: data.dateOfBirth ?? null,
+          gender: data.gender,
+        }).catch((e) =>
+          console.warn("[patients] audit override failed (non-fatal):", e),
+        );
+      }
 
       res.status(201).json({ success: true, data: result, error: null });
     } catch (err) {

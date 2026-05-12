@@ -187,7 +187,18 @@ router.post(
             packageDiscount,
             advanceApplied,
             totalAmount: Math.max(0, +totalAmount.toFixed(2)),
-            dueDate: dueDate ? new Date(dueDate) : undefined,
+            // Issue #902: when the caller doesn't supply a dueDate, default
+            // to createdAt + 14 days so the dunning + late-fee scheduler has
+            // something to age against. Previously this fell through to
+            // `undefined` → null in the DB, and 50% of PENDING invoices sat
+            // at "0 days overdue" forever — receivables never aged, no
+            // dunning fired, no late-fee revenue accumulated. The 14-day
+            // window matches the most common Indian-hospital cash-billing
+            // default; TODO: lift to a SystemConfig key (invoice_due_days)
+            // when finance asks for per-tenant policy.
+            dueDate: dueDate
+              ? new Date(dueDate)
+              : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
             notes:
               tierDiscount > 0
                 ? `${notes ? notes + "\n" : ""}[TIER ${tier}] auto-discount Rs.${tierDiscount.toFixed(
@@ -195,6 +206,13 @@ router.post(
                   )}`
                 : notes,
             paymentStatus: advanceApplied >= totalAmount && totalAmount >= 0 ? "PAID" : "PENDING",
+            // Issue #894: persist per-line GST snapshot at create time so
+            // historical invoices retain the tax presented to the patient
+            // even if rates change later (GSTR-1 audit trail). Previously
+            // the header had cgstAmount/sgstAmount/taxAmount but every
+            // line item shipped with cgst=0/sgst=0/gstRate=0, making
+            // line-sums NOT equal the header — illegal under CGST Rule
+            // 46 and a hard reject for B2B recipients claiming ITC.
             items: {
               create: items.map(
                 (item: {
@@ -202,13 +220,21 @@ router.post(
                   category: string;
                   quantity: number;
                   unitPrice: number;
-                }) => ({
-                  description: item.description,
-                  category: item.category,
-                  quantity: item.quantity,
-                  unitPrice: item.unitPrice,
-                  amount: item.quantity * item.unitPrice,
-                })
+                }) => {
+                  const lineAmount = item.quantity * item.unitPrice;
+                  const tax = computeLineItemTax(lineAmount, item.category);
+                  return {
+                    description: item.description,
+                    category: item.category,
+                    quantity: item.quantity,
+                    unitPrice: item.unitPrice,
+                    amount: lineAmount,
+                    cgst: tax.cgst,
+                    sgst: tax.sgst,
+                    gstRate: tax.gstRate,
+                    hsnSac: tax.hsnSac,
+                  };
+                }
               ),
             },
           },
@@ -2420,14 +2446,32 @@ router.post(
             totalAmount,
             notes: notes ? `[IPD ${admission.admissionNumber}] ${notes}` : `[IPD ${admission.admissionNumber}]`,
             paymentStatus: totalAmount === 0 ? "PAID" : "PENDING",
+            // Issue #902: default dueDate to +14 days (same policy as the
+            // regular invoice-create path above) so IPD discharge bills age
+            // in the dunning queue. Previously this was unset on the IPD
+            // path and rows landed with null dueDate — invisible to the
+            // late-fee scheduler.
+            dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+            // Issue #894: persist per-line GST snapshot (see invoice-create
+            // path above for the full rationale). IPD discharge bills are
+            // the canonical multi-line B2B case (room charge + drugs +
+            // procedures + lab) where GSTR-1 line-level math is required.
             items: {
-              create: safeItems.map((it) => ({
-                description: it.description,
-                category: it.category,
-                quantity: it.quantity,
-                unitPrice: it.unitPrice,
-                amount: it.quantity * it.unitPrice,
-              })),
+              create: safeItems.map((it) => {
+                const lineAmount = it.quantity * it.unitPrice;
+                const tax = computeLineItemTax(lineAmount, it.category);
+                return {
+                  description: it.description,
+                  category: it.category,
+                  quantity: it.quantity,
+                  unitPrice: it.unitPrice,
+                  amount: lineAmount,
+                  cgst: tax.cgst,
+                  sgst: tax.sgst,
+                  gstRate: tax.gstRate,
+                  hsnSac: tax.hsnSac,
+                };
+              }),
             },
           },
           include: { items: true },

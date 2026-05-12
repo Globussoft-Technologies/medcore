@@ -59,6 +59,13 @@ const patientBaseSchema = z.object({
   pricingTier: z
     .enum(["STANDARD", "EMPLOYEE", "SENIOR_CITIZEN", "BPL", "VIP"])
     .optional(),
+  // Issue #892: reception soft-block override. When the server returns a
+  // 409 with a duplicate-by-(name+DOB) or (name+gender) candidate list,
+  // the user can resubmit with this flag set to true to confirm "yes,
+  // this is a different person who happens to share a name" and bypass
+  // the soft block. Default false; passes through only when the client
+  // explicitly opts in.
+  confirmDuplicate: z.boolean().optional(),
 });
 
 export const createPatientSchema = patientBaseSchema.superRefine((data, ctx) => {
@@ -88,6 +95,28 @@ export const createPatientSchema = patientBaseSchema.superRefine((data, ctx) => 
         path: ["dateOfBirth"],
         message: "Date of birth must be in the past",
       });
+    } else if (typeof data.age === "number") {
+      // Issue #896: cross-field validation between age and dateOfBirth.
+      // Without this, requests like {age:80, dateOfBirth:'2020-01-01'}
+      // persisted both values and downstream code (pediatric dosing,
+      // vaccine schedules, lab reference ranges) read whichever field
+      // the call site happened to use — producing 80-year-old dosing
+      // for a 6-year-old patient or vice versa.
+      //
+      // Rule: reject when the absolute difference between submitted
+      // age and the age derived from DOB exceeds 1 year. The 1-year
+      // tolerance covers (a) timezone drift around birthdays and (b)
+      // reception entering "27" the day before someone turns 28.
+      const ageFromDob = Math.floor(
+        (Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000)
+      );
+      if (Math.abs(data.age - ageFromDob) > 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["age"],
+          message: `Age (${data.age}) does not match date of birth (calculated age ${ageFromDob}). Adjust one of the two fields.`,
+        });
+      }
     }
   }
 });

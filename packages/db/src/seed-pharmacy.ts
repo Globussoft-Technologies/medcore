@@ -11,6 +11,22 @@ const prisma = new PrismaClient();
 // Issue #41: every row has a realistic Indian manufacturer in `brand` (the
 //   medicines.manufacturer UI column reads from `brand` via the API alias
 //   layer — see apps/api/src/services/medicines/serialize.ts).
+// Issue #899: every prescription drug should carry regulatory metadata —
+// `schedule` (H / H1 / X per India's Drugs & Cosmetics Act 1940) and
+// `isNarcotic` / `requiresRegister` (NDPS Act 1985) — so the controlled-
+// substance register, dispensing alerts, and patient-safety guards have
+// real data to fire on. Pre-#899 the master had 82 medicines with all
+// regulatory flags either false or null, so narcotic-handling code was
+// dead weight in the codebase.
+//
+// Field semantics:
+//   schedule           — "H", "H1", "X", "G", or undefined for OTC
+//   isNarcotic         — true ONLY for opioids + controlled-narcotic
+//                        substances under NDPS. Sedatives / barbiturates
+//                        are Schedule H1 but NOT narcotic.
+//   requiresRegister   — true for Schedule H1 + X; entries must be logged
+//                        in the controlled-register page.
+//   maxDailyDoseMg     — soft cap for overdose alerts (mg/day adult).
 const MEDICINES: Array<{
   name: string;
   genericName: string;
@@ -21,6 +37,10 @@ const MEDICINES: Array<{
   manufacturer: string;
   sideEffects?: string;
   contraindications?: string;
+  schedule?: "H" | "H1" | "X" | "G";
+  isNarcotic?: boolean;
+  requiresRegister?: boolean;
+  maxDailyDoseMg?: number;
 }> = [
   // ── OTC analgesics / vitamins / electrolytes ─────────
   { name: "Paracetamol 500mg", genericName: "Paracetamol", form: "Tablet", strength: "500mg", category: "Analgesic", prescriptionRequired: false, manufacturer: "GSK", sideEffects: "Rare: rash, nausea", contraindications: "Severe liver disease" },
@@ -29,13 +49,13 @@ const MEDICINES: Array<{
   // brief (#40). Higher strengths and aspirin-paracetamol combos remain RX
   // and SHOULD be flagged true if added to the catalog later.
   { name: "Aspirin 75mg", genericName: "Acetylsalicylic acid", form: "Tablet", strength: "75mg", category: "Antiplatelet", prescriptionRequired: false, manufacturer: "USV", sideEffects: "Bleeding, GI upset", contraindications: "Active bleeding, children <16" },
-  // ── Antibiotics (ALL prescription-only) ──────────────
-  { name: "Amoxicillin 500mg", genericName: "Amoxicillin", form: "Capsule", strength: "500mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Cipla", sideEffects: "Rash, diarrhea", contraindications: "Penicillin allergy" },
-  { name: "Azithromycin 500mg", genericName: "Azithromycin", form: "Tablet", strength: "500mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Alembic", sideEffects: "Nausea, QT prolongation", contraindications: "Macrolide allergy" },
-  { name: "Ciprofloxacin 500mg", genericName: "Ciprofloxacin", form: "Tablet", strength: "500mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Dr. Reddy's", sideEffects: "Tendonitis, GI upset", contraindications: "Pregnancy, children" },
-  { name: "Doxycycline 100mg", genericName: "Doxycycline", form: "Capsule", strength: "100mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Zydus", sideEffects: "Photosensitivity", contraindications: "Pregnancy, children <8" },
-  { name: "Metronidazole 400mg", genericName: "Metronidazole", form: "Tablet", strength: "400mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Alkem", sideEffects: "Metallic taste, nausea", contraindications: "Alcohol use" },
-  { name: "Cefixime 200mg", genericName: "Cefixime", form: "Tablet", strength: "200mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Lupin", sideEffects: "Diarrhea, rash" },
+  // ── Antibiotics (ALL prescription-only, Schedule H per D&C Act) ──
+  { name: "Amoxicillin 500mg", genericName: "Amoxicillin", form: "Capsule", strength: "500mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Cipla", sideEffects: "Rash, diarrhea", contraindications: "Penicillin allergy", schedule: "H", maxDailyDoseMg: 4000 },
+  { name: "Azithromycin 500mg", genericName: "Azithromycin", form: "Tablet", strength: "500mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Alembic", sideEffects: "Nausea, QT prolongation", contraindications: "Macrolide allergy", schedule: "H", maxDailyDoseMg: 500 },
+  { name: "Ciprofloxacin 500mg", genericName: "Ciprofloxacin", form: "Tablet", strength: "500mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Dr. Reddy's", sideEffects: "Tendonitis, GI upset", contraindications: "Pregnancy, children", schedule: "H", maxDailyDoseMg: 1500 },
+  { name: "Doxycycline 100mg", genericName: "Doxycycline", form: "Capsule", strength: "100mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Zydus", sideEffects: "Photosensitivity", contraindications: "Pregnancy, children <8", schedule: "H", maxDailyDoseMg: 200 },
+  { name: "Metronidazole 400mg", genericName: "Metronidazole", form: "Tablet", strength: "400mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Alkem", sideEffects: "Metallic taste, nausea", contraindications: "Alcohol use", schedule: "H", maxDailyDoseMg: 2400 },
+  { name: "Cefixime 200mg", genericName: "Cefixime", form: "Tablet", strength: "200mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Lupin", sideEffects: "Diarrhea, rash", schedule: "H", maxDailyDoseMg: 400 },
   // ── Antihistamines (OTC) ─────────────────────────────
   { name: "Cetirizine 10mg", genericName: "Cetirizine", form: "Tablet", strength: "10mg", category: "Antihistamine", prescriptionRequired: false, manufacturer: "GSK", sideEffects: "Drowsiness, dry mouth" },
   { name: "Loratadine 10mg", genericName: "Loratadine", form: "Tablet", strength: "10mg", category: "Antihistamine", prescriptionRequired: false, manufacturer: "Glenmark" },
@@ -75,6 +95,22 @@ const MEDICINES: Array<{
   { name: "Iron + Folic Acid", genericName: "Ferrous sulfate + Folic acid", form: "Tablet", strength: "100mg+0.5mg", category: "Hematinic", prescriptionRequired: false, manufacturer: "Emcure" },
   { name: "Calcium Carbonate 500mg", genericName: "Calcium carbonate", form: "Tablet", strength: "500mg", category: "Supplement", prescriptionRequired: false, manufacturer: "Abbott India" },
   { name: "ORS Sachet", genericName: "Oral Rehydration Salts", form: "Sachet", strength: "21g", category: "Electrolyte", prescriptionRequired: false, manufacturer: "FDC" },
+  // ── Controlled / Narcotic (Issue #899) ───────────────
+  // Opioids — Schedule X under D&C Act + NDPS Act 1985. requiresRegister
+  // defaults to true via the schedule=X mapping below; explicit here for
+  // readability.
+  { name: "Tramadol 50mg", genericName: "Tramadol", form: "Capsule", strength: "50mg", category: "Opioid Analgesic", prescriptionRequired: true, manufacturer: "Sun Pharma", sideEffects: "Drowsiness, nausea, dependence", contraindications: "MAOI use, epilepsy", schedule: "H1", isNarcotic: true, requiresRegister: true, maxDailyDoseMg: 400 },
+  { name: "Morphine 10mg/ml", genericName: "Morphine", form: "Injection", strength: "10mg/ml", category: "Opioid Analgesic", prescriptionRequired: true, manufacturer: "Neon Labs", sideEffects: "Respiratory depression, dependence, constipation", contraindications: "Respiratory failure, paralytic ileus", schedule: "X", isNarcotic: true, requiresRegister: true, maxDailyDoseMg: 60 },
+  { name: "Pethidine 50mg/ml", genericName: "Pethidine (Meperidine)", form: "Injection", strength: "50mg/ml", category: "Opioid Analgesic", prescriptionRequired: true, manufacturer: "Neon Labs", sideEffects: "Respiratory depression, seizures, dependence", contraindications: "MAOI use, renal failure", schedule: "X", isNarcotic: true, requiresRegister: true, maxDailyDoseMg: 600 },
+  { name: "Fentanyl 50mcg/ml", genericName: "Fentanyl", form: "Injection", strength: "50mcg/ml", category: "Opioid Analgesic", prescriptionRequired: true, manufacturer: "Themis Medicare", sideEffects: "Respiratory depression, dependence, chest-wall rigidity", contraindications: "Respiratory failure", schedule: "X", isNarcotic: true, requiresRegister: true, maxDailyDoseMg: 0.4 },
+  { name: "Codeine + Paracetamol", genericName: "Codeine phosphate + Paracetamol", form: "Tablet", strength: "30mg+500mg", category: "Opioid Analgesic", prescriptionRequired: true, manufacturer: "Wockhardt", sideEffects: "Drowsiness, constipation, dependence", contraindications: "Children <12, respiratory disease", schedule: "H1", isNarcotic: true, requiresRegister: true, maxDailyDoseMg: 240 },
+  // Benzodiazepines / sedatives — Schedule H1, NOT narcotic. Still
+  // require register entries for dispensing under D&C Act.
+  { name: "Diazepam 5mg", genericName: "Diazepam", form: "Tablet", strength: "5mg", category: "Anxiolytic", prescriptionRequired: true, manufacturer: "Cipla", sideEffects: "Sedation, dependence, amnesia", contraindications: "Severe respiratory failure, myasthenia gravis", schedule: "H1", isNarcotic: false, requiresRegister: true, maxDailyDoseMg: 40 },
+  { name: "Alprazolam 0.5mg", genericName: "Alprazolam", form: "Tablet", strength: "0.5mg", category: "Anxiolytic", prescriptionRequired: true, manufacturer: "Torrent", sideEffects: "Sedation, dependence, rebound anxiety", contraindications: "Acute narrow-angle glaucoma", schedule: "H1", isNarcotic: false, requiresRegister: true, maxDailyDoseMg: 4 },
+  { name: "Lorazepam 2mg", genericName: "Lorazepam", form: "Tablet", strength: "2mg", category: "Anxiolytic", prescriptionRequired: true, manufacturer: "Pfizer India", sideEffects: "Sedation, dependence", schedule: "H1", isNarcotic: false, requiresRegister: true, maxDailyDoseMg: 10 },
+  // Barbiturate antiepileptic — Schedule H, register-trackable
+  { name: "Phenobarbital 30mg", genericName: "Phenobarbital", form: "Tablet", strength: "30mg", category: "Antiepileptic", prescriptionRequired: true, manufacturer: "Abbott India", sideEffects: "Sedation, paradoxical excitement (children)", contraindications: "Porphyria", schedule: "H", isNarcotic: false, requiresRegister: true, maxDailyDoseMg: 300 },
 ];
 
 // ─── DRUG INTERACTIONS ─────────────────────────────────
@@ -166,6 +202,13 @@ async function main() {
   // #41 for why we don't use a dedicated `manufacturer` column.
   const medicineRecords: Record<string, string> = {};
   for (const m of MEDICINES) {
+    // Issue #899: persist regulatory metadata so the controlled-register,
+    // overdose alerts, and dispensing guards have real data. Default
+    // `requiresRegister` to true whenever `schedule` is H1/X — that's
+    // the legal floor under India's D&C Act.
+    const requiresRegister =
+      m.requiresRegister ??
+      (m.schedule === "H1" || m.schedule === "X");
     const med = await prisma.medicine.upsert({
       where: { name: m.name },
       update: {
@@ -177,6 +220,11 @@ async function main() {
         sideEffects: m.sideEffects,
         contraindications: m.contraindications,
         prescriptionRequired: m.prescriptionRequired,
+        schedule: m.schedule ?? null,
+        scheduleClass: m.schedule ?? null,
+        isNarcotic: m.isNarcotic ?? false,
+        requiresRegister,
+        maxDailyDoseMg: m.maxDailyDoseMg ?? null,
       },
       create: {
         name: m.name,
@@ -188,6 +236,11 @@ async function main() {
         sideEffects: m.sideEffects,
         contraindications: m.contraindications,
         prescriptionRequired: m.prescriptionRequired,
+        schedule: m.schedule ?? null,
+        scheduleClass: m.schedule ?? null,
+        isNarcotic: m.isNarcotic ?? false,
+        requiresRegister,
+        maxDailyDoseMg: m.maxDailyDoseMg ?? null,
       },
     });
     medicineRecords[m.name] = med.id;

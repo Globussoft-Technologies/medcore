@@ -5,22 +5,58 @@
 //   - generateDraftReport: prior-study context threads into the prompt
 //   - (compile-time) service functions return Prisma-typed objects
 //
-// The generateStructured call is mocked so no network / Sarvam traffic. The
-// DICOM test buffer is synthesised inline so we don't depend on a sample
-// asset file landing in git.
+// The Sarvam/OpenAI fallback is mocked at the callWithFallback boundary so
+// no network traffic. The DICOM test buffer is synthesised inline so we
+// don't depend on a sample asset file landing in git.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
-const { generateStructuredMock } = vi.hoisted(() => ({
-  generateStructuredMock: vi.fn(),
+const { callWithFallbackMock } = vi.hoisted(() => ({
+  callWithFallbackMock: vi.fn(),
 }));
 
 vi.mock("./sarvam", () => ({
-  generateStructured: generateStructuredMock,
   logAICall: vi.fn(),
 }));
+
+// The radiology service now calls callWithFallback(sarvam → openai). We
+// intercept at that boundary so the mock returns a fully-shaped OpenAI
+// ChatCompletion (with choices[0].message.tool_calls[0]) — the production
+// code path parses tool_calls[0].function.arguments out of this shape.
+vi.mock("./model-router", () => ({
+  callWithFallback: callWithFallbackMock,
+}));
+
+/**
+ * Helper: build a fake OpenAI ChatCompletion containing a single tool call
+ * whose `arguments` JSON serialises to the given payload. Matches what the
+ * production code at radiology-reports.ts:getToolCallFromResponse expects.
+ */
+function fakeToolCallResponse(payload: unknown, usage = { prompt: 10, completion: 5 }) {
+  return {
+    choices: [
+      {
+        message: {
+          tool_calls: [
+            {
+              type: "function" as const,
+              function: {
+                name: "emit_radiology_draft",
+                arguments: JSON.stringify(payload),
+              },
+            },
+          ],
+        },
+      },
+    ],
+    usage: {
+      prompt_tokens: usage.prompt,
+      completion_tokens: usage.completion,
+    },
+  };
+}
 
 // tenant-prisma is not exercised here (unit-level), but the module transitively
 // imports it — give it a harmless stub.
@@ -148,7 +184,7 @@ function padEvenLen(s: string): string {
 
 describe("radiology-reports — DICOM helpers", () => {
   beforeEach(() => {
-    generateStructuredMock.mockReset();
+    callWithFallbackMock.mockReset();
   });
 
   it("isLikelyDicom recognises .dcm extension and application/dicom mime", () => {
@@ -225,16 +261,48 @@ describe("radiology-reports — DICOM helpers", () => {
 });
 
 describe("radiology-reports — prior-study prompt injection", () => {
+  /**
+   * Sniff out the user prompt that was sent to the LLM. With the new
+   * callWithFallback wiring, the test mock receives a CALLBACK
+   * `(client, provider) => Promise<ChatCompletion>`. We invoke that callback
+   * with a stub client to capture what `messages[]` was assembled, then
+   * resolve with a synthetic tool-call response. This is more layered than
+   * the old generateStructured-direct mock but it matches the production
+   * call path exactly.
+   */
+  function captureLastUserPrompt(): string {
+    const callbackArg = callWithFallbackMock.mock.calls[0][0] as (
+      client: { chat: { completions: { create: ReturnType<typeof vi.fn> } } },
+      provider: string,
+    ) => Promise<unknown>;
+    const createSpy = vi.fn().mockResolvedValue({});
+    void callbackArg({ chat: { completions: { create: createSpy } } }, "sarvam");
+    const req = createSpy.mock.calls[0]?.[0];
+    const userMsg = req?.messages?.find(
+      (m: { role: string }) => m.role === "user",
+    );
+    return (userMsg?.content as string) ?? "";
+  }
+
   beforeEach(() => {
-    generateStructuredMock.mockReset();
-    generateStructuredMock.mockResolvedValue({
-      data: {
-        impression: "No acute change.",
-        findings: [],
-        recommendations: [],
-      },
-      promptTokens: 10,
-      completionTokens: 5,
+    callWithFallbackMock.mockReset();
+    callWithFallbackMock.mockImplementation(async (fn) => {
+      // Default: invoke the callback so production code sees a successful
+      // ChatCompletion with the standard "No acute change." payload.
+      const stubClient = {
+        chat: {
+          completions: {
+            create: vi.fn().mockResolvedValue(
+              fakeToolCallResponse({
+                impression: "No acute change.",
+                findings: [],
+                recommendations: [],
+              }),
+            ),
+          },
+        },
+      };
+      return fn(stubClient, "sarvam");
     });
   });
 
@@ -252,9 +320,8 @@ describe("radiology-reports — prior-study prompt injection", () => {
       },
     });
 
-    expect(generateStructuredMock).toHaveBeenCalledOnce();
-    const call = generateStructuredMock.mock.calls[0][0];
-    const userPrompt = call.userPrompt as string;
+    expect(callWithFallbackMock).toHaveBeenCalledOnce();
+    const userPrompt = captureLastUserPrompt();
     expect(userPrompt).toContain("Prior study");
     expect(userPrompt).toContain("2026-01-15");
     expect(userPrompt).toContain("Mild cardiomegaly");
@@ -268,21 +335,28 @@ describe("radiology-reports — prior-study prompt injection", () => {
       modality: "CT",
       bodyPart: "Abdomen",
     });
-    expect(generateStructuredMock).toHaveBeenCalledOnce();
-    const userPrompt = generateStructuredMock.mock.calls[0][0].userPrompt as string;
+    expect(callWithFallbackMock).toHaveBeenCalledOnce();
+    const userPrompt = captureLastUserPrompt();
     expect(userPrompt).toContain("No prior study available for comparison.");
     expect(userPrompt).not.toContain("interval changes");
   });
 
-  it("appends 'Review with radiologist' to impression when Sarvam omits it", async () => {
-    generateStructuredMock.mockResolvedValueOnce({
-      data: {
-        impression: "Unremarkable exam",
-        findings: [],
-        recommendations: [],
-      },
-      promptTokens: 1,
-      completionTokens: 1,
+  it("appends 'Review with radiologist' to impression when the LLM omits it", async () => {
+    callWithFallbackMock.mockImplementationOnce(async (fn) => {
+      const stubClient = {
+        chat: {
+          completions: {
+            create: vi.fn().mockResolvedValue(
+              fakeToolCallResponse({
+                impression: "Unremarkable exam",
+                findings: [],
+                recommendations: [],
+              }),
+            ),
+          },
+        },
+      };
+      return fn(stubClient, "sarvam");
     });
     const res = await generateDraftReport({
       studyId: "x",

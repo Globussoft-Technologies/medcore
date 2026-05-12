@@ -65,6 +65,18 @@ const URGENCY_OPTIONS: { value: Urgency; label: string; color: string }[] = [
 
 // ── LetterPreview ─────────────────────────────────────────────────────────────
 
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*/g, "")
+    .replace(/\*/g, "")
+    .replace(/^---+$/gm, "")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function LetterPreview({
   content,
   generatedAt,
@@ -72,9 +84,10 @@ function LetterPreview({
   content: string;
   generatedAt: string;
 }) {
+  const cleanContent = stripMarkdown(content);
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(content);
+      await navigator.clipboard.writeText(cleanContent);
       toast.success("Copied to clipboard");
     } catch {
       toast.error("Failed to copy");
@@ -82,7 +95,23 @@ function LetterPreview({
   };
 
   const handlePrint = () => {
-    window.print();
+    const win = window.open("", "_blank", "width=800,height=600");
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <title>Letter</title>
+  <style>
+    body { font-family: monospace; font-size: 12pt; line-height: 1.6; padding: 2cm; color: #000; }
+    pre { white-space: pre-wrap; word-wrap: break-word; }
+  </style>
+</head>
+<body><pre>${cleanContent.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre></body>
+</html>`);
+    win.document.close();
+    win.focus();
+    win.print();
+    win.close();
   };
 
   return (
@@ -115,23 +144,9 @@ function LetterPreview({
         id="letter-print-content"
         className="bg-white border border-gray-200 rounded-xl p-8 shadow-sm font-mono text-sm leading-relaxed whitespace-pre-wrap text-gray-800"
       >
-        {content}
+        {cleanContent}
       </div>
 
-      <style>{`
-        @media print {
-          body > *:not(#letter-print-root) {
-            display: none !important;
-          }
-          #letter-print-content {
-            border: none !important;
-            box-shadow: none !important;
-            padding: 0 !important;
-            font-size: 12pt;
-            line-height: 1.6;
-          }
-        }
-      `}</style>
     </div>
   );
 }

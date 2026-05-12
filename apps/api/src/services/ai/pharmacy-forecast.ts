@@ -440,13 +440,13 @@ export async function forecastSingleItem(
 }
 
 /**
- * Ask Sarvam AI to summarise the top 10 most urgent inventory items from a
- * forecast result set as 3-5 actionable bullet points for the pharmacy
- * manager.  Unchanged from the rule-based version.
+ * Ask Sarvam AI to analyse the full forecast and return structured, actionable
+ * insights for the pharmacy manager.
  *
  * @param forecasts Output of {@link forecastInventory}.
  */
 export async function getAIInsights(forecasts: ItemForecast[]): Promise<string> {
+   const model = process.env.SARVAM_MODEL ?? "sarvam-m";
   const urgencyOrder = { CRITICAL: 0, LOW: 1, OK: 2 } as const;
   const sorted = [...forecasts].sort((a, b) => {
     const uDiff = urgencyOrder[a.urgency] - urgencyOrder[b.urgency];
@@ -454,31 +454,85 @@ export async function getAIInsights(forecasts: ItemForecast[]): Promise<string> 
     return a.daysOfStockLeft - b.daysOfStockLeft;
   });
 
-  const top10 = sorted.slice(0, 10);
+  const criticalItems = sorted.filter((f) => f.urgency === "CRITICAL");
+  const lowItems = sorted.filter((f) => f.urgency === "LOW");
+  const deadStockItems = sorted.filter((f) => f.deadStock);
+  const stockoutRiskItems = sorted.filter((f) => f.stockoutRisk && f.urgency !== "CRITICAL");
 
-  const summaryLines = top10.map(
+  const top15 = sorted.slice(0, 15);
+
+  const itemLines = top15.map(
     (f, i) =>
-      `${i + 1}. ${f.medicineName}: stock=${f.currentStock} units, ` +
-      `avgDailyUse=${f.avgDailyConsumption} units/day, ` +
-      `daysLeft=${f.daysOfStockLeft === 9999 ? "inf" : f.daysOfStockLeft}, ` +
-      `urgency=${f.urgency}, suggestedReorder=${f.suggestedReorderQty} units` +
-      (f.stockoutRisk ? ", stockoutRisk=yes" : "") +
-      (f.deadStock ? ", deadStock=yes" : "")
+      `${i + 1}. **${f.medicineName}** — stock: ${f.currentStock} units, ` +
+      `avg daily use: ${f.avgDailyConsumption} units/day, ` +
+      `days left: ${f.daysOfStockLeft === 9999 ? "∞" : f.daysOfStockLeft}, ` +
+      `urgency: ${f.urgency}, reorder qty: ${f.suggestedReorderQty}` +
+      (f.stockoutRisk ? " ⚠ stockout risk" : "") +
+      (f.deadStock ? " 💤 dead stock" : "")
   );
 
-  const prompt = `You are a pharmacy inventory management assistant. Given these Holt-Winters demand forecasts, provide a brief (3-5 bullet points) actionable summary for the pharmacy manager, highlighting critical items and suggested actions.
+   const systemPrompt = `You are a pharmacy inventory AI. Output ONLY the final analysis using the EXACT format below. No thinking, no preamble, no extra text outside the template.`;
 
-Inventory data (top ${top10.length} items by urgency):
-${summaryLines.join("\n")}
+  const daysInt = (d: number) => d >= 9999 ? "∞" : String(Math.floor(d));
 
-Provide concise, actionable bullet points.`;
+  const criticalLines = criticalItems
+    .map((f) => `- ${f.medicineName}: ${daysInt(f.daysOfStockLeft)} days left (${f.currentStock} units). Reorder ${f.suggestedReorderQty} units immediately.`)
+    .join("\n") || "- None";
+
+  const lowLines = lowItems
+    .map((f) => `- ${f.medicineName}: ${daysInt(f.daysOfStockLeft)} days left (${f.currentStock} units). Reorder ${f.suggestedReorderQty} units by end of week.`)
+    .join("\n") || "- None";
+
+  const stockoutLines = stockoutRiskItems.slice(0, 8)
+    .map((f) => `- ${f.medicineName}: ${daysInt(f.daysOfStockLeft)} days left (reorder ${f.suggestedReorderQty} units).`)
+    .join("\n") || "- None";
+
+  const deadLines = deadStockItems.slice(0, 5)
+    .map((f) => `- ${f.medicineName}: stock=${f.currentStock}, avg daily use=${f.avgDailyConsumption}. Consider reducing reorder.`)
+    .join("\n") || "- None";
+
+  const totalOk = forecasts.length - criticalItems.length - lowItems.length;
+
+  const userPrompt = `Inventory data:
+CRITICAL items (${criticalItems.length}): ${criticalItems.map(f => f.medicineName).join(", ") || "none"}
+LOW items (${lowItems.length}): ${lowItems.map(f => f.medicineName).join(", ") || "none"}
+Stockout risk (${stockoutRiskItems.length}), Dead stock (${deadStockItems.length}), OK (${totalOk})
+
+Fill in this EXACT template — replace only the placeholder lines, keep section titles word-for-word:
+
+1. Immediate Action Required (CRITICAL)
+${criticalLines}
+
+2. Order This Week (LOW Stock)
+${lowLines}
+
+3. Stockout Risk Watch (30-day horizon)
+${stockoutLines}
+
+4. Dead Stock Review
+${deadLines}
+
+5. Overall Inventory Health
+- [Write one sentence summarising the overall stock health based on the numbers above.]
+
+Output nothing else. Start with "1."`;
+
+
 
   const response = await sarvam.chat.completions.create({
-    model: "sarvam-105b",
-    messages: [{ role: "user", content: prompt }],
-    max_tokens: 500,
-    temperature: 0.3,
+    model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    max_tokens: 1200,
+    temperature: 0,
   });
 
-  return response.choices[0]?.message?.content ?? "Unable to generate insights.";
+   const raw = response.choices[0]?.message?.content ?? "Unable to generate insights.";
+  // Strip <think>...</think> blocks (complete or unclosed/truncated)
+  return raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<think>[\s\S]*/gi, "")
+    .trim();
 }

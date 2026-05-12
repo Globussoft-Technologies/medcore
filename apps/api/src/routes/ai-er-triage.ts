@@ -15,7 +15,7 @@ import { sanitizeUserInput } from "../services/ai/prompt-safety";
 // security(2026-05-04): F-ER-3 — Sarvam model used for AI-assisted triage.
 // Stamped onto the AI_ER_TRIAGE_INFERENCE audit row so we can correlate
 // model rollouts with quality / billing changes downstream.
-const SARVAM_MODEL = "sarvam-105b";
+const SARVAM_MODEL = process.env.SARVAM_MODEL ?? "sarvam-m";
 
 const router = Router();
 
@@ -62,7 +62,11 @@ router.post(
         briefHistory?: string;
       };
 
-      if (!chiefComplaint || typeof chiefComplaint !== "string" || !chiefComplaint.trim()) {
+      if (
+        !chiefComplaint ||
+        typeof chiefComplaint !== "string" ||
+        !chiefComplaint.trim()
+      ) {
         res.status(400).json({
           success: false,
           data: null,
@@ -76,7 +80,9 @@ router.post(
       // payload. The er-triage service does NOT sanitize internally (unlike
       // letter-generator / report-explainer / chart-search), so this route
       // is the only choke-point.
-      const safeChiefComplaint = sanitizeUserInput(chiefComplaint.trim(), { maxLen: 2000 });
+      const safeChiefComplaint = sanitizeUserInput(chiefComplaint.trim(), {
+        maxLen: 2000,
+      });
       const safeBriefHistory =
         typeof briefHistory === "string" && briefHistory.trim()
           ? sanitizeUserInput(briefHistory, { maxLen: 3000 })
@@ -113,7 +119,8 @@ router.post(
         });
       } catch (aiErr) {
         const msg =
-          (aiErr as Error)?.message ?? "AI triage assistant is currently unavailable";
+          (aiErr as Error)?.message ??
+          "AI triage assistant is currently unavailable";
         console.warn(`[ai-er-triage] assessERPatient failed:`, msg);
 
         // security(2026-05-04): F-ER-3 — audit failed inference so Sarvam
@@ -128,8 +135,8 @@ router.post(
         }).catch((err) =>
           console.warn(
             `[audit] AI_ER_TRIAGE_INFERENCE (failure) failed (non-fatal):`,
-            (err as Error)?.message ?? err
-          )
+            (err as Error)?.message ?? err,
+          ),
         );
 
         res.status(503).json({
@@ -150,7 +157,10 @@ router.post(
         triageLevel: assessment.suggestedTriageLevel ?? null,
         mews: assessment.calculatedMEWS ?? null,
       }).catch((err) =>
-        console.warn(`[audit] AI_ER_TRIAGE_ASSESS failed (non-fatal):`, (err as Error)?.message ?? err)
+        console.warn(
+          `[audit] AI_ER_TRIAGE_ASSESS failed (non-fatal):`,
+          (err as Error)?.message ?? err,
+        ),
       );
 
       // security(2026-05-04): F-ER-3 — companion AI_<FEATURE>_INFERENCE row
@@ -165,15 +175,15 @@ router.post(
       }).catch((err) =>
         console.warn(
           `[audit] AI_ER_TRIAGE_INFERENCE failed (non-fatal):`,
-          (err as Error)?.message ?? err
-        )
+          (err as Error)?.message ?? err,
+        ),
       );
 
       res.json({ success: true, data: assessment, error: null });
     } catch (err) {
       next(err);
     }
-  }
+  },
 );
 
 // POST /api/v1/ai/er-triage/:caseId/assess
@@ -211,7 +221,13 @@ router.post(
       });
 
       if (!ec) {
-        res.status(404).json({ success: false, data: null, error: "Emergency case not found" });
+        res
+          .status(404)
+          .json({
+            success: false,
+            data: null,
+            error: "Emergency case not found",
+          });
         return;
       }
 
@@ -221,7 +237,7 @@ router.post(
         const dob = new Date(ec.patient.dateOfBirth);
         const now = new Date();
         patientAge = Math.floor(
-          (now.getTime() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000)
+          (now.getTime() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000),
         );
       }
 
@@ -230,7 +246,9 @@ router.post(
       // could contain pre-existing notes that already include injection
       // markers (deliberately or copy-pasted), so the route is the right
       // choke-point regardless of where the text originated.
-      const safeCaseComplaint = sanitizeUserInput(ec.chiefComplaint, { maxLen: 2000 });
+      const safeCaseComplaint = sanitizeUserInput(ec.chiefComplaint, {
+        maxLen: 2000,
+      });
       const safeCaseGender = ec.patient?.gender
         ? sanitizeUserInput(ec.patient.gender, { maxLen: 20 })
         : undefined;
@@ -252,12 +270,14 @@ router.post(
 
       // Optionally persist the calculated MEWS back to the case
       if (assessment.calculatedMEWS !== null) {
-        await prisma.emergencyCase.update({
-          where: { id: caseId },
-          data: { mewsScore: assessment.calculatedMEWS },
-        }).catch(() => {
-          // Non-fatal — assessment is still returned even if DB write fails
-        });
+        await prisma.emergencyCase
+          .update({
+            where: { id: caseId },
+            data: { mewsScore: assessment.calculatedMEWS },
+          })
+          .catch(() => {
+            // Non-fatal — assessment is still returned even if DB write fails
+          });
       }
 
       // security(2026-04-24): F-ER-3 — audit inference on existing cases so
@@ -267,7 +287,10 @@ router.post(
         mews: assessment.calculatedMEWS ?? null,
         mewsWrittenBack: assessment.calculatedMEWS !== null,
       }).catch((err) =>
-        console.warn(`[audit] AI_ER_TRIAGE_CASE_ASSESS failed (non-fatal):`, (err as Error)?.message ?? err)
+        console.warn(
+          `[audit] AI_ER_TRIAGE_CASE_ASSESS failed (non-fatal):`,
+          (err as Error)?.message ?? err,
+        ),
       );
 
       // security(2026-05-04): F-ER-3 — companion inference row with model +
@@ -281,15 +304,15 @@ router.post(
       }).catch((err) =>
         console.warn(
           `[audit] AI_ER_TRIAGE_INFERENCE failed (non-fatal):`,
-          (err as Error)?.message ?? err
-        )
+          (err as Error)?.message ?? err,
+        ),
       );
 
       res.json({ success: true, data: assessment, error: null });
     } catch (err) {
       next(err);
     }
-  }
+  },
 );
 
 export { router as aiERTriageRouter };

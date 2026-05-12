@@ -23,6 +23,10 @@ const { prismaMock } = vi.hoisted(() => {
       count: vi.fn(),
     },
     patient: { findUnique: vi.fn() },
+    // PR #882: GET /appointments now self-scopes DOCTOR via prisma.doctor.findFirst
+    // to ignore any ?doctorId= override. Stub it so the route can resolve
+    // the doctor record for the test user.
+    doctor: { findFirst: vi.fn().mockResolvedValue({ id: "doc-self" }) },
     auditLog: { create: vi.fn(async () => ({ id: "al-1" })) },
   };
   return { prismaMock: base };

@@ -6,7 +6,7 @@
 import { it, expect, beforeAll, vi } from "vitest";
 import request from "supertest";
 import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
-import { createPatientFixture, createDoctorFixture } from "../factories";
+import { createPatientFixture, createDoctorFixture, createDoctorWithToken } from "../factories";
 
 vi.mock("../../services/ai/sarvam", () => ({
   runTriageTurn: vi.fn().mockResolvedValue({
@@ -128,7 +128,13 @@ describeIfDB("AI-feature regressions (2026-04-26)", () => {
   it("#194: /appointments supports ?search= filter on tokenNumber/slotStart", async () => {
     const prisma = await getPrisma();
     const patient = await createPatientFixture();
-    const doctor = await createDoctorFixture();
+    // The GET /appointments handler auto-scopes to req.user's doctor.id when
+    // role=DOCTOR, so the token MUST belong to the same doctor that owns the
+    // appointment row — otherwise the result set is empty (or 403 if the
+    // doctor user has no Doctor profile row, which is the case for the seed
+    // DOCTOR minted by getAuthToken). Use createDoctorWithToken to bind the
+    // token's identity to the fixture doctor.
+    const { doctor, token } = await createDoctorWithToken();
     const today = new Date();
     today.setHours(10, 0, 0, 0);
     await prisma.appointment.create({
@@ -150,7 +156,7 @@ describeIfDB("AI-feature regressions (2026-04-26)", () => {
         `/api/v1/appointments?patientId=${patient.id}&date=${dateStr}` +
           `&status=BOOKED,CHECKED_IN,IN_CONSULTATION&search=7`
       )
-      .set("Authorization", `Bearer ${doctorToken}`);
+      .set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body.data.length).toBeGreaterThan(0);
     expect(res.body.data.some((a: any) => a.tokenNumber === 7)).toBe(true);

@@ -12,30 +12,63 @@ import express from "express";
 import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
 import { createPatientFixture, createDoctorWithToken } from "../factories";
 
-// Mock Sarvam's generateStructured so we don't make a live LLM call. We mock
-// at the sarvam-module level (not the radiology-reports level) because
-// generateDraftReport calls generateStructured via a same-module import in
-// radiology-reports.ts — vi.mock can only intercept cross-module imports, so
-// mocking generateDraftReport here would be silently bypassed.
-vi.mock("../../services/ai/sarvam", async (importActual) => {
-  const actual = await importActual<typeof import("../../services/ai/sarvam")>();
+// Mock the LLM call so we don't make a live request. The radiology service
+// no longer uses sarvam.generateStructured directly — it now routes through
+// callWithFallback from model-router (Sarvam → OpenAI fallback, or OpenAI
+// gpt-4o for vision when images are loaded). We intercept at THAT boundary
+// and return a synthetic ChatCompletion whose tool_calls[0] decodes to the
+// structured draft the production code expects.
+vi.mock("../../services/ai/model-router", async (importActual) => {
+  const actual = await importActual<
+    typeof import("../../services/ai/model-router")
+  >();
   return {
     ...actual,
-    generateStructured: vi.fn().mockResolvedValue({
-      data: {
-        impression:
-          "No acute abnormality detected on the provided views.",
-        findings: [
-          {
-            description: "Mild degenerative changes at L4-L5",
-            confidence: "medium",
-            suggestedFollowUp: "Clinical correlation",
+    callWithFallback: vi.fn(async (fn) => {
+      // Invoke the production callback with a stub client whose
+      // chat.completions.create resolves to a tool-call-shaped response.
+      const stubClient = {
+        chat: {
+          completions: {
+            create: vi.fn().mockResolvedValue({
+              choices: [
+                {
+                  message: {
+                    tool_calls: [
+                      {
+                        type: "function",
+                        function: {
+                          name: "emit_radiology_draft",
+                          arguments: JSON.stringify({
+                            impression:
+                              "No acute abnormality detected on the provided views.",
+                            findings: [
+                              {
+                                description:
+                                  "Mild degenerative changes at L4-L5",
+                                confidence: "medium",
+                                suggestedFollowUp: "Clinical correlation",
+                              },
+                            ],
+                            recommendations: [
+                              "Compare with prior studies if available",
+                            ],
+                            technique:
+                              "Axial T2 and sagittal T1 sequences obtained.",
+                            views: "Axial, Sagittal",
+                          }),
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+              usage: { prompt_tokens: 250, completion_tokens: 80 },
+            }),
           },
-        ],
-        recommendations: ["Compare with prior studies if available"],
-      },
-      promptTokens: 250,
-      completionTokens: 80,
+        },
+      };
+      return fn(stubClient, "sarvam");
     }),
   };
 });
@@ -152,10 +185,13 @@ describeIfDB("AI Radiology API (integration)", () => {
     expect(Array.isArray(draftRes.body.data.aiFindings)).toBe(true);
     expect(draftRes.body.data.aiFindings.length).toBeGreaterThan(0);
 
-    // Assert the Sarvam mock was hit (we mock generateStructured at the
-    // sarvam module level — see top-of-file vi.mock).
-    const { generateStructured } = await import("../../services/ai/sarvam");
-    expect(vi.mocked(generateStructured)).toHaveBeenCalled();
+    // Assert the LLM mock was hit. The service now routes through
+    // callWithFallback (Sarvam → OpenAI failover, or OpenAI vision when
+    // images are loaded) — we mock at that boundary at the top of this file.
+    const { callWithFallback } = await import(
+      "../../services/ai/model-router"
+    );
+    expect(vi.mocked(callWithFallback)).toHaveBeenCalled();
   });
 
   // ── 4: POST /:reportId/approve flips status to FINAL ──────────────────────

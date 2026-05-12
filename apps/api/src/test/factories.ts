@@ -20,11 +20,12 @@ export async function createUserFixture(overrides: Partial<any> = {}) {
   // JWT minted from this row carries a real tenantId. Find-or-create the
   // default test tenant — same one resetDB() and getAuthToken() use, so
   // there's exactly one tenant scope across the whole integration suite.
+  // Schema column is `subdomain @unique`, not `slug`.
   const tenantId = overrides.tenantId ?? (await (async () => {
-    const t = await prisma.tenant.findFirst({ where: { slug: "test-tenant" } });
+    const t = await prisma.tenant.findFirst({ where: { subdomain: "test-tenant" } });
     if (t) return t.id;
     const created = await prisma.tenant.create({
-      data: { name: "Test Tenant", slug: "test-tenant", active: true },
+      data: { name: "Test Tenant", subdomain: "test-tenant", active: true },
     });
     return created.id;
   })());
@@ -113,11 +114,12 @@ export async function createDoctorWithToken(
     `doctor_${Date.now()}_${Math.random().toString(36).slice(2, 6)}@test.local`;
   // Issue #895: every test User needs a tenant — find-or-create the default
   // test tenant and link this doctor to it so the JWT carries a tenantId
-  // and tenant-guarded write endpoints don't 400.
+  // and tenant-guarded write endpoints don't 400. Schema column is
+  // `subdomain @unique` (not `slug`).
   const testTenant = await prisma.tenant.findFirst({
-    where: { slug: "test-tenant" },
+    where: { subdomain: "test-tenant" },
   }) ?? await prisma.tenant.create({
-    data: { name: "Test Tenant", slug: "test-tenant", active: true },
+    data: { name: "Test Tenant", subdomain: "test-tenant", active: true },
   });
   const user = await prisma.user.create({
     data: {

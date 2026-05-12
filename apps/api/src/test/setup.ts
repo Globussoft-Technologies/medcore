@@ -72,13 +72,16 @@ export async function resetDB() {
  * resetDB and just need a tenanted user).
  */
 async function ensureDefaultTestTenant(prisma: any): Promise<{ id: string }> {
-  const slug = "test-tenant";
-  const existing = await prisma.tenant.findFirst({ where: { slug } });
+  // Schema uses `subdomain @unique`, not `slug` (prior commit accidentally
+  // referenced the wrong column name and crashed every integration suite
+  // at resetDB() with "Unknown argument `slug`").
+  const subdomain = "test-tenant";
+  const existing = await prisma.tenant.findFirst({ where: { subdomain } });
   if (existing) return existing;
   return prisma.tenant.create({
     data: {
       name: "Test Tenant",
-      slug,
+      subdomain,
       active: true,
     },
   });

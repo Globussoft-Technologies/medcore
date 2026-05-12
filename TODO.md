@@ -6,7 +6,34 @@ is independently shippable. Full per-session history lives under
 
 ---
 
-## 🏠 HOME PICKUP — handoff from 2026-05-11 night: test-infra unblock + PR #882 readiness (read this first)
+## 🏠 HOME PICKUP — handoff from 2026-05-12: PR-triage wave (#882 + #888 merged)
+
+**Production state at handoff** (commit `e2a11e1` — `docs(CLAUDE): 2 new cron-learnings from 2026-05-12 PR-triage wave`):
+- ✅ **HEAD on `main`** = `e2a11e1`. Working tree clean. PR queue down to 5 (all dependabot, all deferred-migration-class).
+- ✅ **PR #882 merged at `6a575d6`** (Subhadip AI features — appointments hardening + scribe page rewrite + AI letters/pharmacy-forecast/er-triage refactors + 2 new module PRDs). CI confirmed 1571/1571 + all functional gates green.
+- ✅ **PR #888 merged at `1df30d0`** (Sourav radiology vision + STAGING bug fixes). 1106/-209 across 18 files. Radiology vision routes only to OpenAI gpt-4o (Sarvam has no vision); PHI image budget capped at 4 images / 16MB / MIME allowlist with per-image try/catch; `sanitizeUserInput` preserved on all free-text-to-LLM inputs. Dashboard pages plausibly close STAGING #875, #877, #878, #886, #887.
+- ⚠️ **`npm audit (high+critical)` gate is currently RED on main** — inherited from the `next@15.5.15` advisory cluster (14 CVE classes). Cleared when PR #784 (next 15→16) lands. Doesn't block deploys (test.yml's deploy job runs on the test job's status, not audit's), but the per-push run conclusion is FAILURE until then.
+- ✅ **2 new cron-learnings logged in CLAUDE.md** at `e2a11e1` (inherited red-check diagnosis pattern; stale-base illusory-diff pattern). Both 1-instance — will ripen to skill edits on 2nd recurrence.
+- ✅ **PR #883 dependabot rebase triggered** to pick up the new main; CI will re-run on the rebase commit.
+- ✅ Auto-deploy operating; demo box at `medcore.globusdemos.com` will reflect both merges once test.yml clears.
+
+### 🔥 Top priority for next session
+
+1. **#599 PHARMACIST patient-detail policy** — pick re-tighten vs accept-relaxation. One test (`patients-dup-checks.test.ts`) is `it.skip`'d until you call it.
+2. **Triage the 10 STAGING UI bug issues #875–#887** — several likely already closed by #888: #875 Patient Calendar H1, #877 SearchPalette cross-user leak (explicit test added with legacy-key wipe), #878 HelpPanel patient-scoped, #886 census/duty-roster contrast, #887 layout tour-effect refactor. Need a smoke pass against the demo to confirm + close-or-reopen each.
+3. **Schedule one of the deferred dep migrations** — #784+#783 (next 15→16, ~2-3hr, also clears npm audit), #790 (zod 3→4 — codemod on branch), #788 (vitest-coverage 2→4).
+4. **Issue #772 — JWT rotation strategy + production keypair generation** still open (engineering scaffold landed in #776).
+5. **Review #882's three deferred follow-ups** (not blocking the merge): see new A11 finding below for the appointments UTC convention sweep.
+
+### 📦 New artifacts this session
+
+- `6a575d6` — PR #882 squash-merged (Subhadip AI features)
+- `1df30d0` — PR #888 squash-merged (Sourav radiology vision + STAGING fixes)
+- `e2a11e1` — 2 new cron-learnings in CLAUDE.md Open section
+
+---
+
+## 🏠 PRIOR PICKUP — handoff from 2026-05-11 night: test-infra unblock + PR #882 readiness (kept for log)
 
 **Production state at handoff** (commit `ca7eebd` — `fix(api): unblock 16 auth integration test failures`):
 - ✅ **HEAD on `main`** = `ca7eebd`. Working tree clean. Per-push CI in_progress.
@@ -2106,6 +2133,7 @@ preserves the live state.
 | ~~A8~~ | ~~**Tenant FK is `onDelete: SetNull` on every tenant-scoped model.**~~ ✅ **CLOSED** — Issue [#457](https://github.com/Globussoft-Technologies/medcore/issues/457) closed `e7ca04d`. 133 relations flipped to `onDelete: Cascade` + idempotent migration `20260504000003_tenant_fk_cascade`. Safe in prod (tenants soft-deactivate via `Tenant.active`, never hard-delete). | `e7ca04d` → Issue #457 | None. |
 | ~~A9~~ | ~~**`runWithTenant` does NOT validate tenantId.**~~ ✅ **CLOSED `cde1829`** — `tenantContextMiddleware` now validates the resolved tenantId via cached `prisma.tenant.findUnique({ id, active: true })` (60s positive / 30s negative TTL, bounded at 256 entries). Non-existent or deactivated tenants are silently dropped (req.tenantId stays undefined → downstream tenant-required routes 4xx as if no tenant supplied). DB blips fail closed. 6 new test cases (21/21 green). | `cde1829` | None. |
 | ~~A10~~ | ~~**`tenantScopedPrisma` lives in `apps/api/src/services/`, should be in `packages/db`.**~~ ✅ **CLOSED 2026-05-05 `0c8ab07`** — lifted source + unit test to `packages/db/src/tenant-prisma.ts` + `packages/db/src/__tests__/tenant-prisma.test.ts`. Re-exports via `@medcore/db` (`packages/db/src/index.ts`). Back-compat: `apps/api/src/services/tenant-prisma.ts` is now a 22-line re-export shim — all 100+ existing import sites compile unchanged. `tenant-context.ts` also lifted (the `AsyncLocalStorage` ALS instance must be a single shared instance — separate ALS in apps/api would silently break tenant propagation). `rls.test.ts` dynamic-import workaround dropped; now uses static imports from `@medcore/db`. 19/19 lifted unit tests pass; 14/14 tenant-context tests pass; rls.test.ts skips cleanly without DB. | P4 suite (`8d0765a`) → `0c8ab07` | None — closed. Future: workers/cron/secondary services can now `import { tenantScopedPrisma } from "@medcore/db"` directly. |
+| A11 | **Appointment time conventions are inconsistent across handlers.** PR #882 switched `getNextToken` in `apps/api/src/routes/appointments.ts` from local-time (`setHours(0,0,0,0)`) to UTC-bounded math, but the rest of the appointments code surface may still mix conventions. A11y of this is silent: server-local-timezone calculations work fine on dev but collide with IST-anchored ISO bounds (same shape as the `efd42c9` analytics fix that resolved `.issue-details.txt #48` — admin Today Snapshot Registered=0). **Suggested action**: grep sweep `setHours\(|setMinutes\(|toLocaleDateString` across `apps/api/src/routes/appointments.ts` + neighbors (`appointments-batch`, `appointments-followup`, `appointments-noshow`, `slots.ts`); for each hit, decide UTC-bounded vs `istMidnightUtc()` helper. Also tighten the P2002 retry loop on `appointment.create` to a transaction (current 5-attempt retry is a band-aid). | PR #882 squash-merge body at `6a575d6` | Cross-cutting sweep when there's a ~1-2hr slot. Not load-bearing (no user reports), but the pattern matches the `efd42c9` analytics fix that did need closing. |
 
 ### Closed (kept for log)
 

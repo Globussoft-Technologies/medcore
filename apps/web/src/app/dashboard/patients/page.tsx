@@ -22,11 +22,20 @@ const PATIENT_PHONE_REGEX = /^\+?\d{10,15}$/;
 // Issue #382 (CRITICAL prod RBAC bypass, Apr 29 2026): Patients Registry
 // holds PII for every patient in the clinic and must be staff-only. PATIENT
 // role was previously able to load this page directly via URL.
+// Issue #884: PHARMACIST + LAB_TECH need the patient registry to verify
+// identity at the dispensing counter and the sample-collection bench
+// (both already have lawful access to per-patient PHI on prescriptions
+// and lab orders respectively, so the registry is in their existing
+// privilege envelope, not an expansion of it). The backend `GET
+// /api/v1/patients` allow-list is updated in lockstep — see
+// apps/api/src/routes/patients.ts:27.
 const PATIENTS_ALLOWED = new Set([
   "ADMIN",
   "RECEPTION",
   "DOCTOR",
   "NURSE",
+  "PHARMACIST",
+  "LAB_TECH",
 ]);
 
 interface PatientRecord {
@@ -65,12 +74,11 @@ export default function PatientsPage() {
       // Issue #179: redirect to chrome-wrapped /dashboard/not-authorized so
       // the user keeps the sidebar and gets a real "Access Denied" page
       // instead of a generic 404.
-      // Issue #636: LAB_TECH IS staff, so "staff-only" mis-described the
-      // gate. The actual rule is clinician + front-desk: ADMIN, DOCTOR,
-      // NURSE, RECEPTION. Wording made narrower to match the rule and to
-      // remove the contradiction LAB_TECH users reported.
+      // Issue #636 + #884: keep the toast in lockstep with PATIENTS_ALLOWED
+      // above. Naming the actual permitted roles is more useful to a user
+      // who hit the gate than a vague "staff-only" label.
       toast.error(
-        "Patient registry is restricted to clinical and front-desk staff (Admin, Doctor, Nurse, Reception).",
+        "Patient registry is restricted to Admin, Doctor, Nurse, Reception, Pharmacist, and Lab Tech roles.",
       );
       router.replace(
         `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/patients")}`,

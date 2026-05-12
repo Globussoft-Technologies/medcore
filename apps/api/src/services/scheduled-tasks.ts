@@ -59,6 +59,21 @@ async function setLastRun(name: string, at: Date): Promise<void> {
 
 // ─── Task implementations ──────────────────────────────
 
+// Issue #879 bonus + #841 family: the seed data and some manual
+// registrations save doctors with `User.name = "Dr. Rajesh Sharma"`. When
+// the 24h / 1h reminder templates prepend their own "Dr. " the patient sees
+// "Dr. Dr. Rajesh Sharma". The web side has a `formatDoctorName` helper
+// (apps/web/src/lib/format-doctor-name.ts) for the same problem; we
+// duplicate the 4-line logic here rather than reach across the apps→web
+// boundary. TODO: lift this to `@medcore/shared` so both apps share one
+// implementation.
+function formatDoctorName(name: string | null | undefined): string {
+  if (!name) return "";
+  const stripped = name.replace(/^(Dr\.?\s+)+/i, "").trim();
+  if (!stripped) return "";
+  return `Dr. ${stripped}`;
+}
+
 async function appointmentReminders24h(): Promise<void> {
   const now = new Date();
   const start = new Date(now.getTime() + 23 * 60 * 60 * 1000);
@@ -77,11 +92,23 @@ async function appointmentReminders24h(): Promise<void> {
   for (const a of appts) {
     if (!a.patient?.user) continue;
     try {
+      // Issue #879: the original template said "tomorrow" — accurate at send
+      // time, but the notification row persists and the patient can read it
+      // days later when "tomorrow" is no longer correct. Bake the actual
+      // appointment date into the message so it stays factually accurate
+      // regardless of when the user opens it. Format as DD MMM YYYY for
+      // unambiguous Indian-context readability.
+      const apptDate = a.date instanceof Date ? a.date : new Date(a.date);
+      const apptDateStr = apptDate.toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
       await sendNotification({
         userId: a.patient.user.id,
         type: NotificationType.APPOINTMENT_REMINDER,
         title: "Appointment Reminder (24h)",
-        message: `Hi ${a.patient.user.name}, reminder: your appointment with Dr. ${a.doctor.user.name} is tomorrow${a.slotStart ? ` at ${a.slotStart}` : ""}. Token #${a.tokenNumber}.`,
+        message: `Hi ${a.patient.user.name}, reminder: your appointment with ${formatDoctorName(a.doctor.user.name)} is scheduled for ${apptDateStr}${a.slotStart ? ` at ${a.slotStart}` : ""}. Token #${a.tokenNumber}.`,
         data: { appointmentId: a.id },
       });
     } catch (err) {
@@ -117,7 +144,7 @@ async function appointmentReminders1h(): Promise<void> {
         userId: a.patient.user.id,
         type: NotificationType.APPOINTMENT_REMINDER,
         title: "Appointment Starting Soon (1h)",
-        message: `Hi ${a.patient.user.name}, your appointment with Dr. ${a.doctor.user.name} starts at ${a.slotStart}. Please arrive 10 min early. Token #${a.tokenNumber}.`,
+        message: `Hi ${a.patient.user.name}, your appointment with ${formatDoctorName(a.doctor.user.name)} starts at ${a.slotStart}. Please arrive 10 min early. Token #${a.tokenNumber}.`,
         data: { appointmentId: a.id },
       });
     } catch (err) {

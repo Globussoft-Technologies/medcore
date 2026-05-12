@@ -1427,8 +1427,23 @@ export default function AppointmentsPage() {
                   required-fields contract is visible at the panel level.
                   When a patient is pre-picked here, clicking a slot books
                   immediately without re-prompting — see bookAppointment(). */}
-              <div className="mb-4">
-                <label htmlFor="appt-book-patient" className="mb-1 block text-sm font-medium">
+              {/* Issue #885 (re-confirms #344): bug-bashers' DOM probe
+                  showed labels = ["Language","Language","Doctor","Date"]
+                  with NO "Patient *" — that points to a stale staging build
+                  rather than a code bug (the picker is unconditionally
+                  rendered inside this `{showBooking &&` block on the
+                  current branch). Adding an explicit `data-testid` on the
+                  field wrapper + label so a future probe can lock onto
+                  this specific element by selector instead of a generic
+                  `querySelectorAll('label')` sweep, and so a Playwright
+                  smoke test can fail loudly the next time a deploy ships
+                  without this field. */}
+              <div className="mb-4" data-testid="appt-book-patient-field">
+                <label
+                  htmlFor="appt-book-patient"
+                  data-testid="appt-book-patient-label"
+                  className="mb-1 block text-sm font-medium"
+                >
                   Patient *
                 </label>
                 <EntityPicker

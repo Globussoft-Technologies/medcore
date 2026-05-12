@@ -141,7 +141,7 @@ export default function DutyRosterPage() {
 
   if (user?.role !== "ADMIN") {
     return (
-      <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+      <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
         Access restricted to administrators.
       </div>
     );
@@ -292,7 +292,7 @@ export default function DutyRosterPage() {
         <div className="flex gap-2">
           <button
             onClick={() => setShowBulk(true)}
-            className="flex items-center gap-2 rounded-lg border bg-white px-4 py-2 text-sm font-medium hover:bg-gray-50"
+            className="flex items-center gap-2 rounded-lg border bg-white px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700"
           >
             <CalendarDays size={16} /> Bulk Schedule
           </button>
@@ -335,7 +335,7 @@ export default function DutyRosterPage() {
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
           <div className="p-8 text-center text-gray-500">Loading...</div>
         ) : filteredStaff.length === 0 ? (
@@ -438,7 +438,7 @@ export default function DutyRosterPage() {
             data-testid="add-shift-modal"
             onSubmit={submitAdd}
             noValidate
-            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
           >
             <h2 className="mb-4 text-lg font-semibold">Assign Shift</h2>
             <div className="space-y-3">
@@ -560,7 +560,7 @@ export default function DutyRosterPage() {
           <form
             onSubmit={submitBulk}
             noValidate
-            className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
           >
             <h2 className="mb-4 text-lg font-semibold">Bulk Schedule</h2>
             <div className="space-y-3">

@@ -31,32 +31,96 @@ router.use(authenticate);
 // /:id/retry). No cross-user BOLA surface.
 
 // GET /api/v1/notifications — list user's notifications (paginated)
+//
+// Issue #880: the dispatcher writes ONE row per delivery channel — so a
+// patient with PUSH+EMAIL+SMS+WHATSAPP enabled receives 4 rows for every
+// single logical notification, producing "inbox spam" of 16-20 cards for a
+// single appointment with 4 reminder slots. We keep the per-channel rows
+// in the DB (they carry per-channel deliveryStatus + delivery audit data
+// the admin "Delivery Status" viewer needs at /notifications/delivery) and
+// aggregate at READ time here. The shape returned to the client gains a
+// `channels: NotificationChannel[]` field so the inbox UI can render a
+// single card with channel chips instead of N duplicate cards.
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { page = "1", limit = "20", unreadOnly } = req.query;
-    const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
-    const take = Math.min(parseInt(limit as string), 100);
+    const requestedTake = Math.min(parseInt(limit as string), 100);
+    const requestedPage = parseInt(page as string);
 
     const where: Record<string, unknown> = { userId: req.user!.userId };
     if (unreadOnly === "true") {
       where.readAt = null;
     }
 
-    const [notifications, total] = await Promise.all([
-      prisma.notification.findMany({
-        where,
-        skip,
-        take,
-        orderBy: { createdAt: "desc" },
-      }),
-      prisma.notification.count({ where }),
-    ]);
+    // We can't paginate at the SQL layer anymore because rows merge — page
+    // size N could collapse to fewer than N logical notifications post-
+    // aggregation, leading to short-page rendering. Pull a generous slab
+    // (page × take × maxChannels) and slice after grouping. With up to 4
+    // channels per notification, requestedTake * 4 is a safe upper bound.
+    const slabTake = requestedTake * 4 * Math.max(1, requestedPage);
+    const rows = await prisma.notification.findMany({
+      where,
+      take: slabTake,
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Group by logical identity. Same (type, title, message, scheduledFor)
+    // for the same user means the dispatcher fanned out a single send. We
+    // include the data JSON in the key so two reminders that share the
+    // same title/body but reference different appointment ids don't fold.
+    type Row = (typeof rows)[number];
+    const groups = new Map<string, Row[]>();
+    const order: string[] = [];
+    for (const r of rows) {
+      // `scheduledFor` is the strongest grouping signal because the
+      // dispatcher writes all per-channel rows in one transaction with
+      // the same scheduledFor (if any). Fall back to a 1-second bucket on
+      // createdAt for legacy rows where scheduledFor was null.
+      const t =
+        r.scheduledFor?.toISOString() ??
+        new Date(Math.floor(r.createdAt.getTime() / 1000) * 1000).toISOString();
+      const dataKey = r.data ? JSON.stringify(r.data) : "";
+      const key = `${r.type}|${r.title}|${r.message}|${t}|${dataKey}`;
+      if (!groups.has(key)) {
+        groups.set(key, []);
+        order.push(key);
+      }
+      groups.get(key)!.push(r);
+    }
+
+    const merged = order.map((key) => {
+      const list = groups.get(key)!;
+      // Representative row = most recent in the group (the rest have
+      // identical title/message/data by definition of the grouping key).
+      const head = list.reduce((acc, r) =>
+        r.createdAt > acc.createdAt ? r : acc,
+      );
+      // A merged card is "read" only when EVERY channel-row is read;
+      // unread on any channel means the user hasn't acknowledged it yet.
+      const allRead = list.every((r) => r.readAt !== null);
+      const channels = Array.from(new Set(list.map((r) => r.channel)));
+      return {
+        ...head,
+        // The frontend should render `channels` as chips. We keep the
+        // representative row's other fields untouched so existing consumers
+        // (mark-as-read, inbox card renderer) keep working.
+        channels,
+        readAt: allRead ? head.readAt : null,
+        // ids of every underlying row, so the frontend's mark-as-read can
+        // dispatch to all of them in one click.
+        groupedIds: list.map((r) => r.id),
+      };
+    });
+
+    const total = merged.length;
+    const skip = (requestedPage - 1) * requestedTake;
+    const pageSlice = merged.slice(skip, skip + requestedTake);
 
     res.json({
       success: true,
-      data: notifications,
+      data: pageSlice,
       error: null,
-      meta: { page: parseInt(page as string), limit: take, total },
+      meta: { page: requestedPage, limit: requestedTake, total },
     });
   } catch (err) {
     next(err);

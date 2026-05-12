@@ -382,8 +382,15 @@ export default function UnifiedCalendarPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Calendar</h1>
-          <p className="text-sm text-gray-500">
+          {/* Issue #876: the H1 was previously colored `text-gray-900` with
+              no dark-mode override, so on dark backgrounds the heading
+              rendered near-black on near-black and was effectively invisible
+              to sighted users (screen readers still announced it, hence the
+              "no H1" report). Inherit the layout's body color instead — that
+              already has a light/dark pair wired up — and bump the subtitle
+              one notch lighter than gray-500 so it scans cleanly in dark mode. */}
+          <h1 className="text-2xl font-bold">Calendar</h1>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
             Unified view of all scheduled events
           </p>
         </div>
@@ -391,10 +398,18 @@ export default function UnifiedCalendarPage() {
           {/* Issue #431: Day/Week/Month view toggle. Previously absent — the
               calendar only rendered a month grid, so users clicking the
               toggle saw nothing happen. */}
+          {/* Issue #876 continued: every pill / card / control in the
+              calendar header was bg-white with no dark variant. In dark
+              mode the white pill rendered against a dark page, but the
+              text inside the pill inherited the layout's light body
+              color — white-on-white, invisible. Same fix pattern as the
+              #886 Duty Roster + Census sweep: add dark:bg-gray-800 for
+              card surfaces, dark:hover:bg-gray-700 for hover states, and
+              dark:text-gray-200 for muted text. */}
           <div
             role="tablist"
             aria-label="Calendar view"
-            className="flex items-center gap-1 rounded-lg bg-white p-1 shadow-sm"
+            className="flex items-center gap-1 rounded-lg bg-white p-1 shadow-sm dark:bg-gray-800"
           >
             {(["day", "week", "month"] as ViewMode[]).map((m) => (
               <button
@@ -407,20 +422,20 @@ export default function UnifiedCalendarPage() {
                 className={`rounded px-2 py-1 text-xs font-medium capitalize ${
                   viewMode === m
                     ? "bg-primary text-white"
-                    : "text-gray-700 hover:bg-gray-100"
+                    : "text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
                 }`}
               >
                 {m}
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-2 rounded-lg bg-white p-1 shadow-sm">
+          <div className="flex items-center gap-2 rounded-lg bg-white p-1 shadow-sm dark:bg-gray-800">
             <button
               type="button"
               data-testid="cal-prev"
               aria-label="Previous month"
               onClick={() => setCursor(new Date(year, month - 1, 1))}
-              className="rounded p-1.5 hover:bg-gray-100"
+              className="rounded p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700"
             >
               <ChevronLeft size={16} />
             </button>
@@ -432,7 +447,7 @@ export default function UnifiedCalendarPage() {
               data-testid="cal-next"
               aria-label="Next month"
               onClick={() => setCursor(new Date(year, month + 1, 1))}
-              className="rounded p-1.5 hover:bg-gray-100"
+              className="rounded p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700"
             >
               <ChevronRight size={16} />
             </button>
@@ -443,7 +458,7 @@ export default function UnifiedCalendarPage() {
                 const d = new Date();
                 setCursor(new Date(d.getFullYear(), d.getMonth(), 1));
               }}
-              className="ml-2 rounded-md border px-2 py-0.5 text-xs hover:bg-gray-50"
+              className="ml-2 rounded-md border px-2 py-0.5 text-xs hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700"
             >
               Today
             </button>
@@ -469,7 +484,7 @@ export default function UnifiedCalendarPage() {
           for pharmacist). For pharmacist + lab-tech the legend collapses to
           the categories they can actually see — appointments, custom events
           and holidays — and stays self-documenting. */}
-      <div className="flex flex-wrap gap-3 rounded-xl bg-white p-3 text-xs shadow-sm">
+      <div className="flex flex-wrap gap-3 rounded-xl bg-white p-3 text-xs shadow-sm dark:bg-gray-800">
         <Legend color="bg-blue-500" Icon={CalendarIcon} label="Appointment" />
         {user?.role !== "PHARMACIST" && user?.role !== "LAB_TECH" && (
           <>
@@ -490,7 +505,7 @@ export default function UnifiedCalendarPage() {
       </div>
 
       {loading && (
-        <div className="rounded-xl bg-white p-4 text-center text-xs text-gray-400 shadow-sm">
+        <div className="rounded-xl bg-white p-4 text-center text-xs text-gray-400 shadow-sm dark:bg-gray-800 dark:text-gray-500">
           Loading events...
         </div>
       )}
@@ -502,7 +517,7 @@ export default function UnifiedCalendarPage() {
       {viewMode === "day" && (
         <div
           data-testid="cal-day-view"
-          className="rounded-xl bg-white p-4 shadow-sm"
+          className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800"
         >
           <h2 className="mb-3 text-sm font-semibold">
             {new Date().toLocaleDateString("en-IN", {
@@ -555,7 +570,7 @@ export default function UnifiedCalendarPage() {
         return (
           <div
             data-testid="cal-week-view"
-            className="rounded-xl bg-white p-3 shadow-sm"
+            className="rounded-xl bg-white p-3 shadow-sm dark:bg-gray-800"
           >
             <div className="grid grid-cols-7 gap-2">
               {days.map((d) => {
@@ -605,8 +620,8 @@ export default function UnifiedCalendarPage() {
 
       {/* Month grid */}
       {viewMode === "month" && (
-      <div data-testid="cal-month-view" className="rounded-xl bg-white p-3 shadow-sm">
-        <div className="mb-1 grid grid-cols-7 gap-1 text-center text-xs font-semibold text-gray-500">
+      <div data-testid="cal-month-view" className="rounded-xl bg-white p-3 shadow-sm dark:bg-gray-800">
+        <div className="mb-1 grid grid-cols-7 gap-1 text-center text-xs font-semibold text-gray-500 dark:text-gray-400">
           {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
             <div key={d} className="py-1">
               {d}
@@ -714,7 +729,7 @@ export default function UnifiedCalendarPage() {
           onClick={() => setSelected(null)}
         >
           <div
-            className="w-full max-w-md rounded-xl bg-white shadow-xl"
+            className="w-full max-w-md rounded-xl bg-white shadow-xl dark:bg-gray-800"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b px-4 py-3">
@@ -862,7 +877,7 @@ function NewEventDialog({
       <form
         onSubmit={submit}
         noValidate
-        className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+        className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800"
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 id="cal-new-event-title" className="text-lg font-semibold">

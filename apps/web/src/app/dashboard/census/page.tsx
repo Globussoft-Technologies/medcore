@@ -84,7 +84,7 @@ export default function CensusPage() {
               className={`px-3 py-1.5 text-sm rounded border ${
                 mode === m
                   ? "bg-blue-600 text-white border-blue-600"
-                  : "bg-white border-slate-200 text-slate-700 hover:border-blue-400"
+                  : "bg-white border-slate-200 text-slate-700 hover:border-blue-400 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200 dark:hover:border-blue-400"
               }`}
             >
               {m === "day" ? "Daily" : m === "week" ? "Weekly" : "Monthly"}
@@ -107,26 +107,26 @@ export default function CensusPage() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="p-4 bg-white border border-slate-200 rounded-lg">
-          <div className="flex items-center gap-2 text-sm text-slate-500">
+        <div className="p-4 bg-white border border-slate-200 rounded-lg dark:bg-gray-800 dark:border-gray-700">
+          <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-gray-400">
             <TrendingUp className="h-4 w-4" /> New Admissions
           </div>
           <div className="text-2xl font-bold mt-1">{totals.newAdmissions}</div>
         </div>
-        <div className="p-4 bg-white border border-slate-200 rounded-lg">
-          <div className="flex items-center gap-2 text-sm text-slate-500">
+        <div className="p-4 bg-white border border-slate-200 rounded-lg dark:bg-gray-800 dark:border-gray-700">
+          <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-gray-400">
             <BedDouble className="h-4 w-4" /> Discharges
           </div>
           <div className="text-2xl font-bold mt-1">{totals.discharges}</div>
         </div>
-        <div className="p-4 bg-white border border-slate-200 rounded-lg">
-          <div className="flex items-center gap-2 text-sm text-slate-500">
+        <div className="p-4 bg-white border border-slate-200 rounded-lg dark:bg-gray-800 dark:border-gray-700">
+          <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-gray-400">
             <Activity className="h-4 w-4" /> Deaths
           </div>
           <div className="text-2xl font-bold mt-1">{totals.deaths}</div>
         </div>
-        <div className="p-4 bg-white border border-slate-200 rounded-lg">
-          <div className="flex items-center gap-2 text-sm text-slate-500">
+        <div className="p-4 bg-white border border-slate-200 rounded-lg dark:bg-gray-800 dark:border-gray-700">
+          <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-gray-400">
             Avg. Occupancy
           </div>
           <div className="text-2xl font-bold mt-1">{avgOccupancy}%</div>
@@ -135,8 +135,8 @@ export default function CensusPage() {
 
       {/* Simple bar chart */}
       {data.length > 1 && (
-        <div className="mb-6 p-4 bg-white border border-slate-200 rounded-lg">
-          <div className="text-sm font-semibold mb-3 text-slate-800">Occupancy Trend</div>
+        <div className="mb-6 p-4 bg-white border border-slate-200 rounded-lg dark:bg-gray-800 dark:border-gray-700">
+          <div className="text-sm font-semibold mb-3 text-slate-800 dark:text-gray-100">Occupancy Trend</div>
           {data.every((r) => r.occupancyPercent === 0) ? (
             // Issue #332: when occupancy is 0% across the window the
             // proportional-height bars (height: 0%) collapse to invisible
@@ -175,12 +175,12 @@ export default function CensusPage() {
       )}
 
       {/* Table */}
-      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden dark:bg-gray-800 dark:border-gray-700">
         {loading ? (
-          <div className="p-8 text-center text-slate-500">Loading...</div>
+          <div className="p-8 text-center text-slate-500 dark:text-gray-400">Loading...</div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-700 text-xs uppercase">
+            <thead className="bg-slate-50 text-slate-700 text-xs uppercase dark:bg-gray-900 dark:text-gray-300">
               <tr>
                 <th className="px-3 py-2 text-left">Date</th>
                 <th className="px-3 py-2 text-right">Start</th>

@@ -106,6 +106,28 @@ interface FailedLogin {
   details?: { email?: string; reason?: string };
 }
 
+// Issue #874: the API emits raw snake_case enum values for `details.reason`
+// (e.g. "bad_password", "user_not_found_or_inactive"). Showing those in a
+// patient-facing security audit log leaks internal naming and looks
+// unfinished. Map known values to human-readable copy; unknown values fall
+// back to a title-cased version so a newly-added backend reason still
+// renders sensibly without a deploy lock-step.
+function formatLoginFailureReason(raw: string | undefined): string {
+  if (!raw) return "—";
+  const KNOWN: Record<string, string> = {
+    bad_password: "Incorrect password",
+    user_not_found_or_inactive: "Account not found or inactive",
+    tenant_deactivated: "Organisation account is deactivated",
+  };
+  if (KNOWN[raw]) return KNOWN[raw];
+  // Fallback: snake_case → Title Case so a future backend enum we haven't
+  // mapped yet still reads like English instead of leaking the raw value.
+  return raw
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 interface ScheduleResp {
   data: {
     quietHoursStart: string | null;
@@ -115,6 +137,20 @@ interface ScheduleResp {
 }
 
 const CHANNELS: Preference["channel"][] = ["WHATSAPP", "SMS", "EMAIL", "PUSH"];
+
+// Issue #873: the API stores channels as upper-snake enums (WHATSAPP, SMS,
+// EMAIL, PUSH) but the UI cards were rendering the title as raw enum and the
+// body as `.toLowerCase()` — producing "WHATSAPP" / "via whatsapp" instead of
+// "WhatsApp" / "via WhatsApp". Centralise the enum→display mapping so both
+// halves of the card stay in sync. SMS/PUSH/EMAIL keep their natural casing
+// (SMS is an initialism, EMAIL is just "Email", PUSH is "Push"). WhatsApp is
+// the only branded one that needs explicit mixed-casing.
+const CHANNEL_LABEL: Record<Preference["channel"], string> = {
+  WHATSAPP: "WhatsApp",
+  SMS: "SMS",
+  EMAIL: "Email",
+  PUSH: "Push",
+};
 
 export default function SettingsPage() {
   // Issue #437: read role first so the default tab is always one the user
@@ -838,7 +874,9 @@ function SecurityTab() {
                   <td className="py-2">{new Date(f.createdAt).toLocaleString()}</td>
                   <td className="py-2 font-mono text-xs">{f.ipAddress || "—"}</td>
                   <td className="py-2">{f.details?.email || "—"}</td>
-                  <td className="py-2 text-xs text-gray-500">{f.details?.reason || "—"}</td>
+                  <td className="py-2 text-xs text-gray-700 dark:text-gray-200">
+                    {formatLoginFailureReason(f.details?.reason)}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -914,7 +952,12 @@ function NotificationsTab() {
   async function testChannel(channel: string) {
     try {
       await api.post("/notifications/test", { channel });
-      toast.success(`Test ${channel} notification queued`);
+      // Issue #873 continued: the toast was also rendering the raw enum
+      // ("Test WHATSAPP notification queued") — route it through the same
+      // label map so the test confirmation reads cleanly.
+      const label =
+        CHANNEL_LABEL[channel as Preference["channel"]] ?? channel;
+      toast.success(`Test ${label} notification queued`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
     }
@@ -931,9 +974,9 @@ function NotificationsTab() {
               className="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-3 dark:border-gray-700"
             >
               <div>
-                <p className="text-sm font-medium">{p.channel}</p>
+                <p className="text-sm font-medium">{CHANNEL_LABEL[p.channel]}</p>
                 <p className="text-xs text-gray-500">
-                  Receive notifications via {p.channel.toLowerCase()}
+                  Receive notifications via {CHANNEL_LABEL[p.channel]}
                 </p>
               </div>
               <div className="flex items-center gap-2">

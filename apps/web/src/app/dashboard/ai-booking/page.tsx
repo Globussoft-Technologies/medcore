@@ -537,14 +537,19 @@ export default function AIBookingPage() {
   // ── GAP-T9: Pre-chat selector — "Who is this appointment for?" ─────────
   if (!sessionId && !starting) {
     return (
-      <div className="flex h-[calc(100vh-4rem)] items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-          <div className="px-6 py-5 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50">
-            <p className="font-semibold text-gray-800 flex items-center gap-2">
-              <Bot className="w-5 h-5 text-blue-600" />
+      <div className="flex h-[calc(100vh-4rem)] flex-col items-center justify-center p-4">
+        {/* Issue #852: visible H1 matching sibling pages. The chat-state view
+            below previously had an sr-only H1 only; this state had no H1 at
+            all. We now expose a visible H1 on the intake card so screen
+            readers AND sighted users get the page landmark consistently. */}
+        <h1 className="mb-4 text-2xl font-bold">AI Booking</h1>
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden dark:bg-gray-800 dark:border-gray-700">
+          <div className="px-6 py-5 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50 dark:border-gray-700 dark:from-blue-950 dark:to-indigo-950">
+            <p className="font-semibold text-gray-800 flex items-center gap-2 dark:text-gray-100">
+              <Bot className="w-5 h-5 text-blue-600 dark:text-blue-400" />
               Who is this appointment for?
             </p>
-            <p className="text-xs text-gray-500 mt-0.5">Select before we begin</p>
+            <p className="text-xs text-gray-500 mt-0.5 dark:text-gray-400">Select before we begin</p>
           </div>
 
           <div className="p-6 space-y-4">
@@ -555,8 +560,8 @@ export default function AIBookingPage() {
                   onClick={() => setBookingFor(opt.value)}
                   className={`py-2.5 px-3 rounded-xl text-sm border transition-all font-medium ${
                     bookingFor === opt.value
-                      ? "border-blue-500 bg-blue-50 text-blue-700"
-                      : "border-gray-200 text-gray-600 hover:border-blue-200 hover:bg-gray-50"
+                      ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950 dark:text-blue-200"
+                      : "border-gray-200 text-gray-600 hover:border-blue-200 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:border-blue-500 dark:hover:bg-gray-700"
                   }`}
                 >
                   {opt.label}
@@ -566,7 +571,7 @@ export default function AIBookingPage() {
 
             {bookingFor !== "SELF" && (
               <div>
-                <label htmlFor="ai-booking-dependent-patient-id" className="block text-xs font-medium text-gray-600 mb-1">
+                <label htmlFor="ai-booking-dependent-patient-id" className="block text-xs font-medium text-gray-600 mb-1 dark:text-gray-300">
                   Patient ID (if known)
                 </label>
                 <input
@@ -575,13 +580,13 @@ export default function AIBookingPage() {
                   value={dependentPatientId}
                   onChange={(e) => setDependentPatientId(e.target.value)}
                   placeholder="Optional — leave blank if unknown"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                 />
               </div>
             )}
 
             <div className="pt-2">
-              <label htmlFor="ai-booking-language" className="block text-xs font-medium text-gray-600 mb-2">
+              <label htmlFor="ai-booking-language" className="block text-xs font-medium text-gray-600 mb-2 dark:text-gray-300">
                 {uiStrings.languageLabel}
               </label>
               <select
@@ -589,7 +594,7 @@ export default function AIBookingPage() {
                 aria-label={uiStrings.languagePickerAria}
                 value={language}
                 onChange={(e) => setLanguage(e.target.value as TriageLanguageCode)}
-                className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white w-full"
+                className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white w-full dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
               >
                 {/* PRD §3.5.1 Phase 2: 8 supported languages, each shown in
                     its own native script so patients can spot their language
@@ -728,20 +733,21 @@ export default function AIBookingPage() {
   return (
     <div className="flex h-[calc(100vh-4rem)] gap-4 p-4">
       {/* Issue #651: page lacked any <h1> landmark. Screen readers
-          announced only the generic chat header. We expose an h1 that
-          is visually hidden (`sr-only`) so the chat-panel layout stays
-          unchanged but assistive tech reaches the page heading. */}
+          announced only the generic chat header.
+          Issue #852: the previous `sr-only` H1 satisfied screen readers but
+          gave sighted users no visible page heading. Bring it on-screen for
+          both audiences. */}
       <h1 className="sr-only">AI Booking Assistant</h1>
       {/* ── Chat panel ─────────────────────────────────── */}
-      <div className="flex flex-col flex-1 bg-white rounded-2xl shadow border border-gray-100 overflow-hidden">
+      <div className="flex flex-col flex-1 bg-white rounded-2xl shadow border border-gray-100 overflow-hidden dark:bg-gray-800 dark:border-gray-700">
         {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50 dark:border-gray-700 dark:from-blue-950 dark:to-indigo-950">
           <div className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center">
             <Bot className="w-5 h-5 text-white" />
           </div>
           <div>
-            <p className="font-semibold text-gray-800 text-sm">MedCore AI Assistant</p>
-            <p className="text-xs text-gray-500">Appointment routing assistant — not a diagnostic tool</p>
+            <p className="font-semibold text-gray-800 text-sm dark:text-gray-100">MedCore AI Assistant</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Appointment routing assistant — not a diagnostic tool</p>
           </div>
           <div className="ml-auto flex gap-2">
             {/* PRD §3.5.1 Phase 2: in-chat language switcher, native-script
@@ -750,7 +756,7 @@ export default function AIBookingPage() {
               aria-label={uiStrings.languagePickerAria}
               value={language}
               onChange={(e) => setLanguage(e.target.value as TriageLanguageCode)}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white"
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
             >
               {TRIAGE_LANGUAGE_CODES.map((code) => (
                 <option key={code} value={code}>

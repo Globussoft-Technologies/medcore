@@ -47,8 +47,13 @@ export async function resetDB() {
     }
   );
 
-  // Seed minimal admin user
+  // Seed minimal admin user under a default test tenant.
+  // Issue #895: integration tests need a real tenant so JWTs minted by
+  // getAuthToken() carry a non-null tenantId — the patient-create guard
+  // (and the broader pattern documented in patients.ts) refuses 400
+  // when the caller's JWT has no tenant context.
   const prisma = await getPrisma();
+  const tenant = await ensureDefaultTestTenant(prisma);
   await prisma.user.create({
     data: {
       email: "admin@test.local",
@@ -56,6 +61,25 @@ export async function resetDB() {
       phone: "9999999999",
       passwordHash: await bcrypt.hash("MedCoreT3st-2026", 4),
       role: "ADMIN",
+      tenantId: tenant.id,
+    },
+  });
+}
+
+/**
+ * Find-or-create the default test tenant. Idempotent so it's safe to call
+ * from resetDB() AND from getAuthToken() (the latter for tests that skip
+ * resetDB and just need a tenanted user).
+ */
+async function ensureDefaultTestTenant(prisma: any): Promise<{ id: string }> {
+  const slug = "test-tenant";
+  const existing = await prisma.tenant.findFirst({ where: { slug } });
+  if (existing) return existing;
+  return prisma.tenant.create({
+    data: {
+      name: "Test Tenant",
+      slug,
+      active: true,
     },
   });
 }
@@ -76,6 +100,9 @@ export type TestRole =
 export async function getAuthToken(role: TestRole = "ADMIN"): Promise<string> {
   const prisma = await getPrisma();
   const email = `${role.toLowerCase()}@test.local`;
+  // Issue #895: every test User must be tenant-bound so the JWT carries a
+  // real tenantId and the patient-create / future write-guards don't 400.
+  const tenant = await ensureDefaultTestTenant(prisma);
   let user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
     user = await prisma.user.create({
@@ -85,7 +112,15 @@ export async function getAuthToken(role: TestRole = "ADMIN"): Promise<string> {
         phone: "9000000000",
         passwordHash: await bcrypt.hash("MedCoreT3st-2026", 4),
         role: role as any,
+        tenantId: tenant.id,
       },
+    });
+  } else if (!(user as { tenantId?: string | null }).tenantId) {
+    // Pre-#895 test user — backfill the tenant link so subsequent
+    // getAuthToken() calls mint tenant-bearing JWTs.
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: { tenantId: tenant.id },
     });
   }
   // For PATIENT role, ensure a linked Patient row exists. Several routes
@@ -108,8 +143,19 @@ export async function getAuthToken(role: TestRole = "ADMIN"): Promise<string> {
       });
     }
   }
+  // Issue #895 (May 2026): patient-create (and a growing set of write
+  // endpoints) now refuses 400 when the caller's JWT has no `tenantId`,
+  // as a defence-in-depth against legacy tokens producing tenantId:null
+  // rows. The find-or-create above guarantees user.tenantId is populated.
+  const tenantId =
+    (user as { tenantId?: string | null }).tenantId ?? tenant.id;
   return jwt.sign(
-    { userId: user.id, email: user.email, role: user.role },
+    {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      tenantId,
+    },
     process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
     { expiresIn: "1h" }
   );

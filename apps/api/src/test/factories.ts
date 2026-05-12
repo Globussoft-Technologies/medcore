@@ -16,6 +16,18 @@ let bedSeq = 0;
 
 export async function createUserFixture(overrides: Partial<any> = {}) {
   const prisma = await getPrisma();
+  // Issue #895: every fixture-created User must be tenant-bound so any
+  // JWT minted from this row carries a real tenantId. Find-or-create the
+  // default test tenant — same one resetDB() and getAuthToken() use, so
+  // there's exactly one tenant scope across the whole integration suite.
+  const tenantId = overrides.tenantId ?? (await (async () => {
+    const t = await prisma.tenant.findFirst({ where: { slug: "test-tenant" } });
+    if (t) return t.id;
+    const created = await prisma.tenant.create({
+      data: { name: "Test Tenant", slug: "test-tenant", active: true },
+    });
+    return created.id;
+  })());
   return prisma.user.create({
     data: {
       email:
@@ -26,6 +38,7 @@ export async function createUserFixture(overrides: Partial<any> = {}) {
       passwordHash: await bcrypt.hash(overrides.password || "MedCoreT3st-2026", 4),
       role: overrides.role || "PATIENT",
       isActive: overrides.isActive ?? true,
+      tenantId,
     },
   });
 }
@@ -98,6 +111,14 @@ export async function createDoctorWithToken(
   const email =
     overrides.email ||
     `doctor_${Date.now()}_${Math.random().toString(36).slice(2, 6)}@test.local`;
+  // Issue #895: every test User needs a tenant — find-or-create the default
+  // test tenant and link this doctor to it so the JWT carries a tenantId
+  // and tenant-guarded write endpoints don't 400.
+  const testTenant = await prisma.tenant.findFirst({
+    where: { slug: "test-tenant" },
+  }) ?? await prisma.tenant.create({
+    data: { name: "Test Tenant", slug: "test-tenant", active: true },
+  });
   const user = await prisma.user.create({
     data: {
       email,
@@ -105,6 +126,7 @@ export async function createDoctorWithToken(
       phone: overrides.phone || faker.string.numeric(10),
       passwordHash: await bcrypt.hash("MedCoreT3st-2026", 4),
       role: "DOCTOR",
+      tenantId: testTenant.id,
     },
   });
   const doctor = await prisma.doctor.create({
@@ -112,11 +134,26 @@ export async function createDoctorWithToken(
       userId: user.id,
       specialization: overrides.specialization || "General Medicine",
       qualification: overrides.qualification || "MBBS",
+      // Issue #897: prescriptions created by this doctor inherit the
+      // signatureUrl (see routes/prescriptions.ts line 204). Without a
+      // default here, every route-created Rx in tests lands with
+      // signatureUrl:null and can't be shared (the new clinical-safety
+      // guard 400s). Tests asserting the unsigned-refuse path can
+      // override via `overrides: { signatureUrl: null }`.
+      signatureUrl:
+        overrides && "signatureUrl" in overrides
+          ? overrides.signatureUrl
+          : "https://example.com/test-doctor-signature.png",
     },
     include: { user: true },
   });
   const token = jwt.sign(
-    { userId: user.id, email: user.email, role: "DOCTOR" },
+    {
+      userId: user.id,
+      email: user.email,
+      role: "DOCTOR",
+      tenantId: testTenant.id,
+    },
     process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
     { expiresIn: "1h" }
   );
@@ -440,6 +477,15 @@ export async function createPrescriptionFixture(args: {
   overrides?: Partial<any>;
 }) {
   const prisma = await getPrisma();
+  // Issue #897 (May 2026): the share endpoint now refuses 400 when
+  // signatureUrl IS NULL (clinical safety — unsigned Rx must not reach
+  // patients). Tests that exercise the share path need a signed
+  // prescription by default; tests that want to assert the unsigned-
+  // refuse path can pass `overrides: { signatureUrl: null }` explicitly.
+  const signatureUrl =
+    args.overrides && "signatureUrl" in args.overrides
+      ? args.overrides.signatureUrl
+      : "https://example.com/test-signature.png";
   return prisma.prescription.create({
     data: {
       patientId: args.patientId,
@@ -447,6 +493,7 @@ export async function createPrescriptionFixture(args: {
       appointmentId: args.appointmentId,
       diagnosis: args.overrides?.diagnosis || "Acute pharyngitis",
       advice: args.overrides?.advice || "Rest and fluids",
+      signatureUrl,
       items: {
         create: [
           {

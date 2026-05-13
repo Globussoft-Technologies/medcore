@@ -23,7 +23,7 @@ test.describe("Appointments regressions (April 2026)", () => {
     // directly to /dashboard/wards via a hard navigation — this is exactly
     // the path that used to drop the user at /login with no toast.
     await page.goto("/dashboard");
-    await expect(page.locator("text=MedCore").first()).toBeVisible({
+    await expect(page.getByAltText("MedCore").first()).toBeVisible({
       timeout: 15_000,
     });
     await dismissTourIfPresent(page);

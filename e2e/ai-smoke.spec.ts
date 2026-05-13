@@ -103,6 +103,13 @@ test.describe("AI smoke (14 newer AI routes)", () => {
         ],
       },
     };
+    // PR #905 moved the ai-followup page's data source from
+    // /ehr/consultations + /consultations to /ai/followup/consultations
+    // (apps/web/src/app/dashboard/ai-followup/page.tsx:42). Stub all three
+    // shapes so the test stays robust if the source moves again.
+    await page.route("**/api/v1/ai/followup/consultations**", (r) =>
+      r.fulfill(jsonFulfill(stubConsultations))
+    );
     await page.route("**/api/v1/ehr/consultations**", (r) =>
       r.fulfill(jsonFulfill(stubConsultations))
     );

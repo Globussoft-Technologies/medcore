@@ -49,23 +49,54 @@ const typeLabel: Record<string, string> = {
   label: "Modules",
 };
 
-const RECENT_KEY = "medcore:recent-search";
+// Issue #877: the previous implementation stored recent searches under a
+// single global key, "medcore:recent-search". When one user (e.g. an admin
+// searching for "Fatima") logged out and a different user (e.g. a patient)
+// logged in on the same browser, the patient saw the admin's search
+// history in the Ctrl+K palette. That's a cross-user privacy leak — names,
+// MR numbers and phone numbers leak across roles.
+//
+// Fix: key the recent-search list by user id. Each user only ever reads
+// and writes their own slot. The legacy global key is wiped on first read
+// after this code ships so any pre-existing leak self-heals (we don't
+// need a server-side migration).
+const LEGACY_RECENT_KEY = "medcore:recent-search";
 
-function loadRecent(): string[] {
+function recentKeyFor(userId: string | null | undefined): string | null {
+  if (!userId) return null;
+  return `medcore:recent-search:${userId}`;
+}
+
+function loadRecent(userId: string | null | undefined): string[] {
   if (typeof window === "undefined") return [];
+  // One-time legacy-key cleanup. Runs at most once per user-id slot we
+  // touch; cheap (a single localStorage.removeItem) and idempotent.
   try {
-    const raw = localStorage.getItem(RECENT_KEY);
+    localStorage.removeItem(LEGACY_RECENT_KEY);
+  } catch {
+    // ignore — localStorage can be disabled (incognito quota, etc.)
+  }
+  const key = recentKeyFor(userId);
+  if (!key) return [];
+  try {
+    const raw = localStorage.getItem(key);
     return raw ? (JSON.parse(raw) as string[]) : [];
   } catch {
     return [];
   }
 }
 
-function saveRecent(q: string) {
+function saveRecent(userId: string | null | undefined, q: string) {
   if (typeof window === "undefined" || !q) return;
-  const cur = loadRecent();
+  const key = recentKeyFor(userId);
+  if (!key) return; // refuse to write when we don't know whose history this is
+  const cur = loadRecent(userId);
   const next = [q, ...cur.filter((x) => x !== q)].slice(0, 8);
-  localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+  try {
+    localStorage.setItem(key, JSON.stringify(next));
+  } catch {
+    // ignore — localStorage can be full or disabled
+  }
 }
 
 export function SearchPalette({
@@ -87,6 +118,10 @@ export function SearchPalette({
   // role — including PATIENT, who has no business searching the patient
   // roster. Tailor the hint copy to what the role can actually find.
   const role = useAuthStore((s) => s.user?.role);
+  // Issue #877: recent-search history is per-user. Capture the id here so
+  // loadRecent / saveRecent can scope reads + writes to the current user
+  // and never leak history across logins on a shared browser.
+  const userId = useAuthStore((s) => s.user?.id);
   const placeholder =
     role === "PATIENT"
       ? "Search appointments, prescriptions, bills…"
@@ -94,13 +129,13 @@ export function SearchPalette({
 
   useEffect(() => {
     if (open) {
-      setRecent(loadRecent());
+      setRecent(loadRecent(userId));
       setQ("");
       setResults([]);
       setActive(0);
       setTimeout(() => inputRef.current?.focus(), 20);
     }
-  }, [open]);
+  }, [open, userId]);
 
   useEffect(() => {
     if (!open) return;
@@ -133,7 +168,7 @@ export function SearchPalette({
   }, [q, open]);
 
   function go(hit: SearchHit) {
-    saveRecent(q.trim());
+    saveRecent(userId, q.trim());
     onClose();
     if (!hit.href || hit.href === "null" || hit.href === "/dashboard/null") {
       // Issue #582 #2: a malformed search hit with no href used to silently

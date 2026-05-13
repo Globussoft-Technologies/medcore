@@ -259,10 +259,15 @@ export default function AdherencePage() {
   return (
     <div className="p-6 max-w-4xl mx-auto">
       {/* Header */}
+      {/* Issue #875: the H1 was previously `text-gray-900` with no dark-mode
+          override, so on dark backgrounds it rendered near-black on near-black
+          and the user reported "only a bell icon appears" (the blue bell was
+          the only visible piece of the header). Inherit the layout's body
+          color so light + dark both render with proper contrast. */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Bell className="w-6 h-6 text-blue-600" />
-          <h1 className="text-2xl font-semibold text-gray-900">Medication Reminders</h1>
+          <h1 className="text-2xl font-semibold">Medication Reminders</h1>
         </div>
         <button
           onClick={() => setShowEnroll((v) => !v)}
@@ -380,10 +385,20 @@ export default function AdherencePage() {
         hasPatientProfile === true &&
         schedules.length === 0 && (
         <div className="text-center py-12">
-          <Pill className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500 text-sm">No active medication reminders.</p>
-          <p className="text-gray-400 text-xs mt-1">
-            Enroll a prescription above to get started.
+          <Pill className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+          {/* Issue #875: empty-state copy said "Enroll a prescription above
+              to get started", but the Enroll button is in the TOP-RIGHT of
+              the header, not above this block — directional language is
+              misleading and unhelpful for screen reader users. Reference the
+              button by its label instead. Contrast also bumped one notch
+              lighter for dark mode (gray-400 → gray-500 vs new dark-mode
+              variant) so the hint stays scannable on both themes. */}
+          <p className="text-sm text-gray-700 dark:text-gray-300">
+            No active medication reminders.
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Use the <strong>Enroll Prescription</strong> button at the top
+            of the page to get started.
           </p>
         </div>
       )}

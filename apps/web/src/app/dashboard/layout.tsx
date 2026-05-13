@@ -594,11 +594,30 @@ export default function DashboardLayout({
   // everywhere — the tour used to reopen each time the user navigated to
   // a sibling dashboard route because the skip was only honoured by the
   // role-keyed "completed" flag.
+  //
+  // Issue #887: the previous effect re-fired on EVERY navigation because
+  //   1. `user` is a non-stable object dep — a new reference each render
+  //      could re-run the effect even when nothing meaningful changed
+  //   2. the effect also fired on /dashboard/not-authorized, layering the
+  //      tour on top of the access-denial page
+  //   3. there was a small window after Skip where localStorage.setItem
+  //      raced the next render and the suppression read came back false
+  //
+  // Fix: guard with a session-scoped ref so we only evaluate once per page
+  // load, depend on primitive (userId + role) instead of the full user
+  // object, and skip the auto-launch entirely on error / not-authorized
+  // routes (the tour content is route-aware via OnboardingTour's `tours[role]`
+  // list, but the access-denial page is never in that list).
+  const tourCheckedRef = useRef(false);
   useEffect(() => {
-    if (!isLoading && user && !hasCompletedTour(user.role, user.id)) {
+    if (tourCheckedRef.current) return;
+    if (isLoading || !user) return;
+    if (pathname?.startsWith("/dashboard/not-authorized")) return;
+    tourCheckedRef.current = true;
+    if (!hasCompletedTour(user.role, user.id)) {
       setTourOpen(true);
     }
-  }, [isLoading, user]);
+  }, [isLoading, user?.role, user?.id, pathname]);
 
   // Glossary tooltips for jargon abbreviations in the sidebar
   const SIDEBAR_TIPS: Record<string, string> = {
@@ -869,8 +888,8 @@ export default function DashboardLayout({
               <div className="min-w-0">
                 <h1 className="text-xl font-bold leading-tight whitespace-nowrap">MedCore</h1>
                 <p className="mt-0.5 text-xs text-gray-500 truncate dark:text-gray-400">
-                  {user.name} ({user.role})
-                </p>
+                {user.name} ({user.role})
+              </p>
               </div>
             </div>
             <button

@@ -6,6 +6,47 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **2026-05-12 wave — PR triage (2 PRs merged, ~2200 lines diff).**
+  Single-session triage cleared the open human-PR backlog. **#882
+  squash-merged at `6a575d6`** (Subhadip AI features — appointments
+  hardening + scribe page rewrite + AI letters / pharmacy-forecast /
+  er-triage refactors + 2 new module PRDs — LAB_TECHNICIAN_MODULE_PRD.md
+  and PHARMACIST_MODULE_PRD.md). Three reviewer flags noted for
+  follow-up: `getNextToken` switched local-time → UTC boundaries (worth
+  cross-checking other appointment paths haven't mixed conventions —
+  see A11), `appointment.create` now has a 5-attempt P2002 retry loop
+  (band-aid for race; a tx would be cleaner), GET `/appointments`
+  self-scopes DOCTOR (defensive RBAC, matches #602 pattern). **#888
+  squash-merged at `1df30d0`** (Sourav AI radiology vision + STAGING
+  bug fixes, 1106/-209 across 18 files). Vision path routes only to
+  OpenAI gpt-4o (Sarvam has no vision); PHI image budget bounded
+  (MAX_VISION_IMAGES_PER_STUDY=4, 16MB total, MIME allow-list, DICOM
+  skipped, per-image try/catch); `sanitizeUserInput` preserved on
+  bodyPart/clinicalHistory/findings/priorStudy.\*; markdown renderer
+  fills PHI AFTER the LLM call so patient name/MRN never enters the
+  prompt. Lockstep RBAC widening on `apps/api/src/routes/patients.ts`
+  + `apps/web/src/app/dashboard/patients/page.tsx` — PHARMACIST and
+  LAB_TECH added to both surfaces (both roles already have lawful
+  per-patient PHI access via prescriptions/labs). Dashboard pages
+  plausibly close STAGING #875 / #877 / #878 / #886 / #887; smoke
+  pass on the demo will confirm. **2 new cron-learnings logged at
+  `e2a11e1`** in CLAUDE.md Open section (1-instance each): (a)
+  inherited red checks on main poison PR triage — cross-reference
+  `gh run list --branch main` for same job name before counting a
+  PR's red check against it; (b) stale-relative-to-main branches
+  show illusory reverts in `git diff` — probe-merge first when the
+  diff looks pathological. **One new architectural follow-up A11**
+  surfaced from #882's body: appointment time conventions are
+  inconsistent across handlers (the `getNextToken` UTC switch is
+  isolated; need a grep sweep + standardization). **Inherited gate
+  red on main**: `npm audit (high+critical)` fails on `next@15.5.15`
+  advisory cluster (14 CVEs); clears when PR #784 (next 16) lands.
+  Doesn't block deploys (test.yml's deploy job runs on the test
+  job's status, not audit's), but per-push run conclusion is
+  FAILURE until the dep migration. PR #883 (patch-and-minor group)
+  rebase triggered to pick up new main; CI re-running.
+
 ### Fixed
 - **2026-05-09 wave — autonomous bug-bash, 13 commits, 17 issues closed.**
   Single-session run picked up at HEAD `cd28630` with 14 staged-but-uncommitted

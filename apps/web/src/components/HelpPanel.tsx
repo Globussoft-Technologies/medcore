@@ -183,6 +183,43 @@ const STAFF_SHORTCUTS: { keys: string; label: string }[] = [
   { keys: "Esc", label: "Close modal / drawer" },
 ];
 
+// Issue #878 (and family with #861, #870): PAGE_HELP entries describe the
+// STAFF view of each route. When the same route is reachable by a PATIENT
+// (e.g. /dashboard/billing rendered as their own bills page) the staff
+// bullets leak — "Generate invoices", "Apply discounts" — which is
+// confusing at best and a privilege-misrepresentation at worst. Override
+// per route with patient-appropriate copy. Routes not in this map fall
+// back to the default PAGE_HELP entry (still safe — staff-only routes
+// 403 for patients before HelpPanel ever renders).
+const PATIENT_PAGE_HELP: Record<string, { title: string; bullets: string[] }> =
+  {
+    "/dashboard/billing": {
+      title: "Bills",
+      bullets: [
+        "View your bills and outstanding balance",
+        "Pay online via card / UPI / netbanking / wallet",
+        "Download or print a receipt for any paid bill",
+        "Review your full payment history",
+      ],
+    },
+    "/dashboard/appointments": {
+      title: "My Appointments",
+      bullets: [
+        "Book a new appointment with a doctor",
+        "Reschedule or cancel upcoming visits",
+        "See your appointment history",
+      ],
+    },
+    "/dashboard/prescriptions": {
+      title: "My Prescriptions",
+      bullets: [
+        "View all prescriptions issued by your doctors",
+        "Download a PDF copy for the pharmacy",
+        "See doses, frequency and refill instructions",
+      ],
+    },
+  };
+
 const PATIENT_SHORTCUTS: { keys: string; label: string }[] = [
   { keys: "Ctrl+K", label: "Open global search" },
   { keys: "?", label: "Show keyboard shortcuts" },
@@ -210,11 +247,22 @@ export function HelpPanel({ onStartTour }: { onStartTour?: () => void }) {
   const isPatient = role === "PATIENT";
   const shortcuts = isPatient ? PATIENT_SHORTCUTS : STAFF_SHORTCUTS;
 
+  // Issue #878: prefer the patient-specific bullets when the user is a
+  // patient. Same prefix-fallback chain as the default lookup so e.g.
+  // /dashboard/billing/abc resolves to the /dashboard/billing patient entry.
+  const lookup = (
+    map: Record<string, { title: string; bullets: string[] }>,
+  ) =>
+    map[pathname] ||
+    map[
+      Object.keys(map).find(
+        (k) => k !== "/dashboard" && pathname.startsWith(k),
+      ) || ""
+    ];
+
   const entry =
-    PAGE_HELP[pathname] ||
-    PAGE_HELP[
-      Object.keys(PAGE_HELP).find((k) => k !== "/dashboard" && pathname.startsWith(k)) || ""
-    ] ||
+    (isPatient ? lookup(PATIENT_PAGE_HELP) : undefined) ||
+    lookup(PAGE_HELP) ||
     PAGE_HELP["/dashboard"];
 
   return (

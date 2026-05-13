@@ -22,9 +22,22 @@ const router = Router();
 router.use(authenticate);
 
 // GET /api/v1/patients — search/list patients
+// Issue #884: PHARMACIST + LAB_TECH added — they need to look up patients to
+// verify identity at dispensing / sample-collection. Both roles already have
+// lawful per-patient PHI access on `/prescriptions/:id` and `/lab/:id`
+// respectively, so list access is within their existing envelope rather than
+// a privilege expansion. The web allow-list at
+// apps/web/src/app/dashboard/patients/page.tsx is updated in lockstep.
 router.get(
   "/",
-  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION, Role.NURSE),
+  authorize(
+    Role.ADMIN,
+    Role.DOCTOR,
+    Role.RECEPTION,
+    Role.NURSE,
+    Role.PHARMACIST,
+    Role.LAB_TECH,
+  ),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { search, page = "1", limit = "20" } = req.query;

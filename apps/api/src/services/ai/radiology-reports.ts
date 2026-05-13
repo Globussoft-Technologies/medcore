@@ -19,9 +19,236 @@ import type {
   RadiologyReport,
   RadiologyModality as PrismaRadiologyModality,
 } from "@prisma/client";
+import type OpenAI from "openai";
 import { tenantScopedPrisma as prisma } from "../tenant-prisma";
-import { generateStructured, logAICall } from "./sarvam";
+import { logAICall } from "./sarvam";
+import { callWithFallback, type ModelProvider } from "./model-router";
 import { sanitizeUserInput } from "./prompt-safety";
+
+/**
+ * Per-provider chat model identifiers. Sarvam is tried first (India-region,
+ * DPDP-compliant). If Sarvam returns a transport error, an empty response,
+ * or no tool call, we fall through to OpenAI (gpt-4o-mini — cheap + reliable
+ * + great at tool-calling). Both speak the OpenAI chat-completions wire
+ * format so the request body is identical.
+ */
+const PROVIDER_MODEL: Record<ModelProvider, string> = {
+  sarvam: "sarvam-105b",
+  openai: "gpt-4o-mini",
+  anthropic: "claude-haiku-4-5-20251001", // unreachable today — router stubs it
+};
+
+/**
+ * Pluck the first tool call from a chat-completions response (both Sarvam
+ * and OpenAI return it in the same `choices[0].message.tool_calls[0]`
+ * shape). Returns undefined when the model produced plain-text instead of
+ * a tool call — the caller treats that as "shape-mismatch success" and
+ * triggers the OpenAI retry.
+ */
+function getToolCallFromResponse(
+  response: OpenAI.Chat.Completions.ChatCompletion
+) {
+  const raw = response.choices[0]?.message?.tool_calls?.[0];
+  return raw?.type === "function" ? raw : undefined;
+}
+
+/** Max number of images sent to the vision model per study. Capped to keep
+ *  cost + latency bounded for CT/MRI studies that may have many slices.
+ *  Compliance(2026-05-11): cleared with the team for OpenAI vision routing. */
+const MAX_VISION_IMAGES_PER_STUDY = 4;
+
+/** Allow-list of MIME prefixes OpenAI vision accepts. WEBP is what the web
+ *  uploader produces today; PNG/JPEG handled defensively. DICOM is excluded
+ *  here — separate pipeline path needed (not in this change). */
+const VISION_SUPPORTED_MIME = /^image\/(webp|png|jpeg|gif)$/i;
+
+/**
+ * Load up to MAX_VISION_IMAGES_PER_STUDY image refs from local storage and
+ * return them as base64 data URLs ready for OpenAI's vision API. DICOM and
+ * any file that can't be resolved are silently skipped — the caller still
+ * gets a text-only call rather than failing the whole draft.
+ *
+ * Implementation notes:
+ *   - Honours `isLikelyDicom` to skip DICOM files (no vision conversion yet).
+ *   - Reads bytes synchronously via the existing `resolveLocalPath` helper.
+ *   - Infers MIME from `contentType` if present, else from file extension.
+ *   - Caps total bytes loaded per study at ~16MB so a study with four 5MB
+ *     images can't blow the LLM request size limit.
+ */
+function loadImagesForVision(
+  refs: RadiologyImageRef[] | undefined,
+): Array<{ dataUrl: string; mime: string }> {
+  if (!Array.isArray(refs) || refs.length === 0) return [];
+  const out: Array<{ dataUrl: string; mime: string }> = [];
+  let bytesUsed = 0;
+  const BUDGET = 16 * 1024 * 1024; // 16 MB hard cap per study
+
+  for (const ref of refs.slice(0, MAX_VISION_IMAGES_PER_STUDY * 2)) {
+    if (out.length >= MAX_VISION_IMAGES_PER_STUDY) break;
+    if (isLikelyDicom(ref)) continue;
+    try {
+      const abs = resolveLocalPath(ref.key);
+      if (!abs) continue;
+      const buf = fs.readFileSync(abs);
+      if (bytesUsed + buf.length > BUDGET) break;
+
+      // Resolve MIME: prefer the stored contentType (set at upload time);
+      // fall back to extension. Skip anything OpenAI won't accept.
+      const ct = (ref.contentType ?? "").toLowerCase();
+      const ext = abs.toLowerCase().slice(abs.lastIndexOf(".") + 1);
+      const fromExt =
+        ext === "webp" ? "image/webp" :
+        ext === "png"  ? "image/png"  :
+        ext === "jpg"  ? "image/jpeg" :
+        ext === "jpeg" ? "image/jpeg" :
+        ext === "gif"  ? "image/gif"  :
+        "";
+      const mime = VISION_SUPPORTED_MIME.test(ct) ? ct : fromExt;
+      if (!mime) continue;
+
+      const b64 = buf.toString("base64");
+      out.push({ dataUrl: `data:${mime};base64,${b64}`, mime });
+      bytesUsed += buf.length;
+    } catch (err) {
+      console.warn(
+        "[radiology] failed to load image for vision:",
+        ref.key,
+        (err as Error).message,
+      );
+      // continue — one bad image must not break the whole draft
+    }
+  }
+  return out;
+}
+
+// ── Markdown report renderer ──────────────────────────────────────────────────
+//
+// Takes the structured AI output + DB-sourced patient/study metadata and
+// produces a human-readable markdown report matching the standard Indian
+// radiology format. The AI never sees patient identifiers; they're injected
+// here AFTER the AI call so PHI never leaves the server unless we explicitly
+// send it.
+
+export interface MarkdownReportContext {
+  patientName: string;
+  mrNumber?: string;
+  age?: number | null;
+  gender?: string | null;
+  modality: RadiologyModality;
+  bodyPart: string;
+  clinicalHistory?: string;
+  studyDate?: Date;
+}
+
+/**
+ * Render the structured AI draft as a markdown report. Patient Info /
+ * Technique / Findings / Impression / Recommendation sections — matches the
+ * format radiologists expect to read + sign.
+ *
+ * Server-side only: includes real patient identifiers from the DB. NEVER
+ * pass this output back through the LLM (it contains PHI). Safe to store in
+ * RadiologyReport.aiDraft because that column is only ever rendered to
+ * authenticated staff via the dashboard.
+ */
+export function renderRadiologyMarkdown(
+  draft: RadiologyDraftResult,
+  ctx: MarkdownReportContext,
+): string {
+  // Modality-friendly study-type label for the header.
+  const studyTypeLabel: Record<RadiologyModality, string> = {
+    XRAY: "X-Ray",
+    CT: "CT Scan",
+    MRI: "MRI",
+    ULTRASOUND: "Ultrasound",
+    MAMMOGRAPHY: "Mammography",
+    PET: "PET Scan",
+  };
+
+  // Patient demographics line — only render the fields we actually have.
+  const demoBits: string[] = [];
+  if (ctx.age != null) demoBits.push(`${ctx.age} yrs`);
+  if (ctx.gender) demoBits.push(String(ctx.gender));
+  const demo = demoBits.join(", ");
+
+  // Fall back to a templated technique sentence when the AI omitted it.
+  const technique =
+    draft.technique && draft.technique.length > 0
+      ? draft.technique
+      : `${studyTypeLabel[ctx.modality]} of the ${ctx.bodyPart.toLowerCase()} obtained.`;
+  const views = draft.views && draft.views.length > 0 ? draft.views : "—";
+
+  const lines: string[] = [];
+  lines.push(`# ${studyTypeLabel[ctx.modality].toUpperCase()} RADIOLOGY REPORT`);
+  lines.push("");
+  lines.push("## Patient Information");
+  lines.push("");
+  lines.push(`* Patient: ${ctx.patientName}`);
+  if (ctx.mrNumber) lines.push(`* MR Number: ${ctx.mrNumber}`);
+  if (demo) lines.push(`* Demographics: ${demo}`);
+  lines.push(`* Study Type: ${studyTypeLabel[ctx.modality]}`);
+  lines.push(`* Body Part: ${ctx.bodyPart}`);
+  lines.push(`* Views: ${views}`);
+  if (ctx.studyDate) {
+    lines.push(`* Study Date: ${ctx.studyDate.toISOString().slice(0, 10)}`);
+  }
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+  lines.push("## Clinical History");
+  lines.push("");
+  // Trim so whitespace-only `notes` rows (e.g. " " or "\n") also fall back
+  // to "Not provided." rather than rendering as a blank section.
+  const trimmedHistory = (ctx.clinicalHistory ?? "").trim();
+  lines.push(trimmedHistory.length > 0 ? trimmedHistory : "Not provided.");
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+  lines.push("## Technique");
+  lines.push("");
+  lines.push(technique);
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+  lines.push("## Findings");
+  lines.push("");
+  if (draft.findings.length === 0) {
+    lines.push("* No abnormality detected on the provided views.");
+  } else {
+    for (const f of draft.findings) {
+      const conf = `[${f.confidence.toUpperCase()}]`;
+      const followUp = f.suggestedFollowUp
+        ? ` *(Follow-up: ${f.suggestedFollowUp})*`
+        : "";
+      lines.push(`* ${conf} ${f.description}${followUp}`);
+    }
+  }
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+  lines.push("## Impression");
+  lines.push("");
+  lines.push(draft.impression);
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+  lines.push("## Recommendation");
+  lines.push("");
+  if (draft.recommendations.length === 0) {
+    lines.push("Correlate clinically. Review with radiologist.");
+  } else {
+    for (const r of draft.recommendations) {
+      lines.push(`* ${r}`);
+    }
+  }
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+  lines.push(
+    "_AI-generated DRAFT. Pending radiologist review and approval._",
+  );
+
+  return lines.join("\n");
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -86,6 +313,20 @@ export interface RadiologyDraftResult {
   impression: string;
   findings: RadiologyFinding[];
   recommendations: string[];
+  /**
+   * One short sentence describing the imaging technique the AI inferred
+   * from the views shown (e.g. "AP and lateral radiographs of the right
+   * femur obtained."). Surfaces in the rendered markdown Technique
+   * section. Optional — older drafts pre-dating this field will fall
+   * back to a templated string built from modality + bodyPart.
+   */
+  technique?: string;
+  /**
+   * Comma-separated list of views the AI identified in the supplied
+   * images (e.g. "AP, Lateral"). Used in the markdown header. Optional
+   * for the same back-compat reason as `technique`.
+   */
+  views?: string;
 }
 
 /**
@@ -103,27 +344,82 @@ export interface PriorStudyContext {
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are an AI assistant helping a radiologist draft a
-report. Based on modality, body part, clinical history, and free-text findings,
-produce a structured draft.
+const SYSTEM_PROMPT = `You are an AI assistant helping an Indian-context
+radiologist draft a structured report. The radiologist will review and edit
+your draft before signing — your job is to produce a clean, conservative
+starting point, not a final diagnosis.
 
-Rules:
-- Flag every finding with a confidence rating: "low", "medium", or "high".
-- Never produce a definitive diagnosis — your output is a draft for radiologist
-  review, not a final signed report.
-- If a finding is suspicious for malignancy, infection, or acute process,
-  include a specific suggestedFollowUp (e.g. "Correlate with tissue biopsy",
-  "Repeat in 6 weeks", "Clinical correlation recommended").
-- Always include a "Review with radiologist" footer sentence in the impression.
-- Recommendations should be concrete next steps (e.g. "Compare with prior
-  studies", "Consider contrast-enhanced study", "Refer to surgical
-  consultation").
-- If the provided free-text findings are empty / trivial, generate a generic
-  "no abnormalities detected on the provided views — clinical correlation
-  recommended" style draft rather than fabricating findings.
-- If priorStudy is provided, explicitly note interval changes (new findings,
-  resolved findings, stable findings). Otherwise say "No prior study
-  available for comparison."`;
+INPUT CHANNELS:
+You will receive (in this order):
+1. The modality, body part, clinical history, and any technologist pre-read
+   as a text block.
+2. ZERO OR MORE images of the study (typically multiple views per X-ray,
+   sometimes a few representative slices for CT/MRI). When images are
+   present, READ THEM and base your findings on what you actually observe
+   in the pixels — combined with the text context. When images are absent
+   you MUST default to the empty-input behaviour below; never fabricate
+   visual findings without images.
+
+CRITICAL RULES (must follow):
+1. Read the images first. Describe what you actually see — fractures,
+   opacities, masses, alignment abnormalities, foreign bodies, etc. — using
+   anatomical landmarks visible in the views provided. Cross-reference with
+   the technologist's pre-read but trust your own observation when they
+   conflict (flag the discrepancy in your impression).
+2. No definitive diagnosis — use cautious language ("suggestive of",
+   "consistent with", "could represent") and pair every clinical impression
+   with a confidence band: "low", "medium", or "high".
+3. End the impression with the exact sentence: "Review with radiologist."
+4. For acute findings visible on the image (fracture, pneumothorax, free
+   air, bleed, mass, severe deformity), use confidence: "high" and set a
+   SPECIFIC suggestedFollowUp — name the test or timeframe (e.g.
+   "Orthopaedic consultation, immobilise", "Urgent surgical evaluation",
+   "Repeat radiograph post-reduction"). Generic "follow up clinically" is
+   not acceptable for acute findings.
+5. Recommendations are concrete next steps for the ordering clinician.
+6. The 'region' bounding box on each finding is OPTIONAL. When you set it,
+   estimate x/y/w/h as normalised coordinates (0..1) on the FIRST image
+   provided. Be honest that this is approximate — radiology overlay is
+   used for screen-pointing, not pixel-accurate measurement.
+
+MODALITY-SPECIFIC CONVENTIONS:
+- XRAY: describe alignment, cortical continuity, fracture lines, joint
+  spaces, soft-tissue swelling. For chest films: lung fields, hila,
+  cardiac silhouette, mediastinum, costophrenic angles, bony thorax.
+- CT: comment on each region the slices cover; flag asymmetry, mass effect,
+  bleed, edema. Do NOT comment on anatomy outside the visible slices.
+- MRI: respect the sequence (T1/T2/FLAIR/DWI) — comment on signal
+  characteristics relative to expected normal.
+- ULTRASOUND / MAMMOGRAPHY / PET: standard reporting conventions for each.
+
+EMPTY-INPUT CASE (no images AND no pre-read):
+- Produce a single-sentence draft: "Imaging not available for AI review.
+  Please draft manually. Review with radiologist." Zero findings, zero
+  recommendations. Leave 'technique' and 'views' empty. Do NOT pretend
+  the views are normal.
+
+TECHNIQUE + VIEWS (for the formatted report header):
+- Always set 'views' when images are provided — a comma-separated list of
+  the projections you can see, in the order shown. Examples: "AP, Lateral"
+  for a two-view X-ray; "Axial, Sagittal, Coronal" for a CT; "RCC, LCC,
+  RMLO, LMLO" for a mammogram. Use standard radiology abbreviations.
+- Always set 'technique' when images are provided — ONE sentence describing
+  the imaging technique, written in passive voice as a radiology report
+  would: "AP and lateral radiographs of the right femur obtained." or
+  "Non-contrast axial CT slices of the head obtained." Never include
+  patient name, MRN, date, machine vendor, or kVp/mA settings.
+
+PRIOR-STUDY COMPARISON:
+- If priorStudy is provided, the impression MUST start with the comparison
+  outcome: "Compared to the prior study from <date>: <new / resolved /
+  stable / no significant interval change>." Then continue with the current
+  reading. If no prior study is provided, do NOT invent one.
+
+PATIENT SAFETY (HIPAA / DPDP):
+- Never echo identifiers (patient name, MRN, phone, address) into the
+  impression or findings. If you can read identifiers off an image's
+  burned-in metadata, IGNORE them.
+- Never speculate about non-medical attributes.`;
 
 // ── Tool schema ───────────────────────────────────────────────────────────────
 
@@ -154,6 +450,16 @@ const TOOL_SCHEMA = {
       },
     },
     recommendations: { type: "array", items: { type: "string" } },
+    technique: {
+      type: "string",
+      description:
+        "One sentence describing the imaging technique inferred from the views provided (e.g. 'AP and lateral radiographs of the right femur obtained.'). Do NOT include patient identifiers, dates, or machine names. Leave empty if no images were provided.",
+    },
+    views: {
+      type: "string",
+      description:
+        "Comma-separated list of views identified in the images, in the order shown (e.g. 'AP, Lateral'). Leave empty if no images were provided.",
+    },
   },
   required: ["impression", "findings", "recommendations"],
 };
@@ -332,6 +638,15 @@ export async function generateDraftReport(opts: {
   clinicalHistory?: string;
   findings?: string;
   priorStudy?: PriorStudyContext;
+  /**
+   * Optional image refs from RadiologyStudy.images. When present, the
+   * service loads up to MAX_VISION_IMAGES_PER_STUDY images, base64-encodes
+   * them, and sends them to OpenAI vision (`gpt-4o`) so the AI actually
+   * looks at the pixels. Sarvam is skipped because it does not currently
+   * support vision input. When `images` is omitted or empty, falls back to
+   * the text-only Sarvam→OpenAI path used by all other AI features.
+   */
+  images?: RadiologyImageRef[];
 }): Promise<RadiologyDraftResult> {
   // security(2026-04-24-low): F-INJ-1 — sanitize every free-text field
   // before concatenating into the prompt. `modality` comes from a closed
@@ -377,23 +692,118 @@ ${priorBlock}
 Produce a structured radiology-report draft. Flag confidence on every finding.
 End the impression with "Review with radiologist".`;
 
+  // Vision path: load image bytes (up to MAX_VISION_IMAGES_PER_STUDY). When
+  // we have at least one image, route directly to OpenAI's vision model —
+  // Sarvam currently has no vision endpoint, so it is skipped for this
+  // request only. Other AI features keep using Sarvam-first as before.
+  const visionImages = loadImagesForVision(opts.images);
+  const useVision = visionImages.length > 0;
+
+  // Build the user-message content. Text-only path keeps a plain string.
+  // Vision path uses the OpenAI content-block array: [text, image, image, ...].
+  const userMessageContent = useVision
+    ? ([
+        { type: "text" as const, text: userPrompt },
+        ...visionImages.map((img) => ({
+          type: "image_url" as const,
+          image_url: { url: img.dataUrl, detail: "high" as const },
+        })),
+      ] satisfies OpenAI.Chat.Completions.ChatCompletionUserMessageParam["content"])
+    : userPrompt;
+
+  // Provider routing:
+  //  - Vision: OpenAI only (gpt-4o supports vision; gpt-4o-mini doesn't
+  //    reliably for medical images). No Sarvam fallback because Sarvam
+  //    can't read images.
+  //  - Text-only: Sarvam → OpenAI fallback as before.
+  const providers: ModelProvider[] = useVision ? ["openai"] : ["sarvam", "openai"];
+  const visionModel = "gpt-4o";
+
   const t0 = Date.now();
   try {
-    const { data, promptTokens, completionTokens } =
-      await generateStructured<RadiologyDraftResult>({
-        systemPrompt: SYSTEM_PROMPT,
-        userPrompt,
-        toolName: "emit_radiology_draft",
-        toolDescription:
-          "Emit a structured radiology-report draft with impression, findings (each with a confidence band), and recommendations.",
-        parameters: TOOL_SCHEMA,
-        maxTokens: 1500,
-        temperature: 0.2,
-      });
+    let usedProvider: ModelProvider = providers[0];
+    let response = await callWithFallback(
+      (client, provider) => {
+        usedProvider = provider;
+        const model = useVision ? visionModel : PROVIDER_MODEL[provider];
+        return client.chat.completions.create({
+          model,
+          max_tokens: 1500,
+          temperature: 0.2,
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "emit_radiology_draft",
+                description:
+                  "Emit a structured radiology-report draft with impression, findings (each with a confidence band), and recommendations.",
+                parameters: TOOL_SCHEMA as any,
+              },
+            },
+          ],
+          tool_choice: {
+            type: "function",
+            function: { name: "emit_radiology_draft" },
+          },
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            { role: "user", content: userMessageContent as any },
+          ],
+        });
+      },
+      { providers, feature: "scribe" }
+    );
+
+    // Empty-tool-call fallback only applies to the text-only path. When
+    // vision is in play we already used OpenAI directly — there's no
+    // alternative provider to retry against.
+    let toolCall = getToolCallFromResponse(response);
+    if (!toolCall && !useVision && usedProvider === "sarvam") {
+      response = await callWithFallback(
+        (client, provider) => {
+          usedProvider = provider;
+          return client.chat.completions.create({
+            model: PROVIDER_MODEL[provider],
+            max_tokens: 1500,
+            temperature: 0.2,
+            tools: [
+              {
+                type: "function",
+                function: {
+                  name: "emit_radiology_draft",
+                  description:
+                    "Emit a structured radiology-report draft with impression, findings (each with a confidence band), and recommendations.",
+                  parameters: TOOL_SCHEMA as any,
+                },
+              },
+            ],
+            tool_choice: {
+              type: "function",
+              function: { name: "emit_radiology_draft" },
+            },
+            messages: [
+              { role: "system", content: SYSTEM_PROMPT },
+              { role: "user", content: userPrompt },
+            ],
+          });
+        },
+        { providers: ["openai"], feature: "scribe" }
+      );
+      toolCall = getToolCallFromResponse(response);
+    }
+
+    const promptTokens = response.usage?.prompt_tokens ?? 0;
+    const completionTokens = response.usage?.completion_tokens ?? 0;
+    const data = toolCall
+      ? (JSON.parse(toolCall.function.arguments) as RadiologyDraftResult)
+      : null;
 
     logAICall({
       feature: "scribe",
-      model: "sarvam-105b",
+      // Record the actual model used: gpt-4o for vision, sarvam-105b or
+      // gpt-4o-mini for text. Dashboards can filter by model to see
+      // vision-vs-text mix per day.
+      model: useVision ? visionModel : PROVIDER_MODEL[usedProvider],
       promptTokens,
       completionTokens,
       latencyMs: Date.now() - t0,
@@ -403,7 +813,7 @@ End the impression with "Review with radiologist".`;
     if (!data) {
       return {
         impression:
-          "Unable to produce a draft from the available input. Review with radiologist.",
+          "AI_DRAFT_UNAVAILABLE — please draft manually. Review with radiologist.",
         findings: [],
         recommendations: [],
       };
@@ -427,17 +837,36 @@ End the impression with "Review with radiologist".`;
       impression = `${impression}${impression ? " " : ""}Review with radiologist.`;
     }
 
+    // Optional formatted-report fields — model may omit them (e.g. when
+    // no images were sent). Coerce to undefined so the downstream
+    // markdown renderer can fall back to templated defaults rather than
+    // emitting an empty section.
+    const technique =
+      typeof data.technique === "string" && data.technique.trim().length > 0
+        ? data.technique.trim()
+        : undefined;
+    const views =
+      typeof data.views === "string" && data.views.trim().length > 0
+        ? data.views.trim()
+        : undefined;
+
     return {
       impression,
       findings,
       recommendations: Array.isArray(data.recommendations)
         ? data.recommendations.map((r) => String(r))
         : [],
+      technique,
+      views,
     };
   } catch (err) {
     logAICall({
       feature: "scribe",
-      model: "sarvam-105b",
+      // Both providers exhausted at this point — flag the failure as the
+      // fallback-of-last-resort. callWithFallback already logged per-attempt
+      // failover events, so this is the terminal "both Sarvam and OpenAI
+      // failed" record.
+      model: "sarvam+openai-failover",
       promptTokens: 0,
       completionTokens: 0,
       latencyMs: Date.now() - t0,
@@ -501,7 +930,13 @@ export async function createReportDraft(
 ): Promise<RadiologyReport> {
   const study = await prisma.radiologyStudy.findUnique({
     where: { id: studyId },
-    include: { report: true },
+    // Join the patient + user rows so the markdown renderer can fill the
+    // Patient Information section from real DB data. AI never sees these
+    // identifiers — only the markdown renderer (server-side) does.
+    include: {
+      report: true,
+      patient: { include: { user: { select: { name: true } } } },
+    },
   });
   if (!study) {
     throw new Error(`RadiologyStudy ${studyId} not found`);
@@ -541,29 +976,41 @@ export async function createReportDraft(
     );
   }
 
+  // RadiologyStudy.images is a Prisma Json column; cast back to the typed
+  // shape so generateDraftReport can resolve each ref's file path for vision.
+  const studyImages = (Array.isArray(study.images) ? study.images : []) as
+    unknown as RadiologyImageRef[];
+
   const draft = await generateDraftReport({
     studyId,
     modality: study.modality as RadiologyModality,
     bodyPart: study.bodyPart,
     clinicalHistory: study.notes ?? undefined,
     priorStudy,
+    images: studyImages,
+  });
+
+  // Render the human-readable markdown draft. The renderer fills Patient
+  // Info / Technique / Views / Clinical History from the DB (NOT from the
+  // AI), so PHI never leaks into the LLM prompt. The structured `aiFindings`
+  // + `aiImpression` columns still hold the machine-readable shape so
+  // existing dashboards, confidence-band rendering, and future analytics
+  // (e.g. "all HIGH-confidence fractures last 30 days") keep working.
+  const aiDraftMarkdown = renderRadiologyMarkdown(draft, {
+    patientName: study.patient?.user?.name ?? "Unknown",
+    mrNumber: study.patient?.mrNumber ?? undefined,
+    age: study.patient?.age ?? undefined,
+    gender: study.patient?.gender ?? undefined,
+    modality: study.modality as RadiologyModality,
+    bodyPart: study.bodyPart,
+    clinicalHistory: study.notes ?? undefined,
+    studyDate: study.studyDate ?? undefined,
   });
 
   return prisma.radiologyReport.create({
     data: {
       studyId,
-      aiDraft: [
-        draft.impression,
-        "",
-        "FINDINGS:",
-        ...draft.findings.map(
-          (f) =>
-            `- [${f.confidence}] ${f.description}${f.suggestedFollowUp ? ` (follow-up: ${f.suggestedFollowUp})` : ""}`
-        ),
-        "",
-        "RECOMMENDATIONS:",
-        ...draft.recommendations.map((r) => `- ${r}`),
-      ].join("\n"),
+      aiDraft: aiDraftMarkdown,
       aiFindings: draft.findings as unknown as Parameters<
         typeof prisma.radiologyReport.create
       >[0]["data"]["aiFindings"],

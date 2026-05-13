@@ -11,6 +11,7 @@ import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import {
   Role,
   createPrescriptionSchema,
+  updatePrescriptionSchema,
   copyPrescriptionSchema,
   sharePrescriptionSchema,
   prescriptionTemplateSchema,
@@ -193,6 +194,24 @@ router.post(
 
       const doctorId = doctor?.id || req.user!.userId;
 
+      // One prescription per appointment — Prescription.appointmentId is
+      // @unique in the schema, so a duplicate create raises a P2002 that
+      // would otherwise surface as a confusing 500. Detect it up front and
+      // return a clean 409 telling the doctor to edit the existing Rx.
+      const existing = await prisma.prescription.findUnique({
+        where: { appointmentId },
+        select: { id: true },
+      });
+      if (existing) {
+        res.status(409).json({
+          success: false,
+          data: { existingPrescriptionId: existing.id },
+          error:
+            "A prescription already exists for this appointment. Edit the existing one instead of creating a new one.",
+        });
+        return;
+      }
+
       const prescription = await prisma.prescription.create({
         data: {
           appointmentId,
@@ -239,6 +258,133 @@ router.post(
       next(err);
     }
   }
+);
+
+// PATCH /api/v1/prescriptions/:id — edit an existing prescription
+//
+// Updates the clinical content of an existing Rx without changing its
+// identity (appointmentId / patientId / doctorId stay fixed). Items are
+// fully replaced (delete + recreate inside a transaction) so the caller
+// MUST send the FULL desired set, not a partial diff. Re-runs the same
+// drug-interaction check as the create handler so an edited Rx can't bypass
+// a SEVERE/CONTRAINDICATED interaction by going through the edit path.
+router.patch(
+  "/:id",
+  authorize(Role.DOCTOR, Role.ADMIN),
+  validate(updatePrescriptionSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { diagnosis, items, advice, followUpDate, overrideWarnings } =
+        req.body as {
+          diagnosis: string;
+          items: Array<{
+            medicineName: string;
+            dosage: string;
+            frequency: string;
+            duration: string;
+            instructions?: string;
+            refills?: number;
+          }>;
+          advice?: string;
+          followUpDate?: string;
+          overrideWarnings?: boolean;
+        };
+
+      // Load the row first — gives a clean 404 and lets us scope downstream
+      // checks (drug interactions need the patientId).
+      const existing = await prisma.prescription.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, patientId: true, doctorId: true, appointmentId: true },
+      });
+      if (!existing) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Prescription not found",
+        });
+        return;
+      }
+
+      // DOCTOR may only edit prescriptions they themselves authored. ADMIN
+      // bypass is by design (cross-clinic correction). Per CLAUDE.md gotcha
+      // #14 — authorize() alone isn't enough when DOCTOR is in the allowlist.
+      if (req.user?.role === Role.DOCTOR) {
+        const doctorRecord = await prisma.doctor.findFirst({
+          where: { userId: req.user.userId },
+          select: { id: true },
+        });
+        if (!doctorRecord || doctorRecord.id !== existing.doctorId) {
+          res.status(403).json({
+            success: false,
+            data: null,
+            error: "You can only edit prescriptions you authored.",
+          });
+          return;
+        }
+      }
+
+      // Re-run interaction check on the new item set.
+      const names = items.map((i) => i.medicineName).filter(Boolean);
+      const { warnings, hasBlocking } = await checkDrugInteractions(
+        names,
+        existing.patientId,
+      );
+      if (hasBlocking && !overrideWarnings) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Blocking drug interactions detected",
+          warnings,
+        });
+        return;
+      }
+
+      const updated = await prisma.$transaction(async (tx) => {
+        await tx.prescriptionItem.deleteMany({
+          where: { prescriptionId: existing.id },
+        });
+        return tx.prescription.update({
+          where: { id: existing.id },
+          data: {
+            diagnosis,
+            advice,
+            followUpDate: followUpDate ? new Date(followUpDate) : null,
+            items: { create: items },
+          },
+          include: {
+            items: true,
+            doctor: { include: { user: { select: { name: true } } } },
+            patient: {
+              include: { user: { select: { name: true, phone: true } } },
+            },
+          },
+        });
+      });
+
+      auditLog(req, "PRESCRIPTION_UPDATE", "prescription", updated.id, {
+        appointmentId: existing.appointmentId,
+        patientId: existing.patientId,
+        diagnosis,
+        itemCount: items.length,
+        warningCount: warnings.length,
+        overrideWarnings: Boolean(overrideWarnings),
+      }).catch(console.error);
+
+      // Re-index for RAG so cohort/chart searches see the latest content.
+      fireAndForgetIngest("ingestPrescription", () =>
+        ingestPrescription(updated.id),
+      );
+
+      res.json({
+        success: true,
+        data: updated,
+        warnings: warnings.length ? warnings : undefined,
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
 );
 
 // GET /api/v1/prescriptions — list prescriptions

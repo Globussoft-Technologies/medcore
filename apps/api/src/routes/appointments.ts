@@ -436,24 +436,50 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // PATCH /api/v1/appointments/:id/status — update status
+//
+// PATIENT is allowed here ONLY to self-cancel their own appointment from the
+// "My Appointments" UI. Any other status transition (CHECKED_IN, IN_CONSULTATION,
+// COMPLETED, NO_SHOW, BOOKED) stays staff-only — patients cannot mark themselves
+// as checked-in or completed. Per CLAUDE.md gotcha #14: adding Role.PATIENT to
+// authorize() does NOT exempt the handler from per-row scoping, so we also load
+// the row and run assertPatientOwnsResource against its patientId.
 router.patch(
   "/:id/status",
-  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION, Role.NURSE),
+  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION, Role.NURSE, Role.PATIENT),
   validate(updateAppointmentStatusSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Capture previous state to only fire side-effects on state transitions.
+      // Pulled BEFORE the update so we can also (a) check 404 cleanly and
+      // (b) enforce per-row ownership for PATIENT callers.
+      const prev = await prisma.appointment.findUnique({
+        where: { id: req.params.id },
+        select: { status: true, patientId: true },
+      });
+      if (!prev) {
+        res.status(404).json({ success: false, data: null, error: "Appointment not found" });
+        return;
+      }
+
+      // PATIENT scoping: must own the row AND can only self-cancel.
+      if (req.user?.role === Role.PATIENT) {
+        if (!(await assertPatientOwnsResource(req, res, prev.patientId))) return;
+        if (req.body.status !== "CANCELLED") {
+          res.status(403).json({
+            success: false,
+            data: null,
+            error: "Patients can only cancel their own appointments.",
+          });
+          return;
+        }
+      }
+
       // Auto-stamp timing fields on status transitions
       const extraData: Record<string, unknown> = { status: req.body.status };
       const now = new Date();
       if (req.body.status === "CHECKED_IN") extraData.checkInAt = now;
       if (req.body.status === "IN_CONSULTATION") extraData.consultationStartedAt = now;
       if (req.body.status === "COMPLETED") extraData.consultationEndedAt = now;
-
-      // Capture previous state to only fire side-effects on state transitions
-      const prev = await prisma.appointment.findUnique({
-        where: { id: req.params.id },
-        select: { status: true, patientId: true },
-      });
 
       const appointment = await prisma.appointment.update({
         where: { id: req.params.id },

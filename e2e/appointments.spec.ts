@@ -138,6 +138,27 @@ test.describe("Appointments regressions (April 2026)", () => {
     }
     await doctorSelect.selectOption(chosenValue);
 
+    // Pre-pick a patient via the in-form EntityPicker. The booking flow
+    // requires a patient to be selected before a slot click opens the
+    // Confirm Appointment dialog. Two characters minimum — EntityPicker's
+    // default minQueryLength=2 won't trigger a fetch on a single letter.
+    const patientInput = page.getByTestId("appt-book-patient-input");
+    if (!(await patientInput.isVisible().catch(() => false))) {
+      test.skip(
+        true,
+        "In-form Patient picker not available for this role in this environment"
+      );
+    }
+    await patientInput.fill("an");
+    const firstPatient = page.getByTestId("appt-book-patient-option").first();
+    await firstPatient
+      .waitFor({ state: "visible", timeout: 5_000 })
+      .catch(() => undefined);
+    if (!(await firstPatient.isVisible().catch(() => false))) {
+      test.skip(true, "No seeded patients matched the picker query");
+    }
+    await firstPatient.click();
+
     // Try to find any "bookable" slot (not in the past, not taken). Prefer
     // a late-hour one like 18:00 since that is the exact slot that used to
     // freeze the tab; fall back to the first bookable slot.
@@ -172,16 +193,16 @@ test.describe("Appointments regressions (April 2026)", () => {
     await target.click();
 
     // After the click the page must still be interactive. We assert two
-    // signals: the patient-id prompt modal renders (proving the click
+    // signals: the Confirm Appointment dialog renders (proving the click
     // handler ran to completion), AND a subsequent DOM interaction
-    // (clicking the prompt's cancel button) succeeds within a sane timeout.
-    const prompt = page.getByTestId("patient-id-prompt");
-    await expect(prompt).toBeVisible({ timeout: 5_000 });
+    // (clicking the dialog's Cancel button) succeeds within a sane timeout.
+    const dialog = page.getByTestId("confirm-appointment-dialog");
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
 
-    const cancel = page.getByTestId("patient-id-prompt-cancel");
+    const cancel = page.getByTestId("confirm-appointment-cancel");
     await expect(cancel).toBeVisible();
     await cancel.click({ timeout: 3_000 });
-    await expect(prompt).toBeHidden({ timeout: 5_000 });
+    await expect(dialog).toBeHidden({ timeout: 5_000 });
   });
 
   test("Issue #33: unauthed direct URL gets redirected to /login with ?redirect=<path>", async ({

@@ -209,10 +209,27 @@ async function main() {
     create: { email: "admin@medcore.local", phone: "9999900000", name: "System Admin", passwordHash: hash("admin123"), role: Role.ADMIN },
   });
 
+  // Specialization strings must match what the AI triage prompt produces
+  // (see apps/api/src/services/ai/prompts.ts). The /:sessionId GET handler
+  // does an exact `Doctor.findMany({ specialization: { in: [...] } })` —
+  // any mismatch yields an empty "Recommended Doctors" panel for that
+  // complaint, so add new specialties here when AI starts recommending them.
   const doctorsInput = [
     { email: "dr.sharma@medcore.local", phone: "9999900001", name: "Dr. Rajesh Sharma", spec: "General Medicine", qual: "MBBS, MD (Medicine)" },
     { email: "dr.patel@medcore.local", phone: "9999900002", name: "Dr. Priya Patel", spec: "Pediatrics & General Practice", qual: "MBBS, DCH" },
     { email: "dr.khan@medcore.local", phone: "9999900003", name: "Dr. Amir Khan", spec: "Orthopedics & Sports Medicine", qual: "MBBS, MS (Ortho)" },
+    { email: "dr.iyer@medcore.local", phone: "9999900004", name: "Dr. Anjali Iyer", spec: "Pulmonologist", qual: "MBBS, MD (Pulmonary Medicine)" },
+    { email: "dr.menon@medcore.local", phone: "9999900005", name: "Dr. Vikram Menon", spec: "Cardiologist", qual: "MBBS, MD, DM (Cardiology)" },
+    { email: "dr.rao@medcore.local", phone: "9999900006", name: "Dr. Kavita Rao", spec: "Dermatologist", qual: "MBBS, MD (Dermatology)" },
+    { email: "dr.singh@medcore.local", phone: "9999900007", name: "Dr. Harpreet Singh", spec: "ENT", qual: "MBBS, MS (ENT)" },
+    { email: "dr.banerjee@medcore.local", phone: "9999900008", name: "Dr. Sourav Banerjee", spec: "Neurologist", qual: "MBBS, MD, DM (Neurology)" },
+    { email: "dr.gupta@medcore.local", phone: "9999900009", name: "Dr. Neha Gupta", spec: "Gastroenterologist", qual: "MBBS, MD, DM (Gastroenterology)" },
+    { email: "dr.fernandes@medcore.local", phone: "9999900012", name: "Dr. Maria Fernandes", spec: "Gynecologist", qual: "MBBS, MS (Obstetrics & Gynecology)" },
+    { email: "dr.nair@medcore.local", phone: "9999900013", name: "Dr. Arjun Nair", spec: "Psychiatrist", qual: "MBBS, MD (Psychiatry)" },
+    { email: "dr.bose@medcore.local", phone: "9999900014", name: "Dr. Ritu Bose", spec: "Ophthalmologist", qual: "MBBS, MS (Ophthalmology)" },
+    { email: "dr.joshi@medcore.local", phone: "9999900015", name: "Dr. Sameer Joshi", spec: "Urologist", qual: "MBBS, MS, MCh (Urology)" },
+    { email: "dr.reddy@medcore.local", phone: "9999900016", name: "Dr. Lakshmi Reddy", spec: "Endocrinologist", qual: "MBBS, MD, DM (Endocrinology)" },
+    { email: "dr.dsouza@medcore.local", phone: "9999900017", name: "Dr. Rohan D'Souza", spec: "General Physician", qual: "MBBS, MD (General Medicine)" },
   ];
 
   const doctors: Array<{ userId: string; doctorId: string; name: string }> = [];

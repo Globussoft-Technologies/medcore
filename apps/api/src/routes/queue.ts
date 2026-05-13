@@ -66,11 +66,17 @@ router.get(
       const { date, dedupePatient } = req.query;
       const dateObj = date ? new Date(date as string) : new Date();
       dateObj.setHours(0, 0, 0, 0);
+      // Same timezone gotcha as appointments.ts (lines 33-49): `today =
+      // midnight local` can land on the prior calendar day in UTC, missing
+      // the @db.Date column on exact-equality. Range-filter across the day
+      // boundary instead so the result is timezone-independent.
+      const dayEnd = new Date(dateObj);
+      dayEnd.setHours(23, 59, 59, 999);
 
       const appointments = await prisma.appointment.findMany({
         where: {
           doctorId: req.params.doctorId,
-          date: dateObj,
+          date: { gte: dateObj, lte: dayEnd },
           status: { notIn: ["CANCELLED", "NO_SHOW"] },
         },
         include: {
@@ -201,6 +207,14 @@ router.get(
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
+      // Same timezone gotcha as appointments.ts (lines 33-49). Without the
+      // day-range filter, `today` constructed at IST midnight serializes to
+      // 2026-05-11T18:30Z, misses the @db.Date column for 2026-05-12, and
+      // every doctor's waitingCount/currentToken reports 0 even when real
+      // appointments exist for today.
+      const todayEnd = new Date(today);
+      todayEnd.setHours(23, 59, 59, 999);
+      const todayRange = { gte: today, lte: todayEnd };
 
       const doctors = await prisma.doctor.findMany({
         include: {
@@ -213,7 +227,7 @@ router.get(
           const current = await prisma.appointment.findFirst({
             where: {
               doctorId: doc.id,
-              date: today,
+              date: todayRange,
               status: "IN_CONSULTATION",
             },
           });
@@ -221,7 +235,7 @@ router.get(
           const waitingCount = await prisma.appointment.count({
             where: {
               doctorId: doc.id,
-              date: today,
+              date: todayRange,
               status: { in: ["BOOKED", "CHECKED_IN"] },
             },
           });

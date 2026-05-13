@@ -45,10 +45,13 @@ test.describe("Edge cases", () => {
     if (!submitVisible) {
       test.skip(true, "No submit-shaped CTA on /dashboard/appointments — booking is slot-click");
     }
-    // The patient-id-prompt submit at page.tsx:989 is gated
-    // `disabled={bookingInFlight || !patientIdInput.trim()}`, so an empty
-    // form leaves the button disabled — clicking is a no-op and NO error
-    // surfaces. Treat a disabled submit as the "validation gate" itself.
+    // The booking form has no traditional submit button — booking is done
+    // by clicking an available slot, which opens the Confirm Appointment
+    // dialog. If the staff user hasn't pre-picked a patient via the in-form
+    // EntityPicker, the slot-click handler sets an inline red-error state
+    // on the Patient field instead of surfacing a global alert. Treat a
+    // disabled submit (when no submit-shaped CTA is even discoverable) as
+    // the "validation gate" itself.
     const submitDisabled = await submit.isDisabled().catch(() => false);
     if (!submitDisabled) {
       await submit.click().catch(() => undefined);

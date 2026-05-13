@@ -7,7 +7,8 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { PasswordInput } from "@/components/PasswordInput";
-import logoIcon from "../assets/HD_Icon.png";
+import logoHorizontal from "../assets/MedCore_Logo1_0001_Layer-3.png";
+import logoHorizontalDark from "../assets/MedCore_Logo1_0003_Layer-6.png";
 
 type Step = "email" | "sent" | "reset" | "done";
 
@@ -110,14 +111,23 @@ export default function ForgotPasswordPage() {
         <div className="mb-8 text-center">
           <div className="mb-4 flex justify-center">
             <Image
-              src={logoIcon}
+              src={logoHorizontal}
               alt="MedCore"
-              width={52}
-              height={52}
-              className="rounded-xl"
+              width={220}
+              height={44}
+              className="h-11 w-auto dark:hidden"
+              priority
+            />
+            <Image
+              src={logoHorizontalDark}
+              alt="MedCore"
+              width={220}
+              height={44}
+              className="hidden h-11 w-auto dark:block"
+              priority
             />
           </div>
-          <h1 className="text-3xl font-bold text-primary">MedCore</h1>
+          <h1 className="sr-only">MedCore</h1>
           <p className="mt-2 text-gray-500 dark:text-gray-400">
             Reset Your Password
           </p>

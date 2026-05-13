@@ -45,6 +45,11 @@ async function main() {
   console.log("Created admin:", admin.email);
 
   // Create Doctors
+  // Specialization strings here MUST match what the AI triage prompt returns
+  // (apps/api/src/services/ai/prompts.ts → TRIAGE_SYSTEM). The triage route's
+  // /:sessionId GET handler does `Doctor.findMany({ specialization: { in:
+  // suggestedSpecialties } })` (exact match), so any mismatch yields an empty
+  // "Recommended Doctors" panel for that complaint.
   const doctorsData = [
     {
       email: "dr.sharma@medcore.local",
@@ -66,6 +71,90 @@ async function main() {
       name: "Dr. Amir Khan",
       specialization: "Orthopedics",
       qualification: "MBBS, MS Ortho",
+    },
+    {
+      email: "dr.iyer@medcore.local",
+      phone: "9999900004",
+      name: "Dr. Anjali Iyer",
+      specialization: "Pulmonologist",
+      qualification: "MBBS, MD (Pulmonary Medicine)",
+    },
+    {
+      email: "dr.menon@medcore.local",
+      phone: "9999900005",
+      name: "Dr. Vikram Menon",
+      specialization: "Cardiologist",
+      qualification: "MBBS, MD, DM (Cardiology)",
+    },
+    {
+      email: "dr.rao@medcore.local",
+      phone: "9999900006",
+      name: "Dr. Kavita Rao",
+      specialization: "Dermatologist",
+      qualification: "MBBS, MD (Dermatology)",
+    },
+    {
+      email: "dr.singh@medcore.local",
+      phone: "9999900007",
+      name: "Dr. Harpreet Singh",
+      specialization: "ENT",
+      qualification: "MBBS, MS (ENT)",
+    },
+    {
+      email: "dr.banerjee@medcore.local",
+      phone: "9999900008",
+      name: "Dr. Sourav Banerjee",
+      specialization: "Neurologist",
+      qualification: "MBBS, MD, DM (Neurology)",
+    },
+    {
+      email: "dr.gupta@medcore.local",
+      phone: "9999900009",
+      name: "Dr. Neha Gupta",
+      specialization: "Gastroenterologist",
+      qualification: "MBBS, MD, DM (Gastroenterology)",
+    },
+    {
+      email: "dr.fernandes@medcore.local",
+      phone: "9999900012",
+      name: "Dr. Maria Fernandes",
+      specialization: "Gynecologist",
+      qualification: "MBBS, MS (Obstetrics & Gynecology)",
+    },
+    {
+      email: "dr.nair@medcore.local",
+      phone: "9999900013",
+      name: "Dr. Arjun Nair",
+      specialization: "Psychiatrist",
+      qualification: "MBBS, MD (Psychiatry)",
+    },
+    {
+      email: "dr.bose@medcore.local",
+      phone: "9999900014",
+      name: "Dr. Ritu Bose",
+      specialization: "Ophthalmologist",
+      qualification: "MBBS, MS (Ophthalmology)",
+    },
+    {
+      email: "dr.joshi@medcore.local",
+      phone: "9999900015",
+      name: "Dr. Sameer Joshi",
+      specialization: "Urologist",
+      qualification: "MBBS, MS, MCh (Urology)",
+    },
+    {
+      email: "dr.reddy@medcore.local",
+      phone: "9999900016",
+      name: "Dr. Lakshmi Reddy",
+      specialization: "Endocrinologist",
+      qualification: "MBBS, MD, DM (Endocrinology)",
+    },
+    {
+      email: "dr.dsouza@medcore.local",
+      phone: "9999900017",
+      name: "Dr. Rohan D'Souza",
+      specialization: "General Physician",
+      qualification: "MBBS, MD (General Medicine)",
     },
   ];
 

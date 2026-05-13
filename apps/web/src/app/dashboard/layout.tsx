@@ -95,7 +95,8 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import Image from "next/image";
-import logoIcon from "../assets/HD_Icon.png";
+import logoHorizontal from "../assets/MedCore_Logo1_0001_Layer-3.png";
+import logoHorizontalDark from "../assets/MedCore_Logo1_0003_Layer-6.png";
 import { SearchPalette } from "./_components/search-palette";
 
 // Role-based bottom nav shortcuts (5 items, mobile only)
@@ -203,6 +204,7 @@ const navByRole: Record<
     { href: "/dashboard/visitors", label: "Visitors", icon: UserCheck },
     { href: "/dashboard/ai-booking", label: "AI Booking", icon: Bot },
     { href: "/dashboard/scribe", label: "AI Scribe", icon: Mic },
+    { href: "/dashboard/ai-differential", label: "Diagnosis", icon: Stethoscope },
     { href: "/dashboard/ai/chart-search", label: "Chart Search", icon: Brain },
     { href: "/dashboard/ai-analytics", label: "AI Analytics", icon: Sparkles },
     { href: "/dashboard/ai-kpis", label: "AI KPIs", icon: BarChart3 },
@@ -242,6 +244,7 @@ const navByRole: Record<
     { href: "/dashboard/my-leaves", label: "My Leaves", icon: PlaneTakeoff },
     { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
     { href: "/dashboard/scribe", label: "AI Scribe", icon: Mic },
+    { href: "/dashboard/ai-differential", label: "Diagnosis", icon: Stethoscope },
     { href: "/dashboard/ai/chart-search", label: "Chart Search", icon: Brain },
     { href: "/dashboard/predictions", label: "No-Show Predictions", icon: TrendingUp },
     { href: "/dashboard/er-triage", label: "ER Triage", icon: Siren },
@@ -875,31 +878,36 @@ export default function DashboardLayout({
         aria-label="Primary navigation"
       >
         <div className="border-b border-gray-200 p-5 dark:border-white/10">
-          <div className="flex items-center justify-between">
-            <div className="flex min-w-0 items-center gap-2">
-              <Image
-                src={logoIcon}
-                alt="MedCore"
-                width={28}
-                height={28}
-                className="rounded-lg object-contain shrink-0"
-                priority
-              />
-              <div className="min-w-0">
-                <h1 className="text-xl font-bold leading-tight whitespace-nowrap">MedCore</h1>
-                <p className="mt-0.5 text-xs text-gray-500 truncate dark:text-gray-400">
-                {user.name} ({user.role})
-              </p>
-              </div>
+          <div className="flex flex-col items-center gap-2">
+            {/* Theme-aware sidebar logo: Layer-3 for light, Layer-6 for dark.
+                Both <Image>s share an EXPLICIT 180×36 render box (not
+                `w-auto`) so different intrinsic aspect ratios in the two
+                PNGs can't make one look smaller than the other — each is
+                letterboxed by `object-contain`. */}
+            <Image
+              src={logoHorizontal}
+              alt="MedCore"
+              width={180}
+              height={36}
+              className="h-9 w-[180px] object-contain dark:hidden"
+              priority
+            />
+            <Image
+              src={logoHorizontalDark}
+              alt="MedCore"
+              width={180}
+              height={36}
+              className="hidden h-9 w-[180px] object-contain dark:block"
+              priority
+            />
+            <div className="flex flex-col items-center gap-1">
+              <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                {user.name}
+              </span>
+              <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-px text-[8px] font-medium uppercase tracking-wider text-primary dark:bg-primary/20">
+                {user.role}
+              </span>
             </div>
-            <button
-              onClick={() => setSearchOpen(true)}
-              title="Search (Ctrl+K)"
-              aria-label="Open search (Ctrl+K)"
-              className="rounded-lg p-2 text-gray-600 transition hover:bg-sidebar-hover hover:text-gray-900 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none dark:text-gray-300 dark:hover:text-white"
-            >
-              <Search size={18} aria-hidden="true" />
-            </button>
           </div>
           <button
             onClick={() => setSearchOpen(true)}
@@ -1085,9 +1093,24 @@ export default function DashboardLayout({
           >
             <Menu size={20} aria-hidden="true" />
           </button>
-          <span className="font-semibold text-gray-900 dark:text-gray-100">
-            MedCore
-          </span>
+          {/* Mobile top-bar logo — same theme swap. Both variants pinned to
+              the same 140×28 box for visual parity. */}
+          <Image
+            src={logoHorizontal}
+            alt="MedCore"
+            width={140}
+            height={28}
+            className="h-7 w-[140px] object-contain dark:hidden"
+            priority
+          />
+          <Image
+            src={logoHorizontalDark}
+            alt="MedCore"
+            width={140}
+            height={28}
+            className="hidden h-7 w-[140px] object-contain dark:block"
+            priority
+          />
           <div className="flex items-center gap-1">
             {/* Issue #137: language switcher mirrors the sidebar one for
                 small screens where the sidebar is collapsed by default. */}

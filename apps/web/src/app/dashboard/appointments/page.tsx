@@ -143,6 +143,17 @@ function dayOfWeekName(s: string): string {
   return DAY_NAMES[d.getDay()];
 }
 
+// Pull the patient's display name out of an EntityPicker payload. Patient
+// rows come back from /patients with a nested `user.name` — fall back to a
+// few likely shapes so the Confirm Appointment dialog never renders a blank.
+function readPatientName(entity: Record<string, unknown> | null): string {
+  if (!entity) return "";
+  const user = entity.user as { name?: unknown } | undefined;
+  if (user && typeof user.name === "string") return user.name;
+  if (typeof entity.name === "string") return entity.name;
+  return "";
+}
+
 // ─── Simple chart components (inline — mirror analytics patterns) ─
 
 function DonutChart({
@@ -292,13 +303,33 @@ export default function AppointmentsPage() {
   const [recFrequency, setRecFrequency] = useState<"DAILY" | "WEEKLY" | "MONTHLY">("WEEKLY");
   const [recOccurrences, setRecOccurrences] = useState(4);
 
-  // Patient-ID prompt modal (replaces window.prompt so it's testable)
-  const [patientIdPrompt, setPatientIdPrompt] = useState<{
+  const [patientIdInput, setPatientIdInput] = useState("");
+  // Display name of the patient most recently picked via the in-form
+  // EntityPicker — used to render the Confirm Appointment dialog preview
+  // for staff (Doctor/Admin/Reception/Nurse) flows. The picker's onChange
+  // emits both the id and the full entity, so we capture the name here.
+  const [pickedPatientName, setPickedPatientName] = useState("");
+  // Reset counter for the EntityPicker `key` — EntityPicker holds its
+  // own `chosenLabel` state and only clears it via an effect on `value`.
+  // Bumped after a successful booking or when Cancel clears the picker
+  // so the chip/query state doesn't survive into the next booking.
+  const [pickerResetKey, setPickerResetKey] = useState(0);
+  // Inline error flag for the staff Patient picker — turns the label,
+  // picker border, and helper text red when a slot is clicked without
+  // a patient picked. Cleared as soon as the user picks one.
+  const [patientFieldError, setPatientFieldError] = useState(false);
+  const [bookingInFlight, setBookingInFlight] = useState(false);
+
+  // Patient self-booking: when the logged-in user is a PATIENT we resolve
+  // their own patientId via /auth/me once and skip the patient-search modal
+  // — clicking a slot opens a Confirm Appointment dialog that previews the
+  // doctor / date / time / their own name instead.
+  const [mePatient, setMePatient] = useState<{ id: string; name: string } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
     slotStartTime: string;
-  }>({ open: false, slotStartTime: "" });
-  const [patientIdInput, setPatientIdInput] = useState("");
-  const [bookingInFlight, setBookingInFlight] = useState(false);
+    slotEndTime: string;
+  }>({ open: false, slotStartTime: "", slotEndTime: "" });
 
   // Reschedule modal
   const [reschedTarget, setReschedTarget] = useState<Appointment | null>(null);
@@ -403,6 +434,28 @@ export default function AppointmentsPage() {
   }, [loadDoctors]);
 
   useEffect(() => {
+    if (!isPatient) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await api.get<{
+          data: { name: string; patient?: { id: string } | null };
+        }>("/auth/me");
+        if (cancelled) return;
+        if (me.data?.patient?.id) {
+          setMePatient({ id: me.data.patient.id, name: me.data.name });
+        }
+      } catch {
+        // /auth/me failing here is non-fatal — the existing search modal
+        // remains as a fallback if mePatient never resolves.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isPatient]);
+
+  useEffect(() => {
     if (view === "list") loadAppointments();
   }, [view, loadAppointments]);
 
@@ -471,10 +524,8 @@ export default function AppointmentsPage() {
   // open keeps the handler idempotent.
   const bookAppointment = useCallback(
     (slotStartTime: string) => {
-      // Ignore double-click bursts: if the prompt is already open for this
-      // slot, do nothing. Without this guard, React would batch setState
-      // calls against the same modal and the inner form would re-mount.
-      if (patientIdPrompt.open) return;
+      // Ignore double-click bursts on the confirm dialog.
+      if (confirmDialog.open) return;
 
       // Reject past slots defensively (the slot renderer already disables
       // them, but a keyboard user could still hit Enter on a stale button).
@@ -494,39 +545,62 @@ export default function AppointmentsPage() {
         );
         return;
       }
-      // Issue #344 (May 2026): if the receptionist has already picked a
-      // patient via the in-form picker, skip the modal entirely and book
-      // straight away. The modal still opens when no patient is pre-picked
-      // (back-compat for keyboard-driven flows + the legacy "click slot
-      // first, then enter MRN" muscle memory).
-      if (patientIdInput.trim().length > 0) {
-        // Stash slot in the prompt state so confirmPatientIdAndBook reads
-        // the correct value, then trigger the same submission path the
-        // modal would have triggered. Modal stays closed because we don't
-        // set `open: true`.
-        setPatientIdPrompt({ open: false, slotStartTime });
-        void confirmPatientIdAndBook(slotStartTime);
+      // Patient self-booking: surface a Confirm Appointment dialog with a
+      // preview of the doctor / date / time / their own name. No patient
+      // search needed — they can only book for themselves.
+      if (isPatient) {
+        if (!mePatient) {
+          toast.error("Please complete your patient profile before booking");
+          return;
+        }
+        const slot = slots.find((s) => s.startTime === slotStartTime);
+        setConfirmDialog({
+          open: true,
+          slotStartTime,
+          slotEndTime: slot?.endTime ?? "",
+        });
         return;
       }
-      // Open in-page modal (replaces window.prompt so it's testable by
-      // browser automation that cannot interact with native dialogs).
-      setPatientIdPrompt({ open: true, slotStartTime });
+      // Staff flow: patient MUST be pre-picked via the in-form picker.
+      // No fallback popup — flag the Patient field in red so the user
+      // sees inline where the missing input is. Cleared on next pick.
+      if (patientIdInput.trim().length === 0) {
+        setPatientFieldError(true);
+        return;
+      }
+      const slot = slots.find((s) => s.startTime === slotStartTime);
+      setConfirmDialog({
+        open: true,
+        slotStartTime,
+        slotEndTime: slot?.endTime ?? "",
+      });
     },
-    [patientIdPrompt.open, selectedDate, selectedDoctor, t, patientIdInput]
+    [
+      confirmDialog.open,
+      selectedDate,
+      selectedDoctor,
+      t,
+      patientIdInput,
+      isPatient,
+      mePatient,
+      slots,
+    ]
   );
 
-  async function confirmPatientIdAndBook(slotOverride?: string) {
-    const patientId = patientIdInput.trim();
+  async function confirmPatientIdAndBook(
+    slotOverride?: string,
+    patientIdOverride?: string
+  ) {
+    const patientId = (patientIdOverride ?? patientIdInput).trim();
     if (!patientId) {
       toast.error("Patient ID is required to book an appointment");
       return;
     }
-    // Issue #344: when called from the in-form path (Patient already
-    // picked + slot just clicked), the prompt-state hasn't been updated
-    // yet so we accept the slot directly via argument. The modal path
-    // still falls back to `patientIdPrompt.slotStartTime` (its useEffect
-    // setter ran synchronously before the form submit).
-    const slotStartTime = slotOverride ?? patientIdPrompt.slotStartTime;
+    const slotStartTime = slotOverride ?? confirmDialog.slotStartTime;
+    if (!slotStartTime) {
+      toast.error("Please pick a slot before booking");
+      return;
+    }
     setBookingInFlight(true);
     try {
       if (isRecurring) {
@@ -548,8 +622,11 @@ export default function AppointmentsPage() {
         });
         toast.success("Appointment booked!");
       }
-      setPatientIdPrompt({ open: false, slotStartTime: "" });
+      setConfirmDialog({ open: false, slotStartTime: "", slotEndTime: "" });
       setPatientIdInput("");
+      setPickedPatientName("");
+      setPickerResetKey((k) => k + 1);
+      setPatientFieldError(false);
       setShowBooking(false);
       setIsRecurring(false);
       loadAppointments();
@@ -984,75 +1061,111 @@ export default function AppointmentsPage() {
         </div>
       )}
 
-      {/* Patient-ID prompt modal — replaces window.prompt() so it's
-          reachable by Playwright / browser automation / the Claude
-          cloud browser, none of which can interact with native dialogs. */}
-      {patientIdPrompt.open && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="patient-id-prompt-title"
-          data-testid="patient-id-prompt"
-        >
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <h3
-              id="patient-id-prompt-title"
-              className="text-lg font-semibold text-gray-800"
-            >
-              Select Patient
-            </h3>
-            <p className="mt-1 text-sm text-gray-500">
-              Search by name, phone, or MR number.
-            </p>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void confirmPatientIdAndBook();
-              }}
-              noValidate
-              className="mt-4 space-y-4"
-            >
-              {/* Issue #204: replaced raw text input ("Paste the Patient ID
-                  MRN or UUID") with the shared EntityPicker. The previous
-                  flow asked reception to paste an MRN/UUID and silently
-                  did nothing on most inputs. */}
-              <EntityPicker
-                endpoint="/patients"
-                labelField="user.name"
-                subtitleField="user.phone"
-                hintField="mrNumber"
-                value={patientIdInput}
-                onChange={(id) => setPatientIdInput(id)}
-                searchPlaceholder="Search patient by name, phone, MR..."
-                testIdPrefix="patient-id-prompt"
-              />
-              <div className="flex justify-end gap-2">
+      {/* Confirm Appointment dialog — used by both patient self-booking
+          AND staff pre-picked-patient flow. Previews doctor / date / time /
+          patient name before posting to /book. */}
+      {confirmDialog.open && (() => {
+        const dialogPatientId = isPatient
+          ? mePatient?.id ?? ""
+          : patientIdInput.trim();
+        const dialogPatientName = isPatient
+          ? mePatient?.name ?? ""
+          : pickedPatientName;
+        const doctor = doctors.find((x) => x.id === selectedDoctor);
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-appointment-title"
+            data-testid="confirm-appointment-dialog"
+          >
+            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
+              <h3
+                id="confirm-appointment-title"
+                className="text-lg font-semibold text-gray-800 dark:text-gray-100"
+              >
+                Confirm Appointment
+              </h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Please review the details below before confirming.
+              </p>
+              <dl className="mt-4 space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm dark:border-gray-700 dark:bg-gray-900">
+                <div className="flex justify-between gap-4">
+                  <dt className="font-medium text-gray-500 dark:text-gray-400">Patient</dt>
+                  <dd
+                    className="text-right text-gray-900 dark:text-gray-100"
+                    data-testid="confirm-appointment-patient"
+                  >
+                    {dialogPatientName || "—"}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="font-medium text-gray-500 dark:text-gray-400">Doctor</dt>
+                  <dd
+                    className="text-right text-gray-900 dark:text-gray-100"
+                    data-testid="confirm-appointment-doctor"
+                  >
+                    {doctor
+                      ? `${formatDoctorName(doctor.user.name)} — ${doctor.specialization}`
+                      : "—"}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="font-medium text-gray-500 dark:text-gray-400">Date</dt>
+                  <dd
+                    className="text-right text-gray-900 dark:text-gray-100"
+                    data-testid="confirm-appointment-date"
+                  >
+                    {selectedDate}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="font-medium text-gray-500 dark:text-gray-400">Time</dt>
+                  <dd
+                    className="text-right text-gray-900 dark:text-gray-100"
+                    data-testid="confirm-appointment-time"
+                  >
+                    {confirmDialog.slotEndTime
+                      ? `${confirmDialog.slotStartTime} – ${confirmDialog.slotEndTime}`
+                      : confirmDialog.slotStartTime}
+                  </dd>
+                </div>
+              </dl>
+              <div className="mt-5 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => {
-                    setPatientIdPrompt({ open: false, slotStartTime: "" });
-                    setPatientIdInput("");
+                    // Close the confirm dialog. The in-form Patient picker
+                    // (for staff) keeps its current selection so the user
+                    // can click a different slot without re-picking. To
+                    // change the patient, use the "Change" button on the
+                    // in-form picker itself.
+                    setConfirmDialog({ open: false, slotStartTime: "", slotEndTime: "" });
                   }}
-                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                  data-testid="patient-id-prompt-cancel"
+                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-700"
+                  data-testid="confirm-appointment-cancel"
                   disabled={bookingInFlight}
                 >
                   {t("common.cancel")}
                 </button>
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={() =>
+                    void confirmPatientIdAndBook(confirmDialog.slotStartTime, dialogPatientId)
+                  }
                   className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-                  data-testid="patient-id-prompt-confirm"
-                  disabled={bookingInFlight || !patientIdInput.trim()}
+                  data-testid="confirm-appointment-confirm"
+                  disabled={bookingInFlight || !dialogPatientId}
                 >
-                  {bookingInFlight ? "Booking…" : "Book"}
+                  {bookingInFlight ? "Booking…" : "Confirm"}
                 </button>
               </div>
-            </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
+
 
       {/* Reschedule modal */}
       {reschedTarget && (
@@ -1426,40 +1539,58 @@ export default function AppointmentsPage() {
                   patient picker as the FIRST field in the form so the
                   required-fields contract is visible at the panel level.
                   When a patient is pre-picked here, clicking a slot books
-                  immediately without re-prompting — see bookAppointment(). */}
-              {/* Issue #885 (re-confirms #344): bug-bashers' DOM probe
-                  showed labels = ["Language","Language","Doctor","Date"]
-                  with NO "Patient *" — that points to a stale staging build
-                  rather than a code bug (the picker is unconditionally
-                  rendered inside this `{showBooking &&` block on the
-                  current branch). Adding an explicit `data-testid` on the
-                  field wrapper + label so a future probe can lock onto
-                  this specific element by selector instead of a generic
-                  `querySelectorAll('label')` sweep, and so a Playwright
-                  smoke test can fail loudly the next time a deploy ships
-                  without this field. */}
-              <div className="mb-4" data-testid="appt-book-patient-field">
-                <label
-                  htmlFor="appt-book-patient"
-                  data-testid="appt-book-patient-label"
-                  className="mb-1 block text-sm font-medium"
-                >
-                  Patient *
-                </label>
-                <EntityPicker
-                  endpoint="/patients"
-                  labelField="user.name"
-                  subtitleField="user.phone"
-                  hintField="mrNumber"
-                  value={patientIdInput}
-                  onChange={(id) => setPatientIdInput(id)}
-                  searchPlaceholder="Search patient by name, phone, MR..."
-                  testIdPrefix="appt-book-patient"
-                />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Required — pick a patient before choosing a slot below.
-                </p>
-              </div>
+                  immediately without re-prompting — see bookAppointment().
+                  PATIENT role is excluded — they can only book for
+                  themselves, so a search picker is unnecessary; the
+                  Confirm Appointment dialog handles their flow. */}
+              {!isPatient && (
+                <div className="mb-4">
+                  <label
+                    htmlFor="appt-book-patient"
+                    className="mb-1 block text-sm font-medium"
+                  >
+                    Patient *
+                  </label>
+                  <div
+                    className={
+                      patientFieldError
+                        ? "rounded-lg ring-2 ring-red-500"
+                        : ""
+                    }
+                    data-testid="appt-book-patient-error-wrap"
+                    data-error={patientFieldError ? "true" : undefined}
+                  >
+                    <EntityPicker
+                      key={`appt-book-patient-${pickerResetKey}`}
+                      endpoint="/patients"
+                      labelField="user.name"
+                      subtitleField="user.phone"
+                      hintField="mrNumber"
+                      value={patientIdInput}
+                      onChange={(id, entity) => {
+                        setPatientIdInput(id);
+                        setPickedPatientName(readPatientName(entity));
+                        // Clear the inline error as soon as a patient is
+                        // actually selected (id non-empty).
+                        if (id) setPatientFieldError(false);
+                      }}
+                      searchPlaceholder="Search patient by name, phone, MR..."
+                      testIdPrefix="appt-book-patient"
+                    />
+                  </div>
+                  <p
+                    className={`mt-1 text-xs ${
+                      patientFieldError
+                        ? "text-red-600 dark:text-red-400"
+                        : "text-gray-500 dark:text-gray-400"
+                    }`}
+                  >
+                    {patientFieldError
+                      ? "Please pick a patient before choosing a slot."
+                      : "Required — pick a patient before choosing a slot below."}
+                  </p>
+                </div>
+              )}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
                   <label htmlFor="appt-book-doctor" className="mb-1 block text-sm font-medium">

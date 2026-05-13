@@ -72,6 +72,23 @@ export const createPrescriptionSchema = z.object({
   overrideWarnings: z.boolean().optional(),
 });
 
+// Edit-mode counterpart of createPrescriptionSchema. Deliberately omits
+// appointmentId and patientId — those are immutable identifiers on an
+// existing prescription; allowing them to change would let a doctor
+// silently retarget an Rx onto a different patient or visit. items is
+// required because the wire-replace happens atomically (delete + recreate
+// in a tx) so the caller MUST send the full desired set, not a partial.
+export const updatePrescriptionSchema = z.object({
+  diagnosis: z.string().min(1, "Diagnosis is required"),
+  items: z.array(prescriptionItemSchema).min(1, "At least one medicine is required"),
+  advice: z.string().optional(),
+  followUpDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
+    .optional(),
+  overrideWarnings: z.boolean().optional(),
+});
+
 export const copyPrescriptionSchema = z.object({
   previousPrescriptionId: z.string().uuid(),
   appointmentId: z.string().uuid(),
@@ -98,6 +115,7 @@ export const renalDoseCalcSchema = z.object({
 });
 
 export type CreatePrescriptionInput = z.infer<typeof createPrescriptionSchema>;
+export type UpdatePrescriptionInput = z.infer<typeof updatePrescriptionSchema>;
 export type CopyPrescriptionInput = z.infer<typeof copyPrescriptionSchema>;
 export type SharePrescriptionInput = z.infer<typeof sharePrescriptionSchema>;
 export type PrescriptionTemplateInput = z.infer<typeof prescriptionTemplateSchema>;

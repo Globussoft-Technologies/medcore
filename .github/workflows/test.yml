@@ -278,6 +278,13 @@ jobs:
         run: npm run db:generate
 
       - name: Build web
+        # Next.js 16's worker pool needs more heap than the default 2 GB —
+        # without this bump, `next build` dies with
+        # "WorkerError: Call retries were exceeded" on the GH Actions
+        # ubuntu-latest runner. Inherited from the Next 16 migration spike
+        # (see diagnosis in docs/archive/SESSION_SNAPSHOT_2026-05-13-evening.md).
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: npm --prefix apps/web run build
 
       - name: Report and budget-check bundle size

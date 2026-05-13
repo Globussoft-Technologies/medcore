@@ -6,7 +6,44 @@ is independently shippable. Full per-session history lives under
 
 ---
 
-## 🏠 HOME PICKUP — handoff from 2026-05-12: PR-triage wave (#882 + #888 merged)
+## 🏠 HOME PICKUP — handoff from 2026-05-13 evening: #905 merged + deferred-PR diagnoses
+
+**Production state at handoff** (commit `6897d1f` — `Ai/book/medcore (#905)`):
+- ✅ HEAD on `main` = `6897d1f`. Working tree clean. PR queue **down to 5** (the same 5 deferred dependabot bumps).
+- ✅ **PR #905 squash-merged** — Subhadip's sidebar-logo-size fix + AI Differential/Smart Follow-up fixes + AI Booking completion + prescription edit/ownership/audit. 22 files, 1047/-273. All functional CI gates green; only the inherited npm-audit pre-existing failure.
+- 🔄 **Release validation `25807999968` dispatched** on `6897d1f` — was queued at session end; check status on home pickup.
+- ⚠️ **`npm audit (high+critical)` still RED on main** — inherited from `next@15.5.18` CVE cluster; clears when #784 lands.
+
+### 🔬 Diagnoses confirmed this session for the 5 deferred PRs
+
+All 5 are genuine migration-class — not single-shot tweaks:
+
+| PR | Specific blocker |
+|---|---|
+| **#883** patch-minor group of 14 | `@dependabot rebase` didn't fire after 7 min — branch stuck on stale lockfile post-#882/#888. Needs `@dependabot recreate` or manual local rebase. |
+| **#790** `zod` 3→4 | My codemod (`2da6ce3`) cleared Type check + bundle + web tests + lint ✅. **Remaining**: 100+ API-test assertions hard-code zod-3 default messages (`"Required"`, `"Expected ..."`) that zod-4 returns as `"Invalid input: expected string, received undefined"` etc. Consider zod's error-customisation API as a shim instead of rewriting every assertion. |
+| **#788** `@vitest/coverage-v8` 2→4 | Version-skew with vitest core (not being bumped); can't merge standalone. |
+| **#784** `next` 15→16 | `WorkerError: Call retries were exceeded` — Next 16 worker pool needs CI memory bump: add `NODE_OPTIONS="--max-old-space-size=4096"` to the "Build web" step in `.github/workflows/test.yml:280-281` OR `experimental.workerThreads: false` in `apps/web/next.config.js`. |
+| **#783** `@next/swc-linux-x64-gnu` 15→16 | **All 12 jobs GREEN** ✅ but must pair-merge with #784 (binary version skew otherwise). |
+
+### 🔥 Top priority for home pickup
+
+1. **Check release validation `25807999968`** — was queued at session end.
+2. **Next 15→16 migration session (~2-3hr)** — highest-leverage; doubles as the npm-audit RED fix on main. Bump NODE_OPTIONS in test.yml, `@dependabot rebase` on #784 + #783, pair-merge.
+3. **#883 cleanup (~30 min)** after the Next migration — lockfile contention will be reduced.
+4. **Zod migration session (~half-day)** — test-assertion rewrite for #790; codemod already on the branch.
+5. **#788 vitest-coverage** — only attempt after vitest core is queued.
+
+### Still on you (carried forward unchanged)
+
+- 9 items from issue #772 (JWT rotation, BOLA-sweep skill promotion, demo SQL, smoke-test wave, Razorpay live keys, #881 code review, GH Actions IPs, scheduled dep migrations, STAGING triage)
+- **#599** PHARMACIST patient-detail policy decision (1 test still `it.skip`'d)
+- **A11** appointment time-conventions sweep (~1-2hr grep)
+- **104 [STAGING] UAT issues** — likely 5-6 closable post-#888 + #905 per the HANDOFF.md table; smoke-pass on `medcore.globusdemos.com` to close them.
+
+---
+
+## 🏠 PRIOR PICKUP — handoff from 2026-05-12: PR-triage wave (#882 + #888 merged) (kept for log)
 
 **Production state at handoff** (commit `e2a11e1` — `docs(CLAUDE): 2 new cron-learnings from 2026-05-12 PR-triage wave`):
 - ✅ **HEAD on `main`** = `e2a11e1`. Working tree clean. PR queue down to 5 (all dependabot, all deferred-migration-class).

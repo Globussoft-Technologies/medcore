@@ -5,7 +5,11 @@ import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
-import { FREQUENCY_OPTIONS, createPrescriptionSchema } from "@medcore/shared";
+import {
+  FREQUENCY_OPTIONS,
+  createPrescriptionSchema,
+  updatePrescriptionSchema,
+} from "@medcore/shared";
 import { toast } from "@/lib/toast";
 import { InfoIcon } from "@/components/Tooltip";
 import { Autocomplete } from "@/components/Autocomplete";
@@ -105,6 +109,10 @@ export default function PrescriptionsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // When set, the form is in EDIT mode: submit hits PATCH /:id instead of
+  // POST, and appointment/patient pickers are read-only since those are
+  // immutable on an existing Rx (server-side schema also omits them).
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // ─── Issue #169: list toolbar (search / status / date / sort / paginate) ──
   // Backend `/api/v1/prescriptions` supports `?page=&limit=&patientId=&doctorId=`
@@ -432,31 +440,117 @@ export default function PrescriptionsPage() {
     }
   }
 
+  function resetForm() {
+    setShowForm(false);
+    setShowInteractionModal(false);
+    setInteractionWarnings([]);
+    setEditingId(null);
+    setForm({ appointmentId: "", patientId: "", diagnosis: "", advice: "", followUpDate: "" });
+    setMedicines([{ medicineName: "", dosage: "", frequency: "", duration: "", instructions: "" }]);
+    setFormErrors({});
+  }
+
+  // Open the form pre-populated for editing. Used by the per-row Edit button
+  // and by the 409-fallback flow when a doctor tries to write a new Rx for
+  // an appointment that already has one.
+  function openEditMode(rx: PrescriptionRecord) {
+    setEditingId(rx.id);
+    setShowForm(true);
+    setForm({
+      // appointmentId/patientId are kept in form state for display only —
+      // the PATCH payload deliberately omits them.
+      appointmentId: "",
+      patientId: "",
+      diagnosis: rx.diagnosis,
+      advice: rx.advice ?? "",
+      followUpDate: rx.followUpDate ? rx.followUpDate.slice(0, 10) : "",
+    });
+    setMedicines(
+      rx.items.length > 0
+        ? rx.items.map((it) => ({
+            medicineName: it.medicineName,
+            dosage: it.dosage,
+            frequency: it.frequency,
+            duration: it.duration,
+            instructions: it.instructions ?? "",
+          }))
+        : [{ medicineName: "", dosage: "", frequency: "", duration: "", instructions: "" }],
+    );
+    setFormErrors({});
+    // Scroll up so the edit form is visible (doctor clicked the Edit button
+    // on a row possibly far below the fold).
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
   async function submitPrescription(override: boolean) {
     try {
-      await api.post("/prescriptions", {
-        appointmentId: form.appointmentId,
-        patientId: form.patientId,
-        diagnosis: form.diagnosis,
-        items: medicines.filter((m) => m.medicineName),
-        advice: form.advice || undefined,
-        followUpDate: form.followUpDate || undefined,
-        overrideWarnings: override,
-      });
-      setShowForm(false);
-      setShowInteractionModal(false);
-      setInteractionWarnings([]);
-      setForm({ appointmentId: "", patientId: "", diagnosis: "", advice: "", followUpDate: "" });
-      setMedicines([{ medicineName: "", dosage: "", frequency: "", duration: "", instructions: "" }]);
+      if (editingId) {
+        // Edit mode: PATCH /:id. appointment/patient are immutable on the
+        // server side, so we deliberately omit them from the payload.
+        await api.patch(`/prescriptions/${editingId}`, {
+          diagnosis: form.diagnosis,
+          items: medicines.filter((m) => m.medicineName),
+          advice: form.advice || undefined,
+          followUpDate: form.followUpDate || undefined,
+          overrideWarnings: override,
+        });
+        toast.success("Prescription updated");
+      } else {
+        await api.post("/prescriptions", {
+          appointmentId: form.appointmentId,
+          patientId: form.patientId,
+          diagnosis: form.diagnosis,
+          items: medicines.filter((m) => m.medicineName),
+          advice: form.advice || undefined,
+          followUpDate: form.followUpDate || undefined,
+          overrideWarnings: override,
+        });
+      }
+      resetForm();
       loadPrescriptions();
     } catch (err) {
-      const anyErr = err as Error & { payload?: { warnings?: InteractionWarning[]; error?: string } };
+      const anyErr = err as Error & {
+        payload?: {
+          warnings?: InteractionWarning[];
+          error?: string;
+          data?: { existingPrescriptionId?: string };
+        };
+      };
+      // Drug-interaction modal flow.
       if (anyErr.payload?.warnings && anyErr.payload.warnings.length > 0) {
         setInteractionWarnings(anyErr.payload.warnings);
         setShowInteractionModal(true);
         return;
       }
-      toast.error(err instanceof Error ? err.message : "Failed to create prescription");
+      // 409 "already exists" fallback: load the existing Rx into the form
+      // so the doctor can edit it instead of being stuck.
+      const existingId = anyErr.payload?.data?.existingPrescriptionId;
+      if (existingId && !editingId) {
+        try {
+          const res = await api.get<{ data: PrescriptionRecord }>(
+            `/prescriptions/${existingId}`,
+          );
+          if (res.data) {
+            toast.error(
+              anyErr.payload?.error ?? "A prescription already exists — opening it for edit.",
+            );
+            openEditMode(res.data);
+            return;
+          }
+        } catch {
+          // Fall through to the generic toast below.
+        }
+      }
+      toast.error(
+        anyErr.payload?.error ??
+          (err instanceof Error
+            ? err.message
+            : editingId
+              ? "Failed to update prescription"
+              : "Failed to create prescription"),
+      );
     }
   }
 
@@ -467,21 +561,35 @@ export default function PrescriptionsPage() {
 
     // Defense-in-depth: share the Zod schema used by the API so client-side
     // rejects bad UUIDs (Issue #17) and bad dosage shapes (Issue #9) before
-    // the network round-trip.
-    const parsed = createPrescriptionSchema.safeParse({
-      appointmentId: form.appointmentId,
-      patientId: form.patientId,
-      diagnosis: form.diagnosis,
-      items: items.map((m) => ({
-        medicineName: m.medicineName,
-        dosage: m.dosage,
-        frequency: m.frequency,
-        duration: m.duration || "—",
-        instructions: m.instructions || undefined,
-      })),
-      advice: form.advice || undefined,
-      followUpDate: form.followUpDate || undefined,
-    });
+    // the network round-trip. In edit mode we use updatePrescriptionSchema,
+    // which omits appointmentId/patientId (those are immutable server-side).
+    const parsed = editingId
+      ? updatePrescriptionSchema.safeParse({
+          diagnosis: form.diagnosis,
+          items: items.map((m) => ({
+            medicineName: m.medicineName,
+            dosage: m.dosage,
+            frequency: m.frequency,
+            duration: m.duration || "—",
+            instructions: m.instructions || undefined,
+          })),
+          advice: form.advice || undefined,
+          followUpDate: form.followUpDate || undefined,
+        })
+      : createPrescriptionSchema.safeParse({
+          appointmentId: form.appointmentId,
+          patientId: form.patientId,
+          diagnosis: form.diagnosis,
+          items: items.map((m) => ({
+            medicineName: m.medicineName,
+            dosage: m.dosage,
+            frequency: m.frequency,
+            duration: m.duration || "—",
+            instructions: m.instructions || undefined,
+          })),
+          advice: form.advice || undefined,
+          followUpDate: form.followUpDate || undefined,
+        });
     if (!parsed.success) {
       for (const issue of parsed.error.issues) {
         const first = issue.path[0];
@@ -552,7 +660,14 @@ export default function PrescriptionsPage() {
       }
       return;
     }
-    // Preview interaction check before saving
+    // Preview interaction check before saving. Only runs in CREATE mode —
+    // edit mode has no patientId on the form (it's immutable on the server),
+    // and the PATCH handler re-runs the same check anyway, so blocking
+    // interactions will still surface as a 400 with warnings on submit.
+    if (editingId) {
+      await submitPrescription(false);
+      return;
+    }
     setCheckingInteractions(true);
     try {
       const preview = await api.post<{
@@ -655,7 +770,15 @@ export default function PrescriptionsPage() {
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("dashboard.prescriptions.title")}</h1>
         {user?.role === "DOCTOR" && (
           <button
-            onClick={() => setShowForm(!showForm)}
+            onClick={() => {
+              // Toggle: if the form is open (in either mode) close + reset;
+              // otherwise open it in CREATE mode.
+              if (showForm) {
+                resetForm();
+              } else {
+                setShowForm(true);
+              }
+            }}
             className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
           >
             Write Prescription
@@ -677,9 +800,19 @@ export default function PrescriptionsPage() {
           noValidate
           className="mb-6 rounded-xl bg-white p-6 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100"
         >
-          <h2 className="mb-4 font-semibold">New Prescription</h2>
+          <h2 className="mb-4 font-semibold">
+            {editingId ? "Edit Prescription" : "New Prescription"}
+          </h2>
 
-          {templates.length > 0 && (
+          {editingId && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200">
+              Editing existing prescription. Patient and appointment are locked
+              — to issue an Rx for a different patient or appointment, cancel
+              and write a new one.
+            </div>
+          )}
+
+          {!editingId && templates.length > 0 && (
             <div className="mb-4 flex items-center gap-2 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/30">
               <label htmlFor="rx-template" className="text-sm font-medium">Use Template:</label>
               <select
@@ -701,6 +834,7 @@ export default function PrescriptionsPage() {
             </div>
           )}
 
+          {!editingId && (
           <div className="mb-4 grid grid-cols-2 gap-4">
             {/* Issue #120 (Apr 2026): replace raw "paste a UUID" inputs with
                 the shared EntityPicker. Patient picker comes first so the
@@ -796,12 +930,15 @@ export default function PrescriptionsPage() {
                 </p>
               )}
             </div>
-            <div className="col-span-2">
-              <label className="mb-1 flex items-center text-sm font-medium text-gray-700 dark:text-gray-200">
-                Diagnosis
-                <InfoIcon tooltip="ICD-10 codes are international standard diagnosis codes (e.g. E11.9 = Type 2 diabetes). Type to search." />
-              </label>
-              <Autocomplete<{ code: string; description: string }>
+          </div>
+          )}
+
+          <div className="mb-4">
+            <label className="mb-1 flex items-center text-sm font-medium text-gray-700 dark:text-gray-200">
+              Diagnosis
+              <InfoIcon tooltip="ICD-10 codes are international standard diagnosis codes (e.g. E11.9 = Type 2 diabetes). Type to search." />
+            </label>
+            <Autocomplete<{ code: string; description: string }>
                 value={form.diagnosis}
                 onChange={(val, item) => {
                   setForm({
@@ -831,10 +968,9 @@ export default function PrescriptionsPage() {
                 placeholder="Search ICD-10 (e.g. diabetes)"
                 inputClassName={formErrors.diagnosis ? "border-red-500" : ""}
               />
-              {formErrors.diagnosis && (
-                <p className="mt-1 text-xs text-red-600">{formErrors.diagnosis}</p>
-              )}
-            </div>
+            {formErrors.diagnosis && (
+              <p className="mt-1 text-xs text-red-600">{formErrors.diagnosis}</p>
+            )}
           </div>
 
           {/* Medicines */}
@@ -992,11 +1128,11 @@ export default function PrescriptionsPage() {
               type="submit"
               className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white"
             >
-              Save Prescription
+              {editingId ? "Update Prescription" : "Save Prescription"}
             </button>
             <button
               type="button"
-              onClick={() => setShowForm(false)}
+              onClick={resetForm}
               className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
             >
               Cancel
@@ -1241,6 +1377,16 @@ export default function PrescriptionsPage() {
                     </p>
                   )}
                   <div className="mt-4 flex flex-wrap gap-2">
+                    {user?.role === "DOCTOR" && (
+                      <button
+                        type="button"
+                        data-testid={`rx-edit-${rx.id}`}
+                        onClick={() => openEditMode(rx)}
+                        className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                      >
+                        Edit
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => markPrinted(rx.id)}

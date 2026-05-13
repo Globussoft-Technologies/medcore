@@ -70,7 +70,7 @@ export default function AIDifferentialPage() {
     if (!patientSearch.trim()) return;
     try {
       const res = await api.get<any>(
-        `/api/v1/patients?search=${encodeURIComponent(patientSearch)}&limit=5`
+        `/patients?search=${encodeURIComponent(patientSearch)}&limit=5`
       );
       setPatientResults(res.data?.patients ?? res.data ?? []);
     } catch {
@@ -92,7 +92,7 @@ export default function AIDifferentialPage() {
       if (vitalsTemp) vitals.temp = Number(vitalsTemp);
       if (vitalsSpo2) vitals.spo2 = Number(vitalsSpo2);
 
-      const res = await api.post<any>("/api/v1/ai/differential", {
+      const res = await api.post<any>("/ai/differential", {
         patientId,
         chiefComplaint,
         vitals: Object.keys(vitals).length ? vitals : undefined,

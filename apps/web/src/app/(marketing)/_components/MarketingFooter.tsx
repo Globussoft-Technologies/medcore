@@ -2,7 +2,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { Github, Twitter, Linkedin } from "lucide-react";
 import { Container } from "./Container";
-import logoIcon from "../../assets/HD_Icon.png";
+import logoHorizontal from "../../assets/MedCore_Logo1_0001_Layer-3.png";
+import logoHorizontalDark from "../../assets/MedCore_Logo1_0003_Layer-6.png";
 
 const cols = [
   {
@@ -51,13 +52,19 @@ export function MarketingFooter() {
               className="flex items-center gap-2 text-lg font-bold text-gray-900 dark:text-white"
             >
               <Image
-                src={logoIcon}
+                src={logoHorizontal}
                 alt="MedCore"
-                width={32}
-                height={32}
-                className="rounded-lg"
+                width={180}
+                height={36}
+                className="h-9 w-auto dark:hidden"
               />
-              MedCore
+              <Image
+                src={logoHorizontalDark}
+                alt="MedCore"
+                width={180}
+                height={36}
+                className="hidden h-9 w-auto dark:block"
+              />
             </Link>
             <p className="mt-4 max-w-sm text-sm text-gray-600 dark:text-gray-400">
               Hospital management software engineered for Indian clinics and

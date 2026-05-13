@@ -65,7 +65,7 @@ describe("AIFollowupPage", () => {
   });
 
   it("renders consultation rows on a happy path", async () => {
-    apiMock.get.mockResolvedValue({ data: [sampleConsult] });
+    apiMock.get.mockResolvedValue({ data: { consultations: [sampleConsult] } });
     render(<AIFollowupPage />);
     await waitFor(() =>
       expect(screen.getAllByTestId("followup-row").length).toBe(1)
@@ -84,7 +84,7 @@ describe("AIFollowupPage", () => {
   });
 
   it("renders the Refresh action that re-invokes the loader", async () => {
-    apiMock.get.mockResolvedValue({ data: [sampleConsult] });
+    apiMock.get.mockResolvedValue({ data: { consultations: [sampleConsult] } });
     render(<AIFollowupPage />);
     await waitFor(() =>
       expect(screen.getAllByTestId("followup-row").length).toBe(1)

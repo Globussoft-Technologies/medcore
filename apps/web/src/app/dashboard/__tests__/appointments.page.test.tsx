@@ -143,7 +143,8 @@ describe("AppointmentsPage", () => {
    * aria-disabled="true" and be functionally un-clickable. We mock the system
    * clock to 15:30 and feed a slot list that straddles "now", then assert
    * both the visual/a11y state and that clicks on a past slot do NOT open
-   * the patient-id prompt.
+   * the Confirm Appointment dialog (which is the post-2026-05 booking
+   * surface — the legacy patient-id prompt modal was removed).
    */
   describe("past-slot gating on today's date (Issue #34)", () => {
     let originalNow: typeof Date.now;
@@ -202,6 +203,19 @@ describe("AppointmentsPage", () => {
               ],
             },
           });
+        // /patients?search=… — the in-form EntityPicker queries this when
+        // the user types in the search box. Return a single seeded patient
+        // so the picker can offer something to click on.
+        if (url.startsWith("/patients"))
+          return Promise.resolve({
+            data: [
+              {
+                id: "p1",
+                mrNumber: "MR-1",
+                user: { name: "Asha Roy", phone: "9000000001" },
+              },
+            ],
+          });
         return Promise.resolve({ data: [] });
       });
 
@@ -239,18 +253,31 @@ describe("AppointmentsPage", () => {
       expect(futureSlotEve).toHaveAttribute("aria-disabled", "false");
       expect(futureSlotEve).not.toBeDisabled();
 
-      // Clicking a past slot must NOT open the patient-id prompt modal.
+      // Clicking a past slot must NOT open the Confirm Appointment dialog
+      // — the slot button is disabled so the handler never fires.
       await user.click(pastSlot);
       expect(
-        screen.queryByTestId("patient-id-prompt")
+        screen.queryByTestId("confirm-appointment-dialog")
       ).not.toBeInTheDocument();
 
-      // Clicking a future slot DOES open the prompt (no freeze — this is
-      // the direct regression for Issue #35: a late-hour slot like 18:00
-      // must process a click synchronously without hanging the component).
+      // Pre-pick a patient via the in-form EntityPicker. The staff
+      // booking flow requires a selected patient before a slot click
+      // surfaces the Confirm dialog. Two characters minimum — the
+      // EntityPicker default minQueryLength=2 gates the fetch.
+      const patientInput = screen.getByTestId("appt-book-patient-input");
+      await user.type(patientInput, "as");
+      const patientOption = await screen.findByTestId(
+        "appt-book-patient-option"
+      );
+      await user.click(patientOption);
+
+      // Clicking a future slot DOES open the Confirm dialog (no freeze —
+      // this is the direct regression for Issue #35: a late-hour slot
+      // like 18:00 must process a click synchronously without hanging
+      // the component).
       await user.click(futureSlotEve);
       expect(
-        await screen.findByTestId("patient-id-prompt")
+        await screen.findByTestId("confirm-appointment-dialog")
       ).toBeInTheDocument();
     });
   });

@@ -38,19 +38,10 @@ export default function AIFollowupPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // Latest consultations — the backend may expose this under /api/v1/ehr/consultations
-      // or /api/v1/consultations. We try both and fall back gracefully.
-      let data: any = null;
-      try {
-        data = await api.get<any>("/api/v1/ehr/consultations?limit=20");
-      } catch {
-        try {
-          data = await api.get<any>("/api/v1/consultations?limit=20");
-        } catch {
-          data = { data: [] };
-        }
-      }
-      setRows((data?.data?.consultations ?? data?.data ?? []) as ConsultationRow[]);
+      const data = await api
+        .get<any>("/ai/followup/consultations?limit=20")
+        .catch(() => ({ data: { consultations: [] } }));
+      setRows((data?.data?.consultations ?? []) as ConsultationRow[]);
     } finally {
       setLoading(false);
     }
@@ -62,22 +53,33 @@ export default function AIFollowupPage() {
 
   async function suggestFor(cid: string) {
     try {
-      const res = await api.post<any>(`/api/v1/ai/followup/suggest/${cid}`);
-      setSuggestions((m) => ({ ...m, [cid]: res.data?.suggestion ?? null }));
+      const res = await api.post<any>(`/ai/followup/suggest/${cid}`);
+      const suggestion = res.data?.suggestion ?? null;
+      if (!suggestion) {
+        // Server returned 200 with suggestion=null (e.g. no follow-up timeline
+        // documented in notes). Without surfacing the reason, the button would
+        // appear to do nothing on repeat clicks.
+        toast.error(res.data?.reason ?? "No follow-up suggestion available");
+        return;
+      }
+      if (!suggestion.slotStart) {
+        toast.error("No available slot on the suggested date");
+      }
+      setSuggestions((m) => ({ ...m, [cid]: suggestion }));
     } catch (err: any) {
-      toast.error(err?.message ?? "Suggestion failed");
+      toast.error(err?.payload?.error ?? err?.message ?? "Suggestion failed");
     }
   }
 
   async function book(cid: string) {
     setBookingId(cid);
     try {
-      await api.post<any>(`/api/v1/ai/followup/${cid}/book`, {});
+      await api.post<any>(`/ai/followup/${cid}/book`, {});
       toast.success("Follow-up booked");
       setSuggestions((m) => ({ ...m, [cid]: null }));
       await load();
     } catch (err: any) {
-      toast.error(err?.message ?? "Booking failed");
+      toast.error(err?.payload?.error ?? err?.message ?? "Booking failed");
     } finally {
       setBookingId(null);
     }

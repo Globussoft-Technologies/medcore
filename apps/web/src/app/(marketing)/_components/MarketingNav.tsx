@@ -5,7 +5,8 @@ import Image from "next/image";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
 import { Container } from "./Container";
-import logoIcon from "../../assets/HD_Icon.png";
+import logoHorizontal from "../../assets/MedCore_Logo1_0001_Layer-3.png";
+import logoHorizontalDark from "../../assets/MedCore_Logo1_0003_Layer-6.png";
 
 const links = [
   { href: "/features", label: "Features" },
@@ -26,13 +27,21 @@ export function MarketingNav() {
           className="flex items-center gap-2 font-bold text-lg text-gray-900 dark:text-white"
         >
           <Image
-            src={logoIcon}
+            src={logoHorizontal}
             alt="MedCore"
-            width={32}
+            width={160}
             height={32}
-            className="rounded-lg"
+            priority
+            className="h-8 w-auto dark:hidden"
           />
-          MedCore
+          <Image
+            src={logoHorizontalDark}
+            alt="MedCore"
+            width={160}
+            height={32}
+            priority
+            className="hidden h-8 w-auto dark:block"
+          />
         </Link>
 
         <nav className="hidden md:flex items-center gap-7">

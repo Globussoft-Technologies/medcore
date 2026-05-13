@@ -10,6 +10,7 @@ import { PasswordInput } from "@/components/PasswordInput";
 import { toast } from "@/lib/toast";
 import Image from "next/image";
 import logoHorizontal from "../assets/MedCore_Logo1_0001_Layer-3.png";
+import logoHorizontalDark from "../assets/MedCore_Logo1_0003_Layer-6.png";
 import { sanitizeNextPath } from "@/lib/utils";
 import {
   Activity,
@@ -205,12 +206,22 @@ function LoginPageInner() {
           className="order-1 text-center md:order-none md:text-left"
         >
           <div className="mb-6 -mt-10 flex justify-center md:justify-start">
+            {/* Theme-aware logo: Layer-3 for light, Layer-6 for dark. Both
+                pinned to the same responsive height so neither variant
+                renders smaller than the other. */}
             <Image
               src={logoHorizontal}
               alt="MedCore"
               height={56}
               width={220}
-              className="h-8 w-auto sm:h-10 md:h-12 lg:h-14"
+              className="h-8 w-auto sm:h-10 md:h-12 lg:h-14 dark:hidden"
+            />
+            <Image
+              src={logoHorizontalDark}
+              alt="MedCore"
+              height={56}
+              width={220}
+              className="hidden h-8 w-auto dark:block sm:h-10 md:h-12 lg:h-14"
             />
           </div>
           <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-primary dark:bg-primary/20">
@@ -220,10 +231,7 @@ function LoginPageInner() {
             />
             Hospital Management System
           </div>
-          <h1
-            id="marketing-heading"
-            className="mt-4 text-4xl font-bold tracking-tight text-gray-900 dark:text-white md:text-5xl"
-          >
+          <h1 id="marketing-heading" className="sr-only">
             {t("app.name")}
           </h1>
           <p className="mt-3 text-base text-gray-600 dark:text-gray-300 md:text-lg">

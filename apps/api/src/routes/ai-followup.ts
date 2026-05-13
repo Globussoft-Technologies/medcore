@@ -19,6 +19,64 @@ router.use(authenticate);
 // invokes `assertPatientOwnsResource` so a PATIENT cannot self-book a
 // follow-up against another patient's consultation. Verified-safe.
 
+// GET /api/v1/ai/followup/consultations — list recent consultations the
+// caller is authorized to follow up on. Powers the Smart Follow-up
+// Suggestions page (apps/web/src/app/dashboard/ai-followup/page.tsx).
+// DOCTOR sees only their own consultations; ADMIN sees the full set.
+router.get(
+  "/consultations",
+  authorize(Role.DOCTOR, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const limit = Math.min(
+        parseInt((req.query.limit as string) || "20", 10) || 20,
+        100,
+      );
+
+      const where: Record<string, unknown> = {};
+      if (req.user?.role === Role.DOCTOR) {
+        const doctorRecord = await prisma.doctor.findFirst({
+          where: { userId: req.user.userId },
+          select: { id: true },
+        });
+        if (!doctorRecord) {
+          res.json({ success: true, data: { consultations: [] }, error: null });
+          return;
+        }
+        where.doctorId = doctorRecord.id;
+      }
+
+      const consultations = await prisma.consultation.findMany({
+        where,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+        include: {
+          doctor: { include: { user: { select: { name: true } } } },
+          appointment: {
+            include: {
+              patient: {
+                select: {
+                  id: true,
+                  mrNumber: true,
+                  user: { select: { name: true } },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      res.json({
+        success: true,
+        data: { consultations },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // POST /api/v1/ai/followup/suggest/:consultationId — compute a suggestion
 router.post(
   "/suggest/:consultationId",
@@ -29,10 +87,26 @@ router.post(
 
       const consultation = await prisma.consultation.findUnique({
         where: { id: consultationId },
+        select: { id: true, doctorId: true },
       });
       if (!consultation) {
         res.status(404).json({ success: false, data: null, error: "Consultation not found" });
         return;
+      }
+
+      // BOLA: a DOCTOR may only suggest follow-ups on their OWN consultations.
+      // suggestion.reason echoes the consultation's follow-up note (PHI), so a
+      // cross-doctor read would leak chart content. ADMIN bypasses by design.
+      // Per CLAUDE.md gotcha #14 — authorize() alone is not enough.
+      if (req.user?.role === Role.DOCTOR) {
+        const doctorRecord = await prisma.doctor.findFirst({
+          where: { userId: req.user.userId },
+          select: { id: true },
+        });
+        if (!doctorRecord || doctorRecord.id !== consultation.doctorId) {
+          res.status(403).json({ success: false, data: null, error: "Forbidden" });
+          return;
+        }
       }
 
       const suggestion = await suggestFollowUp(consultationId);

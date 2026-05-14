@@ -109,7 +109,7 @@ describeIfDB("Payment-Plans API (integration)", () => {
 
   it("rejects POST when invoice does not exist (404)", async () => {
     const res = await createPlan({
-      invoiceId: "00000000-0000-0000-0000-000000000404",
+      invoiceId: "00000000-0000-4000-8000-000000000404",
       installments: 3,
     });
     expect(res.status).toBe(404);
@@ -262,7 +262,7 @@ describeIfDB("Payment-Plans API (integration)", () => {
 
   it("returns 404 when plan id is unknown", async () => {
     const res = await request(app)
-      .get("/api/v1/payment-plans/00000000-0000-0000-0000-000000000404")
+      .get("/api/v1/payment-plans/00000000-0000-4000-8000-000000000404")
       .set("Authorization", `Bearer ${receptionToken}`);
     expect(res.status).toBe(404);
   });
@@ -327,11 +327,11 @@ describeIfDB("Payment-Plans API (integration)", () => {
   it("returns 404 when plan id is unknown for pay-installment", async () => {
     const res = await request(app)
       .patch(
-        "/api/v1/payment-plans/00000000-0000-0000-0000-000000000404/pay-installment"
+        "/api/v1/payment-plans/00000000-0000-4000-8000-000000000404/pay-installment"
       )
       .set("Authorization", `Bearer ${adminToken}`)
       .send({
-        installmentId: "00000000-0000-0000-0000-000000000111",
+        installmentId: "00000000-0000-4000-8000-000000000111",
         amount: 100,
         mode: "CASH",
       });

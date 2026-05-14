@@ -66,7 +66,9 @@ describeIfDB("Nurse-Rounds API (integration)", () => {
       .post("/api/v1/nurse-rounds")
       .set("Authorization", `Bearer ${nurseToken}`)
       .send({
-        admissionId: "00000000-0000-0000-0000-000000000404",
+        // v4-shaped UUID so zod 4's strict-RFC-4122 validator on admissionId
+        // accepts the format and the lookup-miss path returns 404 (not 400).
+        admissionId: "00000000-0000-4000-8000-000000000404",
         notes: "phantom round",
       });
     expect(res.status).toBe(404);

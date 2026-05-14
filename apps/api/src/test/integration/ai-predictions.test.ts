@@ -12,8 +12,10 @@ import {
 
 // security(F-PRED-2): the route now `validateUuidParams(["appointmentId"])`
 // before reaching the handler — an unknown non-UUID id 400s before the mock
-// fires. Use a UUID-shaped sentinel for the not-found path.
-const MISSING_APPT_UUID = "00000000-0000-0000-0000-00000000dead";
+// fires. Use a v4-shaped sentinel (4xxx at position 12, 8xxx at 16) so zod 4's
+// strict-RFC-4122 validator accepts the format and the lookup-miss path
+// returns 404 rather than the validation-miss 400.
+const MISSING_APPT_UUID = "00000000-0000-4000-8000-00000000dead";
 
 vi.mock("../../services/ai/no-show-predictor", () => ({
   predictNoShow: vi.fn(async (appointmentId: string) => {

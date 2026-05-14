@@ -6,7 +6,30 @@ is independently shippable. Full per-session history lives under
 
 ---
 
-## 🏠 HOME PICKUP — handoff from 2026-05-14: #905 fix-ups + zod 4 merged + Next migration blocker surfaced
+## 🏠 HOME PICKUP — handoff from 2026-05-14 evening: Next 16 paired + OTel audit PR opened
+
+**Production state at handoff** (commit `1ee4afd` — `deps(deps): bump @next/swc-linux-x64-gnu from 15.5.18 to 16.2.6 (#783)`):
+- ✅ HEAD on `main` = `1ee4afd`. Working tree clean.
+- ✅ **PR #784 + #783 squash-merged** — Next 15→16 paired migration landed. Path A from the morning HANDOFF worked: amended dependabot's commit with `"build": "next build --webpack"` to dodge Next 16's default-Turbopack-with-custom-webpack-config error. Local build verified before push.
+- 🔄 **PR #906 OPEN** (NEW this session) — `@opentelemetry/exporter-trace-otlp-http` 0.216 → 0.218. **Clears the audit-RED on main** — but for a DIFFERENT cause than morning HANDOFF expected (protobufjs CVEs reachable via OTel chain, NOT Next). Audit verified exit-0 locally.
+- 🔄 **#883 patch-minor recreate in flight** — dependabot will close + reopen with a new number against post-Next-16 main.
+- ⚠️ **Out of scope but surfaced**: 6 zod-4 UUID-strictness test failures (validate-params.test.ts + ai-predictions.test.ts) using non-RFC-4122 placeholder UUIDs. ~10-min test-fixture sweep needed.
+
+### 🔥 Top priority for home pickup
+
+1. **Merge PR #906** once CI confirms — ends the audit-RED on main.
+2. **Watch #883 recreate** — squash-merge when its replacement opens green.
+3. **Quick zod-4 UUID test-fixture sweep** (~10 min) — replace `11111111-2222-3333-4444-555555555555`-style placeholders with real v4 UUIDs in `validate-params.test.ts:14` + `ai-predictions.test.ts`.
+4. **STAGING smoke-pass on demo** — verify Next 16 + React 19 + Zod 4 stack on `medcore.globusdemos.com` once auto-deploy fires on `1ee4afd`.
+5. **#788 vitest-coverage** — defer (still paired with vitest core).
+
+### 📦 New artifacts this session
+
+- `docs/archive/SESSION_SNAPSHOT_2026-05-14-evening.md` — full handoff with the diagnosis explaining why HANDOFF.md's "Next 16 will clear audit" prediction was wrong.
+
+---
+
+## 🏠 PRIOR PICKUP — handoff from 2026-05-14 morning: #905 fix-ups + zod 4 merged + Next migration blocker surfaced (kept for log)
 
 **Production state at handoff** (commit `0d1df81` — `deps(deps): bump zod from 3.25.76 to 4.4.3 (#790)`):
 - ✅ HEAD on `main` = `0d1df81`. Working tree clean. **PR queue down to 4** (#883 / #788 / #784 / #783 — all deferred migration-class).

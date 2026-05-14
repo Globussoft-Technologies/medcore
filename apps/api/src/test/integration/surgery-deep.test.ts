@@ -55,7 +55,7 @@ describeIfDB("Surgery API — deep edges", () => {
       .send({
         patientId: patient.id,
         surgeonId: surgeon.id,
-        otId: "00000000-0000-0000-0000-000000000000",
+        otId: "550e8400-e29b-41d4-a716-446655440000",
         procedure: "x",
         scheduledAt: new Date().toISOString(),
       });
@@ -102,7 +102,7 @@ describeIfDB("Surgery API — deep edges", () => {
 
   it("start unknown surgery returns 404", async () => {
     const res = await request(app)
-      .patch(`/api/v1/surgery/00000000-0000-0000-0000-000000000000/start`)
+      .patch(`/api/v1/surgery/550e8400-e29b-41d4-a716-446655440000/start`)
       .set("Authorization", `Bearer ${doctor}`)
       .send({ overrideChecklist: true });
     expect(res.status).toBe(404);
@@ -183,7 +183,7 @@ describeIfDB("Surgery API — deep edges", () => {
 
   it("cancel unknown surgery → 404", async () => {
     const res = await request(app)
-      .patch(`/api/v1/surgery/00000000-0000-0000-0000-000000000000/cancel`)
+      .patch(`/api/v1/surgery/550e8400-e29b-41d4-a716-446655440000/cancel`)
       .set("Authorization", `Bearer ${doctor}`)
       .send({ reason: "x" });
     expect(res.status).toBe(404);
@@ -259,7 +259,7 @@ describeIfDB("Surgery API — deep edges", () => {
 
   it("blood requirement 404 on unknown surgery", async () => {
     const res = await request(app)
-      .post(`/api/v1/surgery/00000000-0000-0000-0000-000000000000/blood-requirement`)
+      .post(`/api/v1/surgery/550e8400-e29b-41d4-a716-446655440000/blood-requirement`)
       .set("Authorization", `Bearer ${doctor}`)
       .send({ units: 1, component: "WHOLE_BLOOD" });
     expect(res.status).toBe(404);
@@ -289,7 +289,7 @@ describeIfDB("Surgery API — deep edges", () => {
 
   it("observations on unknown surgery returns 404", async () => {
     const res = await request(app)
-      .post(`/api/v1/surgery/00000000-0000-0000-0000-000000000000/observations`)
+      .post(`/api/v1/surgery/550e8400-e29b-41d4-a716-446655440000/observations`)
       .set("Authorization", `Bearer ${nurse}`)
       .send({ pulse: 80 });
     expect(res.status).toBe(404);
@@ -320,7 +320,7 @@ describeIfDB("Surgery API — deep edges", () => {
   // ─── Get ───────────────────────────────────────────────────
   it("GET /:id 404 unknown", async () => {
     const res = await request(app)
-      .get("/api/v1/surgery/00000000-0000-0000-0000-000000000000")
+      .get("/api/v1/surgery/550e8400-e29b-41d4-a716-446655440000")
       .set("Authorization", `Bearer ${doctor}`);
     expect(res.status).toBe(404);
   });

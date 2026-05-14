@@ -67,7 +67,7 @@ describeIfDB("Admissions API — deep edges", () => {
       .send({
         patientId: patient.id,
         doctorId: doc.id,
-        bedId: "00000000-0000-0000-0000-000000000000",
+        bedId: "550e8400-e29b-41d4-a716-446655440000",
         reason: "x",
       });
     expect(res.status).toBe(404);
@@ -170,7 +170,7 @@ describeIfDB("Admissions API — deep edges", () => {
 
   it("discharge unknown admission → 404", async () => {
     const res = await request(app)
-      .patch(`/api/v1/admissions/00000000-0000-0000-0000-000000000000/discharge`)
+      .patch(`/api/v1/admissions/550e8400-e29b-41d4-a716-446655440000/discharge`)
       .set("Authorization", `Bearer ${admin}`)
       .send({ dischargeSummary: "x" });
     expect(res.status).toBe(404);
@@ -214,7 +214,7 @@ describeIfDB("Admissions API — deep edges", () => {
       .patch(`/api/v1/admissions/${adm.id}/transfer`)
       .set("Authorization", `Bearer ${admin}`)
       .send({
-        newBedId: "00000000-0000-0000-0000-000000000000",
+        newBedId: "550e8400-e29b-41d4-a716-446655440000",
         reason: "x",
       });
     expect(res.status).toBe(404);
@@ -304,7 +304,7 @@ describeIfDB("Admissions API — deep edges", () => {
 
   it("discharge-readiness 404 on unknown admission", async () => {
     const res = await request(app)
-      .get(`/api/v1/admissions/00000000-0000-0000-0000-000000000000/discharge-readiness`)
+      .get(`/api/v1/admissions/550e8400-e29b-41d4-a716-446655440000/discharge-readiness`)
       .set("Authorization", `Bearer ${admin}`);
     expect(res.status).toBe(404);
   });
@@ -338,10 +338,10 @@ describeIfDB("Admissions API — deep edges", () => {
 
   it("record vitals on unknown admission → 404", async () => {
     const res = await request(app)
-      .post(`/api/v1/admissions/00000000-0000-0000-0000-000000000000/vitals`)
+      .post(`/api/v1/admissions/550e8400-e29b-41d4-a716-446655440000/vitals`)
       .set("Authorization", `Bearer ${doctor}`)
       .send({
-        admissionId: "00000000-0000-0000-0000-000000000000",
+        admissionId: "550e8400-e29b-41d4-a716-446655440000",
         pulseRate: 80,
       });
     expect(res.status).toBe(404);
@@ -350,7 +350,7 @@ describeIfDB("Admissions API — deep edges", () => {
   // ─── Access / Get ──────────────────────────────────────────
   it("GET /:id 404 unknown", async () => {
     const res = await request(app)
-      .get(`/api/v1/admissions/00000000-0000-0000-0000-000000000000`)
+      .get(`/api/v1/admissions/550e8400-e29b-41d4-a716-446655440000`)
       .set("Authorization", `Bearer ${admin}`);
     expect(res.status).toBe(404);
   });

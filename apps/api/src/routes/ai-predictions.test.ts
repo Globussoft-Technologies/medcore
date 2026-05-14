@@ -188,7 +188,7 @@ describe("GET /api/v1/ai/predictions/no-show/:appointmentId (honorable mention #
 
   it("rejects PATIENT with 403 (RBAC: DOCTOR + ADMIN + RECEPTION)", async () => {
     const res = await request(buildApp())
-      .get("/api/v1/ai/predictions/no-show/00000000-0000-0000-0000-000000000001")
+      .get("/api/v1/ai/predictions/no-show/550e8400-e29b-41d4-a716-446655440001")
       .set("Authorization", `Bearer ${tokenFor("PATIENT")}`);
     expect(res.status).toBe(403);
   });

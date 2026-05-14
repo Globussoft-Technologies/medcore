@@ -129,7 +129,7 @@ describeIfDB("Insurance TPA Claims API (integration)", () => {
       .post("/api/v1/claims")
       .set("Authorization", `Bearer ${receptionToken}`)
       .send({
-        billId: "00000000-0000-0000-0000-000000000000",
+        billId: "550e8400-e29b-41d4-a716-446655440000",
         patientId: patient.id,
         tpaProvider: "MOCK",
         insurerName: "Star Health",

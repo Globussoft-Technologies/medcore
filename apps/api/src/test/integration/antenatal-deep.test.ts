@@ -45,7 +45,7 @@ describeIfDB("Antenatal API — DEEP (integration)", () => {
   it("404 when patient does not exist", async () => {
     const doctor = await createDoctorFixture();
     const res = await createCase({
-      patientId: "00000000-0000-0000-0000-000000000000",
+      patientId: "550e8400-e29b-41d4-a716-446655440000",
       doctorId: doctor.id,
       lmpDate: "2026-01-01",
     });
@@ -78,7 +78,7 @@ describeIfDB("Antenatal API — DEEP (integration)", () => {
 
   it("case 404 via GET /cases/:id for unknown id", async () => {
     const res = await request(app)
-      .get("/api/v1/antenatal/cases/00000000-0000-0000-0000-000000000000")
+      .get("/api/v1/antenatal/cases/550e8400-e29b-41d4-a716-446655440000")
       .set("Authorization", `Bearer ${doctorToken}`);
     expect(res.status).toBe(404);
   });
@@ -180,7 +180,7 @@ describeIfDB("Antenatal API — DEEP (integration)", () => {
       .post("/api/v1/antenatal/visits")
       .set("Authorization", `Bearer ${doctorToken}`)
       .send({
-        ancCaseId: "00000000-0000-0000-0000-000000000000",
+        ancCaseId: "550e8400-e29b-41d4-a716-446655440000",
         type: "ROUTINE",
         notes: "follow-up",
       });
@@ -234,7 +234,7 @@ describeIfDB("Antenatal API — DEEP (integration)", () => {
 
   it("risk-score 404 for unknown case", async () => {
     const res = await request(app)
-      .post("/api/v1/antenatal/cases/00000000-0000-0000-0000-000000000000/risk-score")
+      .post("/api/v1/antenatal/cases/550e8400-e29b-41d4-a716-446655440000/risk-score")
       .set("Authorization", `Bearer ${doctorToken}`)
       .send({});
     expect(res.status).toBe(404);

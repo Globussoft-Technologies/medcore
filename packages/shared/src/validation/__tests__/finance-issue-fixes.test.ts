@@ -121,7 +121,8 @@ describe("Issue #51 — pharmacyReturnSchema shape", () => {
   // that's the floor the runtime check builds on.
   it("requires quantity to be a positive integer", () => {
     const base = {
-      inventoryItemId: "00000000-0000-0000-0000-000000000001",
+      // zod 4 rejects nil-prefixed UUIDs (strict RFC-4122). Use a valid v4.
+      inventoryItemId: "550e8400-e29b-41d4-a716-446655440001",
       reason: "PATIENT_RETURNED" as const,
     };
     expect(pharmacyReturnSchema.safeParse({ ...base, quantity: 0 }).success).toBe(

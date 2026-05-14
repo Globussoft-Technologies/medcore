@@ -169,7 +169,7 @@ describeIfDB("AI Triage API (integration)", () => {
 
   it("returns 404 for unknown session", async () => {
     const res = await request(app)
-      .post("/api/v1/ai/triage/00000000-0000-0000-0000-000000000000/message")
+      .post("/api/v1/ai/triage/550e8400-e29b-41d4-a716-446655440000/message")
       .set("Authorization", `Bearer ${patientToken}`)
       .send({ message: "hello" });
 
@@ -247,7 +247,7 @@ describeIfDB("AI Triage API (integration)", () => {
 
   it("returns 404 for GET on unknown session", async () => {
     const res = await request(app)
-      .get("/api/v1/ai/triage/00000000-0000-0000-0000-000000000000")
+      .get("/api/v1/ai/triage/550e8400-e29b-41d4-a716-446655440000")
       .set("Authorization", `Bearer ${patientToken}`);
 
     expect(res.status).toBe(404);

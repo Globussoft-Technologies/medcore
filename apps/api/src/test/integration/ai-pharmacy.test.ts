@@ -227,7 +227,10 @@ describeIfDB("AI Pharmacy API (integration)", () => {
     // reaching the handler — use a real-looking UUID and let the default
     // mock return null (route maps null → 404 "Inventory item not found").
     const res = await request(app)
-      .get("/api/v1/ai/pharmacy/forecast/00000000-0000-0000-0000-00000000aaaa")
+      // v4-shaped UUID (4xxx at position 12, 8xxx at 16) so zod 4's strict
+      // RFC-4122 validator at /ai/pharmacy/forecast/:id reaches the lookup
+      // rather than rejecting with 400 before the route handler runs.
+      .get("/api/v1/ai/pharmacy/forecast/00000000-0000-4000-8000-00000000aaaa")
       .set("Authorization", `Bearer ${adminToken}`);
 
     expect(res.status).toBe(404);

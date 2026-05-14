@@ -168,7 +168,7 @@ describeIfDB("Leaves API (integration)", () => {
 
   it("letter endpoint 404s on unknown id", async () => {
     const res = await request(app)
-      .get("/api/v1/leaves/00000000-0000-0000-0000-000000000000/letter")
+      .get("/api/v1/leaves/550e8400-e29b-41d4-a716-446655440000/letter")
       .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(404);
   });

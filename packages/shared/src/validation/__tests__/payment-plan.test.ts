@@ -8,7 +8,7 @@
 import { describe, it, expect } from "vitest";
 import { paymentPlanSchema } from "../finance";
 
-const UUID = "11111111-1111-1111-1111-111111111111";
+const UUID = "550e8400-e29b-41d4-a716-446655441111";
 const baseDate = "2026-05-01";
 
 describe("paymentPlanSchema (Issue #60)", () => {

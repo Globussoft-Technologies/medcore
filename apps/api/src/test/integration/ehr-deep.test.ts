@@ -41,7 +41,7 @@ describeIfDB("EHR API — deep edges", () => {
 
   it("delete non-existent allergy returns 404", async () => {
     const res = await request(app)
-      .delete(`/api/v1/ehr/allergies/00000000-0000-0000-0000-000000000000`)
+      .delete(`/api/v1/ehr/allergies/550e8400-e29b-41d4-a716-446655440000`)
       .set("Authorization", `Bearer ${doctor}`);
     expect(res.status).toBe(404);
   });
@@ -130,7 +130,7 @@ describeIfDB("EHR API — deep edges", () => {
 
   it("recommended 404 for unknown patient", async () => {
     const res = await request(app)
-      .get(`/api/v1/ehr/patients/00000000-0000-0000-0000-000000000000/immunizations/recommended`)
+      .get(`/api/v1/ehr/patients/550e8400-e29b-41d4-a716-446655440000/immunizations/recommended`)
       .set("Authorization", `Bearer ${admin}`);
     expect(res.status).toBe(404);
   });
@@ -185,7 +185,7 @@ describeIfDB("EHR API — deep edges", () => {
 
   it("get document 404 when unknown", async () => {
     const res = await request(app)
-      .get(`/api/v1/ehr/documents/00000000-0000-0000-0000-000000000000`)
+      .get(`/api/v1/ehr/documents/550e8400-e29b-41d4-a716-446655440000`)
       .set("Authorization", `Bearer ${admin}`);
     expect(res.status).toBe(404);
   });

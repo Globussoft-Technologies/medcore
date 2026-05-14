@@ -188,7 +188,7 @@ describeIfDB("Med-Reconciliation API (integration)", () => {
 
   it("rejects unauthenticated GET suggest (401)", async () => {
     const res = await request(app).get(
-      "/api/v1/med-reconciliation/suggest?patientId=00000000-0000-0000-0000-000000000000"
+      "/api/v1/med-reconciliation/suggest?patientId=550e8400-e29b-41d4-a716-446655440000"
     );
     expect(res.status).toBe(401);
   });
@@ -236,7 +236,7 @@ describeIfDB("Med-Reconciliation API (integration)", () => {
 
   it("rejects unauthenticated GET /:id (401)", async () => {
     const res = await request(app).get(
-      "/api/v1/med-reconciliation/00000000-0000-0000-0000-000000000000"
+      "/api/v1/med-reconciliation/550e8400-e29b-41d4-a716-446655440000"
     );
     expect(res.status).toBe(401);
   });
@@ -293,7 +293,7 @@ describeIfDB("Med-Reconciliation API (integration)", () => {
 
   it("rejects PATCH unauthenticated (401)", async () => {
     const res = await request(app)
-      .patch("/api/v1/med-reconciliation/00000000-0000-0000-0000-000000000000")
+      .patch("/api/v1/med-reconciliation/550e8400-e29b-41d4-a716-446655440000")
       .send({ patientCounseled: true });
     expect(res.status).toBe(401);
   });

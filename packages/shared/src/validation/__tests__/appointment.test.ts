@@ -12,7 +12,7 @@ import {
   scheduleOverrideSchema,
 } from "../appointment";
 
-const UUID = "11111111-1111-1111-1111-111111111111";
+const UUID = "550e8400-e29b-41d4-a716-446655441111";
 
 describe("bookAppointmentSchema", () => {
   // Issue #491 (2026-05-03): bookAppointmentSchema now rejects past dates,

@@ -167,7 +167,7 @@ describe("updatePatientSchema", () => {
 describe("mergePatientSchema", () => {
   it("accepts a valid uuid", () => {
     expect(
-      mergePatientSchema.safeParse({ otherPatientId: "11111111-1111-1111-1111-111111111111" })
+      mergePatientSchema.safeParse({ otherPatientId: "550e8400-e29b-41d4-a716-446655441111" })
         .success
     ).toBe(true);
   });
@@ -178,8 +178,8 @@ describe("mergePatientSchema", () => {
 
 describe("recordVitalsSchema", () => {
   const valid = {
-    appointmentId: "11111111-1111-1111-1111-111111111111",
-    patientId: "22222222-2222-2222-2222-222222222222",
+    appointmentId: "550e8400-e29b-41d4-a716-446655441111",
+    patientId: "550e8400-e29b-41d4-a716-446655442222",
   };
   it("accepts minimal vitals", () => {
     expect(recordVitalsSchema.safeParse(valid).success).toBe(true);

@@ -99,7 +99,7 @@ describeIfDB("AI Differential Diagnosis API (integration)", () => {
       .post("/api/v1/ai/differential")
       .set("Authorization", `Bearer ${doctorToken}`)
       .send({
-        patientId: "00000000-0000-0000-0000-000000000000",
+        patientId: "550e8400-e29b-41d4-a716-446655440000",
         chiefComplaint: "Fever",
       });
     expect(res.status).toBe(404);

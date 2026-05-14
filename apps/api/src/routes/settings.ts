@@ -63,7 +63,8 @@ const updateIntegrationsSchema = z.object({
         .trim()
         .regex(/^[a-z0-9_-]{1,40}$/, "Invalid integration key"),
       enabled: z.boolean(),
-      config: z.record(z.string()).optional(),
+      // zod 4: z.record(value) → z.record(key, value); explicit string keys.
+      config: z.record(z.string(), z.string()).optional(),
     }),
   ),
 });

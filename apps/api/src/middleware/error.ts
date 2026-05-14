@@ -19,7 +19,8 @@ export function errorHandler(
       success: false,
       data: null,
       error: "Validation failed",
-      details: err.errors.map((e) => ({
+      // zod 4: ZodError.errors → .issues
+      details: err.issues.map((e) => ({
         field: e.path.join("."),
         message: e.message,
       })),

@@ -98,7 +98,7 @@ describeIfDB("Pediatric/Growth API — DEEP (integration)", () => {
 
   it("PATCH 404 for unknown record", async () => {
     const r = await request(app)
-      .patch("/api/v1/growth/00000000-0000-0000-0000-000000000000")
+      .patch("/api/v1/growth/550e8400-e29b-41d4-a716-446655440000")
       .set("Authorization", `Bearer ${doctorToken}`)
       .send({ weightKg: 5 });
     expect(r.status).toBe(404);
@@ -106,7 +106,7 @@ describeIfDB("Pediatric/Growth API — DEEP (integration)", () => {
 
   it("DELETE 404 for unknown, then successful delete", async () => {
     const r1 = await request(app)
-      .delete("/api/v1/growth/00000000-0000-0000-0000-000000000000")
+      .delete("/api/v1/growth/550e8400-e29b-41d4-a716-446655440000")
       .set("Authorization", `Bearer ${doctorToken}`);
     expect(r1.status).toBe(404);
     const p = await createPatientFixture({ dateOfBirth: dobYearsAgo(2) });
@@ -138,7 +138,7 @@ describeIfDB("Pediatric/Growth API — DEEP (integration)", () => {
 
   it("milestones: 404 unknown patient", async () => {
     const r = await request(app)
-      .get("/api/v1/growth/patient/00000000-0000-0000-0000-000000000000/milestones")
+      .get("/api/v1/growth/patient/550e8400-e29b-41d4-a716-446655440000/milestones")
       .set("Authorization", `Bearer ${doctorToken}`);
     expect(r.status).toBe(404);
   });

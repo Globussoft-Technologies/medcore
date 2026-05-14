@@ -207,7 +207,7 @@ describeIfDB("Pharmacy API — DEEP (integration)", () => {
     const res = await request(app)
       .post("/api/v1/pharmacy/dispense")
       .set("Authorization", `Bearer ${pharmacistToken}`)
-      .send({ prescriptionId: "00000000-0000-0000-0000-000000000000" });
+      .send({ prescriptionId: "550e8400-e29b-41d4-a716-446655440000" });
     expect(res.status).toBe(404);
   });
 
@@ -325,7 +325,7 @@ describeIfDB("Pharmacy API — DEEP (integration)", () => {
 
   it("substitutes 404 for unknown medicine", async () => {
     const res = await request(app)
-      .get("/api/v1/pharmacy/substitutes/00000000-0000-0000-0000-000000000000")
+      .get("/api/v1/pharmacy/substitutes/550e8400-e29b-41d4-a716-446655440000")
       .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(404);
   });
@@ -411,7 +411,7 @@ describeIfDB("Pharmacy API — DEEP (integration)", () => {
       .post("/api/v1/pharmacy/returns")
       .set("Authorization", `Bearer ${pharmacistToken}`)
       .send({
-        inventoryItemId: "00000000-0000-0000-0000-000000000000",
+        inventoryItemId: "550e8400-e29b-41d4-a716-446655440000",
         quantity: 1,
         reason: "EXPIRED",
       });

@@ -179,7 +179,7 @@ describeIfDB("AI Scribe API (integration)", () => {
       .post("/api/v1/ai/scribe/start")
       .set("Authorization", `Bearer ${doctorToken}`)
       .send({
-        appointmentId: "00000000-0000-0000-0000-000000000000",
+        appointmentId: "550e8400-e29b-41d4-a716-446655440000",
         consentObtained: true,
         audioRetentionDays: 0,
       });
@@ -311,7 +311,7 @@ describeIfDB("AI Scribe API (integration)", () => {
   it("returns 404 for GET SOAP on unknown session", async () => {
     const { token: doctorToken } = await createDoctorWithToken();
     const res = await request(app)
-      .get("/api/v1/ai/scribe/00000000-0000-0000-0000-000000000000/soap")
+      .get("/api/v1/ai/scribe/550e8400-e29b-41d4-a716-446655440000/soap")
       .set("Authorization", `Bearer ${doctorToken}`);
 
     expect(res.status).toBe(404);

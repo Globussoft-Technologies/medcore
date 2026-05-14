@@ -487,7 +487,7 @@ describeIfDB(
       // the claim. The middleware (apps/api/src/middleware/tenant.ts) does
       // a `prisma.tenant.findUnique` + active=true check before binding,
       // and on failure logs + drops the claim instead of using it.
-      const forgedTenantId = "00000000-0000-0000-0000-000000000000";
+      const forgedTenantId = "550e8400-e29b-41d4-a716-446655440000";
       const forgedToken = signAdmin(adminAUserId, "admin-a@test.local", forgedTenantId);
       // No-cache hop so the synthetic id is freshly looked up against the DB.
       __resetTenantValidationCacheForTests();

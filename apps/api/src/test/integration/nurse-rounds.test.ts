@@ -66,7 +66,9 @@ describeIfDB("Nurse-Rounds API (integration)", () => {
       .post("/api/v1/nurse-rounds")
       .set("Authorization", `Bearer ${nurseToken}`)
       .send({
-        admissionId: "00000000-0000-0000-0000-000000000404",
+        // v4-shaped UUID so zod 4's strict-RFC-4122 validator on admissionId
+        // accepts the format and the lookup-miss path returns 404 (not 400).
+        admissionId: "00000000-0000-4000-8000-000000000404",
         notes: "phantom round",
       });
     expect(res.status).toBe(404);
@@ -103,7 +105,7 @@ describeIfDB("Nurse-Rounds API (integration)", () => {
     const res = await request(app)
       .post("/api/v1/nurse-rounds")
       .send({
-        admissionId: "00000000-0000-0000-0000-000000000000",
+        admissionId: "550e8400-e29b-41d4-a716-446655440000",
         notes: "x",
       });
     expect(res.status).toBe(401);
@@ -152,7 +154,7 @@ describeIfDB("Nurse-Rounds API (integration)", () => {
 
   it("rejects GET without auth (401)", async () => {
     const res = await request(app).get(
-      "/api/v1/nurse-rounds?admissionId=00000000-0000-0000-0000-000000000000"
+      "/api/v1/nurse-rounds?admissionId=550e8400-e29b-41d4-a716-446655440000"
     );
     expect(res.status).toBe(401);
   });

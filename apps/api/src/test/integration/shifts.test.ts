@@ -56,7 +56,7 @@ describeIfDB("Shifts API (integration)", () => {
       .post("/api/v1/shifts")
       .set("Authorization", `Bearer ${adminToken}`)
       .send({
-        userId: "00000000-0000-0000-0000-000000000000",
+        userId: "550e8400-e29b-41d4-a716-446655440000",
         date: today(),
         type: "MORNING",
         startTime: "08:00",
@@ -262,7 +262,7 @@ describeIfDB("Shifts API (integration)", () => {
 
   it("returns 404 when patching unknown shift", async () => {
     const res = await request(app)
-      .patch("/api/v1/shifts/00000000-0000-0000-0000-000000000000")
+      .patch("/api/v1/shifts/550e8400-e29b-41d4-a716-446655440000")
       .set("Authorization", `Bearer ${adminToken}`)
       .send({ notes: "x" });
     expect(res.status).toBe(404);
@@ -270,7 +270,7 @@ describeIfDB("Shifts API (integration)", () => {
 
   it("rejects PATCH /shifts/:id without auth (401)", async () => {
     const res = await request(app)
-      .patch("/api/v1/shifts/00000000-0000-0000-0000-000000000000")
+      .patch("/api/v1/shifts/550e8400-e29b-41d4-a716-446655440000")
       .send({ notes: "x" });
     expect(res.status).toBe(401);
   });
@@ -297,7 +297,7 @@ describeIfDB("Shifts API (integration)", () => {
 
   it("returns 404 when checking in to unknown shift", async () => {
     const res = await request(app)
-      .patch("/api/v1/shifts/00000000-0000-0000-0000-000000000000/check-in")
+      .patch("/api/v1/shifts/550e8400-e29b-41d4-a716-446655440000/check-in")
       .set("Authorization", `Bearer ${nurseToken}`)
       .send({});
     expect(res.status).toBe(404);
@@ -315,7 +315,7 @@ describeIfDB("Shifts API (integration)", () => {
 
   it("rejects check-in without auth (401)", async () => {
     const res = await request(app)
-      .patch("/api/v1/shifts/00000000-0000-0000-0000-000000000000/check-in")
+      .patch("/api/v1/shifts/550e8400-e29b-41d4-a716-446655440000/check-in")
       .send({});
     expect(res.status).toBe(401);
   });
@@ -333,7 +333,7 @@ describeIfDB("Shifts API (integration)", () => {
 
   it("returns 404 when checking out of unknown shift", async () => {
     const res = await request(app)
-      .patch("/api/v1/shifts/00000000-0000-0000-0000-000000000000/check-out")
+      .patch("/api/v1/shifts/550e8400-e29b-41d4-a716-446655440000/check-out")
       .set("Authorization", `Bearer ${nurseToken}`)
       .send({});
     expect(res.status).toBe(404);
@@ -351,7 +351,7 @@ describeIfDB("Shifts API (integration)", () => {
 
   it("rejects check-out without auth (401)", async () => {
     const res = await request(app)
-      .patch("/api/v1/shifts/00000000-0000-0000-0000-000000000000/check-out")
+      .patch("/api/v1/shifts/550e8400-e29b-41d4-a716-446655440000/check-out")
       .send({});
     expect(res.status).toBe(401);
   });
@@ -373,14 +373,14 @@ describeIfDB("Shifts API (integration)", () => {
 
   it("returns 404 when deleting unknown shift", async () => {
     const res = await request(app)
-      .delete("/api/v1/shifts/00000000-0000-0000-0000-000000000000")
+      .delete("/api/v1/shifts/550e8400-e29b-41d4-a716-446655440000")
       .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(404);
   });
 
   it("rejects DELETE /shifts/:id without auth (401)", async () => {
     const res = await request(app).delete(
-      "/api/v1/shifts/00000000-0000-0000-0000-000000000000"
+      "/api/v1/shifts/550e8400-e29b-41d4-a716-446655440000"
     );
     expect(res.status).toBe(401);
   });

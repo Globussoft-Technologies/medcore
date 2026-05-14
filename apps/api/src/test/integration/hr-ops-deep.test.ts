@@ -187,7 +187,7 @@ describeIfDB("HR-Ops API — DEEP (integration)", () => {
       .post("/api/v1/hr-ops/payroll")
       .set("Authorization", `Bearer ${nurseToken}`)
       .send({
-        userId: "00000000-0000-0000-0000-000000000000",
+        userId: "550e8400-e29b-41d4-a716-446655440000",
         year: 2026,
         month: 4,
         basicSalary: 10000,

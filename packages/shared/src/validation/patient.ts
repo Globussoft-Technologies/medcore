@@ -61,6 +61,42 @@ const patientBaseSchema = z.object({
     .optional(),
 });
 
+// Issue #896: when BOTH `age` and `dateOfBirth` are supplied they must be
+// mutually consistent. Different downstream modules read different fields
+// (some compute from DOB, some trust `age`), so an impossible pair like
+// `{ age: 80, dateOfBirth: "2020-01-01" }` produces a patient who is
+// simultaneously 6 and 80 depending on which screen you look at.
+//
+// Tolerance is ±1 year: a stated integer age legitimately lags/leads the
+// DOB-derived age by up to a year depending on whether the record was
+// keyed before or after the patient's birthday.
+function ageFromDob(dob: Date): number {
+  const now = new Date();
+  let years = now.getFullYear() - dob.getFullYear();
+  const monthDelta = now.getMonth() - dob.getMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && now.getDate() < dob.getDate())) {
+    years--;
+  }
+  return years;
+}
+
+function checkAgeDobConsistency(
+  data: { age?: number; dateOfBirth?: string },
+  ctx: z.RefinementCtx,
+): void {
+  if (data.age === undefined || !data.dateOfBirth) return;
+  const dob = new Date(data.dateOfBirth);
+  if (Number.isNaN(dob.getTime()) || dob.getTime() > Date.now()) return; // DOB-shape errors already raised
+  const derived = ageFromDob(dob);
+  if (Math.abs(derived - data.age) > 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["age"],
+      message: `Age (${data.age}) does not match date of birth (implies ${derived}). Correct one of the two.`,
+    });
+  }
+}
+
 export const createPatientSchema = patientBaseSchema.superRefine((data, ctx) => {
   // Issue #167: adult-flow guard. age=0 is allowed ONLY when a DOB is
   // also supplied (a newborn). Otherwise it's the silent zero-coercion
@@ -90,6 +126,8 @@ export const createPatientSchema = patientBaseSchema.superRefine((data, ctx) => 
       });
     }
   }
+  // Issue #896: age ↔ dateOfBirth must agree when both are present.
+  checkAgeDobConsistency(data, ctx);
 });
 
 // updatePatientSchema is built from the base ZodObject so .partial() works
@@ -117,6 +155,9 @@ export const updatePatientSchema = patientBaseSchema.partial().superRefine((data
       });
     }
   }
+  // Issue #896: age ↔ dateOfBirth must agree when both are present. On
+  // PATCH this catches an edit that changes one field but not the other.
+  checkAgeDobConsistency(data, ctx);
 });
 
 export const mergePatientSchema = z.object({

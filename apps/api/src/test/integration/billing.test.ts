@@ -62,6 +62,36 @@ describeIfDB("Billing API (integration)", () => {
     expect(inv.taxAmount).toBeCloseTo(162, 1);
   });
 
+  // Issue #890: an invoice must not be raised against a NO_SHOW or
+  // CANCELLED appointment — the patient was never seen.
+  it("rejects an invoice raised against a NO_SHOW appointment (409, issue #890)", async () => {
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      overrides: { status: "NO_SHOW" },
+    });
+    const res = await request(app)
+      .post("/api/v1/billing/invoices")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        items: [
+          {
+            description: "General consultation",
+            category: "CONSULTATION",
+            quantity: 1,
+            unitPrice: 500,
+          },
+        ],
+        taxPercentage: 18,
+      });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/NO_SHOW|not seen/i);
+  });
+
   it("records a cash payment", async () => {
     const { patient, appt } = await createPatAppt();
     const invoice = await createInvoiceFixture({

@@ -666,6 +666,29 @@ router.post(
       // prescription; staff already cleared the authorize() gate above.
       if (!(await assertPatientOwnsResource(req, res, existing.patientId))) return;
 
+      // Issue #897: never share an unsigned or invalidated prescription.
+      // A REJECTED/CANCELLED prescription is not a valid medical document,
+      // and one with no doctor `signatureUrl` is still a draft — emailing
+      // either to the patient sends an unverifiable artefact (the /verify
+      // page shows "unsigned"). The prescribing doctor must sign first.
+      if (existing.status === "REJECTED" || existing.status === "CANCELLED") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `Cannot share a ${existing.status.toLowerCase()} prescription.`,
+        });
+        return;
+      }
+      if (!existing.signatureUrl) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error:
+            "Cannot share an unsigned prescription — the prescribing doctor must sign it first.",
+        });
+        return;
+      }
+
       // Same fallback as the QR-generation sites in pdf.ts / pdf-generator.ts
       // — keep them in lockstep so that on a live host where PUBLIC_APP_URL
       // is unset, the QR, the email link, AND the WhatsApp link all point at

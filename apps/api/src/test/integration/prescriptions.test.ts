@@ -354,6 +354,14 @@ describeIfDB("Prescriptions API (integration)", () => {
     expect([200, 201]).toContain(created.status);
     const prescriptionId = created.body.data.id;
 
+    // Issue #897: the /share endpoint now rejects unsigned prescriptions.
+    // A freshly-created Rx has signatureUrl=null — sign it (as the doctor
+    // would) so this test exercises the #242 RBAC path, not the #897 gate.
+    await prisma.prescription.update({
+      where: { id: prescriptionId },
+      data: { signatureUrl: "https://example.test/sig/doc.png" },
+    });
+
     const patientUser = await prisma.user.findUnique({ where: { id: patient.userId } });
     const patientToken = jwt.sign(
       { userId: patientUser!.id, email: patientUser!.email, role: "PATIENT" },
@@ -423,5 +431,43 @@ describeIfDB("Prescriptions API (integration)", () => {
     // canonical `assertPatientOwnsResource`, which emits a uniform
     // "Forbidden" envelope (was a custom message that mentioned "own").
     expect(res.body.error).toMatch(/forbidden/i);
+  });
+
+  // ─── Issue #897: unsigned prescriptions must not be shared ──────────
+  it("rejects sharing an unsigned prescription with 409 (issue #897)", async () => {
+    const { doctor, token: doctorTok } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    const created = await request(app)
+      .post("/api/v1/prescriptions")
+      .set("Authorization", `Bearer ${doctorTok}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        diagnosis: "Viral fever",
+        items: [
+          {
+            medicineName: "Paracetamol 500mg",
+            dosage: "500mg",
+            frequency: "TID",
+            duration: "3d",
+          },
+        ],
+      });
+    expect([200, 201]).toContain(created.status);
+
+    // Freshly-created Rx has signatureUrl=null — sharing it must be blocked
+    // BEFORE any channel delivery (the #897 bug was sharing draft Rx to
+    // patients). 409, not the 501/502 a signed Rx would reach.
+    const res = await request(app)
+      .post(`/api/v1/prescriptions/${created.body.data.id}/share`)
+      .set("Authorization", `Bearer ${doctorTok}`)
+      .send({ channel: "EMAIL" });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/unsigned/i);
   });
 });

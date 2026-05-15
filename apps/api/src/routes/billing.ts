@@ -76,6 +76,25 @@ router.post(
         notes,
       } = req.body;
 
+      // Issue #890: never raise an invoice against a NO_SHOW or CANCELLED
+      // appointment — the patient was never seen, so a "consultation" line
+      // is phantom revenue (and an insurance-fraud exposure if the invoice
+      // is later submitted as a claim). Fail fast before any total maths.
+      if (appointmentId) {
+        const appt = await prisma.appointment.findUnique({
+          where: { id: appointmentId },
+          select: { status: true },
+        });
+        if (appt && (appt.status === "NO_SHOW" || appt.status === "CANCELLED")) {
+          res.status(409).json({
+            success: false,
+            data: null,
+            error: `Cannot raise an invoice against a ${appt.status} appointment — the patient was not seen.`,
+          });
+          return;
+        }
+      }
+
       // Generate invoice number
       const config = await prisma.systemConfig.findUnique({
         where: { key: "next_invoice_number" },

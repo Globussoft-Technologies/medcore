@@ -297,6 +297,59 @@ router.post(
         }
       }
 
+      // Issue #892: catch the same-person-registered-twice case the phone +
+      // email checks above miss — a duplicate keyed in with a different
+      // phone. A hard block on name ALONE would wrongly reject two genuinely
+      // distinct people sharing a common Indian name, so we require BOTH an
+      // exact (case-insensitive) name match AND an identical dateOfBirth:
+      // two different humans with the identical full name AND identical
+      // birth date is vanishingly rare, so this pair is a near-certain
+      // duplicate and the "split medical history" risk is real. Same-name /
+      // different-DOB stays allowed (correctly — different people).
+      if (
+        typeof data.name === "string" &&
+        data.name.trim().length > 0 &&
+        typeof data.dateOfBirth === "string" &&
+        data.dateOfBirth.trim().length > 0
+      ) {
+        const dob = new Date(data.dateOfBirth);
+        if (!Number.isNaN(dob.getTime())) {
+          const existingByNameDob = await prisma.patient.findFirst({
+            where: {
+              mergedIntoId: null,
+              dateOfBirth: dob,
+              user: {
+                name: { equals: data.name.trim(), mode: "insensitive" },
+              },
+            },
+            select: {
+              id: true,
+              mrNumber: true,
+              user: { select: { name: true } },
+            },
+          });
+          if (existingByNameDob) {
+            res.status(409).json({
+              success: false,
+              data: null,
+              error: `A patient with this name and date of birth is already registered (MR: ${existingByNameDob.mrNumber}).`,
+              details: [
+                {
+                  field: "name",
+                  message: `Already registered as ${existingByNameDob.user?.name ?? "patient"} (MR: ${existingByNameDob.mrNumber}). Open that chart instead of creating a duplicate.`,
+                },
+              ],
+              existingPatient: {
+                id: existingByNameDob.id,
+                mrNumber: existingByNameDob.mrNumber,
+                name: existingByNameDob.user?.name ?? null,
+              },
+            });
+            return;
+          }
+        }
+      }
+
       // Auto-generate MR number
       const config = await prisma.systemConfig.findUnique({
         where: { key: "next_mr_number" },

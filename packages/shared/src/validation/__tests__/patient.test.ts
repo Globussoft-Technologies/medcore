@@ -111,6 +111,61 @@ describe("createPatientSchema", () => {
       ).toBe(false);
     });
   });
+
+  // Issue #896: age ↔ dateOfBirth cross-field consistency.
+  describe("age / dateOfBirth consistency (#896)", () => {
+    function dobYearsAgo(years: number): string {
+      const d = new Date();
+      d.setFullYear(d.getFullYear() - years);
+      return d.toISOString().slice(0, 10);
+    }
+
+    it("rejects an impossible pair — age 80 with a DOB implying ~6", () => {
+      const res = createPatientSchema.safeParse({
+        ...validPatient,
+        age: 80,
+        dateOfBirth: dobYearsAgo(6),
+      });
+      expect(res.success).toBe(false);
+      if (!res.success) {
+        expect(JSON.stringify(res.error.issues)).toMatch(/does not match date of birth/i);
+      }
+    });
+
+    it("accepts a consistent pair — age matches the DOB-derived age", () => {
+      expect(
+        createPatientSchema.safeParse({
+          ...validPatient,
+          age: 40,
+          dateOfBirth: dobYearsAgo(40),
+        }).success,
+      ).toBe(true);
+    });
+
+    it("accepts a ±1 year gap (birthday-timing tolerance)", () => {
+      expect(
+        createPatientSchema.safeParse({
+          ...validPatient,
+          age: 41,
+          dateOfBirth: dobYearsAgo(40),
+        }).success,
+      ).toBe(true);
+    });
+
+    it("does not fire when only age is supplied (no DOB)", () => {
+      expect(
+        createPatientSchema.safeParse({ ...validPatient, age: 80 }).success,
+      ).toBe(true);
+    });
+
+    it("updatePatientSchema also catches an inconsistent age/DOB edit", () => {
+      const res = updatePatientSchema.safeParse({
+        age: 80,
+        dateOfBirth: dobYearsAgo(6),
+      });
+      expect(res.success).toBe(false);
+    });
+  });
 });
 
 // Issue #167 (Apr 2026): adult registration must reject age=0; pediatric

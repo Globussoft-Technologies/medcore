@@ -6,7 +6,43 @@ is independently shippable. Full per-session history lives under
 
 ---
 
-## 🏠 HOME PICKUP — handoff from 2026-05-14 evening: Next 16 paired + OTel audit PR opened
+## 🏠 HOME PICKUP — handoff from 2026-05-15 evening: dep backlog cleared + deploy-blocker found + 4 STAGING guards
+
+**Read first:** [`docs/archive/SESSION_SNAPSHOT_2026-05-15-evening.md`](docs/archive/SESSION_SNAPSHOT_2026-05-15-evening.md) — full handoff.
+
+**Production state at handoff** (commit `1d807b2` — `fix(api): 4 STAGING data-hygiene guards — #890 #892 #896 #897`):
+- ✅ HEAD on `main` = `1d807b2`. Working tree clean. **Open PRs: 1** (#788 vitest-coverage, deferred — paired with vitest core).
+- ✅ **Dependency backlog effectively cleared** — zod 4, Next 15→16, OTel exporter (#906), the 17-package patch-minor group (#907) all merged. Only #788 remains.
+- ✅ **PR #906 merged** (`2e8c23f`) — `@opentelemetry/exporter-trace-otlp-http` 0.216→0.218. Cleared the npm-audit RED (7 protobufjs CVEs via the OTel exporter chain).
+- ✅ **PR #907 merged** (`f84878f`) — patch-minor group of 17 (recreate of #883). Rebuilt its lockfile to fix a `Cannot find module 'react'` web-build break; CI fully CLEAN.
+- ✅ **zod-4 UUID test-fixture sweep done** (`6ee4b2e`) — 6 RFC-4122 strictness failures fixed.
+- ✅ **4 STAGING data-hygiene guards shipped** (`1d807b2`) — #890 #892 #896 #897 (see snapshot). Issues left OPEN — verify-close on the demo once deploy unblocks.
+- 🚨 **Auto-deploy to `medcore.globusdemos.com` is BLOCKED since ~2026-05-08** — see issue [#908](https://github.com/Globussoft-Technologies/medcore/issues/908). The demo is frozen pre-2026-05-08.
+
+### 🚨 Deploy blocker — issue #908 (TOP priority, needs ops + dev-DB access)
+
+Migration `20260509000001` failed on the dev DB (P3009): `USING "User"` but the table is `@@map("users")` — Postgres quoted identifiers are case-sensitive → `relation "User" does not exist` → migration aborts → all later migrations blocked. **The SQL is fixed in `cd50553`**, but the dev DB still holds the failed-migration record. **Ops must run ONCE on the dev server:**
+```
+npx prisma migrate resolve --rolled-back 20260509000001_backfill_stale_visitors_and_misrouted_patient_notifications
+```
+Then the next deploy applies the corrected migration and the demo catches up. Also flagged in #908: `20260508000003` has the same `"User"` bug but the deploy got past it (likely force-marked applied) — ops should verify `_prisma_migrations` and re-do the #722/#738 cleanup as a fresh migration if confirmed.
+
+### 🔥 Top priority for home pickup
+
+1. **Issue #908 — get the deploy unblocked** (ops `migrate resolve` on the dev DB). This is the gate on everything STAGING-related.
+2. **Once deployed** — smoke-pass the demo, close the already-fixed STAGING UI bugs (#877/#878/#884/#886/#887) + verify-close #890/#892/#896/#897.
+3. **Continue the #890-#903 cluster** — one dedicated session each: data-cleanup migrations (#891 #900 #902 #903), deep schema/correctness (#893 #894 #895 #898 #899 #901).
+4. **#788 vitest-coverage** — only after a paired vitest-core bump.
+5. Carry-over: #599 PHARMACIST policy, A11 appointment UTC sweep, A12 payment-plans refactor, visual baseline regen, the 9 #772 user-blocked items.
+
+### 📦 New artifacts this session
+
+- `docs/archive/SESSION_SNAPSHOT_2026-05-15-evening.md` — full handoff.
+- Issue #908 filed — the deploy-blocker (ops action required).
+
+---
+
+## 🏠 PRIOR PICKUP — handoff from 2026-05-14 evening: Next 16 paired + OTel audit PR opened (kept for log)
 
 **Production state at handoff** (commit `1ee4afd` — `deps(deps): bump @next/swc-linux-x64-gnu from 15.5.18 to 16.2.6 (#783)`):
 - ✅ HEAD on `main` = `1ee4afd`. Working tree clean.

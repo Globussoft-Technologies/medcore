@@ -194,7 +194,7 @@ describe("GET /api/v1/ai/predictions/no-show/:appointmentId (honorable mention #
   });
 
   it("DOCTOR: happy path returns the prediction shape", async () => {
-    const id = "00000000-0000-0000-0000-0000000000aa";
+    const id = "550e8400-e29b-41d4-a716-4466554400aa";
     predictNoShowMock.mockResolvedValueOnce(makePrediction(id, 0.42));
     const res = await request(buildApp())
       .get(`/api/v1/ai/predictions/no-show/${id}`)
@@ -208,7 +208,7 @@ describe("GET /api/v1/ai/predictions/no-show/:appointmentId (honorable mention #
   });
 
   it("returns 404 (not 500) when predictNoShow throws an Appointment-not-found error", async () => {
-    const id = "00000000-0000-0000-0000-0000000000bb";
+    const id = "550e8400-e29b-41d4-a716-4466554400bb";
     predictNoShowMock.mockRejectedValueOnce(new Error(`Appointment ${id} not found`));
     const res = await request(buildApp())
       .get(`/api/v1/ai/predictions/no-show/${id}`)
@@ -219,7 +219,7 @@ describe("GET /api/v1/ai/predictions/no-show/:appointmentId (honorable mention #
   });
 
   it("propagates other thrown errors via next() (500-class)", async () => {
-    const id = "00000000-0000-0000-0000-0000000000cc";
+    const id = "550e8400-e29b-41d4-a716-4466554400cc";
     predictNoShowMock.mockRejectedValueOnce(new Error("model file corrupt"));
     const res = await request(buildApp())
       .get(`/api/v1/ai/predictions/no-show/${id}`)
@@ -232,7 +232,7 @@ describe("GET /api/v1/ai/predictions/no-show/:appointmentId (honorable mention #
   // must stamp an AI_PREDICTIONS_INFERENCE audit row with metadata only.
   it("writes an AI_PREDICTIONS_INFERENCE audit row on the success path", async () => {
     prismaMock.auditLog.create.mockClear();
-    const id = "00000000-0000-0000-0000-0000000000ee";
+    const id = "550e8400-e29b-41d4-a716-4466554400ee";
     predictNoShowMock.mockResolvedValueOnce(makePrediction(id, 0.31));
 
     const res = await request(buildApp())

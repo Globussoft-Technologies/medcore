@@ -17,6 +17,9 @@ import {
   Languages,
   TrendingUp,
   Sparkles,
+  Database,
+  Zap,
+  IndianRupee,
 } from "lucide-react";
 import { Container } from "./_components/Container";
 import { FeatureCard } from "./_components/FeatureCard";
@@ -129,6 +132,111 @@ export default function HomePage() {
                 {l}
               </span>
             ))}
+          </div>
+        </Container>
+      </section>
+
+      {/* MARKET FRAMING */}
+      <section className="py-20">
+        <Container>
+          <div className="mx-auto max-w-3xl text-center">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+              <IndianRupee className="h-3.5 w-3.5" /> Why we exist
+            </div>
+            <h2 className="mt-3 text-3xl font-bold text-gray-900 sm:text-4xl dark:text-white">
+              India&apos;s hospital market is a <span className="text-blue-600 dark:text-blue-400">~$200B industry</span>.
+              <br />
+              No one is building tech for 75% of it.
+            </h2>
+            <p className="mx-auto mt-6 max-w-2xl text-lg text-gray-600 dark:text-gray-400">
+              Large PE-backed and corporate hospital groups capture roughly 20% of the
+              market. Their tech is mostly AI features layered on top of legacy
+              billing software. The other 75-80% — clinics and mid-sized hospitals —
+              run on fragmented workflows, manual coordination, and software
+              designed for invoicing, not patients. That&apos;s the gap we&apos;re
+              filling.
+            </p>
+          </div>
+          <div className="mx-auto mt-12 grid max-w-4xl gap-6 sm:grid-cols-3">
+            <div className="rounded-2xl border border-gray-200 bg-white p-6 text-center shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-4xl font-extrabold text-blue-600 dark:text-blue-400">~$200B</div>
+              <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                India&apos;s hospital + healthcare market — larger than most other sectors.
+              </div>
+            </div>
+            <div className="rounded-2xl border border-gray-200 bg-white p-6 text-center shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-4xl font-extrabold text-blue-600 dark:text-blue-400">80%</div>
+              <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                Of facilities running on fragmented workflows + manual coordination.
+              </div>
+            </div>
+            <div className="rounded-2xl border border-gray-200 bg-white p-6 text-center shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-4xl font-extrabold text-blue-600 dark:text-blue-400">75%</div>
+              <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                Of the market underserved by both legacy HMS and corporate-only stacks.
+              </div>
+            </div>
+          </div>
+        </Container>
+      </section>
+
+      {/* THREE-PILLAR FRAMING */}
+      <section className="bg-gray-50 py-20 dark:bg-gray-900/40">
+        <Container>
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl dark:text-white">
+              A system, not a feature list
+            </h2>
+            <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">
+              MedCore is built as three integrated layers so the patient
+              journey, the operational journey, and the financial journey
+              never go out of sync.
+            </p>
+          </div>
+          <div className="mt-12 grid gap-6 md:grid-cols-3">
+            <div className="rounded-2xl border border-gray-200 bg-white p-7 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400">
+                <Database className="h-6 w-6" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                System of record
+              </h3>
+              <p className="mt-2 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
+                Every clinical event, lab, prescription, vital, admission and
+                billing entry in one tenant-scoped, auditable EHR. FHIR R4
+                export, HL7 v2 inbound, full mutation audit trail with
+                archival — nothing falls between systems.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-gray-200 bg-white p-7 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400">
+                <Zap className="h-6 w-6" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                System of action
+              </h3>
+              <p className="mt-2 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
+                AI agents that run the workflows operators used to run
+                manually: 8-language triage, ambient SOAP scribe, radiology
+                drafting, drug-safety checks, no-show predictions, adherence
+                reminders, chart search with citations. Hand-off to staff is
+                one click.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-gray-200 bg-white p-7 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400">
+                <Receipt className="h-6 w-6" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                System of transaction
+              </h3>
+              <p className="mt-2 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
+                GST-aware invoicing, Razorpay + UPI, packages, payment plans,
+                TPA pre-auth + claims auto-drafted from SOAP, refunds with
+                fraud guards, payroll with FY-2026 ESI ceilings. Money moves
+                the same day the clinical work happens.
+              </p>
+            </div>
           </div>
         </Container>
       </section>
@@ -402,6 +510,35 @@ export default function HomePage() {
                   {m.l}
                 </div>
               </div>
+            ))}
+          </div>
+        </Container>
+      </section>
+
+      {/* COMPLIANCE BADGE ROW */}
+      <section className="border-t border-gray-200 bg-gray-50 py-12 dark:border-gray-800 dark:bg-gray-900/40">
+        <Container>
+          <p className="text-center text-xs font-medium uppercase tracking-wider text-gray-500">
+            Compliance + interoperability — what your auditor will ask for
+          </p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            {[
+              "DPDP Act 2023",
+              "ABDM / ABHA",
+              "FHIR R4",
+              "HL7 v2 inbound",
+              "DLT-compliant SMS",
+              "Razorpay HMAC webhook",
+              "India data residency",
+              "Multi-tenant ready",
+            ].map((b) => (
+              <span
+                key={b}
+                className="inline-flex items-center gap-1.5 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                {b}
+              </span>
             ))}
           </div>
         </Container>

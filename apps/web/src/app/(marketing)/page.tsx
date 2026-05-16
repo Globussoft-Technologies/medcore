@@ -20,15 +20,18 @@ import {
   Database,
   Zap,
   IndianRupee,
+  PhoneCall,
+  Globe2,
+  Megaphone,
 } from "lucide-react";
 import { Container } from "./_components/Container";
 import { FeatureCard } from "./_components/FeatureCard";
 import { CTASection } from "./_components/CTASection";
 
 export const metadata = {
-  title: "MedCore — Hospital management built for Indian hospitals",
+  title: "MedCore — The AI-native operating system for Indian healthcare",
   description:
-    "Run your hospital, not spreadsheets. AI triage in 8 Indian languages, ambient scribe, AI radiology drafting, AI KPI dashboards, drug-safety checks, claims auto-draft, ABDM-ready, FHIR R4 + HL7 v2, multi-tenant ready, DPDP-compliant data residency — all in one platform.",
+    "Run your facility on autopilot. AI voice receptionist, ambient SOAP scribe, AI radiology drafting, outbound follow-up agent, international patient coordination, AI triage in 8 Indian languages, claims auto-draft, marketing-site builder, ABDM-ready, FHIR R4 + HL7 v2, multi-tenant ready, DPDP-compliant data residency — all in one platform.",
 };
 
 const logos = [
@@ -84,19 +87,20 @@ export default function HomePage() {
               55+ modules. 8 Indian languages. One platform.
             </div>
             <h1 className="text-4xl font-extrabold tracking-tight text-gray-900 sm:text-6xl md:text-7xl dark:text-white">
-              Run your hospital.
+              Run your facility
               <br />
               <span className="bg-gradient-to-r from-blue-600 to-emerald-500 bg-clip-text text-transparent">
-                Not spreadsheets.
+                on autopilot.
               </span>
             </h1>
             <p className="mx-auto mt-6 max-w-2xl text-lg text-gray-600 dark:text-gray-400 md:text-xl">
-              MedCore runs your OPD queue, admissions, billing, pharmacy, lab,
-              HR and a patient mobile app — with AI triage in 8 Indian
-              languages, ambient SOAP scribe, AI radiology drafting, AI-powered
-              KPI dashboards, drug-safety checks, claims auto-drafted from SOAP,
-              ABDM/ABHA, FHIR R4, HL7 v2 inbound, and full multi-tenant
-              onboarding baked in.
+              MedCore is the AI-native operating system for Indian healthcare.
+              From patient acquisition and a 24/7 voice receptionist, through
+              international patient coordination, ambient SOAP scribe, AI
+              radiology drafting, outbound follow-up, claims auto-draft and
+              post-care engagement — every operational workflow runs itself,
+              while your doctors and nurses get their time back to actually
+              care for patients.
             </p>
             <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link
@@ -311,8 +315,20 @@ export default function HomePage() {
             <FeatureCard
               icon={Building2}
               title="Engagement"
-              description="WhatsApp + SMS + email + push, feedback, NPS, complaints with auto-assignment after 48h SLA breach."
+              description="WhatsApp + SMS + email + push + outbound voice agent, feedback, NPS, complaints with auto-assignment after 48h SLA breach."
               href="/features#engagement"
+            />
+            <FeatureCard
+              icon={Megaphone}
+              title="Patient Acquisition"
+              description="Per-hospital marketing sites (specialty / doctor / cost-calculator pages), 24/7 voice receptionist, outbound follow-up agent — owns the patient from organic search through booked appointment."
+              href="/features#ai"
+            />
+            <FeatureCard
+              icon={Globe2}
+              title="International Patient"
+              description="Visa letters, multi-currency billing (USD / EUR / AED), translation, flight + hotel + local transport coordination. Built for medical-tourism revenue."
+              href="/features#ai"
             />
             <FeatureCard
               icon={Smartphone}
@@ -323,7 +339,7 @@ export default function HomePage() {
             <FeatureCard
               icon={Brain}
               title="AI + Automation"
-              description="AI triage in 8 Indian languages, ambient SOAP scribe, AI radiology drafting, drug-safety checks, chart search, claims auto-draft, no-show predictions, AI-KPI dashboards, agent console."
+              description="10 named agents: Voice Receptionist, Outbound Follow-up, International Patient, Triage (8 langs), Scribe, Radiology, Claims, Marketing Sites, Agent Console, Predictions. All with one-click hand-off + audit trail."
               href="/features#ai"
             />
             <FeatureCard
@@ -352,6 +368,26 @@ export default function HomePage() {
             </p>
           </div>
           <div className="mt-12 grid gap-6 md:grid-cols-3">
+            <FeatureCard
+              icon={PhoneCall}
+              title="AI Voice Receptionist"
+              description="24/7 voice agent on your hospital line. Qualifies callers (booking / lab report / billing / triage), books directly into the OPD queue, or hands off to a human in the agent console with full transcript and context."
+            />
+            <FeatureCard
+              icon={PhoneCall}
+              title="Outbound Follow-up Agent"
+              description="Voice + WhatsApp outbound agent contacts new enquiries, qualifies, follows up until booked, bridges to reception when the patient picks up. Quiet-hours-aware, 3-attempt cap, full audit trail."
+            />
+            <FeatureCard
+              icon={Globe2}
+              title="International Patient Coordination"
+              description="Visa support letter workflow, multi-currency billing (USD / EUR / AED), language translation, flight + hotel + local transport checklist. Built for hospitals doing medical tourism."
+            />
+            <FeatureCard
+              icon={Megaphone}
+              title="Marketing-site Builder"
+              description="Per-hospital landing pages — specialty pages, doctor profiles, treatment-cost calculators — with lead capture wired directly into the agent console queue."
+            />
             <FeatureCard
               icon={Stethoscope}
               title="AI Triage + Ambient Scribe"

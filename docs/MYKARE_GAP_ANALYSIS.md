@@ -1,7 +1,30 @@
-# MedCore vs Mykare.ai — Gap Analysis + Build Plan
+# MedCore vs Mykare.ai — Gap Analysis + URGENT Build Commitments
 
 **Source:** Mykare.ai homepage marketing copy + nav (How it Works / Why Mykare / About / Awards), scanned 2026-05-16.
 **Purpose:** Identify what Mykare positions that MedCore doesn't (positioning gap) AND what Mykare ships that MedCore doesn't (capability gap), then decide what to build vs what to amplify.
+
+> ## ⚠️ INTERNAL ONLY — sales / public claims now ahead of code
+>
+> As of the 2026-05-16 marketing refresh (PR #909), the public marketing
+> pages (home, features, solutions, about) **claim all 5 capabilities
+> below as shipped**: AI Voice Receptionist, Outbound Follow-up Agent,
+> International Patient Coordination, Marketing-site Builder, and the
+> Named-Agent Orchestration framework. They are not yet built.
+>
+> **This document is now a build commitment**, not a recommendation.
+> Engineering must ship these capabilities to back the public claims.
+> The user instructed marketing should lead code, with a target of
+> "next week" for the build. Realistic engineering estimates below
+> (sourced from the original scoping) put the total runway at ~12-14
+> weeks; ship priorities are listed in the priority sequencing section.
+>
+> **Risk surface while code lags marketing**: deals lost on demo or
+> reference-call when prospects ask to see the unbuilt features; sales
+> deck / RFP responses creating a paper trail of misrepresentation;
+> regulatory exposure on anything that touches PHI (Voice Receptionist,
+> Outbound Agent) where HIPAA/DPDP compliance is implicitly claimed.
+> Sales must NOT include screenshots of these features in decks or
+> attempt to demo them until shipped.
 
 ## TL;DR
 

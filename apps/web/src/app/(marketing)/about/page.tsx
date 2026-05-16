@@ -148,6 +148,17 @@ export default function AboutPage() {
               actually used it on a real shift.
             </p>
             <p>
+              Today MedCore runs the full patient journey end-to-end: from
+              the first call answered by the AI Voice Receptionist, through
+              international patient coordination, OPD queue, AI-driven
+              triage in 8 Indian languages, ambient SOAP scribe, AI
+              radiology drafting, claims auto-drafted from the
+              consultation, all the way through post-care engagement and
+              outbound follow-up. Per-hospital marketing sites own the top
+              of the funnel; the Agent Console handles every escalation in
+              one place.
+            </p>
+            <p>
               MedCore is three integrated layers, not a feature list. A
               <strong> system of record</strong> — every clinical event,
               every prescription, every transaction in one auditable EHR. A

@@ -137,12 +137,20 @@ if (process.env.DATABASE_URL_TEST) {
 // If a future test introduces a new assertion shape, prefer asserting
 // against zod-4's native wording rather than extending this shim — the
 // shim should shrink over time, not grow.
+//
+// Defensive: `z.config` is a zod-4 API. Local-dev `node_modules` may
+// still have zod-3 if `npm install` hasn't been re-run since the
+// zod-4 bump (PR #790) — in that case the shim no-ops cleanly rather
+// than crashing every test suite at import time.
 import { z } from "zod";
-z.config({
-  customError: (issue: any) => {
-    if (issue?.code === "invalid_type" && issue?.input === undefined) {
-      return { message: "Required" };
-    }
-    return undefined;
-  },
-});
+const zAny = z as any;
+if (typeof zAny.config === "function") {
+  zAny.config({
+    customError: (issue: any) => {
+      if (issue?.code === "invalid_type" && issue?.input === undefined) {
+        return { message: "Required" };
+      }
+      return undefined;
+    },
+  });
+}

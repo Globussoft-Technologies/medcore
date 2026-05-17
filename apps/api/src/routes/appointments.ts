@@ -26,6 +26,7 @@ import {
 } from "../services/notification-triggers";
 import { auditLog } from "../middleware/audit";
 import { notifyNextInWaitlist } from "../services/waitlist";
+import { istMidnightUtc } from "../utils/ist-time";
 
 const router = Router();
 router.use(authenticate);
@@ -228,8 +229,12 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { patientId, doctorId, priority, notes } = req.body;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      // Walk-ins are happening NOW IST — anchor to IST midnight so a
+      // walk-in registered at 19:00 IST lands on today's IST calendar
+      // day regardless of whether the server is in UTC or IST. Prior:
+      // `setHours(0,0,0,0)` would shift the stored DATE by a day on UTC
+      // hosts (per A11).
+      const today = istMidnightUtc(0);
 
       let tokenNumber = await getNextToken(doctorId, today);
       let appointment: any;
@@ -315,6 +320,12 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
       // whole calendar day rather than an exact equality so the picker
       // doesn't return an empty list (or 500 on a bad ISO string).
       try {
+        // Caller passed `?date=YYYY-MM-DD`. Match getNextToken's UTC
+        // convention so the filter window aligns with stored DATE
+        // values regardless of host timezone (per A11). Prior:
+        // `setHours(0,0,0,0)` / `setHours(23,59,...)` on local time
+        // shifted the window by the host offset, dropping rows on
+        // UTC hosts.
         const day = new Date(date as string);
         if (Number.isNaN(day.getTime())) {
           res.status(400).json({
@@ -325,10 +336,10 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
           return;
         }
         const start = new Date(day);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(day);
-        end.setHours(23, 59, 59, 999);
-        where.date = { gte: start, lte: end };
+        start.setUTCHours(0, 0, 0, 0);
+        const end = new Date(start);
+        end.setUTCDate(end.getUTCDate() + 1);
+        where.date = { gte: start, lt: end };
       } catch {
         res.status(400).json({
           success: false,
@@ -719,18 +730,27 @@ router.post(
           notes?: string;
         };
 
-      // Build the target dates
+      // Build the target dates. Recurring series semantics: the user
+      // intends "IST calendar day startDate, then +1d / +7d / +1m per
+      // occurrence." Anchor to IST midnight so the stored DATE values
+      // are the IST day the user expects, regardless of host TZ (A11).
+      // Prior: `setHours(0,0,0,0)` produced UTC-midnight on UTC hosts,
+      // shifting every appointment by a day.
       const dates: Date[] = [];
       const base = new Date(startDate);
-      base.setHours(0, 0, 0, 0);
+      base.setUTCHours(0, 0, 0, 0);
+      // Re-anchor to IST midnight by adjusting for the +05:30 offset.
+      // (`base` here is the UTC-midnight of the YYYY-MM-DD; IST midnight
+      // is 5h30m earlier in UTC.)
+      const istBase = new Date(base.getTime() - (5 * 60 + 30) * 60_000);
       for (let i = 0; i < occurrences; i++) {
-        const d = new Date(base);
+        const d = new Date(istBase);
         if (frequency === "DAILY") {
-          d.setDate(base.getDate() + i);
+          d.setUTCDate(istBase.getUTCDate() + i);
         } else if (frequency === "WEEKLY") {
-          d.setDate(base.getDate() + i * 7);
+          d.setUTCDate(istBase.getUTCDate() + i * 7);
         } else {
-          d.setMonth(base.getMonth() + i);
+          d.setUTCMonth(istBase.getUTCMonth() + i);
         }
         dates.push(d);
       }
@@ -1266,8 +1286,12 @@ router.get(
     try {
       const fromDateStr = (req.query.fromDate as string) || undefined;
       const specialty = (req.query.specialty as string) || undefined;
+      // Match getNextToken's UTC convention for the forward-search
+      // window so day-boundary comparisons against stored DATE values
+      // are consistent across host timezones (A11). Prior: local-tz
+      // `setHours(0,0,0,0)` shifted the window by host offset.
       const fromDate = fromDateStr ? new Date(fromDateStr) : new Date();
-      fromDate.setHours(0, 0, 0, 0);
+      fromDate.setUTCHours(0, 0, 0, 0);
 
       const doctorWhere: Record<string, unknown> = {};
       if (specialty) doctorWhere.specialization = specialty;

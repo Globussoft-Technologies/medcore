@@ -84,8 +84,11 @@ describe("GET /api/v1/appointments — Issue #156", () => {
     const where = prismaMock.appointment.findMany.mock.calls[0][0].where;
     expect(where.status).toEqual({ in: ["CHECKED_IN", "BOOKED"] });
     // And `date` is a range that covers the whole calendar day.
+    // A11 (2026-05-17) switched the upper bound from `lte: end-of-day`
+    // to `lt: next-day-start` to match getNextToken's UTC-bounded
+    // convention. Functionally identical for DATE-only columns.
     expect(where.date.gte).toBeInstanceOf(Date);
-    expect(where.date.lte).toBeInstanceOf(Date);
+    expect(where.date.lt).toBeInstanceOf(Date);
   });
 
   it("preserves single-status equality for back-compat", async () => {

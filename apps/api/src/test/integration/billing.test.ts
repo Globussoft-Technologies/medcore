@@ -7,6 +7,9 @@ import {
   createDoctorFixture,
   createAppointmentFixture,
   createInvoiceFixture,
+  createWardFixture,
+  createBedFixture,
+  createAdmissionFixture,
 } from "../factories";
 
 let app: any;
@@ -418,5 +421,47 @@ describeIfDB("Billing API (integration)", () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  // #900: POST /billing/consolidated must increment admissions.totalBillAmount
+  // by the invoice total. Previously admissions sat at 0 for 30-day stays
+  // because the consolidated invoice was created but the admission column
+  // was never updated.
+  it("POST /billing/consolidated increments admissions.totalBillAmount atomically (#900)", async () => {
+    const prisma = await getPrisma();
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    const ward = await createWardFixture();
+    const bed = await createBedFixture({ wardId: ward.id });
+    const admission = await createAdmissionFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      bedId: bed.id,
+    });
+
+    // Baseline — admission starts at totalBillAmount = 0 (or null).
+    const before = await prisma.admission.findUnique({
+      where: { id: admission.id },
+    });
+    expect(before?.totalBillAmount ?? 0).toBe(0);
+
+    const res = await request(app)
+      .post("/api/v1/billing/consolidated")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        admissionId: admission.id,
+        taxPercentage: 18,
+        discountAmount: 0,
+        applyAdvance: false,
+      });
+    expect([200, 201]).toContain(res.status);
+    const inv = res.body.data;
+    expect(inv.totalAmount).toBeGreaterThan(0);
+
+    // Admission column must now equal the invoice total.
+    const after = await prisma.admission.findUnique({
+      where: { id: admission.id },
+    });
+    expect(after?.totalBillAmount).toBeCloseTo(inv.totalAmount, 1);
   });
 });

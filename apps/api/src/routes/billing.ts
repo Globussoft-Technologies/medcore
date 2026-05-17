@@ -2547,6 +2547,18 @@ router.post(
             data: { key: "next_invoice_number", value: String(invSeq + 1) },
           });
         }
+        // #900: accumulate the IPD invoice total into the admission so
+        // the admissions list shows accurate cost-to-date instead of
+        // 0 for the entire stay. Atomic with the invoice create — if
+        // the invoice rolls back, the increment rolls back too.
+        // Deeper accumulator (per-day bed/nursing, drug-dispense,
+        // lab-order, OT) is separate build work; this closes the
+        // immediate gap where IPD-consolidated invoices were already
+        // being raised but the admission column didn't reflect them.
+        await tx.admission.update({
+          where: { id: admission.id },
+          data: { totalBillAmount: { increment: inv.totalAmount } },
+        });
         return inv;
       });
 

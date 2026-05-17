@@ -30,6 +30,7 @@ import {
   DEFAULT_GST_PERCENT,
   computeLineItemTax,
   computeInvoiceTotals,
+  hsnSacForCategory,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
@@ -248,13 +249,38 @@ router.post(
                   category: string;
                   quantity: number;
                   unitPrice: number;
-                }) => ({
-                  description: item.description,
-                  category: item.category,
-                  quantity: item.quantity,
-                  unitPrice: item.unitPrice,
-                  amount: item.quantity * item.unitPrice,
-                })
+                }) => {
+                  // #894: persist the GST breakdown + HSN/SAC ON EACH LINE
+                  // so the printed tax invoice satisfies CGST Rule 46(g)
+                  // (per-line HSN) and Rule 46(i)/(j) (per-line CGST/SGST).
+                  // Previously these fields landed at the schema default
+                  // (cgst:0, sgst:0, gstRate:0, hsnSac:null) so the PDF
+                  // showed Rs.0 per line under a Rs.126 GST header — the
+                  // exact regression #43 was supposed to have closed.
+                  //
+                  // We distribute the header `taxPercentage` uniformly
+                  // across lines (rather than per-category statutory
+                  // rates) so sum(line.cgst) == header.cgstAmount stays
+                  // true. Moving to per-category rates is a separate
+                  // pricing-decision (would touch totals math); the
+                  // computeLineItemTax() helper at @medcore/shared already
+                  // supports it when that decision is made.
+                  const lineAmount = item.quantity * item.unitPrice;
+                  const lineTax = +((lineAmount * gstPct) / 100).toFixed(2);
+                  const lineCgst = +(lineTax / 2).toFixed(2);
+                  const lineSgst = +(lineTax - lineCgst).toFixed(2);
+                  return {
+                    description: item.description,
+                    category: item.category,
+                    quantity: item.quantity,
+                    unitPrice: item.unitPrice,
+                    amount: lineAmount,
+                    cgst: lineCgst,
+                    sgst: lineSgst,
+                    gstRate: gstPct,
+                    hsnSac: hsnSacForCategory(item.category),
+                  };
+                }
               ),
             },
           },
@@ -2471,13 +2497,28 @@ router.post(
             notes: notes ? `[IPD ${admission.admissionNumber}] ${notes}` : `[IPD ${admission.admissionNumber}]`,
             paymentStatus: totalAmount === 0 ? "PAID" : "PENDING",
             items: {
-              create: safeItems.map((it) => ({
-                description: it.description,
-                category: it.category,
-                quantity: it.quantity,
-                unitPrice: it.unitPrice,
-                amount: it.quantity * it.unitPrice,
-              })),
+              create: safeItems.map((it) => {
+                // #894: same per-line GST + HSN/SAC persistence as the
+                // primary POST /invoices path above. Distributes the
+                // route's taxPercentage uniformly so sum(line.cgst) ==
+                // header.cgstAmount stays true. See the long comment at
+                // the primary site for the rationale.
+                const lineAmount = it.quantity * it.unitPrice;
+                const lineTax = +((lineAmount * taxPercentage) / 100).toFixed(2);
+                const lineCgst = +(lineTax / 2).toFixed(2);
+                const lineSgst = +(lineTax - lineCgst).toFixed(2);
+                return {
+                  description: it.description,
+                  category: it.category,
+                  quantity: it.quantity,
+                  unitPrice: it.unitPrice,
+                  amount: lineAmount,
+                  cgst: lineCgst,
+                  sgst: lineSgst,
+                  gstRate: taxPercentage,
+                  hsnSac: hsnSacForCategory(it.category),
+                };
+              }),
             },
           },
           include: { items: true },

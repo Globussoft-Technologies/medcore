@@ -71,6 +71,29 @@ describeIfDB("Billing API (integration)", () => {
     const deltaDays = (dueMs - createdMs) / (24 * 60 * 60 * 1000);
     expect(deltaDays).toBeGreaterThanOrEqual(13.9);
     expect(deltaDays).toBeLessThanOrEqual(14.1);
+
+    // #894: each line item must carry its own GST breakdown + HSN/SAC.
+    // Previously cgst/sgst/gstRate landed at 0 and hsnSac at null, which
+    // failed CGST Rule 46. Sum of line cgst/sgst must equal header
+    // cgstAmount/sgstAmount so GSTR-1 reconciles.
+    expect(inv.items).toHaveLength(2);
+    const sumLineCgst = inv.items.reduce(
+      (s: number, it: { cgst: number }) => s + it.cgst,
+      0,
+    );
+    const sumLineSgst = inv.items.reduce(
+      (s: number, it: { sgst: number }) => s + it.sgst,
+      0,
+    );
+    expect(sumLineCgst).toBeCloseTo(inv.cgstAmount, 1);
+    expect(sumLineSgst).toBeCloseTo(inv.sgstAmount, 1);
+    for (const it of inv.items) {
+      expect(it.gstRate).toBe(18);
+      // CONSULTATION + PROCEDURE both map to 9993 (healthcare services SAC)
+      expect(it.hsnSac).toBe("9993");
+      expect(it.cgst).toBeGreaterThan(0);
+      expect(it.sgst).toBeGreaterThan(0);
+    }
   });
 
   // Issue #890: an invoice must not be raised against a NO_SHOW or

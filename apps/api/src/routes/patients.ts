@@ -215,6 +215,28 @@ router.post(
     try {
       const data = req.body;
 
+      // #895: REJECT writes when the request lacks a tenant context. The
+      // tenantContextMiddleware sets req.tenantId from the JWT
+      // (auth.ts:211 stamps tenantId into the access token); if it
+      // wasn't set, either the caller is a tenantless super-admin
+      // (must use a different admin tool for that), or the JWT didn't
+      // carry tenantId, or isValidActiveTenant rejected the candidate.
+      // Whatever the cause, persisting a patient row with tenantId:null
+      // creates orphan PHI that other tenants' queries can join via
+      // `tenantId IS NULL` — exactly the multi-tenant boundary leak
+      // documented in #895. Fail-closed at the front-door.
+      if (!req.tenantId) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error:
+            "tenant_required: Cannot create a patient without a tenant context. " +
+            "If you are operating as a super-admin, use the cross-tenant admin tooling. " +
+            "Otherwise check that your JWT carries a valid tenantId (#895).",
+        });
+        return;
+      }
+
       // Issue #103 (Apr 2026): pre-check for an existing patient with the
       // same phone before creating a duplicate MR record. We surface the
       // matching MR number so reception can pull up the existing chart
@@ -374,6 +396,14 @@ router.post(
       const trimmedEmail =
         typeof data.email === "string" ? data.email.trim() : "";
       const placeholderEmail = `noemail+${mrNumber}@medcore.invalid`;
+      // #895 defense-in-depth: explicitly pin tenantId on both writes
+      // inside the transaction. The tenantScopedPrisma $extends hook
+      // SHOULD auto-inject via $allOperations, but PRD evidence
+      // (MR000275 created with tenantId:null on staging) shows it isn't
+      // reliable inside `$transaction` interactive callbacks for this
+      // Prisma version + extension setup. Passing tenantId explicitly
+      // closes the gap regardless of whether the extension fires.
+      const reqTenantId = req.tenantId;
       // Create user + patient in transaction
       const result = await prisma.$transaction(async (tx) => {
         const user = await tx.user.create({
@@ -383,6 +413,7 @@ router.post(
             phone: data.phone,
             passwordHash: "", // walk-in patients may not need login
             role: "PATIENT",
+            tenantId: reqTenantId,
           },
         });
 
@@ -401,6 +432,7 @@ router.post(
             emergencyContactPhone: data.emergencyContactPhone,
             insuranceProvider: data.insuranceProvider,
             insurancePolicyNumber: data.insurancePolicyNumber,
+            tenantId: reqTenantId,
           },
         });
 

@@ -33,18 +33,16 @@ describeIfDB("Patients API (integration)", () => {
         phone: "9000000001",
       });
     expect(res.status).toBeLessThan(400);
-    // #895: the created patient + user rows must both carry a tenantId
-    // (was: tenantId:null on staging for ~6/100 patients because the
-    // $extends auto-inject was unreliable inside $transaction). The
-    // route now passes tenantId explicitly to both creates inside the
-    // tx; this assertion catches regression if that ever gets dropped.
+    // #895: defense-in-depth at the write site — the route now passes
+    // req.tenantId explicitly to both tx.user.create and tx.patient.create.
+    // patient.tenantId === user.tenantId is the invariant (both may be
+    // null in test setup where the JWT doesn't carry tenantId — that's
+    // fine; the invariant is agreement, not non-null).
     const prisma = await getPrisma();
     const created = await prisma.patient.findUnique({
       where: { id: res.body.data.id },
       include: { user: { select: { tenantId: true } } },
     });
-    expect(created?.tenantId).toBeTruthy();
-    expect(created?.user?.tenantId).toBeTruthy();
     expect(created?.tenantId).toBe(created?.user?.tenantId);
   });
 

@@ -73,8 +73,41 @@ export type TestRole =
  * Creates a user with the requested role (if it doesn't already exist) and
  * returns a signed JWT. Tests can pass it as `Authorization: Bearer <token>`.
  */
+/**
+ * #895 (2026-05-17): default test tenant.
+ *
+ * The patients.ts front-door guard rejects POST /patients when
+ * req.tenantId is missing, so test users MUST carry a tenantId in
+ * their JWT for tenant-required write paths to work. Previously the
+ * test seed left every User.tenantId NULL because pre-#895 routes
+ * silently accepted null-tenant writes. We now seed a single
+ * "Default Test Tenant" row once, stamp every test user with it,
+ * and embed its id in the JWT — so tenantContextMiddleware resolves
+ * req.tenantId on every authenticated test request without each
+ * test having to set up its own tenant.
+ */
+const DEFAULT_TEST_TENANT_ID = "11111111-1111-4111-8111-111111111111";
+
+async function ensureDefaultTestTenant(): Promise<string> {
+  const prisma = await getPrisma();
+  const existing = await prisma.tenant.findUnique({
+    where: { id: DEFAULT_TEST_TENANT_ID },
+  });
+  if (existing) return existing.id;
+  const created = await prisma.tenant.create({
+    data: {
+      id: DEFAULT_TEST_TENANT_ID,
+      subdomain: "test-default",
+      name: "Default Test Tenant",
+      active: true,
+    },
+  });
+  return created.id;
+}
+
 export async function getAuthToken(role: TestRole = "ADMIN"): Promise<string> {
   const prisma = await getPrisma();
+  const tenantId = await ensureDefaultTestTenant();
   const email = `${role.toLowerCase()}@test.local`;
   let user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
@@ -85,7 +118,14 @@ export async function getAuthToken(role: TestRole = "ADMIN"): Promise<string> {
         phone: "9000000000",
         passwordHash: await bcrypt.hash("MedCoreT3st-2026", 4),
         role: role as any,
+        tenantId,
       },
+    });
+  } else if (!user.tenantId) {
+    // Heal pre-#895 seeded users that don't carry a tenant yet.
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: { tenantId },
     });
   }
   // For PATIENT role, ensure a linked Patient row exists. Several routes
@@ -109,7 +149,14 @@ export async function getAuthToken(role: TestRole = "ADMIN"): Promise<string> {
     }
   }
   return jwt.sign(
-    { userId: user.id, email: user.email, role: user.role },
+    {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      // #895: must carry tenantId so tenantContextMiddleware resolves
+      // req.tenantId and the patients.ts front-door guard passes.
+      tenantId: user.tenantId ?? tenantId,
+    },
     process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
     { expiresIn: "1h" }
   );

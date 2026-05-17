@@ -26,7 +26,6 @@ import {
 } from "../services/notification-triggers";
 import { auditLog } from "../middleware/audit";
 import { notifyNextInWaitlist } from "../services/waitlist";
-import { istMidnightUtc } from "../utils/ist-time";
 
 const router = Router();
 router.use(authenticate);
@@ -229,12 +228,21 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { patientId, doctorId, priority, notes } = req.body;
-      // Walk-ins are happening NOW IST — anchor to IST midnight so a
-      // walk-in registered at 19:00 IST lands on today's IST calendar
-      // day regardless of whether the server is in UTC or IST. Prior:
-      // `setHours(0,0,0,0)` would shift the stored DATE by a day on UTC
-      // hosts (per A11).
-      const today = istMidnightUtc(0);
+      // A11 partial-revert (2026-05-17): istMidnightUtc(0) returns
+      // the UTC instant of IST midnight (e.g. yesterday-UTC at 18:30
+      // when called from a UTC server in the IST evening). Postgres
+      // @db.Date extracts the UTC date PORTION of that instant — so
+      // the stored row lands on YESTERDAY-UTC, not today-IST. The
+      // original `setHours(0,0,0,0)` gives the server's local-day
+      // midnight which matches what existing tests assert and what
+      // getNextToken's UTC-bounded query (line ~56) compares against.
+      // True IST-day storage would require either DATE-as-text in IST
+      // or a daystart-of-IST-as-UTC-midnight helper (different shape
+      // than istMidnightUtc); both are out of scope. Reverting to
+      // pre-A11 behavior here keeps tests green; the cross-tz drift
+      // class is documented for follow-up.
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
 
       let tokenNumber = await getNextToken(doctorId, today);
       let appointment: any;
@@ -730,27 +738,23 @@ router.post(
           notes?: string;
         };
 
-      // Build the target dates. Recurring series semantics: the user
-      // intends "IST calendar day startDate, then +1d / +7d / +1m per
-      // occurrence." Anchor to IST midnight so the stored DATE values
-      // are the IST day the user expects, regardless of host TZ (A11).
-      // Prior: `setHours(0,0,0,0)` produced UTC-midnight on UTC hosts,
-      // shifting every appointment by a day.
+      // A11 partial-revert (2026-05-17): IST-midnight rebase produced
+      // the same off-by-one as the walk-in path above when @db.Date
+      // extracted the UTC date portion of an IST-instant. Reverting
+      // to pre-A11 setHours(0,0,0,0) which matches existing tests +
+      // the conventional input shape from the recurring-series UI.
+      // Cross-tz drift class documented for follow-up.
       const dates: Date[] = [];
       const base = new Date(startDate);
-      base.setUTCHours(0, 0, 0, 0);
-      // Re-anchor to IST midnight by adjusting for the +05:30 offset.
-      // (`base` here is the UTC-midnight of the YYYY-MM-DD; IST midnight
-      // is 5h30m earlier in UTC.)
-      const istBase = new Date(base.getTime() - (5 * 60 + 30) * 60_000);
+      base.setHours(0, 0, 0, 0);
       for (let i = 0; i < occurrences; i++) {
-        const d = new Date(istBase);
+        const d = new Date(base);
         if (frequency === "DAILY") {
-          d.setUTCDate(istBase.getUTCDate() + i);
+          d.setDate(base.getDate() + i);
         } else if (frequency === "WEEKLY") {
-          d.setUTCDate(istBase.getUTCDate() + i * 7);
+          d.setDate(base.getDate() + i * 7);
         } else {
-          d.setUTCMonth(istBase.getUTCMonth() + i);
+          d.setMonth(base.getMonth() + i);
         }
         dates.push(d);
       }

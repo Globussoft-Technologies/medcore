@@ -65,14 +65,17 @@ describeIfDB("Billing API (integration)", () => {
     expect(inv.taxAmount).toBeCloseTo(162, 1);
     // #902: when the client doesn't pass dueDate, the server defaults
     // to createdAt + 14 days (configurable via the
-    // `invoice_default_due_days` SystemConfig). Pin both the
-    // not-null-ness and the ~14-day delta so receivables can age and
-    // dunning has a baseline to fire against.
+    // `invoice_default_due_days` SystemConfig). dueDate is @db.Date
+    // (Postgres DATE — no time), so it gets stripped to YYYY-MM-DD
+    // and returned as 00:00:00 UTC. The delta against the full-
+    // timestamp createdAt is therefore 14d MINUS the time-of-day at
+    // insert, i.e. anywhere from 13.0d (insert at 23:59 UTC) to
+    // 14.0d (insert at 00:00 UTC).
     expect(inv.dueDate).toBeTruthy();
     const dueMs = new Date(inv.dueDate).getTime();
     const createdMs = new Date(inv.createdAt).getTime();
     const deltaDays = (dueMs - createdMs) / (24 * 60 * 60 * 1000);
-    expect(deltaDays).toBeGreaterThanOrEqual(13.9);
+    expect(deltaDays).toBeGreaterThanOrEqual(13.0);
     expect(deltaDays).toBeLessThanOrEqual(14.1);
 
     // #894: each line item must carry its own GST breakdown + HSN/SAC.
@@ -437,6 +440,15 @@ describeIfDB("Billing API (integration)", () => {
       patientId: patient.id,
       doctorId: doctor.id,
       bedId: bed.id,
+    });
+    // The /consolidated route at billing.ts:2446 requires an existing
+    // appointment for the patient (it stamps the synthetic invoice's
+    // appointmentId from prisma.appointment.findFirst). Without one
+    // the route 400s with "Cannot create consolidated invoice without
+    // any patient appointment reference".
+    await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
     });
 
     // Baseline — admission starts at totalBillAmount = 0 (or null).

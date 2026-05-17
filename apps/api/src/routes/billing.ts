@@ -57,6 +57,28 @@ import { generateInvoicePDFBuffer } from "../services/pdf-generator";
 const router = Router();
 router.use(authenticate);
 
+// Helper: read integer SystemConfig with fallback. Mirrors the helper
+// in appointments.ts; lift to a shared util if a third caller appears.
+async function getConfigInt(key: string, fallback: number): Promise<number> {
+  const row = await prisma.systemConfig.findUnique({ where: { key } });
+  if (!row) return fallback;
+  const n = parseInt(row.value, 10);
+  return isNaN(n) ? fallback : n;
+}
+
+/**
+ * Default invoice due-date when the caller didn't pass one.
+ * `invoice_default_due_days` SystemConfig overrides per-tenant; default 14.
+ * #902: previously this was left null, so receivables never aged + no
+ * dunning fired.
+ */
+async function computeDefaultDueDate(): Promise<Date> {
+  const days = await getConfigInt("invoice_default_due_days", 14);
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
 // POST /api/v1/billing/invoices — create invoice (with GST split, package discount, advance)
 router.post(
   "/invoices",
@@ -206,7 +228,12 @@ router.post(
             packageDiscount,
             advanceApplied,
             totalAmount: Math.max(0, +totalAmount.toFixed(2)),
-            dueDate: dueDate ? new Date(dueDate) : undefined,
+            // #902: default dueDate to createdAt + 14 days (configurable
+            // via `invoice_default_due_days` SystemConfig) when the
+            // client didn't pass one. Previously left null on ~50% of
+            // PENDING invoices on staging — AR couldn't age, dunning
+            // never fired.
+            dueDate: dueDate ? new Date(dueDate) : await computeDefaultDueDate(),
             notes:
               tierDiscount > 0
                 ? `${notes ? notes + "\n" : ""}[TIER ${tier}] auto-discount Rs.${tierDiscount.toFixed(
@@ -2424,6 +2451,9 @@ router.post(
         return;
       }
 
+      // #902: IPD auto-invoice also needs the default dueDate so the
+      // admission invoice ages just like a walk-in invoice.
+      const ipdDueDate = await computeDefaultDueDate();
       const invoice = await prisma.$transaction(async (tx) => {
         const inv = await tx.invoice.create({
           data: {
@@ -2437,6 +2467,7 @@ router.post(
             discountAmount: discountAmount || 0,
             advanceApplied: +advanceApplied.toFixed(2),
             totalAmount,
+            dueDate: ipdDueDate,
             notes: notes ? `[IPD ${admission.admissionNumber}] ${notes}` : `[IPD ${admission.admissionNumber}]`,
             paymentStatus: totalAmount === 0 ? "PAID" : "PENDING",
             items: {

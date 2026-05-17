@@ -60,6 +60,17 @@ describeIfDB("Billing API (integration)", () => {
     expect(inv.cgstAmount).toBeCloseTo(81, 1);
     expect(inv.sgstAmount).toBeCloseTo(81, 1);
     expect(inv.taxAmount).toBeCloseTo(162, 1);
+    // #902: when the client doesn't pass dueDate, the server defaults
+    // to createdAt + 14 days (configurable via the
+    // `invoice_default_due_days` SystemConfig). Pin both the
+    // not-null-ness and the ~14-day delta so receivables can age and
+    // dunning has a baseline to fire against.
+    expect(inv.dueDate).toBeTruthy();
+    const dueMs = new Date(inv.dueDate).getTime();
+    const createdMs = new Date(inv.createdAt).getTime();
+    const deltaDays = (dueMs - createdMs) / (24 * 60 * 60 * 1000);
+    expect(deltaDays).toBeGreaterThanOrEqual(13.9);
+    expect(deltaDays).toBeLessThanOrEqual(14.1);
   });
 
   // Issue #890: an invoice must not be raised against a NO_SHOW or

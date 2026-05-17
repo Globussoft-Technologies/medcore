@@ -40,7 +40,15 @@ export interface RazorpayOrder {
 
 /**
  * Creates a Razorpay payment order for the given invoice.
- * If Razorpay is not configured, returns mock data so the app doesn't crash.
+ *
+ * - Production (NODE_ENV=production): if RAZORPAY_KEY_ID/SECRET aren't
+ *   configured, throws. The mock-order fallback ran on staging earlier
+ *   and left `razorpayOrderId: "order_mock_*"` tokens in the live
+ *   billing ledger that can't be reconciled with Razorpay or refunded
+ *   through the gateway (#903). Fail-closed in prod is the only safe
+ *   move.
+ * - Non-production: returns synthetic mock data so dev/test/CI can
+ *   exercise the booking flow without Razorpay creds.
  */
 export async function createPaymentOrder(
   invoiceId: string,
@@ -52,7 +60,13 @@ export async function createPaymentOrder(
   const amountPaise = Math.round(amount * 100);
 
   if (!instance) {
-    // Mock mode
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "Razorpay not configured (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET unset). " +
+          "Refusing to create a mock order in production — see #903."
+      );
+    }
+    // Non-production mock mode
     const mockOrderId = `order_mock_${Date.now()}_${invoiceId.slice(0, 8)}`;
     console.warn(`[Razorpay] Mock order created: ${mockOrderId}`);
     return {
@@ -82,8 +96,13 @@ export async function createPaymentOrder(
 
 /**
  * Verifies the Razorpay payment signature.
- * Returns true if the signature is valid.
- * In mock mode (no secret configured), always returns true.
+ *
+ * - Production: requires RAZORPAY_KEY_SECRET. Returns false (fail-closed)
+ *   if missing — refusing to accept an unsigned payment is far safer
+ *   than silently green-lighting one. Matches verifyWebhookSignature's
+ *   prod-safe stance.
+ * - Non-production: when the secret is unset, returns true so the
+ *   dev/test flow can complete without real Razorpay creds.
  */
 export function verifyPayment(
   razorpayOrderId: string,
@@ -91,7 +110,15 @@ export function verifyPayment(
   signature: string
 ): boolean {
   if (!RAZORPAY_KEY_SECRET) {
-    console.warn("[Razorpay] No key secret — skipping signature verification (mock mode).");
+    if (process.env.NODE_ENV === "production") {
+      console.error(
+        "[Razorpay] RAZORPAY_KEY_SECRET unset in production — refusing payment verification (#903)."
+      );
+      return false;
+    }
+    console.warn(
+      "[Razorpay] No key secret — skipping signature verification (mock mode, non-production only)."
+    );
     return true;
   }
 

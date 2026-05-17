@@ -2,10 +2,18 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import crypto from "crypto";
 
 describe("razorpay service - mock mode", () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+
   beforeEach(() => {
     vi.resetModules();
     delete process.env.RAZORPAY_KEY_ID;
     delete process.env.RAZORPAY_KEY_SECRET;
+    // Default to test env for the existing mock-mode cases.
+    process.env.NODE_ENV = "test";
+  });
+
+  afterEach(() => {
+    process.env.NODE_ENV = originalNodeEnv;
   });
 
   it("creates a mock order with the correct shape and amount in paise", async () => {
@@ -21,6 +29,35 @@ describe("razorpay service - mock mode", () => {
   it("verifyPayment returns true in mock mode (no secret)", async () => {
     const mod = await import("./razorpay");
     expect(mod.verifyPayment("o", "p", "garbage")).toBe(true);
+  });
+});
+
+describe("razorpay service - production fail-closed guards (#903)", () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+
+  beforeEach(() => {
+    vi.resetModules();
+    delete process.env.RAZORPAY_KEY_ID;
+    delete process.env.RAZORPAY_KEY_SECRET;
+    process.env.NODE_ENV = "production";
+  });
+
+  afterEach(() => {
+    process.env.NODE_ENV = originalNodeEnv;
+  });
+
+  it("createPaymentOrder throws in production when Razorpay is not configured", async () => {
+    const mod = await import("./razorpay");
+    await expect(
+      mod.createPaymentOrder("550e8400-e29b-41d4-a716-446655440002", 100)
+    ).rejects.toThrow(/refusing to create a mock order in production/i);
+  });
+
+  it("verifyPayment returns false in production when RAZORPAY_KEY_SECRET is unset", async () => {
+    const mod = await import("./razorpay");
+    // Even a syntactically-valid HMAC fails because the secret is missing
+    // — we don't trust ANY payment in production without the secret.
+    expect(mod.verifyPayment("o", "p", "a".repeat(64))).toBe(false);
   });
 });
 

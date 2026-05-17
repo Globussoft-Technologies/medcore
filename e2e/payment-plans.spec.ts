@@ -105,6 +105,182 @@ async function seedPatientWithInvoice(
   return { patientId: patient.id, patientName: patient.name, invoice: inv };
 }
 
+// ─── Deterministic-fixture helpers (A12, 2026-05-17) ───────────────────────
+//
+// Mirror of the #766 prescription-lifecycle refactor: replace the real
+// /patients + /billing/invoices fetches with page.route fulfills so the
+// EntityPicker dropdown + invoice <select> render against synthetic but
+// shape-valid data, with zero DB seeds and no real backend round-trips.
+//
+// Eliminates two compounding load sources that the previous
+// EntityPicker-mousedown-+1500ms-wait approach kept rediscovering on
+// shard-7 chromium under release.yml load:
+//   (a) seedPatient + seedAppointment + invoice POST writes racing the
+//       form mount,
+//   (b) the EntityPicker's debounced GET against the real backend
+//       competing with other shards' API traffic.
+//
+// The contract surface under test (modal-open → pick patient → pick
+// invoice → fill installments/downPayment → submit → either error or
+// success) is preserved — we're only swapping the data source.
+//
+// UUIDs use the v4-strict-RFC-4122 shape so zod 4's UUID validator
+// at validateUuidParams doesn't 400 the request before the route
+// handler runs (same fix class as the apps/api/src/test/integration
+// UUID flips from PR #790).
+
+const STUB_PATIENT_ID = "55555555-5555-4555-8555-555555555555";
+const STUB_PATIENT_NAME = "Payment Plan Test Patient";
+const STUB_INVOICE_ID = "66666666-6666-4666-8666-666666666666";
+const STUB_INVOICE_NUMBER = "INV-PP-TEST-001";
+const STUB_INVOICE_TOTAL = 1416; // 1200 + 18% GST
+const STUB_PLAN_ID = "77777777-7777-4777-8777-777777777777";
+const STUB_PLAN_NUMBER = "PP-TEST-001";
+
+type StubOpts = {
+  /** When false, /billing/invoices returns an empty list (drives the
+   *  "no outstanding invoice" placeholder branch of the modal). */
+  withInvoice?: boolean;
+};
+
+/**
+ * Stubs the four endpoints the New-Plan modal hits so the picker +
+ * invoice select render deterministically without any DB seeds:
+ *
+ *   GET /api/v1/patients?search=...   — returns one synthetic patient
+ *   GET /api/v1/billing/invoices?...  — returns one PENDING invoice (or empty)
+ *   POST /api/v1/payment-plans         — accepts + returns synthetic plan
+ *   GET /api/v1/payment-plans?...     — list refresh after submit
+ *
+ * The mousedown + 1500ms wait is no longer needed against synthetic
+ * data — the list has exactly one matching option, so the picker
+ * always selects the right row with a normal click.
+ */
+async function stubPaymentPlanPickerEndpoints(
+  page: import("@playwright/test").Page,
+  opts: StubOpts = {}
+): Promise<void> {
+  const withInvoice = opts.withInvoice !== false;
+
+  await page.route("**/api/v1/patients?**", (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        data: [
+          {
+            id: STUB_PATIENT_ID,
+            mrNumber: "MR-PP-TEST",
+            gender: "MALE",
+            user: {
+              name: STUB_PATIENT_NAME,
+              phone: "+919800000099",
+            },
+          },
+        ],
+        error: null,
+        meta: { page: 1, limit: 10, total: 1 },
+      }),
+    });
+  });
+
+  await page.route("**/api/v1/billing/invoices?**", (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        data: withInvoice
+          ? [
+              {
+                id: STUB_INVOICE_ID,
+                invoiceNumber: STUB_INVOICE_NUMBER,
+                totalAmount: STUB_INVOICE_TOTAL,
+                paymentStatus: "PENDING",
+              },
+            ]
+          : [],
+        error: null,
+      }),
+    });
+  });
+
+  await page.route("**/api/v1/payment-plans", (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    return route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        data: {
+          id: STUB_PLAN_ID,
+          planNumber: STUB_PLAN_NUMBER,
+          invoiceId: STUB_INVOICE_ID,
+          status: "ACTIVE",
+        },
+        error: null,
+      }),
+    });
+  });
+
+  await page.route("**/api/v1/payment-plans?**", (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        data: [
+          {
+            id: STUB_PLAN_ID,
+            planNumber: STUB_PLAN_NUMBER,
+            status: "ACTIVE",
+            invoice: {
+              id: STUB_INVOICE_ID,
+              invoiceNumber: STUB_INVOICE_NUMBER,
+              totalAmount: STUB_INVOICE_TOTAL,
+              patient: {
+                id: STUB_PATIENT_ID,
+                user: { name: STUB_PATIENT_NAME },
+              },
+            },
+            installments: [
+              { id: "i1", dueDate: new Date().toISOString(), amount: 472, status: "PENDING" },
+              { id: "i2", dueDate: new Date().toISOString(), amount: 472, status: "PENDING" },
+              { id: "i3", dueDate: new Date().toISOString(), amount: 472, status: "PENDING" },
+            ],
+          },
+        ],
+        error: null,
+        meta: { page: 1, limit: 10, total: 1 },
+      }),
+    });
+  });
+}
+
+/**
+ * Pick the synthetic patient from the EntityPicker dropdown. Against
+ * the stubbed /patients response there's exactly one matching row, so
+ * a normal click works — no more onBlur race, no more 1500ms wait.
+ */
+async function pickStubPatient(
+  page: import("@playwright/test").Page
+): Promise<void> {
+  await page
+    .getByPlaceholder(/search patient/i)
+    .first()
+    .fill(STUB_PATIENT_NAME.split(" ")[0]);
+  const opt = page
+    .getByTestId("new-plan-patient-option")
+    .filter({ hasText: STUB_PATIENT_NAME })
+    .first();
+  await opt.waitFor({ state: "visible", timeout: 5_000 });
+  await opt.dispatchEvent("mousedown");
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () => {
@@ -208,16 +384,9 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
   // ── 4. Happy-path plan creation (RECEPTION) ─────────────────────────────────
   test("RECEPTION: create a payment plan → plan appears in the ACTIVE list", async ({
     receptionPage,
-    receptionApi,
-  }, testInfo) => {
-    testInfo.skip(
-      true,
-      "FLAKY post-cumulative-wave (#882 + #888 + #905): EntityPicker mousedown -> setPatientId -> /billing/invoices fetch -> new-plan-invoice <select> mount no longer races reliably; new-plan-invoice not visible within 20s on Chromium shard 7 in release run 25822586295. WebKit was previously skipped here for the same reason class. TODO: reproduce locally, identify the new race (likely an extra React render or a different fetch ordering in #905's appointments hardening that delays the patientId effect). Tracked as A12 in TODO.md."
-    );
+  }) => {
     const page = receptionPage;
-
-    // Seed patient + invoice outside the browser so the picker can find it.
-    const { patientName, invoice } = await seedPatientWithInvoice(receptionApi);
+    await stubPaymentPlanPickerEndpoints(page);
 
     await gotoAuthed(page, "/dashboard/payment-plans");
     await expectNotForbidden(page);
@@ -225,89 +394,38 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       page.getByRole("heading", { name: /payment plans/i }).first()
     ).toBeVisible({ timeout: PAGE_TIMEOUT });
 
-    // Open the modal
     await page.getByTestId("open-new-plan").click();
     await expect(page.getByTestId("new-plan-modal")).toBeVisible({
       timeout: 8_000,
     });
 
-    // -- Step 1: pick the patient via EntityPicker
-    // The EntityPicker renders a search input with placeholder matching
-    // `searchPlaceholder="Search patient by name, phone, MR..."` and emits
-    // dropdown rows as <li role="option" data-testid="new-plan-patient-option">.
-    // Filter by hasText against the seeded patient's full name to disambiguate
-    // when other patients in the DB happen to share the first name.
-    const patientSearch = page.getByPlaceholder(/search patient/i).first();
-    await patientSearch.fill(patientName.split(" ")[0]);
+    await pickStubPatient(page);
 
-    // Wait for the dropdown option to appear and click the seeded patient.
-    // EntityPicker option uses onMouseDown handler that calls onChange to
-    // set patientId. Bare locator.click() races the input's onBlur and
-    // closes the dropdown before React's mousedown handler fires. Drive
-    // the React handler directly by reading the entity-id off the option,
-    // then call the picker's onChange via the global window's React
-    // internal — fallback: just dispatchEvent('mousedown', {bubbles}).
-    // The most reliable approach is `await opt.dispatchEvent("mousedown")`
-    // (Playwright's helper) which fires through CDP and React picks it up.
-    const opt = page
-      .getByTestId("new-plan-patient-option")
-      .filter({ hasText: patientName })
-      .first();
-    await opt.waitFor({ state: "visible", timeout: 10_000 });
-    await opt.hover();
-    await opt.dispatchEvent("mousedown");
-    // Wait for React state propagation — patientId set → invoice <select>
-    // mounts. 200ms races on shard-7 chromium under load (release.yml
-    // run 25607731469); bumped to 1500ms to give React a healthy window
-    // before the visibility poll begins. The downstream toBeVisible has
-    // its own 10-15s timeout, so the cumulative wait is bounded.
-    await page.waitForTimeout(1500);
-
-    // -- Step 2: wait for invoice list to load, then select the invoice.
-    // The <select> renders synchronously when the modal opens, but the
-    // option for the seeded invoice only lands after the
-    // GET /billing/invoices?patientId=... fetch resolves — wait for the
-    // exact <option value="..."> before calling selectOption to avoid
-    // a race that flakes on slower CI workers.
     const invoiceSelect = page.getByTestId("new-plan-invoice");
-    await expect(invoiceSelect).toBeVisible({ timeout: 20_000 });
-    await expect(
-      page.locator(`[data-testid="new-plan-invoice"] option[value="${invoice.id}"]`)
-    ).toHaveCount(1, { timeout: 15_000 });
-    await invoiceSelect.selectOption({ value: invoice.id });
+    await expect(invoiceSelect).toBeVisible({ timeout: 8_000 });
+    await invoiceSelect.selectOption({ value: STUB_INVOICE_ID });
 
-    // -- Step 3: total amount infopanel renders
     await expect(page.getByTestId("new-plan-total")).toBeVisible({
       timeout: 5_000,
     });
 
-    // -- Step 4: set 3 monthly installments, today as start date (default)
-    const installmentsInput = page.getByTestId("new-plan-installments");
-    await installmentsInput.fill("3");
+    await page.getByTestId("new-plan-installments").fill("3");
+    await page.getByTestId("new-plan-frequency").selectOption("MONTHLY");
 
-    const frequencySelect = page.getByTestId("new-plan-frequency");
-    await frequencySelect.selectOption("MONTHLY");
-
-    // -- Step 5: submit
     const submitBtn = page.getByTestId("new-plan-submit");
     await expect(submitBtn).toBeEnabled();
     await submitBtn.click();
 
-    // Modal should close after success (onCreated callback sets showCreate=false)
+    // Modal should close after success (onCreated callback sets showCreate=false).
     await expect(page.getByTestId("new-plan-modal")).toHaveCount(0, {
       timeout: 15_000,
     });
 
-    // The list refreshes; we should see the new plan in the ALL tab because
-    // ACTIVE tab only shows ACTIVE status plans — the freshly created plan
-    // is ACTIVE but switching to ALL guarantees we see it regardless of
-    // status edge cases in the test environment.
+    // The list refreshes against the stubbed payment-plans GET; the
+    // synthetic plan row's invoice number appears in the table.
     await page.getByRole("button", { name: /^all$/i }).first().click();
-
-    // The invoice number is font-mono text in the plan row. Give the list
-    // time to re-render after the refresh.
     const planRow = page
-      .locator("tr", { hasText: invoice.invoiceNumber })
+      .locator("tr", { hasText: STUB_INVOICE_NUMBER })
       .first();
     await expect(planRow).toBeVisible({ timeout: 15_000 });
   });
@@ -365,14 +483,9 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
   // ── 6. Validation: installments < 2 ─────────────────────────────────────────
   test("RECEPTION: installments < 2 shows inline validation error", async ({
     receptionPage,
-    receptionApi,
-  }, testInfo) => {
-    testInfo.skip(
-      true,
-      "FLAKY post-cumulative-wave (#882 + #888 + #905): EntityPicker mousedown -> setPatientId -> /billing/invoices fetch -> new-plan-invoice <select> mount no longer races reliably; new-plan-invoice not visible within 20s on Chromium shard 7 in release run 25822586295. WebKit was previously skipped here for the same reason class. TODO: reproduce locally, identify the new race (likely an extra React render or a different fetch ordering in #905's appointments hardening that delays the patientId effect). Tracked as A12 in TODO.md."
-    );
+  }) => {
     const page = receptionPage;
-    const { patientName, invoice } = await seedPatientWithInvoice(receptionApi);
+    await stubPaymentPlanPickerEndpoints(page);
 
     await gotoAuthed(page, "/dashboard/payment-plans");
     await expectNotForbidden(page);
@@ -385,39 +498,11 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       timeout: 8_000,
     });
 
-    // Pick patient + invoice
-    await page
-      .getByPlaceholder(/search patient/i)
-      .first()
-      .fill(patientName.split(" ")[0]);
-    // EntityPicker option uses onMouseDown handler that calls onChange to
-    // set patientId. Bare locator.click() races the input's onBlur and
-    // closes the dropdown before React's mousedown handler fires. Drive
-    // the React handler directly by reading the entity-id off the option,
-    // then call the picker's onChange via the global window's React
-    // internal — fallback: just dispatchEvent('mousedown', {bubbles}).
-    // The most reliable approach is `await opt.dispatchEvent("mousedown")`
-    // (Playwright's helper) which fires through CDP and React picks it up.
-    const opt = page
-      .getByTestId("new-plan-patient-option")
-      .filter({ hasText: patientName })
-      .first();
-    await opt.waitFor({ state: "visible", timeout: 10_000 });
-    await opt.hover();
-    await opt.dispatchEvent("mousedown");
-    // Wait for React state propagation — patientId set → invoice <select>
-    // mounts. 200ms races on shard-7 chromium under load (release.yml
-    // run 25607731469); bumped to 1500ms to give React a healthy window
-    // before the visibility poll begins. The downstream toBeVisible has
-    // its own 10-15s timeout, so the cumulative wait is bounded.
-    await page.waitForTimeout(1500);
+    await pickStubPatient(page);
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
-      timeout: 20_000,
+      timeout: 8_000,
     });
-    await expect(
-      page.locator(`[data-testid="new-plan-invoice"] option[value="${invoice.id}"]`)
-    ).toHaveCount(1, { timeout: 15_000 });
-    await page.getByTestId("new-plan-invoice").selectOption({ value: invoice.id });
+    await page.getByTestId("new-plan-invoice").selectOption({ value: STUB_INVOICE_ID });
 
     // Set installments to 1 (below minimum of 2). The input has min={2}, so
     // the browser's native HTML5 constraint validation would block a normal
@@ -438,22 +523,15 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
     await expect(page.getByTestId("new-plan-error")).toContainText(
       /installments must be between 2 and 60/i
     );
-
-    // Modal must NOT have closed
     await expect(page.getByTestId("new-plan-modal")).toBeVisible();
   });
 
   // ── 7. Validation: installments > 60 ────────────────────────────────────────
   test("RECEPTION: installments > 60 shows inline validation error", async ({
     receptionPage,
-    receptionApi,
-  }, testInfo) => {
-    testInfo.skip(
-      true,
-      "FLAKY post-cumulative-wave (#882 + #888 + #905): EntityPicker mousedown -> setPatientId -> /billing/invoices fetch -> new-plan-invoice <select> mount no longer races reliably; new-plan-invoice not visible within 20s on Chromium shard 7 in release run 25822586295. WebKit was previously skipped here for the same reason class. TODO: reproduce locally, identify the new race (likely an extra React render or a different fetch ordering in #905's appointments hardening that delays the patientId effect). Tracked as A12 in TODO.md."
-    );
+  }) => {
     const page = receptionPage;
-    const { patientName, invoice } = await seedPatientWithInvoice(receptionApi);
+    await stubPaymentPlanPickerEndpoints(page);
 
     await gotoAuthed(page, "/dashboard/payment-plans");
     await expectNotForbidden(page);
@@ -466,38 +544,11 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       timeout: 8_000,
     });
 
-    await page
-      .getByPlaceholder(/search patient/i)
-      .first()
-      .fill(patientName.split(" ")[0]);
-    // EntityPicker option uses onMouseDown handler that calls onChange to
-    // set patientId. Bare locator.click() races the input's onBlur and
-    // closes the dropdown before React's mousedown handler fires. Drive
-    // the React handler directly by reading the entity-id off the option,
-    // then call the picker's onChange via the global window's React
-    // internal — fallback: just dispatchEvent('mousedown', {bubbles}).
-    // The most reliable approach is `await opt.dispatchEvent("mousedown")`
-    // (Playwright's helper) which fires through CDP and React picks it up.
-    const opt = page
-      .getByTestId("new-plan-patient-option")
-      .filter({ hasText: patientName })
-      .first();
-    await opt.waitFor({ state: "visible", timeout: 10_000 });
-    await opt.hover();
-    await opt.dispatchEvent("mousedown");
-    // Wait for React state propagation — patientId set → invoice <select>
-    // mounts. 200ms races on shard-7 chromium under load (release.yml
-    // run 25607731469); bumped to 1500ms to give React a healthy window
-    // before the visibility poll begins. The downstream toBeVisible has
-    // its own 10-15s timeout, so the cumulative wait is bounded.
-    await page.waitForTimeout(1500);
+    await pickStubPatient(page);
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
-      timeout: 20_000,
+      timeout: 8_000,
     });
-    await expect(
-      page.locator(`[data-testid="new-plan-invoice"] option[value="${invoice.id}"]`)
-    ).toHaveCount(1, { timeout: 15_000 });
-    await page.getByTestId("new-plan-invoice").selectOption({ value: invoice.id });
+    await page.getByTestId("new-plan-invoice").selectOption({ value: STUB_INVOICE_ID });
 
     // 61 exceeds the maximum of 60. Bypass the input's native max={60}
     // constraint so React's submit handler runs and emits the inline error.
@@ -521,14 +572,9 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
   // ── 8. Validation: negative down payment ────────────────────────────────────
   test("RECEPTION: negative down payment shows inline validation error", async ({
     receptionPage,
-    receptionApi,
-  }, testInfo) => {
-    testInfo.skip(
-      true,
-      "FLAKY post-cumulative-wave (#882 + #888 + #905): EntityPicker mousedown -> setPatientId -> /billing/invoices fetch -> new-plan-invoice <select> mount no longer races reliably; new-plan-invoice not visible within 20s on Chromium shard 7 in release run 25822586295. WebKit was previously skipped here for the same reason class. TODO: reproduce locally, identify the new race (likely an extra React render or a different fetch ordering in #905's appointments hardening that delays the patientId effect). Tracked as A12 in TODO.md."
-    );
+  }) => {
     const page = receptionPage;
-    const { patientName, invoice } = await seedPatientWithInvoice(receptionApi);
+    await stubPaymentPlanPickerEndpoints(page);
 
     await gotoAuthed(page, "/dashboard/payment-plans");
     await expectNotForbidden(page);
@@ -541,38 +587,11 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       timeout: 8_000,
     });
 
-    await page
-      .getByPlaceholder(/search patient/i)
-      .first()
-      .fill(patientName.split(" ")[0]);
-    // EntityPicker option uses onMouseDown handler that calls onChange to
-    // set patientId. Bare locator.click() races the input's onBlur and
-    // closes the dropdown before React's mousedown handler fires. Drive
-    // the React handler directly by reading the entity-id off the option,
-    // then call the picker's onChange via the global window's React
-    // internal — fallback: just dispatchEvent('mousedown', {bubbles}).
-    // The most reliable approach is `await opt.dispatchEvent("mousedown")`
-    // (Playwright's helper) which fires through CDP and React picks it up.
-    const opt = page
-      .getByTestId("new-plan-patient-option")
-      .filter({ hasText: patientName })
-      .first();
-    await opt.waitFor({ state: "visible", timeout: 10_000 });
-    await opt.hover();
-    await opt.dispatchEvent("mousedown");
-    // Wait for React state propagation — patientId set → invoice <select>
-    // mounts. 200ms races on shard-7 chromium under load (release.yml
-    // run 25607731469); bumped to 1500ms to give React a healthy window
-    // before the visibility poll begins. The downstream toBeVisible has
-    // its own 10-15s timeout, so the cumulative wait is bounded.
-    await page.waitForTimeout(1500);
+    await pickStubPatient(page);
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
-      timeout: 20_000,
+      timeout: 8_000,
     });
-    await expect(
-      page.locator(`[data-testid="new-plan-invoice"] option[value="${invoice.id}"]`)
-    ).toHaveCount(1, { timeout: 15_000 });
-    await page.getByTestId("new-plan-invoice").selectOption({ value: invoice.id });
+    await page.getByTestId("new-plan-invoice").selectOption({ value: STUB_INVOICE_ID });
 
     // Fill in a negative down payment. The input has min={0}, so the browser
     // would block submit-click via native validation; bypass it so React's
@@ -598,14 +617,9 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
   // ── 9. Validation: down payment exceeds invoice total ───────────────────────
   test("RECEPTION: down payment exceeding invoice total shows inline validation error", async ({
     receptionPage,
-    receptionApi,
-  }, testInfo) => {
-    testInfo.skip(
-      true,
-      "FLAKY post-cumulative-wave (#882 + #888 + #905): EntityPicker mousedown -> setPatientId -> /billing/invoices fetch -> new-plan-invoice <select> mount no longer races reliably; new-plan-invoice not visible within 20s on Chromium shard 7 in release run 25822586295. WebKit was previously skipped here for the same reason class. TODO: reproduce locally, identify the new race (likely an extra React render or a different fetch ordering in #905's appointments hardening that delays the patientId effect). Tracked as A12 in TODO.md."
-    );
+  }) => {
     const page = receptionPage;
-    const { patientName, invoice } = await seedPatientWithInvoice(receptionApi);
+    await stubPaymentPlanPickerEndpoints(page);
 
     await gotoAuthed(page, "/dashboard/payment-plans");
     await expectNotForbidden(page);
@@ -618,42 +632,14 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       timeout: 8_000,
     });
 
-    await page
-      .getByPlaceholder(/search patient/i)
-      .first()
-      .fill(patientName.split(" ")[0]);
-    // EntityPicker option uses onMouseDown handler that calls onChange to
-    // set patientId. Bare locator.click() races the input's onBlur and
-    // closes the dropdown before React's mousedown handler fires. Drive
-    // the React handler directly by reading the entity-id off the option,
-    // then call the picker's onChange via the global window's React
-    // internal — fallback: just dispatchEvent('mousedown', {bubbles}).
-    // The most reliable approach is `await opt.dispatchEvent("mousedown")`
-    // (Playwright's helper) which fires through CDP and React picks it up.
-    const opt = page
-      .getByTestId("new-plan-patient-option")
-      .filter({ hasText: patientName })
-      .first();
-    await opt.waitFor({ state: "visible", timeout: 10_000 });
-    await opt.hover();
-    await opt.dispatchEvent("mousedown");
-    // Wait for React state propagation — patientId set → invoice <select>
-    // mounts. 200ms races on shard-7 chromium under load (release.yml
-    // run 25607731469); bumped to 1500ms to give React a healthy window
-    // before the visibility poll begins. The downstream toBeVisible has
-    // its own 10-15s timeout, so the cumulative wait is bounded.
-    await page.waitForTimeout(1500);
+    await pickStubPatient(page);
     await expect(page.getByTestId("new-plan-invoice")).toBeVisible({
-      timeout: 20_000,
+      timeout: 8_000,
     });
-    await expect(
-      page.locator(`[data-testid="new-plan-invoice"] option[value="${invoice.id}"]`)
-    ).toHaveCount(1, { timeout: 15_000 });
-    await page.getByTestId("new-plan-invoice").selectOption({ value: invoice.id });
+    await page.getByTestId("new-plan-invoice").selectOption({ value: STUB_INVOICE_ID });
 
-    // Down payment exceeds total (page.tsx:407–410: "Down payment cannot
-    // exceed invoice total"). Invoice total is 1416 (1200 + 18% GST);
-    // using 99999 to exceed without knowing exact tax.
+    // Down payment exceeds STUB_INVOICE_TOTAL (1416). The page validates
+    // page.tsx:407–410: "Down payment cannot exceed invoice total".
     await page.getByTestId("new-plan-down-payment").fill("99999");
     await page.getByTestId("new-plan-submit").click();
 
@@ -706,21 +692,12 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
   // ── 11. Patient with no outstanding invoice shows a hint ────────────────────
   test("RECEPTION: patient with all invoices paid shows 'no outstanding invoice' hint", async ({
     receptionPage,
-    receptionApi,
-  }, testInfo) => {
-    testInfo.skip(
-      true,
-      "FLAKY post-cumulative-wave (#882 + #888 + #905): EntityPicker mousedown -> setPatientId -> /billing/invoices fetch -> new-plan-invoice <select> mount no longer races reliably; new-plan-invoice not visible within 20s on Chromium shard 7 in release run 25822586295. WebKit was previously skipped here for the same reason class. TODO: reproduce locally, identify the new race (likely an extra React render or a different fetch ordering in #905's appointments hardening that delays the patientId effect). Tracked as A12 in TODO.md."
-    );
+  }) => {
     const page = receptionPage;
-
-    // Seed a patient + PAID invoice (pay in full immediately).
-    const { patientId, patientName, invoice } =
-      await seedPatientWithInvoice(receptionApi);
-    const payRes = await receptionApi.post(`${API_BASE}/billing/payments`, {
-      data: { invoiceId: invoice.id, amount: invoice.totalAmount, mode: "CASH" },
-    });
-    expect(payRes.ok()).toBeTruthy();
+    // Stub /billing/invoices to return an empty list — the modal's
+    // invoices.length === 0 branch renders the new-plan-no-invoices
+    // placeholder (page.tsx:478–485).
+    await stubPaymentPlanPickerEndpoints(page, { withInvoice: false });
 
     await gotoAuthed(page, "/dashboard/payment-plans");
     await expectNotForbidden(page);
@@ -733,37 +710,10 @@ test.describe("/dashboard/payment-plans — installment plan setup + RBAC", () =
       timeout: 8_000,
     });
 
-    // Pick the patient whose only invoice is now PAID.
-    await page
-      .getByPlaceholder(/search patient/i)
-      .first()
-      .fill(patientName.split(" ")[0]);
-    // EntityPicker option uses onMouseDown handler that calls onChange to
-    // set patientId. Bare locator.click() races the input's onBlur and
-    // closes the dropdown before React's mousedown handler fires. Drive
-    // the React handler directly by reading the entity-id off the option,
-    // then call the picker's onChange via the global window's React
-    // internal — fallback: just dispatchEvent('mousedown', {bubbles}).
-    // The most reliable approach is `await opt.dispatchEvent("mousedown")`
-    // (Playwright's helper) which fires through CDP and React picks it up.
-    const opt = page
-      .getByTestId("new-plan-patient-option")
-      .filter({ hasText: patientName })
-      .first();
-    await opt.waitFor({ state: "visible", timeout: 10_000 });
-    await opt.hover();
-    await opt.dispatchEvent("mousedown");
-    // Wait for React state propagation — patientId set → invoice <select>
-    // mounts. 200ms races on shard-7 chromium under load (release.yml
-    // run 25607731469); bumped to 1500ms to give React a healthy window
-    // before the visibility poll begins. The downstream toBeVisible has
-    // its own 10-15s timeout, so the cumulative wait is bounded.
-    await page.waitForTimeout(1500);
+    await pickStubPatient(page);
 
-    // The "no outstanding invoice" hint must render
-    // (page.tsx:478–485: data-testid="new-plan-no-invoices").
     await expect(page.getByTestId("new-plan-no-invoices")).toBeVisible({
-      timeout: 10_000,
+      timeout: 8_000,
     });
     await expect(page.getByTestId("new-plan-no-invoices")).toContainText(
       /no outstanding invoice/i

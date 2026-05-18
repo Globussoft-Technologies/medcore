@@ -17,15 +17,21 @@ import {
   Languages,
   TrendingUp,
   Sparkles,
+  Database,
+  Zap,
+  IndianRupee,
+  PhoneCall,
+  Globe2,
+  Megaphone,
 } from "lucide-react";
 import { Container } from "./_components/Container";
 import { FeatureCard } from "./_components/FeatureCard";
 import { CTASection } from "./_components/CTASection";
 
 export const metadata = {
-  title: "MedCore — Hospital management built for Indian hospitals",
+  title: "MedCore — The AI-native operating system for Indian healthcare",
   description:
-    "Run your hospital, not spreadsheets. AI triage in 8 Indian languages, ambient scribe, AI radiology drafting, AI KPI dashboards, drug-safety checks, claims auto-draft, ABDM-ready, FHIR R4 + HL7 v2, multi-tenant ready, DPDP-compliant data residency — all in one platform.",
+    "Run your facility on autopilot. AI voice receptionist, ambient SOAP scribe, AI radiology drafting, outbound follow-up agent, international patient coordination, AI triage in 8 Indian languages, claims auto-draft, marketing-site builder, ABDM-ready, FHIR R4 + HL7 v2, multi-tenant ready, DPDP-compliant data residency — all in one platform.",
 };
 
 const logos = [
@@ -81,19 +87,20 @@ export default function HomePage() {
               55+ modules. 8 Indian languages. One platform.
             </div>
             <h1 className="text-4xl font-extrabold tracking-tight text-gray-900 sm:text-6xl md:text-7xl dark:text-white">
-              Run your hospital.
+              Run your facility
               <br />
               <span className="bg-gradient-to-r from-blue-600 to-emerald-500 bg-clip-text text-transparent">
-                Not spreadsheets.
+                on autopilot.
               </span>
             </h1>
             <p className="mx-auto mt-6 max-w-2xl text-lg text-gray-600 dark:text-gray-400 md:text-xl">
-              MedCore runs your OPD queue, admissions, billing, pharmacy, lab,
-              HR and a patient mobile app — with AI triage in 8 Indian
-              languages, ambient SOAP scribe, AI radiology drafting, AI-powered
-              KPI dashboards, drug-safety checks, claims auto-drafted from SOAP,
-              ABDM/ABHA, FHIR R4, HL7 v2 inbound, and full multi-tenant
-              onboarding baked in.
+              MedCore is the AI-native operating system for Indian healthcare.
+              From patient acquisition and a 24/7 voice receptionist, through
+              international patient coordination, ambient SOAP scribe, AI
+              radiology drafting, outbound follow-up, claims auto-draft and
+              post-care engagement — every operational workflow runs itself,
+              while your doctors and nurses get their time back to actually
+              care for patients.
             </p>
             <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link
@@ -129,6 +136,111 @@ export default function HomePage() {
                 {l}
               </span>
             ))}
+          </div>
+        </Container>
+      </section>
+
+      {/* MARKET FRAMING */}
+      <section className="py-20">
+        <Container>
+          <div className="mx-auto max-w-3xl text-center">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+              <IndianRupee className="h-3.5 w-3.5" /> Why we exist
+            </div>
+            <h2 className="mt-3 text-3xl font-bold text-gray-900 sm:text-4xl dark:text-white">
+              India&apos;s hospital market is a <span className="text-blue-600 dark:text-blue-400">~$200B industry</span>.
+              <br />
+              No one is building tech for 75% of it.
+            </h2>
+            <p className="mx-auto mt-6 max-w-2xl text-lg text-gray-600 dark:text-gray-400">
+              Large PE-backed and corporate hospital groups capture roughly 20% of the
+              market. Their tech is mostly AI features layered on top of legacy
+              billing software. The other 75-80% — clinics and mid-sized hospitals —
+              run on fragmented workflows, manual coordination, and software
+              designed for invoicing, not patients. That&apos;s the gap we&apos;re
+              filling.
+            </p>
+          </div>
+          <div className="mx-auto mt-12 grid max-w-4xl gap-6 sm:grid-cols-3">
+            <div className="rounded-2xl border border-gray-200 bg-white p-6 text-center shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-4xl font-extrabold text-blue-600 dark:text-blue-400">~$200B</div>
+              <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                India&apos;s hospital + healthcare market — larger than most other sectors.
+              </div>
+            </div>
+            <div className="rounded-2xl border border-gray-200 bg-white p-6 text-center shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-4xl font-extrabold text-blue-600 dark:text-blue-400">80%</div>
+              <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                Of facilities running on fragmented workflows + manual coordination.
+              </div>
+            </div>
+            <div className="rounded-2xl border border-gray-200 bg-white p-6 text-center shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-4xl font-extrabold text-blue-600 dark:text-blue-400">75%</div>
+              <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                Of the market underserved by both legacy HMS and corporate-only stacks.
+              </div>
+            </div>
+          </div>
+        </Container>
+      </section>
+
+      {/* THREE-PILLAR FRAMING */}
+      <section className="bg-gray-50 py-20 dark:bg-gray-900/40">
+        <Container>
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl dark:text-white">
+              A system, not a feature list
+            </h2>
+            <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">
+              MedCore is built as three integrated layers so the patient
+              journey, the operational journey, and the financial journey
+              never go out of sync.
+            </p>
+          </div>
+          <div className="mt-12 grid gap-6 md:grid-cols-3">
+            <div className="rounded-2xl border border-gray-200 bg-white p-7 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400">
+                <Database className="h-6 w-6" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                System of record
+              </h3>
+              <p className="mt-2 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
+                Every clinical event, lab, prescription, vital, admission and
+                billing entry in one tenant-scoped, auditable EHR. FHIR R4
+                export, HL7 v2 inbound, full mutation audit trail with
+                archival — nothing falls between systems.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-gray-200 bg-white p-7 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400">
+                <Zap className="h-6 w-6" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                System of action
+              </h3>
+              <p className="mt-2 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
+                AI agents that run the workflows operators used to run
+                manually: 8-language triage, ambient SOAP scribe, radiology
+                drafting, drug-safety checks, no-show predictions, adherence
+                reminders, chart search with citations. Hand-off to staff is
+                one click.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-gray-200 bg-white p-7 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400">
+                <Receipt className="h-6 w-6" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                System of transaction
+              </h3>
+              <p className="mt-2 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
+                GST-aware invoicing, Razorpay + UPI, packages, payment plans,
+                TPA pre-auth + claims auto-drafted from SOAP, refunds with
+                fraud guards, payroll with FY-2026 ESI ceilings. Money moves
+                the same day the clinical work happens.
+              </p>
+            </div>
           </div>
         </Container>
       </section>
@@ -203,8 +315,20 @@ export default function HomePage() {
             <FeatureCard
               icon={Building2}
               title="Engagement"
-              description="WhatsApp + SMS + email + push, feedback, NPS, complaints with auto-assignment after 48h SLA breach."
+              description="WhatsApp + SMS + email + push + outbound voice agent, feedback, NPS, complaints with auto-assignment after 48h SLA breach."
               href="/features#engagement"
+            />
+            <FeatureCard
+              icon={Megaphone}
+              title="Patient Acquisition"
+              description="Per-hospital marketing sites (specialty / doctor / cost-calculator pages), 24/7 voice receptionist, outbound follow-up agent — owns the patient from organic search through booked appointment."
+              href="/features#ai"
+            />
+            <FeatureCard
+              icon={Globe2}
+              title="International Patient"
+              description="Visa letters, multi-currency billing (USD / EUR / AED), translation, flight + hotel + local transport coordination. Built for medical-tourism revenue."
+              href="/features#ai"
             />
             <FeatureCard
               icon={Smartphone}
@@ -215,7 +339,7 @@ export default function HomePage() {
             <FeatureCard
               icon={Brain}
               title="AI + Automation"
-              description="AI triage in 8 Indian languages, ambient SOAP scribe, AI radiology drafting, drug-safety checks, chart search, claims auto-draft, no-show predictions, AI-KPI dashboards, agent console."
+              description="10 named agents: Voice Receptionist, Outbound Follow-up, International Patient, Triage (8 langs), Scribe, Radiology, Claims, Marketing Sites, Agent Console, Predictions. All with one-click hand-off + audit trail."
               href="/features#ai"
             />
             <FeatureCard
@@ -244,6 +368,26 @@ export default function HomePage() {
             </p>
           </div>
           <div className="mt-12 grid gap-6 md:grid-cols-3">
+            <FeatureCard
+              icon={PhoneCall}
+              title="AI Voice Receptionist"
+              description="24/7 voice agent on your hospital line. Qualifies callers (booking / lab report / billing / triage), books directly into the OPD queue, or hands off to a human in the agent console with full transcript and context."
+            />
+            <FeatureCard
+              icon={PhoneCall}
+              title="Outbound Follow-up Agent"
+              description="Voice + WhatsApp outbound agent contacts new enquiries, qualifies, follows up until booked, bridges to reception when the patient picks up. Quiet-hours-aware, 3-attempt cap, full audit trail."
+            />
+            <FeatureCard
+              icon={Globe2}
+              title="International Patient Coordination"
+              description="Visa support letter workflow, multi-currency billing (USD / EUR / AED), language translation, flight + hotel + local transport checklist. Built for hospitals doing medical tourism."
+            />
+            <FeatureCard
+              icon={Megaphone}
+              title="Marketing-site Builder"
+              description="Per-hospital landing pages — specialty pages, doctor profiles, treatment-cost calculators — with lead capture wired directly into the agent console queue."
+            />
             <FeatureCard
               icon={Stethoscope}
               title="AI Triage + Ambient Scribe"
@@ -402,6 +546,35 @@ export default function HomePage() {
                   {m.l}
                 </div>
               </div>
+            ))}
+          </div>
+        </Container>
+      </section>
+
+      {/* COMPLIANCE BADGE ROW */}
+      <section className="border-t border-gray-200 bg-gray-50 py-12 dark:border-gray-800 dark:bg-gray-900/40">
+        <Container>
+          <p className="text-center text-xs font-medium uppercase tracking-wider text-gray-500">
+            Compliance + interoperability — what your auditor will ask for
+          </p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            {[
+              "DPDP Act 2023",
+              "ABDM / ABHA",
+              "FHIR R4",
+              "HL7 v2 inbound",
+              "DLT-compliant SMS",
+              "Razorpay HMAC webhook",
+              "India data residency",
+              "Multi-tenant ready",
+            ].map((b) => (
+              <span
+                key={b}
+                className="inline-flex items-center gap-1.5 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                {b}
+              </span>
             ))}
           </div>
         </Container>

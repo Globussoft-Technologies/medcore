@@ -1,5 +1,11 @@
 import Link from "next/link";
-import { CheckCircle2, Stethoscope, Building, Building2 } from "lucide-react";
+import {
+  CheckCircle2,
+  Stethoscope,
+  Building,
+  Building2,
+  X,
+} from "lucide-react";
 import { Container } from "../_components/Container";
 import { CTASection } from "../_components/CTASection";
 
@@ -17,6 +23,7 @@ const solutions = [
     size: "1-3 doctors",
     priceFrom: "₹9,999/mo",
     bullets: [
+      "AI Voice Receptionist (24/7)",
       "Online + walk-in appointments",
       "Digital prescriptions with QR",
       "GST-compliant billing",
@@ -32,10 +39,11 @@ const solutions = [
     size: "10-30 beds",
     priceFrom: "₹24,999/mo",
     bullets: [
+      "Everything in Small Clinic, plus:",
+      "AI Outbound Follow-up Agent",
+      "Marketing-site builder + landing pages",
       "Admissions, wards and bed census",
-      "Lab orders and in-house pharmacy",
-      "Shift roster, leaves and payroll",
-      "Insurance / TPA pre-auth + claims",
+      "Insurance / TPA pre-auth + claims auto-draft",
       "Razorpay + UPI + payment plans",
       "Patient mobile app",
     ],
@@ -48,12 +56,13 @@ const solutions = [
     size: "30+ beds, multiple departments",
     priceFrom: "Contact us",
     bullets: [
-      "OT scheduling and surgery workflow",
-      "Emergency triage and ambulance dispatch",
-      "Blood bank with component separation",
-      "Multi-branch analytics and audit trail",
+      "Everything in Mid-size, plus:",
+      "International Patient coordination (visa, currency, logistics)",
+      "AI Radiology drafting (HITL)",
+      "OT scheduling + surgery + ambulance dispatch",
+      "Blood bank with ABO compatibility",
+      "Multi-branch analytics + audit trail",
       "Dedicated onboarding and SLA",
-      "Custom integrations (HL7, lab machines)",
     ],
     cta: "Book enterprise demo",
   },
@@ -66,17 +75,94 @@ export default function SolutionsPage() {
         <Container>
           <div className="mx-auto max-w-3xl text-center">
             <h1 className="text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl dark:text-white">
-              One platform. Built for how you grow.
+              Built for the <span className="text-blue-600 dark:text-blue-400">75%</span> nobody else serves.
             </h1>
             <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">
-              From a solo clinic to a 200-bed multi-specialty — same login, same mobile app.
+              Corporate hospital groups have 20% of the Indian market and their
+              own custom stacks. Everyone else — solo clinics, mid-sized
+              hospitals, multi-specialty — is stuck choosing between 15-year-old
+              desktop apps and Western SaaS that doesn&apos;t know what CGST
+              means. MedCore is the modern stack built for that 75% directly,
+              not as a corporate-HMS hand-me-down.
             </p>
           </div>
         </Container>
       </section>
 
+      {/* VS CORPORATE HMS */}
       <section className="py-20">
         <Container>
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl dark:text-white">
+              The modern stack vs the legacy one
+            </h2>
+            <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">
+              Most hospital tech is AI features layered on top of billing
+              software from 2008. We rebuilt the workflow from the ground up.
+            </p>
+          </div>
+          <div className="mx-auto mt-12 grid max-w-4xl gap-6 md:grid-cols-2">
+            <div className="rounded-2xl border border-gray-200 bg-gray-50 p-6 dark:border-gray-800 dark:bg-gray-900/40">
+              <div className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                Legacy HMS (the other guys)
+              </div>
+              <h3 className="mt-1 text-lg font-semibold text-gray-700 dark:text-gray-400">
+                Billing software with AI bolted on
+              </h3>
+              <ul className="mt-4 space-y-2 text-sm text-gray-600 dark:text-gray-400">
+                {[
+                  "Desktop-era data models, then a SaaS wrapper",
+                  "AI features = chatbot plugin, no agent handoffs",
+                  "Per-module silos (billing, lab, pharmacy don't share state)",
+                  "Pricing: per-bed + per-user + per-integration",
+                  "Multi-month onboarding consultants",
+                  "Patient app is a static brochure",
+                ].map((p) => (
+                  <li key={p} className="flex items-start gap-2">
+                    <X className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" />
+                    {p}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="rounded-2xl border-2 border-blue-500 bg-blue-50/40 p-6 shadow-md shadow-blue-100 dark:border-blue-500 dark:bg-blue-950/30 dark:shadow-none">
+              <div className="text-xs font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-400">
+                MedCore — the modern stack
+              </div>
+              <h3 className="mt-1 text-lg font-semibold text-gray-900 dark:text-white">
+                AI-native, system-of-record + action + transaction
+              </h3>
+              <ul className="mt-4 space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                {[
+                  "Workflows rebuilt around AI agents, not bolted on",
+                  "Named agents with one-click hand-off + audit trail",
+                  "Single tenant-scoped EHR — billing, lab, pharmacy share state",
+                  "Flat per-month pricing — no per-bed, no per-user, no per-integration",
+                  "Self-serve onboarding wizard, live in days",
+                  "Patient app with live queue, lab reports, prescription QR, bill pay",
+                ].map((p) => (
+                  <li key={p} className="flex items-start gap-2">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                    {p}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </Container>
+      </section>
+
+      <section className="bg-gray-50 py-20 dark:bg-gray-900/40">
+        <Container>
+          <div className="mx-auto mb-12 max-w-2xl text-center">
+            <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl dark:text-white">
+              Same platform. Three sizes.
+            </h2>
+            <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">
+              Pick the bundle. Upgrade in-place as you grow — no migration, no
+              re-onboarding.
+            </p>
+          </div>
           <div className="grid gap-6 md:grid-cols-3">
             {solutions.map((s) => {
               const Icon = s.icon;

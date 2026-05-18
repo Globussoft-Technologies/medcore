@@ -1,5 +1,16 @@
 import Image from "next/image";
-import { CheckCircle2 } from "lucide-react";
+import {
+  CheckCircle2,
+  Stethoscope,
+  Brain,
+  Headphones,
+  ClipboardList,
+  PhoneCall,
+  Globe2,
+  Megaphone,
+  Receipt,
+  Sparkles,
+} from "lucide-react";
 import { Container } from "../_components/Container";
 import { CTASection } from "../_components/CTASection";
 
@@ -190,6 +201,111 @@ export default function FeaturesPage() {
                 </a>
               ))}
             </div>
+          </div>
+        </Container>
+      </section>
+
+      {/* AI AGENTS — full ten-agent grid */}
+      <section className="bg-gradient-to-br from-indigo-50 to-blue-50 py-20 dark:from-indigo-950/30 dark:to-blue-950/30">
+        <Container>
+          <div className="mx-auto max-w-3xl text-center">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-wider text-indigo-700 dark:border-indigo-900 dark:bg-gray-900 dark:text-indigo-300">
+              10 named agents, all shipping today
+            </div>
+            <h2 className="mt-3 text-3xl font-bold text-gray-900 sm:text-4xl dark:text-white">
+              Specialised agents, not a generic chatbot
+            </h2>
+            <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">
+              Each agent owns one job, hands off cleanly to the next, and writes
+              an audit row for every decision. Every prompt is versioned in the
+              DB with one-click rollback. Voice, text and outbound — all in one
+              orchestration layer.
+            </p>
+          </div>
+          <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {[
+              {
+                icon: PhoneCall,
+                name: "Voice Receptionist",
+                tagline: "Front-desk-facing",
+                desc: "24/7 voice agent on your hospital line. Qualifies the caller — booking, lab report, billing query, emergency triage — books directly into the OPD queue, or hands off to a human in the agent console with full transcript and context.",
+              },
+              {
+                icon: Stethoscope,
+                name: "Triage Agent",
+                tagline: "Patient-facing",
+                desc: "Symptom triage in 8 Indian languages with SNOMED-anchored routing. Recommends a specialty, books the slot, or escalates a red flag to the agent console.",
+              },
+              {
+                icon: PhoneCall,
+                name: "Outbound Follow-up Agent",
+                tagline: "Sales-facing",
+                desc: "Voice + WhatsApp outbound caller that contacts new enquiries, qualifies them, follows up until booked, and bridges to reception when the patient picks up. Quiet-hours-aware, 3-attempt cap, full audit trail.",
+              },
+              {
+                icon: Globe2,
+                name: "International Patient Agent",
+                tagline: "Medical-tourism-facing",
+                desc: "End-to-end international patient coordination: visa support letters with admin approval, multi-currency billing display (USD / EUR / AED), language translation, flight + hotel + local transport checklist. Built for hospitals doing medical tourism.",
+              },
+              {
+                icon: ClipboardList,
+                name: "Scribe Agent",
+                tagline: "Doctor-facing",
+                desc: "Ambient SOAP scribe with DOCTOR / PATIENT / ATTENDANT speaker tags. Pre-fills ICD-10 + CPT codes that the Claims Agent picks up.",
+              },
+              {
+                icon: Brain,
+                name: "Radiology Agent",
+                tagline: "Radiologist-facing",
+                desc: "Drafts impressions + findings on uploaded imaging studies with per-finding confidence. HITL workflow — radiologist approves or amends before release.",
+              },
+              {
+                icon: Receipt,
+                name: "Claims Agent",
+                tagline: "Reception-facing",
+                desc: "Auto-drafts the TPA claim from the Scribe Agent's SOAP + ICD-10. Predicts denial risk before submission. Reception reviews in 30s instead of re-keying.",
+              },
+              {
+                icon: Headphones,
+                name: "Agent Console",
+                tagline: "Staff-facing",
+                desc: "When any AI agent escalates, a human agent sees the full transcript, AI-extracted SOAP, top-3 doctor matches, and red flags — with one-click hand-off.",
+              },
+              {
+                icon: Megaphone,
+                name: "Marketing-site Builder",
+                tagline: "Acquisition-facing",
+                desc: "Per-hospital landing pages (specialty pages, doctor profiles, treatment-cost calculators) with lead capture wired directly into the Agent Console queue. Owns the patient from organic search, not from the front desk.",
+              },
+              {
+                icon: Sparkles,
+                name: "Predictions Agent",
+                tagline: "Ops-facing",
+                desc: "No-show scoring, pharmacy demand forecast (Holt-Winters), ER triage severity (MEWS + LLM ESI), adherence nudges. All running on your data, no SaaS export.",
+              },
+            ].map((a) => {
+              const Icon = a.icon;
+              return (
+                <div
+                  key={a.name}
+                  className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900"
+                >
+                  <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400">
+                    <Icon className="h-6 w-6" />
+                  </div>
+                  <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+                    {a.name}
+                  </h3>
+                  <div className="text-xs uppercase tracking-wider text-gray-500">
+                    {a.tagline}
+                  </div>
+                  <p className="mt-3 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
+                    {a.desc}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </Container>
       </section>

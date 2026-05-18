@@ -1,5 +1,11 @@
 import Image from "next/image";
-import { Heart, ShieldCheck, IndianRupee } from "lucide-react";
+import {
+  Heart,
+  ShieldCheck,
+  IndianRupee,
+  Target,
+  Rocket,
+} from "lucide-react";
 import { Container } from "../_components/Container";
 import { CTASection } from "../_components/CTASection";
 
@@ -77,32 +83,97 @@ export default function AboutPage() {
             <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">
               MedCore is engineered for Indian hospitals — GST, DLT-compliant
               SMS, UPI-first payments and the India UIP immunization schedule
-              baked in.
+              baked in. Built for the 75% of facilities that nobody else is
+              building modern healthcare software for.
             </p>
           </div>
         </Container>
       </section>
 
+      {/* MISSION + VISION */}
       <section className="py-20">
+        <Container>
+          <div className="mx-auto grid max-w-5xl gap-8 md:grid-cols-2">
+            <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400">
+                <Target className="h-6 w-6" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                Mission
+              </h2>
+              <p className="mt-3 text-base leading-relaxed text-gray-600 dark:text-gray-400">
+                Run the facility on autopilot and give patients a great
+                experience — while giving healthcare staff their time back to
+                actually care for patients. Every clinic deserves capabilities
+                that today are only available to large corporate hospital
+                groups.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400">
+                <Rocket className="h-6 w-6" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                Vision
+              </h2>
+              <p className="mt-3 text-base leading-relaxed text-gray-600 dark:text-gray-400">
+                The self-driving clinic. From patient acquisition through
+                appointment, consultation, billing and post-care
+                engagement — the operational layer runs itself. Doctors and
+                nurses spend their time on patients, not on paperwork.
+              </p>
+            </div>
+          </div>
+        </Container>
+      </section>
+
+      <section className="bg-gray-50 py-20 dark:bg-gray-900/40">
         <Container className="max-w-3xl">
           <div className="space-y-6 text-lg leading-relaxed text-gray-700 dark:text-gray-300">
             <p>
-              We started MedCore in 2024 after watching our co-founder&apos;s
-              family clinic drown in paperwork. Every HIS we tried was either a
-              15-year-old desktop app or a Western SaaS that didn&apos;t know
-              what CGST+SGST meant. So we built our own.
+              India&apos;s hospital market is a nearly $200B industry — larger
+              than most other sectors combined. Yet nearly 80% of facilities
+              run on fragmented workflows, manual coordination, and software
+              designed for billing instead of patients. Large PE-backed and
+              corporate hospital groups have captured roughly 20% of the
+              market with their own stacks. No one is building for the
+              remaining 75-80%.
             </p>
             <p>
-              Today MedCore runs OPD queues, admissions, billing, pharmacy, lab,
-              HR, payroll and a patient mobile app — all from one login.
-              It&apos;s the same platform a solo clinic with one doctor and a
-              200-bed multi-specialty hospital use, because your tools should
-              grow with you, not against you.
+              That&apos;s why we started MedCore — to be the AI-native
+              operating system for the clinics and mid-sized hospitals
+              everyone else has ignored. We started inside a 40-bed hospital
+              in Bangalore, solving real pain in OPD, billing and pharmacy
+              workflows. Every feature shipped after a doctor or nurse
+              actually used it on a real shift.
+            </p>
+            <p>
+              Today MedCore runs the full patient journey end-to-end: from
+              the first call answered by the AI Voice Receptionist, through
+              international patient coordination, OPD queue, AI-driven
+              triage in 8 Indian languages, ambient SOAP scribe, AI
+              radiology drafting, claims auto-drafted from the
+              consultation, all the way through post-care engagement and
+              outbound follow-up. Per-hospital marketing sites own the top
+              of the funnel; the Agent Console handles every escalation in
+              one place.
+            </p>
+            <p>
+              MedCore is three integrated layers, not a feature list. A
+              <strong> system of record</strong> — every clinical event,
+              every prescription, every transaction in one auditable EHR. A
+              <strong> system of action</strong> — AI agents that triage,
+              transcribe, draft radiology impressions, predict no-shows,
+              draft TPA claims, handle the operational workflows operators
+              used to run manually. A <strong>system of transaction</strong>{" "}
+              — GST-aware billing, Razorpay + UPI, packages, payment plans,
+              payroll, all flowing the same day the clinical work happens.
             </p>
             <p>
               We&apos;re a small, honest team. We ship every week. We answer
-              support tickets ourselves. And we&apos;ll never sell your patient
-              data — it&apos;s not our business model and never will be.
+              support tickets ourselves. And we&apos;ll never sell your
+              patient data — it&apos;s not our business model and never will
+              be.
             </p>
           </div>
         </Container>

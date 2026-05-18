@@ -39,6 +39,47 @@
 -- pentest emails) are removed. Real-world admins occasionally have
 -- legitimate test environments where the seed runs; the patterns
 -- below will not collide with any production-shape data.
+--
+-- FK-child cleanup must run FIRST. The original 20260508000003 (and the
+-- first cut of this migration) assumed the attacker users had no
+-- dependent rows, but a pentest run leaves refresh tokens, notifications,
+-- staff shifts and chat rows behind. None of those FKs cascade
+-- (notifications_userId_fkey, refresh_tokens_userId_fkey,
+-- staff_shifts_userId_fkey, chat_messages_senderId_fkey,
+-- chat_participants_userId_fkey), so DELETE FROM "users" aborts with a
+-- 23503 FK violation unless the children go first. Each child DELETE is
+-- scoped to the SAME attacker-user predicate and is idempotent (once the
+-- users are gone the subquery returns nothing).
+DELETE FROM "refresh_tokens"
+ WHERE "userId" IN (
+   SELECT id FROM "users"
+    WHERE name ILIKE '%attacker%' OR email ILIKE '%attacker%'
+       OR email ILIKE '%@evil.test%' OR email ILIKE '%pentest%@%'
+ );
+DELETE FROM "notifications"
+ WHERE "userId" IN (
+   SELECT id FROM "users"
+    WHERE name ILIKE '%attacker%' OR email ILIKE '%attacker%'
+       OR email ILIKE '%@evil.test%' OR email ILIKE '%pentest%@%'
+ );
+DELETE FROM "staff_shifts"
+ WHERE "userId" IN (
+   SELECT id FROM "users"
+    WHERE name ILIKE '%attacker%' OR email ILIKE '%attacker%'
+       OR email ILIKE '%@evil.test%' OR email ILIKE '%pentest%@%'
+ );
+DELETE FROM "chat_messages"
+ WHERE "senderId" IN (
+   SELECT id FROM "users"
+    WHERE name ILIKE '%attacker%' OR email ILIKE '%attacker%'
+       OR email ILIKE '%@evil.test%' OR email ILIKE '%pentest%@%'
+ );
+DELETE FROM "chat_participants"
+ WHERE "userId" IN (
+   SELECT id FROM "users"
+    WHERE name ILIKE '%attacker%' OR email ILIKE '%attacker%'
+       OR email ILIKE '%@evil.test%' OR email ILIKE '%pentest%@%'
+ );
 DELETE FROM "users"
  WHERE name ILIKE '%attacker%'
     OR email ILIKE '%attacker%'

@@ -186,10 +186,18 @@ export NEXT_PUBLIC_SENTRY_RELEASE="$INCOMING_SHA"
 npm --prefix apps/web run build
 
 echo "=== 7. Restarting services ==="
-# `--update-env` forces pm2 to re-read the parent shell's env vars on
-# restart, picking up the SENTRY_RELEASE we just exported. Without this
-# pm2 caches the env from when each process was first spawned.
-pm2 restart medcore-api medcore-web --update-env
+# `pm2 startOrRestart <ecosystem>` re-reads the ecosystem file from disk
+# and RECREATES the process with whatever script/args/cwd/env it now
+# defines. Plain `pm2 restart <name> --update-env` only updates env vars
+# — it KEEPS the cached script + args from when the process was first
+# spawned. That kept us pinned to the old `npx tsx` invocation for 12+
+# hours after 41eec79 fixed the ecosystem (515+ restart count, all
+# `tsx: not found`) because `restart` quietly ignored the new config.
+# `startOrRestart` re-creates from the ecosystem each deploy.
+#
+# `--update-env` retained so SENTRY_RELEASE / NEXT_PUBLIC_SENTRY_RELEASE
+# exported above flow into the new process env.
+pm2 startOrRestart ecosystem.medcore.config.js --update-env
 sleep 3
 
 echo "=== 8. Verifying ==="

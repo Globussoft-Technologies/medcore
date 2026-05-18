@@ -228,6 +228,19 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { patientId, doctorId, priority, notes } = req.body;
+      // A11 partial-revert (2026-05-17): istMidnightUtc(0) returns
+      // the UTC instant of IST midnight (e.g. yesterday-UTC at 18:30
+      // when called from a UTC server in the IST evening). Postgres
+      // @db.Date extracts the UTC date PORTION of that instant — so
+      // the stored row lands on YESTERDAY-UTC, not today-IST. The
+      // original `setHours(0,0,0,0)` gives the server's local-day
+      // midnight which matches what existing tests assert and what
+      // getNextToken's UTC-bounded query (line ~56) compares against.
+      // True IST-day storage would require either DATE-as-text in IST
+      // or a daystart-of-IST-as-UTC-midnight helper (different shape
+      // than istMidnightUtc); both are out of scope. Reverting to
+      // pre-A11 behavior here keeps tests green; the cross-tz drift
+      // class is documented for follow-up.
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
@@ -315,6 +328,12 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
       // whole calendar day rather than an exact equality so the picker
       // doesn't return an empty list (or 500 on a bad ISO string).
       try {
+        // Caller passed `?date=YYYY-MM-DD`. Match getNextToken's UTC
+        // convention so the filter window aligns with stored DATE
+        // values regardless of host timezone (per A11). Prior:
+        // `setHours(0,0,0,0)` / `setHours(23,59,...)` on local time
+        // shifted the window by the host offset, dropping rows on
+        // UTC hosts.
         const day = new Date(date as string);
         if (Number.isNaN(day.getTime())) {
           res.status(400).json({
@@ -325,10 +344,10 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
           return;
         }
         const start = new Date(day);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(day);
-        end.setHours(23, 59, 59, 999);
-        where.date = { gte: start, lte: end };
+        start.setUTCHours(0, 0, 0, 0);
+        const end = new Date(start);
+        end.setUTCDate(end.getUTCDate() + 1);
+        where.date = { gte: start, lt: end };
       } catch {
         res.status(400).json({
           success: false,
@@ -719,7 +738,12 @@ router.post(
           notes?: string;
         };
 
-      // Build the target dates
+      // A11 partial-revert (2026-05-17): IST-midnight rebase produced
+      // the same off-by-one as the walk-in path above when @db.Date
+      // extracted the UTC date portion of an IST-instant. Reverting
+      // to pre-A11 setHours(0,0,0,0) which matches existing tests +
+      // the conventional input shape from the recurring-series UI.
+      // Cross-tz drift class documented for follow-up.
       const dates: Date[] = [];
       const base = new Date(startDate);
       base.setHours(0, 0, 0, 0);
@@ -1266,8 +1290,12 @@ router.get(
     try {
       const fromDateStr = (req.query.fromDate as string) || undefined;
       const specialty = (req.query.specialty as string) || undefined;
+      // Match getNextToken's UTC convention for the forward-search
+      // window so day-boundary comparisons against stored DATE values
+      // are consistent across host timezones (A11). Prior: local-tz
+      // `setHours(0,0,0,0)` shifted the window by host offset.
       const fromDate = fromDateStr ? new Date(fromDateStr) : new Date();
-      fromDate.setHours(0, 0, 0, 0);
+      fromDate.setUTCHours(0, 0, 0, 0);
 
       const doctorWhere: Record<string, unknown> = {};
       if (specialty) doctorWhere.specialization = specialty;

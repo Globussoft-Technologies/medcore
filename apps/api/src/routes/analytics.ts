@@ -8,6 +8,7 @@ import {
   getRevenue as svcGetRevenue,
   getOutstanding as svcGetOutstanding,
 } from "../services/revenue";
+import { istMidnightUtc } from "../utils/ist-time";
 
 const router = Router();
 router.use(authenticate);
@@ -44,16 +45,8 @@ router.use(authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR));
 // default fallback (no `from`/`to` query params) rounds — and that
 // rounding now uses IST so dashboard "last 30 days" without explicit
 // bounds is also IST-aware. Mirrors the canonical pattern in
-// visitors-stats.ts::istTodayBounds().
-const IST_OFFSET_MIN = 5 * 60 + 30; // +05:30
-function istMidnightUtc(daysOffset: number): Date {
-  const now = new Date();
-  const istNow = new Date(now.getTime() + IST_OFFSET_MIN * 60_000);
-  const y = istNow.getUTCFullYear();
-  const m = istNow.getUTCMonth();
-  const d = istNow.getUTCDate() + daysOffset;
-  return new Date(Date.UTC(y, m, d, 0, 0, 0, 0) - IST_OFFSET_MIN * 60_000);
-}
+// visitors-stats.ts::istTodayBounds(). Both now lifted to
+// apps/api/src/utils/ist-time.ts per A11.
 
 function parseRange(req: Request): { from: Date; to: Date } {
   const fromStr = req.query.from as string | undefined;

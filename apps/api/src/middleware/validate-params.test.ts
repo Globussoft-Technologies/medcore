@@ -11,7 +11,9 @@ function makeRes() {
   return res;
 }
 
-const VALID_UUID = "11111111-2222-3333-4444-555555555555";
+// zod 4 enforces strict RFC-4122 (the variant nibble must be 8/9/a/b).
+// The old all-Ns placeholder had variant `5` and is now rejected.
+const VALID_UUID = "550e8400-e29b-41d4-a716-446655440000";
 
 describe("validateUuidParams", () => {
   it("calls next() when all declared params are valid UUIDs", () => {

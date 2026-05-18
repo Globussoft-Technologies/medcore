@@ -286,6 +286,12 @@ jobs:
           npm run db:seed
 
       - name: Build Web (warm bundle)
+        # Next.js 16's worker pool needs more heap than the default 2 GB —
+        # without this bump, `next build` dies with
+        # "WorkerError: Call retries were exceeded". Inherited from the
+        # Next 16 migration spike.
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: npm --prefix apps/web run build
 
       - name: Start API
@@ -400,6 +406,12 @@ jobs:
           npm run db:seed
 
       - name: Build Web (warm bundle)
+        # Next.js 16's worker pool needs more heap than the default 2 GB —
+        # without this bump, `next build` dies with
+        # "WorkerError: Call retries were exceeded". Inherited from the
+        # Next 16 migration spike.
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: npm --prefix apps/web run build
 
       - name: Start API

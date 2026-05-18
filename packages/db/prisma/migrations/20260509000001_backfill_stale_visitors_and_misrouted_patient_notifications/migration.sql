@@ -58,7 +58,7 @@ UPDATE "visitors"
 --      in archive form serves no audit purpose; the original send
 --      was itself a routing-bug artefact.
 DELETE FROM "notifications" n
- USING "User" u
+ USING "users" u
  WHERE n."userId" = u.id
    AND u.role <> 'PATIENT'
    AND n.type IN (

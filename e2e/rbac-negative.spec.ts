@@ -32,7 +32,7 @@ test.describe("RBAC negatives + nurse workstation regressions", () => {
   }) => {
     const page = patientPage;
     await page.goto("/dashboard");
-    await expect(page.locator("text=MedCore").first()).toBeVisible({
+    await expect(page.getByAltText("MedCore").first()).toBeVisible({
       timeout: 15_000,
     });
 
@@ -63,7 +63,7 @@ test.describe("RBAC negatives + nurse workstation regressions", () => {
     });
 
     await page.goto("/dashboard");
-    await expect(page.locator("text=MedCore").first()).toBeVisible({
+    await expect(page.getByAltText("MedCore").first()).toBeVisible({
       timeout: 15_000,
     });
     await page.goto("/dashboard/workstation");

@@ -82,21 +82,18 @@ export const createInventoryItemSchema = z
     batchNumber: z.string().min(1, "Batch number is required"),
     quantity: z
       .number({
-        required_error: "Quantity is required",
-        invalid_type_error: "Quantity must be a number",
+        error: "Quantity is required",
       })
       .int("Quantity must be a whole number")
       .positive("Quantity must be at least 1"),
     unitCost: z
       .number({
-        required_error: "Unit cost is required",
-        invalid_type_error: "Unit cost must be a number",
+        error: "Unit cost is required",
       })
       .positive("Unit cost must be greater than 0"),
     sellingPrice: z
       .number({
-        required_error: "Selling price is required",
-        invalid_type_error: "Selling price must be a number",
+        error: "Selling price is required",
       })
       .positive("Selling price must be greater than 0"),
     expiryDate: z

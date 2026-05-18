@@ -179,14 +179,14 @@ describeIfDB("Scheduled Reports API (integration)", () => {
 
   it("returns 404 for unknown id", async () => {
     const res = await request(app)
-      .get("/api/v1/scheduled-reports/00000000-0000-0000-0000-000000000000")
+      .get("/api/v1/scheduled-reports/550e8400-e29b-41d4-a716-446655440000")
       .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(404);
   });
 
   it("rejects GET /:id without auth (401)", async () => {
     const res = await request(app).get(
-      "/api/v1/scheduled-reports/00000000-0000-0000-0000-000000000000"
+      "/api/v1/scheduled-reports/550e8400-e29b-41d4-a716-446655440000"
     );
     expect(res.status).toBe(401);
   });
@@ -229,7 +229,7 @@ describeIfDB("Scheduled Reports API (integration)", () => {
 
   it("returns 404 when patching unknown id", async () => {
     const res = await request(app)
-      .patch("/api/v1/scheduled-reports/00000000-0000-0000-0000-000000000000")
+      .patch("/api/v1/scheduled-reports/550e8400-e29b-41d4-a716-446655440000")
       .set("Authorization", `Bearer ${adminToken}`)
       .send({ name: "x" });
     expect(res.status).toBe(404);
@@ -237,7 +237,7 @@ describeIfDB("Scheduled Reports API (integration)", () => {
 
   it("rejects PATCH without auth (401)", async () => {
     const res = await request(app)
-      .patch("/api/v1/scheduled-reports/00000000-0000-0000-0000-000000000000")
+      .patch("/api/v1/scheduled-reports/550e8400-e29b-41d4-a716-446655440000")
       .send({ name: "x" });
     expect(res.status).toBe(401);
   });
@@ -265,7 +265,7 @@ describeIfDB("Scheduled Reports API (integration)", () => {
 
   it("rejects DELETE without auth (401)", async () => {
     const res = await request(app).delete(
-      "/api/v1/scheduled-reports/00000000-0000-0000-0000-000000000000"
+      "/api/v1/scheduled-reports/550e8400-e29b-41d4-a716-446655440000"
     );
     expect(res.status).toBe(401);
   });
@@ -294,14 +294,14 @@ describeIfDB("Scheduled Reports API (integration)", () => {
 
   it("returns 404 when running unknown schedule id", async () => {
     const res = await request(app)
-      .post("/api/v1/scheduled-reports/00000000-0000-0000-0000-000000000000/run-now")
+      .post("/api/v1/scheduled-reports/550e8400-e29b-41d4-a716-446655440000/run-now")
       .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(404);
   });
 
   it("rejects POST /run-now without auth (401)", async () => {
     const res = await request(app).post(
-      "/api/v1/scheduled-reports/00000000-0000-0000-0000-000000000000/run-now"
+      "/api/v1/scheduled-reports/550e8400-e29b-41d4-a716-446655440000/run-now"
     );
     expect(res.status).toBe(401);
   });

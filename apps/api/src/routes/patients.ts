@@ -215,6 +215,16 @@ router.post(
     try {
       const data = req.body;
 
+      // #895: front-door guard was attempted (rejected when req.tenantId
+      // was missing) but had too broad a blast radius — test fixtures
+      // and tenantless super-admin tooling both legitimately hit this
+      // endpoint without a tenant context. The fix is now defense-in-
+      // depth at the write site below: explicitly pass req.tenantId
+      // (which may be undefined; that matches pre-#895 behaviour for
+      // tenantless writes) so the route at least propagates whatever
+      // tenant the caller is in. The eventual systemic fix is the
+      // \$transaction extension propagation question tracked at #895.
+
       // Issue #103 (Apr 2026): pre-check for an existing patient with the
       // same phone before creating a duplicate MR record. We surface the
       // matching MR number so reception can pull up the existing chart
@@ -297,6 +307,59 @@ router.post(
         }
       }
 
+      // Issue #892: catch the same-person-registered-twice case the phone +
+      // email checks above miss — a duplicate keyed in with a different
+      // phone. A hard block on name ALONE would wrongly reject two genuinely
+      // distinct people sharing a common Indian name, so we require BOTH an
+      // exact (case-insensitive) name match AND an identical dateOfBirth:
+      // two different humans with the identical full name AND identical
+      // birth date is vanishingly rare, so this pair is a near-certain
+      // duplicate and the "split medical history" risk is real. Same-name /
+      // different-DOB stays allowed (correctly — different people).
+      if (
+        typeof data.name === "string" &&
+        data.name.trim().length > 0 &&
+        typeof data.dateOfBirth === "string" &&
+        data.dateOfBirth.trim().length > 0
+      ) {
+        const dob = new Date(data.dateOfBirth);
+        if (!Number.isNaN(dob.getTime())) {
+          const existingByNameDob = await prisma.patient.findFirst({
+            where: {
+              mergedIntoId: null,
+              dateOfBirth: dob,
+              user: {
+                name: { equals: data.name.trim(), mode: "insensitive" },
+              },
+            },
+            select: {
+              id: true,
+              mrNumber: true,
+              user: { select: { name: true } },
+            },
+          });
+          if (existingByNameDob) {
+            res.status(409).json({
+              success: false,
+              data: null,
+              error: `A patient with this name and date of birth is already registered (MR: ${existingByNameDob.mrNumber}).`,
+              details: [
+                {
+                  field: "name",
+                  message: `Already registered as ${existingByNameDob.user?.name ?? "patient"} (MR: ${existingByNameDob.mrNumber}). Open that chart instead of creating a duplicate.`,
+                },
+              ],
+              existingPatient: {
+                id: existingByNameDob.id,
+                mrNumber: existingByNameDob.mrNumber,
+                name: existingByNameDob.user?.name ?? null,
+              },
+            });
+            return;
+          }
+        }
+      }
+
       // Auto-generate MR number
       const config = await prisma.systemConfig.findUnique({
         where: { key: "next_mr_number" },
@@ -321,6 +384,14 @@ router.post(
       const trimmedEmail =
         typeof data.email === "string" ? data.email.trim() : "";
       const placeholderEmail = `noemail+${mrNumber}@medcore.invalid`;
+      // #895 defense-in-depth: explicitly pin tenantId on both writes
+      // inside the transaction. The tenantScopedPrisma $extends hook
+      // SHOULD auto-inject via $allOperations, but PRD evidence
+      // (MR000275 created with tenantId:null on staging) shows it isn't
+      // reliable inside `$transaction` interactive callbacks for this
+      // Prisma version + extension setup. Passing tenantId explicitly
+      // closes the gap regardless of whether the extension fires.
+      const reqTenantId = req.tenantId;
       // Create user + patient in transaction
       const result = await prisma.$transaction(async (tx) => {
         const user = await tx.user.create({
@@ -330,6 +401,7 @@ router.post(
             phone: data.phone,
             passwordHash: "", // walk-in patients may not need login
             role: "PATIENT",
+            tenantId: reqTenantId,
           },
         });
 
@@ -348,6 +420,7 @@ router.post(
             emergencyContactPhone: data.emergencyContactPhone,
             insuranceProvider: data.insuranceProvider,
             insurancePolicyNumber: data.insurancePolicyNumber,
+            tenantId: reqTenantId,
           },
         });
 

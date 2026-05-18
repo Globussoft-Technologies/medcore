@@ -75,7 +75,7 @@ describeIfDB("Engagement (feedback + complaints) API (integration)", () => {
     const res = await request(app)
       .post("/api/v1/feedback")
       .send({
-        patientId: "00000000-0000-0000-0000-000000000000",
+        patientId: "550e8400-e29b-41d4-a716-446655440000",
         category: "DOCTOR",
         rating: 4,
       });

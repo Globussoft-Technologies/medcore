@@ -221,7 +221,7 @@ describeIfDB("Preauth API (integration)", () => {
 
   it("rejects GET /:id unauthenticated (401)", async () => {
     const res = await request(app).get(
-      "/api/v1/preauth/00000000-0000-0000-0000-000000000000"
+      "/api/v1/preauth/550e8400-e29b-41d4-a716-446655440000"
     );
     expect(res.status).toBe(401);
   });
@@ -303,7 +303,7 @@ describeIfDB("Preauth API (integration)", () => {
 
   it("rejects PATCH unauthenticated (401)", async () => {
     const res = await request(app)
-      .patch("/api/v1/preauth/00000000-0000-0000-0000-000000000000/status")
+      .patch("/api/v1/preauth/550e8400-e29b-41d4-a716-446655440000/status")
       .send({ status: "APPROVED" });
     expect(res.status).toBe(401);
   });

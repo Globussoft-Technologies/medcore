@@ -44,10 +44,13 @@ interface RbacCase {
  * routes (profile, account) are smoke-tested across all 7 roles.
  */
 export const RBAC_MATRIX: RbacCase[] = [
-  // /dashboard/patients — PATIENTS_ALLOWED = {ADMIN, RECEPTION, DOCTOR, NURSE}
+  // /dashboard/patients — PATIENTS_ALLOWED = {ADMIN, RECEPTION, DOCTOR, NURSE,
+  // PHARMACIST, LAB_TECH}. PHARMACIST + LAB_TECH widened in PR #888 (lockstep
+  // with patients.ts API authorize() at apps/api/src/routes/patients.ts:31-40)
+  // — both roles already have lawful per-patient PHI access via prescriptions
+  // and labs, so giving them the list page is within their existing envelope.
+  // STAGING #884 specifically blocked on this widening.
   { role: "PATIENT", route: "/dashboard/patients", outcome: { kind: "denied", redirect: "not-authorized" } },
-  { role: "LAB_TECH", route: "/dashboard/patients", outcome: { kind: "denied", redirect: "not-authorized" } },
-  { role: "PHARMACIST", route: "/dashboard/patients", outcome: { kind: "denied", redirect: "not-authorized" } },
 
   // /dashboard/queue — QUEUE_ALLOWED = {ADMIN, RECEPTION, DOCTOR, NURSE}
   { role: "PATIENT", route: "/dashboard/queue", outcome: { kind: "denied", redirect: "not-authorized" } },
@@ -216,6 +219,10 @@ export const RBAC_MATRIX: RbacCase[] = [
 
   // ---- Positive sanity checks (one allowed role per restricted route) ----
   { role: "DOCTOR", route: "/dashboard/patients", outcome: { kind: "allowed" } },
+  // #888 widening — pin both newly-allowed roles so a future re-tightening
+  // surfaces immediately rather than silently bouncing only via API 403.
+  { role: "PHARMACIST", route: "/dashboard/patients", outcome: { kind: "allowed" } },
+  { role: "LAB_TECH", route: "/dashboard/patients", outcome: { kind: "allowed" } },
   { role: "RECEPTION", route: "/dashboard/queue", outcome: { kind: "allowed" } },
   { role: "ADMIN", route: "/dashboard/billing", outcome: { kind: "allowed" } },
   { role: "LAB_TECH", route: "/dashboard/lab", outcome: { kind: "allowed" } },

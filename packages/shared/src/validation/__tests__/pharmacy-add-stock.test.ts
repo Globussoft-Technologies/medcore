@@ -5,7 +5,7 @@ import { createInventoryItemSchema } from "../pharmacy";
 // missing medicineId, quantity 0, ₹0 prices, negative reorder levels and
 // past-dated expiries. The schema is now the single source of truth.
 
-const UUID = "11111111-1111-1111-1111-111111111111";
+const UUID = "550e8400-e29b-41d4-a716-446655441111";
 const tomorrow = (() => {
   const d = new Date();
   d.setDate(d.getDate() + 30); // 30 days out — well in the future, not edge

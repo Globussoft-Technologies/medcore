@@ -30,7 +30,7 @@ test.describe("Auth + public surface", () => {
     await page.getByRole("button", { name: /sign in|login/i }).click();
 
     await page.waitForURL(/\/dashboard/, { timeout: 15_000 });
-    await expect(page.locator("text=MedCore").first()).toBeVisible();
+    await expect(page.getByAltText("MedCore").first()).toBeVisible();
     await expect(page.locator("text=ADMIN").first()).toBeVisible();
 
     await ctx.close();

@@ -193,7 +193,7 @@ describeIfDB("Cross-patient AI sessions (issue #511 — BOLA / CWE-285)", () => 
 
   it("ai/scribe DELETE: 404 when session does not exist", async () => {
     const res = await request(app)
-      .delete(`/api/v1/ai/scribe/00000000-0000-0000-0000-000000000000`)
+      .delete(`/api/v1/ai/scribe/550e8400-e29b-41d4-a716-446655440000`)
       .set("Authorization", `Bearer ${doctorToken}`);
     expect(res.status).toBe(404);
   });

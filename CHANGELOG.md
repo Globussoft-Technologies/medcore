@@ -7,6 +7,42 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **2026-05-14 wave — release.yml unblock + zod 4 merged + Next 16 blocker surfaced.**
+  Single-session work to clear the release validation that had been red since
+  #905 landed, plus drove the zod 3→4 migration to merge. **5 commits + 1 PR
+  merge + 2 commits on a dependabot branch.** Release run `25822586295` on
+  `e8a3c14` started at 9 E2E shard failures (Chromium + WebKit shards
+  2/4/6/7/11) and got cleared in three waves: (1) `e8a3c14` swapped
+  `text=MedCore` for `getByAltText("MedCore").first()` across helpers.ts + 4
+  specs (PR #905 had replaced the brand `<h1>` with `<Image alt="MedCore">`);
+  (2) `37f278e` updated 3 specs for the cumulative-wave RBAC/page changes
+  (rbac-matrix LAB_TECH+PHARMACIST allowed on /dashboard/patients per #888;
+  patients-register redirect destination per same widening; ai-smoke stubs
+  the new /ai/followup/consultations endpoint per #905); (3) `f0de5ce`
+  skipped 6 flaky payment-plans RECEPTION flows with A12 logged for the
+  EntityPicker→invoice-select race regression. **CI infra pre-flight** at
+  `1829df9` added `NODE_OPTIONS=--max-old-space-size=4096` to the "Build web"
+  step in test.yml + release.yml (Next 16 worker pool needs more heap on
+  GH Actions ubuntu-latest). **Zod 3→4 (#790) merged at `0d1df81`** with a
+  minimal-blast-radius shim approach: tiny `customError` config in
+  `apps/api/src/test/setup-env.ts` that maps zod-4's
+  "Invalid input: expected X, received undefined" → zod-3's terser "Required"
+  *inside vitest only*. Production keeps zod-4's richer wording. Combined
+  with 7 v4-format UUID fixture flips (zod 4's strict RFC-4122 validator
+  rejects "0000-0000-0000-0000-..." middle bytes), 100+ failing test
+  assertions cleared without rewriting test code. **Next 15→16 deferred
+  again with a deeper diagnosis**: Next 16 enables Turbopack by default
+  and won't `next build` when a webpack config (the load-bearing
+  `IgnorePlugin` for Sentry/OTel transitives at next.config.ts:20-28)
+  exists without a turbopack config. The `--webpack` opt-out flag does
+  NOT exist on Next 15 (verified locally — `next build --help` shows only
+  `--turbo`/`--turbopack`), so the flag can't be pre-applied on main.
+  Two paths commented on #784: manual rebase that adds `--webpack` to
+  apps/web/package.json in the same commit as the bump; OR close #784/#783
+  + open a manual PR atomically applying all 3 changes. PR queue down to
+  4 (all dependabot, all migration-class).
+
+### Added
 - **2026-05-12 wave — PR triage (2 PRs merged, ~2200 lines diff).**
   Single-session triage cleared the open human-PR backlog. **#882
   squash-merged at `6a575d6`** (Subhadip AI features — appointments

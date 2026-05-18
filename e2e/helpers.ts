@@ -409,7 +409,9 @@ export async function loginAs(
   // dashboard layout's redirect effect on WebKit.
   await waitForAuthReady(page, token);
   // Wait for auth-gated UI to render rather than just a URL change.
-  await expect(page.locator("text=MedCore").first()).toBeVisible({
+  // Sidebar brand was a text "MedCore" until #905, then swapped to <Image
+  // alt="MedCore">. Match the alt so both incarnations work.
+  await expect(page.getByAltText("MedCore").first()).toBeVisible({
     timeout: 15_000,
   });
   return token;

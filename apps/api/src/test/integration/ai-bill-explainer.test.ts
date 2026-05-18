@@ -104,7 +104,7 @@ describeIfDB("AI Bill Explainer API (integration)", () => {
 
   it("returns 404 for non-existent invoice", async () => {
     const res = await request(app)
-      .post(`/api/v1/ai/bill-explainer/00000000-0000-0000-0000-000000000000/generate`)
+      .post(`/api/v1/ai/bill-explainer/550e8400-e29b-41d4-a716-446655440000/generate`)
       .set("Authorization", `Bearer ${adminToken}`);
 
     expect(res.status).toBe(404);
@@ -202,7 +202,7 @@ describeIfDB("AI Bill Explainer API (integration)", () => {
 
   it("returns 404 for unknown explanation id", async () => {
     const res = await request(app)
-      .get(`/api/v1/ai/bill-explainer/00000000-0000-0000-0000-000000000000`)
+      .get(`/api/v1/ai/bill-explainer/550e8400-e29b-41d4-a716-446655440000`)
       .set("Authorization", `Bearer ${adminToken}`);
 
     expect(res.status).toBe(404);

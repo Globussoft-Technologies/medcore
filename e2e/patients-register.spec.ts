@@ -218,18 +218,27 @@ test.describe(
       expect(page.url()).toContain("/dashboard/not-authorized");
     });
 
-    test("LAB_TECH cannot reach /dashboard/patients/register — RBAC bounce to /dashboard/not-authorized", async ({
+    test("LAB_TECH on /dashboard/patients/register is redirected to the patients list (now allowed per #888 widening)", async ({
       labTechPage,
     }) => {
       const page = labTechPage;
+      // /dashboard/patients/register is a redirect page (Issue #143 — static
+      // segment resolving the dynamic [id] collision) that forwards to
+      // /dashboard/patients?register=1. After PR #888 widened PATIENTS_ALLOWED
+      // to include LAB_TECH, LAB_TECH lands on the patients list (allowed)
+      // instead of bouncing to /not-authorized. The patient-list page itself
+      // exposes the registration drawer via ?register=1 — if RECEPTION-only
+      // registration is desired, gate the drawer in the list page rather
+      // than redirecting to /not-authorized at the URL level.
       await page.goto("/dashboard/patients/register", {
         waitUntil: "domcontentloaded",
       });
 
-      await page.waitForURL(/\/dashboard\/not-authorized/, {
+      await page.waitForURL(/\/dashboard\/patients(\?|$)/, {
         timeout: 10_000,
       });
-      expect(page.url()).toContain("/dashboard/not-authorized");
+      expect(page.url()).toContain("/dashboard/patients");
+      expect(page.url()).not.toContain("/not-authorized");
     });
   }
 );

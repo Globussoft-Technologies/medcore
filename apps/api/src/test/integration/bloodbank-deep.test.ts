@@ -66,7 +66,7 @@ describeIfDB("BloodBank API — DEEP (integration)", () => {
 
   it("donor eligibility 404", async () => {
     const res = await request(app)
-      .get("/api/v1/bloodbank/donors/00000000-0000-0000-0000-000000000000/eligibility")
+      .get("/api/v1/bloodbank/donors/550e8400-e29b-41d4-a716-446655440000/eligibility")
       .set("Authorization", `Bearer ${doctorToken}`);
     expect(res.status).toBe(404);
   });
@@ -107,7 +107,7 @@ describeIfDB("BloodBank API — DEEP (integration)", () => {
 
   it("deferral on unknown donor (404)", async () => {
     const res = await request(app)
-      .post("/api/v1/bloodbank/donors/00000000-0000-0000-0000-000000000000/deferrals")
+      .post("/api/v1/bloodbank/donors/550e8400-e29b-41d4-a716-446655440000/deferrals")
       .set("Authorization", `Bearer ${nurseToken}`)
       .send({ reason: "X", deferralType: "TEMPORARY" });
     expect(res.status).toBe(404);
@@ -195,7 +195,7 @@ describeIfDB("BloodBank API — DEEP (integration)", () => {
 
   it("reserve unit: 404 when unit unknown", async () => {
     const res = await request(app)
-      .post("/api/v1/bloodbank/units/00000000-0000-0000-0000-000000000000/reserve")
+      .post("/api/v1/bloodbank/units/550e8400-e29b-41d4-a716-446655440000/reserve")
       .set("Authorization", `Bearer ${nurseToken}`)
       .send({ durationHours: 24 });
     expect(res.status).toBe(404);

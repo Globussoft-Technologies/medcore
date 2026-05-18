@@ -126,7 +126,7 @@ describeIfDB("AI Letters API (integration)", () => {
       .post("/api/v1/ai/letters/referral")
       .set("Authorization", `Bearer ${doctorToken}`)
       .send({
-        scribeSessionId: "00000000-0000-0000-0000-000000000000",
+        scribeSessionId: "550e8400-e29b-41d4-a716-446655440000",
         toSpecialty: "Cardiology",
       });
 
@@ -217,7 +217,7 @@ describeIfDB("AI Letters API (integration)", () => {
     const res = await request(app)
       .post("/api/v1/ai/letters/discharge")
       .set("Authorization", `Bearer ${doctorToken}`)
-      .send({ admissionId: "00000000-0000-0000-0000-000000000000" });
+      .send({ admissionId: "550e8400-e29b-41d4-a716-446655440000" });
 
     expect(res.status).toBe(404);
   });
@@ -226,7 +226,7 @@ describeIfDB("AI Letters API (integration)", () => {
     const res = await request(app)
       .post("/api/v1/ai/letters/discharge")
       .set("Authorization", `Bearer ${patientToken}`)
-      .send({ admissionId: "00000000-0000-0000-0000-000000000000" });
+      .send({ admissionId: "550e8400-e29b-41d4-a716-446655440000" });
 
     expect(res.status).toBe(403);
   });
@@ -268,7 +268,7 @@ describeIfDB("AI Letters API (integration)", () => {
     const { token: doctorToken } = await createDoctorWithToken();
 
     const res = await request(app)
-      .get("/api/v1/ai/letters/referral/00000000-0000-0000-0000-000000000000/preview")
+      .get("/api/v1/ai/letters/referral/550e8400-e29b-41d4-a716-446655440000/preview")
       .set("Authorization", `Bearer ${doctorToken}`);
 
     expect(res.status).toBe(404);

@@ -90,7 +90,7 @@ const donorBaseShape = {
     .optional()
     .or(z.literal("").transform(() => undefined)),
   bloodGroup: z.enum(BLOOD_GROUPS, {
-    errorMap: () => ({ message: "Select a valid blood group" }),
+    error: () => "Select a valid blood group",
   }),
   dateOfBirth: z
     .string()
@@ -273,11 +273,11 @@ export const tripRequestSchema = z.object({
 export const updateTripStatusSchema = z.object({
   status: z.enum(AMBULANCE_TRIP_STATUSES),
   distanceKm: z
-    .number({ invalid_type_error: "distanceKm must be a number" })
+    .number({ error: "distanceKm must be a number" })
     .nonnegative("distanceKm cannot be negative")
     .optional(),
   cost: z
-    .number({ invalid_type_error: "cost must be a number" })
+    .number({ error: "cost must be a number" })
     .nonnegative("cost cannot be negative")
     .optional(),
   notes: z.string().optional(),
@@ -288,25 +288,23 @@ export const updateTripStatusSchema = z.object({
 // field-level errors so the UI can render inline error hints.
 export const completeTripSchema = z.object({
   actualEndTime: z
-    .string({ required_error: "actualEndTime is required" })
+    .string({ error: "actualEndTime is required" })
     .min(1, "actualEndTime is required")
     .refine((v) => !Number.isNaN(Date.parse(v)), {
       message: "actualEndTime must be a valid ISO date-time",
     }),
   finalDistance: z
     .number({
-      required_error: "finalDistance is required",
-      invalid_type_error: "finalDistance must be a number",
+      error: "finalDistance is required",
     })
     .positive("finalDistance must be greater than 0"),
   finalCost: z
     .number({
-      required_error: "finalCost is required",
-      invalid_type_error: "finalCost must be a number",
+      error: "finalCost is required",
     })
     .nonnegative("finalCost cannot be negative"),
   notes: z
-    .string({ required_error: "notes is required" })
+    .string({ error: "notes is required" })
     .trim()
     .min(1, "notes is required"),
 });

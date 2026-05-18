@@ -91,7 +91,7 @@ describeIfDB("Lab API — deep edges", () => {
       .post("/api/v1/lab/results")
       .set("Authorization", `Bearer ${labTech}`)
       .send({
-        orderItemId: "00000000-0000-0000-0000-000000000000",
+        orderItemId: "550e8400-e29b-41d4-a716-446655440000",
         parameter: "Hb",
         value: "12",
       });
@@ -160,7 +160,7 @@ describeIfDB("Lab API — deep edges", () => {
 
   it("delta-check 404 unknown orderItem", async () => {
     const res = await request(app)
-      .get(`/api/v1/lab/results/00000000-0000-0000-0000-000000000000/delta-check`)
+      .get(`/api/v1/lab/results/550e8400-e29b-41d4-a716-446655440000/delta-check`)
       .set("Authorization", `Bearer ${doctor}`);
     expect(res.status).toBe(404);
   });
@@ -243,7 +243,7 @@ describeIfDB("Lab API — deep edges", () => {
 
   it("non-doctor verify returns 403", async () => {
     const res = await request(app)
-      .patch(`/api/v1/lab/results/00000000-0000-0000-0000-000000000000/verify`)
+      .patch(`/api/v1/lab/results/550e8400-e29b-41d4-a716-446655440000/verify`)
       .set("Authorization", `Bearer ${labTech}`)
       .send({});
     expect(res.status).toBe(403);
@@ -294,7 +294,7 @@ describeIfDB("Lab API — deep edges", () => {
 
   it("share link 404 unknown order", async () => {
     const res = await request(app)
-      .post(`/api/v1/lab/orders/00000000-0000-0000-0000-000000000000/share-link`)
+      .post(`/api/v1/lab/orders/550e8400-e29b-41d4-a716-446655440000/share-link`)
       .set("Authorization", `Bearer ${doctor}`)
       .send({ resource: "lab_order", days: 7 });
     expect(res.status).toBe(404);
@@ -319,7 +319,7 @@ describeIfDB("Lab API — deep edges", () => {
 
   it("PDF report on unknown order returns 404", async () => {
     const res = await request(app)
-      .get(`/api/v1/lab/orders/00000000-0000-0000-0000-000000000000/pdf`)
+      .get(`/api/v1/lab/orders/550e8400-e29b-41d4-a716-446655440000/pdf`)
       .set("Authorization", `Bearer ${doctor}`);
     expect(res.status).toBe(404);
   });
@@ -337,7 +337,7 @@ describeIfDB("Lab API — deep edges", () => {
     const test = await createLabTestFixture();
     const res = await request(app)
       .get(
-        `/api/v1/lab/tests/${test.id}/applicable-range?patientId=00000000-0000-0000-0000-000000000000`
+        `/api/v1/lab/tests/${test.id}/applicable-range?patientId=550e8400-e29b-41d4-a716-446655440000`
       )
       .set("Authorization", `Bearer ${doctor}`);
     expect(res.status).toBe(404);
@@ -351,7 +351,7 @@ describeIfDB("Lab API — deep edges", () => {
 
   it("GET /orders/:id 404 on unknown", async () => {
     const res = await request(app)
-      .get("/api/v1/lab/orders/00000000-0000-0000-0000-000000000000")
+      .get("/api/v1/lab/orders/550e8400-e29b-41d4-a716-446655440000")
       .set("Authorization", `Bearer ${doctor}`);
     expect(res.status).toBe(404);
   });

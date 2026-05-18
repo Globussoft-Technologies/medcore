@@ -114,7 +114,7 @@ describeIfDB("Medication API — DEEP (integration)", () => {
       .post("/api/v1/medication/orders")
       .set("Authorization", `Bearer ${doctorToken}`)
       .send({
-        admissionId: "00000000-0000-0000-0000-000000000000",
+        admissionId: "550e8400-e29b-41d4-a716-446655440000",
         medicineName: "X",
         dosage: "1",
         frequency: "OD",

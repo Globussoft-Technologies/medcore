@@ -37,7 +37,7 @@ import {
 import { recordIpdVitalsSchema } from "../ipd";
 import { recurringAppointmentSchema } from "../appointment";
 
-const VALID_UUID = "11111111-1111-1111-1111-111111111111";
+const VALID_UUID = "550e8400-e29b-41d4-a716-446655441111";
 
 describe("Validation cluster — 2026-04-26", () => {
   // ─── #279 Save Payment rejects negative / zero amount ────────────

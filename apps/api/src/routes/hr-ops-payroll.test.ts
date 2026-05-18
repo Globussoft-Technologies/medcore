@@ -81,7 +81,7 @@ describe("POST /api/v1/hr-ops/payroll — issue #701/#702 pro-rated Basic", () =
       .post("/api/v1/hr-ops/payroll")
       .set("Authorization", `Bearer ${adminToken()}`)
       .send({
-        userId: "11111111-1111-1111-1111-111111111111",
+        userId: "550e8400-e29b-41d4-a716-446655441111",
         year: 2026,
         month: 4, // April = 30 days
         basicSalary: 50000,
@@ -109,7 +109,7 @@ describe("POST /api/v1/hr-ops/payroll — issue #701/#702 pro-rated Basic", () =
       .post("/api/v1/hr-ops/payroll")
       .set("Authorization", `Bearer ${adminToken()}`)
       .send({
-        userId: "11111111-1111-1111-1111-111111111111",
+        userId: "550e8400-e29b-41d4-a716-446655441111",
         year: 2026,
         month: 4,
         basicSalary: 21001,
@@ -127,7 +127,7 @@ describe("POST /api/v1/hr-ops/payroll — issue #701/#702 pro-rated Basic", () =
       .post("/api/v1/hr-ops/payroll")
       .set("Authorization", `Bearer ${adminToken()}`)
       .send({
-        userId: "11111111-1111-1111-1111-111111111111",
+        userId: "550e8400-e29b-41d4-a716-446655441111",
         year: 2026,
         month: 4,
         basicSalary: 21000,
@@ -149,7 +149,7 @@ describe("POST /api/v1/hr-ops/payroll — issue #701/#702 pro-rated Basic", () =
       .post("/api/v1/hr-ops/payroll")
       .set("Authorization", `Bearer ${adminToken()}`)
       .send({
-        userId: "11111111-1111-1111-1111-111111111111",
+        userId: "550e8400-e29b-41d4-a716-446655441111",
         year: 2026,
         month: 4, // 30 days
         basicSalary: 60000,
@@ -174,7 +174,7 @@ describe("POST /api/v1/hr-ops/payroll — issue #701/#702 pro-rated Basic", () =
       .post("/api/v1/hr-ops/payroll")
       .set("Authorization", `Bearer ${nurseToken}`)
       .send({
-        userId: "11111111-1111-1111-1111-111111111111",
+        userId: "550e8400-e29b-41d4-a716-446655441111",
         year: 2026,
         month: 4,
         basicSalary: 30000,

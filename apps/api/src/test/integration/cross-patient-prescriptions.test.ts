@@ -214,7 +214,7 @@ describeIfDB("Cross-patient prescription RBAC (issue #511 — expanded BOLA)", (
   // SendGrid nor the Meta Cloud API are configured. The 501 here still
   // proves the RBAC + ownership checks passed (got past authorize() and
   // assertPatientOwnsResource()) — a real BOLA breach would 403/404.
-  it("/:id/share: PATIENT-A reaches own-Rx share endpoint (501 = SMS unwired) [positive control]", async () => {
+  it("/:id/share: PATIENT-A reaches own-Rx share endpoint (501=SMS unwired or 409=#897 unsigned-Rx guard) [positive control]", async () => {
     const apt = await createAppointmentFixture({ patientId: patientAId, doctorId });
     const rx = await createPrescriptionFixture({
       patientId: patientAId,
@@ -225,13 +225,17 @@ describeIfDB("Cross-patient prescription RBAC (issue #511 — expanded BOLA)", (
       .post(`/api/v1/prescriptions/${rx.id}/share`)
       .set("Authorization", `Bearer ${patientAToken}`)
       .send({ channel: "SMS" });
-    expect(res.status).toBe(501);
-    expect(res.body.error).toMatch(/not yet available/i);
+    // Either response confirms the RBAC contract — PATIENT-A reached
+    // the route past auth + tenant + owns-resource gates. 501 = the
+    // SMS channel isn't wired; 409 = #897's unsigned/REJECTED-Rx
+    // guard fires before channel dispatch. Both are non-403, which
+    // is the positive control's point.
+    expect([501, 409]).toContain(res.status);
   });
 
   // Staff (DOCTOR) bypasses the patient-owns check via authorize(). Same
-  // 501-as-RBAC-pass pattern using SMS for the same reason as above.
-  it("/:id/share: DOCTOR reaches any-Rx share endpoint (501 = SMS unwired) [staff control]", async () => {
+  // 501-or-409 RBAC-pass pattern using SMS for the same reason as above.
+  it("/:id/share: DOCTOR reaches any-Rx share endpoint (501=SMS unwired or 409=#897 unsigned-Rx guard) [staff control]", async () => {
     const apt = await createAppointmentFixture({ patientId: patientBId, doctorId });
     const rx = await createPrescriptionFixture({
       patientId: patientBId,
@@ -242,6 +246,6 @@ describeIfDB("Cross-patient prescription RBAC (issue #511 — expanded BOLA)", (
       .post(`/api/v1/prescriptions/${rx.id}/share`)
       .set("Authorization", `Bearer ${doctorToken}`)
       .send({ channel: "SMS" });
-    expect(res.status).toBe(501);
+    expect([501, 409]).toContain(res.status);
   });
 });

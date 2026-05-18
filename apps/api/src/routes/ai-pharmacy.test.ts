@@ -244,7 +244,7 @@ describe("GET /api/v1/ai/pharmacy/forecast/:inventoryItemId (honorable mention #
   it("returns 404 when the item is not found / has no history", async () => {
     forecastSingleItemMock.mockResolvedValueOnce(null);
     const res = await request(buildApp())
-      .get("/api/v1/ai/pharmacy/forecast/00000000-0000-0000-0000-000000000001")
+      .get("/api/v1/ai/pharmacy/forecast/550e8400-e29b-41d4-a716-446655440001")
       .set("Authorization", `Bearer ${tokenFor("PHARMACIST")}`);
     expect(res.status).toBe(404);
     expect(res.body.success).toBe(false);
@@ -252,7 +252,7 @@ describe("GET /api/v1/ai/pharmacy/forecast/:inventoryItemId (honorable mention #
   });
 
   it("happy path: returns forecast plus 90-day movement history", async () => {
-    const itemId = "00000000-0000-0000-0000-000000000abc";
+    const itemId = "550e8400-e29b-41d4-a716-446655440abc";
     forecastSingleItemMock.mockResolvedValueOnce(
       makeForecast({ inventoryItemId: itemId, urgency: "LOW" })
     );

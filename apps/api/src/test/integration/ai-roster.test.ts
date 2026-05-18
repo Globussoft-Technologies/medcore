@@ -174,7 +174,7 @@ describeIfDB("AI Roster API (integration)", () => {
     const res = await request(app)
       .post("/api/v1/ai/roster/apply")
       .set("Authorization", `Bearer ${adminToken}`)
-      .send({ id: "00000000-0000-0000-0000-000000000000", confirm: true });
+      .send({ id: "550e8400-e29b-41d4-a716-446655440000", confirm: true });
     expect(res.status).toBe(404);
   });
 

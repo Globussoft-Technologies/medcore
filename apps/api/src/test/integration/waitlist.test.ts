@@ -223,14 +223,14 @@ describeIfDB("Waitlist API (integration)", () => {
 
   it("returns 404 when cancelling an unknown entry", async () => {
     const res = await request(app)
-      .patch("/api/v1/waitlist/00000000-0000-0000-0000-000000000000/cancel")
+      .patch("/api/v1/waitlist/550e8400-e29b-41d4-a716-446655440000/cancel")
       .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(404);
   });
 
   it("rejects PATCH /:id/cancel without auth (401)", async () => {
     const res = await request(app).patch(
-      "/api/v1/waitlist/00000000-0000-0000-0000-000000000000/cancel"
+      "/api/v1/waitlist/550e8400-e29b-41d4-a716-446655440000/cancel"
     );
     expect(res.status).toBe(401);
   });
@@ -269,7 +269,7 @@ describeIfDB("Waitlist API (integration)", () => {
 
   it("rejects notify-next without auth (401)", async () => {
     const res = await request(app).post(
-      "/api/v1/waitlist/notify-next/00000000-0000-0000-0000-000000000000"
+      "/api/v1/waitlist/notify-next/550e8400-e29b-41d4-a716-446655440000"
     );
     expect(res.status).toBe(401);
   });

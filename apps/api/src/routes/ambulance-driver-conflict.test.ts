@@ -65,7 +65,7 @@ function nurseToken(): string {
 }
 
 const baseTripBody = {
-  ambulanceId: "11111111-1111-1111-1111-111111111111",
+  ambulanceId: "550e8400-e29b-41d4-a716-446655441111",
   pickupAddress: "12 MG Road, Bengaluru",
   callerName: "Asha",
   priority: "RED",

@@ -30,6 +30,7 @@ import {
   DEFAULT_GST_PERCENT,
   computeLineItemTax,
   computeInvoiceTotals,
+  hsnSacForCategory,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
@@ -57,6 +58,28 @@ import { generateInvoicePDFBuffer } from "../services/pdf-generator";
 const router = Router();
 router.use(authenticate);
 
+// Helper: read integer SystemConfig with fallback. Mirrors the helper
+// in appointments.ts; lift to a shared util if a third caller appears.
+async function getConfigInt(key: string, fallback: number): Promise<number> {
+  const row = await prisma.systemConfig.findUnique({ where: { key } });
+  if (!row) return fallback;
+  const n = parseInt(row.value, 10);
+  return isNaN(n) ? fallback : n;
+}
+
+/**
+ * Default invoice due-date when the caller didn't pass one.
+ * `invoice_default_due_days` SystemConfig overrides per-tenant; default 14.
+ * #902: previously this was left null, so receivables never aged + no
+ * dunning fired.
+ */
+async function computeDefaultDueDate(): Promise<Date> {
+  const days = await getConfigInt("invoice_default_due_days", 14);
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
 // POST /api/v1/billing/invoices — create invoice (with GST split, package discount, advance)
 router.post(
   "/invoices",
@@ -75,6 +98,25 @@ router.post(
         dueDate,
         notes,
       } = req.body;
+
+      // Issue #890: never raise an invoice against a NO_SHOW or CANCELLED
+      // appointment — the patient was never seen, so a "consultation" line
+      // is phantom revenue (and an insurance-fraud exposure if the invoice
+      // is later submitted as a claim). Fail fast before any total maths.
+      if (appointmentId) {
+        const appt = await prisma.appointment.findUnique({
+          where: { id: appointmentId },
+          select: { status: true },
+        });
+        if (appt && (appt.status === "NO_SHOW" || appt.status === "CANCELLED")) {
+          res.status(409).json({
+            success: false,
+            data: null,
+            error: `Cannot raise an invoice against a ${appt.status} appointment — the patient was not seen.`,
+          });
+          return;
+        }
+      }
 
       // Generate invoice number
       const config = await prisma.systemConfig.findUnique({
@@ -187,7 +229,12 @@ router.post(
             packageDiscount,
             advanceApplied,
             totalAmount: Math.max(0, +totalAmount.toFixed(2)),
-            dueDate: dueDate ? new Date(dueDate) : undefined,
+            // #902: default dueDate to createdAt + 14 days (configurable
+            // via `invoice_default_due_days` SystemConfig) when the
+            // client didn't pass one. Previously left null on ~50% of
+            // PENDING invoices on staging — AR couldn't age, dunning
+            // never fired.
+            dueDate: dueDate ? new Date(dueDate) : await computeDefaultDueDate(),
             notes:
               tierDiscount > 0
                 ? `${notes ? notes + "\n" : ""}[TIER ${tier}] auto-discount Rs.${tierDiscount.toFixed(
@@ -202,13 +249,38 @@ router.post(
                   category: string;
                   quantity: number;
                   unitPrice: number;
-                }) => ({
-                  description: item.description,
-                  category: item.category,
-                  quantity: item.quantity,
-                  unitPrice: item.unitPrice,
-                  amount: item.quantity * item.unitPrice,
-                })
+                }) => {
+                  // #894: persist the GST breakdown + HSN/SAC ON EACH LINE
+                  // so the printed tax invoice satisfies CGST Rule 46(g)
+                  // (per-line HSN) and Rule 46(i)/(j) (per-line CGST/SGST).
+                  // Previously these fields landed at the schema default
+                  // (cgst:0, sgst:0, gstRate:0, hsnSac:null) so the PDF
+                  // showed Rs.0 per line under a Rs.126 GST header — the
+                  // exact regression #43 was supposed to have closed.
+                  //
+                  // We distribute the header `taxPercentage` uniformly
+                  // across lines (rather than per-category statutory
+                  // rates) so sum(line.cgst) == header.cgstAmount stays
+                  // true. Moving to per-category rates is a separate
+                  // pricing-decision (would touch totals math); the
+                  // computeLineItemTax() helper at @medcore/shared already
+                  // supports it when that decision is made.
+                  const lineAmount = item.quantity * item.unitPrice;
+                  const lineTax = +((lineAmount * gstPct) / 100).toFixed(2);
+                  const lineCgst = +(lineTax / 2).toFixed(2);
+                  const lineSgst = +(lineTax - lineCgst).toFixed(2);
+                  return {
+                    description: item.description,
+                    category: item.category,
+                    quantity: item.quantity,
+                    unitPrice: item.unitPrice,
+                    amount: lineAmount,
+                    cgst: lineCgst,
+                    sgst: lineSgst,
+                    gstRate: gstPct,
+                    hsnSac: hsnSacForCategory(item.category),
+                  };
+                }
               ),
             },
           },
@@ -2405,6 +2477,9 @@ router.post(
         return;
       }
 
+      // #902: IPD auto-invoice also needs the default dueDate so the
+      // admission invoice ages just like a walk-in invoice.
+      const ipdDueDate = await computeDefaultDueDate();
       const invoice = await prisma.$transaction(async (tx) => {
         const inv = await tx.invoice.create({
           data: {
@@ -2418,16 +2493,32 @@ router.post(
             discountAmount: discountAmount || 0,
             advanceApplied: +advanceApplied.toFixed(2),
             totalAmount,
+            dueDate: ipdDueDate,
             notes: notes ? `[IPD ${admission.admissionNumber}] ${notes}` : `[IPD ${admission.admissionNumber}]`,
             paymentStatus: totalAmount === 0 ? "PAID" : "PENDING",
             items: {
-              create: safeItems.map((it) => ({
-                description: it.description,
-                category: it.category,
-                quantity: it.quantity,
-                unitPrice: it.unitPrice,
-                amount: it.quantity * it.unitPrice,
-              })),
+              create: safeItems.map((it) => {
+                // #894: same per-line GST + HSN/SAC persistence as the
+                // primary POST /invoices path above. Distributes the
+                // route's taxPercentage uniformly so sum(line.cgst) ==
+                // header.cgstAmount stays true. See the long comment at
+                // the primary site for the rationale.
+                const lineAmount = it.quantity * it.unitPrice;
+                const lineTax = +((lineAmount * taxPercentage) / 100).toFixed(2);
+                const lineCgst = +(lineTax / 2).toFixed(2);
+                const lineSgst = +(lineTax - lineCgst).toFixed(2);
+                return {
+                  description: it.description,
+                  category: it.category,
+                  quantity: it.quantity,
+                  unitPrice: it.unitPrice,
+                  amount: lineAmount,
+                  cgst: lineCgst,
+                  sgst: lineSgst,
+                  gstRate: taxPercentage,
+                  hsnSac: hsnSacForCategory(it.category),
+                };
+              }),
             },
           },
           include: { items: true },
@@ -2456,6 +2547,18 @@ router.post(
             data: { key: "next_invoice_number", value: String(invSeq + 1) },
           });
         }
+        // #900: accumulate the IPD invoice total into the admission so
+        // the admissions list shows accurate cost-to-date instead of
+        // 0 for the entire stay. Atomic with the invoice create — if
+        // the invoice rolls back, the increment rolls back too.
+        // Deeper accumulator (per-day bed/nursing, drug-dispense,
+        // lab-order, OT) is separate build work; this closes the
+        // immediate gap where IPD-consolidated invoices were already
+        // being raised but the admission column didn't reflect them.
+        await tx.admission.update({
+          where: { id: admission.id },
+          data: { totalBillAmount: { increment: inv.totalAmount } },
+        });
         return inv;
       });
 

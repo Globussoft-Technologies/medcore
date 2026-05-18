@@ -33,6 +33,17 @@ describeIfDB("Patients API (integration)", () => {
         phone: "9000000001",
       });
     expect(res.status).toBeLessThan(400);
+    // #895: defense-in-depth at the write site — the route now passes
+    // req.tenantId explicitly to both tx.user.create and tx.patient.create.
+    // patient.tenantId === user.tenantId is the invariant (both may be
+    // null in test setup where the JWT doesn't carry tenantId — that's
+    // fine; the invariant is agreement, not non-null).
+    const prisma = await getPrisma();
+    const created = await prisma.patient.findUnique({
+      where: { id: res.body.data.id },
+      include: { user: { select: { tenantId: true } } },
+    });
+    expect(created?.tenantId).toBe(created?.user?.tenantId);
   });
 
   it("lists patients", async () => {
@@ -53,6 +64,58 @@ describeIfDB("Patients API (integration)", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({ name: "" });
     expect(res.status).toBe(400);
+  });
+
+  // Issue #892: name + DOB exact match is a near-certain duplicate.
+  it("rejects a duplicate patient with the same name + date of birth (409, #892)", async () => {
+    const dob = "1990-06-15";
+    const first = await request(app)
+      .post("/api/v1/patients")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "Rohan Duplicate Mehta",
+        gender: "MALE",
+        phone: "9100000011",
+        dateOfBirth: dob,
+      });
+    expect(first.status).toBeLessThan(400);
+
+    // Same name + same DOB, DIFFERENT phone — the exact gap #892 reports.
+    const dup = await request(app)
+      .post("/api/v1/patients")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "Rohan Duplicate Mehta",
+        gender: "MALE",
+        phone: "9100000022",
+        dateOfBirth: dob,
+      });
+    expect(dup.status).toBe(409);
+    expect(dup.body.existingPatient?.mrNumber).toBeTruthy();
+  });
+
+  it("allows two distinct patients with the same name but different DOB (#892 — no false positive)", async () => {
+    const a = await request(app)
+      .post("/api/v1/patients")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "Common Name Sharma",
+        gender: "FEMALE",
+        phone: "9100000033",
+        dateOfBirth: "1985-03-10",
+      });
+    expect(a.status).toBeLessThan(400);
+    const b = await request(app)
+      .post("/api/v1/patients")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "Common Name Sharma",
+        gender: "FEMALE",
+        phone: "9100000044",
+        dateOfBirth: "2014-11-22",
+      });
+    // Different birth date → genuinely different people → must be allowed.
+    expect(b.status).toBeLessThan(400);
   });
 
   // ─────────────────────────────────────────────────────────

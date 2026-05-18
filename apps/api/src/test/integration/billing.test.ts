@@ -7,6 +7,9 @@ import {
   createDoctorFixture,
   createAppointmentFixture,
   createInvoiceFixture,
+  createWardFixture,
+  createBedFixture,
+  createAdmissionFixture,
 } from "../factories";
 
 let app: any;
@@ -60,6 +63,73 @@ describeIfDB("Billing API (integration)", () => {
     expect(inv.cgstAmount).toBeCloseTo(81, 1);
     expect(inv.sgstAmount).toBeCloseTo(81, 1);
     expect(inv.taxAmount).toBeCloseTo(162, 1);
+    // #902: when the client doesn't pass dueDate, the server defaults
+    // to createdAt + 14 days (configurable via the
+    // `invoice_default_due_days` SystemConfig). dueDate is @db.Date
+    // (Postgres DATE — no time), so it gets stripped to YYYY-MM-DD
+    // and returned as 00:00:00 UTC. The delta against the full-
+    // timestamp createdAt is therefore 14d MINUS the time-of-day at
+    // insert, i.e. anywhere from 13.0d (insert at 23:59 UTC) to
+    // 14.0d (insert at 00:00 UTC).
+    expect(inv.dueDate).toBeTruthy();
+    const dueMs = new Date(inv.dueDate).getTime();
+    const createdMs = new Date(inv.createdAt).getTime();
+    const deltaDays = (dueMs - createdMs) / (24 * 60 * 60 * 1000);
+    expect(deltaDays).toBeGreaterThanOrEqual(13.0);
+    expect(deltaDays).toBeLessThanOrEqual(14.1);
+
+    // #894: each line item must carry its own GST breakdown + HSN/SAC.
+    // Previously cgst/sgst/gstRate landed at 0 and hsnSac at null, which
+    // failed CGST Rule 46. Sum of line cgst/sgst must equal header
+    // cgstAmount/sgstAmount so GSTR-1 reconciles.
+    expect(inv.items).toHaveLength(2);
+    const sumLineCgst = inv.items.reduce(
+      (s: number, it: { cgst: number }) => s + it.cgst,
+      0,
+    );
+    const sumLineSgst = inv.items.reduce(
+      (s: number, it: { sgst: number }) => s + it.sgst,
+      0,
+    );
+    expect(sumLineCgst).toBeCloseTo(inv.cgstAmount, 1);
+    expect(sumLineSgst).toBeCloseTo(inv.sgstAmount, 1);
+    for (const it of inv.items) {
+      expect(it.gstRate).toBe(18);
+      // CONSULTATION + PROCEDURE both map to 9993 (healthcare services SAC)
+      expect(it.hsnSac).toBe("9993");
+      expect(it.cgst).toBeGreaterThan(0);
+      expect(it.sgst).toBeGreaterThan(0);
+    }
+  });
+
+  // Issue #890: an invoice must not be raised against a NO_SHOW or
+  // CANCELLED appointment — the patient was never seen.
+  it("rejects an invoice raised against a NO_SHOW appointment (409, issue #890)", async () => {
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      overrides: { status: "NO_SHOW" },
+    });
+    const res = await request(app)
+      .post("/api/v1/billing/invoices")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        items: [
+          {
+            description: "General consultation",
+            category: "CONSULTATION",
+            quantity: 1,
+            unitPrice: 500,
+          },
+        ],
+        taxPercentage: 18,
+      });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/NO_SHOW|not seen/i);
   });
 
   it("records a cash payment", async () => {
@@ -354,5 +424,56 @@ describeIfDB("Billing API (integration)", () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  // #900: POST /billing/consolidated must increment admissions.totalBillAmount
+  // by the invoice total. Previously admissions sat at 0 for 30-day stays
+  // because the consolidated invoice was created but the admission column
+  // was never updated.
+  it("POST /billing/consolidated increments admissions.totalBillAmount atomically (#900)", async () => {
+    const prisma = await getPrisma();
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    const ward = await createWardFixture();
+    const bed = await createBedFixture({ wardId: ward.id });
+    const admission = await createAdmissionFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      bedId: bed.id,
+    });
+    // The /consolidated route at billing.ts:2446 requires an existing
+    // appointment for the patient (it stamps the synthetic invoice's
+    // appointmentId from prisma.appointment.findFirst). Without one
+    // the route 400s with "Cannot create consolidated invoice without
+    // any patient appointment reference".
+    await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+
+    // Baseline — admission starts at totalBillAmount = 0 (or null).
+    const before = await prisma.admission.findUnique({
+      where: { id: admission.id },
+    });
+    expect(before?.totalBillAmount ?? 0).toBe(0);
+
+    const res = await request(app)
+      .post("/api/v1/billing/consolidated")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        admissionId: admission.id,
+        taxPercentage: 18,
+        discountAmount: 0,
+        applyAdvance: false,
+      });
+    expect([200, 201]).toContain(res.status);
+    const inv = res.body.data;
+    expect(inv.totalAmount).toBeGreaterThan(0);
+
+    // Admission column must now equal the invoice total.
+    const after = await prisma.admission.findUnique({
+      where: { id: admission.id },
+    });
+    expect(after?.totalBillAmount).toBeCloseTo(inv.totalAmount, 1);
   });
 });

@@ -111,3 +111,46 @@ process.env.CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3000";
 if (process.env.DATABASE_URL_TEST) {
   process.env.DATABASE_URL = process.env.DATABASE_URL_TEST;
 }
+
+// ── Zod 4 default-message shim ─────────────────────────────────────────
+//
+// Zod 4 reformatted the default issue messages: a missing required field
+// now produces "Invalid input: expected string, received undefined"
+// instead of zod 3's terser "Required". Across the test suite there are
+// 100+ assertions that hard-code the zod-3 wording (e.g.
+// `expect(body.errors[0].message).toBe("Required")`). Rewriting all of
+// them is the brute-force path; this shim is the minimal-blast-radius
+// alternative — map only the most common cases back to zod-3 wording
+// inside the TEST PROCESS, leaving production zod-4 messages untouched.
+//
+// Why this is the right scope:
+// - setup-env.ts is loaded only by vitest (per vitest.config.ts line 28).
+//   Production server.ts never imports it, so prod responses keep the
+//   richer zod-4 wording.
+// - Custom error map is a deliberate zod 4 escape hatch — see
+//   https://zod.dev/error-customization
+// - We only map "missing required" because that's what the failing
+//   assertions almost all assert on. Other zod-4 messages flow through
+//   unchanged, so any test that already asserts on a zod-4-shaped
+//   message (e.g. "Too small: expected ...") still works.
+//
+// If a future test introduces a new assertion shape, prefer asserting
+// against zod-4's native wording rather than extending this shim — the
+// shim should shrink over time, not grow.
+//
+// Defensive: `z.config` is a zod-4 API. Local-dev `node_modules` may
+// still have zod-3 if `npm install` hasn't been re-run since the
+// zod-4 bump (PR #790) — in that case the shim no-ops cleanly rather
+// than crashing every test suite at import time.
+import { z } from "zod";
+const zAny = z as any;
+if (typeof zAny.config === "function") {
+  zAny.config({
+    customError: (issue: any) => {
+      if (issue?.code === "invalid_type" && issue?.input === undefined) {
+        return { message: "Required" };
+      }
+      return undefined;
+    },
+  });
+}

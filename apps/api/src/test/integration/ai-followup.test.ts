@@ -159,7 +159,7 @@ describeIfDB("AI Follow-up Scheduler API (integration)", () => {
 
   it("returns 404 for a non-existent consultation", async () => {
     const res = await request(app)
-      .post("/api/v1/ai/followup/suggest/00000000-0000-0000-0000-000000000000")
+      .post("/api/v1/ai/followup/suggest/550e8400-e29b-41d4-a716-446655440000")
       .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(404);
   });
@@ -215,7 +215,7 @@ describeIfDB("AI Follow-up Scheduler API (integration)", () => {
 
   it("returns 404 for booking an unknown consultation", async () => {
     const res = await request(app)
-      .post("/api/v1/ai/followup/00000000-0000-0000-0000-000000000000/book")
+      .post("/api/v1/ai/followup/550e8400-e29b-41d4-a716-446655440000/book")
       .set("Authorization", `Bearer ${adminToken}`)
       .send({});
     expect(res.status).toBe(404);

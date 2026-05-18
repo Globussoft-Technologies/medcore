@@ -321,7 +321,7 @@ router.get(
       jitsiUser = {
         id: req.user!.userId,
         name: "MedCore Admin",
-        email: req.user!.email,
+        email: req.user!.email ?? undefined,
       };
     } else if (role === Role.DOCTOR) {
       const doctor = await prisma.doctor.findUnique({

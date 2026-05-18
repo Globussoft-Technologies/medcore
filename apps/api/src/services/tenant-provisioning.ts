@@ -246,7 +246,10 @@ export interface CreateTenantResult {
   };
   adminUser: {
     id: string;
-    email: string;
+    // #891: schema widened to `email String?`. Tenant provisioning
+    // always supplies an `adminEmail` so this field is never null in
+    // practice, but type it as nullable to match the Prisma return.
+    email: string | null;
     name: string;
     role: string;
   };

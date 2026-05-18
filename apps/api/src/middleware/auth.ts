@@ -56,7 +56,7 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
     // or EdDSA, with optional HS256-fallback during rotation cutover. See
     // services/jwt.ts and docs/JWT_ROTATION.md.
     const decoded = verifyAccessToken<
-      Partial<AuthPayload> & { userId: string; email: string; role: Role }
+      Partial<AuthPayload> & { userId: string; email: string | null; role: Role }
     >(token);
     // Build the payload explicitly so `tenantId` is propagated when present
     // but stays `undefined` for legacy tokens. We do NOT want to force a

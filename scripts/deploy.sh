@@ -186,18 +186,27 @@ export NEXT_PUBLIC_SENTRY_RELEASE="$INCOMING_SHA"
 npm --prefix apps/web run build
 
 echo "=== 7. Restarting services ==="
-# `pm2 startOrRestart <ecosystem>` re-reads the ecosystem file from disk
-# and RECREATES the process with whatever script/args/cwd/env it now
-# defines. Plain `pm2 restart <name> --update-env` only updates env vars
-# — it KEEPS the cached script + args from when the process was first
-# spawned. That kept us pinned to the old `npx tsx` invocation for 12+
-# hours after 41eec79 fixed the ecosystem (515+ restart count, all
-# `tsx: not found`) because `restart` quietly ignored the new config.
-# `startOrRestart` re-creates from the ecosystem each deploy.
+# History (kept here so the next reader doesn't repeat the layers):
+#   Layer 1: `pm2 restart <name> --update-env` only updates env vars on
+#            an EXISTING process. Cached script/args from the original
+#            spawn stick around forever. 41eec79's ecosystem-config fix
+#            was therefore invisible to PM2 (still using old `npx tsx`).
+#   Layer 2: `pm2 startOrRestart <ecosystem>` also uses cached config
+#            when the process already exists — its restart branch is
+#            identical to `pm2 restart <name>`. Verified at 3d57402's
+#            deploy log: "Applying action restartProcessId" + post-restart
+#            `pm2 describe` still showed `script: npx, args: tsx ...`.
+#   Layer 3 (this fix): explicit `pm2 delete && pm2 start <ecosystem>`.
+#            Deleting forces a fresh spawn from the ecosystem file the
+#            next start sees. ~1-2s downtime per process (already taking
+#            multi-day downtime so the brief blip is the lesser evil).
 #
 # `--update-env` retained so SENTRY_RELEASE / NEXT_PUBLIC_SENTRY_RELEASE
 # exported above flow into the new process env.
-pm2 startOrRestart ecosystem.medcore.config.js --update-env
+# `|| true` on delete so a missing process (fresh box, first deploy)
+# isn't a fatal — start will then create it from scratch.
+pm2 delete medcore-api medcore-web 2>/dev/null || true
+pm2 start ecosystem.medcore.config.js --update-env
 sleep 3
 
 echo "=== 8. Verifying ==="

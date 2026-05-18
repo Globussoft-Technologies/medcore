@@ -476,4 +476,153 @@ describeIfDB("Billing API (integration)", () => {
     });
     expect(after?.totalBillAmount).toBeCloseTo(inv.totalAmount, 1);
   });
+
+  // ─── Issue #901: invoice totals as Decimal + GST-before-discount sequence
+  //
+  // The STAGING bug report (INV000406) showed two coupled defects:
+  //   1. money columns persisted as Float (IEEE-754) — non-integer paise
+  //      values like totalAmount=743.4 leak in and drift on aggregation.
+  //   2. discount applied AFTER GST — `subtotal + GST(subtotal) − discount`
+  //      over-states output GST on GSTR-1 (charges GST on the pre-discount
+  //      base instead of the legal taxable base per CGST Rule 32).
+  //
+  // The three tests below pin (a) the on-wire JSON contract after the
+  // Decimal migration, (b) the GST sequence on a freshly-discounted
+  // invoice, and (c) the INV000406 regression repro that triggered the
+  // bug report. Together they guarantee any future regression of either
+  // defect fails CI loudly instead of leaking to the staging tenant.
+
+  it("creates an invoice that returns Decimal money fields as JSON numbers (Issue #901)", async () => {
+    // After the schema flipped Invoice.totalAmount etc. from Float to
+    // Decimal(12,2), Prisma returns these as Decimal.js objects whose
+    // default .toJSON() yields strings. The Decimal.prototype.toJSON
+    // patch in billing.ts re-overrides that to a number so every
+    // dashboard/export/PDF consumer keeps reading numbers. This test
+    // pins the contract.
+    const { patient, appt } = await createPatAppt();
+    const res = await request(app)
+      .post("/api/v1/billing/invoices")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        items: [
+          {
+            description: "Consultation",
+            category: "CONSULTATION",
+            quantity: 1,
+            unitPrice: 500,
+          },
+        ],
+        taxPercentage: 18,
+      });
+    expect([200, 201]).toContain(res.status);
+    const inv = res.body.data;
+    // Every money field must be a JSON number, never a quoted string.
+    for (const field of [
+      "subtotal",
+      "taxAmount",
+      "taxableAmount",
+      "cgstAmount",
+      "sgstAmount",
+      "discountAmount",
+      "packageDiscount",
+      "advanceApplied",
+      "totalAmount",
+    ]) {
+      expect(typeof inv[field]).toBe("number");
+    }
+    expect(typeof inv.items[0].amount).toBe("number");
+    expect(typeof inv.items[0].unitPrice).toBe("number");
+    expect(typeof inv.items[0].cgst).toBe("number");
+    expect(typeof inv.items[0].sgst).toBe("number");
+  });
+
+  it("applies the CGST Rule 32 sequence — discount BEFORE GST, taxableAmount persisted (Issue #901)", async () => {
+    // OLD bug: subtotal=700, GST 18% on 700 = 126, discount=70 → total=756.
+    // The 18% was charged on the pre-discount base, so the tax line on
+    // GSTR-1 over-reported by `discount × rate` = Rs 12.60.
+    // NEW: taxable = 700 − 70 = 630, GST 18% on 630 = 113.40, total=743.40.
+    const { patient, appt } = await createPatAppt();
+    const res = await request(app)
+      .post("/api/v1/billing/invoices")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        items: [
+          {
+            description: "Consultation",
+            category: "CONSULTATION",
+            quantity: 1,
+            unitPrice: 700,
+          },
+        ],
+        taxPercentage: 18,
+        discountAmount: 70, // flat Rs 70 user discount
+      });
+    expect([200, 201]).toContain(res.status);
+    const inv = res.body.data;
+    expect(inv.subtotal).toBe(700);
+    expect(inv.discountAmount).toBe(70);
+    // taxable = subtotal − discount
+    expect(inv.taxableAmount).toBe(630);
+    // GST 18% × 630 = 113.40 (NOT 126)
+    expect(inv.taxAmount).toBeCloseTo(113.4, 2);
+    expect(inv.cgstAmount).toBeCloseTo(56.7, 2);
+    expect(inv.sgstAmount).toBeCloseTo(56.7, 2);
+    // total = taxable + GST = 743.40
+    expect(inv.totalAmount).toBeCloseTo(743.4, 2);
+
+    // GSTR-1 reconciliation invariant: per-line GST sums equal header GST.
+    const sumLineCgst = inv.items.reduce(
+      (s: number, it: { cgst: number }) => s + it.cgst,
+      0,
+    );
+    const sumLineSgst = inv.items.reduce(
+      (s: number, it: { sgst: number }) => s + it.sgst,
+      0,
+    );
+    expect(sumLineCgst).toBeCloseTo(inv.cgstAmount, 1);
+    expect(sumLineSgst).toBeCloseTo(inv.sgstAmount, 1);
+  });
+
+  it("repros the INV000406 regression case — 10% discount on Rs 700 consultation @ 18% GST (Issue #901)", async () => {
+    // Direct repro of the STAGING bug-report invoice. Under the OLD
+    // math, this came out as { subtotal: 700, taxAmount: 126,
+    // discountAmount: 82.6, totalAmount: 743.4 } — the 82.6 is 10% of
+    // the GST-inclusive gross (826), which means GST was on the
+    // PRE-discount base. The corrected sequence gives discountAmount=70
+    // (10% of subtotal 700) and a taxable base of 630.
+    const { patient, appt } = await createPatAppt();
+    const subtotal = 700;
+    const tenPctOfSubtotal = +(subtotal * 0.1).toFixed(2); // 70.00
+    const res = await request(app)
+      .post("/api/v1/billing/invoices")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        items: [
+          {
+            description: "General consultation (senior citizen 10%)",
+            category: "CONSULTATION",
+            quantity: 1,
+            unitPrice: subtotal,
+          },
+        ],
+        taxPercentage: 18,
+        discountAmount: tenPctOfSubtotal,
+      });
+    expect([200, 201]).toContain(res.status);
+    const inv = res.body.data;
+    // The OLD bug shape (discount=82.60, tax=126) MUST NOT recur.
+    expect(inv.discountAmount).not.toBeCloseTo(82.6, 2);
+    expect(inv.taxAmount).not.toBeCloseTo(126, 2);
+    // The CORRECT shape per CGST Rule 32.
+    expect(inv.discountAmount).toBeCloseTo(70, 2);
+    expect(inv.taxableAmount).toBeCloseTo(630, 2);
+    expect(inv.taxAmount).toBeCloseTo(113.4, 2);
+    expect(inv.totalAmount).toBeCloseTo(743.4, 2);
+  });
 });

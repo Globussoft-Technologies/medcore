@@ -111,7 +111,11 @@ export async function generateBillExplanation(
     amount: it.amount,
   }));
 
-  const flaggedItems = heuristicFlag(items, invoice.subtotal);
+  // Issue #901: Invoice.subtotal is Prisma.Decimal — coerce for heuristic.
+  const subN = typeof (invoice.subtotal as unknown) === "number"
+    ? (invoice.subtotal as unknown as number)
+    : (invoice.subtotal as unknown as { toNumber: () => number }).toNumber();
+  const flaggedItems = heuristicFlag(items, subN);
 
   const insuranceLine = invoice.patient?.insuranceProvider
     ? `Insurance: ${sanitizeUserInput(invoice.patient.insuranceProvider, { maxLen: 120 })} (policy ${sanitizeUserInput(invoice.patient.insurancePolicyNumber ?? "not recorded", { maxLen: 80 })})`

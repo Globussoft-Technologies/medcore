@@ -6,39 +6,44 @@ is independently shippable. Full per-session history lives under
 
 ---
 
-## 🏠 HOME PICKUP — handoff from 2026-05-15 evening: dep backlog cleared + deploy-blocker found + 4 STAGING guards
+## 🏠 HOME PICKUP — handoff from 2026-05-18: #890-903 cluster mostly closed + SECOND deploy blocker found
 
-**Read first:** [`docs/archive/SESSION_SNAPSHOT_2026-05-15-evening.md`](docs/archive/SESSION_SNAPSHOT_2026-05-15-evening.md) — full handoff.
+**State at handoff** (HEAD on `main` = `94d137a` — `test(e2e): update WebKit visual baselines [skip ci]`):
+- ✅ Local checkout fast-forwarded to `94d137a`. Working tree clean. **Open PRs: ~10** — a fresh dependabot wave (multi/patch-minor/expo/lucide/c8/vitest-coverage/reanimated/react-test-renderer) opened since 2026-05-15; not yet triaged.
+- ✅ **#890-#903 cluster — 6 of 14 CLOSED** (`#894 #895 #897 #900 #902 #903`) across 15 commits since 2026-05-15: per-line GST + HSN/SAC (`997d290`), tenantId backfill (`71a1b1b`+`64748f0`, front-door guard reverted as too-broad in `66b791b`), `totalBillAmount` accumulation (`8fc5a6e`), invoice `dueDate` default (`1b2dc23`), E2E-seed-note scrub + fail-closed Razorpay mock (`145cf50`).
+- ✅ **A11 + A12 done** — appointment IST time-conventions sweep (`43ec69b`, new `apps/api/src/utils/ist-time.ts`); payment-plans deterministic-fixture refactor re-enabled 6 RECEPTION tests (`c550943`).
+- ✅ **#908 fix-side work landed** — `ce8f3d1` redoes the #722/#738 cleanup as migration `20260517000001` (correct lowercase table name) + adds `scripts/unblock-deploy-908.sh`. 7 new migrations `20260517000001`–`07`.
+- 🚨 **Auto-deploy STILL BLOCKED** — and there are now TWO blockers (see below). Demo at `medcore.globusdemos.com` remains frozen pre-2026-05-08.
 
-**Production state at handoff** (commit `1d807b2` — `fix(api): 4 STAGING data-hygiene guards — #890 #892 #896 #897`):
-- ✅ HEAD on `main` = `1d807b2`. Working tree clean. **Open PRs: 1** (#788 vitest-coverage, deferred — paired with vitest core).
-- ✅ **Dependency backlog effectively cleared** — zod 4, Next 15→16, OTel exporter (#906), the 17-package patch-minor group (#907) all merged. Only #788 remains.
-- ✅ **PR #906 merged** (`2e8c23f`) — `@opentelemetry/exporter-trace-otlp-http` 0.216→0.218. Cleared the npm-audit RED (7 protobufjs CVEs via the OTel exporter chain).
-- ✅ **PR #907 merged** (`f84878f`) — patch-minor group of 17 (recreate of #883). Rebuilt its lockfile to fix a `Cannot find module 'react'` web-build break; CI fully CLEAN.
-- ✅ **zod-4 UUID test-fixture sweep done** (`6ee4b2e`) — 6 RFC-4122 strictness failures fixed.
-- ✅ **4 STAGING data-hygiene guards shipped** (`1d807b2`) — #890 #892 #896 #897 (see snapshot). Issues left OPEN — verify-close on the demo once deploy unblocks.
-- 🚨 **Auto-deploy to `medcore.globusdemos.com` is BLOCKED since ~2026-05-08** — see issue [#908](https://github.com/Globussoft-Technologies/medcore/issues/908). The demo is frozen pre-2026-05-08.
+### 🚨 Deploy blockers — issue [#908](https://github.com/Globussoft-Technologies/medcore/issues/908) (TOP priority, ALL ops + dev-server access)
 
-### 🚨 Deploy blocker — issue #908 (TOP priority, needs ops + dev-DB access)
+Latest CI on `94d137a` ([run 26031287513](https://github.com/Globussoft-Technologies/medcore/actions/runs/26031287513)): all 7 test/build/audit jobs PASS; **`Deploy to dev server` fails — now at step 0, before migrations even run.**
 
-Migration `20260509000001` failed on the dev DB (P3009): `USING "User"` but the table is `@@map("users")` — Postgres quoted identifiers are case-sensitive → `relation "User" does not exist` → migration aborts → all later migrations blocked. **The SQL is fixed in `cd50553`**, but the dev DB still holds the failed-migration record. **Ops must run ONCE on the dev server:**
-```
-npx prisma migrate resolve --rolled-back 20260509000001_backfill_stale_visitors_and_misrouted_patient_notifications
-```
-Then the next deploy applies the corrected migration and the demo catches up. Also flagged in #908: `20260508000003` has the same `"User"` bug but the deploy got past it (likely force-marked applied) — ops should verify `_prisma_migrations` and re-do the #722/#738 cleanup as a fresh migration if confirmed.
+1. **NEW — dirty dev-server checkout.** `scripts/deploy.sh` step 0 aborts on a non-clean tree. The dev box has hand-edits: `M apps/web/next-env.d.ts`, `M apps/web/next.config.ts`, `M apps/web/tsconfig.json`, plus untracked `apps/api/env_bkp` + `apps/web/next.config.ts_bkp`. Someone SSH'd in and edited config + left backups. **Ops must inspect (the `*_bkp` files mean a deliberate `next.config.ts` change — don't blind-discard), then clean the tree.** Until then every deploy aborts at pre-flight and the migration state can't even be observed.
+2. **ORIGINAL — failed migration `20260509000001` (P3009).** Masked behind blocker 1. Fix SQL is in `cd50553`; the dev DB still holds the failed-migration record. **Ops runs once on the dev server:** `git pull origin main && bash scripts/unblock-deploy-908.sh` (does the `prisma migrate resolve --rolled-back` + reports `20260508000003` state).
+
+After BOTH: re-trigger with `gh workflow run Test --ref main`.
 
 ### 🔥 Top priority for home pickup
 
-1. **Issue #908 — get the deploy unblocked** (ops `migrate resolve` on the dev DB). This is the gate on everything STAGING-related.
-2. **Once deployed** — smoke-pass the demo, close the already-fixed STAGING UI bugs (#877/#878/#884/#886/#887) + verify-close #890/#892/#896/#897.
-3. **Continue the #890-#903 cluster** — one dedicated session each: data-cleanup migrations (#891 #900 #902 #903), deep schema/correctness (#893 #894 #895 #898 #899 #901).
-4. **#788 vitest-coverage** — only after a paired vitest-core bump.
-5. Carry-over: #599 PHARMACIST policy, A11 appointment UTC sweep, A12 payment-plans refactor, visual baseline regen, the 9 #772 user-blocked items.
+1. **Issue #908 — clear BOTH deploy blockers** (clean the dev-server checkout, then run `unblock-deploy-908.sh`). Still the gate on everything STAGING-related.
+2. **Once deployed** — smoke-pass the demo; verify-close the STAGING guards still OPEN (#890 #892 #896) + the older STAGING UI bugs (#877/#878/#884/#886/#887).
+3. **Triage the new dependabot wave** (~10 PRs) — multi / patch-and-minor / expo trio / lucide-react / c8 / vitest-coverage-v8 / reanimated / react-test-renderer.
+4. **Finish the #890-#903 cluster** — 8 still OPEN: #890 #892 #896 (STAGING guards, verify-close post-deploy); real work in #891 (placeholder emails), #893 (ER LWBS escalation), #898 (`medicineId` FK on Rx items), #899 (medicines-master regulatory metadata), #901 (float currency + GST-after-discount sequence).
+5. Carry-over: #599 PHARMACIST policy, visual baseline regen, the 9 #772 user-blocked items.
 
-### 📦 New artifacts this session
+### 📦 New artifacts since last handoff
 
-- `docs/archive/SESSION_SNAPSHOT_2026-05-15-evening.md` — full handoff.
-- Issue #908 filed — the deploy-blocker (ops action required).
+- `scripts/unblock-deploy-908.sh` (`ce8f3d1`) — one-shot #908 dev-DB recovery.
+- `apps/api/src/utils/ist-time.ts` (`43ec69b`) — lifted `istMidnightUtc` helper.
+- 7 migrations `20260517000001`–`07`.
+- Issue #908 updated 2026-05-18 with the second-blocker (dirty-checkout) finding.
+
+---
+
+## 🏠 PRIOR PICKUP — handoff from 2026-05-15 evening: dep backlog cleared + deploy-blocker found + 4 STAGING guards (kept for log)
+
+See [`docs/archive/SESSION_SNAPSHOT_2026-05-15-evening.md`](docs/archive/SESSION_SNAPSHOT_2026-05-15-evening.md). HEAD was `1d807b2`. Dependency backlog cleared (zod 4, Next 15→16, OTel #906, patch-minor #907); zod-4 UUID fixtures fixed (`6ee4b2e`); 4 STAGING data-hygiene guards shipped (`1d807b2` — #890 #892 #896 #897); #908 deploy-blocker filed.
 
 ---
 

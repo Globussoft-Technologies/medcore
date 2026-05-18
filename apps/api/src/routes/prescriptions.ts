@@ -158,14 +158,54 @@ router.post(
           appointmentId: string;
           patientId: string;
           diagnosis: string;
-          items: Array<{ medicineName: string; dosage: string; frequency: string; duration: string; instructions?: string; refills?: number }>;
+          items: Array<{ medicineId?: string; medicineName: string; dosage: string; frequency: string; duration: string; instructions?: string; refills?: number }>;
           advice?: string;
           followUpDate?: string;
           overrideWarnings?: boolean;
         };
 
-      // Drug interaction check before save
-      const names = items.map((i) => i.medicineName).filter(Boolean);
+      // ─── Issue #898 ───────────────────────────────────────────────────
+      // When the caller supplies a structured `medicineId`, verify it
+      // resolves to a real Medicine and pin `medicineName` from the master
+      // (so the snapshot is canonical, not whatever the FE typed). Any bad
+      // id is a 400 — the whole batch is rejected rather than silently
+      // dropped, because a wrong-drug Rx is a patient-safety bug, not a
+      // user-input nuisance. `medicineId` stays optional for back-compat
+      // with mobile + voice-entry flows that still POST name-only.
+      const providedMedicineIds = Array.from(
+        new Set(items.map((i) => i.medicineId).filter((v): v is string => !!v))
+      );
+      const resolvedMedicines = providedMedicineIds.length
+        ? await prisma.medicine.findMany({
+            where: { id: { in: providedMedicineIds } },
+            select: { id: true, name: true },
+          })
+        : [];
+      const resolvedMedicineMap = new Map(
+        resolvedMedicines.map((m) => [m.id, m.name])
+      );
+      const missingIds = providedMedicineIds.filter(
+        (id) => !resolvedMedicineMap.has(id)
+      );
+      if (missingIds.length > 0) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `Unknown medicineId(s): ${missingIds.join(", ")}`,
+        });
+        return;
+      }
+      const normalizedItems = items.map((i) => ({
+        ...i,
+        medicineName: i.medicineId
+          ? resolvedMedicineMap.get(i.medicineId) || i.medicineName
+          : i.medicineName,
+      }));
+
+      // Drug interaction check before save — use the post-normalization
+      // names so a caller that supplied medicineId benefits from the
+      // canonical master spelling (the engine joins on Medicine.name).
+      const names = normalizedItems.map((i) => i.medicineName).filter(Boolean);
       const { warnings, hasBlocking } = await checkDrugInteractions(names, patientId);
 
       if (hasBlocking && !overrideWarnings) {
@@ -222,7 +262,7 @@ router.post(
           followUpDate: followUpDate ? new Date(followUpDate) : undefined,
           signatureUrl: doctor?.signatureUrl,
           items: {
-            create: items,
+            create: normalizedItems,
           },
         },
         include: {
@@ -278,6 +318,7 @@ router.patch(
         req.body as {
           diagnosis: string;
           items: Array<{
+            medicineId?: string;
             medicineName: string;
             dosage: string;
             frequency: string;
@@ -289,6 +330,39 @@ router.patch(
           followUpDate?: string;
           overrideWarnings?: boolean;
         };
+
+      // ─── Issue #898 (PATCH parity with POST) ────────────────────────
+      // Same medicineId-resolution contract as the create handler. Bad id
+      // → 400 (whole batch rejected); good id → name pinned from master.
+      const providedMedicineIds = Array.from(
+        new Set(items.map((i) => i.medicineId).filter((v): v is string => !!v))
+      );
+      const resolvedMedicines = providedMedicineIds.length
+        ? await prisma.medicine.findMany({
+            where: { id: { in: providedMedicineIds } },
+            select: { id: true, name: true },
+          })
+        : [];
+      const resolvedMedicineMap = new Map(
+        resolvedMedicines.map((m) => [m.id, m.name])
+      );
+      const missingIds = providedMedicineIds.filter(
+        (id) => !resolvedMedicineMap.has(id)
+      );
+      if (missingIds.length > 0) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `Unknown medicineId(s): ${missingIds.join(", ")}`,
+        });
+        return;
+      }
+      const normalizedItems = items.map((i) => ({
+        ...i,
+        medicineName: i.medicineId
+          ? resolvedMedicineMap.get(i.medicineId) || i.medicineName
+          : i.medicineName,
+      }));
 
       // Load the row first — gives a clean 404 and lets us scope downstream
       // checks (drug interactions need the patientId).
@@ -323,8 +397,8 @@ router.patch(
         }
       }
 
-      // Re-run interaction check on the new item set.
-      const names = items.map((i) => i.medicineName).filter(Boolean);
+      // Re-run interaction check on the new item set (post-#898 normalize).
+      const names = normalizedItems.map((i) => i.medicineName).filter(Boolean);
       const { warnings, hasBlocking } = await checkDrugInteractions(
         names,
         existing.patientId,
@@ -349,7 +423,7 @@ router.patch(
             diagnosis,
             advice,
             followUpDate: followUpDate ? new Date(followUpDate) : null,
-            items: { create: items },
+            items: { create: normalizedItems },
           },
           include: {
             items: true,
@@ -867,7 +941,10 @@ router.post(
           advice: prev.advice,
           copiedFromId: prev.id,
           items: {
+            // Issue #898: carry the medicineId FK across so copied Rx
+            // remain linked to the same master SKU for allergy/inventory.
             create: prev.items.map((i) => ({
+              medicineId: i.medicineId,
               medicineName: i.medicineName,
               dosage: i.dosage,
               frequency: i.frequency,

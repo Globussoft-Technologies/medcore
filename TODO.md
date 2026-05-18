@@ -16,6 +16,13 @@ is independently shippable. Full per-session history lives under
 - ✅ **#908 deploy unblocked end-to-end** through THREE blockers — see below.
 - ⚠️ **The `f23865c` deploy is IN FLIGHT** — CI was still running at session end. **Verifying it is the #1 pickup task.**
 
+**Update 2026-05-19 evening** (HEAD `970591c`):
+- ✅ Deploy fully unblocked through 4 layers of PM2 caching bugs (`41eec79` → `3d57402` → `8ffc556` → `970591c`); demo live at `medcore.globusdemos.com` after ~12 days down.
+- ✅ All 5 STAGING UI bugs verify-closed: #877, #878, #884, #886, #887 (fixes from PR #888 / `1df30d0` confirmed in source + deployed).
+- ✅ **PR queue cleared (0 open)** — all 5 held PRs closed with rationale + migration trackers:
+  - #912 #913 #915 #917 → closed, tracked in **#920** (apps/mobile expo SDK 53→55 holistic migration).
+  - #918 → closed, tracked in **#921** (vitest 2→4 paired migration).
+
 ### 🚨 #908 — verify the deploy landed (TOP priority)
 
 This session drove the deploy unblock through three blockers: (A) dirty dev-server checkout → the hand-edits were a real **uncommitted prod-crash fix** in `next.config.ts` (Sentry/OTel `serverExternalPackages`); committed as `a9b6aa2` + Next 16 tsconfig sync, server tree cleaned. (B) failed migration `20260509000001` P3009 → resolved; it then **applied successfully**. (C) `20260517000001` failed P3018 mid-deploy (FK violation — the synthetic Attacker user had 65 non-cascading child rows) → fixed FK-safe in `f23865c`, verified in a rolled-back txn, failed record resolved.
@@ -29,11 +36,11 @@ gh run list --workflow=test.yml --branch main --limit 3
 
 ### 🔥 Top priority for home pickup
 
-1. **Verify the `f23865c` deploy** (above). Gate on everything STAGING.
-2. **Once deployed** — smoke-pass the demo; verify-close STAGING guards still OPEN (#890 #892 #896) + older STAGING UI bugs (#877/#878/#884/#886/#887).
-3. **Mobile SDK 53→55 holistic migration** — unblocks the 4 held PRs (#912/#913/#915/#917). `apps/mobile` is an incoherent SDK 53/55 hybrid; bump `expo` + `expo-router` 4→6 + all `expo-*` + RN peers together, `expo install --fix`, fix breakage. CI never builds mobile.
+1. ~~**Verify the `f23865c` deploy** (above). Gate on everything STAGING.~~ ✅ Done 2026-05-19 — demo live, 4 PM2 layers fixed (HEAD `970591c`).
+2. ~~**Once deployed** — smoke-pass the demo; verify-close STAGING guards still OPEN (#890 #892 #896) + older STAGING UI bugs (#877/#878/#884/#886/#887).~~ ✅ Done 2026-05-19 — 5 UI bugs closed (#877/#878/#884/#886/#887); STAGING guards #890/#892/#896 still pending.
+3. **Mobile SDK 53→55 holistic migration** — tracked in **#920**. `apps/mobile` is an incoherent SDK 53/55 hybrid; bump `expo` + `expo-router` 4→6 + all `expo-*` + RN peers together, `expo install --fix`, fix breakage. CI never builds mobile.
 4. **#890-903 cluster remaining OPEN:** #891 (placeholder emails), #893 (ER LWBS escalation), #898 (`medicineId` FK on Rx items), #899 (medicines-master metadata), #901 (float currency + GST-after-discount).
-5. **#918 vitest-coverage** — only after a paired vitest-core 2→4 bump.
+5. **vitest 2→4 paired migration** — tracked in **#921**.
 6. Carry-over: #599 PHARMACIST policy, visual baseline regen, the 9 #772 user-blocked items.
 
 ### 📦 New artifacts this session

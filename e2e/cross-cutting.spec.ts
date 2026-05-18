@@ -7,10 +7,13 @@ test.describe("Cross-cutting UX", () => {
     await page.goto("/dashboard");
     await dismissTourIfPresent(page);
 
-    // Wait for the dashboard shell to be hydrated (MedCore sidebar heading)
-    // before firing keyboard shortcuts.
+    // Wait for the dashboard shell to be hydrated (MedCore sidebar logo)
+    // before firing keyboard shortcuts. PR #905 swapped the sidebar's
+    // <h1>MedCore</h1> heading for two <Image alt="MedCore"> elements
+    // (theme-light + theme-dark variants), so getByRole("heading", ...)
+    // no longer finds anything. getByAltText matches the image alt.
     await expect(
-      page.getByRole("heading", { name: /MedCore/i }).first()
+      page.getByAltText("MedCore").first()
     ).toBeVisible({ timeout: 15_000 });
     // Ensure focus is on the document body (not inside an input) so the
     // global keydown listener catches the ? shortcut.

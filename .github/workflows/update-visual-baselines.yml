@@ -183,7 +183,12 @@ jobs:
           # Snapshots can't conflict (we're the only writer) and the spec
           # file change is a pure deletion, so a textual rebase is safe.
           git fetch origin main
-          git pull --rebase origin main
+          # --autostash so the rebase doesn't bail on un-staged Playwright
+          # artifacts (test-results/, playwright-report/, .next/) that
+          # the test step leaves behind. Snapshot files are already
+          # committed above, so the autostash only carries non-load-
+          # bearing junk that gets re-applied + dropped after the push.
+          git pull --rebase --autostash origin main
           git push origin HEAD:main
 
       - name: Upload Playwright report
@@ -310,7 +315,12 @@ jobs:
           fi
           git commit -m "test(e2e): update WebKit visual baselines [skip ci]"
           git fetch origin main
-          git pull --rebase origin main
+          # --autostash so the rebase doesn't bail on un-staged Playwright
+          # artifacts (test-results/, playwright-report/, .next/) that
+          # the test step leaves behind. Snapshot files are already
+          # committed above, so the autostash only carries non-load-
+          # bearing junk that gets re-applied + dropped after the push.
+          git pull --rebase --autostash origin main
           git push origin HEAD:main
 
       - name: Upload Playwright report

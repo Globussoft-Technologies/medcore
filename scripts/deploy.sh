@@ -203,9 +203,20 @@ echo "=== 7. Restarting services ==="
 #
 # `--update-env` retained so SENTRY_RELEASE / NEXT_PUBLIC_SENTRY_RELEASE
 # exported above flow into the new process env.
-# `|| true` on delete so a missing process (fresh box, first deploy)
-# isn't a fatal — start will then create it from scratch.
-pm2 delete medcore-api medcore-web 2>/dev/null || true
+#
+# Delete one process at a time so each operation's output is visible in
+# the deploy log. The previous form `pm2 delete medcore-api medcore-web
+# 2>/dev/null || true` silently failed on 8ffc556's deploy (no stdout
+# between step 7 and the start line, then start saw both procs still
+# existing and did `restartProcessId` — i.e. the cached old config).
+# stderr is NOT suppressed; if delete fails for a real reason (perms,
+# daemon down) we want to see it in the log immediately.
+echo "  → pm2 delete medcore-api (forces ecosystem re-read on next start):"
+pm2 delete medcore-api 2>&1 || echo "    (medcore-api not present — fresh box or first deploy)"
+echo "  → pm2 delete medcore-web:"
+pm2 delete medcore-web 2>&1 || echo "    (medcore-web not present — fresh box or first deploy)"
+sleep 1
+echo "  → pm2 start ecosystem.medcore.config.js --update-env:"
 pm2 start ecosystem.medcore.config.js --update-env
 sleep 3
 

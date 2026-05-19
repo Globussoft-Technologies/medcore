@@ -208,21 +208,21 @@ export default function TelemedicineWaitingRoomPage() {
   return (
     <div className="mx-auto max-w-3xl">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold">Telemedicine Waiting Room</h1>
-        <p className="text-sm text-gray-500">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Telemedicine Waiting Room</h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           Run a quick camera &amp; mic check, then wait for your doctor to admit you.
         </p>
       </div>
 
       {/* Session picker */}
       {!urlSessionId && (
-        <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
+        <div className="mb-6 rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800 dark:text-gray-100">
           <label htmlFor="tele-waiting-session" className="mb-2 block text-sm font-medium">Select Session</label>
           <select
             id="tele-waiting-session"
             value={sessionId}
             onChange={(e) => setSessionId(e.target.value)}
-            className="w-full rounded-lg border px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
           >
             <option value="">Pick an upcoming session…</option>
             {sessions.map((s) => (
@@ -236,20 +236,20 @@ export default function TelemedicineWaitingRoomPage() {
       )}
 
       {session && (
-        <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
-          <p className="text-xs text-gray-400">{session.sessionNumber}</p>
+        <div className="mb-6 rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800 dark:text-gray-100">
+          <p className="text-xs text-gray-400 dark:text-gray-500">{session.sessionNumber}</p>
           <h2 className="text-lg font-semibold">{formatDoctorName(session.doctor.user.name)}</h2>
           {session.doctor.specialization && (
-            <p className="text-sm text-gray-500">{session.doctor.specialization}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{session.doctor.specialization}</p>
           )}
-          <p className="mt-2 text-sm text-gray-600">
+          <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
             Scheduled: {formatDateTime(session.scheduledAt)}
           </p>
         </div>
       )}
 
       {/* Pre-check */}
-      <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
+      <div className="mb-6 rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         <h3 className="mb-3 text-base font-semibold">1. Camera &amp; Mic Check</h3>
 
         <div className="mb-4 aspect-video w-full overflow-hidden rounded-lg bg-black">
@@ -266,10 +266,10 @@ export default function TelemedicineWaitingRoomPage() {
           <span
             className={`flex items-center gap-1 rounded-full px-3 py-1 ${
               cameraOk === true
-                ? "bg-green-100 text-green-700"
+                ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
                 : cameraOk === false
-                  ? "bg-red-100 text-red-700"
-                  : "bg-gray-100 text-gray-600"
+                  ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                  : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
             }`}
           >
             {cameraOk ? <Video size={14} /> : <VideoOff size={14} />}
@@ -278,10 +278,10 @@ export default function TelemedicineWaitingRoomPage() {
           <span
             className={`flex items-center gap-1 rounded-full px-3 py-1 ${
               micOk === true
-                ? "bg-green-100 text-green-700"
+                ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
                 : micOk === false
-                  ? "bg-red-100 text-red-700"
-                  : "bg-gray-100 text-gray-600"
+                  ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                  : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
             }`}
           >
             {micOk ? <Mic size={14} /> : <MicOff size={14} />}
@@ -290,7 +290,7 @@ export default function TelemedicineWaitingRoomPage() {
         </div>
 
         {precheckError && (
-          <p className="mb-3 rounded-lg bg-red-50 p-2 text-xs text-red-700">
+          <p className="mb-3 rounded-lg bg-red-50 p-2 text-xs text-red-700 dark:bg-red-900/20 dark:text-red-300">
             {precheckError}
           </p>
         )}
@@ -313,9 +313,9 @@ export default function TelemedicineWaitingRoomPage() {
       </div>
 
       {/* Join */}
-      <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
+      <div className="mb-6 rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         <h3 className="mb-3 text-base font-semibold">2. Enter Waiting Room</h3>
-        <p className="mb-4 text-sm text-gray-600">
+        <p className="mb-4 text-sm text-gray-600 dark:text-gray-300">
           Your doctor will be notified the moment you join.
         </p>
         <button
@@ -340,7 +340,7 @@ export default function TelemedicineWaitingRoomPage() {
         </button>
 
         {waitStatus === "waiting" && (
-          <div className="mt-4 flex items-center gap-2 rounded-lg bg-purple-50 p-3 text-sm text-purple-800">
+          <div className="mt-4 flex items-center gap-2 rounded-lg bg-purple-50 p-3 text-sm text-purple-800 dark:bg-purple-900/20 dark:text-purple-200">
             <Loader2 size={14} className="animate-spin" />
             <span>
               Doctor has been notified. Please keep this tab open — you will be admitted
@@ -350,7 +350,7 @@ export default function TelemedicineWaitingRoomPage() {
         )}
 
         {waitStatus === "admitted" && (
-          <div className="mt-4 rounded-lg bg-green-50 p-3 text-sm text-green-800">
+          <div className="mt-4 rounded-lg bg-green-50 p-3 text-sm text-green-800 dark:bg-green-900/20 dark:text-green-200">
             <div className="mb-2 flex items-center gap-2 font-medium">
               <CheckCircle2 size={16} /> Admitted! Opening call…
             </div>
@@ -368,7 +368,7 @@ export default function TelemedicineWaitingRoomPage() {
         )}
 
         {waitStatus === "denied" && (
-          <div className="mt-4 flex items-start gap-2 rounded-lg bg-red-50 p-3 text-sm text-red-800">
+          <div className="mt-4 flex items-start gap-2 rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-900/20 dark:text-red-200">
             <XCircle size={16} />
             <div>
               <p className="font-medium">Not admitted</p>

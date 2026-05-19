@@ -200,7 +200,7 @@ export default function AdmissionDetailPage({
         </Link>
       </div>
 
-      <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
+      <div className="mb-6 rounded-xl bg-white dark:bg-gray-800 p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold">
@@ -219,15 +219,15 @@ export default function AdmissionDetailPage({
                 )
               }
               aria-label="Print discharge summary"
-              className="no-print inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+              className="no-print inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
             >
               <Printer size={14} aria-hidden="true" /> Discharge Summary
             </button>
             <span
               className={`rounded-full px-3 py-1 text-xs font-medium ${
                 admission.status === "ADMITTED"
-                  ? "bg-green-100 text-green-700"
-                  : "bg-gray-100 text-gray-700"
+                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 dark:bg-green-900/30 dark:text-green-300"
+                  : "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"
               }`}
             >
               {admission.status}
@@ -407,7 +407,7 @@ function OverviewTab({
           patientId={admission.patient.id}
         />
       </div>
-      <div className="rounded-xl bg-white p-6 shadow-sm lg:col-span-2">
+      <div className="rounded-xl bg-white dark:bg-gray-800 p-6 shadow-sm lg:col-span-2">
         <h3 className="mb-4 font-semibold">Admission Details</h3>
         <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
           <Field label="Admission #" value={admission.admissionNumber} />
@@ -443,7 +443,7 @@ function OverviewTab({
       </div>
 
       <div className="space-y-4">
-        <div className="rounded-xl bg-white p-6 shadow-sm">
+        <div className="rounded-xl bg-white dark:bg-gray-800 p-6 shadow-sm">
           <h3 className="mb-4 font-semibold">Patient</h3>
           <dl className="space-y-2 text-sm">
             <Field label="Name" value={admission.patient.user.name} />
@@ -464,7 +464,7 @@ function OverviewTab({
         </div>
 
         {bill && (
-          <div className="rounded-xl bg-white p-6 shadow-sm">
+          <div className="rounded-xl bg-white dark:bg-gray-800 p-6 shadow-sm">
             <h3 className="mb-3 font-semibold">Running Bill</h3>
             <div className="space-y-2 text-sm">
               {bill.breakdown.map((b, i) => (
@@ -486,7 +486,7 @@ function OverviewTab({
         )}
 
         {admission.status === "ADMITTED" && (
-          <div className="rounded-xl bg-white p-6 shadow-sm">
+          <div className="rounded-xl bg-white dark:bg-gray-800 p-6 shadow-sm">
             <h3 className="mb-3 font-semibold">Actions</h3>
             <div className="flex flex-col gap-2">
               <button
@@ -509,7 +509,7 @@ function OverviewTab({
       {/* Discharge Modal */}
       {dischargeOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-gray-800 p-6 shadow-xl">
             <h3 className="mb-4 font-semibold">Discharge Patient</h3>
             <div className="space-y-3">
               <div>
@@ -653,7 +653,7 @@ function OverviewTab({
       {/* Transfer Modal */}
       {transferOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-gray-800 p-6 shadow-xl">
             <h3 className="mb-4 font-semibold">Transfer to New Bed</h3>
             <select
               value={newBedId}
@@ -901,7 +901,7 @@ function VitalsTab({
         <form
           onSubmit={submit}
           noValidate
-          className="rounded-xl bg-white p-6 shadow-sm"
+          className="rounded-xl bg-white dark:bg-gray-800 p-6 shadow-sm"
         >
           <h3 className="mb-4 font-semibold">Record Vitals</h3>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -982,7 +982,7 @@ function VitalsTab({
         </form>
       )}
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="rounded-xl bg-white dark:bg-gray-800 shadow-sm">
         {loading ? (
           <div className="p-8 text-center text-gray-500">Loading...</div>
         ) : (Array.isArray(vitals) ? vitals : []).length === 0 ? (
@@ -1217,7 +1217,7 @@ function MedicationsTab({
         <form
           onSubmit={submit}
           noValidate
-          className="rounded-xl bg-white p-6 shadow-sm"
+          className="rounded-xl bg-white dark:bg-gray-800 p-6 shadow-sm"
         >
           <h3 className="mb-4 font-semibold">New Medication Order</h3>
           <div className="space-y-3">
@@ -1244,7 +1244,7 @@ function MedicationsTab({
                     className="w-full rounded-lg border px-3 py-2 text-sm"
                   />
                   {medResults.length > 0 && (
-                    <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white shadow-sm">
+                    <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
                       {medResults.map((m) => (
                         <button
                           key={m.id}
@@ -1363,11 +1363,11 @@ function MedicationsTab({
       )}
 
       {loading ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+        <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
           Loading...
         </div>
       ) : orders.length === 0 ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+        <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
           No medication orders.
         </div>
       ) : (
@@ -1387,7 +1387,7 @@ function MedicationsTab({
                   )
                 : [];
               return (
-                <div key={o.id} className="rounded-xl bg-white p-5 shadow-sm">
+                <div key={o.id} className="rounded-xl bg-white dark:bg-gray-800 p-5 shadow-sm">
                   <div className="flex items-start justify-between">
                     <div>
                       {/* Issue #197 — `medicine` is an OPTIONAL relation
@@ -1533,7 +1533,7 @@ function RoundsTab({
         <form
           onSubmit={submit}
           noValidate
-          className="rounded-xl bg-white p-6 shadow-sm"
+          className="rounded-xl bg-white dark:bg-gray-800 p-6 shadow-sm"
         >
           <h3 className="mb-3 font-semibold">New Nurse Round</h3>
           <textarea
@@ -1562,11 +1562,11 @@ function RoundsTab({
       )}
 
       {loading ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+        <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
           Loading...
         </div>
       ) : rounds.length === 0 ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+        <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
           No rounds recorded.
         </div>
       ) : (
@@ -1602,7 +1602,7 @@ function RoundsTab({
               return (
                 <div
                   key={r.id}
-                  className="rounded-xl bg-white p-4 shadow-sm"
+                  className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm"
                   data-testid="nurse-round-row"
                 >
                   <div className="flex items-center justify-between text-xs text-gray-500">
@@ -1709,7 +1709,7 @@ function LabsTab({
         <form
           onSubmit={submit}
           noValidate
-          className="rounded-xl bg-white p-6 shadow-sm"
+          className="rounded-xl bg-white dark:bg-gray-800 p-6 shadow-sm"
         >
           <h3 className="mb-3 font-semibold">New Lab Order</h3>
           <div className="max-h-64 overflow-y-auto rounded-lg border p-3">
@@ -1774,11 +1774,11 @@ function LabsTab({
       )}
 
       {loading ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+        <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
           Loading...
         </div>
       ) : orders.length === 0 ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+        <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
           No lab orders.
         </div>
       ) : (
@@ -1787,7 +1787,7 @@ function LabsTab({
             <Link
               key={o.id}
               href={`/dashboard/lab/${o.id}`}
-              className="block rounded-xl bg-white p-4 shadow-sm hover:shadow"
+              className="block rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm hover:shadow"
             >
               <div className="flex items-center justify-between">
                 <div>
@@ -1902,7 +1902,7 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
   return (
     <div
       className={`rounded-xl p-4 shadow-sm ${
-        active ? "bg-red-50 border-l-4 border-red-500" : "bg-white"
+        active ? "bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500" : "bg-white dark:bg-gray-800"
       }`}
     >
       <div className="flex items-center justify-between">
@@ -1936,14 +1936,14 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
           {active && (
             <button
               onClick={() => apply(true)}
-              className="text-xs px-2 py-1 border border-green-300 text-green-700 bg-white rounded"
+              className="text-xs px-2 py-1 border border-green-300 text-green-700 bg-white dark:bg-gray-800 dark:text-green-300 rounded"
             >
               Clear
             </button>
           )}
           <button
             onClick={() => setEditing(!editing)}
-            className="text-xs px-2 py-1 border rounded bg-white"
+            className="text-xs px-2 py-1 border rounded bg-white dark:bg-gray-800 dark:border-gray-600"
           >
             {editing ? "Cancel" : active ? "Update" : "Set"}
           </button>
@@ -2227,7 +2227,7 @@ function MedReconciliationButton({
       </button>
       {open && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg w-full max-w-5xl max-h-[90vh] overflow-y-auto p-6">
+          <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-5xl max-h-[90vh] overflow-y-auto p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">
                 Medication Reconciliation - {type}
@@ -2359,7 +2359,7 @@ function BelongingsCard({ admissionId }: { admissionId: string }) {
   if (!rec) return null;
 
   return (
-    <div className="rounded-xl bg-white p-4 shadow-sm">
+    <div className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-gray-700">Patient Belongings</h3>
         {rec.items.length > 0 && (
@@ -2511,7 +2511,7 @@ function DischargeReadinessModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+      <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-gray-800 p-6 shadow-xl">
         <h3 className="mb-4 text-lg font-semibold">Discharge Readiness</h3>
         {loading ? (
           <p className="text-sm text-gray-500">Checking...</p>
@@ -2644,7 +2644,7 @@ function ReconciliationTimeline({
   const count = (v: unknown) => (Array.isArray(v) ? v.length : 0);
 
   return (
-    <div className="rounded-xl bg-white p-4 shadow-sm">
+    <div className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm">
       <h3 className="mb-3 text-sm font-semibold text-gray-700">
         Medication Reconciliation History
       </h3>
@@ -2753,11 +2753,11 @@ function MarTab({ admissionId }: { admissionId: string }) {
   function cellColor(status: string | undefined) {
     switch (status) {
       case "ADMINISTERED":
-        return "bg-green-100 text-green-800 border-green-300";
+        return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200 border-green-300";
       case "MISSED":
-        return "bg-red-100 text-red-800 border-red-300";
+        return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200 border-red-300";
       case "REFUSED":
-        return "bg-yellow-100 text-yellow-800 border-yellow-300";
+        return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 border-yellow-300";
       case "SCHEDULED":
       default:
         return "bg-blue-50 text-blue-700 border-blue-200";
@@ -2799,7 +2799,7 @@ function MarTab({ admissionId }: { admissionId: string }) {
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-xl bg-white dark:bg-gray-800 shadow-sm">
         {loading ? (
           <div className="p-8 text-center text-gray-500">Loading MAR...</div>
         ) : orders.length === 0 ? (
@@ -2831,8 +2831,8 @@ function MarTab({ admissionId }: { admissionId: string }) {
             </thead>
             <tbody>
               {orders.map((o) => (
-                <tr key={o.id} className="border-t border-gray-100">
-                  <td className="sticky left-0 bg-white px-4 py-2">
+                <tr key={o.id} className="border-t border-gray-100 dark:border-gray-700">
+                  <td className="sticky left-0 bg-white dark:bg-gray-800 px-4 py-2">
                     <div className="font-medium">{o.medicineName}</div>
                     <div className="text-xs text-gray-500">
                       {o.dosage} · {o.frequency} · {o.route}
@@ -2978,7 +2978,7 @@ function MarAdministerModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+      <div className="w-full max-w-md rounded-2xl bg-white dark:bg-gray-800 p-6 shadow-xl">
         <h3 className="mb-4 font-semibold">Record Administration</h3>
         <div className="mb-3 rounded-lg bg-gray-50 p-3 text-sm">
           <div className="font-medium">{order.medicineName}</div>
@@ -3145,7 +3145,7 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <div className="lg:col-span-2 space-y-4">
-        <div className="rounded-xl bg-white p-4 shadow-sm">
+        <div className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm">
           <div className="mb-3 flex items-center gap-2">
             <label htmlFor="io-date" className="text-sm text-gray-600">Date:</label>
             <input
@@ -3191,7 +3191,7 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
           </div>
         </div>
 
-        <div className="rounded-xl bg-white p-4 shadow-sm">
+        <div className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm">
           <h3 className="mb-3 text-sm font-semibold">I/O Events</h3>
           {loading ? (
             <p className="text-sm text-gray-500">Loading...</p>
@@ -3240,7 +3240,7 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
         <form
           onSubmit={submit}
           noValidate
-          className="h-fit rounded-xl bg-white p-4 shadow-sm"
+          className="h-fit rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm"
         >
           <h3 className="mb-3 text-sm font-semibold">Record I/O</h3>
           <div className="space-y-3">

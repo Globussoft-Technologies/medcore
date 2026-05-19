@@ -66,12 +66,12 @@ interface TelemedicineSession {
 type Tab = "upcoming" | "completed" | "cancelled";
 
 const STATUS_COLORS: Record<string, string> = {
-  SCHEDULED: "bg-blue-100 text-blue-700",
-  WAITING: "bg-purple-100 text-purple-700",
-  IN_PROGRESS: "bg-green-100 text-green-700",
-  COMPLETED: "bg-gray-100 text-gray-700",
-  MISSED: "bg-yellow-100 text-yellow-700",
-  CANCELLED: "bg-red-100 text-red-700",
+  SCHEDULED: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+  WAITING: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+  IN_PROGRESS: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+  COMPLETED: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200",
+  MISSED: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
+  CANCELLED: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
 };
 
 function joinActive(session: TelemedicineSession): boolean {
@@ -402,7 +402,7 @@ export default function TelemedicinePage() {
     `px-4 py-2 text-sm font-medium rounded-lg transition ${
       tab === t
         ? "bg-primary text-white"
-        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+        : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
     }`;
 
   const filtered = useMemo(() => sessions, [sessions]);
@@ -498,12 +498,12 @@ export default function TelemedicinePage() {
                     {formatDateTime(s.scheduledAt)}
                   </p>
                   {s.chiefComplaint && (
-                    <p className="mt-1 line-clamp-2 text-xs text-gray-500">
+                    <p className="mt-1 line-clamp-2 text-xs text-gray-500 dark:text-gray-400">
                       {s.chiefComplaint}
                     </p>
                   )}
                   {s.durationMin != null && (
-                    <p className="mt-1 text-xs text-gray-500">
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       Duration: {s.durationMin} min
                     </p>
                   )}
@@ -544,7 +544,7 @@ export default function TelemedicinePage() {
                       </button>
                       <button
                         onClick={() => admitPatient(s.id, false)}
-                        className="flex items-center gap-1 rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
+                        className="flex items-center gap-1 rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
                       >
                         <UserX size={14} /> Deny
                       </button>
@@ -587,7 +587,7 @@ export default function TelemedicinePage() {
                         setRatingSession(s);
                         setRating(5);
                       }}
-                      className="flex items-center gap-1 rounded-lg border border-yellow-300 px-3 py-1.5 text-xs font-medium text-yellow-700 hover:bg-yellow-50"
+                      className="flex items-center gap-1 rounded-lg border border-yellow-300 px-3 py-1.5 text-xs font-medium text-yellow-700 hover:bg-yellow-50 dark:border-yellow-700 dark:text-yellow-300 dark:hover:bg-yellow-900/20"
                     >
                       <Star size={14} /> Rate
                     </button>
@@ -778,9 +778,9 @@ export default function TelemedicinePage() {
       {/* Rating modal */}
       {ratingSession && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800 dark:text-gray-100">
             <h2 className="mb-4 text-lg font-semibold">Rate Your Session</h2>
-            <p className="mb-3 text-sm text-gray-600">
+            <p className="mb-3 text-sm text-gray-600 dark:text-gray-300">
               Session with {formatDoctorName(ratingSession.doctor.user.name)}
             </p>
             <div className="mb-6 flex justify-center gap-2">
@@ -790,7 +790,7 @@ export default function TelemedicinePage() {
                   type="button"
                   onClick={() => setRating(v)}
                   className={`text-3xl transition ${
-                    v <= rating ? "text-yellow-500" : "text-gray-300"
+                    v <= rating ? "text-yellow-500" : "text-gray-300 dark:text-gray-600"
                   }`}
                 >
                   <Star fill={v <= rating ? "currentColor" : "none"} />
@@ -800,7 +800,7 @@ export default function TelemedicinePage() {
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setRatingSession(null)}
-                className="rounded-lg border px-4 py-2 text-sm"
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm dark:border-gray-600 dark:text-gray-200"
               >
                 Cancel
               </button>

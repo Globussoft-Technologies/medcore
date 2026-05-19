@@ -117,14 +117,14 @@ function LetterPreview({
   return (
     <div className="mt-6">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs text-gray-400">
+        <span className="text-xs text-gray-400 dark:text-gray-500">
           Generated at {new Date(generatedAt).toLocaleString()}
         </span>
         <div className="flex gap-2">
           <button
             onClick={handleCopy}
             data-testid="ai-letters-copy"
-            className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700 transition-colors"
           >
             <Copy className="w-4 h-4" />
             Copy
@@ -142,7 +142,7 @@ function LetterPreview({
 
       <div
         id="letter-print-content"
-        className="bg-white border border-gray-200 rounded-xl p-8 shadow-sm font-mono text-sm leading-relaxed whitespace-pre-wrap text-gray-800"
+        className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-8 shadow-sm font-mono text-sm leading-relaxed whitespace-pre-wrap text-gray-800 dark:text-gray-100"
       >
         {cleanContent}
       </div>
@@ -193,7 +193,7 @@ function ReferralTab() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {/* Scribe Session — searchable picker (Issue #84). */}
         <div className="md:col-span-2">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
             Scribe Session <span className="text-red-500">*</span>
           </label>
           <EntityPicker
@@ -207,13 +207,13 @@ function ReferralTab() {
             testIdPrefix="ai-letters-scribe-picker"
             required
           />
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
             The AI scribe session must have a finalised SOAP note.
           </p>
         </div>
 
         <div>
-          <label htmlFor="ai-letters-specialty" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="ai-letters-specialty" className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
             Refer To Specialty <span className="text-red-500">*</span>
           </label>
           <select
@@ -221,7 +221,7 @@ function ReferralTab() {
             value={toSpecialty}
             onChange={(e) => setToSpecialty(e.target.value)}
             data-testid="ai-letters-specialty"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+            className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
           >
             {SPECIALTIES.map((s) => (
               <option key={s} value={s}>
@@ -232,8 +232,8 @@ function ReferralTab() {
         </div>
 
         <div>
-          <label htmlFor="ai-letters-to-doctor" className="block text-sm font-medium text-gray-700 mb-1">
-            To Doctor Name <span className="text-gray-400 font-normal">(optional)</span>
+          <label htmlFor="ai-letters-to-doctor" className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+            To Doctor Name <span className="text-gray-400 dark:text-gray-500 font-normal">(optional)</span>
           </label>
           <input
             id="ai-letters-to-doctor"
@@ -241,17 +241,17 @@ function ReferralTab() {
             value={toDoctorName}
             onChange={(e) => setToDoctorName(e.target.value)}
             placeholder="e.g. Dr. Priya Sharma"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500"
           />
         </div>
 
         <div>
-          <label htmlFor="ai-letters-urgency" className="block text-sm font-medium text-gray-700 mb-1">Urgency</label>
+          <label htmlFor="ai-letters-urgency" className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Urgency</label>
           <select
             id="ai-letters-urgency"
             value={urgency}
             onChange={(e) => setUrgency(e.target.value as Urgency)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+            className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
           >
             {URGENCY_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -319,7 +319,7 @@ function DischargeTab() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {/* Admission — searchable picker (Issue #84). */}
         <div className="md:col-span-2">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
             Admission <span className="text-red-500">*</span>
           </label>
           <EntityPicker
@@ -333,7 +333,7 @@ function DischargeTab() {
             testIdPrefix="ai-letters-admission-picker"
             required
           />
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
             Diagnosis, medications, and follow-up instructions will be fetched from the admission record.
           </p>
         </div>
@@ -368,23 +368,23 @@ export default function AILettersPage() {
   return (
     <div id="letter-print-root" className="p-6 max-w-4xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
-        <div className="p-2 bg-indigo-100 rounded-lg">
-          <FileText className="w-5 h-5 text-indigo-600" />
+        <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg">
+          <FileText className="w-5 h-5 text-indigo-600 dark:text-indigo-300" />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-gray-900">AI Letter Generator</h1>
-          <p className="text-sm text-gray-500">Generate referral letters and discharge summaries using AI</p>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">AI Letter Generator</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Generate referral letters and discharge summaries using AI</p>
         </div>
       </div>
 
-      <div className="flex border-b border-gray-200 mb-6">
+      <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6">
         <button
           onClick={() => setTab("referral")}
           data-testid="ai-letters-tab-referral"
           className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
             tab === "referral"
-              ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-gray-500 hover:text-gray-700"
+              ? "border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400"
+              : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
           }`}
         >
           <Mail className="w-4 h-4" />
@@ -395,8 +395,8 @@ export default function AILettersPage() {
           data-testid="ai-letters-tab-discharge"
           className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
             tab === "discharge"
-              ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-gray-500 hover:text-gray-700"
+              ? "border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400"
+              : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
           }`}
         >
           <ClipboardList className="w-4 h-4" />
@@ -404,7 +404,7 @@ export default function AILettersPage() {
         </button>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6 shadow-sm">
         {tab === "referral" ? <ReferralTab /> : <DischargeTab />}
       </div>
     </div>

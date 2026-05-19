@@ -44,16 +44,16 @@ interface LabReportExplanation {
 // ─── Flag badge config ────────────────────────────────────
 
 const FLAG_CONFIG: Record<string, { label: string; cls: string }> = {
-  NORMAL: { label: "Normal", cls: "bg-green-100 text-green-700" },
-  HIGH: { label: "High", cls: "bg-orange-100 text-orange-700" },
-  LOW: { label: "Low", cls: "bg-blue-100 text-blue-700" },
-  CRITICAL_HIGH: { label: "Critical High", cls: "bg-red-100 text-red-700" },
-  CRITICAL_LOW: { label: "Critical Low", cls: "bg-red-100 text-red-700" },
-  ABNORMAL: { label: "Abnormal", cls: "bg-yellow-100 text-yellow-700" },
+  NORMAL: { label: "Normal", cls: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" },
+  HIGH: { label: "High", cls: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" },
+  LOW: { label: "Low", cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
+  CRITICAL_HIGH: { label: "Critical High", cls: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" },
+  CRITICAL_LOW: { label: "Critical Low", cls: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" },
+  ABNORMAL: { label: "Abnormal", cls: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300" },
 };
 
 function FlagBadge({ flag }: { flag: string }) {
-  const cfg = FLAG_CONFIG[flag] ?? { label: flag, cls: "bg-gray-100 text-gray-600" };
+  const cfg = FLAG_CONFIG[flag] ?? { label: flag, cls: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300" };
   return (
     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${cfg.cls}`}>
       {cfg.label}
@@ -66,17 +66,17 @@ function FlagBadge({ flag }: { flag: string }) {
 const STATUS_CONFIG: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
   PENDING_REVIEW: {
     label: "Pending Review",
-    cls: "bg-yellow-100 text-yellow-700",
+    cls: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
     icon: <Clock className="w-3.5 h-3.5" />,
   },
   APPROVED: {
     label: "Approved",
-    cls: "bg-blue-100 text-blue-700",
+    cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
     icon: <CheckCircle className="w-3.5 h-3.5" />,
   },
   SENT: {
     label: "Sent to Patient",
-    cls: "bg-green-100 text-green-700",
+    cls: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
     icon: <Send className="w-3.5 h-3.5" />,
   },
 };
@@ -84,7 +84,7 @@ const STATUS_CONFIG: Record<string, { label: string; cls: string; icon: React.Re
 function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_CONFIG[status] ?? {
     label: status,
-    cls: "bg-gray-100 text-gray-600",
+    cls: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300",
     icon: null,
   };
   return (
@@ -111,36 +111,36 @@ function ExplanationCard({
   const hasAbnormal = flaggedValues.some((fv) => fv.flag !== "NORMAL");
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
       {/* Card header */}
-      <div className="flex items-start justify-between px-5 py-4 border-b border-gray-50">
+      <div className="flex items-start justify-between px-5 py-4 border-b border-gray-50 dark:border-gray-700">
         <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
-            <FlaskConical className="w-5 h-5 text-blue-600" />
+          <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0">
+            <FlaskConical className="w-5 h-5 text-blue-600 dark:text-blue-300" />
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <p className="font-semibold text-sm text-gray-800">
+              <p className="font-semibold text-sm text-gray-800 dark:text-gray-100">
                 Lab Order
               </p>
-              <code className="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded font-mono">
+              <code className="text-xs text-gray-500 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded font-mono">
                 {item.labOrderId.slice(0, 8)}...
               </code>
               <StatusBadge status={item.status} />
             </div>
             <div className="flex items-center gap-3 mt-1">
-              <span className="flex items-center gap-1 text-xs text-gray-500">
+              <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                 <User className="w-3.5 h-3.5" />
                 Patient ID: <code className="font-mono">{item.patientId.slice(0, 8)}...</code>
               </span>
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-gray-400 dark:text-gray-500">
                 {new Date(item.createdAt).toLocaleDateString("en-IN", {
                   day: "2-digit",
                   month: "short",
                   year: "numeric",
                 })}
               </span>
-              <span className="text-xs text-gray-400 uppercase tracking-wide">
+              <span className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wide">
                 {item.language === "hi" ? "Hindi" : "English"}
               </span>
             </div>
@@ -164,7 +164,7 @@ function ExplanationCard({
             </button>
           )}
           {(item.status === "APPROVED" || item.status === "SENT") && (
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-gray-500 dark:text-gray-400">
               {item.sentAt
                 ? `Sent ${new Date(item.sentAt).toLocaleString("en-IN")}`
                 : item.approvedAt
@@ -177,10 +177,10 @@ function ExplanationCard({
 
       {/* Flagged values highlight strip */}
       {hasAbnormal && (
-        <div className="px-5 py-3 bg-amber-50 border-b border-amber-100">
+        <div className="px-5 py-3 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-100 dark:border-amber-900/30">
           <div className="flex items-center gap-1.5 mb-2">
-            <AlertTriangle className="w-4 h-4 text-amber-500" />
-            <p className="text-xs font-semibold text-amber-700">
+            <AlertTriangle className="w-4 h-4 text-amber-500 dark:text-amber-300" />
+            <p className="text-xs font-semibold text-amber-700 dark:text-amber-200">
               {flaggedValues.filter((fv) => fv.flag !== "NORMAL").length} Abnormal{" "}
               {flaggedValues.filter((fv) => fv.flag !== "NORMAL").length === 1 ? "Value" : "Values"}
             </p>
@@ -191,10 +191,10 @@ function ExplanationCard({
               .map((fv, i) => (
                 <div
                   key={i}
-                  className="flex items-center gap-1.5 bg-white border border-amber-200 rounded-lg px-2.5 py-1.5"
+                  className="flex items-center gap-1.5 bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-700 rounded-lg px-2.5 py-1.5"
                 >
-                  <span className="text-xs font-medium text-gray-800">{fv.parameter}</span>
-                  <span className="text-xs text-gray-600">{fv.value}</span>
+                  <span className="text-xs font-medium text-gray-800 dark:text-gray-100">{fv.parameter}</span>
+                  <span className="text-xs text-gray-600 dark:text-gray-300">{fv.value}</span>
                   <FlagBadge flag={fv.flag} />
                 </div>
               ))}
@@ -204,13 +204,13 @@ function ExplanationCard({
 
       {/* Explanation text */}
       <div className="px-5 py-4">
-        <p className="text-sm text-gray-700 leading-relaxed line-clamp-3">
+        <p className="text-sm text-gray-700 dark:text-gray-200 leading-relaxed line-clamp-3">
           {item.explanation}
         </p>
         {(item.explanation.length > 200 || flaggedValues.length > 0) && (
           <button
             onClick={() => setExpanded((e) => !e)}
-            className="flex items-center gap-1 mt-2 text-xs text-blue-600 hover:text-blue-700 font-medium"
+            className="flex items-center gap-1 mt-2 text-xs text-blue-600 dark:text-blue-300 hover:text-blue-700 dark:hover:text-blue-200 font-medium"
           >
             {expanded ? (
               <>
@@ -228,18 +228,18 @@ function ExplanationCard({
       {/* Expanded view */}
       {expanded && (
         <div className="px-5 pb-5 space-y-4">
-          <div className="bg-gray-50 rounded-xl p-4">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+          <div className="bg-gray-50 dark:bg-gray-900 rounded-xl p-4">
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
               Full AI Explanation
             </p>
-            <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">
+            <p className="text-sm text-gray-700 dark:text-gray-200 leading-relaxed whitespace-pre-line">
               {item.explanation}
             </p>
           </div>
 
           {flaggedValues.length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
                 All Result Details
               </p>
               <div className="space-y-2">
@@ -248,19 +248,19 @@ function ExplanationCard({
                     key={i}
                     className={`rounded-xl border p-3 ${
                       fv.flag === "NORMAL"
-                        ? "bg-green-50 border-green-100"
+                        ? "bg-green-50 border-green-100 dark:bg-green-900/20 dark:border-green-900/30"
                         : fv.flag.startsWith("CRITICAL")
-                        ? "bg-red-50 border-red-100"
-                        : "bg-amber-50 border-amber-100"
+                        ? "bg-red-50 border-red-100 dark:bg-red-900/20 dark:border-red-900/30"
+                        : "bg-amber-50 border-amber-100 dark:bg-amber-900/20 dark:border-amber-900/30"
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-semibold text-gray-800">{fv.parameter}</span>
-                      <span className="text-sm text-gray-600">{fv.value}</span>
+                      <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">{fv.parameter}</span>
+                      <span className="text-sm text-gray-600 dark:text-gray-300">{fv.value}</span>
                       <FlagBadge flag={fv.flag} />
                     </div>
                     {fv.plainLanguage && (
-                      <p className="text-xs text-gray-600">{fv.plainLanguage}</p>
+                      <p className="text-xs text-gray-600 dark:text-gray-300">{fv.plainLanguage}</p>
                     )}
                   </div>
                 ))}
@@ -325,18 +325,18 @@ export default function LabExplainerPage() {
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            <FlaskConical className="w-6 h-6 text-blue-600" />
+          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+            <FlaskConical className="w-6 h-6 text-blue-600 dark:text-blue-300" />
             AI Lab Report Explainer
           </h1>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
             Review and approve AI-generated patient-friendly lab report explanations before they are sent.
           </p>
         </div>
         <button
           onClick={fetchPending}
           disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 text-gray-600 rounded-xl text-sm hover:bg-gray-50 disabled:opacity-50 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-xl text-sm hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           Refresh
@@ -345,25 +345,25 @@ export default function LabExplainerPage() {
 
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-yellow-50 border border-yellow-100 rounded-2xl p-4">
-          <p className="text-2xl font-bold text-yellow-700">{explanations.length}</p>
-          <p className="text-xs text-yellow-600 mt-0.5">Pending Review</p>
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-100 dark:border-yellow-900/30 rounded-2xl p-4">
+          <p className="text-2xl font-bold text-yellow-700 dark:text-yellow-200">{explanations.length}</p>
+          <p className="text-xs text-yellow-600 dark:text-yellow-300 mt-0.5">Pending Review</p>
         </div>
-        <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
-          <p className="text-2xl font-bold text-blue-700">
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-900/30 rounded-2xl p-4">
+          <p className="text-2xl font-bold text-blue-700 dark:text-blue-200">
             {explanations.filter((e) => e.flaggedValues && (e.flaggedValues as FlaggedValue[]).some((fv) => fv.flag !== "NORMAL")).length}
           </p>
-          <p className="text-xs text-blue-600 mt-0.5">With Abnormal Values</p>
+          <p className="text-xs text-blue-600 dark:text-blue-300 mt-0.5">With Abnormal Values</p>
         </div>
-        <div className="bg-green-50 border border-green-100 rounded-2xl p-4">
-          <p className="text-2xl font-bold text-green-700">
+        <div className="bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-900/30 rounded-2xl p-4">
+          <p className="text-2xl font-bold text-green-700 dark:text-green-200">
             {explanations.filter((e) =>
               (e.flaggedValues as FlaggedValue[]).some(
                 (fv) => fv.flag === "CRITICAL_HIGH" || fv.flag === "CRITICAL_LOW"
               )
             ).length}
           </p>
-          <p className="text-xs text-green-600 mt-0.5">With Critical Values</p>
+          <p className="text-xs text-green-600 dark:text-green-300 mt-0.5">With Critical Values</p>
         </div>
       </div>
 
@@ -371,18 +371,18 @@ export default function LabExplainerPage() {
       {loading ? (
         <div className="flex items-center justify-center py-16">
           <div className="text-center space-y-2">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-500 mx-auto" />
-            <p className="text-sm text-gray-500">Loading pending explanations...</p>
+            <Loader2 className="w-8 h-8 animate-spin text-blue-500 dark:text-blue-300 mx-auto" />
+            <p className="text-sm text-gray-500 dark:text-gray-400">Loading pending explanations...</p>
           </div>
         </div>
       ) : explanations.length === 0 ? (
         <div className="flex items-center justify-center py-16">
           <div className="text-center space-y-3">
-            <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto">
-              <CheckCircle className="w-8 h-8 text-green-500" />
+            <div className="w-16 h-16 bg-green-50 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto">
+              <CheckCircle className="w-8 h-8 text-green-500 dark:text-green-300" />
             </div>
-            <p className="text-gray-700 font-medium">All caught up!</p>
-            <p className="text-sm text-gray-400">No lab report explanations are pending review.</p>
+            <p className="text-gray-700 dark:text-gray-200 font-medium">All caught up!</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500">No lab report explanations are pending review.</p>
           </div>
         </div>
       ) : (

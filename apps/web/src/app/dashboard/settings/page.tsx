@@ -438,7 +438,7 @@ function ProfileTab() {
             className={
               "w-full rounded-lg border px-3 py-2 dark:bg-gray-900 " +
               (fieldErrors.name
-                ? "border-red-500 bg-red-50"
+                ? "border-red-500 bg-red-50 dark:bg-red-900/20"
                 : "border-gray-300 dark:border-gray-600")
             }
           />
@@ -472,7 +472,7 @@ function ProfileTab() {
             className={
               "w-full rounded-lg border px-3 py-2 dark:bg-gray-900 " +
               (fieldErrors.phone
-                ? "border-red-500 bg-red-50"
+                ? "border-red-500 bg-red-50 dark:bg-red-900/20"
                 : "border-gray-300 dark:border-gray-600")
             }
           />
@@ -677,7 +677,7 @@ function SecurityTab() {
               className={
                 "rounded-lg border px-3 py-2 dark:bg-gray-900 " +
                 (passwordErrors.newPassword
-                  ? "border-red-500 bg-red-50"
+                  ? "border-red-500 bg-red-50 dark:bg-red-900/20"
                   : "border-gray-300 dark:border-gray-600")
               }
             />
@@ -712,12 +712,12 @@ function SecurityTab() {
       {/* 2FA */}
       <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
         <h2 className="mb-2 text-lg font-semibold">Two-Factor Authentication</h2>
-        <p className="mb-4 text-sm text-gray-500">
+        <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
           Add an extra layer of security with a TOTP authenticator app.
         </p>
         {twoFAEnabled ? (
           <div>
-            <div className="mb-3 flex items-center gap-2 text-sm text-green-600">
+            <div className="mb-3 flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
               <Check size={16} /> 2FA is enabled on your account
             </div>
             <div className="flex flex-wrap items-end gap-2">
@@ -754,7 +754,7 @@ function SecurityTab() {
               {otpUri}
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">Secret:</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">Secret:</span>
               <code className="rounded bg-gray-100 px-2 py-1 text-xs dark:bg-gray-700">
                 {secret}
               </code>
@@ -835,9 +835,9 @@ function SecurityTab() {
           <div className="flex items-center justify-between">
             <div>
               <p className="font-medium">Current session</p>
-              <p className="text-xs text-gray-500">This browser</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">This browser</p>
             </div>
-            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">
+            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700 dark:bg-green-900/30 dark:text-green-300">
               Active
             </span>
           </div>
@@ -857,10 +857,10 @@ function SecurityTab() {
           Recent Failed Login Attempts
         </h2>
         {failedLogins.length === 0 ? (
-          <p className="text-sm text-gray-500">No failed login attempts recorded.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">No failed login attempts recorded.</p>
         ) : (
           <table className="w-full text-sm">
-            <thead className="text-left text-xs text-gray-500">
+            <thead className="text-left text-xs text-gray-500 dark:text-gray-400">
               <tr>
                 <th className="pb-2">When</th>
                 <th className="pb-2">IP</th>
@@ -975,7 +975,7 @@ function NotificationsTab() {
             >
               <div>
                 <p className="text-sm font-medium">{CHANNEL_LABEL[p.channel]}</p>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   Receive notifications via {CHANNEL_LABEL[p.channel]}
                 </p>
               </div>
@@ -1008,7 +1008,7 @@ function NotificationsTab() {
 
       <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
         <h2 className="mb-4 text-lg font-semibold">Quiet Hours</h2>
-        <p className="mb-4 text-sm text-gray-500">
+        <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
           Notifications during these hours will be deferred until quiet hours end.
         </p>
         <div className="grid gap-4 md:grid-cols-3">
@@ -1248,7 +1248,7 @@ function BrandingTab() {
             className={
               "w-full rounded-lg border px-3 py-2 dark:bg-gray-900 " +
               (fieldErrors.hospitalName
-                ? "border-red-500 bg-red-50"
+                ? "border-red-500 bg-red-50 dark:bg-red-900/20"
                 : "border-gray-300 dark:border-gray-600")
             }
           />
@@ -1276,7 +1276,7 @@ function BrandingTab() {
             className={
               "w-full rounded-lg border px-3 py-2 dark:bg-gray-900 " +
               (fieldErrors.primaryColor
-                ? "border-red-500 bg-red-50"
+                ? "border-red-500 bg-red-50 dark:bg-red-900/20"
                 : "border-gray-300 dark:border-gray-600")
             }
           />

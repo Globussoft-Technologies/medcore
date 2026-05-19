@@ -47,6 +47,16 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
   usePathname: () => "/dashboard/billing/inv-1",
 }));
+// Issue #861: the page now gates Apply Discount / Record Payment / Record
+// Refund / Create Plan behind `isStaff` (any role !== PATIENT). Mock
+// useAuthStore to return an ADMIN so the existing test surface — which
+// exercises Record Payment validation — still renders the button.
+vi.mock("@/lib/store", () => ({
+  useAuthStore: (selector?: (s: any) => any) => {
+    const state = { user: { id: "u-admin", role: "ADMIN", name: "Test Admin" } };
+    return typeof selector === "function" ? selector(state) : state;
+  },
+}));
 
 import InvoiceDetailPage from "./page";
 

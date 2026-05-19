@@ -51,7 +51,14 @@ export function LanguageDropdown({
 
   return (
     <div className={`inline-flex items-center gap-1 ${className ?? ""}`}>
-      <Languages size={14} className="text-gray-500" aria-hidden="true" />
+      {/* Issue #810: icon was hardcoded text-gray-500 which read as muddy
+          mid-grey against the dark sidebar surface; pair with a lighter
+          dark-mode token so the languages glyph stays legible. */}
+      <Languages
+        size={14}
+        className="text-gray-500 dark:text-gray-300"
+        aria-hidden="true"
+      />
       <label htmlFor={instanceId} className="sr-only">
         Language
       </label>

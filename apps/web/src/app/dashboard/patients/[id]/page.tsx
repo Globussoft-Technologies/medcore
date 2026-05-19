@@ -240,18 +240,26 @@ interface LabOrderFull {
 // Color helpers
 // ───────────────────────────────────────────────────────
 
+// Issue #811: every severity / status pill used light pastel tints with
+// dark text — against the dark-mode patient chart the pills flared and
+// the foreground was too low-contrast (yellow-800 on yellow-100 read as
+// near-invisible muddy ochre in dark mode). Pair every entry with a
+// `dark:` variant: deep-tinted surface + light foreground sized to keep
+// the chip recognisably the same colour family. `[data-no-dark-validation]`
+// on the chip element opts out of the globals.css form-validation cascade
+// so these intentional clinical-status pills don't get double-overridden.
 const severityColors: Record<Allergy["severity"], string> = {
-  MILD: "bg-yellow-100 text-yellow-800",
-  MODERATE: "bg-orange-100 text-orange-800",
-  SEVERE: "bg-red-100 text-red-700",
-  LIFE_THREATENING: "bg-red-800 text-white",
+  MILD: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200",
+  MODERATE: "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200",
+  SEVERE: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200",
+  LIFE_THREATENING: "bg-red-800 text-white dark:bg-red-700 dark:text-white",
 };
 
 const conditionColors: Record<Condition["status"], string> = {
-  ACTIVE: "bg-red-100 text-red-700",
-  CONTROLLED: "bg-yellow-100 text-yellow-800",
-  RESOLVED: "bg-green-100 text-green-700",
-  RELAPSED: "bg-orange-100 text-orange-800",
+  ACTIVE: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200",
+  CONTROLLED: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200",
+  RESOLVED: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200",
+  RELAPSED: "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200",
 };
 
 const DOC_TYPES = [
@@ -266,10 +274,10 @@ const DOC_TYPES = [
 ] as const;
 
 const labFlagColors: Record<string, string> = {
-  NORMAL: "bg-green-100 text-green-700",
-  LOW: "bg-blue-100 text-blue-700",
-  HIGH: "bg-orange-100 text-orange-800",
-  CRITICAL: "bg-red-700 text-white",
+  NORMAL: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200",
+  LOW: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200",
+  HIGH: "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200",
+  CRITICAL: "bg-red-700 text-white dark:bg-red-600 dark:text-white",
 };
 
 const timelineColorMap: Record<string, { border: string; bg: string; icon: string }> = {
@@ -852,22 +860,29 @@ export default function PatientDetailPage() {
       )}
 
       {/* Overview */}
+      {/* Issue #811: Encounters / visit history surface — list cards were
+          bg-white with default text. Pair every visit card surface +
+          header text + chip + expanded panels with dark variants. The
+          per-section badges (Vitals=blue, Prescription=green, Invoice=
+          amber) get deep-tinted dark surfaces + light foregrounds so the
+          colour-coding is preserved without flaring against the dark
+          patient-chart canvas. */}
       {tab === "overview" && (
         <>
-          <h2 className="mb-4 text-lg font-semibold">Visit History</h2>
+          <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">Visit History</h2>
           {visits.length === 0 ? (
-            <div className="rounded-xl bg-white p-8 text-center shadow-sm">
-              <p className="text-gray-400">No visit history found</p>
+            <div className="rounded-xl bg-white p-8 text-center shadow-sm dark:bg-gray-800">
+              <p className="text-gray-400 dark:text-gray-500">No visit history found</p>
             </div>
           ) : (
             <div className="space-y-3">
               {visits.map((visit) => {
                 const isExpanded = expandedVisit === visit.id;
                 return (
-                  <div key={visit.id} className="rounded-xl bg-white shadow-sm">
+                  <div key={visit.id} className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
                     <button
                       onClick={() => toggleVisit(visit.id)}
-                      className="flex w-full items-center gap-4 px-6 py-4 text-left hover:bg-gray-50"
+                      className="flex w-full items-center gap-4 px-6 py-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700/50"
                     >
                       {isExpanded ? (
                         <ChevronDown size={18} className="text-gray-400" />
@@ -876,7 +891,7 @@ export default function PatientDetailPage() {
                       )}
                       <div className="flex-1">
                         <div className="flex items-center gap-3">
-                          <p className="font-medium">
+                          <p className="font-medium text-gray-900 dark:text-gray-100">
                             {new Date(visit.date).toLocaleDateString("en-IN", {
                               weekday: "short",
                               year: "numeric",
@@ -887,20 +902,20 @@ export default function PatientDetailPage() {
                           <span
                             className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
                               statusColors[visit.status] ||
-                              "bg-gray-100 text-gray-600"
+                              "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
                             }`}
                           >
                             {visit.status.replace(/_/g, " ")}
                           </span>
                         </div>
-                        <p className="mt-0.5 text-sm text-gray-500">
+                        <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
                           {visit.doctor?.user?.name ? formatDoctorName(visit.doctor.user.name) : "---"}{" "}
                           {visit.doctor?.specialization
                             ? `(${visit.doctor.specialization})`
                             : ""}
                         </p>
                         {visit.diagnosis && (
-                          <p className="mt-1 text-sm text-gray-600">
+                          <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
                             Diagnosis: {visit.diagnosis}
                           </p>
                         )}
@@ -908,35 +923,35 @@ export default function PatientDetailPage() {
                     </button>
 
                     {isExpanded && (
-                      <div className="border-t px-6 py-4">
+                      <div className="border-t px-6 py-4 dark:border-gray-700">
                         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                           {visit.vitals && (
-                            <div className="rounded-lg bg-blue-50 p-4">
-                              <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold text-blue-700">
+                            <div className="rounded-lg bg-blue-50 p-4 dark:bg-blue-900/30">
+                              <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold text-blue-700 dark:text-blue-200">
                                 <Activity size={14} /> Vitals
                               </h4>
-                              <div className="space-y-1 text-sm">
+                              <div className="space-y-1 text-sm text-gray-800 dark:text-gray-200">
                                 {visit.vitals.bloodPressure && (
                                   <p>
-                                    <span className="text-gray-500">BP:</span>{" "}
+                                    <span className="text-gray-500 dark:text-gray-400">BP:</span>{" "}
                                     {visit.vitals.bloodPressure} mmHg
                                   </p>
                                 )}
                                 {visit.vitals.heartRate && (
                                   <p>
-                                    <span className="text-gray-500">HR:</span>{" "}
+                                    <span className="text-gray-500 dark:text-gray-400">HR:</span>{" "}
                                     {visit.vitals.heartRate} bpm
                                   </p>
                                 )}
                                 {visit.vitals.temperature && (
                                   <p>
-                                    <span className="text-gray-500">Temp:</span>{" "}
+                                    <span className="text-gray-500 dark:text-gray-400">Temp:</span>{" "}
                                     {visit.vitals.temperature}°F
                                   </p>
                                 )}
                                 {visit.vitals.weight && (
                                   <p>
-                                    <span className="text-gray-500">
+                                    <span className="text-gray-500 dark:text-gray-400">
                                       Weight:
                                     </span>{" "}
                                     {visit.vitals.weight} kg
@@ -944,7 +959,7 @@ export default function PatientDetailPage() {
                                 )}
                                 {visit.vitals.oxygenSaturation && (
                                   <p>
-                                    <span className="text-gray-500">SpO2:</span>{" "}
+                                    <span className="text-gray-500 dark:text-gray-400">SpO2:</span>{" "}
                                     {visit.vitals.oxygenSaturation}%
                                   </p>
                                 )}
@@ -955,17 +970,17 @@ export default function PatientDetailPage() {
                           {visit.prescription &&
                             visit.prescription.items &&
                             visit.prescription.items.length > 0 && (
-                              <div className="rounded-lg bg-green-50 p-4">
-                                <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold text-green-700">
+                              <div className="rounded-lg bg-green-50 p-4 dark:bg-green-900/30">
+                                <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold text-green-700 dark:text-green-200">
                                   <FileText size={14} /> Prescription
                                 </h4>
                                 <div className="space-y-2">
                                   {visit.prescription.items.map((item, i) => (
                                     <div key={i} className="text-sm">
-                                      <p className="font-medium">
+                                      <p className="font-medium text-gray-900 dark:text-gray-100">
                                         {item.medication}
                                       </p>
-                                      <p className="text-xs text-gray-600">
+                                      <p className="text-xs text-gray-600 dark:text-gray-300">
                                         {item.dosage} | {item.frequency} |{" "}
                                         {item.duration}
                                       </p>
@@ -976,13 +991,13 @@ export default function PatientDetailPage() {
                             )}
 
                           {visit.invoice && (
-                            <div className="rounded-lg bg-amber-50 p-4">
-                              <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-700">
+                            <div className="rounded-lg bg-amber-50 p-4 dark:bg-amber-900/30">
+                              <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-700 dark:text-amber-200">
                                 <CreditCard size={14} /> Invoice
                               </h4>
-                              <div className="text-sm">
+                              <div className="text-sm text-gray-800 dark:text-gray-200">
                                 <p>
-                                  <span className="text-gray-500">#</span>{" "}
+                                  <span className="text-gray-500 dark:text-gray-400">#</span>{" "}
                                   {visit.invoice.invoiceNumber}
                                 </p>
                                 <p className="mt-1 text-lg font-semibold">
@@ -991,8 +1006,8 @@ export default function PatientDetailPage() {
                                 <span
                                   className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
                                     visit.invoice.paymentStatus === "PAID"
-                                      ? "bg-green-100 text-green-700"
-                                      : "bg-red-100 text-red-700"
+                                      ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200"
+                                      : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200"
                                   }`}
                                 >
                                   {visit.invoice.paymentStatus}
@@ -1275,20 +1290,27 @@ function VitalsTrendsTab({ patientId }: { patientId: string }) {
     return null;
   }, [data]);
 
-  if (loading) return <div className="p-6 text-gray-500">Loading vitals...</div>;
+  if (loading) return <div className="p-6 text-gray-500 dark:text-gray-400">Loading vitals...</div>;
 
+  // Issue #811: vitals timeline cards (header, chart cards, latest
+  // measurement) were bg-white with default text — flared white against the
+  // dark patient-chart canvas. Pair every surface with dark:bg-gray-800
+  // and every label with dark:text-* so the timeline respects the theme.
+  // SVG chart axes / gridlines / data-point markers live in BpChart /
+  // TempPulseChart / SpoWeightChart and use semantic stroke colors that
+  // remain readable against both themes.
   if (data.length === 0) {
     return (
-      <div className="rounded-xl bg-white p-8 text-center shadow-sm">
-        <p className="text-gray-400">No vitals recorded yet</p>
+      <div className="rounded-xl bg-white p-8 text-center shadow-sm dark:bg-gray-800">
+        <p className="text-gray-400 dark:text-gray-500">No vitals recorded yet</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between rounded-xl bg-white p-4 shadow-sm">
-        <h2 className="text-lg font-semibold">Vitals Trends</h2>
+      <div className="flex items-center justify-between rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Vitals Trends</h2>
         <div className="flex items-center gap-2">
           <div className="flex gap-1">
             {(["30", "90", "365", "all"] as const).map((r) => (
@@ -1298,7 +1320,7 @@ function VitalsTrendsTab({ patientId }: { patientId: string }) {
                 className={`rounded px-3 py-1 text-xs ${
                   range === r
                     ? "bg-primary text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-white/10 dark:text-gray-200 dark:hover:bg-white/20"
                 }`}
               >
                 {r === "all" ? "All" : `${r}d`}
@@ -1331,7 +1353,7 @@ function VitalsTrendsTab({ patientId }: { patientId: string }) {
                   }
                 });
             }}
-            className="rounded border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            className="rounded border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-white/10"
           >
             Download Vitals Report
           </button>
@@ -1351,9 +1373,9 @@ function VitalsTrendsTab({ patientId }: { patientId: string }) {
       </div>
 
       {latestWeight && (
-        <div className="rounded-xl bg-white p-4 shadow-sm">
-          <h3 className="mb-2 text-sm font-semibold">Latest Measurements</h3>
-          <p className="text-sm text-gray-600">
+        <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+          <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Latest Measurements</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-300">
             Weight: <span className="font-medium">{latestWeight} kg</span>
           </p>
         </div>
@@ -1372,10 +1394,10 @@ function ChartCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl bg-white p-4 shadow-sm">
+    <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
       <div className="mb-3">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        {subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
+        {subtitle && <p className="text-xs text-gray-500 dark:text-gray-400">{subtitle}</p>}
       </div>
       <div className="h-48 w-full">{children}</div>
     </div>
@@ -2670,10 +2692,17 @@ function MedicalRecordsTab({
       <AdvanceDirectivesSection patientId={patientId} canEdit={canEdit} />
 
       {/* Allergies */}
-      <section className="rounded-xl bg-white p-6 shadow-sm">
+      {/* Issue #811: every MedicalRecordsTab section card was hard-wired
+          to bg-white with default body text — under dark mode the cards
+          flared white against the dark patient-chart canvas. Pair each
+          card surface + heading/empty-state foreground with dark-mode
+          tokens so all five sub-tabs respect the theme. The severity /
+          status chips inherit dark variants from severityColors /
+          conditionColors at the top of this file. */}
+      <section className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-lg font-semibold">
-            <AlertTriangle size={18} className="text-red-600" /> Allergies
+          <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
+            <AlertTriangle size={18} className="text-red-600 dark:text-red-400" /> Allergies
           </h3>
           {canEdit && (
             <button
@@ -2685,7 +2714,7 @@ function MedicalRecordsTab({
           )}
         </div>
         {allergies.length === 0 ? (
-          <p className="text-sm text-gray-400">No allergies recorded</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500">No allergies recorded</p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {allergies.map((a) => (
@@ -2715,10 +2744,10 @@ function MedicalRecordsTab({
       </section>
 
       {/* Chronic Conditions */}
-      <section className="rounded-xl bg-white p-6 shadow-sm">
+      <section className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-lg font-semibold">
-            <Heart size={18} className="text-red-500" /> Chronic Conditions
+          <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
+            <Heart size={18} className="text-red-500 dark:text-red-400" /> Chronic Conditions
           </h3>
           {canEdit && (
             <button
@@ -2730,19 +2759,19 @@ function MedicalRecordsTab({
           )}
         </div>
         {conditions.length === 0 ? (
-          <p className="text-sm text-gray-400">No chronic conditions</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500">No chronic conditions</p>
         ) : (
           <div className="space-y-2">
             {conditions.map((c) => (
               <div
                 key={c.id}
-                className="flex items-center justify-between rounded-lg border border-gray-100 p-3"
+                className="flex items-center justify-between rounded-lg border border-gray-100 p-3 dark:border-gray-700"
               >
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-medium">{c.condition}</span>
+                    <span className="font-medium text-gray-900 dark:text-gray-100">{c.condition}</span>
                     {c.icd10Code && (
-                      <span className="font-mono text-xs text-gray-500">
+                      <span className="font-mono text-xs text-gray-500 dark:text-gray-400">
                         {c.icd10Code}
                       </span>
                     )}
@@ -2753,13 +2782,13 @@ function MedicalRecordsTab({
                     </span>
                   </div>
                   {c.diagnosedDate && (
-                    <p className="mt-0.5 text-xs text-gray-500">
+                    <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
                       Diagnosed:{" "}
                       {new Date(c.diagnosedDate).toLocaleDateString()}
                     </p>
                   )}
                   {c.notes && (
-                    <p className="mt-1 text-sm text-gray-600">{c.notes}</p>
+                    <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{c.notes}</p>
                   )}
                 </div>
                 {canEdit && (
@@ -2777,10 +2806,10 @@ function MedicalRecordsTab({
       </section>
 
       {/* Family History */}
-      <section className="rounded-xl bg-white p-6 shadow-sm">
+      <section className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-lg font-semibold">
-            <Users size={18} className="text-blue-500" /> Family History
+          <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
+            <Users size={18} className="text-blue-500 dark:text-blue-400" /> Family History
           </h3>
           {canEdit && (
             <button
@@ -2792,19 +2821,19 @@ function MedicalRecordsTab({
           )}
         </div>
         {family.length === 0 ? (
-          <p className="text-sm text-gray-400">No family history</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500">No family history</p>
         ) : (
-          <ul className="space-y-2 text-sm">
+          <ul className="space-y-2 text-sm text-gray-800 dark:text-gray-200">
             {family.map((f) => (
               <li
                 key={f.id}
-                className="flex items-center justify-between border-b border-gray-100 pb-2"
+                className="flex items-center justify-between border-b border-gray-100 pb-2 dark:border-gray-700"
               >
                 <div>
                   <span className="font-medium">{f.relation}:</span>{" "}
                   {f.condition}
                   {f.notes && (
-                    <span className="ml-2 text-xs text-gray-500">
+                    <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
                       ({f.notes})
                     </span>
                   )}
@@ -2824,10 +2853,10 @@ function MedicalRecordsTab({
       </section>
 
       {/* Immunizations */}
-      <section className="rounded-xl bg-white p-6 shadow-sm">
+      <section className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-lg font-semibold">
-            <Syringe size={18} className="text-green-600" /> Immunizations
+          <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
+            <Syringe size={18} className="text-green-600 dark:text-green-400" /> Immunizations
           </h3>
           {canEdit && (
             <button
@@ -2839,12 +2868,12 @@ function MedicalRecordsTab({
           )}
         </div>
         {immunizations.length === 0 ? (
-          <p className="text-sm text-gray-400">No immunizations recorded</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500">No immunizations recorded</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-xs text-gray-500">
-                <tr className="border-b">
+            <table className="w-full text-sm text-gray-800 dark:text-gray-200">
+              <thead className="text-xs text-gray-500 dark:text-gray-400">
+                <tr className="border-b dark:border-gray-700">
                   <th className="py-2 text-left">Vaccine</th>
                   <th className="py-2 text-left">Dose</th>
                   <th className="py-2 text-left">Date Given</th>
@@ -2868,7 +2897,7 @@ function MedicalRecordsTab({
                   return (
                     <tr
                       key={im.id}
-                      className="border-b border-gray-50 hover:bg-gray-50"
+                      className="border-b border-gray-50 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/50"
                     >
                       <td className="py-2 font-medium">{im.vaccine}</td>
                       <td>{im.doseNumber ?? "-"}</td>
@@ -2878,19 +2907,19 @@ function MedicalRecordsTab({
                           <span
                             className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                               overdue
-                                ? "bg-red-100 text-red-700"
+                                ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200"
                                 : soon
-                                  ? "bg-amber-100 text-amber-800"
-                                  : "bg-green-100 text-green-700"
+                                  ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                                  : "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200"
                             }`}
                           >
                             {due.toLocaleDateString()}
                           </span>
                         ) : (
-                          <span className="text-gray-400">-</span>
+                          <span className="text-gray-400 dark:text-gray-500">-</span>
                         )}
                       </td>
-                      <td className="text-xs text-gray-500">
+                      <td className="text-xs text-gray-500 dark:text-gray-400">
                         {im.batchNumber || "-"}
                       </td>
                       {canEdit && (
@@ -3500,7 +3529,7 @@ function DocumentsTab({
   }
 
   if (loading) {
-    return <div className="p-6 text-gray-500">Loading...</div>;
+    return <div className="p-6 text-gray-500 dark:text-gray-400">Loading...</div>;
   }
 
   const grouped = DOC_TYPES.reduce<Record<string, PatientDoc[]>>((acc, t) => {
@@ -3508,10 +3537,14 @@ function DocumentsTab({
     return acc;
   }, {});
 
+  // Issue #811: Documents tab cards used bg-white + default fg text — list
+  // surfaces flared white against the dark canvas. Pair every card +
+  // grouping header + row border + meta text with dark variants. The
+  // FolderOpen icon already uses `text-primary` which is a theme token.
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="flex items-center gap-2 text-lg font-semibold">
+        <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
           <FolderOpen size={18} className="text-primary" /> Documents
         </h3>
         {canEdit && (
@@ -3525,8 +3558,8 @@ function DocumentsTab({
       </div>
 
       {docs.length === 0 ? (
-        <div className="rounded-xl bg-white p-8 text-center shadow-sm">
-          <p className="text-gray-400">No documents uploaded</p>
+        <div className="rounded-xl bg-white p-8 text-center shadow-sm dark:bg-gray-800">
+          <p className="text-gray-400 dark:text-gray-500">No documents uploaded</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -3534,19 +3567,19 @@ function DocumentsTab({
             const group = grouped[t];
             if (group.length === 0) return null;
             return (
-              <div key={t} className="rounded-xl bg-white p-5 shadow-sm">
-                <h4 className="mb-3 text-sm font-semibold text-gray-600">
+              <div key={t} className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+                <h4 className="mb-3 text-sm font-semibold text-gray-600 dark:text-gray-300">
                   {t.replace(/_/g, " ")}
                 </h4>
                 <ul className="space-y-2">
                   {group.map((d) => (
                     <li
                       key={d.id}
-                      className="flex items-center justify-between rounded-lg border border-gray-100 p-3"
+                      className="flex items-center justify-between rounded-lg border border-gray-100 p-3 dark:border-gray-700"
                     >
                       <div>
-                        <p className="font-medium">{d.title}</p>
-                        <p className="text-xs text-gray-500">
+                        <p className="font-medium text-gray-900 dark:text-gray-100">{d.title}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
                           {new Date(d.createdAt).toLocaleString()}
                           {d.fileSize
                             ? ` · ${Math.round(d.fileSize / 1024)} KB`
@@ -3554,7 +3587,7 @@ function DocumentsTab({
                           {d.mimeType ? ` · ${d.mimeType}` : ""}
                         </p>
                         {d.notes && (
-                          <p className="mt-1 text-xs text-gray-600">
+                          <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">
                             {d.notes}
                           </p>
                         )}
@@ -3562,7 +3595,7 @@ function DocumentsTab({
                       <div className="flex gap-2">
                         <button
                           onClick={() => openDoc(d.id)}
-                          className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-primary"
+                          className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-primary dark:text-gray-400 dark:hover:bg-white/10"
                           title="Download"
                         >
                           <Download size={14} />
@@ -3570,7 +3603,7 @@ function DocumentsTab({
                         {canEdit && (
                           <button
                             onClick={() => del(d.id)}
-                            className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-red-600"
+                            className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-red-600 dark:text-gray-400 dark:hover:bg-white/10"
                             title="Delete"
                           >
                             <Trash2 size={14} />

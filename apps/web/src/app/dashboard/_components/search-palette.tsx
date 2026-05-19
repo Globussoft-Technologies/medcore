@@ -244,31 +244,39 @@ export function SearchPalette({
             placeholder={placeholder}
             className="flex-1 bg-transparent text-sm text-gray-900 caret-primary outline-none placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
-          <kbd className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">
+          {/* Issue #810: ESC kbd and close button used hardcoded light tokens —
+              against the now-dark palette container they read as muddy white
+              chips. Pair both with dark surface + foreground variants. */}
+          <kbd className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500 dark:bg-white/10 dark:text-gray-300">
             ESC
           </kbd>
           <button
             onClick={onClose}
-            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-white/10 dark:hover:text-gray-200"
           >
             <X size={16} />
           </button>
         </div>
 
         <div className="max-h-[60vh] overflow-y-auto">
+          {/* Issue #810: every row/state below used hardcoded light-mode
+              hover/bg/text tokens — against the now-dark palette container
+              the entire result list flashed white-on-dark on Ctrl+K. Each
+              state now carries a paired `dark:` variant so the palette
+              respects theme tokens end-to-end. */}
           {/* Recent searches (when empty) */}
           {!q && recent.length > 0 && (
             <div className="p-3">
-              <p className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+              <p className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
                 Recent
               </p>
               {recent.map((r, i) => (
                 <button
                   key={i}
                   onClick={() => setQ(r)}
-                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-white/10"
                 >
-                  <Clock size={14} className="text-gray-400" />
+                  <Clock size={14} className="text-gray-400 dark:text-gray-500" />
                   {r}
                 </button>
               ))}
@@ -276,19 +284,19 @@ export function SearchPalette({
           )}
 
           {q && loading && (
-            <div className="p-6 text-center text-xs text-gray-400">
+            <div className="p-6 text-center text-xs text-gray-400 dark:text-gray-500">
               Searching...
             </div>
           )}
 
           {q && !loading && results.length === 0 && q.length >= 2 && (
-            <div className="p-6 text-center text-xs text-gray-400">
+            <div className="p-6 text-center text-xs text-gray-400 dark:text-gray-500">
               No results for &quot;{q}&quot;
             </div>
           )}
 
           {q && q.length < 2 && (
-            <div className="p-6 text-center text-xs text-gray-400">
+            <div className="p-6 text-center text-xs text-gray-400 dark:text-gray-500">
               Type at least 2 characters to search
             </div>
           )}
@@ -299,7 +307,7 @@ export function SearchPalette({
                 const Icon = typeIcon[g.type] || Tag;
                 return (
                   <div key={g.type} className="mb-1">
-                    <p className="px-4 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                    <p className="px-4 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
                       {typeLabel[g.type] || g.type}
                     </p>
                     {g.items.map((hit) => {
@@ -311,28 +319,30 @@ export function SearchPalette({
                           onClick={() => go(hit)}
                           onMouseEnter={() => setActive(idx)}
                           className={`flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition ${
-                            isActive ? "bg-blue-50" : "hover:bg-gray-50"
+                            isActive
+                              ? "bg-blue-50 dark:bg-primary/20"
+                              : "hover:bg-gray-50 dark:hover:bg-white/5"
                           }`}
                         >
                           <div
                             className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
                               isActive
                                 ? "bg-primary text-white"
-                                : "bg-gray-100 text-gray-600"
+                                : "bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-gray-300"
                             }`}
                           >
                             <Icon size={15} />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="truncate font-medium text-gray-800">
+                            <p className="truncate font-medium text-gray-800 dark:text-gray-100">
                               {hit.title}
                             </p>
-                            <p className="truncate text-xs text-gray-500">
+                            <p className="truncate text-xs text-gray-500 dark:text-gray-400">
                               {hit.subtitle}
                             </p>
                           </div>
                           {hit.meta && (
-                            <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+                            <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-white/10 dark:text-gray-300">
                               {hit.meta}
                             </span>
                           )}
@@ -346,19 +356,19 @@ export function SearchPalette({
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t bg-gray-50 px-4 py-2 text-[11px] text-gray-500">
+        <div className="flex items-center justify-between border-t border-gray-200 bg-gray-50 px-4 py-2 text-[11px] text-gray-500 dark:border-white/10 dark:bg-white/5 dark:text-gray-400">
           <div className="flex gap-3">
             <span>
-              <kbd className="rounded bg-white px-1 py-0.5 shadow-sm">↑↓</kbd>{" "}
+              <kbd className="rounded bg-white px-1 py-0.5 shadow-sm dark:bg-white/10 dark:text-gray-200 dark:shadow-none">↑↓</kbd>{" "}
               navigate
             </span>
             <span>
-              <kbd className="rounded bg-white px-1 py-0.5 shadow-sm">↵</kbd>{" "}
+              <kbd className="rounded bg-white px-1 py-0.5 shadow-sm dark:bg-white/10 dark:text-gray-200 dark:shadow-none">↵</kbd>{" "}
               open
             </span>
           </div>
           <span>
-            <kbd className="rounded bg-white px-1 py-0.5 shadow-sm">Ctrl+K</kbd>{" "}
+            <kbd className="rounded bg-white px-1 py-0.5 shadow-sm dark:bg-white/10 dark:text-gray-200 dark:shadow-none">Ctrl+K</kbd>{" "}
             anywhere
           </span>
         </div>

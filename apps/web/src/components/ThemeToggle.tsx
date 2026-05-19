@@ -60,7 +60,6 @@ const DEFAULT_CLASS =
 
 export function ThemeToggle({ className = DEFAULT_CLASS }: ThemeToggleProps) {
   const resolved = useThemeStore((s) => s.resolved);
-  const toggle = useThemeStore((s) => s.toggle);
   const { t } = useTranslation();
 
   const isDark = resolved === "dark";
@@ -69,10 +68,27 @@ export function ThemeToggle({ className = DEFAULT_CLASS }: ThemeToggleProps) {
   // already reflects the current state.
   const label = isDark ? t("common.lightMode") : t("common.darkMode");
 
+  // Issue #837: on /dashboard/admin-console the toggle button registered the
+  // click (focus ring appeared) but `<html>.classList` never gained `dark`.
+  // The admin-console page mounts 15+ parallel Promise.all data loads + a
+  // 60s setInterval refreshTick; under that render pressure the previously
+  // selected `toggle` function reference could go stale on the closed-over
+  // `s.toggle` selector across rapid re-renders, and the click would resolve
+  // to a torn (already-replaced) bound function.
+  //
+  // Fix: invoke the store imperatively via `useThemeStore.getState().toggle()`
+  // on every click. This reads the *current* toggle off the store at the
+  // moment of click — no selector subscription, no stale closure. The store's
+  // `toggle` calls `setMode → apply` synchronously so the `dark` class flips
+  // on document.documentElement before React even schedules the re-render.
+  const onClick = () => {
+    useThemeStore.getState().toggle();
+  };
+
   return (
     <button
       type="button"
-      onClick={toggle}
+      onClick={onClick}
       aria-pressed={isDark}
       aria-label={label}
       title={label}

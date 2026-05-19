@@ -68,6 +68,76 @@ select {
   border-radius: 6px;
 }
 
+/* ───────── Issue #815 — inline form validation states in dark mode ─────────
+ *
+ * Forms across the app set `aria-invalid="true"` on the input itself and
+ * render an adjacent helper text with role="alert" / data-testid="error-X".
+ * Pages also use bare Tailwind utilities like `border-red-500`, `bg-red-50
+ * text-red-700` etc. for the validation pills. In dark mode those
+ * light-pastel tints flare against the dark surface and fail WCAG AA.
+ *
+ * Rather than touch every form page (28+ files), we tint these states at
+ * the token layer using attribute / class selectors that already exist
+ * on the markup:
+ *
+ *   - `[aria-invalid="true"]` on inputs / selects / textareas → red border
+ *     in both themes, with a softer red in dark.
+ *   - `[role="alert"]` (when not the Next.js route announcer) → readable
+ *     red text in both themes.
+ *
+ * We also remap the four most common bare validation pills to dark-safe
+ * tints when an ancestor `<html>` carries `.dark`. Pages can opt OUT by
+ * adding `data-no-dark-validation` (so the prescriptions Critical pill
+ * etc. can keep its bright-red intent).
+ */
+[aria-invalid="true"] {
+  border-color: #ef4444; /* red-500 */
+}
+.dark [aria-invalid="true"] {
+  border-color: #fca5a5; /* red-300 — softer against #0b1220 */
+}
+[aria-invalid="true"]:focus-visible {
+  outline-color: #ef4444;
+}
+.dark [aria-invalid="true"]:focus-visible {
+  outline-color: #fca5a5;
+}
+
+/* Inline error helper text (role="alert" emitted under invalid inputs)
+ * gets dark-mode contrast without page-level changes. We exclude Next's
+ * global route announcer which is also role="alert" (see CLAUDE.md gotcha
+ * #10). */
+.dark [role="alert"]:not(#__next-route-announcer__) {
+  color: #fecaca; /* red-200 — 7:1 against #0b1220 */
+}
+
+/* Most-common bare validation tints: pages do `bg-red-50 text-red-700`
+ * inline. In dark mode we shift the surface to a deep red wash and
+ * lighten the foreground. Pages can opt out with
+ * `data-no-dark-validation` on the element. */
+.dark .bg-red-50:not([data-no-dark-validation]) {
+  background-color: rgba(127, 29, 29, 0.3); /* red-900/30 */
+}
+.dark .text-red-700:not([data-no-dark-validation]) {
+  color: #fca5a5; /* red-300 */
+}
+.dark .bg-amber-50:not([data-no-dark-validation]),
+.dark .bg-yellow-50:not([data-no-dark-validation]) {
+  background-color: rgba(120, 53, 15, 0.3); /* amber-900/30 */
+}
+.dark .text-amber-700:not([data-no-dark-validation]),
+.dark .text-yellow-700:not([data-no-dark-validation]),
+.dark .text-amber-800:not([data-no-dark-validation]),
+.dark .text-yellow-800:not([data-no-dark-validation]) {
+  color: #fcd34d; /* amber-300 */
+}
+.dark .bg-green-50:not([data-no-dark-validation]) {
+  background-color: rgba(20, 83, 45, 0.3); /* green-900/30 */
+}
+.dark .text-green-700:not([data-no-dark-validation]) {
+  color: #86efac; /* green-300 */
+}
+
 /* Skip link (hidden until focused) */
 .skip-link {
   position: absolute;

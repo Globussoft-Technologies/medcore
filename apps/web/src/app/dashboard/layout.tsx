@@ -935,6 +935,45 @@ export default function DashboardLayout({
                 // Issue #70: drawer close is now handled by the pathname-effect
                 // above so we don't race a setState against the Link's
                 // built-in navigation (which used to require a second click).
+                //
+                // Issue #817: Admin Console click from /dashboard registered
+                // focus on the sidebar item but the URL stayed at /dashboard
+                // (page content unchanged) on Chrome staging. Repro: ADMIN
+                // lands on /dashboard → clicks "Admin Console" → nothing.
+                // Direct-URL navigation to /dashboard/admin-console worked,
+                // so the route handler is fine; the failure was a swallowed
+                // Link navigation — most plausibly the App-Router's client
+                // transition being interrupted by a concurrent setState
+                // (auth-broadcast hook, redirect-effect race, drawer close).
+                //
+                // Defensive fix: pair the <Link> with an imperative
+                // router.push fallback. When the user clicks an item that
+                // differs from the current pathname, we explicitly push the
+                // target href on the next tick. Next.js de-dupes navigations
+                // to the same URL, so the call is a no-op if Link's own
+                // transition already started — but it guarantees navigation
+                // when Link's transition is dropped. Left-click / no-modifier
+                // only so middle-click / Ctrl-click open-in-new-tab semantics
+                // are preserved verbatim.
+                onClick={(e) => {
+                  if (
+                    e.defaultPrevented ||
+                    e.button !== 0 ||
+                    e.metaKey ||
+                    e.ctrlKey ||
+                    e.shiftKey ||
+                    e.altKey
+                  ) {
+                    return;
+                  }
+                  if (pathname !== href) {
+                    // Schedule on a microtask so React's batched state
+                    // updates (drawer close, etc.) flush first; router.push
+                    // is idempotent and Link's own navigation wins if it
+                    // beats us to the same URL.
+                    queueMicrotask(() => router.push(href));
+                  }
+                }}
                 aria-current={isActive ? "page" : undefined}
                 title={tip}
                 className={clsx(

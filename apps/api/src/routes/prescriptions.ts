@@ -29,6 +29,7 @@ import { auditLog } from "../middleware/audit";
 import { ingestPrescription, fireAndForgetIngest } from "../services/ai/rag-ingest";
 import { sendEmail } from "../services/messaging/email";
 import { sendWhatsApp } from "../services/messaging/whatsapp";
+import { formatDoctorName } from "../lib/format-doctor-name";
 
 const router = Router();
 router.use(authenticate);
@@ -788,12 +789,12 @@ router.post(
         }
         const result = await sendEmail({
           to: recipient,
-          subject: `Your prescription from Dr. ${doctorName}`,
+          subject: `Your prescription from ${formatDoctorName(doctorName)}`,
           html: `
             <div style="font-family:Segoe UI,Tahoma,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a;">
               <h2 style="color:#4f46e5;margin:0 0 12px;">Your Prescription is Ready</h2>
               <p>Hi ${escapeText(patientName)},</p>
-              <p>Dr. ${escapeText(doctorName)} has issued your prescription. You can view, download, and verify it via the secure link below.</p>
+              <p>${escapeText(formatDoctorName(doctorName))} has issued your prescription. You can view, download, and verify it via the secure link below.</p>
               <p style="margin:24px 0;">
                 <a href="${verifyUrl}" style="background:#4f46e5;color:#fff;padding:12px 22px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block;">View Prescription</a>
               </p>
@@ -824,7 +825,7 @@ router.post(
         // (see TODO(template) in services/messaging/whatsapp.ts).
         const result = await sendWhatsApp({
           to: recipient,
-          body: `Hi ${patientName}, Dr. ${doctorName} has issued your prescription. View it here: ${verifyUrl}`,
+          body: `Hi ${patientName}, ${formatDoctorName(doctorName)} has issued your prescription. View it here: ${verifyUrl}`,
         });
         if (!result.ok) deliveryError = `WhatsApp delivery failed: ${result.error}`;
       } else {

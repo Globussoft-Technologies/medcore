@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "@medcore/db";
 import { Role } from "@medcore/shared";
 import { authenticate } from "../middleware/auth";
+import { formatDoctorName } from "../lib/format-doctor-name";
 
 const router = Router();
 
@@ -170,7 +171,7 @@ router.get(
             type: "appointment",
             id: a.id,
             title: `${a.patient?.user?.name || "Patient"} · ${a.type}`,
-            subtitle: `Dr. ${a.doctor?.user?.name || "—"} · ${new Date(a.date).toLocaleDateString()}`,
+            subtitle: `${formatDoctorName(a.doctor?.user?.name) || "—"} · ${new Date(a.date).toLocaleDateString()}`,
             meta: humanizeStatus(a.status),
             href: `/dashboard/appointments?id=${a.id}`,
           });
@@ -238,7 +239,7 @@ router.get(
             type: "prescription",
             id: rx.id,
             title: `Rx — ${rx.diagnosis}`,
-            subtitle: `${rx.patient?.user?.name || ""} · Dr. ${rx.doctor?.user?.name || "—"}`,
+            subtitle: `${rx.patient?.user?.name || ""} · ${formatDoctorName(rx.doctor?.user?.name) || "—"}`,
             meta: new Date(rx.createdAt).toLocaleDateString(),
             href: `/dashboard/prescriptions?id=${rx.id}`,
           });
@@ -310,7 +311,7 @@ router.get(
             type: "surgery",
             id: s.id,
             title: `${s.caseNumber} · ${s.procedure}`,
-            subtitle: `${s.patient?.user?.name || ""} · Dr. ${s.surgeon?.user?.name || "—"}`,
+            subtitle: `${s.patient?.user?.name || ""} · ${formatDoctorName(s.surgeon?.user?.name) || "—"}`,
             meta: humanizeStatus(s.status),
             href: `/dashboard/surgery?id=${s.id}`,
           });

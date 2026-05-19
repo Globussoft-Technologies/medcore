@@ -1,6 +1,7 @@
 import { prisma } from "@medcore/db";
 import { NotificationType } from "@medcore/shared";
 import { sendNotification } from "./notification";
+import { formatDoctorName } from "../lib/format-doctor-name";
 
 // ─── Appointment Triggers ──────────────────────────────
 
@@ -25,7 +26,7 @@ export async function onAppointmentBooked(appointment: {
     userId: patient.userId,
     type: NotificationType.APPOINTMENT_BOOKED,
     title: "Appointment Confirmed",
-    message: `Hi ${patient.user.name}, your appointment with Dr. ${doctor.user.name} is confirmed for ${dateStr}${timeStr}. Your token number is ${tokenNumber}.`,
+    message: `Hi ${patient.user.name}, your appointment with ${formatDoctorName(doctor.user.name)} is confirmed for ${dateStr}${timeStr}. Your token number is ${tokenNumber}.`,
     data: { appointmentId: appointment.id, tokenNumber, doctorName: doctor.user.name },
   });
 
@@ -58,7 +59,7 @@ export async function onAppointmentCancelled(appointment: {
     userId: patient.userId,
     type: NotificationType.APPOINTMENT_CANCELLED,
     title: "Appointment Cancelled",
-    message: `Hi ${patient.user.name}, your appointment with Dr. ${doctor.user.name} on ${dateStr} has been cancelled.`,
+    message: `Hi ${patient.user.name}, your appointment with ${formatDoctorName(doctor.user.name)} on ${dateStr} has been cancelled.`,
     data: { appointmentId: appointment.id },
   });
 

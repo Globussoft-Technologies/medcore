@@ -32,6 +32,7 @@ import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { generateLabReportHTML } from "../services/pdf";
 import { sendNotification } from "../services/notification";
+import { formatDoctorName } from "../lib/format-doctor-name";
 import { ingestLabResult, fireAndForgetIngest } from "../services/ai/rag-ingest";
 import { detectMime, ALLOWED_MIMES } from "../services/file-magic";
 import { uploadFile, getSignedDownloadUrl, isS3Enabled } from "../services/storage";
@@ -1311,7 +1312,7 @@ router.post(
             userId: order.patient.user.id,
             type: "LAB_RESULT_READY" as never,
             title: "URGENT: Critical lab result",
-            message: `Hi ${order.patient.user.name}, your lab order ${order.orderNumber} has critical value(s): ${paramList}. Please contact Dr. ${order.doctor?.user?.name ?? "your doctor"} immediately.`,
+            message: `Hi ${order.patient.user.name}, your lab order ${order.orderNumber} has critical value(s): ${paramList}. Please contact ${formatDoctorName(order.doctor?.user?.name) || "your doctor"} immediately.`,
             data: {
               orderId: order.id,
               orderNumber: order.orderNumber,

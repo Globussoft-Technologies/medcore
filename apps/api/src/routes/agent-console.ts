@@ -21,6 +21,7 @@ import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
+import { formatDoctorName } from "../lib/format-doctor-name";
 
 const router = Router();
 
@@ -407,7 +408,7 @@ router.post(
         (slotStart ? `&slotStart=${encodeURIComponent(slotStart)}` : "");
 
       const englishBody = [
-        `Suggested doctor: Dr. ${doctor.user?.name ?? "—"}`,
+        `Suggested doctor: ${formatDoctorName(doctor.user?.name) || "—"}`,
         `Specialty: ${doctor.specialization}`,
         slotLine,
         bookingHint,
@@ -511,7 +512,7 @@ router.post(
       }
 
       const content =
-        `[ESCALATION] Flagged to Dr. ${doctor.user?.name ?? "—"} ` +
+        `[ESCALATION] Flagged to ${formatDoctorName(doctor.user?.name) || "—"} ` +
         `(${doctor.specialization}) for follow-up` +
         (reason ? `: ${reason}` : ".");
 

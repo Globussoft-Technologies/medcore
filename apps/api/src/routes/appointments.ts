@@ -26,6 +26,7 @@ import {
 } from "../services/notification-triggers";
 import { auditLog } from "../middleware/audit";
 import { notifyNextInWaitlist } from "../services/waitlist";
+import { formatDoctorName } from "../lib/format-doctor-name";
 
 const router = Router();
 router.use(authenticate);
@@ -619,7 +620,7 @@ async function onAppointmentRescheduled(appointment: {
   });
   const timeStr = appointment.slotStart ? ` at ${appointment.slotStart}` : "";
   console.log(
-    `[notification] Appointment rescheduled: ${appointment.patient.user.name} with Dr. ${appointment.doctor.user.name} → ${dateStr}${timeStr} (Token #${appointment.tokenNumber})`
+    `[notification] Appointment rescheduled: ${appointment.patient.user.name} with ${formatDoctorName(appointment.doctor.user.name)} → ${dateStr}${timeStr} (Token #${appointment.tokenNumber})`
   );
 }
 
@@ -1245,7 +1246,7 @@ router.get(
       const uid = `${appointment.id}@medcore`;
       const doctorName = appointment.doctor.user.name;
       const patientName = appointment.patient.user.name;
-      const summary = `Appointment with Dr. ${doctorName}`;
+      const summary = `Appointment with ${formatDoctorName(doctorName)}`;
       const description = `Token #${appointment.tokenNumber}. Patient: ${patientName}. Status: ${appointment.status}.`;
 
       const esc = (s: string): string =>

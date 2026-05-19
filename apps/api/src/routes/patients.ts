@@ -15,6 +15,7 @@ import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
+import { formatDoctorName } from "../lib/format-doctor-name";
 
 const router = Router();
 
@@ -967,7 +968,7 @@ router.get(
         entries.push({
           id: `appt-${a.id}`,
           type: "appointment",
-          title: `Appointment with Dr. ${a.doctor?.user?.name || "—"}`,
+          title: `Appointment with ${formatDoctorName(a.doctor?.user?.name) || "—"}`,
           description: `${a.type} · ${a.status.replace(/_/g, " ")}${
             a.notes ? ` · ${a.notes}` : ""
           }`,
@@ -982,7 +983,7 @@ router.get(
         entries.push({
           id: `cons-${c.id}`,
           type: "consultation",
-          title: `Consultation with Dr. ${c.doctor?.user?.name || "—"}`,
+          title: `Consultation with ${formatDoctorName(c.doctor?.user?.name) || "—"}`,
           description:
             (c.findings ? `Findings: ${c.findings}` : "") +
             (c.notes ? (c.findings ? " · " : "") + `Notes: ${c.notes}` : ""),
@@ -1036,7 +1037,7 @@ router.get(
           id: `adm-in-${a.id}`,
           type: "admission",
           title: `Admitted — ${a.admissionNumber}`,
-          description: `${a.reason} · Dr. ${a.doctor?.user?.name || "—"} · Ward ${
+          description: `${a.reason} · ${formatDoctorName(a.doctor?.user?.name) || "—"} · Ward ${
             a.bed?.ward?.name || ""
           } Bed ${a.bed?.bedNumber || ""}`.trim(),
           timestamp: a.admittedAt.toISOString(),
@@ -1100,7 +1101,7 @@ router.get(
           id: `surg-${s.id}`,
           type: "surgery",
           title: `Surgery — ${s.procedure}`,
-          description: `${s.caseNumber} · Dr. ${s.surgeon?.user?.name || "—"} · ${s.status.replace(
+          description: `${s.caseNumber} · ${formatDoctorName(s.surgeon?.user?.name) || "—"} · ${s.status.replace(
             /_/g,
             " "
           )}`,

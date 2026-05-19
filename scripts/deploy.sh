@@ -640,6 +640,22 @@ else
     echo "  WARN — seed-phase4-ops failed (non-fatal). Investigate offline."
 fi
 
+# Step 9f (2026-05-19): seed-medicine-regulatory.ts — Issue #899 backfill of
+# regulatory + safety metadata on the medicines master (schedule, isNarcotic,
+# maxDailyDoseMg, contraindications). 87 medicines shipped with all four
+# fields empty; the Controlled Register module + maxDailyDose alert engine
+# had nothing to react to. The seed encodes Drugs & Cosmetics Act schedules
+# (H/H1/X) per generic for the common ~55 medicines on staging. Idempotent
+# (where-by-generic + targeted SET; re-runs are byte-identical no-ops).
+# Anything not in the canonical map is left untouched — null is safer than
+# wrong data for the long tail. Failures MUST NOT block the deploy.
+echo "=== 9f. Re-applying medicine regulatory metadata seed (Issue #899) ==="
+if DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-medicine-regulatory.ts; then
+    echo "  OK — medicine regulatory metadata re-seeded."
+else
+    echo "  WARN — seed-medicine-regulatory failed (non-fatal). Investigate offline."
+fi
+
 echo "=== Deployment complete (previous SHA recorded at /tmp/medcore-prev-sha) ==="
 
 # Optional: re-seed (destructive — triple-guarded; see env var below).

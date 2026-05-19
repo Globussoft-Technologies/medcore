@@ -61,8 +61,11 @@ export function ConfirmDialog({
   if (!open) return null;
 
   return (
+    // Issue #814 (May 2026): scrim was `bg-black/40` — too light against
+    // the dimmed dark-mode page. `bg-black/60` gives the dialog stronger
+    // focus in both themes.
     <div
-      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 p-4 no-print"
+      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 p-4 no-print"
       role="dialog"
       aria-modal="true"
       aria-labelledby="confirm-dialog-title"

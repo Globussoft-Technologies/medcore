@@ -41,6 +41,41 @@ router.use(authenticate);
 // as `{ user: { name, email, phone } }` (nested), so `u.name` etc. were
 // all undefined. This endpoint returns the exact shape the `StaffUser`
 // interface in apps/web/src/app/dashboard/users/page.tsx expects.
+// Issue #838 (May 2026): hide test-injection rows from the staff-list
+// response. The shared staging dataset has accumulated rows from prior
+// security testing (e.g. `attacker<digits>@evil.com`, `xsstest@…`,
+// names like `alert('xss')` or `<script>`). They render as legitimate
+// staff with ADMIN/DOCTOR roles and clutter Admin's User Management.
+// Mirrors the spirit of `maskPlaceholderEmail()` in routes/patients.ts
+// for `noemail+<MR>@medcore.invalid` — server-side hide instead of UI
+// flag, because (a) any UI badge requires a dedicated DB column and
+// (b) hiding them prevents accidental interaction with the test
+// accounts entirely.
+const TEST_INJECTION_EMAIL_PATTERNS = [
+  /@evil\./i,
+  /^xsstest@/i,
+  /^attacker/i,
+  /^injection/i,
+  /^xss[._-]?test/i,
+];
+const TEST_INJECTION_NAME_PATTERNS = [
+  /<script/i,
+  /alert\s*\(/i,
+  /onerror\s*=/i,
+  /javascript:/i,
+  /<img\b/i,
+];
+function looksLikeTestInjection(u: {
+  email: string | null;
+  name: string | null;
+}): boolean {
+  const email = u.email ?? "";
+  const name = u.name ?? "";
+  if (TEST_INJECTION_EMAIL_PATTERNS.some((re) => re.test(email))) return true;
+  if (TEST_INJECTION_NAME_PATTERNS.some((re) => re.test(name))) return true;
+  return false;
+}
+
 router.get(
   "/",
   authorize(Role.ADMIN),
@@ -72,7 +107,10 @@ router.get(
         },
         orderBy: [{ role: "asc" }, { name: "asc" }],
       });
-      res.json({ success: true, data: users, error: null });
+      // Issue #838: filter out test-injection rows so they don't sit
+      // alongside real staff in the shared staging dataset.
+      const filtered = users.filter((u) => !looksLikeTestInjection(u));
+      res.json({ success: true, data: filtered, error: null });
     } catch (err) {
       next(err);
     }

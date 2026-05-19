@@ -224,27 +224,33 @@ export function PatientEditModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 no-print"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 no-print"
       role="dialog"
       aria-modal="true"
       aria-labelledby="patient-edit-title"
       data-testid="patient-edit-modal"
       onClick={onClose}
     >
+      {/* Issue #814 (May 2026): global modal/drawer dark-mode pass.
+          PatientEditModal previously rendered a hard-coded white surface
+          inside the global dim scrim — fully unreadable in dark theme.
+          Every Tailwind colour token below now has a `dark:` pair so
+          the form, labels, inputs, footer borders, and footer buttons
+          all flip with the theme. */}
       <form
-        className="w-full max-w-2xl rounded-xl bg-white shadow-xl"
+        className="w-full max-w-2xl rounded-xl bg-white shadow-xl dark:bg-gray-800"
         onClick={(e) => e.stopPropagation()}
         onSubmit={submit}
       >
-        <div className="flex items-center justify-between border-b px-5 py-3">
-          <h3 id="patient-edit-title" className="font-semibold">
+        <div className="flex items-center justify-between border-b border-gray-200 px-5 py-3 dark:border-gray-700">
+          <h3 id="patient-edit-title" className="font-semibold text-gray-900 dark:text-gray-100">
             {t("patient.edit.title")}
           </h3>
           <button
             type="button"
             onClick={onClose}
             aria-label={t("patient.edit.cancel")}
-            className="text-gray-400 hover:text-gray-700"
+            className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
           >
             <X size={18} />
           </button>
@@ -253,7 +259,7 @@ export function PatientEditModal({
         <div className="max-h-[75vh] space-y-3 overflow-y-auto p-5">
           {/* MR Number — read only */}
           <div>
-            <label htmlFor="patient-edit-mr-number" className="text-xs text-gray-600">
+            <label htmlFor="patient-edit-mr-number" className="text-xs text-gray-600 dark:text-gray-300">
               {t("patient.edit.mrNumber")}
             </label>
             <input
@@ -263,16 +269,16 @@ export function PatientEditModal({
               value={patient.mrNumber}
               aria-readonly="true"
               data-testid="patient-edit-mrNumber"
-              className="w-full cursor-not-allowed rounded-md border bg-gray-50 px-3 py-2 font-mono text-sm text-gray-600"
+              className="w-full cursor-not-allowed rounded-md border border-gray-300 bg-gray-50 px-3 py-2 font-mono text-sm text-gray-600 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300"
             />
-            <p className="mt-1 text-xs text-gray-400">
+            <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
               {t("patient.edit.mrNumber.hint")}
             </p>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label htmlFor="patient-edit-name" className="text-xs text-gray-600">
+              <label htmlFor="patient-edit-name" className="text-xs text-gray-600 dark:text-gray-300">
                 {t("patient.edit.name")} *
               </label>
               <input
@@ -283,11 +289,11 @@ export function PatientEditModal({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 data-testid="patient-edit-field-name"
-                className="w-full rounded-md border px-3 py-2 text-sm"
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
               />
             </div>
             <div>
-              <label htmlFor="patient-edit-dob" className="text-xs text-gray-600">
+              <label htmlFor="patient-edit-dob" className="text-xs text-gray-600 dark:text-gray-300">
                 {t("patient.edit.dateOfBirth")}
               </label>
               <input
@@ -296,14 +302,14 @@ export function PatientEditModal({
                 value={dob}
                 onChange={(e) => setDob(e.target.value)}
                 data-testid="patient-edit-field-dateOfBirth"
-                className="w-full rounded-md border px-3 py-2 text-sm"
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label htmlFor="patient-edit-gender" className="text-xs text-gray-600">
+              <label htmlFor="patient-edit-gender" className="text-xs text-gray-600 dark:text-gray-300">
                 {t("patient.edit.gender")}
               </label>
               <select
@@ -311,7 +317,7 @@ export function PatientEditModal({
                 value={gender}
                 onChange={(e) => setGender(e.target.value)}
                 data-testid="patient-edit-field-gender"
-                className="w-full rounded-md border px-3 py-2 text-sm"
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
               >
                 <option value="MALE">{t("patient.edit.gender.male")}</option>
                 <option value="FEMALE">
@@ -321,7 +327,7 @@ export function PatientEditModal({
               </select>
             </div>
             <div>
-              <label htmlFor="patient-edit-blood-group" className="text-xs text-gray-600">
+              <label htmlFor="patient-edit-blood-group" className="text-xs text-gray-600 dark:text-gray-300">
                 {t("patient.edit.bloodGroup")}
               </label>
               <select
@@ -329,7 +335,7 @@ export function PatientEditModal({
                 value={bloodGroup}
                 onChange={(e) => setBloodGroup(e.target.value)}
                 data-testid="patient-edit-field-bloodGroup"
-                className="w-full rounded-md border px-3 py-2 text-sm"
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
               >
                 <option value="">{t("patient.edit.bloodGroup.none")}</option>
                 {BLOOD_GROUPS.map((bg) => (
@@ -343,7 +349,7 @@ export function PatientEditModal({
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label htmlFor="patient-edit-phone" className="text-xs text-gray-600">
+              <label htmlFor="patient-edit-phone" className="text-xs text-gray-600 dark:text-gray-300">
                 {t("patient.edit.phone")} *
               </label>
               <input
@@ -354,11 +360,11 @@ export function PatientEditModal({
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 data-testid="patient-edit-field-phone"
-                className="w-full rounded-md border px-3 py-2 text-sm"
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
               />
             </div>
             <div>
-              <label htmlFor="patient-edit-email" className="text-xs text-gray-600">
+              <label htmlFor="patient-edit-email" className="text-xs text-gray-600 dark:text-gray-300">
                 {t("patient.edit.email")}
               </label>
               <input
@@ -367,13 +373,13 @@ export function PatientEditModal({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 data-testid="patient-edit-field-email"
-                className="w-full rounded-md border px-3 py-2 text-sm"
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
               />
             </div>
           </div>
 
           <div>
-            <label htmlFor="patient-edit-address" className="text-xs text-gray-600">
+            <label htmlFor="patient-edit-address" className="text-xs text-gray-600 dark:text-gray-300">
               {t("patient.edit.address")}
             </label>
             <textarea
@@ -382,13 +388,13 @@ export function PatientEditModal({
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               data-testid="patient-edit-field-address"
-              className="w-full rounded-md border px-3 py-2 text-sm"
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
             />
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label htmlFor="patient-edit-emergency-contact-name" className="text-xs text-gray-600">
+              <label htmlFor="patient-edit-emergency-contact-name" className="text-xs text-gray-600 dark:text-gray-300">
                 {t("patient.edit.emergencyContact")}
               </label>
               <input
@@ -397,11 +403,11 @@ export function PatientEditModal({
                 value={emergencyContactName}
                 onChange={(e) => setEmergencyName(e.target.value)}
                 data-testid="patient-edit-field-emergencyContactName"
-                className="w-full rounded-md border px-3 py-2 text-sm"
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
               />
             </div>
             <div>
-              <label htmlFor="patient-edit-emergency-contact-phone" className="text-xs text-gray-600">
+              <label htmlFor="patient-edit-emergency-contact-phone" className="text-xs text-gray-600 dark:text-gray-300">
                 {t("patient.edit.emergencyPhone")}
               </label>
               <input
@@ -410,7 +416,7 @@ export function PatientEditModal({
                 value={emergencyContactPhone}
                 onChange={(e) => setEmergencyPhone(e.target.value)}
                 data-testid="patient-edit-field-emergencyContactPhone"
-                className="w-full rounded-md border px-3 py-2 text-sm"
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
               />
             </div>
           </div>
@@ -423,7 +429,7 @@ export function PatientEditModal({
             <div>
               <label
                 htmlFor="patient-edit-insurance-provider"
-                className="text-xs text-gray-600"
+                className="text-xs text-gray-600 dark:text-gray-300"
               >
                 Insurance Provider
               </label>
@@ -434,13 +440,13 @@ export function PatientEditModal({
                 onChange={(e) => setInsuranceProvider(e.target.value)}
                 placeholder="e.g. Star Health, ICICI Lombard"
                 data-testid="patient-edit-field-insuranceProvider"
-                className="w-full rounded-md border px-3 py-2 text-sm"
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
               />
             </div>
             <div>
               <label
                 htmlFor="patient-edit-insurance-policy-number"
-                className="text-xs text-gray-600"
+                className="text-xs text-gray-600 dark:text-gray-300"
               >
                 Policy Number
               </label>
@@ -451,14 +457,14 @@ export function PatientEditModal({
                 onChange={(e) => setInsurancePolicyNumber(e.target.value)}
                 placeholder="Policy / member ID"
                 data-testid="patient-edit-field-insurancePolicyNumber"
-                className="w-full rounded-md border px-3 py-2 text-sm"
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
               />
             </div>
           </div>
 
           {err && (
             <p
-              className="text-sm text-red-600"
+              className="text-sm text-red-600 dark:text-red-400"
               role="alert"
               data-testid="patient-edit-error"
             >
@@ -467,12 +473,12 @@ export function PatientEditModal({
           )}
         </div>
 
-        <div className="flex justify-end gap-2 border-t px-5 py-3">
+        <div className="flex justify-end gap-2 border-t border-gray-200 px-5 py-3 dark:border-gray-700">
           <button
             type="button"
             onClick={onClose}
             data-testid="patient-edit-cancel"
-            className="rounded-md border px-3 py-1.5 text-sm"
+            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600"
           >
             {t("patient.edit.cancel")}
           </button>
@@ -480,7 +486,7 @@ export function PatientEditModal({
             type="submit"
             disabled={saving || !valid}
             data-testid="patient-edit-save"
-            className="rounded-md bg-primary px-3 py-1.5 text-sm text-white hover:opacity-90 disabled:opacity-50"
+            className="rounded-md bg-primary px-3 py-1.5 text-sm text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? t("patient.edit.saving") : t("patient.edit.save")}
           </button>

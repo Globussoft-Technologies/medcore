@@ -264,14 +264,22 @@ export default function BroadcastsPage() {
                 {CHANNELS.map((c) => {
                   const Icon = c.icon;
                   const active = channels.includes(c.value);
+                  // Issue #834 (May 2026): inactive chips were nearly
+                  // invisible — a near-white pill with a thin grey border
+                  // on a white card. Give them a clearly readable filled
+                  // surface (`bg-gray-100`) plus a darker border, and pair
+                  // with the dark-mode equivalents. Active chip keeps the
+                  // primary fill so the contrast between states is large.
                   return (
                     <button
                       key={c.value}
                       onClick={() => toggleChannel(c.value)}
-                      className={`flex items-center gap-1 rounded-lg border px-3 py-1.5 text-sm transition ${
+                      aria-pressed={active}
+                      data-testid={`channel-chip-${c.value}`}
+                      className={`flex items-center gap-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
                         active
-                          ? "border-primary bg-primary text-white"
-                          : "bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+                          ? "border-primary bg-primary text-white shadow-sm"
+                          : "border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
                       }`}
                     >
                       <Icon size={14} />
@@ -301,10 +309,16 @@ export default function BroadcastsPage() {
                 />
               )}
             </div>
+            {/* Issue #834: the disabled state previously used only
+                `opacity-50` against the primary fill — on a white card
+                the result read as "light primary / active CTA". Stack
+                `disabled:cursor-not-allowed` + a desaturated grey fill
+                so the disabled state is unambiguously inert. */}
             <button
               onClick={send}
               disabled={sending || !title || !message || channels.length === 0}
-              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+              data-testid="broadcast-send"
+              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-500 disabled:opacity-100 dark:disabled:bg-gray-700 dark:disabled:text-gray-400"
             >
               <Send size={16} />
               {sending ? "Sending..." : scheduleLater ? "Schedule" : "Send Now"}

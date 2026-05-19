@@ -75,7 +75,7 @@ export function PromptDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 p-4 no-print"
+      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 p-4 no-print"
       role="dialog"
       aria-modal="true"
       aria-labelledby="prompt-dialog-title"

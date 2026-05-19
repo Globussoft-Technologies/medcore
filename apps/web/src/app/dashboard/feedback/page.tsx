@@ -180,12 +180,26 @@ export default function FeedbackPage() {
   if (user && !FEEDBACK_ANALYTICS_ALLOWED.has(user.role)) return null;
 
   const nps = summary?.npsScore ?? 0;
-  const npsColor =
+  // Issue #835 (May 2026): the NPS tile previously used the sentiment
+  // colour as the WHOLE-tile background, while the sibling "Overall Avg
+  // Rating" and "Feedback Count" tiles were plain neutral white. The
+  // result was a saturated yellow card screaming "warning" even when the
+  // score wasn't bad, and a generally inconsistent KPI row. Fix: keep
+  // the tile surface neutral (matches siblings), express sentiment via
+  // a small inline badge + number colour only.
+  const npsNumberColor =
+    nps > 50
+      ? "text-green-700 dark:text-green-300"
+      : nps >= 0
+        ? "text-amber-700 dark:text-amber-300"
+        : "text-red-700 dark:text-red-300";
+  const npsBadgeColor =
     nps > 50
       ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
       : nps >= 0
-        ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300"
+        ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
         : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300";
+  const npsBadgeLabel = nps > 50 ? "Good" : nps >= 0 ? "Mixed" : "Poor";
 
   const thisMonthCount =
     summary?.trend?.[summary.trend.length - 1]?.count ?? 0;
@@ -201,10 +215,27 @@ export default function FeedbackPage() {
 
       {/* Summary cards */}
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className={`rounded-xl p-5 shadow-sm ${npsColor}`}>
-          <p className="text-xs font-medium opacity-80">NPS Score</p>
-          <p className="mt-1 text-3xl font-bold">{nps}</p>
-          <p className="mt-1 text-xs opacity-70">
+        {/* Issue #835: tile surface is neutral and matches siblings; the
+            number itself and a small badge carry the sentiment colour. */}
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              NPS Score
+            </p>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${npsBadgeColor}`}
+              data-testid="nps-sentiment-badge"
+            >
+              {npsBadgeLabel}
+            </span>
+          </div>
+          <p
+            className={`mt-1 text-3xl font-bold ${npsNumberColor}`}
+            data-testid="nps-score-value"
+          >
+            {nps}
+          </p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             {summary?.promoters || 0} promoters,{" "}
             {summary?.detractors || 0} detractors ({summary?.npsSampleSize || 0}{" "}
             responses)

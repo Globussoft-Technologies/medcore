@@ -146,8 +146,8 @@ export default function AssetsPage() {
   return (
     <div>
       <div className="mb-6 flex items-center gap-3">
-        <Wrench className="text-gray-700" size={28} />
-        <h1 className="text-2xl font-bold">Asset Management</h1>
+        <Wrench className="text-gray-700 dark:text-gray-300" size={28} />
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Asset Management</h1>
         <div className="ml-auto flex gap-2">
           {canManage && (
             <button
@@ -162,26 +162,31 @@ export default function AssetsPage() {
 
       {/* Header stats */}
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <div className="rounded-lg bg-white p-4 shadow">
-          <p className="text-xs text-gray-600">Total Assets</p>
-          <p className="text-2xl font-bold text-gray-900">{totalAssets}</p>
+        <div className="rounded-lg bg-white p-4 shadow dark:bg-gray-800">
+          <p className="text-xs text-gray-600 dark:text-gray-400">Total Assets</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{totalAssets}</p>
         </div>
-        <div className="rounded-lg bg-white p-4 shadow">
-          <p className="text-xs text-gray-600">In Use</p>
-          <p className="text-2xl font-bold text-blue-600">{inUse}</p>
+        <div className="rounded-lg bg-white p-4 shadow dark:bg-gray-800">
+          <p className="text-xs text-gray-600 dark:text-gray-400">In Use</p>
+          <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{inUse}</p>
         </div>
-        <div className="rounded-lg bg-white p-4 shadow">
-          <p className="text-xs text-gray-600">Under Maintenance</p>
-          <p className="text-2xl font-bold text-yellow-600">{underMaint}</p>
+        <div className="rounded-lg bg-white p-4 shadow dark:bg-gray-800">
+          <p className="text-xs text-gray-600 dark:text-gray-400">Under Maintenance</p>
+          <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{underMaint}</p>
         </div>
-        <div className="rounded-lg bg-white p-4 shadow">
-          <p className="text-xs text-gray-600">Warranty Expiring</p>
-          <p className="text-2xl font-bold text-red-600">{warrantyAlerts.length}</p>
+        <div className="rounded-lg bg-white p-4 shadow dark:bg-gray-800">
+          <p className="text-xs text-gray-600 dark:text-gray-400">Warranty Expiring</p>
+          <p className="text-2xl font-bold text-red-600 dark:text-red-400">{warrantyAlerts.length}</p>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="mb-4 flex gap-2 border-b">
+      {/* Tabs — Issue #833: the inactive variant was `text-gray-600
+          hover:text-gray-900` which on the dark surface dropped to ~3:1
+          contrast (fails WCAG AA). Pair both states with dark variants so
+          the underline + active label stays readable on both themes. The
+          bottom-border container also needs `dark:border-gray-700` so the
+          inactive tab strip doesn't terminate at an invisible edge. */}
+      <div className="mb-4 flex gap-2 border-b dark:border-gray-700">
         {(["all", "assigned", "idle", "maintenance", "warranty"] as Tab[]).map(
           (t) => (
             <button
@@ -189,8 +194,8 @@ export default function AssetsPage() {
               onClick={() => setTab(t)}
               className={`px-4 py-2 text-sm font-medium capitalize ${
                 tab === t
-                  ? "border-b-2 border-blue-600 text-blue-600"
-                  : "text-gray-600 hover:text-gray-900"
+                  ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400"
+                  : "text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
               }`}
             >
               {t === "warranty" ? "Warranty Alerts" : t}
@@ -200,7 +205,7 @@ export default function AssetsPage() {
       </div>
 
       {tab !== "warranty" && (
-        <div className="mb-3 flex items-center gap-2 rounded border bg-white px-3 py-2">
+        <div className="mb-3 flex items-center gap-2 rounded border bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
           <Search size={16} className="text-gray-400" />
           <input
             type="text"
@@ -208,11 +213,11 @@ export default function AssetsPage() {
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && load()}
             placeholder="Search by name, tag, serial"
-            className="flex-1 outline-none"
+            className="flex-1 bg-transparent outline-none dark:text-gray-100 dark:placeholder:text-gray-500"
           />
           <button
             onClick={load}
-            className="rounded bg-gray-100 px-3 py-1 text-xs"
+            className="rounded bg-gray-100 px-3 py-1 text-xs dark:bg-gray-700 dark:text-gray-200"
           >
             Search
           </button>
@@ -220,11 +225,11 @@ export default function AssetsPage() {
       )}
 
       {loading ? (
-        <p className="text-gray-500">Loading...</p>
+        <p className="text-gray-500 dark:text-gray-400">Loading...</p>
       ) : (
-        <div className="rounded-lg bg-white shadow">
+        <div className="rounded-lg bg-white shadow dark:bg-gray-800">
           <table className="w-full text-sm">
-            <thead className="border-b bg-gray-50 text-left text-xs uppercase text-gray-500">
+            <thead className="border-b bg-gray-50 text-left text-xs uppercase text-gray-500 dark:border-gray-700 dark:bg-gray-700 dark:text-gray-300">
               <tr>
                 <th className="p-3">Tag</th>
                 <th className="p-3">Name</th>
@@ -250,13 +255,13 @@ export default function AssetsPage() {
                 return (
                   <tr
                     key={a.id}
-                    className="border-b hover:bg-gray-50 cursor-pointer"
+                    className="border-b hover:bg-gray-50 cursor-pointer dark:border-gray-700 dark:hover:bg-gray-700/50"
                     onClick={() => openAssetDetail(a)}
                   >
-                    <td className="p-3 font-mono text-xs text-gray-800">{a.assetTag}</td>
-                    <td className="p-3 font-medium text-gray-900">{a.name}</td>
-                    <td className="p-3 text-gray-800">{a.category}</td>
-                    <td className="p-3 text-xs text-gray-600">{a.location || "—"}</td>
+                    <td className="p-3 font-mono text-xs text-gray-800 dark:text-gray-200">{a.assetTag}</td>
+                    <td className="p-3 font-medium text-gray-900 dark:text-gray-100">{a.name}</td>
+                    <td className="p-3 text-gray-800 dark:text-gray-200">{a.category}</td>
+                    <td className="p-3 text-xs text-gray-600 dark:text-gray-400">{a.location || "—"}</td>
                     <td className="p-3">
                       <span
                         className={`rounded px-2 py-0.5 text-xs ${
@@ -266,11 +271,11 @@ export default function AssetsPage() {
                         {a.status.replace(/_/g, " ")}
                       </span>
                     </td>
-                    <td className="p-3 text-xs text-gray-800">
+                    <td className="p-3 text-xs text-gray-800 dark:text-gray-200">
                       {active?.assignee?.name || "—"}
                     </td>
                     {tab === "warranty" && (
-                      <td className="p-3 text-xs text-red-600">
+                      <td className="p-3 text-xs text-red-600 dark:text-red-400">
                         {a.warrantyExpiry
                           ? new Date(a.warrantyExpiry).toLocaleDateString()
                           : "—"}
@@ -299,7 +304,7 @@ export default function AssetsPage() {
               })}
               {displayList.length === 0 && (
                 <tr>
-                  <td colSpan={tab === "warranty" ? 8 : 7} className="p-6 text-center text-gray-400">
+                  <td colSpan={tab === "warranty" ? 8 : 7} className="p-6 text-center text-gray-400 dark:text-gray-500">
                     No assets
                   </td>
                 </tr>
@@ -310,10 +315,10 @@ export default function AssetsPage() {
       )}
 
       {maintDue.length > 0 && tab === "maintenance" && (
-        <div className="mt-4 rounded border-l-4 border-yellow-500 bg-yellow-50 p-4">
+        <div className="mt-4 rounded border-l-4 border-yellow-500 bg-yellow-50 p-4 dark:bg-yellow-900/20">
           <div className="flex items-center gap-2">
-            <AlertTriangle size={16} className="text-yellow-700" />
-            <p className="font-medium text-yellow-800">
+            <AlertTriangle size={16} className="text-yellow-700 dark:text-yellow-300" />
+            <p className="font-medium text-yellow-800 dark:text-yellow-200">
               {maintDue.length} assets have maintenance due in the next 30 days
             </p>
           </div>
@@ -323,23 +328,23 @@ export default function AssetsPage() {
       {/* Side panel */}
       {selectedAsset && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/50">
-          <div className="h-full w-full max-w-lg overflow-auto bg-white p-6">
+          <div className="h-full w-full max-w-lg overflow-auto bg-white p-6 dark:bg-gray-800">
             <div className="mb-4 flex items-start justify-between">
               <div>
-                <h2 className="text-xl font-bold">{selectedAsset.name}</h2>
-                <p className="font-mono text-xs text-gray-500">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">{selectedAsset.name}</h2>
+                <p className="font-mono text-xs text-gray-500 dark:text-gray-400">
                   {selectedAsset.assetTag}
                 </p>
               </div>
               <button
                 onClick={() => setSelectedAsset(null)}
-                className="text-gray-400"
+                className="text-gray-400 dark:text-gray-500"
               >
                 ✕
               </button>
             </div>
 
-            <div className="mb-4 space-y-1 text-sm">
+            <div className="mb-4 space-y-1 text-sm text-gray-800 dark:text-gray-200">
               <div>
                 <strong>Category:</strong> {selectedAsset.category}
               </div>
@@ -387,15 +392,15 @@ export default function AssetsPage() {
               </div>
             </div>
 
-            <h3 className="mb-2 font-semibold">Assignment History</h3>
+            <h3 className="mb-2 font-semibold text-gray-900 dark:text-gray-100">Assignment History</h3>
             <div className="mb-4 space-y-2">
               {selectedAsset.assignments?.length === 0 && (
-                <p className="text-xs text-gray-400">No assignments</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">No assignments</p>
               )}
               {selectedAsset.assignments?.map((as) => (
-                <div key={as.id} className="rounded border p-2 text-xs">
+                <div key={as.id} className="rounded border p-2 text-xs dark:border-gray-700 dark:text-gray-200">
                   <div className="font-medium">{as.assignee?.name}</div>
-                  <div className="text-gray-500">
+                  <div className="text-gray-500 dark:text-gray-400">
                     {new Date(as.assignedAt).toLocaleDateString()}
                     {as.returnedAt
                       ? ` → ${new Date(as.returnedAt).toLocaleDateString()}`
@@ -418,23 +423,23 @@ export default function AssetsPage() {
                 )}
             </div>
 
-            <h3 className="mb-2 font-semibold">Maintenance History</h3>
+            <h3 className="mb-2 font-semibold text-gray-900 dark:text-gray-100">Maintenance History</h3>
             <div className="space-y-2">
               {selectedAsset.maintenance?.length === 0 && (
-                <p className="text-xs text-gray-400">No maintenance logs</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">No maintenance logs</p>
               )}
               {selectedAsset.maintenance?.map((m) => (
-                <div key={m.id} className="rounded border p-2 text-xs">
+                <div key={m.id} className="rounded border p-2 text-xs dark:border-gray-700">
                   <div className="flex justify-between">
-                    <span className="font-medium">{m.type}</span>
-                    <span className="text-gray-500">
+                    <span className="font-medium text-gray-900 dark:text-gray-100">{m.type}</span>
+                    <span className="text-gray-500 dark:text-gray-400">
                       {new Date(m.performedAt).toLocaleDateString()}
                     </span>
                   </div>
-                  <div className="text-gray-700">{m.description}</div>
-                  {m.vendor && <div className="text-gray-500">Vendor: {m.vendor}</div>}
+                  <div className="text-gray-700 dark:text-gray-300">{m.description}</div>
+                  {m.vendor && <div className="text-gray-500 dark:text-gray-400">Vendor: {m.vendor}</div>}
                   {m.nextDueDate && (
-                    <div className="text-gray-500">
+                    <div className="text-gray-500 dark:text-gray-400">
                       Next due: {new Date(m.nextDueDate).toLocaleDateString()}
                     </div>
                   )}
@@ -532,26 +537,26 @@ function AddAssetModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-auto rounded-lg bg-white p-6">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-auto rounded-lg bg-white p-6 dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold">Add Asset</h2>
-          <button onClick={onClose} className="text-gray-400">✕</button>
+          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Add Asset</h2>
+          <button onClick={onClose} className="text-gray-400 dark:text-gray-500">✕</button>
         </div>
         <div className="space-y-3">
           <input
             placeholder="Asset Tag (e.g. ASSET-001)"
-            className="w-full rounded border p-2"
+            className="w-full rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             value={form.assetTag}
             onChange={(e) => setForm({ ...form, assetTag: e.target.value })}
           />
           <input
             placeholder="Name"
-            className="w-full rounded border p-2"
+            className="w-full rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
           <select
-            className="w-full rounded border p-2"
+            className="w-full rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             value={form.category}
             onChange={(e) => setForm({ ...form, category: e.target.value })}
           >
@@ -564,30 +569,30 @@ function AddAssetModal({
           <div className="grid grid-cols-2 gap-3">
             <input
               placeholder="Manufacturer"
-              className="rounded border p-2"
+              className="rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               value={form.manufacturer}
               onChange={(e) => setForm({ ...form, manufacturer: e.target.value })}
             />
             <input
               placeholder="Model Number"
-              className="rounded border p-2"
+              className="rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               value={form.modelNumber}
               onChange={(e) => setForm({ ...form, modelNumber: e.target.value })}
             />
           </div>
           <input
             placeholder="Serial Number"
-            className="w-full rounded border p-2"
+            className="w-full rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             value={form.serialNumber}
             onChange={(e) => setForm({ ...form, serialNumber: e.target.value })}
           />
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label htmlFor="add-asset-purchase-date" className="text-xs text-gray-600">Purchase Date</label>
+              <label htmlFor="add-asset-purchase-date" className="text-xs text-gray-600 dark:text-gray-400">Purchase Date</label>
               <input
                 id="add-asset-purchase-date"
                 type="date"
-                className="w-full rounded border p-2"
+                className="w-full rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                 value={form.purchaseDate}
                 onChange={(e) =>
                   setForm({ ...form, purchaseDate: e.target.value })
@@ -595,11 +600,11 @@ function AddAssetModal({
               />
             </div>
             <div>
-              <label htmlFor="add-asset-purchase-cost" className="text-xs text-gray-600">Cost (₹)</label>
+              <label htmlFor="add-asset-purchase-cost" className="text-xs text-gray-600 dark:text-gray-400">Cost (₹)</label>
               <input
                 id="add-asset-purchase-cost"
                 type="number"
-                className="w-full rounded border p-2"
+                className="w-full rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                 value={form.purchaseCost}
                 onChange={(e) =>
                   setForm({ ...form, purchaseCost: e.target.value })
@@ -609,11 +614,11 @@ function AddAssetModal({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label htmlFor="add-asset-warranty-expiry" className="text-xs text-gray-600">Warranty Expiry</label>
+              <label htmlFor="add-asset-warranty-expiry" className="text-xs text-gray-600 dark:text-gray-400">Warranty Expiry</label>
               <input
                 id="add-asset-warranty-expiry"
                 type="date"
-                className="w-full rounded border p-2"
+                className="w-full rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                 value={form.warrantyExpiry}
                 onChange={(e) =>
                   setForm({ ...form, warrantyExpiry: e.target.value })
@@ -621,11 +626,11 @@ function AddAssetModal({
               />
             </div>
             <div>
-              <label htmlFor="add-asset-amc-expiry" className="text-xs text-gray-600">AMC Expiry</label>
+              <label htmlFor="add-asset-amc-expiry" className="text-xs text-gray-600 dark:text-gray-400">AMC Expiry</label>
               <input
                 id="add-asset-amc-expiry"
                 type="date"
-                className="w-full rounded border p-2"
+                className="w-full rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                 value={form.amcExpiryDate}
                 onChange={(e) =>
                   setForm({ ...form, amcExpiryDate: e.target.value })
@@ -636,26 +641,26 @@ function AddAssetModal({
           <div className="grid grid-cols-2 gap-3">
             <input
               placeholder="Location"
-              className="rounded border p-2"
+              className="rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               value={form.location}
               onChange={(e) => setForm({ ...form, location: e.target.value })}
             />
             <input
               placeholder="Department"
-              className="rounded border p-2"
+              className="rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               value={form.department}
               onChange={(e) => setForm({ ...form, department: e.target.value })}
             />
           </div>
           <input
             placeholder="AMC Provider"
-            className="w-full rounded border p-2"
+            className="w-full rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             value={form.amcProvider}
             onChange={(e) => setForm({ ...form, amcProvider: e.target.value })}
           />
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded border px-4 py-2 text-sm">
+          <button onClick={onClose} className="rounded border px-4 py-2 text-sm dark:border-gray-600 dark:text-gray-200">
             Cancel
           </button>
           <button
@@ -717,14 +722,14 @@ function AssignModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-lg bg-white p-6">
+      <div className="w-full max-w-md rounded-lg bg-white p-6 dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold">Assign {asset.name}</h2>
-          <button onClick={onClose} className="text-gray-400">✕</button>
+          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Assign {asset.name}</h2>
+          <button onClick={onClose} className="text-gray-400 dark:text-gray-500">✕</button>
         </div>
         <div className="space-y-3">
           <select
-            className="w-full rounded border p-2"
+            className="w-full rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             value={assignedTo}
             onChange={(e) => setAssignedTo(e.target.value)}
           >
@@ -737,20 +742,20 @@ function AssignModal({
           </select>
           <input
             placeholder="Location"
-            className="w-full rounded border p-2"
+            className="w-full rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             value={location}
             onChange={(e) => setLocation(e.target.value)}
           />
           <textarea
             placeholder="Notes"
-            className="w-full rounded border p-2"
+            className="w-full rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             rows={2}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
           />
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded border px-4 py-2 text-sm">
+          <button onClick={onClose} className="rounded border px-4 py-2 text-sm dark:border-gray-600 dark:text-gray-200">
             Cancel
           </button>
           <button
@@ -803,14 +808,14 @@ function MaintenanceModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-lg bg-white p-6">
+      <div className="w-full max-w-md rounded-lg bg-white p-6 dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold">Log Maintenance — {asset.name}</h2>
-          <button onClick={onClose} className="text-gray-400">✕</button>
+          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Log Maintenance — {asset.name}</h2>
+          <button onClick={onClose} className="text-gray-400 dark:text-gray-500">✕</button>
         </div>
         <div className="space-y-3">
           <select
-            className="w-full rounded border p-2"
+            className="w-full rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             value={type}
             onChange={(e) => setType(e.target.value)}
           >
@@ -822,37 +827,37 @@ function MaintenanceModal({
           </select>
           <input
             placeholder="Vendor"
-            className="w-full rounded border p-2"
+            className="w-full rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             value={vendor}
             onChange={(e) => setVendor(e.target.value)}
           />
           <input
             type="number"
             placeholder="Cost (₹)"
-            className="w-full rounded border p-2"
+            className="w-full rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             value={cost}
             onChange={(e) => setCost(e.target.value)}
           />
           <textarea
             placeholder="Description"
-            className="w-full rounded border p-2"
+            className="w-full rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             rows={2}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
           <div>
-            <label htmlFor="maintenance-next-due-date" className="text-xs text-gray-600">Next due date</label>
+            <label htmlFor="maintenance-next-due-date" className="text-xs text-gray-600 dark:text-gray-400">Next due date</label>
             <input
               id="maintenance-next-due-date"
               type="date"
-              className="w-full rounded border p-2"
+              className="w-full rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               value={nextDueDate}
               onChange={(e) => setNextDueDate(e.target.value)}
             />
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded border px-4 py-2 text-sm">
+          <button onClick={onClose} className="rounded border px-4 py-2 text-sm dark:border-gray-600 dark:text-gray-200">
             Cancel
           </button>
           <button

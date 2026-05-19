@@ -369,7 +369,7 @@ export default function AdminConsolePage() {
   if (isLoading) {
     return (
       <div
-        className="flex items-center justify-center p-12 text-sm text-gray-700"
+        className="flex items-center justify-center p-12 text-sm text-gray-700 dark:text-gray-300"
         role="status"
         aria-live="polite"
         aria-busy="true"
@@ -381,7 +381,7 @@ export default function AdminConsolePage() {
 
   if (!user || user.role !== "ADMIN") {
     return (
-      <div className="p-8 text-center text-gray-700">
+      <div className="p-8 text-center text-gray-700 dark:text-gray-300">
         Admin Console restricted to administrators.
       </div>
     );
@@ -453,8 +453,8 @@ export default function AdminConsolePage() {
     <div className="space-y-4">
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Admin Console</h1>
-          <p className="text-sm text-gray-700">Command center for hospital operations</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Admin Console</h1>
+          <p className="text-sm text-gray-700 dark:text-gray-300">Command center for hospital operations</p>
           {/* Issue #744: render tenant identity by FRIENDLY name + short
               slug rather than the raw UUID `clinicId` that this page used
               to surface in toast errors and debug breadcrumbs. The
@@ -463,12 +463,12 @@ export default function AdminConsolePage() {
               with no meaning at this surface. */}
           {tenant && (
             <p
-              className="mt-1 text-xs text-gray-600"
+              className="mt-1 text-xs text-gray-600 dark:text-gray-400"
               data-testid="admin-console-tenant-banner"
             >
-              <span className="font-medium text-gray-800">{tenant.name}</span>{" "}
+              <span className="font-medium text-gray-800 dark:text-gray-200">{tenant.name}</span>{" "}
               <span className="font-mono">(#{tenant.subdomain})</span>
-              <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-gray-600">
+              <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-gray-600 dark:bg-gray-700 dark:text-gray-300">
                 {tenant.plan}
               </span>
             </p>
@@ -479,14 +479,14 @@ export default function AdminConsolePage() {
             Using --color-primary-dark (#1d4ed8 = blue-700) on the same tint
             lifts the ratio to ~5.4:1 while preserving the badge's visual
             identity. */}
-        <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-blue-800">
+        <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-blue-800 dark:text-blue-200">
           ADMIN
         </span>
       </div>
 
       {/* System Health */}
-      <div className="rounded-xl bg-white p-4 shadow-sm">
-        <h2 className="mb-3 text-sm font-semibold text-gray-700">System Health</h2>
+      <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+        <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">System Health</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
           <Health
             Icon={Server}
@@ -527,13 +527,13 @@ export default function AdminConsolePage() {
             actionable breakdown rather than just a raw count so ops can
             tell bot-scraping apart from a real auth-service outage. */}
         {errorCount > 0 && errorBreakdown.length > 0 && (
-          <div className="mt-4 border-t pt-3" data-testid="error-breakdown">
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-700">
+          <div className="mt-4 border-t pt-3 dark:border-gray-700" data-testid="error-breakdown">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-200">
               Error breakdown (last 1h, top {errorBreakdown.length})
             </h3>
-            <div className="overflow-hidden rounded-lg border border-gray-200">
+            <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
               <table className="w-full text-xs">
-                <thead className="bg-gray-50 text-left text-[11px] uppercase tracking-wide text-gray-600">
+                <thead className="bg-gray-50 text-left text-[11px] uppercase tracking-wide text-gray-600 dark:bg-gray-700 dark:text-gray-300">
                   <tr>
                     <th className="p-2">Action</th>
                     <th className="p-2">Count</th>
@@ -548,7 +548,7 @@ export default function AdminConsolePage() {
                       row.uniqueIps > 0 &&
                       row.count / row.uniqueIps >= 20;
                     return (
-                      <tr key={row.action} className="border-t border-gray-100">
+                      <tr key={row.action} className="border-t border-gray-100 dark:border-gray-700 dark:text-gray-200">
                         <td className="p-2 font-mono text-[11px]">
                           <Link
                             href={`/dashboard/audit?action=${encodeURIComponent(
@@ -562,7 +562,7 @@ export default function AdminConsolePage() {
                         <td className="p-2 font-semibold">
                           {row.count.toLocaleString("en-IN")}
                           {likelyBot && (
-                            <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                            <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
                               likely bot traffic
                             </span>
                           )}
@@ -583,12 +583,12 @@ export default function AdminConsolePage() {
                                   (#4b5563) for ~7.5:1 against the white card
                                   background. Per ARCHITECTURE.md this closes
                                   the admin-console color-contrast tech debt. */}
-                              <span className="ml-1 text-gray-600">
+                              <span className="ml-1 text-gray-600 dark:text-gray-400">
                                 ({row.topIpCount})
                               </span>
                             </>
                           ) : (
-                            <span className="text-gray-600">—</span>
+                            <span className="text-gray-600 dark:text-gray-400">—</span>
                           )}
                         </td>
                       </tr>
@@ -602,8 +602,8 @@ export default function AdminConsolePage() {
       </div>
 
       {/* Critical Alerts */}
-      <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-        <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-red-800">
+      <div className="rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-900/20">
+        <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-red-800 dark:text-red-300">
           <AlertTriangle size={16} /> Critical Alerts
         </h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -635,8 +635,8 @@ export default function AdminConsolePage() {
       </div>
 
       {/* Today snapshot */}
-      <div className="rounded-xl bg-white p-4 shadow-sm">
-        <h2 className="mb-3 text-sm font-semibold text-gray-700">Today Snapshot</h2>
+      <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+        <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">Today Snapshot</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <Snap Icon={Users} label="Registered" value={overview?.newPatients ?? 0} />
           <Snap Icon={BedDouble} label="Admissions" value={overview?.admissions ?? 0} />
@@ -665,8 +665,8 @@ export default function AdminConsolePage() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Pending Approvals */}
-        <div className="rounded-xl bg-white p-4 shadow-sm">
-          <h2 className="mb-3 text-sm font-semibold text-gray-700">
+        <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+          <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">
             Pending Approvals
           </h2>
 
@@ -711,8 +711,8 @@ export default function AdminConsolePage() {
         </div>
 
         {/* Resource Usage */}
-        <div className="rounded-xl bg-white p-4 shadow-sm">
-          <h2 className="mb-3 text-sm font-semibold text-gray-700">Resource Usage</h2>
+        <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+          <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">Resource Usage</h2>
           <div className="space-y-3">
             <ResourceBar
               label="Bed Occupancy"
@@ -745,8 +745,8 @@ export default function AdminConsolePage() {
             />
           </div>
 
-          <div className="mt-4 border-t pt-3">
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-700">
+          <div className="mt-4 border-t pt-3 dark:border-gray-700">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-200">
               Quick Links
             </h3>
             <div className="grid grid-cols-3 gap-2 text-xs">
@@ -765,7 +765,7 @@ export default function AdminConsolePage() {
       </div>
 
       {!loaded && (
-        <p className="text-center text-xs text-gray-600">Loading…</p>
+        <p className="text-center text-xs text-gray-600 dark:text-gray-400">Loading…</p>
       )}
     </div>
   );
@@ -786,13 +786,13 @@ function Health({
 }) {
   const body = (
     <>
-      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-600">
+      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
         <Icon size={13} />
         {label}
       </div>
       <p
         className={`mt-1 text-sm font-bold ${
-          ok ? "text-green-700" : "text-red-700"
+          ok ? "text-green-700 dark:text-green-300" : "text-red-700 dark:text-red-300"
         }`}
       >
         {status}
@@ -800,7 +800,9 @@ function Health({
     </>
   );
   const cls = `rounded-lg border p-3 ${
-    ok ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"
+    ok
+      ? "border-green-200 bg-green-50 dark:border-green-900/50 dark:bg-green-900/20"
+      : "border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-900/20"
   }`;
   if (href) {
     return (
@@ -826,14 +828,14 @@ function Alert({
   return (
     <Link
       href={href}
-      className="flex items-center gap-3 rounded-lg bg-white p-3 shadow-sm transition hover:shadow-md"
+      className="flex items-center gap-3 rounded-lg bg-white p-3 shadow-sm transition hover:shadow-md dark:bg-gray-800"
     >
-      <div className="rounded-lg bg-red-100 p-2 text-red-600">
+      <div className="rounded-lg bg-red-100 p-2 text-red-600 dark:bg-red-900/40 dark:text-red-300">
         <Icon size={16} />
       </div>
       <div>
-        <p className="text-[11px] text-gray-700">{label}</p>
-        <p className="text-lg font-bold text-gray-800">{value}</p>
+        <p className="text-[11px] text-gray-700 dark:text-gray-300">{label}</p>
+        <p className="text-lg font-bold text-gray-800 dark:text-gray-100">{value}</p>
       </div>
     </Link>
   );
@@ -853,11 +855,11 @@ function Snap({
   "data-testid"?: string;
 }) {
   return (
-    <div className="rounded-lg bg-gray-50 p-3" data-testid={testId}>
-      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-700">
+    <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-700" data-testid={testId}>
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-300">
         <Icon size={12} /> {label}
       </div>
-      <p className="mt-1 text-lg font-bold text-gray-800">
+      <p className="mt-1 text-lg font-bold text-gray-800 dark:text-gray-100">
         {isString ? value : Number(value).toLocaleString("en-IN")}
       </p>
     </div>
@@ -880,7 +882,7 @@ function ApprovalGroup({
   return (
     <div className="mb-3 last:mb-0">
       <div className="mb-2 flex items-center justify-between">
-        <p className="flex items-center gap-1.5 text-xs font-semibold text-gray-700">
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 dark:text-gray-200">
           <Icon size={13} /> {title}
         </p>
         <Link href={viewAllHref} className="text-[11px] text-primary hover:underline">
@@ -888,19 +890,19 @@ function ApprovalGroup({
         </Link>
       </div>
       {items.length === 0 ? (
-        <p className="px-2 py-1 text-xs text-gray-600">No pending items</p>
+        <p className="px-2 py-1 text-xs text-gray-600 dark:text-gray-400">No pending items</p>
       ) : (
         <div className="space-y-1.5">
           {items.map((it) => (
             <div
               key={it.id}
-              className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-1.5"
+              className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-1.5 dark:border-gray-700 dark:bg-gray-700"
             >
               <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-medium text-gray-800">
+                <p className="truncate text-xs font-medium text-gray-800 dark:text-gray-100">
                   {it.primary}
                 </p>
-                <p className="truncate text-[11px] text-gray-700">
+                <p className="truncate text-[11px] text-gray-700 dark:text-gray-300">
                   {it.secondary}
                 </p>
               </div>
@@ -949,12 +951,16 @@ function ResourceBar({
   return (
     <div>
       <div className="mb-1 flex items-center justify-between text-xs">
-        <span className="text-gray-600">{label}</span>
-        <span className={`font-semibold ${warn ? "text-red-600" : "text-gray-800"}`}>
+        <span className="text-gray-600 dark:text-gray-300">{label}</span>
+        <span className={`font-semibold ${warn ? "text-red-600 dark:text-red-400" : "text-gray-800 dark:text-gray-100"}`}>
           {used}/{total} ({pct}%)
         </span>
       </div>
-      <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+      {/* Issue #818: pair the bg-gray-100 track with bg-gray-700 in dark mode.
+          The track must always render — even when the fill (`warn`) is red and
+          the fill width is small (10%), the remaining 90% should show a clearly
+          contrasted track instead of the appearance of a "floating dash". */}
+      <div className="h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
         <div
           className={`h-full ${warn ? "bg-red-500" : color}`}
           style={{ width: `${pct}%` }}
@@ -976,7 +982,7 @@ function QuickLink({
   return (
     <Link
       href={href}
-      className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-gray-700 hover:border-primary hover:text-primary"
+      className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-gray-700 hover:border-primary hover:text-primary dark:border-gray-700 dark:bg-gray-700 dark:text-gray-200 dark:hover:border-primary"
     >
       <Icon size={13} /> {label}
     </Link>

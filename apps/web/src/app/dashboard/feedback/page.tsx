@@ -295,6 +295,20 @@ export default function FeedbackPage() {
       )}
 
       {/* Category bar chart */}
+      {/*
+        Issue #836: the previous track used `bg-gray-100` with no border —
+        on a white card the contrast was already weak, and in dark mode
+        (track is `dark:bg-gray-700` against a `dark:bg-gray-800` card)
+        a high-score bar showed only a thin sliver of unfilled track,
+        nearly indistinguishable from the card surface. Three fixes here:
+        1. Bump the light-mode track to `bg-gray-200` for a perceptible
+           contrast on white. Keep `dark:bg-gray-700` (already paired with
+           a `dark:bg-gray-800` card so the contrast still reads).
+        2. Add a 1px border-gray-300/dark:border-gray-600 around the track
+           so even when the fill reaches ~95% the "max" edge is visible.
+        3. Add a 5/5 tick marker (the small vertical line at 100%) so
+           users can interpret partial scores at a glance.
+      */}
       <div className="mb-6 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
         <h2 className="mb-4 font-semibold text-gray-900 dark:text-gray-100">Average Rating by Category</h2>
         <div className="space-y-3">
@@ -306,10 +320,16 @@ export default function FeedbackPage() {
                 <div className="w-32 text-sm text-gray-600 dark:text-gray-300">
                   {c.replace(/_/g, " ")}
                 </div>
-                <div className="relative h-6 flex-1 rounded bg-gray-100 dark:bg-gray-700">
+                <div className="relative h-6 flex-1 rounded border border-gray-300 bg-gray-200 dark:border-gray-600 dark:bg-gray-700">
                   <div
                     className="h-full rounded bg-primary"
                     style={{ width: `${pct}%` }}
+                  />
+                  {/* 5/5 max tick — sits just inside the right edge so a
+                      perfect score visually meets the marker. */}
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute right-0 top-0 h-full w-px bg-gray-400 dark:bg-gray-500"
                   />
                 </div>
                 <div className="w-12 text-sm font-semibold text-gray-700 dark:text-gray-200">

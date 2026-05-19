@@ -14,7 +14,7 @@ import { getTenantId } from "../services/tenant-context";
  *   2. Tolerate the rare bootstrap path where the writer fires before any
  *      tenant context exists — e.g. a login attempt from an unknown email,
  *      a forgot-password code resolution that happens before a JWT can set
- *      `req.tenantId`, or a cron job that runs outside an HTTP request.
+ *     `req.tenantId`, or a cron job that runs outside an HTTP request.
  *      In those cases we log a warn and insert NULL; the column is
  *      nullable on purpose for exactly this scenario.
  */

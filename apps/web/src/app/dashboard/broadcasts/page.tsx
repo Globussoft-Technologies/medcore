@@ -181,16 +181,16 @@ export default function BroadcastsPage() {
     <div>
       <div className="mb-6 flex items-center gap-3">
         <Megaphone size={24} className="text-primary" />
-        <h1 className="text-2xl font-bold">Broadcasts</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Broadcasts</h1>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Composer */}
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <h2 className="mb-4 font-semibold">Compose Broadcast</h2>
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+          <h2 className="mb-4 font-semibold text-gray-900 dark:text-gray-100">Compose Broadcast</h2>
           <div className="space-y-4">
             <div>
-              <label htmlFor="broadcast-title" className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="broadcast-title" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                 Title
               </label>
               <input
@@ -198,11 +198,11 @@ export default function BroadcastsPage() {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Announcement title"
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
               />
             </div>
             <div>
-              <label htmlFor="broadcast-message" className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="broadcast-message" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                 Message
               </label>
               <textarea
@@ -211,11 +211,11 @@ export default function BroadcastsPage() {
                 onChange={(e) => setMessage(e.target.value)}
                 rows={4}
                 placeholder="Message body..."
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
               />
             </div>
             <div>
-              <label htmlFor="broadcast-audience" className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="broadcast-audience" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                 Audience
               </label>
               <select
@@ -224,7 +224,7 @@ export default function BroadcastsPage() {
                 onChange={(e) =>
                   setAudience(e.target.value as AudienceType)
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
               >
                 {AUDIENCES.map((a) => (
                   <option key={a.value} value={a.value}>
@@ -235,14 +235,14 @@ export default function BroadcastsPage() {
             </div>
             {audience === "SPECIFIC_USERS" && (
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                   Select users ({selectedUsers.length} selected)
                 </label>
-                <div className="max-h-40 overflow-y-auto rounded-lg border">
+                <div className="max-h-40 overflow-y-auto rounded-lg border dark:border-gray-700">
                   {staff.map((s) => (
                     <label
                       key={s.id}
-                      className="flex cursor-pointer items-center gap-2 border-b px-3 py-2 text-sm last:border-0 hover:bg-gray-50"
+                      className="flex cursor-pointer items-center gap-2 border-b px-3 py-2 text-sm last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-700/50"
                     >
                       <input
                         type="checkbox"
@@ -250,14 +250,14 @@ export default function BroadcastsPage() {
                         onChange={() => toggleUser(s.id)}
                       />
                       <span className="flex-1">{s.name}</span>
-                      <span className="text-xs text-gray-500">{s.role}</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">{s.role}</span>
                     </label>
                   ))}
                 </div>
               </div>
             )}
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">
+              <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                 Channels
               </label>
               <div className="flex flex-wrap gap-2">
@@ -271,7 +271,7 @@ export default function BroadcastsPage() {
                       className={`flex items-center gap-1 rounded-lg border px-3 py-1.5 text-sm transition ${
                         active
                           ? "border-primary bg-primary text-white"
-                          : "bg-white text-gray-700 hover:bg-gray-50"
+                          : "bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
                       }`}
                     >
                       <Icon size={14} />
@@ -282,7 +282,7 @@ export default function BroadcastsPage() {
               </div>
             </div>
             <div>
-              <label className="flex items-center gap-2 text-sm">
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
                 <input
                   type="checkbox"
                   checked={scheduleLater}
@@ -297,7 +297,7 @@ export default function BroadcastsPage() {
                   type="datetime-local"
                   value={scheduledFor}
                   onChange={(e) => setScheduledFor(e.target.value)}
-                  className="mt-2 w-full rounded-lg border px-3 py-2 text-sm"
+                  className="mt-2 w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 />
               )}
             </div>
@@ -313,11 +313,11 @@ export default function BroadcastsPage() {
         </div>
 
         {/* Preview */}
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <h2 className="mb-4 font-semibold">Channel Preview</h2>
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+          <h2 className="mb-4 font-semibold text-gray-900 dark:text-gray-100">Channel Preview</h2>
           <div className="space-y-4">
             {channels.length === 0 ? (
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 Select channels to see previews.
               </p>
             ) : (
@@ -328,49 +328,49 @@ export default function BroadcastsPage() {
                 return (
                   <div
                     key={c}
-                    className="rounded-lg border border-gray-200 bg-gray-50 p-4"
+                    className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-700/40"
                   >
-                    <div className="mb-2 flex items-center gap-2 text-xs text-gray-500">
+                    <div className="mb-2 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                       <Icon size={14} />
                       {meta.label} preview
                     </div>
                     {c === "SMS" && (
-                      <div className="rounded-lg bg-white p-3 text-sm">
-                        <p className="font-medium">{title || "(title)"}</p>
-                        <p className="mt-1 text-gray-600">
+                      <div className="rounded-lg bg-white p-3 text-sm dark:bg-gray-900">
+                        <p className="font-medium text-gray-900 dark:text-gray-100">{title || "(title)"}</p>
+                        <p className="mt-1 text-gray-600 dark:text-gray-300">
                           {message.slice(0, 160) || "(message)"}
                           {message.length > 160 && "..."}
                         </p>
                       </div>
                     )}
                     {c === "EMAIL" && (
-                      <div className="rounded-lg bg-white p-3 text-sm">
-                        <p className="mb-2 border-b pb-1 font-semibold">
+                      <div className="rounded-lg bg-white p-3 text-sm dark:bg-gray-900">
+                        <p className="mb-2 border-b pb-1 font-semibold text-gray-900 dark:border-gray-700 dark:text-gray-100">
                           Subject: {title || "(title)"}
                         </p>
-                        <p className="whitespace-pre-wrap text-gray-700">
+                        <p className="whitespace-pre-wrap text-gray-700 dark:text-gray-300">
                           {message || "(message body)"}
                         </p>
                       </div>
                     )}
                     {c === "WHATSAPP" && (
-                      <div className="max-w-xs rounded-lg bg-green-50 p-3 text-sm shadow-sm">
-                        <p className="font-medium text-green-900">
+                      <div className="max-w-xs rounded-lg bg-green-50 p-3 text-sm shadow-sm dark:bg-green-900/30">
+                        <p className="font-medium text-green-900 dark:text-green-200">
                           {title || "(title)"}
                         </p>
-                        <p className="mt-1 whitespace-pre-wrap text-gray-700">
+                        <p className="mt-1 whitespace-pre-wrap text-gray-700 dark:text-gray-300">
                           {message || "(message)"}
                         </p>
                       </div>
                     )}
                     {c === "PUSH" && (
-                      <div className="flex items-start gap-3 rounded-lg bg-white p-3 text-sm shadow-sm">
+                      <div className="flex items-start gap-3 rounded-lg bg-white p-3 text-sm shadow-sm dark:bg-gray-900">
                         <Bell size={18} className="mt-0.5 text-primary" />
                         <div>
-                          <p className="font-semibold">
+                          <p className="font-semibold text-gray-900 dark:text-gray-100">
                             {title || "(title)"}
                           </p>
-                          <p className="text-xs text-gray-600">
+                          <p className="text-xs text-gray-600 dark:text-gray-400">
                             {message.slice(0, 120) || "(message)"}
                           </p>
                         </div>
@@ -385,14 +385,14 @@ export default function BroadcastsPage() {
       </div>
 
       {/* History */}
-      <div className="mt-6 rounded-xl bg-white shadow-sm">
-        <div className="border-b p-5">
-          <h2 className="font-semibold">Broadcast History</h2>
+      <div className="mt-6 rounded-xl bg-white shadow-sm dark:bg-gray-800">
+        <div className="border-b p-5 dark:border-gray-700">
+          <h2 className="font-semibold text-gray-900 dark:text-gray-100">Broadcast History</h2>
         </div>
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : broadcasts.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No broadcasts sent yet.
           </div>
         ) : (
@@ -406,7 +406,7 @@ export default function BroadcastsPage() {
           <div className="overflow-x-auto" data-testid="broadcast-history">
             <table className="w-full min-w-[920px] table-fixed">
               <thead>
-                <tr className="border-b text-left text-xs text-gray-500">
+                <tr className="border-b text-left text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
                   <th className="w-40 px-4 py-3">Sent</th>
                   <th className="px-4 py-3">Title / Message</th>
                   <th className="w-40 px-4 py-3">Audience</th>
@@ -428,17 +428,17 @@ export default function BroadcastsPage() {
                   const failed = b.failedCount;
                   const failedClass =
                     failed > 0
-                      ? "font-semibold text-red-600"
-                      : "font-medium text-gray-500";
+                      ? "font-semibold text-red-600 dark:text-red-400"
+                      : "font-medium text-gray-500 dark:text-gray-400";
                   return (
-                    <tr key={b.id} className="border-b last:border-0 text-sm align-top">
-                      <td className="px-4 py-3 text-xs text-gray-500">
+                    <tr key={b.id} className="border-b last:border-0 text-sm align-top dark:border-gray-700">
+                      <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
                         {new Date(b.createdAt).toLocaleString("en-IN")}
                       </td>
                       <td className="max-w-md px-4 py-3">
-                        <p className="truncate font-medium">{b.title}</p>
+                        <p className="truncate font-medium text-gray-900 dark:text-gray-100">{b.title}</p>
                         <p
-                          className="text-xs text-gray-500 break-words"
+                          className="text-xs text-gray-500 break-words dark:text-gray-400"
                           title={b.message}
                           data-testid={`broadcast-message-${b.id}`}
                         >
@@ -462,10 +462,10 @@ export default function BroadcastsPage() {
                           )}
                         </p>
                       </td>
-                      <td className="truncate px-4 py-3 text-xs">
+                      <td className="truncate px-4 py-3 text-xs text-gray-700 dark:text-gray-300">
                         {parseAudience(b.audience)}
                       </td>
-                      <td className="px-4 py-3 text-xs font-semibold text-green-600">
+                      <td className="px-4 py-3 text-xs font-semibold text-green-600 dark:text-green-400">
                         {b.sentCount}
                       </td>
                       <td

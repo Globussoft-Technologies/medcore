@@ -281,8 +281,8 @@ export default function UsersPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">User Management</h1>
-          <p className="text-sm text-gray-500">Manage staff accounts</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">User Management</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Manage staff accounts</p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
@@ -297,11 +297,11 @@ export default function UsersPage() {
         <form
           onSubmit={handleCreateUser}
           noValidate
-          className="mb-6 rounded-xl bg-white p-6 shadow-sm"
+          className="mb-6 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800"
         >
-          <h2 className="mb-4 font-semibold">Create Staff Account</h2>
+          <h2 className="mb-4 font-semibold text-gray-900 dark:text-gray-100">Create Staff Account</h2>
           {formError && (
-            <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-danger">
+            <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-danger dark:bg-red-900/30 dark:text-red-300">
               {formError}
             </div>
           )}
@@ -309,7 +309,7 @@ export default function UsersPage() {
             <div>
               <label
                 htmlFor="staff-name"
-                className="mb-1 block text-xs font-medium text-slate-700"
+                className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
                 data-testid="label-staff-name"
               >
                 Full Name
@@ -319,7 +319,7 @@ export default function UsersPage() {
                 placeholder="Full Name"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 data-testid="staff-name-input"
                 aria-invalid={fieldErrors.name ? true : undefined}
               />
@@ -335,7 +335,7 @@ export default function UsersPage() {
             <div>
               <label
                 htmlFor="staff-email"
-                className="mb-1 block text-xs font-medium text-slate-700"
+                className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
                 data-testid="label-staff-email"
               >
                 Email
@@ -346,7 +346,7 @@ export default function UsersPage() {
                 placeholder="Email"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 data-testid="staff-email-input"
                 aria-invalid={fieldErrors.email ? true : undefined}
               />
@@ -362,7 +362,7 @@ export default function UsersPage() {
             <div>
               <label
                 htmlFor="staff-phone"
-                className="mb-1 block text-xs font-medium text-slate-700"
+                className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
                 data-testid="label-staff-phone"
               >
                 Phone Number
@@ -373,7 +373,7 @@ export default function UsersPage() {
                 placeholder="10-15 digits, e.g. 9876543210"
                 value={form.phone}
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 data-testid="staff-phone-input"
                 aria-invalid={fieldErrors.phone ? true : undefined}
               />
@@ -389,7 +389,7 @@ export default function UsersPage() {
             <div>
               <label
                 htmlFor="staff-password"
-                className="mb-1 block text-xs font-medium text-slate-700"
+                className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
                 data-testid="label-staff-password"
               >
                 Password
@@ -400,7 +400,7 @@ export default function UsersPage() {
                 autoComplete="new-password"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 data-testid="staff-password-input"
                 aria-invalid={fieldErrors.password ? true : undefined}
               />
@@ -413,7 +413,7 @@ export default function UsersPage() {
                 </p>
               ) : (
                 <p
-                  className="mt-1 text-xs text-slate-500"
+                  className="mt-1 text-xs text-slate-500 dark:text-slate-400"
                   data-testid="password-hint"
                 >
                   Min 8 characters, at least one letter and one digit.
@@ -423,7 +423,7 @@ export default function UsersPage() {
             <div>
               <label
                 htmlFor="staff-role"
-                className="mb-1 block text-xs font-medium text-slate-700"
+                className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
                 data-testid="label-staff-role"
               >
                 Role
@@ -432,7 +432,7 @@ export default function UsersPage() {
                 id="staff-role"
                 value={form.role}
                 onChange={(e) => setForm({ ...form, role: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 data-testid="staff-role-input"
               >
                 {/* Issue #190: full Role-enum coverage; PHARMACIST +
@@ -460,7 +460,7 @@ export default function UsersPage() {
             <button
               type="button"
               onClick={() => setShowForm(false)}
-              className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+              className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
             >
               Cancel
             </button>
@@ -469,15 +469,15 @@ export default function UsersPage() {
       )}
 
       {/* Users table */}
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : users.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">No users found</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">No users found</div>
         ) : (
           <table className="w-full">
             <thead>
-              <tr className="border-b text-left text-sm text-gray-500">
+              <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Email</th>
                 <th className="px-4 py-3">Phone</th>
@@ -489,10 +489,10 @@ export default function UsersPage() {
             </thead>
             <tbody>
               {users.map((u) => (
-                <tr key={u.id} className="border-b last:border-0 hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium">{u.name}</td>
-                  <td className="px-4 py-3 text-sm">{u.email}</td>
-                  <td className="px-4 py-3 text-sm">{u.phone || "---"}</td>
+                <tr key={u.id} className="border-b last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/50">
+                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{u.name}</td>
+                  <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{u.email}</td>
+                  <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{u.phone || "---"}</td>
                   <td className="px-4 py-3">
                     <span
                       className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${roleColors[u.role] || "bg-gray-100 text-gray-600"}`}
@@ -516,7 +516,7 @@ export default function UsersPage() {
                       {u.isActive !== false ? "Active" : "Inactive"}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                     {u.createdAt
                       ? new Date(u.createdAt).toLocaleDateString("en-IN")
                       : "---"}
@@ -525,7 +525,7 @@ export default function UsersPage() {
                     <div className="flex flex-wrap items-center gap-1">
                       <button
                         onClick={() => openEdit(u)}
-                        className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                        className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
                         title="Edit user"
                         data-testid={`user-edit-${u.id}`}
                       >
@@ -533,7 +533,7 @@ export default function UsersPage() {
                       </button>
                       <button
                         onClick={() => sendResetPassword(u)}
-                        className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                        className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
                         title="Send password reset"
                         data-testid={`user-reset-${u.id}`}
                       >
@@ -568,7 +568,7 @@ export default function UsersPage() {
                         onClick={() =>
                           openPrintEndpoint(`/users/${u.id}/service-certificate`)
                         }
-                        className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                        className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
                         title="Service / Experience certificate"
                       >
                         <Printer size={12} /> Cert
@@ -736,9 +736,9 @@ export default function UsersPage() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
           data-testid="reset-code-modal"
         >
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <h3 className="mb-2 text-lg font-semibold">Password Reset Code</h3>
-            <p className="text-sm text-gray-600">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
+            <h3 className="mb-2 text-lg font-semibold text-gray-900 dark:text-gray-100">Password Reset Code</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-300">
               Share this 6-digit code with{" "}
               <span className="font-medium">{resetCode.email}</span>. It
               expires in 30 minutes and is single-use. The user can redeem it

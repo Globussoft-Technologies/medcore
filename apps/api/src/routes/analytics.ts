@@ -486,12 +486,21 @@ router.get("/revenue/breakdown", authorize(Role.ADMIN), async (req: Request, res
       if (apptType === "WALK_IN") byType.WALK_IN += p.amount;
       else byType.SCHEDULED += p.amount;
 
-      const subtotal = inv?.subtotal || 0;
-      const totalItems = inv?.items.reduce((s, i) => s + i.amount, 0) || 0;
+      // Issue #901: Invoice money columns are now Prisma.Decimal. Coerce
+      // before arithmetic. The local `toN` shadow handles the common
+      // cases (number, Decimal, null/undefined).
+      const toN = (v: unknown): number => {
+        if (v == null) return 0;
+        if (typeof v === "number") return v;
+        const av = v as { toNumber?: () => number };
+        return typeof av.toNumber === "function" ? av.toNumber() : Number(v);
+      };
+      const subtotal = toN(inv?.subtotal);
+      const totalItems = inv?.items.reduce((s, i) => s + toN(i.amount), 0) || 0;
       const scale = totalItems > 0 ? p.amount / totalItems : 0;
       inv?.items.forEach((it) => {
         const cat = (it.category || "OTHER").toUpperCase();
-        byCategory[cat] = (byCategory[cat] || 0) + it.amount * (scale || 0);
+        byCategory[cat] = (byCategory[cat] || 0) + toN(it.amount) * (scale || 0);
       });
       // If no items tracked, fall back to subtotal-prorated category "CONSULTATION"
       if (!inv?.items.length && subtotal > 0) {

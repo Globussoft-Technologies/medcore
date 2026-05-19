@@ -46,6 +46,10 @@ vi.mock("@medcore/db", () => ({
   requireTenantId: () => { throw new Error("tenant ctx required"); },
   prisma: prismaMock,
   tenantScopedPrisma: prismaMock,
+  // Issue #901 — billing.ts patches Decimal.prototype.toJSON at module
+  // load and reads Prisma.Decimal.prototype to do it. Stub a Decimal-
+  // shaped class on the mock so the patch doesn't NPE.
+  Prisma: { Decimal: class { toNumber() { return 0; } } },
 }));
 vi.mock("../services/notification", () => ({
   onInvoiceCreated: vi.fn(),

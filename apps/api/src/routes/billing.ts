@@ -8,7 +8,25 @@ import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 // rawPrisma — Invoice.invoiceNumber, CreditNote.noteNumber, and
 // AdvancePayment.receiptNumber are all GLOBAL @unique. The next-N
 // generators below MUST scan rows across every tenant.
-import { prisma as rawPrisma } from "@medcore/db";
+import { prisma as rawPrisma, Prisma } from "@medcore/db";
+
+// ── Issue #901: keep the on-wire JSON contract identical after moving
+// Invoice/InvoiceItem money columns from Float to DECIMAL(12,2). Prisma
+// returns DECIMAL as Prisma.Decimal (a Decimal.js object) whose default
+// .toJSON() yields a quoted string ("743.40"). Every consumer (dashboard
+// widgets, GSTR-1 exporter, PDF generator, e2e specs, integration tests)
+// currently parses these as numbers. Override the prototype's toJSON to
+// return a number so the on-wire contract stays identical without having
+// to touch ~80 res.json call-sites. Idempotent via a marker flag so
+// multiple route imports don't re-patch (and so test re-imports under
+// `singleFork: true` don't pile up wrappers).
+const decProto = (Prisma as unknown as { Decimal?: { prototype?: Record<string, unknown> } }).Decimal?.prototype;
+if (decProto && !(decProto as Record<string, unknown>).__medcore901Patched) {
+  (decProto as Record<string, unknown>).toJSON = function (this: { toNumber: () => number }) {
+    return this.toNumber();
+  };
+  (decProto as Record<string, unknown>).__medcore901Patched = true;
+}
 import {
   Role,
   createInvoiceSchema,
@@ -57,6 +75,44 @@ import { generateInvoicePDFBuffer } from "../services/pdf-generator";
 
 const router = Router();
 router.use(authenticate);
+
+// ─── Decimal → number helper (Issue #901) ────────────────────────
+// Coerce a Prisma.Decimal / number / string to a JS number for math
+// call-sites where TS would otherwise complain about a Decimal operand
+// in arithmetic. JSON serialization is handled by the prototype patch
+// above; this helper is only for in-route arithmetic.
+function dec(v: unknown): number {
+  if (v == null) return 0;
+  if (typeof v === "number") return v;
+  const anyV = v as { toNumber?: () => number };
+  return typeof anyV.toNumber === "function" ? anyV.toNumber() : Number(v);
+}
+
+// Coerce an Invoice + items row into the all-number shape that the
+// `@medcore/shared#computeInvoiceTotals` helper expects. Centralizes
+// the boundary so the helper signature in shared/ does not have to
+// know about Prisma.Decimal.
+function totalsInput(invoice: {
+  items: Array<{ amount: unknown; category?: string | null }>;
+  subtotal: unknown;
+  taxAmount: unknown;
+  cgstAmount?: unknown;
+  sgstAmount?: unknown;
+  discountAmount: unknown;
+  totalAmount: unknown;
+}) {
+  return {
+    items: invoice.items.map((it) => ({ amount: dec(it.amount), category: it.category })),
+    persisted: {
+      subtotal: dec(invoice.subtotal),
+      taxAmount: dec(invoice.taxAmount),
+      cgstAmount: invoice.cgstAmount !== undefined ? dec(invoice.cgstAmount) : undefined,
+      sgstAmount: invoice.sgstAmount !== undefined ? dec(invoice.sgstAmount) : undefined,
+      discountAmount: dec(invoice.discountAmount),
+      totalAmount: dec(invoice.totalAmount),
+    },
+  };
+}
 
 // Helper: read integer SystemConfig with fallback. Mirrors the helper
 // in appointments.ts; lift to a shared util if a third caller appears.
@@ -132,7 +188,11 @@ router.post(
         0
       );
       const gstPct = taxPercentage != null ? taxPercentage : 0;
-      const { taxAmount, cgstAmount, sgstAmount } = splitGst(subtotal, gstPct);
+      // ── Issue #901: GST math is deferred until after discount + tier
+      // + package discounts are resolved (see CGST Rule 32 block below).
+      // The OLD code called splitGst(subtotal, gstPct) here and charged
+      // GST on the PRE-discount base — over-reporting output GST on
+      // GSTR-1 for every discounted invoice.
 
       // Package discount — if patient has an active HealthPackage matching any
       // item description / category, apply 10% on matching items.
@@ -187,6 +247,17 @@ router.post(
         }
       }
 
+      // ── Issue #901: compute taxable base BEFORE applying GST ────
+      // taxableAmount = subtotal − every discount that reduces the
+      // legal consideration (user, tier, package). Advance is a
+      // tender, not a discount, so it does NOT shrink the taxable base.
+      // GST is then computed on this taxable base — never on the raw
+      // subtotal — so output GST on GSTR-1 matches what the customer
+      // actually paid in consideration.
+      const userDiscount = (discountAmount || 0) + tierDiscount + packageDiscount;
+      const taxableAmount = Math.max(0, +(subtotal - userDiscount).toFixed(2));
+      const { taxAmount, cgstAmount, sgstAmount } = splitGst(taxableAmount, gstPct);
+
       // Advance payment application
       let advanceApplied = 0;
       let advanceToConsume: Array<{ id: string; use: number }> = [];
@@ -195,7 +266,9 @@ router.post(
           where: { patientId, balance: { gt: 0 } },
           orderBy: { createdAt: "asc" },
         });
-        const gross = subtotal + taxAmount - (discountAmount || 0) - packageDiscount;
+        // Gross = taxable + GST (the post-Rule-32 charge). Advance can
+        // be consumed up to this gross amount.
+        const gross = taxableAmount + taxAmount;
         let remaining = Math.max(0, gross);
         for (const adv of advances) {
           if (remaining <= 0) break;
@@ -207,13 +280,11 @@ router.post(
         advanceApplied = +advanceApplied.toFixed(2);
       }
 
-      const totalAmount =
-        subtotal +
-        taxAmount -
-        (discountAmount || 0) -
-        packageDiscount -
-        tierDiscount -
-        advanceApplied;
+      // total = taxable + GST − advance. The OLD pre-#901 expression
+      // subtracted the user discount here a second time (because it
+      // was never folded into the taxable base) — we've now baked it
+      // into taxableAmount above, so don't double-count.
+      const totalAmount = taxableAmount + taxAmount - advanceApplied;
 
       const invoice = await prisma.$transaction(async (tx) => {
         const inv = await tx.invoice.create({
@@ -223,6 +294,7 @@ router.post(
             patientId,
             subtotal,
             taxAmount,
+            taxableAmount,
             cgstAmount,
             sgstAmount,
             discountAmount: (discountAmount || 0) + tierDiscount,
@@ -250,23 +322,20 @@ router.post(
                   quantity: number;
                   unitPrice: number;
                 }) => {
-                  // #894: persist the GST breakdown + HSN/SAC ON EACH LINE
-                  // so the printed tax invoice satisfies CGST Rule 46(g)
-                  // (per-line HSN) and Rule 46(i)/(j) (per-line CGST/SGST).
-                  // Previously these fields landed at the schema default
-                  // (cgst:0, sgst:0, gstRate:0, hsnSac:null) so the PDF
-                  // showed Rs.0 per line under a Rs.126 GST header — the
-                  // exact regression #43 was supposed to have closed.
-                  //
-                  // We distribute the header `taxPercentage` uniformly
-                  // across lines (rather than per-category statutory
-                  // rates) so sum(line.cgst) == header.cgstAmount stays
-                  // true. Moving to per-category rates is a separate
-                  // pricing-decision (would touch totals math); the
-                  // computeLineItemTax() helper at @medcore/shared already
-                  // supports it when that decision is made.
+                  // #894 + #901: persist GST breakdown + HSN/SAC ON EACH
+                  // LINE so the printed tax invoice satisfies CGST Rule
+                  // 46(g) (per-line HSN) and Rule 46(i)/(j) (per-line
+                  // CGST/SGST). The discount factor below (taxable /
+                  // subtotal) prorates the header discount across lines
+                  // so each line's GST is on its DISCOUNTED share —
+                  // matching the Rule 32 header math. Without proration
+                  // the sum of line tax would over-state the header tax
+                  // by `discount × rate` and #894's reconciliation
+                  // assertion would fail.
                   const lineAmount = item.quantity * item.unitPrice;
-                  const lineTax = +((lineAmount * gstPct) / 100).toFixed(2);
+                  const discountFactor = subtotal > 0 ? taxableAmount / subtotal : 1;
+                  const lineTaxable = +(lineAmount * discountFactor).toFixed(2);
+                  const lineTax = +((lineTaxable * gstPct) / 100).toFixed(2);
                   const lineCgst = +(lineTax / 2).toFixed(2);
                   const lineSgst = +(lineTax - lineCgst).toFixed(2);
                   return {
@@ -603,12 +672,8 @@ router.post(
       // a manual ₹234 payment to close the GST gap on a row whose raw
       // totalAmount is ₹1,300 would 400 with "Payment exceeds invoice
       // balance". Trust computeInvoiceTotals as the single source of truth.
-      const recPayTotals = computeInvoiceTotals(invoice.items, {
-        subtotal: invoice.subtotal,
-        taxAmount: invoice.taxAmount,
-        discountAmount: invoice.discountAmount,
-        totalAmount: invoice.totalAmount,
-      });
+      const recPayTotalsIn = totalsInput(invoice);
+      const recPayTotals = computeInvoiceTotals(recPayTotalsIn.items, recPayTotalsIn.persisted);
       const recPayCorrectedTotal = recPayTotals.totalAmount;
       const totalPaid =
         invoice.payments.reduce((sum, p) => sum + p.amount, 0) + amount;
@@ -850,12 +915,8 @@ router.post(
       // PARTIAL with the GST gap outstanding). Trusting the column would
       // refuse a legitimate "pay the remaining ₹234" attempt with a
       // confusing "Invoice is already paid" error.
-      const totals = computeInvoiceTotals(invoice.items, {
-        subtotal: invoice.subtotal,
-        taxAmount: invoice.taxAmount,
-        discountAmount: invoice.discountAmount,
-        totalAmount: invoice.totalAmount,
-      });
+      const totalsIn = totalsInput(invoice);
+      const totals = computeInvoiceTotals(totalsIn.items, totalsIn.persisted);
       const totalPaid = invoice.payments.reduce((sum, p) => sum + p.amount, 0);
       const remaining = totals.totalAmount - totalPaid;
 
@@ -1035,12 +1096,8 @@ router.post(
 
       // Same legacy-seed correction as /pay-online: trust the GST-inclusive
       // total from computeInvoiceTotals, not the raw `invoice.totalAmount`.
-      const verifyTotals = computeInvoiceTotals(invoice.items, {
-        subtotal: invoice.subtotal,
-        taxAmount: invoice.taxAmount,
-        discountAmount: invoice.discountAmount,
-        totalAmount: invoice.totalAmount,
-      });
+      const verifyTotalsIn = totalsInput(invoice);
+      const verifyTotals = computeInvoiceTotals(verifyTotalsIn.items, verifyTotalsIn.persisted);
       const correctedTotal = verifyTotals.totalAmount;
       const totalPaid = invoice.payments.reduce((sum, p) => sum + p.amount, 0);
 
@@ -1189,7 +1246,7 @@ router.post(
         let newStatus: "PENDING" | "PARTIAL" | "PAID" | "REFUNDED";
         if (netPaid <= 0) {
           newStatus = netPaid === 0 && totalPaid > 0 ? "REFUNDED" : "PENDING";
-        } else if (netPaid >= invoice.totalAmount) {
+        } else if (netPaid >= dec(invoice.totalAmount)) {
           newStatus = "PAID";
         } else {
           newStatus = "PARTIAL";
@@ -1308,8 +1365,11 @@ router.post(
 
       const { description, category, quantity, unitPrice } = req.body;
 
-      const taxPercentage =
-        invoice.subtotal > 0 ? (invoice.taxAmount / invoice.subtotal) * 100 : 0;
+      // ── Issue #901: derive original rate from snapshot, apply
+      // Rule-32 sequence when recomputing totals.
+      const invSubN = dec(invoice.subtotal);
+      const invTaxN = dec(invoice.taxAmount);
+      const taxPercentage = invSubN > 0 ? (invTaxN / invSubN) * 100 : 0;
 
       const updated = await prisma.$transaction(async (tx) => {
         // Persist the per-line GST snapshot at create time so historical
@@ -1336,12 +1396,23 @@ router.post(
           include: { items: true },
         });
         if (!current) return null;
-        const subtotal = current.items.reduce((s, i) => s + i.amount, 0);
-        const taxAmount = (subtotal * taxPercentage) / 100;
-        const totalAmount = subtotal + taxAmount - current.discountAmount;
+        const subtotal = current.items.reduce((s, i) => s + dec(i.amount), 0);
+        const discountN = dec(current.discountAmount) + dec(current.packageDiscount);
+        const taxable = Math.max(0, +(subtotal - discountN).toFixed(2));
+        const taxAmount = +((taxable * taxPercentage) / 100).toFixed(2);
+        const totalAmount = +(taxable + taxAmount).toFixed(2);
+        const cgst = +(taxAmount / 2).toFixed(2);
+        const sgst = +(taxAmount - cgst).toFixed(2);
         return tx.invoice.update({
           where: { id: invoice.id },
-          data: { subtotal, taxAmount, totalAmount },
+          data: {
+            subtotal,
+            taxableAmount: taxable,
+            taxAmount,
+            cgstAmount: cgst,
+            sgstAmount: sgst,
+            totalAmount,
+          },
           include: { items: true, payments: true },
         });
       });
@@ -1397,8 +1468,10 @@ router.delete(
         return;
       }
 
-      const taxPercentage =
-        invoice.subtotal > 0 ? (invoice.taxAmount / invoice.subtotal) * 100 : 0;
+      // ── Issue #901: Rule-32 recompute on item removal (same as add).
+      const delSubN = dec(invoice.subtotal);
+      const delTaxN = dec(invoice.taxAmount);
+      const taxPercentage = delSubN > 0 ? (delTaxN / delSubN) * 100 : 0;
 
       const updated = await prisma.$transaction(async (tx) => {
         await tx.invoiceItem.delete({ where: { id: itemId } });
@@ -1407,12 +1480,23 @@ router.delete(
           include: { items: true },
         });
         if (!current) return null;
-        const subtotal = current.items.reduce((s, i) => s + i.amount, 0);
-        const taxAmount = (subtotal * taxPercentage) / 100;
-        const totalAmount = subtotal + taxAmount - current.discountAmount;
+        const subtotal = current.items.reduce((s, i) => s + dec(i.amount), 0);
+        const discountN = dec(current.discountAmount) + dec(current.packageDiscount);
+        const taxable = Math.max(0, +(subtotal - discountN).toFixed(2));
+        const taxAmount = +((taxable * taxPercentage) / 100).toFixed(2);
+        const totalAmount = +(taxable + taxAmount).toFixed(2);
+        const cgst = +(taxAmount / 2).toFixed(2);
+        const sgst = +(taxAmount - cgst).toFixed(2);
         return tx.invoice.update({
           where: { id },
-          data: { subtotal, taxAmount, totalAmount },
+          data: {
+            subtotal,
+            taxableAmount: taxable,
+            taxAmount,
+            cgstAmount: cgst,
+            sgstAmount: sgst,
+            totalAmount,
+          },
           include: { items: true, payments: true },
         });
       });
@@ -1454,18 +1538,26 @@ router.post(
         return;
       }
 
-      const gross = invoice.subtotal + invoice.taxAmount;
+      // ── Issue #901: discount is applied to the TAXABLE base (subtotal),
+      // not the GST-inclusive gross. CGST Rule 32 requires GST to be
+      // computed on the post-discount taxable base. Derive the rate
+      // from the existing tax/subtotal snapshot so we preserve whatever
+      // rate the invoice was originally raised at.
+      const subtotalN = dec(invoice.subtotal);
+      const oldTaxN = dec(invoice.taxAmount);
+      const gstPct = subtotalN > 0 ? (oldTaxN / subtotalN) * 100 : 0;
+
       let discountAmount = 0;
       if (flatAmount !== undefined) {
         discountAmount = flatAmount;
       } else if (percentage !== undefined) {
-        discountAmount = (gross * percentage) / 100;
+        discountAmount = +((subtotalN * percentage) / 100).toFixed(2);
       }
-      if (discountAmount > gross) {
+      if (discountAmount > subtotalN) {
         res.status(400).json({
           success: false,
           data: null,
-          error: "Discount cannot exceed gross amount",
+          error: "Discount cannot exceed subtotal",
         });
         return;
       }
@@ -1478,8 +1570,8 @@ router.post(
       const effPct =
         percentage !== undefined
           ? percentage
-          : gross > 0
-            ? (discountAmount / gross) * 100
+          : subtotalN > 0
+            ? (discountAmount / subtotalN) * 100
             : 0;
 
       const requiresApproval =
@@ -1508,7 +1600,17 @@ router.post(
         return;
       }
 
-      const newTotal = gross - discountAmount;
+      // CGST Rule 32 sequence: taxable = subtotal − discount; tax =
+      // taxable × rate; total = taxable + tax. The persisted taxAmount,
+      // cgst, sgst, and taxableAmount all need to be re-snapshotted so
+      // GSTR-1 line totals reconcile with what the patient actually paid.
+      const packageDiscountN = dec(invoice.packageDiscount);
+      const newTaxable = Math.max(0, +(subtotalN - discountAmount - packageDiscountN).toFixed(2));
+      const { taxAmount: newTax, cgstAmount: newCgst, sgstAmount: newSgst } = splitGst(
+        newTaxable,
+        gstPct,
+      );
+      const newTotal = +(newTaxable + newTax).toFixed(2);
       const totalPaid = invoice.payments.reduce((s, p) => s + p.amount, 0);
       const newStatus =
         totalPaid >= newTotal && newTotal > 0
@@ -1525,6 +1627,10 @@ router.post(
         where: { id: invoice.id },
         data: {
           discountAmount,
+          taxableAmount: newTaxable,
+          taxAmount: newTax,
+          cgstAmount: newCgst,
+          sgstAmount: newSgst,
           totalAmount: newTotal,
           paymentStatus: newStatus,
           notes: invoice.notes
@@ -1611,8 +1717,22 @@ router.post(
       }
 
       const inv = approval.invoice;
-      const gross = inv.subtotal + inv.taxAmount;
-      const newTotal = Math.max(0, gross - approval.amount);
+      // ── Issue #901: same Rule-32 sequence as POST /:id/discount.
+      // Recompute taxable, GST, total from the persisted rate snapshot
+      // so the approved discount lands on the post-Rule-32 base.
+      const subtotalN = dec(inv.subtotal);
+      const oldTaxN = dec(inv.taxAmount);
+      const packageDiscountN = dec(inv.packageDiscount);
+      const gstPct = subtotalN > 0 ? (oldTaxN / subtotalN) * 100 : 0;
+      const newTaxable = Math.max(
+        0,
+        +(subtotalN - approval.amount - packageDiscountN).toFixed(2),
+      );
+      const { taxAmount: newTax, cgstAmount: newCgst, sgstAmount: newSgst } = splitGst(
+        newTaxable,
+        gstPct,
+      );
+      const newTotal = +(newTaxable + newTax).toFixed(2);
       const totalPaid = inv.payments.reduce((s, p) => s + p.amount, 0);
       const newStatus =
         totalPaid >= newTotal && newTotal > 0
@@ -1629,6 +1749,10 @@ router.post(
           where: { id: inv.id },
           data: {
             discountAmount: approval.amount,
+            taxableAmount: newTaxable,
+            taxAmount: newTax,
+            cgstAmount: newCgst,
+            sgstAmount: newSgst,
             totalAmount: newTotal,
             paymentStatus: newStatus,
             notes: inv.notes ? `${inv.notes}\n${discountNote}` : discountNote,
@@ -1716,7 +1840,9 @@ router.post(
 
       let applied = 0;
       for (const inv of candidates) {
-        const lateFee = pct > 0 ? +((inv.totalAmount * pct) / 100).toFixed(2) : flat;
+        const invTotalN = dec(inv.totalAmount);
+        const invSubN = dec(inv.subtotal);
+        const lateFee = pct > 0 ? +((invTotalN * pct) / 100).toFixed(2) : flat;
         await prisma.$transaction(async (tx) => {
           // Late fees are not a supply of goods/services so GST does not
           // apply — computeLineItemTax for "LATE_FEE" returns rate=0 which
@@ -1741,8 +1867,8 @@ router.post(
             data: {
               lateFeeAmount: lateFee,
               lateFeeAppliedAt: new Date(),
-              totalAmount: inv.totalAmount + lateFee,
-              subtotal: inv.subtotal + lateFee,
+              totalAmount: invTotalN + lateFee,
+              subtotal: invSubN + lateFee,
             },
           });
         });
@@ -1821,7 +1947,7 @@ router.post(
           const totalPaid =
             inv.payments.reduce((s, x) => s + x.amount, 0) + p.amount;
           const newStatus =
-            totalPaid >= inv.totalAmount ? "PAID" : "PARTIAL";
+            totalPaid >= dec(inv.totalAmount) ? "PAID" : "PARTIAL";
           await tx.invoice.update({
             where: { id: p.invoiceId },
             data: { paymentStatus: newStatus },
@@ -1884,7 +2010,7 @@ router.get(
 
       const enriched = invoices.map((inv) => {
         const paid = inv.payments.reduce((s, p) => s + p.amount, 0);
-        const balance = Math.max(0, inv.totalAmount - paid);
+        const balance = Math.max(0, dec(inv.totalAmount) - paid);
         const daysOverdue = Math.floor(
           (Date.now() - new Date(inv.createdAt).getTime()) / 86400000
         );
@@ -1942,7 +2068,7 @@ router.get(
       const rows = invoices
         .map((inv) => {
           const paid = inv.payments.reduce((s, p) => s + p.amount, 0);
-          const balance = Math.max(0, inv.totalAmount - paid);
+          const balance = Math.max(0, dec(inv.totalAmount) - paid);
           const daysOverdue = Math.floor(
             (Date.now() - new Date(inv.createdAt).getTime()) / 86400000
           );
@@ -2417,7 +2543,11 @@ router.post(
         : [{ description: "IPD Admission", category: "BED", quantity: 1, unitPrice: bedAmount }];
 
       const subtotal = safeItems.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
-      const { taxAmount, cgstAmount, sgstAmount } = splitGst(subtotal, taxPercentage);
+      // ── Issue #901: Rule-32 sequence for consolidated IPD invoice ──
+      // taxable = subtotal − discount; tax = taxable × rate; total =
+      // taxable + tax − advance. Mirrors the POST /invoices path.
+      const taxableAmount = Math.max(0, +(subtotal - (discountAmount || 0)).toFixed(2));
+      const { taxAmount, cgstAmount, sgstAmount } = splitGst(taxableAmount, taxPercentage);
 
       // Advance
       let advanceApplied = 0;
@@ -2427,7 +2557,7 @@ router.post(
           where: { patientId: admission.patientId, balance: { gt: 0 } },
           orderBy: { createdAt: "asc" },
         });
-        let remaining = Math.max(0, subtotal + taxAmount - (discountAmount || 0));
+        let remaining = Math.max(0, taxableAmount + taxAmount);
         for (const adv of advances) {
           if (remaining <= 0) break;
           const use = Math.min(adv.balance, remaining);
@@ -2439,7 +2569,7 @@ router.post(
 
       const totalAmount = Math.max(
         0,
-        +(subtotal + taxAmount - (discountAmount || 0) - advanceApplied).toFixed(2)
+        +(taxableAmount + taxAmount - advanceApplied).toFixed(2)
       );
 
       // Create a synthetic "discharge" appointment reference if needed
@@ -2488,6 +2618,7 @@ router.post(
             patientId: admission.patientId,
             subtotal: +subtotal.toFixed(2),
             taxAmount,
+            taxableAmount,
             cgstAmount,
             sgstAmount,
             discountAmount: discountAmount || 0,
@@ -2498,13 +2629,16 @@ router.post(
             paymentStatus: totalAmount === 0 ? "PAID" : "PENDING",
             items: {
               create: safeItems.map((it) => {
-                // #894: same per-line GST + HSN/SAC persistence as the
-                // primary POST /invoices path above. Distributes the
-                // route's taxPercentage uniformly so sum(line.cgst) ==
-                // header.cgstAmount stays true. See the long comment at
-                // the primary site for the rationale.
+                // #894 + #901: per-line GST proration follows Rule 32 —
+                // each line's tax is on its DISCOUNTED share (lineAmount
+                // × discountFactor), where discountFactor = taxable /
+                // subtotal. This keeps sum(line.cgst) == header.cgstAmount
+                // after the post-discount sequence and preserves the #894
+                // reconciliation assertion.
                 const lineAmount = it.quantity * it.unitPrice;
-                const lineTax = +((lineAmount * taxPercentage) / 100).toFixed(2);
+                const discountFactor = subtotal > 0 ? taxableAmount / subtotal : 1;
+                const lineTaxable = +(lineAmount * discountFactor).toFixed(2);
+                const lineTax = +((lineTaxable * taxPercentage) / 100).toFixed(2);
                 const lineCgst = +(lineTax / 2).toFixed(2);
                 const lineSgst = +(lineTax - lineCgst).toFixed(2);
                 return {
@@ -2557,7 +2691,7 @@ router.post(
         // being raised but the admission column didn't reflect them.
         await tx.admission.update({
           where: { id: admission.id },
-          data: { totalBillAmount: { increment: inv.totalAmount } },
+          data: { totalBillAmount: { increment: dec(inv.totalAmount) } },
         });
         return inv;
       });
@@ -2599,7 +2733,7 @@ router.post(
         return;
       }
       const paid = invoice.payments.reduce((s, p) => s + p.amount, 0);
-      const balance = invoice.totalAmount - paid;
+      const balance = dec(invoice.totalAmount) - paid;
       const channel = (req.body.channel || "SMS") as "SMS" | "EMAIL" | "WHATSAPP";
 
       // Stub: create a Notification row; any real gateway would pick it up.
@@ -2652,14 +2786,13 @@ router.get(
       }
       if (!(await assertPatientOwnsResource(req, res, inv.patientId))) return;
       // If legacy row didn't split, derive 50/50 on the fly.
-      const cg = inv.cgstAmount > 0 || inv.sgstAmount > 0
-        ? inv.cgstAmount
-        : +(inv.taxAmount / 2).toFixed(2);
-      const sg = inv.cgstAmount > 0 || inv.sgstAmount > 0
-        ? inv.sgstAmount
-        : +(inv.taxAmount - cg).toFixed(2);
-      const effectivePct =
-        inv.subtotal > 0 ? +((inv.taxAmount / inv.subtotal) * 100).toFixed(2) : 0;
+      const cgN = dec(inv.cgstAmount);
+      const sgN = dec(inv.sgstAmount);
+      const taxN = dec(inv.taxAmount);
+      const subN = dec(inv.subtotal);
+      const cg = cgN > 0 || sgN > 0 ? cgN : +(taxN / 2).toFixed(2);
+      const sg = cgN > 0 || sgN > 0 ? sgN : +(taxN - cg).toFixed(2);
+      const effectivePct = subN > 0 ? +((taxN / subN) * 100).toFixed(2) : 0;
       res.json({
         success: true,
         data: {
@@ -2826,7 +2959,8 @@ async function handlePaymentCaptured(
   }
 
   const totalPaid = invoice.payments.reduce((s, p) => s + p.amount, 0);
-  const remainingPaise = Math.round((invoice.totalAmount - totalPaid) * 100);
+  const invTotalN = dec(invoice.totalAmount);
+  const remainingPaise = Math.round((invTotalN - totalPaid) * 100);
   if (amountPaise < remainingPaise) {
     console.warn("[razorpay-webhook] captured amount less than remaining", {
       invoiceId: invoice.id,
@@ -2849,7 +2983,7 @@ async function handlePaymentCaptured(
         },
       });
       const newTotalPaid = totalPaid + amountRupees;
-      const newStatus = newTotalPaid >= invoice.totalAmount ? "PAID" : "PARTIAL";
+      const newStatus = newTotalPaid >= invTotalN ? "PAID" : "PARTIAL";
       await tx.invoice.update({
         where: { id: invoice.id },
         data: { paymentStatus: newStatus },
@@ -3097,7 +3231,7 @@ async function handleRefundProcessed(
       if (!inv) return;
       let newStatus: "PENDING" | "PARTIAL" | "PAID" | "REFUNDED";
       if (net <= 0) newStatus = "REFUNDED";
-      else if (net >= inv.totalAmount) newStatus = "PAID";
+      else if (net >= dec(inv.totalAmount)) newStatus = "PAID";
       else newStatus = "PARTIAL";
       await tx.invoice.update({
         where: { id: inv.id },

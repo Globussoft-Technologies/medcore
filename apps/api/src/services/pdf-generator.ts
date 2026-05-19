@@ -386,18 +386,40 @@ export async function generateInvoicePDFBuffer(invoiceId: string): Promise<Buffe
   // `invoice.totalAmount` was stored without GST (legacy seed path). We
   // never echo a stale persisted Total — the PDF is the legal tax invoice
   // and must reconcile to the line breakdown above it.
-  const totals = computeInvoiceTotals(inv.items, {
-    subtotal: inv.subtotal,
-    taxAmount: inv.taxAmount,
-    cgstAmount: inv.cgstAmount,
-    sgstAmount: inv.sgstAmount,
-    discountAmount: inv.discountAmount,
-    totalAmount: inv.totalAmount,
+  // Issue #901: Invoice money columns are now Prisma.Decimal. Coerce
+  // each to a JS number once at the top so the rest of this renderer
+  // (totals math, .toFixed formatting, balance display) stays unchanged.
+  const numOf = (v: unknown): number => {
+    if (v == null) return 0;
+    if (typeof v === "number") return v;
+    const anyV = v as { toNumber?: () => number };
+    return typeof anyV.toNumber === "function" ? anyV.toNumber() : Number(v);
+  };
+  const invSubtotal = numOf(inv.subtotal);
+  const invTaxAmount = numOf(inv.taxAmount);
+  const invCgstAmount = numOf(inv.cgstAmount);
+  const invSgstAmount = numOf(inv.sgstAmount);
+  const invDiscountAmount = numOf(inv.discountAmount);
+  const invPackageDiscount = numOf(inv.packageDiscount);
+  const invAdvanceApplied = numOf(inv.advanceApplied);
+  const invLateFeeAmount = numOf(inv.lateFeeAmount);
+  const invTotalAmount = numOf(inv.totalAmount);
+  const itemsForTotals = inv.items.map((it) => ({
+    amount: numOf(it.amount),
+    category: it.category,
+  }));
+  const totals = computeInvoiceTotals(itemsForTotals, {
+    subtotal: invSubtotal,
+    taxAmount: invTaxAmount,
+    cgstAmount: invCgstAmount,
+    sgstAmount: invSgstAmount,
+    discountAmount: invDiscountAmount,
+    totalAmount: invTotalAmount,
   });
-  const taxable = totals.subtotal - inv.discountAmount - inv.packageDiscount;
+  const taxable = totals.subtotal - invDiscountAmount - invPackageDiscount;
   const paid = inv.payments.reduce((s, x) => s + x.amount, 0);
-  const displayTotal = +(totals.totalAmount - inv.packageDiscount).toFixed(2);
-  const balance = displayTotal - paid - inv.advanceApplied;
+  const displayTotal = +(totals.totalAmount - invPackageDiscount).toFixed(2);
+  const balance = displayTotal - paid - invAdvanceApplied;
 
   const doc = new PDFDocument({ size: "A4", margin: 40 });
   const out = collectPdf(doc);
@@ -417,7 +439,7 @@ export async function generateInvoicePDFBuffer(invoiceId: string): Promise<Buffe
   drawKeyVal(
     doc,
     "Status",
-    derivePaymentStatus(inv.paymentStatus, displayTotal, paid + inv.advanceApplied),
+    derivePaymentStatus(inv.paymentStatus, displayTotal, paid + invAdvanceApplied),
     310,
     topY + 56
   );
@@ -429,7 +451,7 @@ export async function generateInvoicePDFBuffer(invoiceId: string): Promise<Buffe
   // when present; only the rows are computed here.
   const linesWithTax = inv.items.map((it) => ({
     it,
-    tax: computeLineItemTax(it.amount, it.category),
+    tax: computeLineItemTax(numOf(it.amount), it.category),
   }));
 
   drawSectionTitle(doc, "Items");
@@ -451,7 +473,7 @@ export async function generateInvoicePDFBuffer(invoiceId: string): Promise<Buffe
       `${it.description} (${it.category})`,
       tax.hsnSac,
       String(it.quantity),
-      it.unitPrice.toFixed(2),
+      numOf(it.unitPrice).toFixed(2),
       tax.taxable.toFixed(2),
       tax.cgst.toFixed(2),
       tax.sgst.toFixed(2),
@@ -482,22 +504,22 @@ export async function generateInvoicePDFBuffer(invoiceId: string): Promise<Buffe
     ty += 16;
   };
   totalLine("Subtotal", "Rs. " + totals.subtotal.toFixed(2));
-  if (inv.packageDiscount > 0)
-    totalLine("Package Discount", "-Rs. " + inv.packageDiscount.toFixed(2));
-  if (inv.discountAmount > 0)
-    totalLine("Discount", "-Rs. " + inv.discountAmount.toFixed(2));
+  if (invPackageDiscount > 0)
+    totalLine("Package Discount", "-Rs. " + invPackageDiscount.toFixed(2));
+  if (invDiscountAmount > 0)
+    totalLine("Discount", "-Rs. " + invDiscountAmount.toFixed(2));
   totalLine("Taxable Amount", "Rs. " + taxable.toFixed(2));
   totalLine("CGST", "Rs. " + displayCgst.toFixed(2));
   totalLine("SGST", "Rs. " + displaySgst.toFixed(2));
-  if (inv.lateFeeAmount > 0)
-    totalLine("Late Fee", "Rs. " + inv.lateFeeAmount.toFixed(2));
+  if (invLateFeeAmount > 0)
+    totalLine("Late Fee", "Rs. " + invLateFeeAmount.toFixed(2));
   // Highlight Total — sourced from `computeInvoiceTotals` so it always
   // equals Subtotal + GST - Discount, never a stale persisted figure.
   doc.rect(totalsX, ty - 2, totalsW, 18).fill("#f1f5f9");
   doc.fillColor("#1e293b");
   totalLine("Total", "Rs. " + displayTotal.toFixed(2), true);
-  if (inv.advanceApplied > 0)
-    totalLine("Advance Applied", "-Rs. " + inv.advanceApplied.toFixed(2));
+  if (invAdvanceApplied > 0)
+    totalLine("Advance Applied", "-Rs. " + invAdvanceApplied.toFixed(2));
   if (paid > 0) totalLine("Paid", "-Rs. " + paid.toFixed(2));
   totalLine("Balance", "Rs. " + balance.toFixed(2), true,
     balance > 0 ? "#dc2626" : "#16a34a");

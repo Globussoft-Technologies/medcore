@@ -186,10 +186,38 @@ export NEXT_PUBLIC_SENTRY_RELEASE="$INCOMING_SHA"
 npm --prefix apps/web run build
 
 echo "=== 7. Restarting services ==="
-# `--update-env` forces pm2 to re-read the parent shell's env vars on
-# restart, picking up the SENTRY_RELEASE we just exported. Without this
-# pm2 caches the env from when each process was first spawned.
-pm2 restart medcore-api medcore-web --update-env
+# History (kept here so the next reader doesn't repeat the layers):
+#   Layer 1: `pm2 restart <name> --update-env` only updates env vars on
+#            an EXISTING process. Cached script/args from the original
+#            spawn stick around forever. 41eec79's ecosystem-config fix
+#            was therefore invisible to PM2 (still using old `npx tsx`).
+#   Layer 2: `pm2 startOrRestart <ecosystem>` also uses cached config
+#            when the process already exists — its restart branch is
+#            identical to `pm2 restart <name>`. Verified at 3d57402's
+#            deploy log: "Applying action restartProcessId" + post-restart
+#            `pm2 describe` still showed `script: npx, args: tsx ...`.
+#   Layer 3 (this fix): explicit `pm2 delete && pm2 start <ecosystem>`.
+#            Deleting forces a fresh spawn from the ecosystem file the
+#            next start sees. ~1-2s downtime per process (already taking
+#            multi-day downtime so the brief blip is the lesser evil).
+#
+# `--update-env` retained so SENTRY_RELEASE / NEXT_PUBLIC_SENTRY_RELEASE
+# exported above flow into the new process env.
+#
+# Delete one process at a time so each operation's output is visible in
+# the deploy log. The previous form `pm2 delete medcore-api medcore-web
+# 2>/dev/null || true` silently failed on 8ffc556's deploy (no stdout
+# between step 7 and the start line, then start saw both procs still
+# existing and did `restartProcessId` — i.e. the cached old config).
+# stderr is NOT suppressed; if delete fails for a real reason (perms,
+# daemon down) we want to see it in the log immediately.
+echo "  → pm2 delete medcore-api (forces ecosystem re-read on next start):"
+pm2 delete medcore-api 2>&1 || echo "    (medcore-api not present — fresh box or first deploy)"
+echo "  → pm2 delete medcore-web:"
+pm2 delete medcore-web 2>&1 || echo "    (medcore-web not present — fresh box or first deploy)"
+sleep 1
+echo "  → pm2 start ecosystem.medcore.config.js --update-env:"
+pm2 start ecosystem.medcore.config.js --update-env
 sleep 3
 
 echo "=== 8. Verifying ==="
@@ -197,25 +225,44 @@ echo "=== 8. Verifying ==="
 # load `pm2 restart` + 3s sleep is sometimes too tight for medcore-api to
 # bind :4100 before the curl fires. Single-shot was the root cause of
 # 4 consecutive 'API FAILED' deploy-step failures observed 2026-05-05.
+#
+# 2026-05-18: bumped from 5×5s (25s budget) to 12×5s (60s) after two
+# consecutive deploys (f23865c, 711fc6b) both timed out at the 25s
+# window despite migrations + build + PM2 restart all succeeding.
+# Likely cause: the post-Next-16 + post-7-migrations boot now needs
+# ~30-40s for prisma generate + module preload + first /health hit.
+# Also dumps PM2 logs on failure so we can diagnose without SSH —
+# previously the only signal was "API FAILED after N retries" with no
+# trail of WHY.
 api_ok=0
-for attempt in 1 2 3 4 5; do
+for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
     if curl -sf -m 5 http://localhost:4100/api/health > /dev/null; then
         echo " API OK (attempt $attempt)"; api_ok=1; break
     fi
-    echo " API not ready (attempt $attempt/5), retrying in 5s..."
+    echo " API not ready (attempt $attempt/12), retrying in 5s..."
     sleep 5
 done
-[ "$api_ok" -eq 1 ] || { echo " API FAILED after 5 retries"; exit 1; }
+if [ "$api_ok" -ne 1 ]; then
+    echo " API FAILED after 12 retries — dumping PM2 logs for diagnosis:"
+    pm2 logs medcore-api --lines 80 --nostream 2>&1 || echo "  (pm2 logs unavailable)"
+    pm2 describe medcore-api 2>&1 | tail -30 || echo "  (pm2 describe unavailable)"
+    exit 1
+fi
 
 web_ok=0
-for attempt in 1 2 3 4 5; do
+for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
     if curl -sf -m 5 http://localhost:3200 > /dev/null; then
         echo "Web OK (attempt $attempt)"; web_ok=1; break
     fi
-    echo "Web not ready (attempt $attempt/5), retrying in 5s..."
+    echo "Web not ready (attempt $attempt/12), retrying in 5s..."
     sleep 5
 done
-[ "$web_ok" -eq 1 ] || { echo "Web FAILED after 5 retries"; exit 1; }
+if [ "$web_ok" -ne 1 ]; then
+    echo "Web FAILED after 12 retries — dumping PM2 logs for diagnosis:"
+    pm2 logs medcore-web --lines 80 --nostream 2>&1 || echo "  (pm2 logs unavailable)"
+    pm2 describe medcore-web 2>&1 | tail -30 || echo "  (pm2 describe unavailable)"
+    exit 1
+fi
 
 pm2 save
 

@@ -622,13 +622,20 @@ router.post(
               amount: d.lineAmount,
             }));
             const addedAmount = itemsToCreate.reduce((s, i) => s + i.amount, 0);
+            // Issue #901: Invoice money columns are now Prisma.Decimal — coerce.
+            const invSubN = typeof (invoice.subtotal as unknown) === "number"
+              ? (invoice.subtotal as unknown as number)
+              : (invoice.subtotal as unknown as { toNumber: () => number }).toNumber();
+            const invTotN = typeof (invoice.totalAmount as unknown) === "number"
+              ? (invoice.totalAmount as unknown as number)
+              : (invoice.totalAmount as unknown as { toNumber: () => number }).toNumber();
             await prisma.$transaction([
               prisma.invoiceItem.createMany({ data: itemsToCreate }),
               prisma.invoice.update({
                 where: { id: invoice.id },
                 data: {
-                  subtotal: invoice.subtotal + addedAmount,
-                  totalAmount: invoice.totalAmount + addedAmount,
+                  subtotal: invSubN + addedAmount,
+                  totalAmount: invTotN + addedAmount,
                 },
               }),
             ]);

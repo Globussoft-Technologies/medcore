@@ -5,27 +5,28 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [{ protocol: "https", hostname: "media.licdn.com" }],
   },
-  // Sentry's @sentry/node ships static requires for OpenTelemetry tracing
-  // integrations against many optional npm packages (amqplib, ioredis,
-  // kafkajs, mysql, mysql2, pg-native, etc.) and the base
-  // `@opentelemetry/instrumentation` engine. MedCore does not use these
-  // libraries so they are not in node_modules; webpack still tries to
-  // resolve the static requires at build time and fails. IgnorePlugin
-  // suppresses the unresolved-module warning AND emits a stub at the
-  // import site, so Sentry's dynamic-require fallback no-ops at runtime
-  // (it gracefully detects the missing module and skips that integration).
+  // Sentry's Node SDK (@sentry/node, pulled in by @sentry/nextjs) wires up
+  // OpenTelemetry auto-instrumentation. Its instrumentation classes and the
+  // ESM loader hook hard-require `@opentelemetry/instrumentation` and
+  // `import-in-the-middle` at runtime. Those packages MUST run un-bundled:
+  // listing them in serverExternalPackages keeps them as plain Node
+  // `require()`s resolved from node_modules (they are present — hoisted to
+  // the monorepo-root node_modules) instead of being pulled into the
+  // webpack server bundle, where OTel's dynamic require-in-the-middle
+  // patching cannot work.
   //
-  // Triggered after the 2026-05-06 lockfile regeneration which dropped
-  // optional transitive deps that npm had previously hoisted by chance.
-  webpack: (config, { webpack }) => {
-    config.plugins.push(
-      new webpack.IgnorePlugin({
-        resourceRegExp:
-          /^(@opentelemetry\/instrumentation(-(amqplib|connect|dataloader|fs|generic-pool|graphql|hapi|http|ioredis|kafkajs|knex|koa|lru-memoizer|mongodb|mongoose|mysql|mysql2|pg|redis|redis-4|tedious))?|@fastify\/otel|@prisma\/instrumentation|import-in-the-middle)$/,
-      }),
-    );
-    return config;
-  },
+  // This replaces an earlier `webpack` IgnorePlugin that *excluded* these
+  // modules: it assumed they were not installed, but they are. Excluding
+  // them left Sentry's instrumentation reading `undefined` exports and
+  // crashing the prod server at boot ("Cannot read properties of undefined
+  // (reading 'map')"). Dev was unaffected because `next dev` uses Turbopack
+  // and ignores webpack config entirely.
+  serverExternalPackages: [
+    "@sentry/nextjs",
+    "@sentry/node",
+    "@opentelemetry/instrumentation",
+    "import-in-the-middle",
+  ],
   async redirects() {
     return [
       // Sidebar uses the short slug `/dashboard/preauth`; users who type the

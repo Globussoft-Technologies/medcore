@@ -6,39 +6,60 @@ is independently shippable. Full per-session history lives under
 
 ---
 
-## 🏠 HOME PICKUP — handoff from 2026-05-15 evening: dep backlog cleared + deploy-blocker found + 4 STAGING guards
+## 🏠 HOME PICKUP — handoff from 2026-05-18 evening: PR wave cleared + #908 deploy unblocked end-to-end
 
-**Read first:** [`docs/archive/SESSION_SNAPSHOT_2026-05-15-evening.md`](docs/archive/SESSION_SNAPSHOT_2026-05-15-evening.md) — full handoff.
+**Read first:** [`docs/archive/SESSION_SNAPSHOT_2026-05-18-evening.md`](docs/archive/SESSION_SNAPSHOT_2026-05-18-evening.md) — full handoff.
 
-**Production state at handoff** (commit `1d807b2` — `fix(api): 4 STAGING data-hygiene guards — #890 #892 #896 #897`):
-- ✅ HEAD on `main` = `1d807b2`. Working tree clean. **Open PRs: 1** (#788 vitest-coverage, deferred — paired with vitest core).
-- ✅ **Dependency backlog effectively cleared** — zod 4, Next 15→16, OTel exporter (#906), the 17-package patch-minor group (#907) all merged. Only #788 remains.
-- ✅ **PR #906 merged** (`2e8c23f`) — `@opentelemetry/exporter-trace-otlp-http` 0.216→0.218. Cleared the npm-audit RED (7 protobufjs CVEs via the OTel exporter chain).
-- ✅ **PR #907 merged** (`f84878f`) — patch-minor group of 17 (recreate of #883). Rebuilt its lockfile to fix a `Cannot find module 'react'` web-build break; CI fully CLEAN.
-- ✅ **zod-4 UUID test-fixture sweep done** (`6ee4b2e`) — 6 RFC-4122 strictness failures fixed.
-- ✅ **4 STAGING data-hygiene guards shipped** (`1d807b2`) — #890 #892 #896 #897 (see snapshot). Issues left OPEN — verify-close on the demo once deploy unblocks.
-- 🚨 **Auto-deploy to `medcore.globusdemos.com` is BLOCKED since ~2026-05-08** — see issue [#908](https://github.com/Globussoft-Technologies/medcore/issues/908). The demo is frozen pre-2026-05-08.
+**State at handoff** (HEAD on `main` = `f23865c` — `fix(db): make 20260517000001 FK-safe`):
+- ✅ Working tree clean. **Open PRs: 5** — #912 #913 #915 #917 (mobile, **held**) + #918 (vitest-coverage, **deferred**).
+- ✅ **PR wave: 6 of 11 merged** — #910 (patch-minor ×5), #911 (c8), #914 (bcryptjs 2→3), #916 (react-test-renderer), #919 (lucide-react — v1 dropped brand icons; `MarketingFooter.tsx` fixed with inline SVGs), #909 (marketing refresh — rebased off a stale base, then merged).
+- ✅ **#908 deploy unblocked end-to-end** through THREE blockers — see below.
+- ⚠️ **The `f23865c` deploy is IN FLIGHT** — CI was still running at session end. **Verifying it is the #1 pickup task.**
 
-### 🚨 Deploy blocker — issue #908 (TOP priority, needs ops + dev-DB access)
+**Update 2026-05-19 evening** (HEAD `970591c`):
+- ✅ Deploy fully unblocked through 4 layers of PM2 caching bugs (`41eec79` → `3d57402` → `8ffc556` → `970591c`); demo live at `medcore.globusdemos.com` after ~12 days down.
+- ✅ All 5 STAGING UI bugs verify-closed: #877, #878, #884, #886, #887 (fixes from PR #888 / `1df30d0` confirmed in source + deployed).
+- ✅ **PR queue cleared (0 open)** — all 5 held PRs closed with rationale + migration trackers:
+  - #912 #913 #915 #917 → closed, tracked in **#920** (apps/mobile expo SDK 53→55 holistic migration).
+  - #918 → closed, tracked in **#921** (vitest 2→4 paired migration).
 
-Migration `20260509000001` failed on the dev DB (P3009): `USING "User"` but the table is `@@map("users")` — Postgres quoted identifiers are case-sensitive → `relation "User" does not exist` → migration aborts → all later migrations blocked. **The SQL is fixed in `cd50553`**, but the dev DB still holds the failed-migration record. **Ops must run ONCE on the dev server:**
+### 🚨 #908 — verify the deploy landed (TOP priority)
+
+This session drove the deploy unblock through three blockers: (A) dirty dev-server checkout → the hand-edits were a real **uncommitted prod-crash fix** in `next.config.ts` (Sentry/OTel `serverExternalPackages`); committed as `a9b6aa2` + Next 16 tsconfig sync, server tree cleaned. (B) failed migration `20260509000001` P3009 → resolved; it then **applied successfully**. (C) `20260517000001` failed P3018 mid-deploy (FK violation — the synthetic Attacker user had 65 non-cascading child rows) → fixed FK-safe in `f23865c`, verified in a rolled-back txn, failed record resolved.
+
+**On pickup, FIRST run:**
 ```
-npx prisma migrate resolve --rolled-back 20260509000001_backfill_stale_visitors_and_misrouted_patient_notifications
+gh run list --workflow=test.yml --branch main --limit 3
 ```
-Then the next deploy applies the corrected migration and the demo catches up. Also flagged in #908: `20260508000003` has the same `"User"` bug but the deploy got past it (likely force-marked applied) — ops should verify `_prisma_migrations` and re-do the #722/#738 cleanup as a fresh migration if confirmed.
+- `Deploy to dev server` = **success** → demo at `medcore.globusdemos.com` has caught up; smoke-pass it.
+- = **failed** → `gh run view <id> --log-failed | grep "Deploy to dev server"`. Recovery: `ssh -i ~/medcore-ci-key empcloud-development@163.227.174.141`, `migrate resolve --rolled-back <name>`, fix, redeploy. DB: `postgresql://medcore:medcore_secure_2024@localhost:5433/medcore`.
 
 ### 🔥 Top priority for home pickup
 
-1. **Issue #908 — get the deploy unblocked** (ops `migrate resolve` on the dev DB). This is the gate on everything STAGING-related.
-2. **Once deployed** — smoke-pass the demo, close the already-fixed STAGING UI bugs (#877/#878/#884/#886/#887) + verify-close #890/#892/#896/#897.
-3. **Continue the #890-#903 cluster** — one dedicated session each: data-cleanup migrations (#891 #900 #902 #903), deep schema/correctness (#893 #894 #895 #898 #899 #901).
-4. **#788 vitest-coverage** — only after a paired vitest-core bump.
-5. Carry-over: #599 PHARMACIST policy, A11 appointment UTC sweep, A12 payment-plans refactor, visual baseline regen, the 9 #772 user-blocked items.
+1. ~~**Verify the `f23865c` deploy** (above). Gate on everything STAGING.~~ ✅ Done 2026-05-19 — demo live, 4 PM2 layers fixed (HEAD `970591c`).
+2. ~~**Once deployed** — smoke-pass the demo; verify-close STAGING guards still OPEN (#890 #892 #896) + older STAGING UI bugs (#877/#878/#884/#886/#887).~~ ✅ Done 2026-05-19 — 5 UI bugs closed (#877/#878/#884/#886/#887); STAGING guards #890/#892/#896 still pending.
+3. **Mobile SDK 53→55 holistic migration** — tracked in **#920**. `apps/mobile` is an incoherent SDK 53/55 hybrid; bump `expo` + `expo-router` 4→6 + all `expo-*` + RN peers together, `expo install --fix`, fix breakage. CI never builds mobile.
+4. **#890-903 cluster remaining OPEN:** #891 (placeholder emails), #893 (ER LWBS escalation), #898 (`medicineId` FK on Rx items), #899 (medicines-master metadata), #901 (float currency + GST-after-discount).
+5. **vitest 2→4 paired migration** — tracked in **#921**.
+6. Carry-over: #599 PHARMACIST policy, visual baseline regen, the 9 #772 user-blocked items.
 
 ### 📦 New artifacts this session
 
-- `docs/archive/SESSION_SNAPSHOT_2026-05-15-evening.md` — full handoff.
-- Issue #908 filed — the deploy-blocker (ops action required).
+- `docs/archive/SESSION_SNAPSHOT_2026-05-18-evening.md` — full handoff.
+- `a9b6aa2` committed the `next.config.ts` prod-crash fix that previously only existed as a server hot-patch — **do not revert it.**
+- Issue #908 updated 2026-05-18 with the second-blocker finding.
+
+---
+
+## 🏠 PRIOR PICKUP — handoff from 2026-05-18 morning: #890-903 cluster mostly closed + 2nd deploy blocker found (kept for log)
+
+HEAD was `94d137a`. Synced 15 team commits since 2026-05-15: #890-903 cluster 6 of 14 closed (#894/#895/#897/#900/#902/#903), A11+A12 done, `ce8f3d1` added `scripts/unblock-deploy-908.sh` + 7 migrations `20260517000001-07`. Surfaced the dirty-checkout 2nd #908 blocker (resolved later same day — see the evening handoff above).
+
+---
+
+## 🏠 PRIOR PICKUP — handoff from 2026-05-15 evening: dep backlog cleared + deploy-blocker found + 4 STAGING guards (kept for log)
+
+See [`docs/archive/SESSION_SNAPSHOT_2026-05-15-evening.md`](docs/archive/SESSION_SNAPSHOT_2026-05-15-evening.md). HEAD was `1d807b2`. Dependency backlog cleared (zod 4, Next 15→16, OTel #906, patch-minor #907); zod-4 UUID fixtures fixed (`6ee4b2e`); 4 STAGING data-hygiene guards shipped (`1d807b2` — #890 #892 #896 #897); #908 deploy-blocker filed.
 
 ---
 

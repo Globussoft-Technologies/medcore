@@ -182,10 +182,19 @@ export async function onPrescriptionReady(prescription: {
 
 // ─── Billing Triggers ──────────────────────────────────
 
+// Issue #901: totalAmount widened to `number | { toNumber: () => number }`
+// (effectively `number | Prisma.Decimal`) so callers can pass the new
+// Decimal-typed Invoice row without coercing at every call-site. We
+// coerce locally before formatting.
+type AmountLike = number | { toNumber: () => number };
+function asNumber(v: AmountLike): number {
+  return typeof v === "number" ? v : v.toNumber();
+}
+
 export async function onBillGenerated(invoice: {
   id: string;
   invoiceNumber: string;
-  totalAmount: number;
+  totalAmount: AmountLike;
   patientId: string;
 }): Promise<void> {
   // Look up patient's userId
@@ -197,16 +206,17 @@ export async function onBillGenerated(invoice: {
   if (!patient) return;
 
   const paymentLink = `/billing/invoices/${invoice.id}/pay`;
+  const totalAmount = asNumber(invoice.totalAmount);
 
   await sendNotification({
     userId: patient.user.id,
     type: NotificationType.BILL_GENERATED,
     title: "Bill Generated",
-    message: `Hi ${patient.user.name}, your bill (${invoice.invoiceNumber}) of Rs. ${invoice.totalAmount.toFixed(2)} has been generated. Pay here: ${paymentLink}`,
+    message: `Hi ${patient.user.name}, your bill (${invoice.invoiceNumber}) of Rs. ${totalAmount.toFixed(2)} has been generated. Pay here: ${paymentLink}`,
     data: {
       invoiceId: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
-      totalAmount: invoice.totalAmount,
+      totalAmount,
       link: paymentLink,
     },
   });
@@ -214,7 +224,7 @@ export async function onBillGenerated(invoice: {
 
 export async function onPaymentReceived(
   payment: { id: string; amount: number; mode: string },
-  invoice: { id: string; invoiceNumber: string; totalAmount: number; patientId: string }
+  invoice: { id: string; invoiceNumber: string; totalAmount: AmountLike; patientId: string }
 ): Promise<void> {
   const patient = await prisma.patient.findUnique({
     where: { id: invoice.patientId },

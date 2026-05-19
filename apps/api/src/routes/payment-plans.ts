@@ -73,7 +73,11 @@ router.post(
       const seq = cfg ? parseInt(cfg.value) : 1;
       const planNumber = `${PAYMENT_PLAN_PREFIX}${String(seq).padStart(6, "0")}`;
 
-      const remainder = Math.max(0, invoice.totalAmount - downPayment);
+      // Issue #901: Invoice.totalAmount is Prisma.Decimal — coerce.
+      const invTotalN = typeof (invoice.totalAmount as unknown) === "number"
+        ? (invoice.totalAmount as unknown as number)
+        : (invoice.totalAmount as unknown as { toNumber: () => number }).toNumber();
+      const remainder = Math.max(0, invTotalN - downPayment);
       const installmentAmount = +(remainder / installments).toFixed(2);
       const start = new Date(startDate + "T00:00:00.000Z");
 
@@ -83,7 +87,7 @@ router.post(
             planNumber,
             invoiceId,
             patientId: invoice.patientId,
-            totalAmount: invoice.totalAmount,
+            totalAmount: invTotalN,
             downPayment,
             installments,
             installmentAmount,
@@ -444,8 +448,12 @@ router.patch(
           where: { invoiceId: plan.invoiceId },
         });
         const paid = payments.reduce((s, p) => s + p.amount, 0);
+        // Issue #901: Invoice.totalAmount is Prisma.Decimal — coerce.
+        const planInvTotal = typeof (plan.invoice.totalAmount as unknown) === "number"
+          ? (plan.invoice.totalAmount as unknown as number)
+          : (plan.invoice.totalAmount as unknown as { toNumber: () => number }).toNumber();
         const newStatus =
-          paid >= plan.invoice.totalAmount
+          paid >= planInvTotal
             ? "PAID"
             : paid > 0
               ? "PARTIAL"

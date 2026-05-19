@@ -185,7 +185,12 @@ const REFRESH_TOKEN_REMEMBER_ME_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
 function generateTokens(
   userId: string,
-  email: string,
+  // #891 (May 2026): nullable. A walk-in patient registered without an
+  // email is still a valid identity that can be authenticated through
+  // non-email flows (admin-set password, OTP-by-phone — future); the
+  // JWT just carries `null` in the email claim and email-keyed surfaces
+  // (forgot-password lookup) naturally don't find a row to match.
+  email: string | null,
   role: string,
   tenantId: string | null | undefined,
   rememberMe: boolean = false
@@ -1496,6 +1501,15 @@ router.post(
         return;
       }
 
+      // #891 (May 2026): User.email is now nullable. The TOTP otpauth URI
+      // uses the email as the human-readable label in the authenticator
+      // app (the "account name" in Google Authenticator). When the user
+      // has no email on file, fall back to a label derived from the user
+      // id + role so the row in the authenticator app is still distinguishable.
+      // Refuse 2FA setup for emailless users? No — phone-only users
+      // still want 2FA. Just label gracefully.
+      const otpLabel = user.email || `user-${user.id.slice(0, 8)}@medcore`;
+
       const secret = generateSecret();
       const backupCodes = generateBackupCodes(10);
 
@@ -1509,7 +1523,7 @@ router.post(
         },
       });
 
-      const otpauthUri = buildOtpAuthUri(user.email, secret, "MedCore");
+      const otpauthUri = buildOtpAuthUri(otpLabel, secret, "MedCore");
 
       auditLog(req, "2FA_SETUP_INIT", "user", user.id).catch(console.error);
 

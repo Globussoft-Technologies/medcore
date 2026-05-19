@@ -235,7 +235,10 @@ export async function detectHighFrequencyPatients(sinceDate: Date): Promise<RawF
   for (const inv of invoices) {
     const e = counts.get(inv.patientId) ?? { count: 0, total: 0, invoiceIds: [] };
     e.count += 1;
-    e.total += inv.totalAmount;
+    // Issue #901: Invoice.totalAmount is Prisma.Decimal — coerce.
+    e.total += typeof (inv.totalAmount as unknown) === "number"
+      ? (inv.totalAmount as unknown as number)
+      : (inv.totalAmount as unknown as { toNumber: () => number }).toNumber();
     e.invoiceIds.push(inv.id);
     counts.set(inv.patientId, e);
   }
@@ -320,9 +323,18 @@ export async function detectLargeDiscounts(sinceDate: Date): Promise<RawFraudHit
     take: 10000,
   });
   const hits: RawFraudHit[] = [];
+  // Issue #901: Invoice money columns are now Prisma.Decimal — coerce.
+  const toN = (v: unknown): number => {
+    if (v == null) return 0;
+    if (typeof v === "number") return v;
+    const av = v as { toNumber?: () => number };
+    return typeof av.toNumber === "function" ? av.toNumber() : Number(v);
+  };
   for (const inv of invoices) {
-    const pct = inv.subtotal > 0 ? (inv.discountAmount / inv.subtotal) * 100 : 0;
-    const absHit = inv.discountAmount >= LARGE_DISCOUNT_ABS;
+    const subN = toN(inv.subtotal);
+    const discN = toN(inv.discountAmount);
+    const pct = subN > 0 ? (discN / subN) * 100 : 0;
+    const absHit = discN >= LARGE_DISCOUNT_ABS;
     const pctHit = pct >= LARGE_DISCOUNT_PCT;
     if (!absHit && !pctHit) continue;
     hits.push({

@@ -285,3 +285,91 @@ describe("sendNotification — patient-copy audience guard (issue #759)", () => 
     expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────
+// Issue #891 — User.email is now nullable. When a walk-in patient
+// was registered without an email, the row's email is `null` and
+// the EMAIL channel must skip cleanly — no placeholder fabricated,
+// no provider call, and the notification row ends up FAILED with a
+// human-readable failureReason so the failure surfaces in the ops
+// dashboard. The other 3 channels (PUSH/SMS/WHATSAPP) still fire
+// because the user has a phone on file.
+// ─────────────────────────────────────────────────────────────────
+describe("sendNotification — EMAIL channel skip when User.email is null (issue #891)", () => {
+  beforeEach(() => {
+    resetMocks();
+  });
+
+  it("skips the EMAIL dispatch (no provider call) and writes a FAILED row when user.email is null", async () => {
+    // Walk-in patient registered without an email — schema is now
+    // `email String?`, so the row has email: null.
+    prismaMock.user.findUnique.mockReset();
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "u-walkin",
+      email: null,
+      phone: "+919000000099",
+      name: "Walk-in Patient",
+      role: "PATIENT",
+    });
+    prismaMock.notificationPreference.findMany.mockResolvedValueOnce([]);
+
+    const emailMod = await import("./channels/email");
+    (emailMod.sendEmail as any).mockClear();
+
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+
+    await sendNotification(baseParams);
+
+    // Rows created for ALL 4 channels — the EMAIL row exists, it just
+    // gets marked FAILED rather than not written at all (so ops can
+    // see the missing-email gap in /dashboard/notifications).
+    expect(prismaMock.notification.create).toHaveBeenCalledTimes(4);
+
+    // CRITICAL: the email provider was NEVER called with null/empty.
+    expect(emailMod.sendEmail).not.toHaveBeenCalled();
+
+    // The EMAIL row should have been UPDATEd to FAILED with the
+    // human-readable reason. Find it among the update calls.
+    const failedUpdates = prismaMock.notification.update.mock.calls.filter(
+      (c: any[]) => (c[0] as any).data?.failureReason === "User has no email on file"
+    );
+    expect(failedUpdates.length).toBeGreaterThanOrEqual(1);
+    expect((failedUpdates[0][0] as any).data.deliveryStatus).toBe("FAILED");
+
+    // Structured ops line emitted so dashboards can count the gap.
+    const skipCalls = infoSpy.mock.calls.filter(
+      (c) => String(c[0]) === "notification_email_skipped_no_address"
+    );
+    expect(skipCalls.length).toBeGreaterThanOrEqual(1);
+    const payload = JSON.parse(String(skipCalls[0][1]));
+    expect(payload).toMatchObject({
+      userId: "u-walkin",
+      reason: "user_has_no_email",
+    });
+
+    infoSpy.mockRestore();
+  });
+
+  it("still dispatches PUSH/SMS/WHATSAPP for a null-email user (other channels unaffected)", async () => {
+    prismaMock.user.findUnique.mockReset();
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "u-walkin-2",
+      email: null,
+      phone: "+919000000088",
+      name: "Walk-in 2",
+      role: "PATIENT",
+    });
+    prismaMock.notificationPreference.findMany.mockResolvedValueOnce([]);
+
+    const whatsappMod = await import("./channels/whatsapp");
+    const smsMod = await import("./channels/sms");
+    (whatsappMod.sendWhatsApp as any).mockClear();
+    (smsMod.sendSMS as any).mockClear();
+
+    await sendNotification(baseParams);
+
+    // The non-EMAIL providers were invoked with the user's phone.
+    expect(whatsappMod.sendWhatsApp).toHaveBeenCalled();
+    expect(smsMod.sendSMS).toHaveBeenCalled();
+  });
+});

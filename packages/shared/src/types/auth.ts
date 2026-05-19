@@ -14,8 +14,20 @@ import type { Role } from "./roles";
 export interface AuthPayload {
   /** User id (primary key of the `users` row). */
   userId: string;
-  /** User email (denormalised into the token for logging convenience). */
-  email: string;
+  /**
+   * User email (denormalised into the token for logging convenience).
+   *
+   * Nullable as of #891 (May 2026) — the schema's `User.email` was made
+   * nullable so reception can register a walk-in patient without
+   * fabricating a `noemail+<MR>@medcore.invalid` placeholder. Patients
+   * registered without an email cannot log in by email (no row matches
+   * a null lookup), but they can still be authenticated via flows that
+   * mint a session by id (e.g. OTP-by-phone — future feature). When
+   * absent, downstream consumers that need to address-by-email
+   * (notifications, password-reset emails) must skip rather than
+   * fabricate.
+   */
+  email: string | null;
   /** User role — drives RBAC via `authorize(...)`. */
   role: Role;
   /**

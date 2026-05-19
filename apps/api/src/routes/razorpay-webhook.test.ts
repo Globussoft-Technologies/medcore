@@ -70,7 +70,12 @@ const { prismaMock } = vi.hoisted(() => {
 vi.mock("@medcore/db", () => ({
   getTenantId: () => undefined,
   runWithTenant: (_t: string, fn: () => unknown) => fn(),
-  requireTenantId: () => { throw new Error("tenant ctx required"); }, prisma: prismaMock }));
+  requireTenantId: () => { throw new Error("tenant ctx required"); },
+  prisma: prismaMock,
+  // Issue #901 — billing.ts patches Decimal.prototype.toJSON at module
+  // load and reads Prisma.Decimal.prototype to do it. Stub the class.
+  Prisma: { Decimal: class { toNumber() { return 0; } } },
+}));
 vi.mock("../services/tenant-prisma", () => ({ tenantScopedPrisma: prismaMock }));
 vi.mock("../services/notification-triggers", () => ({
   onPaymentReceived: vi.fn(async () => {}),

@@ -228,6 +228,12 @@ async function stubPaymentPlanPickerEndpoints(
 
   await page.route("**/api/v1/payment-plans?**", (route) => {
     if (route.request().method() !== "GET") return route.continue();
+    // Shape MUST match PlanRow in apps/web/.../payment-plans/page.tsx:21 —
+    // `installments` is a COUNT (number), `installmentRecords` is the
+    // array, and `patient` is required at the top level (page reads
+    // patient.user.name). Earlier rev of this stub used the API-side
+    // shape (installments=array, no patient top-level) which crashed
+    // the page on render and made every assertion below time out.
     return route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -237,17 +243,26 @@ async function stubPaymentPlanPickerEndpoints(
           {
             id: STUB_PLAN_ID,
             planNumber: STUB_PLAN_NUMBER,
+            totalAmount: STUB_INVOICE_TOTAL,
+            downPayment: 0,
+            installments: 3,
+            installmentAmount: 472,
+            frequency: "MONTHLY",
+            startDate: new Date().toISOString(),
             status: "ACTIVE",
+            paidCount: 0,
+            nextDue: new Date().toISOString(),
             invoice: {
               id: STUB_INVOICE_ID,
               invoiceNumber: STUB_INVOICE_NUMBER,
               totalAmount: STUB_INVOICE_TOTAL,
-              patient: {
-                id: STUB_PATIENT_ID,
-                user: { name: STUB_PATIENT_NAME },
-              },
             },
-            installments: [
+            patient: {
+              id: STUB_PATIENT_ID,
+              mrNumber: "MR-PP-TEST",
+              user: { name: STUB_PATIENT_NAME, phone: "+919800000099" },
+            },
+            installmentRecords: [
               { id: "i1", dueDate: new Date().toISOString(), amount: 472, status: "PENDING" },
               { id: "i2", dueDate: new Date().toISOString(), amount: 472, status: "PENDING" },
               { id: "i3", dueDate: new Date().toISOString(), amount: 472, status: "PENDING" },

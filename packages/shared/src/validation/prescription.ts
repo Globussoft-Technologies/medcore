@@ -51,6 +51,13 @@ export const durationStringSchema = z
   );
 
 const prescriptionItemSchema = z.object({
+  // Issue #898 (2026-05-19): optional structured FK to the Medicine master.
+  // Still optional in this wave so existing UIs that POST free-text only
+  // (mobile + voice-entry) keep working; when provided, the API verifies it
+  // resolves to a real row and overwrites `medicineName` from the master so
+  // the snapshot stays canonical. Will be flipped to required in a follow-up
+  // once every writer is converted.
+  medicineId: z.string().uuid().optional(),
   medicineName: z.string().min(1, "Medicine name is required"),
   dosage: dosageStringSchema,
   frequency: z.string().min(1, "Frequency is required"),

@@ -89,14 +89,19 @@ router.get(
   }
 );
 
-// Issue #331 (Apr 2026): the synthetic walk-in email placeholder must
-// never reach the frontend or notification stack. We strip it on the
-// way out — the schema requires a non-null value at write time, but
-// the API contract says "no email" should be observable as `null` so
-// the reception edit form, the CRM export, and the email channel all
-// see consistency. Matches both the new `noemail+...@medcore.invalid`
-// pattern and any pre-fix `patient_<n>@medcore.local` rows that were
-// already in the DB before this change shipped.
+// Issue #331 (Apr 2026) + #891 (May 2026): defensive masker.
+//
+// As of #891 the schema is `email String? @unique` and new registrations
+// store `null` directly — no placeholder is ever fabricated, and the
+// migration at 20260519000003 cleared the 183 historical rows back to
+// NULL. We keep this regex + the maskPlaceholderEmail helper as a back-
+// compat safety net: any sentinel that survived the migration (e.g. a
+// row restored from a pre-#891 backup, a tenant that hasn't run the
+// migration yet) is still scrubbed on the read path before it can leak
+// to the frontend or CRM export. It is also referenced by the
+// create-side duplicate-email pre-check below, which intentionally
+// skips placeholders rather than matching one patient to another's
+// sentinel.
 const PLACEHOLDER_EMAIL_RE =
   /^(?:noemail\+[^@]+@medcore\.invalid|patient_\d+@medcore\.local)$/i;
 function maskPlaceholderEmail<T extends { email?: string | null } | null | undefined>(
@@ -367,23 +372,18 @@ router.post(
       const mrSeq = config ? parseInt(config.value) : 1;
       const mrNumber = `MR${String(mrSeq).padStart(6, "0")}`;
 
-      // Issue #331 (Apr 2026): the placeholder email
-      // `patient_<MR>@medcore.local` was leaking into appointment
-      // reminders and CRM exports — reception would open the chart,
-      // see a real-looking address, and assume it was something the
-      // patient supplied. We can't store NULL because the schema's
-      // `User.email` is non-null + `@unique`, so we keep the
-      // placeholder but switch to the `.invalid` reserved TLD (RFC
-      // 6761): every notification provider drops `.invalid` addresses
-      // immediately, and the format is unambiguously "not real" to any
-      // human reading the chart. The frontend hides anything matching
-      // this pattern from the email field on the patient detail page,
-      // so reception sees an empty field instead of a fabricated one.
-      // For phone we just pass through what reception typed — never
-      // invent one.
+      // Issue #891 (May 2026): no more placeholder email. The schema
+      // is now `email String? @unique` — when reception doesn't capture
+      // an email, we store `null` instead of fabricating
+      // `noemail+<MR>@medcore.invalid`. That sentinel was bouncing every
+      // EMAIL-channel notification, polluting Razorpay receipts, and
+      // making password-reset enumeration impossible. Schema-side null
+      // is the source of truth: every reader
+      // (notification.ts, prescriptions.ts, fhir/resources.ts) already
+      // null-guards before sending. For phone we just pass through what
+      // reception typed — never invent one.
       const trimmedEmail =
         typeof data.email === "string" ? data.email.trim() : "";
-      const placeholderEmail = `noemail+${mrNumber}@medcore.invalid`;
       // #895 defense-in-depth: explicitly pin tenantId on both writes
       // inside the transaction. The tenantScopedPrisma $extends hook
       // SHOULD auto-inject via $allOperations, but PRD evidence
@@ -397,7 +397,9 @@ router.post(
         const user = await tx.user.create({
           data: {
             name: data.name,
-            email: trimmedEmail || placeholderEmail,
+            // #891: explicit null when no email captured. Schema is now
+            // `email String? @unique` so a multi-null insert is safe.
+            email: trimmedEmail || null,
             phone: data.phone,
             passwordHash: "", // walk-in patients may not need login
             role: "PATIENT",

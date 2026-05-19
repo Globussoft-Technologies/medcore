@@ -64,7 +64,7 @@ function delay(ms: number): Promise<void> {
 
 async function dispatchToChannel(
   channel: NotificationChannel,
-  user: { id: string; email: string; phone: string }
+  user: { id: string; email: string | null; phone: string }
 ): Promise<ChannelResult> {
   // Note: text is supplied to channel from the caller via closure (see below)
   // — kept here for typing only; real call site below.
@@ -76,7 +76,7 @@ void dispatchToChannel;
 
 async function sendOnce(
   channel: NotificationChannel,
-  user: { id: string; email: string; phone: string },
+  user: { id: string; email: string | null; phone: string },
   title: string,
   message: string
 ): Promise<ChannelResult> {
@@ -86,6 +86,21 @@ async function sendOnce(
     case NotificationChannel.SMS:
       return sendSMS(user.phone, message);
     case NotificationChannel.EMAIL:
+      // #891: a User with no email on file (schema is `email String?`)
+      // cannot receive the EMAIL channel. Skip cleanly and record a
+      // structured ops line so dashboards can count the gap; do NOT
+      // mint a placeholder or pass an empty string through to the
+      // provider (which would either bounce or, worse, be silently
+      // accepted by some transports). The notification row is still
+      // written by the caller and ends up in FAILED state with this
+      // error string — surfaces correctly in /dashboard/notifications.
+      if (!user.email) {
+        console.info(
+          "notification_email_skipped_no_address",
+          JSON.stringify({ userId: user.id, reason: "user_has_no_email" })
+        );
+        return { ok: false, error: "User has no email on file" };
+      }
       return sendEmail(user.email, title, message);
     case NotificationChannel.PUSH: {
       const pushUser = await prisma.user.findUnique({
@@ -102,7 +117,7 @@ async function sendOnce(
 
 async function sendWithRetry(
   channel: NotificationChannel,
-  user: { id: string; email: string; phone: string },
+  user: { id: string; email: string | null; phone: string },
   title: string,
   message: string
 ): Promise<ChannelResult> {

@@ -470,4 +470,75 @@ describeIfDB("Prescriptions API (integration)", () => {
     expect(res.status).toBe(409);
     expect(res.body.error).toMatch(/unsigned/i);
   });
+
+  // ─── Issue #898: structured medicineId FK on prescription items ─────
+  // The Rx schema gained a `medicineId String?` column + FK to Medicine so
+  // allergy/interaction engines, FEFO pharmacy dispense, and per-SKU refill
+  // quotas can resolve a real master row. The POST handler accepts an
+  // optional items[].medicineId, verifies it exists, and pins
+  // `medicineName` from the master so the snapshot is canonical.
+  it("creates a prescription with a valid medicineId FK and pins name from master (issue #898)", async () => {
+    const { doctor, token } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    const med = await createMedicineFixture({ name: "Amoxicillin 500mg" });
+
+    const res = await request(app)
+      .post("/api/v1/prescriptions")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        diagnosis: "Bacterial pharyngitis",
+        items: [
+          {
+            medicineId: med.id,
+            // Deliberately wrong free-text — the handler should overwrite
+            // this from the master so the snapshot stays canonical.
+            medicineName: "amoxi (typo)",
+            dosage: "500mg",
+            frequency: "TID",
+            duration: "7 days",
+          },
+        ],
+      });
+    expect([200, 201]).toContain(res.status);
+    expect(res.body.data?.items?.length).toBe(1);
+    expect(res.body.data?.items?.[0]?.medicineId).toBe(med.id);
+    expect(res.body.data?.items?.[0]?.medicineName).toBe("Amoxicillin 500mg");
+  });
+
+  it("rejects a prescription with an unknown medicineId (400, issue #898)", async () => {
+    const { doctor, token } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    // Well-formed UUID that does not exist in the medicines table.
+    const ghostMedicineId = "00000000-0000-4000-8000-000000000898";
+
+    const res = await request(app)
+      .post("/api/v1/prescriptions")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        diagnosis: "Test",
+        items: [
+          {
+            medicineId: ghostMedicineId,
+            medicineName: "Ghost Drug",
+            dosage: "1mg",
+            frequency: "OD",
+            duration: "1d",
+          },
+        ],
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/medicineId/i);
+  });
 });

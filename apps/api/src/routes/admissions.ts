@@ -389,7 +389,11 @@ router.get(
       }
       let outstandingAmount = 0;
       for (const inv of pendingInvoices) {
-        outstandingAmount += Math.max(0, inv.totalAmount - (paidByInv[inv.id] || 0));
+        // Issue #901: Invoice.totalAmount is now Prisma.Decimal — coerce.
+        const invTotal = typeof (inv.totalAmount as unknown) === "number"
+          ? (inv.totalAmount as unknown as number)
+          : (inv.totalAmount as unknown as { toNumber: () => number }).toNumber();
+        outstandingAmount += Math.max(0, invTotal - (paidByInv[inv.id] || 0));
       }
 
       // Pending lab results (lab orders on this admission not COMPLETED/CANCELLED)
@@ -487,7 +491,11 @@ router.patch(
           }
           let outstanding = 0;
           for (const inv of pendingInvoices) {
-            outstanding += Math.max(0, inv.totalAmount - (paidByInv[inv.id] || 0));
+            // Issue #901: Invoice.totalAmount is now Prisma.Decimal — coerce.
+            const invTotal = typeof (inv.totalAmount as unknown) === "number"
+              ? (inv.totalAmount as unknown as number)
+              : (inv.totalAmount as unknown as { toNumber: () => number }).toNumber();
+            outstanding += Math.max(0, invTotal - (paidByInv[inv.id] || 0));
           }
           if (outstanding > 0) {
             res.status(400).json({

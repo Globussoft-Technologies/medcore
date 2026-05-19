@@ -597,13 +597,36 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
   const h = await getHospitalInfo();
   const p = inv.patient;
 
+  // Issue #901: Invoice money columns are now Prisma.Decimal. Coerce
+  // each to a JS number once at the top so the rest of this renderer
+  // (template literals, .toFixed formatting) stays unchanged.
+  const numOf = (v: unknown): number => {
+    if (v == null) return 0;
+    if (typeof v === "number") return v;
+    const anyV = v as { toNumber?: () => number };
+    return typeof anyV.toNumber === "function" ? anyV.toNumber() : Number(v);
+  };
+  const invSubtotal = numOf(inv.subtotal);
+  const invTaxAmount = numOf(inv.taxAmount);
+  const invCgstAmount = numOf(inv.cgstAmount);
+  const invSgstAmount = numOf(inv.sgstAmount);
+  const invDiscountAmount = numOf(inv.discountAmount);
+  const invPackageDiscount = numOf(inv.packageDiscount);
+  const invAdvanceApplied = numOf(inv.advanceApplied);
+  const invLateFeeAmount = numOf(inv.lateFeeAmount);
+  const invTotalAmount = numOf(inv.totalAmount);
+  const itemsForTotals = inv.items.map((it) => ({
+    amount: numOf(it.amount),
+    category: it.category,
+  }));
+
   // Per-item GST breakdown — computed at render time via the shared helper.
   // If Invoice.taxAmount is authoritative (pre-stored), the totals block still
   // uses inv.cgstAmount / inv.sgstAmount; the per-line values here are for the
   // tabular HSN/SAC presentation required for a GST-compliant tax invoice.
   const itemsWithTax = inv.items.map((it) => ({
     it,
-    tax: computeLineItemTax(it.amount, it.category),
+    tax: computeLineItemTax(numOf(it.amount), it.category),
   }));
 
   const itemRows = itemsWithTax
@@ -614,7 +637,7 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
       <td>${escapeHtml(it.description)}<br/><span style="font-size:10px;color:#94a3b8;">${escapeHtml(it.category)} · GST ${tax.gstRate}%</span></td>
       <td style="text-align:center;font-family:monospace;">${escapeHtml(tax.hsnSac)}</td>
       <td style="text-align:center;">${it.quantity}</td>
-      <td style="text-align:right;">${it.unitPrice.toFixed(2)}</td>
+      <td style="text-align:right;">${numOf(it.unitPrice).toFixed(2)}</td>
       <td style="text-align:right;">${tax.taxable.toFixed(2)}</td>
       <td style="text-align:right;">${tax.cgst.toFixed(2)}</td>
       <td style="text-align:right;">${tax.sgst.toFixed(2)}</td>
@@ -627,24 +650,24 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
   // `computeInvoiceTotals` helper. This guarantees Subtotal + GST = Total
   // even on legacy invoices stored with `taxAmount: 0`, and keeps the PDF
   // and the web detail page in lock-step.
-  const totals = computeInvoiceTotals(inv.items, {
-    subtotal: inv.subtotal,
-    taxAmount: inv.taxAmount,
-    cgstAmount: inv.cgstAmount,
-    sgstAmount: inv.sgstAmount,
-    discountAmount: inv.discountAmount,
-    totalAmount: inv.totalAmount,
+  const totals = computeInvoiceTotals(itemsForTotals, {
+    subtotal: invSubtotal,
+    taxAmount: invTaxAmount,
+    cgstAmount: invCgstAmount,
+    sgstAmount: invSgstAmount,
+    discountAmount: invDiscountAmount,
+    totalAmount: invTotalAmount,
   });
-  const taxable = totals.subtotal - inv.discountAmount - inv.packageDiscount;
+  const taxable = totals.subtotal - invDiscountAmount - invPackageDiscount;
   const paid = inv.payments.reduce((s, x) => s + x.amount, 0);
-  const displayTotal = +(totals.totalAmount - inv.packageDiscount).toFixed(2);
-  const balance = displayTotal - paid - inv.advanceApplied;
+  const displayTotal = +(totals.totalAmount - invPackageDiscount).toFixed(2);
+  const balance = displayTotal - paid - invAdvanceApplied;
   const displayCgst = totals.cgstAmount;
   const displaySgst = totals.sgstAmount;
   const displayStatus = derivePaymentStatus(
     inv.paymentStatus,
     displayTotal,
-    paid + inv.advanceApplied
+    paid + invAdvanceApplied
   );
 
   const paymentRows = inv.payments
@@ -697,16 +720,16 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
   <div style="display:flex;justify-content:flex-end;margin-bottom:14px;">
     <table style="width:340px;font-size:13px;">
       <tr><td>Subtotal</td><td style="text-align:right;">₹${totals.subtotal.toFixed(2)}</td></tr>
-      ${inv.packageDiscount > 0 ? `<tr><td>Package Discount</td><td style="text-align:right;">-₹${inv.packageDiscount.toFixed(2)}</td></tr>` : ""}
-      ${inv.discountAmount > 0 ? `<tr><td>Discount</td><td style="text-align:right;">-₹${inv.discountAmount.toFixed(2)}</td></tr>` : ""}
+      ${invPackageDiscount > 0 ? `<tr><td>Package Discount</td><td style="text-align:right;">-₹${invPackageDiscount.toFixed(2)}</td></tr>` : ""}
+      ${invDiscountAmount > 0 ? `<tr><td>Discount</td><td style="text-align:right;">-₹${invDiscountAmount.toFixed(2)}</td></tr>` : ""}
       <tr><td>Taxable Amount</td><td style="text-align:right;">₹${taxable.toFixed(2)}</td></tr>
       <tr><td>CGST</td><td style="text-align:right;">₹${displayCgst.toFixed(2)}</td></tr>
       <tr><td>SGST</td><td style="text-align:right;">₹${displaySgst.toFixed(2)}</td></tr>
-      ${inv.lateFeeAmount > 0 ? `<tr><td>Late Fee</td><td style="text-align:right;">₹${inv.lateFeeAmount.toFixed(2)}</td></tr>` : ""}
+      ${invLateFeeAmount > 0 ? `<tr><td>Late Fee</td><td style="text-align:right;">₹${invLateFeeAmount.toFixed(2)}</td></tr>` : ""}
       <tr style="background:#f1f5f9;font-weight:700;font-size:14px;">
         <td>Total</td><td style="text-align:right;">₹${displayTotal.toFixed(2)}</td>
       </tr>
-      ${inv.advanceApplied > 0 ? `<tr><td>Advance Applied</td><td style="text-align:right;">-₹${inv.advanceApplied.toFixed(2)}</td></tr>` : ""}
+      ${invAdvanceApplied > 0 ? `<tr><td>Advance Applied</td><td style="text-align:right;">-₹${invAdvanceApplied.toFixed(2)}</td></tr>` : ""}
       ${paid > 0 ? `<tr><td>Paid</td><td style="text-align:right;">-₹${paid.toFixed(2)}</td></tr>` : ""}
       <tr style="font-weight:700;color:${balance > 0 ? "#dc2626" : "#16a34a"};">
         <td>Balance</td><td style="text-align:right;">₹${balance.toFixed(2)}</td>

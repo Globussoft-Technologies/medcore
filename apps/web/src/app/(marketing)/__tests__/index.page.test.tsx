@@ -39,8 +39,8 @@ describe("Marketing HomePage", () => {
 
   it("renders the hero headline", () => {
     render(<HomePage />);
-    expect(screen.getByText(/run your hospital/i)).toBeInTheDocument();
-    expect(screen.getByText(/not spreadsheets/i)).toBeInTheDocument();
+    expect(screen.getByText(/run your facility/i)).toBeInTheDocument();
+    expect(screen.getByText(/on autopilot\./i)).toBeInTheDocument();
   });
 
   it("renders Request a demo and live demo CTAs", () => {

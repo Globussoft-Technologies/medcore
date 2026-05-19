@@ -26,11 +26,19 @@ is independently shippable. Full per-session history lives under
   - #890 NO_SHOW phantom invoice — guard at `1d807b2`, INV000426 cleaned at `20260517000002`.
   - #891 placeholder `noemail+...@medcore.invalid` emails — schema nullable + 183 placeholders cleared (`d21e14c`).
   - #892 duplicate-patient by name+DOB — guard at `1d807b2`.
-  - #893 ER LWBS → escalation: `EMERGENCY_LWBS_ESCALATION` notification + audit + console.warn for RESUSCITATION/EMERGENT/URGENT (`c8f7412`).
+  - #893 ER LWBS → escalation: `EMERGENCY_LWBS_ESCALATION` notification + audit + console.warn for RESUSCITATION/EMERGENT/URGENT (`c8f7412` + `e09e4d1` test-fix).
   - #896 age/DOB cross-field validation — guard at `1d807b2` + 3 impossible rows backfilled at `03e0a49` (after fixing the bad `updatedAt` write in the migration).
   - #898 medicineId FK on prescription_items + name-match backfill (`d70fb67`).
   - #899 medicines master regulatory metadata seed (55 of 87 generics: Schedule, isNarcotic, maxDailyDoseMg, contraindications) wired into deploy.sh step 9f (`5f3ad0c`).
   - #901 invoice totals Float→Decimal + GST-before-discount sequence + INV000406 recalc (`b9311c7`). Decimal/number boundary collateral fixed at `c7dad42`.
+- ✅ **release.yml validation GREEN on `e09e4d1`** — 33/33 jobs (full Playwright + WebKit + integration suite).
+- ✅ **20 STAGING dark-mode UI bugs closed via 4-lane fanout**:
+  - Lane A `c6a9ea2`: #819, #820, #821, #818, #836, #843 (admin + visitors).
+  - Lane B `8d6f86d`: #845, #846, #862 (billing + payment plans + patient invoice).
+  - Lane C `350bae3`: #840, #844, #863, #864, #866, #869 (patient/ER/calendar — included calendar Day view rebuild).
+  - Lane D `e839ebc`: #793, #794, #809, #812, #813 (AI letters + lab explainer + settings + telemedicine + admissions).
+  - Pattern: every bare `bg-white` / `bg-gray-50` / `text-gray-900` paired with `dark:bg-gray-800` / `dark:text-gray-100`. Matches the canonical #886 fix style.
+- ⚠️ **Demo host (163.227.174.141) unreachable on port 22/443 from both GHA and local IP** (started ~12:00 UTC 2026-05-19). Ops/hosting issue, NOT a code defect. Earlier deploy at `5f3ad0c` succeeded so demo IS at latest code. release.yml validation runs entirely in GHA and doesn't depend on the demo.
 
 ### 🚨 #908 — verify the deploy landed (TOP priority)
 
@@ -50,8 +58,9 @@ gh run list --workflow=test.yml --branch main --limit 3
 3. **Mobile SDK 53→55 holistic migration** — tracked in **#920**. `apps/mobile` is an incoherent SDK 53/55 hybrid; bump `expo` + `expo-router` 4→6 + all `expo-*` + RN peers together, `expo install --fix`, fix breakage. CI never builds mobile.
 4. ~~**#890-903 cluster remaining OPEN**~~ ✅ Done 2026-05-19 — all 8 closed (see "Update" above).
 5. **vitest 2→4 paired migration** — tracked in **#921**.
-6. **Open issue surface remaining**: ~35 STAGING UI bugs (#840-#887 series — dark-mode contrast, role-leak labels, calendar shape, date format inconsistency). Bulk-amenable via `/medcore-fanout`.
-7. Carry-over: #599 PHARMACIST policy, visual baseline regen, the 9 #772 user-blocked items.
+6. **Open UI bug surface remaining**: ~15-20 STAGING UI bugs (date/time format inconsistency, raw enum display, calendar week view shape, sidebar role mismatches). Bulk-amenable via `/medcore-fanout`. 20 closed in this session via 4-lane dark-mode burndown.
+7. **Demo SSH connectivity** (port 22 + 443 timeouts since ~12:00 UTC 2026-05-19) — ops/hosting follow-up. Page demo host owner if it's not back by morning.
+8. Carry-over: #599 PHARMACIST policy, visual baseline regen, the 9 #772 user-blocked items.
 
 ### 📦 New artifacts this session
 

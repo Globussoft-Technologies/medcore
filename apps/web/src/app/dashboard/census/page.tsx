@@ -149,7 +149,13 @@ export default function CensusPage() {
           ) : (
             <div className="flex items-end gap-1 h-40">
               {data.map((r) => (
-                <div key={r.date} className="flex-1 flex flex-col items-center gap-1">
+                // Issue #182: column was `flex-1 flex flex-col items-center
+                // gap-1` with NO explicit height — the bar's `height: X%`
+                // was therefore a percentage of an auto-sized parent
+                // (collapses to 0). Add `h-full` so the bar's percentage-
+                // height resolves against the h-40 wrapper, and `justify-end`
+                // so the bar sits at the bottom with the date label below.
+                <div key={r.date} className="flex-1 h-full flex flex-col items-center justify-end gap-1">
                   <div
                     className="w-full bg-blue-500 rounded-t"
                     style={{
@@ -164,7 +170,7 @@ export default function CensusPage() {
                     }}
                     title={`${r.date}: ${r.occupancyPercent}%`}
                   />
-                  <div className="text-[10px] text-slate-700 rotate-45 origin-left mt-1 w-8">
+                  <div className="text-[10px] text-slate-700 dark:text-gray-300 rotate-45 origin-left mt-1 w-8">
                     {r.date.slice(5)}
                   </div>
                 </div>

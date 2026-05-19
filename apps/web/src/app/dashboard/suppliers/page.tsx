@@ -137,7 +137,7 @@ export default function SuppliersPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-gray-900 dark:text-gray-100">
             <Truck className="text-primary" size={28} /> Suppliers
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">Manage medicine and equipment vendors</p>
@@ -215,33 +215,33 @@ export default function SuppliersPage() {
                     onClick={() => openDetail(s.id)}
                     data-testid={`supplier-row-${s.id}`}
                     data-entity-id={s.id}
-                    className={`cursor-pointer border-b last:border-0 hover:bg-gray-50 ${
-                      selectedId === s.id ? "bg-blue-50" : ""
+                    className={`cursor-pointer border-b last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/50 ${
+                      selectedId === s.id ? "bg-blue-50 dark:bg-blue-900/30" : ""
                     } ${!s.isActive ? "opacity-60" : ""}`}
                   >
                     <td className="px-4 py-3">
                       <p className="font-medium text-gray-900 dark:text-gray-100">{s.name}</p>
                       {s.paymentTerms && (
-                        <p className="text-xs text-gray-600 dark:text-gray-300">{s.paymentTerms}</p>
+                        <p className="text-xs text-gray-600 dark:text-gray-400">{s.paymentTerms}</p>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-800">
+                    <td className="px-4 py-3 text-sm text-gray-800 dark:text-gray-200">
                       {s.contactPerson || "-"}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-800">{s.phone || "-"}</td>
-                    <td className="px-4 py-3 text-sm text-gray-800">{s.email || "-"}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-800">
+                    <td className="px-4 py-3 text-sm text-gray-800 dark:text-gray-200">{s.phone || "-"}</td>
+                    <td className="px-4 py-3 text-sm text-gray-800 dark:text-gray-200">{s.email || "-"}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-800 dark:text-gray-200">
                       {s.gstNumber || "-"}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-800">
+                    <td className="px-4 py-3 text-sm text-gray-800 dark:text-gray-200">
                       {s._count?.purchaseOrders || 0}
                     </td>
                     <td className="px-4 py-3">
                       <span
                         className={
                           s.isActive
-                            ? "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
-                            : "rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600"
+                            ? "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                            : "rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300"
                         }
                       >
                         {s.isActive ? "Active" : "Inactive"}
@@ -271,8 +271,8 @@ export default function SuppliersPage() {
                           title={s.isActive ? "Deactivate" : "Activate"}
                           className={`rounded p-1 ${
                             s.isActive
-                              ? "text-red-500 hover:bg-red-50"
-                              : "text-emerald-600 hover:bg-emerald-50"
+                              ? "text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
+                              : "text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
                           }`}
                         >
                           <Power size={14} />
@@ -294,7 +294,7 @@ export default function SuppliersPage() {
               <>
                 <div className="mb-4 flex items-start justify-between">
                   <div>
-                    <h2 className="text-lg font-bold">{detail.name}</h2>
+                    <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">{detail.name}</h2>
                     {detail.contactPerson && (
                       <p className="text-sm text-gray-500 dark:text-gray-400">{detail.contactPerson}</p>
                     )}
@@ -310,7 +310,7 @@ export default function SuppliersPage() {
                   </button>
                 </div>
 
-                <div className="mb-4 space-y-2 text-sm">
+                <div className="mb-4 space-y-2 text-sm text-gray-800 dark:text-gray-200">
                   {detail.phone && (
                     <div className="flex items-center gap-2">
                       <Phone size={14} className="text-gray-400" />
@@ -355,7 +355,7 @@ export default function SuppliersPage() {
                       {detail.purchaseOrders.map((po) => (
                         <li
                           key={po.id}
-                          className="rounded-lg border px-3 py-2 text-sm"
+                          className="rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:text-gray-200"
                         >
                           <div className="flex justify-between">
                             <span className="font-mono text-xs">{po.poNumber}</span>
@@ -479,85 +479,85 @@ function AddSupplierModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-2xl dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold">Add Supplier</h2>
+          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Add Supplier</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">
             <X size={20} />
           </button>
         </div>
         <form onSubmit={handleSubmit} noValidate className="space-y-3">
           <div>
-            <label htmlFor="add-supplier-name" className="mb-1 block text-sm font-medium">Name *</label>
+            <label htmlFor="add-supplier-name" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
             <input
               id="add-supplier-name"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             />
           </div>
           <div>
-            <label htmlFor="add-supplier-contact-person" className="mb-1 block text-sm font-medium">Contact Person</label>
+            <label htmlFor="add-supplier-contact-person" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Contact Person</label>
             <input
               id="add-supplier-contact-person"
               value={form.contactPerson}
               onChange={(e) => setForm({ ...form, contactPerson: e.target.value })}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label htmlFor="add-supplier-phone" className="mb-1 block text-sm font-medium">Phone</label>
+              <label htmlFor="add-supplier-phone" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Phone</label>
               <input
                 id="add-supplier-phone"
                 value={form.phone}
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
               />
             </div>
             <div>
-              <label htmlFor="add-supplier-email" className="mb-1 block text-sm font-medium">Email</label>
+              <label htmlFor="add-supplier-email" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
               <input
                 id="add-supplier-email"
                 type="email"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
               />
             </div>
           </div>
           <div>
-            <label htmlFor="add-supplier-address" className="mb-1 block text-sm font-medium">Address</label>
+            <label htmlFor="add-supplier-address" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Address</label>
             <textarea
               id="add-supplier-address"
               rows={2}
               value={form.address}
               onChange={(e) => setForm({ ...form, address: e.target.value })}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label htmlFor="add-supplier-gst" className="mb-1 block text-sm font-medium">GST Number</label>
+              <label htmlFor="add-supplier-gst" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">GST Number</label>
               <input
                 id="add-supplier-gst"
                 value={form.gstNumber}
                 onChange={(e) => setForm({ ...form, gstNumber: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 font-mono text-sm"
+                className="w-full rounded-lg border px-3 py-2 font-mono text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
               />
             </div>
             <div>
-              <label htmlFor="add-supplier-payment-terms" className="mb-1 block text-sm font-medium">Payment Terms</label>
+              <label htmlFor="add-supplier-payment-terms" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Payment Terms</label>
               <input
                 id="add-supplier-payment-terms"
                 placeholder="Net 30, Net 60..."
                 value={form.paymentTerms}
                 onChange={(e) => setForm({ ...form, paymentTerms: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
               />
             </div>
           </div>
 
           {error && (
-            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-900/30 dark:text-red-300">
               {error}
             </div>
           )}
@@ -655,7 +655,7 @@ function EditSupplierModal({
     >
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-2xl dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
-          <h2 id="edit-supplier-title" className="text-lg font-bold">
+          <h2 id="edit-supplier-title" className="text-lg font-bold text-gray-900 dark:text-gray-100">
             Edit Supplier
           </h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">
@@ -664,7 +664,7 @@ function EditSupplierModal({
         </div>
         <form onSubmit={handleSubmit} noValidate className="space-y-3">
           <div>
-            <label htmlFor="edit-supplier-name" className="mb-1 block text-sm font-medium">
+            <label htmlFor="edit-supplier-name" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
               Name *
             </label>
             <input
@@ -672,34 +672,34 @@ function EditSupplierModal({
               data-testid="edit-supplier-name"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             />
           </div>
           <div>
-            <label htmlFor="edit-supplier-contact-person" className="mb-1 block text-sm font-medium">
+            <label htmlFor="edit-supplier-contact-person" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
               Contact Person
             </label>
             <input
               id="edit-supplier-contact-person"
               value={form.contactPerson}
               onChange={(e) => setForm({ ...form, contactPerson: e.target.value })}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label htmlFor="edit-supplier-phone" className="mb-1 block text-sm font-medium">
+              <label htmlFor="edit-supplier-phone" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Phone
               </label>
               <input
                 id="edit-supplier-phone"
                 value={form.phone}
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
               />
             </div>
             <div>
-              <label htmlFor="edit-supplier-email" className="mb-1 block text-sm font-medium">
+              <label htmlFor="edit-supplier-email" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Email
               </label>
               <input
@@ -707,12 +707,12 @@ function EditSupplierModal({
                 type="email"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
               />
             </div>
           </div>
           <div>
-            <label htmlFor="edit-supplier-address" className="mb-1 block text-sm font-medium">
+            <label htmlFor="edit-supplier-address" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
               Address
             </label>
             <textarea
@@ -720,23 +720,23 @@ function EditSupplierModal({
               rows={2}
               value={form.address}
               onChange={(e) => setForm({ ...form, address: e.target.value })}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label htmlFor="edit-supplier-gst" className="mb-1 block text-sm font-medium">
+              <label htmlFor="edit-supplier-gst" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 GST Number
               </label>
               <input
                 id="edit-supplier-gst"
                 value={form.gstNumber}
                 onChange={(e) => setForm({ ...form, gstNumber: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 font-mono text-sm"
+                className="w-full rounded-lg border px-3 py-2 font-mono text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
               />
             </div>
             <div>
-              <label htmlFor="edit-supplier-payment-terms" className="mb-1 block text-sm font-medium">
+              <label htmlFor="edit-supplier-payment-terms" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Payment Terms
               </label>
               <input
@@ -744,7 +744,7 @@ function EditSupplierModal({
                 placeholder="Net 30, Net 60..."
                 value={form.paymentTerms}
                 onChange={(e) => setForm({ ...form, paymentTerms: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
               />
             </div>
           </div>
@@ -757,7 +757,7 @@ function EditSupplierModal({
                 data-testid="edit-supplier-active"
                 className="rounded"
               />
-              <span>
+              <span className="text-gray-700 dark:text-gray-300">
                 Active{" "}
                 <span className="text-xs text-gray-500 dark:text-gray-400">
                   (uncheck to hide from default list)
@@ -767,7 +767,7 @@ function EditSupplierModal({
           </div>
 
           {error && (
-            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-900/30 dark:text-red-300">
               {error}
             </div>
           )}
@@ -835,13 +835,13 @@ function SupplierContractPanel({
   const expired = daysLeft !== null && daysLeft < 0;
 
   return (
-    <div className="mb-4 rounded-lg border bg-gray-50 p-3">
+    <div className="mb-4 rounded-lg border bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-700/40">
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Contract</h3>
         {!edit && (
           <button
             onClick={() => setEdit(true)}
-            className="rounded border px-2 py-0.5 text-xs hover:bg-white dark:border-gray-600 dark:hover:bg-gray-700"
+            className="rounded border px-2 py-0.5 text-xs hover:bg-white dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             {supplier.contractStart || supplier.contractEnd ? "Edit" : "Add"}
           </button>
@@ -857,7 +857,7 @@ function SupplierContractPanel({
                 type="date"
                 value={start}
                 onChange={(e) => setStart(e.target.value)}
-                className="w-full rounded border px-2 py-1 text-sm"
+                className="w-full rounded border px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               />
             </div>
             <div>
@@ -867,14 +867,14 @@ function SupplierContractPanel({
                 type="date"
                 value={end}
                 onChange={(e) => setEnd(e.target.value)}
-                className="w-full rounded border px-2 py-1 text-sm"
+                className="w-full rounded border px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               />
             </div>
           </div>
           <div className="flex justify-end gap-2">
             <button
               onClick={() => setEdit(false)}
-              className="rounded border px-3 py-1 text-xs"
+              className="rounded border px-3 py-1 text-xs dark:border-gray-600 dark:text-gray-200"
             >
               Cancel
             </button>
@@ -888,7 +888,7 @@ function SupplierContractPanel({
           </div>
         </div>
       ) : (
-        <div className="text-xs text-gray-700 dark:text-gray-200">
+        <div className="text-xs text-gray-700 dark:text-gray-300">
           {supplier.contractStart || supplier.contractEnd ? (
             <>
               <p>
@@ -903,12 +903,12 @@ function SupplierContractPanel({
                   ? new Date(supplier.contractEnd).toLocaleDateString()
                   : "—"}
                 {expiringSoon && (
-                  <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                  <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
                     Expiring Soon ({daysLeft}d)
                   </span>
                 )}
                 {expired && (
-                  <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                  <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300">
                     Expired
                   </span>
                 )}

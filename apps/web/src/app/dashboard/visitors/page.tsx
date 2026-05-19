@@ -269,7 +269,7 @@ export default function VisitorsPage() {
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Visitors</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Visitors</h1>
         {/* Issue #351 — Check In Visitor button was reported as
             non-functional. The handler IS wired (it sets showModal=true);
             the most likely cause was the modal failing to mount because
@@ -287,13 +287,19 @@ export default function VisitorsPage() {
       </div>
 
       {/* Stats */}
+      {/* Issue #843: the three KPI tiles + the "No visitors" empty-state
+          card rendered solid white in dark mode — labels stayed near-grey
+          on white surface, the `0` values lost contrast, and the page
+          looked split-themed against the dashboard chrome. Each surface
+          now pairs `bg-white` with `dark:bg-gray-800` and the muted labels
+          carry a `dark:text-gray-300/400` partner. */}
       <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <p className="text-xs text-gray-500">Total Today</p>
-          <p className="text-3xl font-bold">{stats?.totalToday || 0}</p>
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Total Today</p>
+          <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">{stats?.totalToday || 0}</p>
         </div>
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <p className="text-xs text-gray-500">Currently Inside</p>
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Currently Inside</p>
           {/*
             Issue #211: the daily-stats endpoint counted only TODAY's
             check-ins, while /visitors/active returns every never-checked-out
@@ -305,30 +311,30 @@ export default function VisitorsPage() {
               disagree). On the Today tab, fall back to the canonical
               `currentlyActive` field from /visitors-stats (with a legacy
               `currentInside` fallback for in-flight deploys). */}
-          <p className="text-3xl font-bold text-green-600">
+          <p className="text-3xl font-bold text-green-600 dark:text-green-400">
             {tab === "active"
               ? visitors.filter((v) => !v.checkOutAt).length
               : (stats?.currentlyActive ?? stats?.currentInside ?? 0)}
           </p>
         </div>
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <p className="mb-2 text-xs text-gray-500">By Purpose (Today)</p>
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+          <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">By Purpose (Today)</p>
           <div className="space-y-1">
             {PURPOSES.map((p) => {
               const count = stats?.byPurpose?.[p] ?? 0;
               const pct = total > 0 ? (count / total) * 100 : 0;
               return (
                 <div key={p} className="flex items-center gap-2">
-                  <div className="w-24 text-xs text-gray-600">
+                  <div className="w-24 text-xs text-gray-600 dark:text-gray-300">
                     {p.replace(/_/g, " ")}
                   </div>
-                  <div className="relative h-3 flex-1 rounded bg-gray-100">
+                  <div className="relative h-3 flex-1 rounded bg-gray-200 dark:bg-gray-700">
                     <div
                       className={`h-full rounded ${PURPOSE_COLORS[p]}`}
                       style={{ width: `${pct}%` }}
                     />
                   </div>
-                  <div className="w-6 text-right text-xs font-semibold">
+                  <div className="w-6 text-right text-xs font-semibold text-gray-800 dark:text-gray-200">
                     {count}
                   </div>
                 </div>
@@ -345,7 +351,7 @@ export default function VisitorsPage() {
           className={`rounded-lg px-4 py-2 text-sm font-medium ${
             tab === "active"
               ? "bg-primary text-white"
-              : "bg-gray-100 text-gray-600"
+              : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
           }`}
         >
           Active
@@ -355,7 +361,7 @@ export default function VisitorsPage() {
           className={`rounded-lg px-4 py-2 text-sm font-medium ${
             tab === "today"
               ? "bg-primary text-white"
-              : "bg-gray-100 text-gray-600"
+              : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
           }`}
         >
           All Today
@@ -363,15 +369,15 @@ export default function VisitorsPage() {
       </div>
 
       {/* Table */}
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : (Array.isArray(visitors) ? visitors : []).length === 0 ? (
-          <div className="p-8 text-center text-gray-500">No visitors</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">No visitors</div>
         ) : (
           <table className="w-full">
             <thead>
-              <tr className="border-b text-left text-sm text-gray-500">
+              <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Photo</th>
                 <th className="px-4 py-3">Pass #</th>
                 <th className="px-4 py-3">Name</th>
@@ -401,7 +407,7 @@ export default function VisitorsPage() {
                     : "—";
                 const initial = safeName.charAt(0).toUpperCase() || "?";
                 return (
-                <tr key={v.id} className="border-b last:border-0">
+                <tr key={v.id} className="border-b last:border-0 dark:border-gray-700">
                   <td className="px-4 py-3">
                     {v.photoUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -411,37 +417,37 @@ export default function VisitorsPage() {
                         className="h-10 w-10 rounded-full object-cover"
                       />
                     ) : (
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-500">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-500 dark:bg-gray-700 dark:text-gray-300">
                         {initial}
                       </div>
                     )}
                   </td>
-                  <td className="px-4 py-3 font-mono text-xs">
+                  <td className="px-4 py-3 font-mono text-xs text-gray-700 dark:text-gray-300">
                     {v.passNumber ?? "—"}
                   </td>
-                  <td className="px-4 py-3 text-sm font-medium">{safeName}</td>
-                  <td className="px-4 py-3 text-xs text-gray-600">
+                  <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{safeName}</td>
+                  <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
                     {v.phone || "-"}
                   </td>
-                  <td className="px-4 py-3 text-sm">{safePurpose}</td>
-                  <td className="px-4 py-3 text-xs">
+                  <td className="px-4 py-3 text-sm text-gray-800 dark:text-gray-200">{safePurpose}</td>
+                  <td className="px-4 py-3 text-xs text-gray-700 dark:text-gray-300">
                     {v.patient?.user?.name || "-"}
                   </td>
-                  <td className="px-4 py-3 text-xs">{v.department || "-"}</td>
-                  <td className="px-4 py-3 text-xs text-gray-500">
+                  <td className="px-4 py-3 text-xs text-gray-700 dark:text-gray-300">{v.department || "-"}</td>
+                  <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
                     {new Date(v.checkInAt).toLocaleTimeString([], {
                       hour: "2-digit",
                       minute: "2-digit",
                     })}
                   </td>
-                  <td className="px-4 py-3 text-xs font-semibold">
+                  <td className="px-4 py-3 text-xs font-semibold text-gray-800 dark:text-gray-200">
                     {elapsedMinutes(v.checkInAt, v.checkOutAt)}m
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex gap-2">
                       <button
                         onClick={() => setPrintVisitor(v)}
-                        className="rounded bg-gray-500 px-2 py-1 text-xs text-white hover:bg-gray-600"
+                        className="rounded bg-gray-500 px-2 py-1 text-xs text-white hover:bg-gray-600 dark:bg-gray-600 dark:hover:bg-gray-500"
                       >
                         Print Pass
                       </button>
@@ -466,33 +472,33 @@ export default function VisitorsPage() {
       {/* Check-in modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
-            <h3 className="mb-4 text-lg font-semibold">Check In Visitor</h3>
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
+            <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">Check In Visitor</h3>
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
-                <label htmlFor="visitor-name" className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="visitor-name" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                   Name *
                 </label>
                 <input
                   id="visitor-name"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 />
               </div>
               <div>
-                <label htmlFor="visitor-phone" className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="visitor-phone" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                   Phone
                 </label>
                 <input
                   id="visitor-phone"
                   value={form.phone}
                   onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 />
               </div>
               <div>
-                <label htmlFor="visitor-id-type" className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="visitor-id-type" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                   ID Type
                 </label>
                 <select
@@ -501,7 +507,7 @@ export default function VisitorsPage() {
                   onChange={(e) =>
                     setForm({ ...form, idProofType: e.target.value })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 >
                   {ID_TYPES.map((t) => (
                     <option key={t} value={t}>
@@ -511,7 +517,7 @@ export default function VisitorsPage() {
                 </select>
               </div>
               <div className="col-span-2">
-                <label htmlFor="visitor-id-number" className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="visitor-id-number" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                   ID Number
                 </label>
                 <input
@@ -520,18 +526,18 @@ export default function VisitorsPage() {
                   onChange={(e) =>
                     setForm({ ...form, idProofNumber: e.target.value })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 />
               </div>
               <div>
-                <label htmlFor="visitor-purpose" className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="visitor-purpose" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                   Purpose
                 </label>
                 <select
                   id="visitor-purpose"
                   value={form.purpose}
                   onChange={(e) => setForm({ ...form, purpose: e.target.value })}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 >
                   {PURPOSES.map((p) => (
                     <option key={p} value={p}>
@@ -541,7 +547,7 @@ export default function VisitorsPage() {
                 </select>
               </div>
               <div>
-                <label htmlFor="visitor-department" className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="visitor-department" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                   Department
                 </label>
                 <input
@@ -550,11 +556,11 @@ export default function VisitorsPage() {
                   onChange={(e) =>
                     setForm({ ...form, department: e.target.value })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 />
               </div>
               <div className="col-span-2">
-                <label htmlFor="visitor-patient-id" className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="visitor-patient-id" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                   Patient ID (optional)
                 </label>
                 <input
@@ -564,11 +570,11 @@ export default function VisitorsPage() {
                     setForm({ ...form, patientId: e.target.value })
                   }
                   placeholder="UUID if visiting a patient"
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 />
               </div>
               <div className="col-span-2">
-                <label htmlFor="visitor-notes" className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="visitor-notes" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                   Notes
                 </label>
                 <textarea
@@ -576,17 +582,17 @@ export default function VisitorsPage() {
                   value={form.notes}
                   onChange={(e) => setForm({ ...form, notes: e.target.value })}
                   rows={2}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 />
               </div>
 
               {/* Photo capture: Photo label is informational (no associated single field) */}
               <div className="col-span-2">
-                <span className="mb-1 block text-xs font-medium text-gray-600">
+                <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                   Photo
                 </span>
                 {cameraOpen ? (
-                  <div className="flex flex-col items-center gap-2 rounded-lg border bg-gray-50 p-3">
+                  <div className="flex flex-col items-center gap-2 rounded-lg border bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-700/40">
                     <video
                       ref={videoRef}
                       autoPlay
@@ -602,14 +608,14 @@ export default function VisitorsPage() {
                       </button>
                       <button
                         onClick={stopCamera}
-                        className="rounded border px-3 py-1 text-xs"
+                        className="rounded border px-3 py-1 text-xs dark:border-gray-600 dark:text-gray-200"
                       >
                         Cancel
                       </button>
                     </div>
                   </div>
                 ) : photoData ? (
-                  <div className="flex items-center gap-3 rounded-lg border p-2">
+                  <div className="flex items-center gap-3 rounded-lg border p-2 dark:border-gray-700">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={photoData}
@@ -618,7 +624,7 @@ export default function VisitorsPage() {
                     />
                     <button
                       onClick={() => setPhotoData(null)}
-                      className="flex items-center gap-1 rounded border px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                      className="flex items-center gap-1 rounded border px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-gray-600 dark:text-red-400 dark:hover:bg-red-900/30"
                     >
                       <X size={12} /> Remove
                     </button>
@@ -627,13 +633,13 @@ export default function VisitorsPage() {
                   <div className="flex gap-2">
                     <button
                       onClick={startCamera}
-                      className="flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
+                      className="flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
                     >
                       <Camera size={14} /> Capture Photo
                     </button>
                     <button
                       onClick={() => fileInputRef.current?.click()}
-                      className="flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
+                      className="flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
                     >
                       <Upload size={14} /> Upload Photo
                     </button>
@@ -647,7 +653,7 @@ export default function VisitorsPage() {
                   </div>
                 )}
                 {cameraError && (
-                  <p className="mt-1 text-xs text-red-600">
+                  <p className="mt-1 text-xs text-red-600 dark:text-red-400">
                     {cameraError}. Try uploading a photo instead.
                   </p>
                 )}
@@ -656,7 +662,7 @@ export default function VisitorsPage() {
             <div className="mt-5 flex justify-end gap-3">
               <button
                 onClick={closeModal}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700"
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 dark:border-gray-600 dark:text-gray-200"
               >
                 Cancel
               </button>

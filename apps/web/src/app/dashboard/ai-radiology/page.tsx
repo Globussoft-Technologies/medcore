@@ -790,7 +790,7 @@ function ReportDetailModal({
                       </span>{" "}
                       {f.description}
                       {f.suggestedFollowUp && (
-                        <div className="ml-4 text-[11px] italic text-gray-500">
+                        <div className="ml-4 text-[11px] italic text-gray-500 dark:text-gray-400">
                           ↳ {f.suggestedFollowUp}
                         </div>
                       )}

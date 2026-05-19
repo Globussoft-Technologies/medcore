@@ -274,7 +274,7 @@ export default function QueuePage() {
                           </span>
                         )}
                       </p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
                         {entry.type === "WALK_IN" ? "Walk-in" : `Slot: ${entry.slotTime}`}
                         {entry.priority !== "NORMAL" && (
                           <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700">
@@ -295,7 +295,7 @@ export default function QueuePage() {
                     </p>
                     {entry.status !== "COMPLETED" &&
                       entry.status !== "IN_CONSULTATION" && (
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
                           ~{entry.estimatedWaitMinutes} min wait
                         </p>
                       )}

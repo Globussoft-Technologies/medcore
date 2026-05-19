@@ -1021,7 +1021,7 @@ export default function PrescriptionsPage() {
                     renderOption={(o) => (
                       <div>
                         <div className="font-medium">{o.name}</div>
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
                           {[o.genericName, o.strength, o.form]
                             .filter(Boolean)
                             .join(" • ")}
@@ -1432,7 +1432,7 @@ export default function PrescriptionsPage() {
                       </>
                     )}
                     {rx.sharedVia && (
-                      <span className="ml-auto self-center text-xs text-gray-500">
+                      <span className="ml-auto self-center text-xs text-gray-500 dark:text-gray-400">
                         Shared: {rx.sharedVia}
                       </span>
                     )}
@@ -1500,7 +1500,7 @@ export default function PrescriptionsPage() {
       {/* Drug Interaction Alert Modal */}
       {showInteractionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-xl">
+          <div className="w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-xl dark:bg-gray-800">
             <div className="border-b border-red-200 bg-red-50 px-6 py-4">
               <h2 className="text-lg font-semibold text-red-800">
                 Drug Interaction Warning
@@ -1538,8 +1538,8 @@ export default function PrescriptionsPage() {
                         {w.severity}
                       </span>
                     </div>
-                    <p className="mt-1 text-sm text-gray-700">{w.description}</p>
-                    <p className="mt-0.5 text-xs text-gray-500">
+                    <p className="mt-1 text-sm text-gray-700 dark:text-gray-200">{w.description}</p>
+                    <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
                       {w.source === "NEW_VS_NEW"
                         ? "Both medicines in this prescription"
                         : "Patient already on one of these"}
@@ -1551,7 +1551,7 @@ export default function PrescriptionsPage() {
             <div className="flex items-center justify-end gap-3 border-t bg-gray-50 px-6 py-4">
               <button
                 onClick={() => setShowInteractionModal(false)}
-                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 Cancel and revise
               </button>
@@ -1574,12 +1574,12 @@ export default function PrescriptionsPage() {
 
       {genericRowIdx !== null && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[80vh] w-full max-w-2xl overflow-auto rounded-xl bg-white p-5 shadow-xl">
+          <div className="max-h-[80vh] w-full max-w-2xl overflow-auto rounded-xl bg-white p-5 shadow-xl dark:bg-gray-800">
             <div className="mb-3 flex items-start justify-between">
               <div>
                 <h3 className="text-lg font-semibold">Cheaper Generic Alternatives</h3>
                 {genericData?.base ? (
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
                     Base: {genericData.base.name}
                     {genericData.basePrice ? ` — ₹${genericData.basePrice}` : ""}
                   </p>
@@ -1590,18 +1590,18 @@ export default function PrescriptionsPage() {
                   setGenericRowIdx(null);
                   setGenericData(null);
                 }}
-                className="text-gray-400 hover:text-gray-700"
+                className="text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200"
               >
                 ✕
               </button>
             </div>
             {genericLoading ? (
-              <p className="text-gray-500">Loading...</p>
+              <p className="text-gray-500 dark:text-gray-400">Loading...</p>
             ) : !genericData || genericData.alternatives.length === 0 ? (
-              <p className="text-gray-500">No cheaper generics in stock.</p>
+              <p className="text-gray-500 dark:text-gray-400">No cheaper generics in stock.</p>
             ) : (
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
+                <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500 dark:bg-gray-900/50 dark:text-gray-400">
                   <tr>
                     <th className="p-2">Brand</th>
                     <th className="p-2">Strength/Form</th>
@@ -1617,10 +1617,10 @@ export default function PrescriptionsPage() {
                       <td className="p-2">
                         {alt.name}
                         {alt.brand ? (
-                          <span className="ml-1 text-xs text-gray-500">({alt.brand})</span>
+                          <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">({alt.brand})</span>
                         ) : null}
                       </td>
-                      <td className="p-2 text-xs text-gray-600">
+                      <td className="p-2 text-xs text-gray-600 dark:text-gray-300">
                         {alt.strength ?? ""} {alt.form ?? ""}
                       </td>
                       <td className="p-2">{alt.availableStock}</td>
@@ -1791,19 +1791,19 @@ function RenalDoseModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
         <div className="mb-3 flex items-start justify-between">
           <h3 className="text-lg font-semibold">Renal Dose Calculator</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200">
             ✕
           </button>
         </div>
-        <p className="mb-3 text-sm text-gray-600">
+        <p className="mb-3 text-sm text-gray-600 dark:text-gray-300">
           For: <span className="font-medium">{medicineName}</span>
         </p>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label htmlFor="renal-age" className="text-xs text-gray-600">Age (years)</label>
+            <label htmlFor="renal-age" className="text-xs text-gray-600 dark:text-gray-300">Age (years)</label>
             <input
               id="renal-age"
               type="number"
@@ -1813,7 +1813,7 @@ function RenalDoseModal({
             />
           </div>
           <div>
-            <label htmlFor="renal-weight" className="text-xs text-gray-600">Weight (kg)</label>
+            <label htmlFor="renal-weight" className="text-xs text-gray-600 dark:text-gray-300">Weight (kg)</label>
             <input
               id="renal-weight"
               type="number"
@@ -1823,7 +1823,7 @@ function RenalDoseModal({
             />
           </div>
           <div>
-            <label htmlFor="renal-creatinine" className="text-xs text-gray-600">Creatinine (mg/dL)</label>
+            <label htmlFor="renal-creatinine" className="text-xs text-gray-600 dark:text-gray-300">Creatinine (mg/dL)</label>
             <input
               id="renal-creatinine"
               type="number"
@@ -1834,7 +1834,7 @@ function RenalDoseModal({
             />
           </div>
           <div>
-            <label htmlFor="renal-gender" className="text-xs text-gray-600">Gender</label>
+            <label htmlFor="renal-gender" className="text-xs text-gray-600 dark:text-gray-300">Gender</label>
             <select
               id="renal-gender"
               value={genderMale ? "M" : "F"}
@@ -1872,7 +1872,7 @@ function RenalDoseModal({
             </div>
             <div className="mt-2 text-xs">{result.recommendation}</div>
             {result.warning && (
-              <div className="mt-2 rounded bg-white/60 p-2 text-xs font-medium">
+              <div className="mt-2 rounded bg-white/60 p-2 text-xs font-medium dark:bg-gray-800/60">
                 ⚠️ {result.warning}
               </div>
             )}
@@ -1882,7 +1882,7 @@ function RenalDoseModal({
                   `${(result.recommendedDoseFactor * 100).toFixed(0)}% of normal (CrCl ${result.crClMlPerMin})`
                 )
               }
-              className="mt-3 w-full rounded-lg bg-white px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-100"
+              className="mt-3 w-full rounded-lg bg-white px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
             >
               Apply Dose
             </button>

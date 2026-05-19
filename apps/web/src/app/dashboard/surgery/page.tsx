@@ -682,7 +682,7 @@ export default function SurgeryPage() {
           <form
             onSubmit={submit}
             noValidate
-            className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl"
+            className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
           >
             <h2 className="mb-4 text-lg font-semibold">Schedule Surgery</h2>
 
@@ -692,7 +692,7 @@ export default function SurgeryPage() {
                 <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
                   <div>
                     <p className="text-sm font-medium">{selectedPatient.user.name}</p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                       {selectedPatient.mrNumber} · {selectedPatient.user.phone}
                     </p>
                   </div>
@@ -715,7 +715,7 @@ export default function SurgeryPage() {
                     className="w-full rounded-lg border px-3 py-2 text-sm"
                   />
                   {patientResults.length > 0 && (
-                    <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white">
+                    <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white dark:border-gray-700 dark:bg-gray-800">
                       {patientResults.map((p) => (
                         <button
                           key={p.id}
@@ -728,7 +728,7 @@ export default function SurgeryPage() {
                           className="block w-full border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-gray-50"
                         >
                           <p className="font-medium">{p.user.name}</p>
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
                             {p.mrNumber} · {p.user.phone}
                           </p>
                         </button>

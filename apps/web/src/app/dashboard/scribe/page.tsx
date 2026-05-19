@@ -205,7 +205,7 @@ function StatusBadge({ status }: { status: SectionStatus }) {
 function ReadRow({ label, value }: { label: string; value?: string }) {
   return (
     <div className="space-y-0.5">
-      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
+      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide dark:text-gray-400">{label}</p>
       <p className="text-sm text-gray-800 bg-gray-50 rounded-lg px-3 py-2 min-h-[2rem]">
         {value || <span className="text-gray-400 italic">Not captured</span>}
       </p>
@@ -245,7 +245,7 @@ function SectionReadView({ sectionKey, soap }: { sectionKey: SectionKey; soap: S
           <ReadRow label="Clinical Impression" value={a.impression} />
           {a.icd10Codes?.length ? (
             <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 dark:text-gray-400">
                 ICD-10 Codes
               </p>
               <div className="space-y-1.5">
@@ -256,7 +256,7 @@ function SectionReadView({ sectionKey, soap }: { sectionKey: SectionKey; soap: S
                   >
                     <span className="text-xs font-mono font-bold text-orange-700">{code.code}</span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs text-gray-700">{code.description}</p>
+                      <p className="text-xs text-gray-700 dark:text-gray-200">{code.description}</p>
                       {code.evidenceSpan && (
                         <p className="text-xs text-gray-400 italic mt-0.5">
                           &ldquo;{code.evidenceSpan}&rdquo;
@@ -278,14 +278,14 @@ function SectionReadView({ sectionKey, soap }: { sectionKey: SectionKey; soap: S
         <div className="space-y-3">
           {p.medications?.length ? (
             <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 dark:text-gray-400">
                 Medications
               </p>
               <div className="space-y-1.5">
                 {p.medications.map((med, i) => (
                   <div key={i} className="bg-green-50 border border-green-100 rounded-lg px-3 py-2">
                     <p className="text-sm font-medium text-gray-800">{med.name}</p>
-                    <p className="text-xs text-gray-600">
+                    <p className="text-xs text-gray-600 dark:text-gray-300">
                       {med.dose} · {med.frequency} · {med.duration}
                     </p>
                     {med.notes && <p className="text-xs text-gray-400 mt-0.5">{med.notes}</p>}
@@ -383,7 +383,7 @@ function EditField({ label, value, onChange, multiline = false }: {
 }) {
   return (
     <div className="space-y-1">
-      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
+      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide dark:text-gray-400">{label}</p>
       {multiline ? (
         <textarea
           value={value}
@@ -493,9 +493,9 @@ function ReviewCard({
       {/* Header */}
       <button
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors dark:bg-gray-900/50 dark:hover:bg-gray-700"
       >
-        <span className="flex items-center gap-2 font-semibold text-sm text-gray-700">
+        <span className="flex items-center gap-2 font-semibold text-sm text-gray-700 dark:text-gray-200">
           {icon} {title}
           <StatusBadge status={status} />
         </span>
@@ -520,7 +520,7 @@ function ReviewCard({
           )}
 
           {/* Action buttons */}
-          <div className="flex items-center gap-2 pt-1 border-t border-gray-100">
+          <div className="flex items-center gap-2 pt-1 border-t border-gray-100 dark:border-gray-700">
             {editing ? (
               <>
                 <button
@@ -531,7 +531,7 @@ function ReviewCard({
                 </button>
                 <button
                   onClick={() => setEditing(false)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg text-xs hover:bg-gray-50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg text-xs hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
                 >
                   <X className="w-3.5 h-3.5" /> Cancel
                 </button>
@@ -582,12 +582,12 @@ function SOAPSection({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="border border-gray-200 rounded-xl overflow-hidden">
+    <div className="border border-gray-200 rounded-xl overflow-hidden dark:border-gray-700">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors dark:bg-gray-900/50 dark:hover:bg-gray-700"
       >
-        <span className="flex items-center gap-2 font-semibold text-sm text-gray-700">
+        <span className="flex items-center gap-2 font-semibold text-sm text-gray-700 dark:text-gray-200">
           {icon} {title}
         </span>
         {open ? (
@@ -617,7 +617,7 @@ function EditableField({
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
+        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide dark:text-gray-400">{label}</p>
         {!readOnly && !editing ? (
           <button
             onClick={() => { setDraft(value); setEditing(true); }}
@@ -650,7 +650,7 @@ function EditableField({
           className="w-full border border-blue-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       ) : (
-        <p className="text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2 min-h-[2.5rem]">
+        <p className="text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2 min-h-[2.5rem] dark:bg-gray-900/50 dark:text-gray-200">
           {value || <span className="text-gray-400 italic">Not captured</span>}
         </p>
       )}
@@ -732,7 +732,7 @@ function DrugAlertBanner({
                       {cfg.label}
                     </span>
                     <span className="text-xs font-medium text-gray-800">{alert.drug1}</span>
-                    <span className="text-xs text-gray-500">+</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">+</span>
                     <span className="text-xs font-medium text-gray-800">{alert.drug2}</span>
                   </div>
                   <p className={`text-xs ${cfg.text}`}>{alert.description}</p>
@@ -1763,7 +1763,7 @@ export default function ScribePage() {
         <div className="text-center space-y-3">
           <CheckCircle className="w-16 h-16 text-green-500 mx-auto" />
           <h2 className="text-xl font-bold text-gray-800">Note Signed &amp; Saved</h2>
-          <p className="text-gray-500 text-sm">The SOAP note has been committed to the EHR.</p>
+          <p className="text-gray-500 text-sm dark:text-gray-400">The SOAP note has been committed to the EHR.</p>
           <button
             onClick={() => {
               setSessionId(null);
@@ -1849,11 +1849,11 @@ export default function ScribePage() {
     return (
       <div className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden">
         {/* Review header */}
-        <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-gray-200 shadow-sm flex-shrink-0">
+        <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-gray-200 shadow-sm flex-shrink-0 dark:bg-gray-800 dark:border-gray-700">
           <div className="flex items-center gap-3">
             <button
               onClick={handleExitReview}
-              className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-blue-600 transition-colors"
+              className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-blue-600 transition-colors dark:text-gray-300 dark:hover:text-blue-400"
             >
               <ArrowLeft className="w-4 h-4" /> Back to recording
             </button>
@@ -1896,7 +1896,7 @@ export default function ScribePage() {
         </div>
 
         {/* Voice command status bar (PRD §4.5.6) */}
-        <div className="flex items-center gap-3 px-6 py-2 bg-gray-50 border-b border-gray-100 flex-shrink-0">
+        <div className="flex items-center gap-3 px-6 py-2 bg-gray-50 border-b border-gray-100 flex-shrink-0 dark:bg-gray-900/50 dark:border-gray-700">
           {voiceListening ? (
             <span className="flex items-center gap-1.5 text-green-600">
               <Mic className="w-3.5 h-3.5 animate-pulse" />
@@ -1911,7 +1911,7 @@ export default function ScribePage() {
           {lastVoiceCommand && (
             <span
               data-testid="review-voice-transcript"
-              className="text-xs text-gray-500 italic max-w-[60%] truncate"
+              className="text-xs text-gray-500 italic max-w-[60%] truncate dark:text-gray-400"
               title={lastVoiceCommand}
             >
               Heard: {lastVoiceCommand}
@@ -1921,7 +1921,7 @@ export default function ScribePage() {
             data-testid="review-voice-mic"
             aria-pressed={voiceListening}
             onClick={toggleVoiceListener}
-            className="ml-auto text-xs px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100 transition-colors"
+            className="ml-auto text-xs px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100 transition-colors dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
           >
             {voiceListening ? "Voice Off" : "Voice On"}
           </button>
@@ -1954,42 +1954,42 @@ export default function ScribePage() {
                   }
                 }}
               />
-              <span className="font-medium text-gray-700">Compare to previous visit</span>
+              <span className="font-medium text-gray-700 dark:text-gray-200">Compare to previous visit</span>
             </label>
             {previousLoading && (
               <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
             )}
           </div>
           {compareOpen && (
-            <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
-              <div className="px-4 py-2 border-b border-gray-200 bg-white">
-                <p className="text-xs font-semibold text-gray-700">
+            <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 overflow-hidden dark:border-gray-700 dark:bg-gray-900/50">
+              <div className="px-4 py-2 border-b border-gray-200 bg-white dark:bg-gray-800 dark:border-gray-700">
+                <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">
                   Side-by-side: previous consultation vs current AI draft
                 </p>
                 {previousConsultation?.createdAt && (
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
                     Previous visit: {new Date(previousConsultation.createdAt).toLocaleDateString()}
                   </p>
                 )}
               </div>
               {previousLoading ? (
-                <div className="p-4 text-xs text-gray-500">Loading previous consultation…</div>
+                <div className="p-4 text-xs text-gray-500 dark:text-gray-400">Loading previous consultation…</div>
               ) : !previousConsultation ? (
-                <div className="p-4 text-xs text-gray-500 italic">
+                <div className="p-4 text-xs text-gray-500 italic dark:text-gray-400">
                   No prior completed consultation found for this patient.
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-0 divide-x divide-gray-200">
                   <div className="p-4 space-y-1 min-h-[120px]">
-                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide dark:text-gray-400">
                       Previous visit notes
                     </p>
-                    <pre className="text-xs whitespace-pre-wrap font-sans text-gray-700">
+                    <pre className="text-xs whitespace-pre-wrap font-sans text-gray-700 dark:text-gray-200">
                       {previousConsultation.notes || <span className="italic text-gray-400">No notes saved.</span>}
                     </pre>
                   </div>
                   <div className="p-4 space-y-1 min-h-[120px]">
-                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide dark:text-gray-400">
                       Current draft — diff vs previous (red = removed, green = added)
                     </p>
                     <InlineDiff
@@ -2029,9 +2029,9 @@ export default function ScribePage() {
               receives focus when "change dosage of <med> to <new>" pre-fills
               its value. */}
           {reviewSoap.plan?.medications && reviewSoap.plan.medications.length > 0 && (
-            <div className="border border-gray-200 rounded-xl overflow-hidden">
-              <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
-                <span className="text-xs font-medium text-gray-600 flex items-center gap-2">
+            <div className="border border-gray-200 rounded-xl overflow-hidden dark:border-gray-700">
+              <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200 dark:bg-gray-900/50 dark:border-gray-700">
+                <span className="text-xs font-medium text-gray-600 flex items-center gap-2 dark:text-gray-300">
                   <Pill className="w-3.5 h-3.5 text-green-500" /> Prescriptions (voice-editable)
                 </span>
               </div>
@@ -2054,7 +2054,7 @@ export default function ScribePage() {
                         });
                         setSectionStatus((p) => ({ ...p, P: "edited" }));
                       }}
-                      className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                     />
                     <span className="text-xs text-gray-400">
                       {med.frequency} · {med.duration}
@@ -2088,13 +2088,13 @@ export default function ScribePage() {
           {/* Collapsible voice commands legend (PRD §4.5.6 cheat-sheet) */}
           <div
             data-testid="review-voice-cheatsheet"
-            className="border border-gray-200 rounded-xl overflow-hidden"
+            className="border border-gray-200 rounded-xl overflow-hidden dark:border-gray-700"
           >
             <button
               onClick={() => setVoiceLegendOpen((o) => !o)}
-              className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors"
+              className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors dark:bg-gray-900/50 dark:hover:bg-gray-700"
             >
-              <span className="flex items-center gap-2 text-xs font-medium text-gray-600">
+              <span className="flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-300">
                 <Mic className="w-3.5 h-3.5 text-gray-400" /> Voice commands
                 <span className="text-gray-400">— say &ldquo;what can I say&rdquo; to toggle</span>
               </span>
@@ -2125,10 +2125,10 @@ export default function ScribePage() {
                     ["what can I say", "Toggle this cheat-sheet"],
                   ] as [string, string][]).map(([cmd, desc]) => (
                     <div key={cmd} className="flex items-baseline gap-2">
-                      <code className="text-xs bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">
+                      <code className="text-xs bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded font-mono whitespace-nowrap dark:bg-gray-700 dark:text-gray-200">
                         &ldquo;{cmd}&rdquo;
                       </code>
-                      <span className="text-xs text-gray-500 truncate">{desc}</span>
+                      <span className="text-xs text-gray-500 truncate dark:text-gray-400">{desc}</span>
                     </div>
                   ))}
                 </div>
@@ -2145,12 +2145,12 @@ export default function ScribePage() {
     <>
       {consentTarget && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 dark:bg-gray-800">
             <div className="flex items-start gap-3">
               <ShieldAlert className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" />
               <div>
                 <h3 className="font-semibold text-gray-800">Patient Consent Required</h3>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">
                   This session will transcribe the consultation using AI. The patient must give
                   explicit consent before recording begins.
                 </p>
@@ -2169,7 +2169,7 @@ export default function ScribePage() {
               </button>
               <button
                 onClick={() => setConsentTarget(null)}
-                className="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-xl text-sm hover:bg-gray-50"
+                className="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-xl text-sm hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>
@@ -2182,8 +2182,8 @@ export default function ScribePage() {
         <div className="w-72 flex flex-col gap-3 h-full">
           {/* Appointment selector */}
           {!sessionId && (
-          <div className="bg-white rounded-2xl shadow border border-gray-100 p-4 flex-1 flex flex-col overflow-hidden">
-            <p className="font-semibold text-sm text-gray-700 mb-3 flex items-center gap-2">
+          <div className="bg-white rounded-2xl shadow border border-gray-100 p-4 flex-1 flex flex-col overflow-hidden dark:bg-gray-800 dark:border-gray-700">
+            <p className="font-semibold text-sm text-gray-700 mb-3 flex items-center gap-2 dark:text-gray-200">
               <UserCheck className="w-4 h-4 text-blue-600" /> Today&apos;s Patients
             </p>
             {/* Issue #62: visible error banner + Retry when the appointments
@@ -2209,7 +2209,7 @@ export default function ScribePage() {
                     setApptLoadError(null);
                     setApptRetryNonce((n) => n + 1);
                   }}
-                  className="mt-2 w-full rounded-lg border border-red-300 bg-white px-2 py-1 font-medium text-red-700 hover:bg-red-100"
+                  className="mt-2 w-full rounded-lg border border-red-300 bg-white px-2 py-1 font-medium text-red-700 hover:bg-red-100 dark:border-red-700 dark:bg-gray-800 dark:text-red-300 dark:hover:bg-red-900/30"
                 >
                   Retry
                 </button>
@@ -2254,7 +2254,7 @@ export default function ScribePage() {
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
                         Token #{appt.tokenNumber} · {appt.slotStart || "Walk-in"}
                       </p>
                     </button>
@@ -2267,31 +2267,31 @@ export default function ScribePage() {
 
           {/* Scribe controls */}
           {sessionId && (
-            <div className="bg-white rounded-2xl shadow border border-gray-100 p-4 space-y-3">
-              <p className="font-semibold text-sm text-gray-700 flex items-center gap-2">
+            <div className="bg-white rounded-2xl shadow border border-gray-100 p-4 space-y-3 dark:bg-gray-800 dark:border-gray-700">
+              <p className="font-semibold text-sm text-gray-700 flex items-center gap-2 dark:text-gray-200">
                 <Activity className="w-4 h-4 text-emerald-600" /> Scribe Active
               </p>
-              <div className="text-xs text-gray-500 space-y-1">
+              <div className="text-xs text-gray-500 space-y-1 dark:text-gray-400">
                 <p>
                   Patient:{" "}
-                  <span className="font-medium text-gray-700">
+                  <span className="font-medium text-gray-700 dark:text-gray-200">
                     {selectedAppointment?.patient?.user?.name}
                   </span>
                 </p>
                 <p>
                   Transcript:{" "}
-                  <span className="font-medium text-gray-700">{transcriptLength} entries</span>
+                  <span className="font-medium text-gray-700 dark:text-gray-200">{transcriptLength} entries</span>
                 </p>
               </div>
 
               {liveText && (
-                <div ref={liveTextRef} className="bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 text-xs text-gray-600 italic h-10 overflow-y-auto scrollbar-hide break-words">
+                <div ref={liveTextRef} className="bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 text-xs text-gray-600 italic h-10 overflow-y-auto scrollbar-hide break-words dark:bg-yellow-900/20 dark:border-yellow-700/50 dark:text-gray-300">
                   {liveText}
                 </div>
               )}
 
               <div className="space-y-1">
-                <p className="text-xs font-medium text-gray-500">Active Speaker</p>
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Active Speaker</p>
                 <div className="flex gap-1.5">
                   <button
                     onClick={() => setActiveSpeaker("DOCTOR")}
@@ -2318,7 +2318,7 @@ export default function ScribePage() {
 
               {mediaRecorderSupported && (
                 <div className="space-y-1">
-                  <p className="text-xs font-medium text-gray-500">ASR Engine</p>
+                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400">ASR Engine</p>
                   <div className="flex gap-1.5">
                     <button
                       disabled={recording}
@@ -2372,10 +2372,10 @@ export default function ScribePage() {
 
           {/* GAP-S4: Transcript with per-entry speaker dropdowns. */}
           {sessionId && (
-            <div className="bg-white rounded-2xl shadow border border-gray-100 overflow-hidden flex-1 flex flex-col">
-              <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-100">
-                <span className="flex items-center gap-2 text-xs font-semibold text-gray-700">
-                  <FileText className="w-3.5 h-3.5 text-gray-500" />
+            <div className="bg-white rounded-2xl shadow border border-gray-100 overflow-hidden flex-1 flex flex-col dark:bg-gray-800 dark:border-gray-700">
+              <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-100 dark:bg-gray-900/50 dark:border-gray-700">
+                <span className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-200">
+                  <FileText className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
                   Transcript
                   <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                     {transcriptEntries.length}
@@ -2426,7 +2426,7 @@ export default function ScribePage() {
                           </select>
                           <span className="text-[10px] text-gray-400 flex-shrink-0">#{i + 1}</span>
                         </div>
-                        <p className="text-xs text-gray-700 leading-relaxed break-words">{entry.text}</p>
+                        <p className="text-xs text-gray-700 leading-relaxed break-words dark:text-gray-200">{entry.text}</p>
                       </div>
                     );
                   })}
@@ -2436,8 +2436,8 @@ export default function ScribePage() {
         </div>
 
         {/* ── Right: SOAP draft ──────────────────────────── */}
-        <div className="flex-1 flex flex-col bg-white rounded-2xl shadow border border-gray-100 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50">
+        <div className="flex-1 flex flex-col bg-white rounded-2xl shadow border border-gray-100 overflow-hidden dark:bg-gray-800 dark:border-gray-700">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50 dark:border-gray-700 dark:from-blue-900/30 dark:to-indigo-900/30">
             <div className="flex items-center gap-2">
               <FileText className="w-4 h-4 text-blue-600" />
               <p className="font-semibold text-sm text-gray-800">AI-Drafted SOAP Note</p>
@@ -2565,7 +2565,7 @@ export default function ScribePage() {
                   {editedSOAP?.assessment?.icd10Codes &&
                     editedSOAP.assessment.icd10Codes.length > 0 && (
                       <div>
-                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 dark:text-gray-400">
                           Suggested ICD-10 Codes
                         </p>
                         <div className="space-y-1.5">
@@ -2578,7 +2578,7 @@ export default function ScribePage() {
                                 {code.code}
                               </span>
                               <div className="flex-1">
-                                <p className="text-xs text-gray-700">{code.description}</p>
+                                <p className="text-xs text-gray-700 dark:text-gray-200">{code.description}</p>
                                 {code.evidenceSpan && (
                                   <p className="text-xs text-gray-400 italic mt-0.5">
                                     &ldquo;{code.evidenceSpan}&rdquo;
@@ -2609,7 +2609,7 @@ export default function ScribePage() {
                   {editedSOAP?.plan?.medications &&
                     editedSOAP.plan.medications.length > 0 && (
                       <div>
-                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 dark:text-gray-400">
                           Medications
                         </p>
                         <div className="space-y-1.5">
@@ -2619,7 +2619,7 @@ export default function ScribePage() {
                               className="bg-green-50 border border-green-100 rounded-lg px-3 py-2"
                             >
                               <p className="text-sm font-medium text-gray-800">{med.name}</p>
-                              <p className="text-xs text-gray-600">
+                              <p className="text-xs text-gray-600 dark:text-gray-300">
                                 {med.dose} · {med.frequency} · {med.duration}
                               </p>
                               {med.notes && (

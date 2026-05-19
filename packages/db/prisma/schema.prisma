@@ -99,6 +99,12 @@ enum NotificationType {
   PREVISIT_CHECKLIST_READY
   CHRONIC_CARE_CHECKIN
   CHRONIC_CARE_ALERT
+  // Issue #893: high-acuity ER patient (RESUSCITATION/EMERGENT/URGENT)
+  // marked LEFT_WITHOUT_BEING_SEEN on disposition. Fanout target =
+  // all ADMIN users + the attending doctor (if assigned). Pediatric
+  // RTA / chest pain / stroke patients walking out is a sentinel
+  // safety event in any hospital.
+  EMERGENCY_LWBS_ESCALATION
 }
 
 // ─── PHASE 2 ENUMS ──────────────────────────────────────

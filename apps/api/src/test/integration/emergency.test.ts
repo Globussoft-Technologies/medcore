@@ -199,6 +199,104 @@ describeIfDB("Emergency API (integration)", () => {
     expect(res.body.data?.closedAt).toBeTruthy();
   });
 
+  // Issue #893: a high-acuity (URGENT/EMERGENT/RESUSCITATION) patient marked
+  // LEFT_WITHOUT_BEING_SEEN at disposition is a sentinel safety event. The
+  // close handler must fanout an EMERGENCY_LWBS_ESCALATION notification to
+  // every ADMIN user + the attending doctor (if any), and write a dedicated
+  // audit row so the incident is greppable without joining through
+  // emergency_cases. Previously this was a silent timeline line.
+  it("LWBS on URGENT triage fans out EMERGENCY_LWBS_ESCALATION + audit row (issue #893)", async () => {
+    const prisma = await getPrisma();
+    const patient = await createPatientFixture();
+    const createRes = await request(app)
+      .post("/api/v1/emergency/cases")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        patientId: patient.id,
+        chiefComplaint: "Road traffic accident",
+        arrivalMode: "Walk-in",
+      });
+    const caseId = createRes.body.data.id;
+    // Triage at URGENT (P3 in the bug report's vocabulary) — one of the
+    // three high-acuity levels that should trigger escalation.
+    await request(app)
+      .patch(`/api/v1/emergency/cases/${caseId}/triage`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ triageLevel: "URGENT" });
+    // Close with LWBS — should fire the escalation.
+    const closeRes = await request(app)
+      .patch(`/api/v1/emergency/cases/${caseId}/close`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        status: "LEFT_WITHOUT_BEING_SEEN",
+        disposition: "LEFT_WITHOUT_BEING_SEEN",
+      });
+    expect(closeRes.status).toBe(200);
+    // Fanout is fire-and-forget — poll briefly for the notification(s).
+    let notif: any = null;
+    for (let i = 0; i < 40; i++) {
+      notif = await prisma.notification.findFirst({
+        where: {
+          type: "EMERGENCY_LWBS_ESCALATION" as any,
+          data: { path: ["emergencyCaseId"], equals: caseId },
+        },
+      });
+      if (notif) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(notif).toBeTruthy();
+    expect(notif?.title).toContain("LWBS");
+    expect(notif?.title).toContain("URGENT");
+    // Dedicated audit row (separate from EMERGENCY_CASE_CLOSE) for greppability.
+    let audit: any = null;
+    for (let i = 0; i < 40; i++) {
+      audit = await prisma.auditLog.findFirst({
+        where: { action: "EMERGENCY_LWBS_ESCALATION", entityId: caseId },
+      });
+      if (audit) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(audit).toBeTruthy();
+  });
+
+  // Issue #893 negative case: LWBS on a LESS_URGENT triage should NOT fire
+  // the escalation. Lower-acuity walk-outs are routine — escalating them
+  // would drown the on-call inbox in noise.
+  it("LWBS on LESS_URGENT triage does NOT fan out (issue #893 negative)", async () => {
+    const prisma = await getPrisma();
+    const patient = await createPatientFixture();
+    const createRes = await request(app)
+      .post("/api/v1/emergency/cases")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        patientId: patient.id,
+        chiefComplaint: "Minor sprain",
+        arrivalMode: "Walk-in",
+      });
+    const caseId = createRes.body.data.id;
+    await request(app)
+      .patch(`/api/v1/emergency/cases/${caseId}/triage`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ triageLevel: "LESS_URGENT" });
+    const closeRes = await request(app)
+      .patch(`/api/v1/emergency/cases/${caseId}/close`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        status: "LEFT_WITHOUT_BEING_SEEN",
+        disposition: "LEFT_WITHOUT_BEING_SEEN",
+      });
+    expect(closeRes.status).toBe(200);
+    // Wait a tick to let any (incorrect) fire-and-forget run.
+    await new Promise((r) => setTimeout(r, 300));
+    const notif = await prisma.notification.findFirst({
+      where: {
+        type: "EMERGENCY_LWBS_ESCALATION" as any,
+        data: { path: ["emergencyCaseId"], equals: caseId },
+      },
+    });
+    expect(notif).toBeNull();
+  });
+
   it("lists active cases", async () => {
     const res = await request(app)
       .get("/api/v1/emergency/cases/active")

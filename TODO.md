@@ -16,12 +16,21 @@ is independently shippable. Full per-session history lives under
 - ✅ **#908 deploy unblocked end-to-end** through THREE blockers — see below.
 - ⚠️ **The `f23865c` deploy is IN FLIGHT** — CI was still running at session end. **Verifying it is the #1 pickup task.**
 
-**Update 2026-05-19 evening** (HEAD `970591c`):
+**Update 2026-05-19 evening** (HEAD `94455fa`):
 - ✅ Deploy fully unblocked through 4 layers of PM2 caching bugs (`41eec79` → `3d57402` → `8ffc556` → `970591c`); demo live at `medcore.globusdemos.com` after ~12 days down.
 - ✅ All 5 STAGING UI bugs verify-closed: #877, #878, #884, #886, #887 (fixes from PR #888 / `1df30d0` confirmed in source + deployed).
 - ✅ **PR queue cleared (0 open)** — all 5 held PRs closed with rationale + migration trackers:
   - #912 #913 #915 #917 → closed, tracked in **#920** (apps/mobile expo SDK 53→55 holistic migration).
   - #918 → closed, tracked in **#921** (vitest 2→4 paired migration).
+- ✅ **ALL 8 STAGING data/API guards closed** (#890/#891/#892/#893/#896/#898/#899/#901):
+  - #890 NO_SHOW phantom invoice — guard at `1d807b2`, INV000426 cleaned at `20260517000002`.
+  - #891 placeholder `noemail+...@medcore.invalid` emails — schema nullable + 183 placeholders cleared (`d21e14c`).
+  - #892 duplicate-patient by name+DOB — guard at `1d807b2`.
+  - #893 ER LWBS → escalation: `EMERGENCY_LWBS_ESCALATION` notification + audit + console.warn for RESUSCITATION/EMERGENT/URGENT (`c8f7412`).
+  - #896 age/DOB cross-field validation — guard at `1d807b2` + 3 impossible rows backfilled at `03e0a49` (after fixing the bad `updatedAt` write in the migration).
+  - #898 medicineId FK on prescription_items + name-match backfill (`d70fb67`).
+  - #899 medicines master regulatory metadata seed (55 of 87 generics: Schedule, isNarcotic, maxDailyDoseMg, contraindications) wired into deploy.sh step 9f (`5f3ad0c`).
+  - #901 invoice totals Float→Decimal + GST-before-discount sequence + INV000406 recalc (`b9311c7`). Decimal/number boundary collateral fixed at `c7dad42`.
 
 ### 🚨 #908 — verify the deploy landed (TOP priority)
 
@@ -36,12 +45,13 @@ gh run list --workflow=test.yml --branch main --limit 3
 
 ### 🔥 Top priority for home pickup
 
-1. ~~**Verify the `f23865c` deploy** (above). Gate on everything STAGING.~~ ✅ Done 2026-05-19 — demo live, 4 PM2 layers fixed (HEAD `970591c`).
-2. ~~**Once deployed** — smoke-pass the demo; verify-close STAGING guards still OPEN (#890 #892 #896) + older STAGING UI bugs (#877/#878/#884/#886/#887).~~ ✅ Done 2026-05-19 — 5 UI bugs closed (#877/#878/#884/#886/#887); STAGING guards #890/#892/#896 still pending.
+1. ~~**Verify the `f23865c` deploy** (above). Gate on everything STAGING.~~ ✅ Done 2026-05-19 — demo live, 4 PM2 layers fixed.
+2. ~~**Once deployed** — smoke-pass the demo; verify-close STAGING guards still OPEN (#890 #892 #896) + older STAGING UI bugs (#877/#878/#884/#886/#887).~~ ✅ Done 2026-05-19 — 5 UI bugs + all 8 data/API guards closed.
 3. **Mobile SDK 53→55 holistic migration** — tracked in **#920**. `apps/mobile` is an incoherent SDK 53/55 hybrid; bump `expo` + `expo-router` 4→6 + all `expo-*` + RN peers together, `expo install --fix`, fix breakage. CI never builds mobile.
-4. **#890-903 cluster remaining OPEN:** #891 (placeholder emails), #893 (ER LWBS escalation), #898 (`medicineId` FK on Rx items), #899 (medicines-master metadata), #901 (float currency + GST-after-discount).
+4. ~~**#890-903 cluster remaining OPEN**~~ ✅ Done 2026-05-19 — all 8 closed (see "Update" above).
 5. **vitest 2→4 paired migration** — tracked in **#921**.
-6. Carry-over: #599 PHARMACIST policy, visual baseline regen, the 9 #772 user-blocked items.
+6. **Open issue surface remaining**: ~35 STAGING UI bugs (#840-#887 series — dark-mode contrast, role-leak labels, calendar shape, date format inconsistency). Bulk-amenable via `/medcore-fanout`.
+7. Carry-over: #599 PHARMACIST policy, visual baseline regen, the 9 #772 user-blocked items.
 
 ### 📦 New artifacts this session
 

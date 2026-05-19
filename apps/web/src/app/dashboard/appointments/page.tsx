@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
@@ -250,6 +250,115 @@ function HBarChart({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ─── Doctor dropdown ───────────────────────────────
+// Custom replacement for the native <select>. A native popup's open
+// direction, height and scrolling are browser-controlled; this renders the
+// option list as a panel that always opens DOWNWARD (`top-full`), with a
+// fixed max-height and its own scrollbar (`max-h-60 overflow-y-auto`).
+function DoctorSelect({
+  doctors,
+  value,
+  placeholder,
+  onChange,
+}: {
+  doctors: Doctor[];
+  value: string;
+  placeholder: string;
+  onChange: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onMouseDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const selected = doctors.find((d) => d.id === value);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        id="appt-book-doctor"
+        data-testid="appt-book-doctor"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-left text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+      >
+        <span
+          className={
+            selected
+              ? "truncate"
+              : "truncate text-gray-500 dark:text-gray-400"
+          }
+        >
+          {selected
+            ? `${selected.user.name} — ${selected.specialization}`
+            : placeholder}
+        </span>
+        <span aria-hidden className="shrink-0 text-gray-400">
+          ▾
+        </span>
+      </button>
+      {open && (
+        <ul
+          role="listbox"
+          aria-label={placeholder}
+          className="absolute left-0 right-0 top-full z-20 mt-1 max-h-60 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-800"
+        >
+          <li>
+            <button
+              type="button"
+              role="option"
+              aria-selected={value === ""}
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+              }}
+              className="block w-full px-3 py-2 text-left text-sm text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+            >
+              {placeholder}
+            </button>
+          </li>
+          {doctors.map((d) => (
+            <li key={d.id}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={value === d.id}
+                onClick={() => {
+                  onChange(d.id);
+                  setOpen(false);
+                }}
+                className={`block w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                  value === d.id
+                    ? "bg-blue-50 font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-200"
+                    : "text-gray-900 dark:text-gray-100"
+                }`}
+              >
+                {d.user.name} — {d.specialization}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -1592,22 +1701,15 @@ export default function AppointmentsPage() {
                   <label htmlFor="appt-book-doctor" className="mb-1 block text-sm font-medium">
                     {t("dashboard.appointments.doctor")}
                   </label>
-                  <select
-                    id="appt-book-doctor"
+                  <DoctorSelect
+                    doctors={doctors}
                     value={selectedDoctor}
-                    onChange={(e) => {
-                      setSelectedDoctor(e.target.value);
-                      if (e.target.value) loadSlots(e.target.value, selectedDate);
+                    placeholder={t("dashboard.appointments.selectDoctor")}
+                    onChange={(id) => {
+                      setSelectedDoctor(id);
+                      if (id) loadSlots(id, selectedDate);
                     }}
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
-                  >
-                    <option value="">{t("dashboard.appointments.selectDoctor")}</option>
-                    {doctors.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.user.name} — {d.specialization}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
                 <div>
                   <label htmlFor="appt-book-date" className="mb-1 block text-sm font-medium">

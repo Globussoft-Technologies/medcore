@@ -227,9 +227,12 @@ describe("AppointmentsPage", () => {
       });
       await user.click(bookBtn);
 
-      // Pick the doctor — triggers loadSlots("d1", today).
-      const doctorSelect = await screen.findByLabelText(/doctor/i);
-      await user.selectOptions(doctorSelect, "d1");
+      // Pick the doctor via the custom dropdown — open the list, click the
+      // option; triggers loadSlots("d1", today).
+      await user.click(await screen.findByTestId("appt-book-doctor"));
+      await user.click(
+        await screen.findByRole("option", { name: /Dr\. Rajesh Sharma/i })
+      );
 
       // Wait for the slot buttons to render.
       await waitFor(() => {

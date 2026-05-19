@@ -927,7 +927,7 @@ function NotificationsTab() {
       // confirmation that didn't name what changed. Per-channel
       // wording surfaces the specific update.
       toast.success(
-        `${enabled ? "Enabled" : "Disabled"} ${channel} notifications`,
+        `${enabled ? "Enabled" : "Disabled"} ${CHANNEL_LABEL[channel]} notifications`,
       );
     } catch {
       toast.error("Failed to save notification preference");

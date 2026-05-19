@@ -252,10 +252,10 @@ export default function ChatPage() {
   const groups = groupByDate(orderedMessages);
 
   return (
-    <div className="flex h-[calc(100vh-3rem)] overflow-hidden rounded-xl bg-white shadow-sm">
+    <div className="flex h-[calc(100vh-3rem)] overflow-hidden rounded-xl bg-white shadow-sm dark:bg-gray-800">
       {/* Sidebar */}
-      <div className="flex w-80 flex-col border-r">
-        <div className="border-b p-3">
+      <div className="flex w-80 flex-col border-r border-gray-200 dark:border-gray-700">
+        <div className="border-b border-gray-200 p-3 dark:border-gray-700">
           <h2 className="mb-2 font-semibold">Chats</h2>
           <input
             type="text"
@@ -266,25 +266,25 @@ export default function ChatPage() {
             }}
             onFocus={() => setShowUsers(true)}
             placeholder="Search users to start chat..."
-            className="w-full rounded-lg border px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
           {showUsers && userSearch && (
-            <div className="mt-2 max-h-60 overflow-y-auto rounded-lg border bg-white shadow">
+            <div className="mt-2 max-h-60 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow dark:border-gray-700 dark:bg-gray-800">
               {filteredUsers.length === 0 ? (
-                <p className="p-3 text-sm text-gray-500">No users found</p>
+                <p className="p-3 text-sm text-gray-500 dark:text-gray-400">No users found</p>
               ) : (
                 filteredUsers.map((u) => (
                   <button
                     key={u.id}
                     onClick={() => startChat(u.id)}
-                    className="flex w-full items-center gap-2 border-b p-2 text-left text-sm last:border-0 hover:bg-gray-50"
+                    className="flex w-full items-center gap-2 border-b border-gray-100 p-2 text-left text-sm last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/50"
                   >
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-white">
                       {initials(u.name)}
                     </div>
                     <div>
                       <p className="font-medium">{u.name}</p>
-                      <p className="text-xs text-gray-500">{u.role}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{u.role}</p>
                     </div>
                   </button>
                 ))
@@ -294,7 +294,7 @@ export default function ChatPage() {
                   setShowUsers(false);
                   setUserSearch("");
                 }}
-                className="w-full border-t p-2 text-xs text-gray-500 hover:bg-gray-50"
+                className="w-full border-t border-gray-200 p-2 text-xs text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-700/50"
               >
                 Close
               </button>
@@ -304,7 +304,7 @@ export default function ChatPage() {
 
         <div className="flex-1 overflow-y-auto">
           {rooms.length === 0 ? (
-            <p className="p-4 text-center text-sm text-gray-500">
+            <p className="p-4 text-center text-sm text-gray-500 dark:text-gray-400">
               No chats yet. Search for a user above to start.
             </p>
           ) : (
@@ -315,8 +315,10 @@ export default function ChatPage() {
                 <button
                   key={room.id}
                   onClick={() => setSelectedRoom(room)}
-                  className={`flex w-full items-center gap-3 border-b p-3 text-left transition last:border-0 ${
-                    isActive ? "bg-blue-50" : "hover:bg-gray-50"
+                  className={`flex w-full items-center gap-3 border-b border-gray-100 p-3 text-left transition last:border-0 dark:border-gray-700 ${
+                    isActive
+                      ? "bg-blue-50 dark:bg-blue-900/30"
+                      : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
                   }`}
                 >
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white">
@@ -335,7 +337,7 @@ export default function ChatPage() {
                       )}
                     </div>
                     <div className="flex items-center justify-between">
-                      <p className="truncate text-xs text-gray-500">
+                      <p className="truncate text-xs text-gray-500 dark:text-gray-400">
                         {room.lastMessage?.content || "No messages yet"}
                       </p>
                       {room.unreadCount > 0 && (
@@ -360,13 +362,13 @@ export default function ChatPage() {
           </div>
         ) : (
           <>
-            <div className="flex items-center gap-3 border-b p-4">
+            <div className="flex items-center gap-3 border-b border-gray-200 p-4 dark:border-gray-700">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white">
                 {initials(roomDisplayName(selectedRoom))}
               </div>
               <div className="flex-1">
                 <p className="font-semibold">{roomDisplayName(selectedRoom)}</p>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   {selectedRoom.participants.length} participant
                   {selectedRoom.participants.length !== 1 ? "s" : ""}
                 </p>
@@ -375,15 +377,15 @@ export default function ChatPage() {
 
             {/* Pinned banner */}
             {pinnedMessages.length > 0 && (
-              <div className="border-b bg-amber-50 px-4 py-2 text-xs">
+              <div className="border-b border-gray-200 bg-amber-50 px-4 py-2 text-xs dark:border-gray-700 dark:bg-amber-900/20">
                 <button
                   onClick={() => setShowPinned(!showPinned)}
-                  className="flex items-center gap-2 font-medium text-amber-900 hover:text-amber-700"
+                  className="flex items-center gap-2 font-medium text-amber-900 hover:text-amber-700 dark:text-amber-200 dark:hover:text-amber-300"
                 >
                   <Pin size={12} />
                   {pinnedMessages.length} pinned message
                   {pinnedMessages.length !== 1 ? "s" : ""}
-                  <span className="text-amber-700 underline">
+                  <span className="text-amber-700 underline dark:text-amber-300">
                     {showPinned ? "Hide" : "View all pinned"}
                   </span>
                 </button>
@@ -392,12 +394,12 @@ export default function ChatPage() {
                     {pinnedMessages.map((p) => (
                       <div
                         key={p.id}
-                        className="rounded bg-white px-3 py-2 text-xs shadow-sm"
+                        className="rounded bg-white px-3 py-2 text-xs shadow-sm dark:bg-gray-700"
                       >
-                        <p className="mb-0.5 font-semibold text-gray-700">
+                        <p className="mb-0.5 font-semibold text-gray-700 dark:text-gray-200">
                           {p.sender?.name || "User"}
                         </p>
-                        <p className="text-gray-600">{p.content}</p>
+                        <p className="text-gray-600 dark:text-gray-300">{p.content}</p>
                       </div>
                     ))}
                   </div>
@@ -407,7 +409,7 @@ export default function ChatPage() {
 
             <div
               ref={scrollRef}
-              className="flex-1 space-y-4 overflow-y-auto bg-gray-50 p-4"
+              className="flex-1 space-y-4 overflow-y-auto bg-gray-50 p-4 dark:bg-gray-900"
               onClick={() => {
                 setMenuFor(null);
                 setPickerFor(null);
@@ -416,7 +418,7 @@ export default function ChatPage() {
               {groups.map((g) => (
                 <div key={g.date}>
                   <div className="mb-2 text-center">
-                    <span className="rounded-full bg-gray-200 px-3 py-0.5 text-xs text-gray-600">
+                    <span className="rounded-full bg-gray-200 px-3 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300">
                       {g.date}
                     </span>
                   </div>
@@ -443,7 +445,7 @@ export default function ChatPage() {
                             className={`rounded-2xl px-4 py-2 text-sm ${
                               mine
                                 ? "bg-primary text-white"
-                                : "bg-white text-gray-800 shadow-sm"
+                                : "bg-white text-gray-800 shadow-sm dark:bg-gray-700 dark:text-gray-100"
                             }`}
                           >
                             {!mine && (
@@ -490,7 +492,7 @@ export default function ChatPage() {
                                     className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition ${
                                       reacted
                                         ? "border-primary bg-primary/10"
-                                        : "border-gray-200 bg-white hover:bg-gray-50"
+                                        : "border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600"
                                     }`}
                                   >
                                     <span>{emoji}</span>
@@ -514,7 +516,7 @@ export default function ChatPage() {
                                   pickerFor === m.id ? null : m.id
                                 )
                               }
-                              className="rounded-full bg-white p-1 shadow hover:bg-gray-50"
+                              className="rounded-full bg-white p-1 shadow hover:bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600"
                               title="Add reaction"
                             >
                               <SmilePlus size={14} />
@@ -523,7 +525,7 @@ export default function ChatPage() {
                               onClick={() =>
                                 setMenuFor(menuFor === m.id ? null : m.id)
                               }
-                              className="rounded-full bg-white p-1 shadow hover:bg-gray-50"
+                              className="rounded-full bg-white p-1 shadow hover:bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600"
                               title="More"
                             >
                               <MoreHorizontal size={14} />
@@ -533,14 +535,14 @@ export default function ChatPage() {
                           {/* Reaction picker */}
                           {pickerFor === m.id && (
                             <div
-                              className={`absolute ${mine ? "right-0" : "left-0"} -top-10 z-10 flex gap-1 rounded-full bg-white p-1 shadow-lg`}
+                              className={`absolute ${mine ? "right-0" : "left-0"} -top-10 z-10 flex gap-1 rounded-full bg-white p-1 shadow-lg dark:bg-gray-800`}
                               onClick={(e) => e.stopPropagation()}
                             >
                               {REACTION_EMOJIS.map((emoji) => (
                                 <button
                                   key={emoji}
                                   onClick={() => toggleReaction(m.id, emoji)}
-                                  className="rounded-full p-1 text-lg transition hover:scale-125 hover:bg-gray-100"
+                                  className="rounded-full p-1 text-lg transition hover:scale-125 hover:bg-gray-100 dark:hover:bg-gray-700"
                                 >
                                   {emoji}
                                 </button>
@@ -551,12 +553,12 @@ export default function ChatPage() {
                           {/* Context menu */}
                           {menuFor === m.id && (
                             <div
-                              className={`absolute ${mine ? "right-0" : "left-0"} top-8 z-10 w-40 rounded-lg bg-white py-1 shadow-lg`}
+                              className={`absolute ${mine ? "right-0" : "left-0"} top-8 z-10 w-40 rounded-lg bg-white py-1 shadow-lg dark:bg-gray-800`}
                               onClick={(e) => e.stopPropagation()}
                             >
                               <button
                                 onClick={() => togglePin(m)}
-                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50"
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-700"
                               >
                                 <Pin size={12} />
                                 {m.isPinned ? "Unpin" : "Pin message"}
@@ -566,7 +568,7 @@ export default function ChatPage() {
                                   setPickerFor(m.id);
                                   setMenuFor(null);
                                 }}
-                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50"
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-700"
                               >
                                 <SmilePlus size={12} />
                                 Add reaction
@@ -581,7 +583,7 @@ export default function ChatPage() {
               ))}
             </div>
 
-            <div className="flex gap-2 border-t p-3">
+            <div className="flex gap-2 border-t border-gray-200 p-3 dark:border-gray-700">
               <input
                 type="text"
                 value={input}
@@ -590,7 +592,7 @@ export default function ChatPage() {
                   if (e.key === "Enter") send();
                 }}
                 placeholder="Type a message..."
-                className="flex-1 rounded-lg border px-3 py-2 text-sm"
+                className="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
               />
               <button
                 onClick={send}

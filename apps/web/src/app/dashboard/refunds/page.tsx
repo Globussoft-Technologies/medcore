@@ -6,6 +6,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
+import { formatDateTime } from "@/lib/format";
 
 // Issue #509: page-level gate matching API authorize() in
 // apps/api/src/routes/billing.ts (ADMIN, RECEPTION on /reports/refunds and
@@ -177,7 +178,7 @@ export default function RefundsPage() {
                   className="border-b border-gray-200 last:border-0 dark:border-gray-700"
                 >
                   <td className="px-4 py-3 text-sm">
-                    {new Date(r.paidAt).toLocaleString("en-IN")}
+                    {formatDateTime(r.paidAt)}
                   </td>
                   <td className="px-4 py-3 font-mono text-sm">
                     <Link

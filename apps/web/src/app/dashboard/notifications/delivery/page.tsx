@@ -6,6 +6,7 @@ import { useAuthStore } from "@/lib/store";
 import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
 import { RefreshCw, Send } from "lucide-react";
+import { formatDateTime } from "@/lib/format";
 
 interface DeliveryRow {
   id: string;
@@ -173,7 +174,7 @@ export default function NotificationDeliveryPage() {
               rows.map((r) => (
                 <tr key={r.id} className="border-t border-gray-100 dark:border-gray-700">
                   <td className="px-4 py-3 text-xs">
-                    {new Date(r.createdAt).toLocaleString()}
+                    {formatDateTime(r.createdAt)}
                   </td>
                   <td className="px-4 py-3 text-xs">{r.type}</td>
                   <td className="px-4 py-3 text-xs">{r.channel}</td>
@@ -191,7 +192,7 @@ export default function NotificationDeliveryPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs">
-                    {r.sentAt ? new Date(r.sentAt).toLocaleString() : "—"}
+                    {formatDateTime(r.sentAt)}
                   </td>
                   <td className="px-4 py-3 text-xs text-red-600">
                     {r.failureReason || "—"}

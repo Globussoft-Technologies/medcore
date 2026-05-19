@@ -1,0 +1,24 @@
+-- ================================================================
+-- 20260520000001_scrub_placeholder_visitor_rows_277
+--
+-- Closes: #277 (test/demo data leaks into the production-like UI)
+--
+-- 10 rows on staging carry name = 'Visitor 1' .. 'Visitor 10' — created
+-- via the live demo UI by someone testing the visitor-registration form
+-- and never cleaned up. They:
+--   - have no incoming FK references (confirmed via pg_constraint scan)
+--   - are not produced by ANY seed file (the seed-visitors-history.ts seed
+--     uses VIS-HIST-SEED-NNNN in passNumber + real Indian names; the
+--     seed-ops-enhancements.ts seed uses VIS-/VIS-OPS-NNNN namespaces)
+--   - match the exact pattern `^Visitor [0-9]+$` so the cleanup is sniper-
+--     precise — any real visitor named like "Visitor Smith" or "Visitor's
+--     uncle" is unaffected.
+--
+-- The ambulance + ambulance_trips + ambulance driver placeholder rows
+-- referenced in the same #277 bug filing have already been cleaned by
+-- earlier work; today's probe returned 0 matches across all three tables.
+--
+-- Idempotent: re-runs against an already-clean table delete 0 rows.
+-- ================================================================
+
+DELETE FROM visitors WHERE name ~ '^Visitor [0-9]+$';

@@ -106,16 +106,16 @@ export default function ImmunizationSchedulePage() {
       </div>
 
       {/* Table */}
-      <div className="overflow-hidden rounded-xl bg-white shadow-sm">
+      <div className="overflow-hidden rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : rows.length === 0 ? (
           <div className="p-8 text-center text-gray-400">
             No immunizations match this filter
           </div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs text-gray-500">
+            <thead className="bg-gray-50 text-xs text-gray-500 dark:bg-gray-900/50 dark:text-gray-400">
               <tr>
                 <th className="px-5 py-3 text-left">Patient</th>
                 <th className="px-5 py-3 text-left">MR #</th>
@@ -133,7 +133,7 @@ export default function ImmunizationSchedulePage() {
                 return (
                   <tr
                     key={r.id}
-                    className="border-t border-gray-100 hover:bg-gray-50"
+                    className="border-t border-gray-100 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/50"
                   >
                     <td className="px-5 py-3">
                       <Link
@@ -143,7 +143,7 @@ export default function ImmunizationSchedulePage() {
                         {r.patient?.user?.name || "-"}
                       </Link>
                     </td>
-                    <td className="px-5 py-3 font-mono text-xs text-gray-500">
+                    <td className="px-5 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">
                       {r.patient?.mrNumber}
                     </td>
                     <td className="px-5 py-3">{r.vaccine}</td>
@@ -165,7 +165,7 @@ export default function ImmunizationSchedulePage() {
                             ? "today"
                             : `in ${days}d`}
                     </td>
-                    <td className="px-5 py-3 text-xs text-gray-500">
+                    <td className="px-5 py-3 text-xs text-gray-500 dark:text-gray-400">
                       {r.patient?.user?.phone}
                     </td>
                   </tr>

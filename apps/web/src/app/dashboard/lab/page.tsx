@@ -496,7 +496,7 @@ export default function LabPage() {
                             {o.items.map((item) => (
                               <div
                                 key={item.id}
-                                className="rounded-lg border bg-white p-3"
+                                className="rounded-lg border bg-white p-3 dark:border-gray-700 dark:bg-gray-800"
                               >
                                 <div className="flex items-center justify-between">
                                   <p className="font-medium">
@@ -522,7 +522,7 @@ export default function LabPage() {
                                               {r.value} {r.unit}
                                             </span>
                                             {r.normalRange && (
-                                              <span className="text-xs text-gray-500">
+                                              <span className="text-xs text-gray-500 dark:text-gray-400">
                                                 (normal: {r.normalRange})
                                               </span>
                                             )}
@@ -543,7 +543,7 @@ export default function LabPage() {
                                               </button>
                                             )}
                                             {insight?.loading && (
-                                              <span className="text-xs text-gray-500 ml-2">
+                                              <span className="text-xs text-gray-500 ml-2 dark:text-gray-400">
                                                 analysing...
                                               </span>
                                             )}
@@ -556,7 +556,7 @@ export default function LabPage() {
                                               </p>
                                               <p>
                                                 <strong>Trend:</strong> {insight.data.trend}{" "}
-                                                <span className="text-gray-500">·</span>{" "}
+                                                <span className="text-gray-500 dark:text-gray-400">·</span>{" "}
                                                 <strong>Urgency:</strong> {insight.data.urgency}
                                               </p>
                                               <p>

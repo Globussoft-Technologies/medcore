@@ -249,7 +249,7 @@ export default function AntenatalPage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Antenatal Care</h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Pregnancy monitoring and maternity management
           </p>
         </div>
@@ -266,46 +266,46 @@ export default function AntenatalPage() {
       {/* Stats */}
       {dashboard && (
         <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
-          <div className="rounded-xl bg-white p-5 shadow-sm">
+          <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
             <div className="flex items-center gap-3">
               <div className="rounded-lg bg-blue-100 p-2 text-blue-700">
                 <Baby size={20} />
               </div>
               <div>
-                <p className="text-xs text-gray-500">Active Cases</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Active Cases</p>
                 <p className="text-2xl font-bold">{dashboard.activeCases}</p>
               </div>
             </div>
           </div>
-          <div className="rounded-xl bg-white p-5 shadow-sm">
+          <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
             <div className="flex items-center gap-3">
               <div className="rounded-lg bg-red-100 p-2 text-red-700">
                 <AlertTriangle size={20} />
               </div>
               <div>
-                <p className="text-xs text-gray-500">High Risk</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">High Risk</p>
                 <p className="text-2xl font-bold">{dashboard.highRiskCases}</p>
               </div>
             </div>
           </div>
-          <div className="rounded-xl bg-white p-5 shadow-sm">
+          <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
             <div className="flex items-center gap-3">
               <div className="rounded-lg bg-green-100 p-2 text-green-700">
                 <Calendar size={20} />
               </div>
               <div>
-                <p className="text-xs text-gray-500">Upcoming Deliveries (30d)</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Upcoming Deliveries (30d)</p>
                 <p className="text-2xl font-bold">{dashboard.upcomingDeliveries}</p>
               </div>
             </div>
           </div>
-          <div className="rounded-xl bg-white p-5 shadow-sm">
+          <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
             <div className="flex items-center gap-3">
               <div className="rounded-lg bg-amber-100 p-2 text-amber-700">
                 <Activity size={20} />
               </div>
               <div>
-                <p className="text-xs text-gray-500">Overdue Deliveries</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Overdue Deliveries</p>
                 <p className="text-2xl font-bold">{dashboard.overdueDeliveries}</p>
               </div>
             </div>
@@ -328,15 +328,15 @@ export default function AntenatalPage() {
         </button>
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : cases.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">No ANC cases found.</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">No ANC cases found.</div>
         ) : (
           <table className="w-full">
             <thead>
-              <tr className="border-b text-left text-sm text-gray-500">
+              <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Case #</th>
                 <th className="px-4 py-3">Patient</th>
                 <th className="px-4 py-3">EDD</th>
@@ -362,7 +362,7 @@ export default function AntenatalPage() {
                       >
                         {c.patient.user.name}
                       </Link>
-                      <p className="text-xs text-gray-500">{c.patient.mrNumber}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{c.patient.mrNumber}</p>
                     </td>
                     <td className="px-4 py-3 text-sm">
                       {new Date(c.eddDate).toLocaleDateString()}
@@ -426,7 +426,7 @@ export default function AntenatalPage() {
           <form
             onSubmit={submitCase}
             noValidate
-            className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
           >
             <h2 className="mb-4 text-lg font-semibold">New Antenatal Case</h2>
 
@@ -472,7 +472,7 @@ export default function AntenatalPage() {
                       className="w-full rounded-lg border px-3 py-2 text-sm"
                     />
                     {patientResults.length > 0 && (
-                      <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white shadow-sm">
+                      <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
                         {patientResults.map((p) => (
                           <button
                             key={p.id}

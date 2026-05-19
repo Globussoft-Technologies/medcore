@@ -269,7 +269,7 @@ export default function ReferralsPage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Referrals</h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Specialist referrals — internal and external
           </p>
         </div>
@@ -295,15 +295,15 @@ export default function ReferralsPage() {
         </div>
       )}
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : referrals.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">No referrals found.</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">No referrals found.</div>
         ) : (
           <table className="w-full">
             <thead>
-              <tr className="border-b text-left text-sm text-gray-500">
+              <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Referral #</th>
                 <th className="px-4 py-3">Patient</th>
                 <th className="px-4 py-3">From</th>
@@ -323,7 +323,7 @@ export default function ReferralsPage() {
                   <td className="px-4 py-3 font-medium">{r.referralNumber}</td>
                   <td className="px-4 py-3">
                     <p className="font-medium">{r.patient.user.name}</p>
-                    <p className="text-xs text-gray-500">{r.patient.mrNumber}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{r.patient.mrNumber}</p>
                   </td>
                   <td className="px-4 py-3 text-sm">{r.fromDoctor.user.name}</td>
                   <td className="px-4 py-3 text-sm">
@@ -370,7 +370,7 @@ export default function ReferralsPage() {
           <form
             onSubmit={submit}
             noValidate
-            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl"
+            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
           >
             <h2 className="mb-4 text-lg font-semibold">New Referral</h2>
 
@@ -383,7 +383,7 @@ export default function ReferralsPage() {
                 <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
                   <div>
                     <p className="text-sm font-medium">{selectedPatient.user.name}</p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                       {selectedPatient.mrNumber} · {selectedPatient.user.phone}
                     </p>
                   </div>
@@ -406,7 +406,7 @@ export default function ReferralsPage() {
                     className="w-full rounded-lg border px-3 py-2 text-sm"
                   />
                   {patientResults.length > 0 && (
-                    <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white">
+                    <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white dark:border-gray-700 dark:bg-gray-800">
                       {patientResults.map((p) => (
                         <button
                           key={p.id}
@@ -419,7 +419,7 @@ export default function ReferralsPage() {
                           className="block w-full border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-gray-50"
                         >
                           <p className="font-medium">{p.user.name}</p>
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
                             {p.mrNumber} · {p.user.phone}
                           </p>
                         </button>
@@ -636,13 +636,13 @@ export default function ReferralsPage() {
           onClick={() => setSelected(null)}
         >
           <div
-            className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-start justify-between">
               <div>
                 <h2 className="text-lg font-semibold">{selected.referralNumber}</h2>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
                   {new Date(selected.referredAt).toLocaleString()}
                 </p>
               </div>
@@ -655,15 +655,15 @@ export default function ReferralsPage() {
 
             <div className="mb-4 space-y-2 text-sm">
               <div>
-                <span className="text-gray-500">Patient: </span>
+                <span className="text-gray-500 dark:text-gray-400">Patient: </span>
                 <span className="font-medium">{selected.patient.user.name}</span>
               </div>
               <div>
-                <span className="text-gray-500">From: </span>
+                <span className="text-gray-500 dark:text-gray-400">From: </span>
                 <span>{selected.fromDoctor.user.name}</span>
               </div>
               <div>
-                <span className="text-gray-500">To: </span>
+                <span className="text-gray-500 dark:text-gray-400">To: </span>
                 <span>
                   {selected.toDoctor
                     ? selected.toDoctor.user.name
@@ -672,19 +672,19 @@ export default function ReferralsPage() {
               </div>
               {selected.specialty && (
                 <div>
-                  <span className="text-gray-500">Specialty: </span>
+                  <span className="text-gray-500 dark:text-gray-400">Specialty: </span>
                   <span>{selected.specialty}</span>
                 </div>
               )}
               <div>
-                <span className="text-gray-500">Reason: </span>
+                <span className="text-gray-500 dark:text-gray-400">Reason: </span>
                 <p className="mt-1 whitespace-pre-wrap rounded-lg bg-gray-50 p-3">
                   {selected.reason}
                 </p>
               </div>
               {selected.notes && (
                 <div>
-                  <span className="text-gray-500">Notes: </span>
+                  <span className="text-gray-500 dark:text-gray-400">Notes: </span>
                   <p className="mt-1 whitespace-pre-wrap rounded-lg bg-gray-50 p-3">
                     {selected.notes}
                   </p>

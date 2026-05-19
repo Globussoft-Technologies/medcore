@@ -5,10 +5,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { formatDoctorName } from "@/lib/format-doctor-name";
-import {
-  displayStatusForAppointment,
-  formatAppointmentTime,
-} from "@/lib/appointments";
+import { displayStatusForAppointment } from "@/lib/appointments";
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -73,17 +70,63 @@ function parseEventDate(raw: string | Date): Date {
 }
 
 /**
- * Issue #593: `Date.prototype.toISOString()` throws `RangeError: Invalid
- * time value` for an invalid Date. The calendar's surgery / telemedicine
- * tile builders previously called it raw against `new Date(s.scheduledAt)`
- * which crashed the whole IIFE if ANY one row had a bad `scheduledAt`,
- * leaving every role stuck on the spinner. Use this guard instead — bad
- * rows just lose their time, the rest of the calendar still renders.
+ * Issue #855: resolve an appointment's start into a real instant. The API
+ * returns `slotStart` either as a bare "HH:mm" wall-clock string or as a
+ * full ISO datetime — a bare "HH:mm" is anchored to the appointment's
+ * `date` (or today) at local midnight + the given hours/minutes so `hhmm`
+ * has an instant to format.
  */
-function safeHHMM(d: Date): string | undefined {
+function parseEventTime(
+  slotStart: string | null | undefined,
+  date?: string | null
+): Date | null {
+  if (!slotStart) return null;
+  if (/^\d{2}:\d{2}(:\d{2})?$/.test(slotStart)) {
+    const [h, m] = slotStart.split(":").map(Number);
+    const base =
+      date && /^\d{4}-\d{2}-\d{2}/.test(date)
+        ? new Date(`${date.slice(0, 10)}T00:00:00`)
+        : new Date();
+    base.setHours(h, m, 0, 0);
+    return Number.isNaN(base.getTime()) ? null : base;
+  }
+  const d = new Date(slotStart);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Issue #855: every event TIME on the calendar must render in ONE format.
+ * Previously the calendar mixed 12-hour and 24-hour tokens on the same
+ * view — appointment tiles routed through `formatAppointmentTime` (which
+ * uses `hour12: true` → "02:30 PM") while surgery / telemedicine / custom
+ * tiles used `toISOString().substring(11,16)` (24-hour "14:30"), and
+ * shifts used the raw "HH:mm" `startTime` string. A single month/week/day
+ * view therefore showed "02:30 PM" next to "14:30".
+ *
+ * `hhmm()` is the calendar's canonical event-time formatter: it renders
+ * any instant as a 24-hour `HH:mm` string in Asia/Kolkata, matching the
+ * app-wide `formatDateTime` style ("27 Apr 2026, 14:30"). All event-time
+ * rendering on the calendar now routes through here so the view never
+ * mixes time tokens.
+ *
+ * Issue #593: `Date.prototype.toISOString()` throws `RangeError: Invalid
+ * time value` for an invalid Date — the old `safeHHMM` builders crashed
+ * the whole IIFE if ANY one row had a bad `scheduledAt`. `hhmm()` keeps
+ * that guard: bad rows just lose their time, the rest still renders.
+ */
+const HHMM_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+  timeZone: "Asia/Kolkata",
+});
+
+function hhmm(d: Date): string | undefined {
   if (!(d instanceof Date) || Number.isNaN(d.getTime())) return undefined;
   try {
-    return d.toISOString().substring(11, 16);
+    // en-GB + hour12:false yields "HH:mm"; normalize the "24:xx" midnight
+    // edge case some engines emit back to "00:xx".
+    return HHMM_FORMATTER.format(d).replace(/^24:/, "00:");
   } catch {
     return undefined;
   }
@@ -196,12 +239,13 @@ export default function UnifiedCalendarPage() {
         // the local-midnight helper so `fmtYmd` doesn't round it down a
         // day in negative-offset timezones.
         const d = parseEventDate(a.date);
-        // Issue #389: route every appointment time through the shared
-        // Asia/Kolkata formatter so the calendar tile and the My
-        // Appointments list always agree for the same row.
-        const apptTime = a.slotStart
-          ? formatAppointmentTime(a.slotStart, a.date)
-          : undefined;
+        // Issue #389 / #855: anchor the appointment's start to a real
+        // instant, then render it through the calendar's canonical 24-hour
+        // `hhmm` formatter so the tile uses the SAME time token as every
+        // other event type on the view (surgery / telemedicine / custom /
+        // shift) — no more 12-hour "02:30 PM" next to 24-hour "14:30".
+        const apptInstant = parseEventTime(a.slotStart, a.date);
+        const apptTime = apptInstant ? hhmm(apptInstant) : undefined;
         // Issue #388: a `BOOKED` appointment whose start has passed should
         // render as `COMPLETED` (display only).
         const apptStatus = displayStatusForAppointment({
@@ -227,7 +271,7 @@ export default function UnifiedCalendarPage() {
         collected.push({
           id: `surg-${s.id}`,
           date: fmtYmd(d),
-          time: safeHHMM(d),
+          time: hhmm(d),
           title: s.procedure,
           subtitle: `${s.caseNumber} · ${s.patient?.user?.name || ""}`,
           type: "surgery",
@@ -242,7 +286,7 @@ export default function UnifiedCalendarPage() {
         collected.push({
           id: `tele-${t.id}`,
           date: fmtYmd(d),
-          time: safeHHMM(d),
+          time: hhmm(d),
           title: `Telemedicine · ${t.patient?.user?.name || ""}`,
           subtitle: `${t.doctor?.user?.name ? formatDoctorName(t.doctor.user.name) : "—"}`,
           type: "telemedicine",
@@ -304,7 +348,7 @@ export default function UnifiedCalendarPage() {
         collected.push({
           id: `custom-${ev.id}`,
           date: fmtYmd(start),
-          time: safeHHMM(start),
+          time: hhmm(start),
           title: ev.title,
           subtitle: ev.category
             ? `${String(ev.category).replace(/_/g, " ").toLowerCase()}${ev.description ? ` · ${ev.description}` : ""}`

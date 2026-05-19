@@ -99,6 +99,27 @@ export function formatDateTime(
 }
 
 /**
+ * Safely render a date-ish value as a 24-hour `14:30` time string. Same
+ * defensive semantics as {@link formatDate}. Use for time-only display slots
+ * (e.g. a tooltip "at 14:30") so they match {@link formatDateTime}'s 24-hour
+ * style instead of the host-locale-dependent `toLocaleTimeString()`.
+ */
+export function formatTime(
+  value: string | number | Date | null | undefined
+): string {
+  if (value === null || value === undefined) return PLACEHOLDER;
+  if (typeof value === "string" && value.trim() === "") return PLACEHOLDER;
+  if (typeof value === "number" && Number.isNaN(value)) return PLACEHOLDER;
+
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return PLACEHOLDER;
+
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+/**
  * Render a date range as "from → to", with either side independently falling
  * back to the placeholder when unparsable.
  */

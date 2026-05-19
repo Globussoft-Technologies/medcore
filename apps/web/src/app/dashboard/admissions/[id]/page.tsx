@@ -21,7 +21,7 @@ import { toast } from "@/lib/toast";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { extractFieldErrors, topLineError } from "@/lib/field-errors";
 import { formatDoctorName } from "@/lib/format-doctor-name";
-import { formatDateTime } from "@/lib/format";
+import { formatDate, formatDateTime, formatTime } from "@/lib/format";
 
 interface Admission {
   id: string;
@@ -413,7 +413,7 @@ function OverviewTab({
           <Field label="Admission #" value={admission.admissionNumber} />
           <Field
             label="Admitted"
-            value={new Date(admission.admittedAt).toLocaleString()}
+            value={formatDateTime(admission.admittedAt)}
           />
           <Field label="Doctor" value={formatDoctorName(admission.doctor.user.name)} />
           <Field
@@ -429,7 +429,7 @@ function OverviewTab({
           {admission.dischargedAt && (
             <Field
               label="Discharged"
-              value={new Date(admission.dischargedAt).toLocaleString()}
+              value={formatDateTime(admission.dischargedAt)}
             />
           )}
           {admission.dischargeSummary && (
@@ -1014,7 +1014,7 @@ function VitalsTab({
                 return (
                   <tr key={v.id} className="border-b last:border-0">
                     <td className="px-3 py-2 text-xs">
-                      {new Date(v.recordedAt).toLocaleString()}
+                      {formatDateTime(v.recordedAt)}
                     </td>
                     <td className="px-3 py-2">
                       {sys && dia ? `${sys}/${dia}` : "—"}
@@ -1795,7 +1795,7 @@ function LabsTab({
                     {o.orderNumber || o.id.slice(0, 8)}
                   </p>
                   <p className="text-xs text-gray-500">
-                    {new Date(o.orderedAt).toLocaleString()}
+                    {formatDateTime(o.orderedAt)}
                   </p>
                   {o.items && (
                     <p className="mt-1 text-sm text-gray-600">
@@ -1897,16 +1897,7 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
   };
 
   const active = info?.isolationType && info.isolationType !== "STANDARD";
-  const fmtDate = (v: string | null) =>
-    v
-      ? new Date(v).toLocaleString("en-IN", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : null;
+  const fmtDate = (v: string | null) => (v ? formatDateTime(v) : null);
 
   return (
     <div
@@ -2086,11 +2077,7 @@ function LosPredictionCard({
       <div className="flex-1">
         <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">
           Expected discharge:{" "}
-          {expectedDischarge.toLocaleDateString(undefined, {
-            weekday: "short",
-            day: "numeric",
-            month: "short",
-          })}
+          {formatDate(expectedDischarge)}
           {daysLeft > 0 && (
             <span className="ml-2 text-blue-600 dark:text-blue-300">
               ({daysLeft} more day{daysLeft === 1 ? "" : "s"})
@@ -2681,7 +2668,7 @@ function ReconciliationTimeline({
                   {r.reconciliationType}
                 </span>
                 <span className="text-xs text-gray-500">
-                  {new Date(r.performedAt).toLocaleString()}
+                  {formatDateTime(r.performedAt)}
                 </span>
               </div>
               <div className="mt-1 text-xs text-gray-600">
@@ -2890,8 +2877,7 @@ function MarTab({ admissionId }: { admissionId: string }) {
                             isFinalized
                               ? `Already ${admin.status.toLowerCase()}${
                                   admin.administeredAt
-                                    ? " at " +
-                                      new Date(admin.administeredAt).toLocaleTimeString()
+                                    ? " at " + formatTime(admin.administeredAt)
                                     : ""
                                 }`
                               : undefined
@@ -3001,7 +2987,7 @@ function MarAdministerModal({
           </div>
           <div className="mt-1 text-xs text-gray-500">
             Scheduled:{" "}
-            {new Date(administration.scheduledAt).toLocaleString()}
+            {formatDateTime(administration.scheduledAt)}
           </div>
         </div>
         <div className="mb-3">
@@ -3240,7 +3226,7 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
                       )}
                     </div>
                     <div className="text-xs text-gray-500">
-                      {new Date(r.recordedAt).toLocaleTimeString()}
+                      {formatTime(r.recordedAt)}
                     </div>
                   </li>
                 );

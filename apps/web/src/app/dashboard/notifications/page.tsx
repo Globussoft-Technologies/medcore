@@ -13,6 +13,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { SkeletonRow } from "@/components/Skeleton";
+import { formatDate } from "@/lib/format";
 
 // Issue #733: the API returns `readAt: string | null` (the timestamp at
 // which the row was marked read, or null while unread). Earlier this
@@ -188,7 +189,7 @@ export default function NotificationsPage() {
     if (diffHours < 24) return `${diffHours}h ago`;
     const diffDays = Math.floor(diffHours / 24);
     if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
+    return formatDate(dateStr);
   }
 
   return (

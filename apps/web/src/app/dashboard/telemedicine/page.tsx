@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { formatDateTime } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import { useConfirm, usePrompt } from "@/lib/use-dialog";
 import { createTelemedicineSchema } from "@medcore/shared";
@@ -494,7 +495,7 @@ export default function TelemedicinePage() {
 
                 <div className="mt-3 text-sm">
                   <p className="text-gray-600 dark:text-gray-300">
-                    {new Date(s.scheduledAt).toLocaleString()}
+                    {formatDateTime(s.scheduledAt)}
                   </p>
                   {s.chiefComplaint && (
                     <p className="mt-1 line-clamp-2 text-xs text-gray-500">

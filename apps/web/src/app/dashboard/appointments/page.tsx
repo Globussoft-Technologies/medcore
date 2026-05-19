@@ -7,6 +7,7 @@ import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { formatDate, formatDateTime } from "@/lib/format";
 import {
   displayStatusForAppointment,
   formatAppointmentTime,
@@ -132,9 +133,7 @@ function startOfWeek(d: Date): Date {
 }
 
 function formatShortDate(s: string): string {
-  const d = new Date(s);
-  if (isNaN(d.getTime())) return s;
-  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+  return formatDate(s);
 }
 
 function dayOfWeekName(s: string): string {
@@ -1263,10 +1262,7 @@ export default function AppointmentsPage() {
               <div>
                 <p className="text-gray-500 dark:text-gray-400">Start</p>
                 <p className="font-medium">
-                  {new Date(selectedEvent.startDateTime).toLocaleString("en-IN", {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                  })}
+                  {formatDateTime(selectedEvent.startDateTime)}
                 </p>
               </div>
               <div>

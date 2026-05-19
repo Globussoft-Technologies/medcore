@@ -32,18 +32,22 @@ interface LeaveSummary {
 }
 
 const TYPE_COLORS: Record<string, string> = {
-  MORNING: "bg-amber-100 text-amber-800 border-amber-200",
-  AFTERNOON: "bg-orange-100 text-orange-800 border-orange-200",
-  NIGHT: "bg-indigo-100 text-indigo-800 border-indigo-200",
-  ON_CALL: "bg-purple-100 text-purple-800 border-purple-200",
+  MORNING:
+    "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-200 dark:border-amber-800",
+  AFTERNOON:
+    "bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900/30 dark:text-orange-200 dark:border-orange-800",
+  NIGHT:
+    "bg-indigo-100 text-indigo-800 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-200 dark:border-indigo-800",
+  ON_CALL:
+    "bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/30 dark:text-purple-200 dark:border-purple-800",
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  SCHEDULED: "bg-gray-100 text-gray-700",
-  PRESENT: "bg-green-100 text-green-700",
-  ABSENT: "bg-red-100 text-red-700",
-  LATE: "bg-yellow-100 text-yellow-800",
-  LEAVE: "bg-blue-100 text-blue-700",
+  SCHEDULED: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200",
+  PRESENT: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+  ABSENT: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+  LATE: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200",
+  LEAVE: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
 };
 
 function toDateKey(d: Date): string {
@@ -155,7 +159,7 @@ export default function MySchedulePage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">My Schedule</h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Your upcoming shifts for the next 7 days
           </p>
         </div>
@@ -164,7 +168,7 @@ export default function MySchedulePage() {
       <MyCertificationsPanel userId={user?.id} />
 
       {loading ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
           Loading...
         </div>
       ) : (
@@ -176,12 +180,14 @@ export default function MySchedulePage() {
             return (
               <div
                 key={key}
-                className={`rounded-xl border bg-white p-4 shadow-sm ${
-                  isToday ? "border-primary ring-2 ring-primary/20" : ""
+                className={`rounded-xl border bg-white p-4 shadow-sm dark:bg-gray-800 ${
+                  isToday
+                    ? "border-primary ring-2 ring-primary/20"
+                    : "border-gray-200 dark:border-gray-700"
                 }`}
               >
                 <div className="mb-2">
-                  <p className="text-xs uppercase text-gray-500">
+                  <p className="text-xs uppercase text-gray-500 dark:text-gray-400">
                     {d.toLocaleDateString(undefined, { weekday: "short" })}
                   </p>
                   <p className="text-lg font-bold">
@@ -250,7 +256,7 @@ export default function MySchedulePage() {
       )}
 
       {/* Leave Summary */}
-      <div className="rounded-xl bg-white p-5 shadow-sm">
+      <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="flex items-center gap-2 text-lg font-semibold">
             <PlaneTakeoff size={18} /> My Leave
@@ -265,24 +271,24 @@ export default function MySchedulePage() {
 
         {summary && (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <div className="rounded-lg bg-yellow-50 p-4">
-              <p className="text-sm text-gray-600">Pending</p>
-              <p className="text-2xl font-bold text-yellow-700">
+            <div className="rounded-lg bg-yellow-50 p-4 dark:bg-yellow-900/20">
+              <p className="text-sm text-gray-600 dark:text-gray-300">Pending</p>
+              <p className="text-2xl font-bold text-yellow-700 dark:text-yellow-300">
                 {summary.pending}
               </p>
             </div>
-            <div className="rounded-lg bg-green-50 p-4">
-              <p className="text-sm text-gray-600">Approved (this year)</p>
-              <p className="text-2xl font-bold text-green-700">
+            <div className="rounded-lg bg-green-50 p-4 dark:bg-green-900/20">
+              <p className="text-sm text-gray-600 dark:text-gray-300">Approved (this year)</p>
+              <p className="text-2xl font-bold text-green-700 dark:text-green-300">
                 {summary.approved}
               </p>
             </div>
-            <div className="rounded-lg bg-blue-50 p-4">
-              <p className="text-sm text-gray-600">Days Used (YTD)</p>
-              <p className="text-2xl font-bold text-blue-700">{totalUsed}</p>
+            <div className="rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20">
+              <p className="text-sm text-gray-600 dark:text-gray-300">Days Used (YTD)</p>
+              <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{totalUsed}</p>
             </div>
-            <div className="rounded-lg bg-gray-50 p-4 text-xs">
-              <p className="mb-1 font-medium text-gray-600">By type (days)</p>
+            <div className="rounded-lg bg-gray-50 p-4 text-xs dark:bg-gray-900/40">
+              <p className="mb-1 font-medium text-gray-600 dark:text-gray-300">By type (days)</p>
               <div className="space-y-0.5">
                 {Object.entries(summary.used)
                   .filter(([, v]) => v > 0)
@@ -307,7 +313,7 @@ export default function MySchedulePage() {
           <form
             onSubmit={submitLeave}
             noValidate
-            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
           >
             <h2 className="mb-4 text-lg font-semibold">Request Leave</h2>
             <div className="space-y-3">
@@ -321,7 +327,7 @@ export default function MySchedulePage() {
                   onChange={(e) =>
                     setLeaveForm({ ...leaveForm, type: e.target.value })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                 >
                   <option value="CASUAL">Casual</option>
                   <option value="SICK">Sick</option>
@@ -341,7 +347,7 @@ export default function MySchedulePage() {
                     onChange={(e) =>
                       setLeaveForm({ ...leaveForm, fromDate: e.target.value })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                   />
                 </div>
                 <div>
@@ -353,7 +359,7 @@ export default function MySchedulePage() {
                     onChange={(e) =>
                       setLeaveForm({ ...leaveForm, toDate: e.target.value })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                   />
                 </div>
               </div>
@@ -366,7 +372,7 @@ export default function MySchedulePage() {
                   onChange={(e) =>
                     setLeaveForm({ ...leaveForm, reason: e.target.value })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                 />
               </div>
             </div>
@@ -374,7 +380,7 @@ export default function MySchedulePage() {
               <button
                 type="button"
                 onClick={() => setShowLeaveModal(false)}
-                className="rounded-lg border px-4 py-2 text-sm"
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm dark:border-gray-600 dark:text-gray-300"
               >
                 Cancel
               </button>
@@ -425,9 +431,9 @@ function MyCertificationsPanel({ userId }: { userId: string | undefined }) {
 
   const now = new Date();
   return (
-    <div className="mb-6 rounded-xl bg-white p-4 shadow-sm">
+    <div className="mb-6 rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
       <h2 className="text-sm font-semibold mb-3">My Certifications</h2>
-      <ul className="divide-y divide-slate-100 text-sm">
+      <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
         {certs.map((c) => {
           const days = c.expiryDate
             ? Math.round(
@@ -446,7 +452,7 @@ function MyCertificationsPanel({ userId }: { userId: string | undefined }) {
             <li key={c.id} className="py-2 flex items-center justify-between">
               <div>
                 <div className="font-medium">{c.title}</div>
-                <div className="text-xs text-slate-500">
+                <div className="text-xs text-slate-500 dark:text-slate-400">
                   {c.type.replace(/_/g, " ")}
                 </div>
               </div>

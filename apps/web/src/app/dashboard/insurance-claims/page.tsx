@@ -16,6 +16,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { usePrompt } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
+import { formatINR } from "@/lib/currency";
 import { EntityPicker } from "@/components/EntityPicker";
 import { INDIAN_INSURERS } from "@medcore/shared";
 import {
@@ -28,6 +29,8 @@ import {
   Ban,
   Search,
   Sparkles,
+  Copy,
+  Check,
 } from "lucide-react";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -113,6 +116,56 @@ const STATUS_CLASSES: Record<Status, string> = {
   SETTLED: "bg-emerald-200 text-emerald-800",
   CANCELLED: "bg-gray-100 text-gray-500",
 };
+
+// Issue #853: legacy claims store `providerClaimRef` as "LEGACY-<uuid>" — a
+// ~47-char string that overflows the Claim # column when rendered raw (the
+// `?? id.slice(0,8)` fallback never trims it because the value isn't null).
+// Render a concise label — the "LEGACY-" prefix + the uuid's first block —
+// and keep the full identifier reachable via tooltip + copy button. Non-legacy
+// refs (real TPA references, or the row-id fallback) are already short.
+function claimRefDisplay(r: ClaimRow): { label: string; full: string } {
+  const ref = r.providerClaimRef;
+  if (!ref) {
+    // No TPA ref assigned yet — fall back to a short slice of the row id.
+    return { label: r.id.slice(0, 8), full: r.id };
+  }
+  if (ref.startsWith("LEGACY-")) {
+    const uuid = ref.slice("LEGACY-".length);
+    return { label: `LEGACY-${uuid.slice(0, 8)}`, full: ref };
+  }
+  return { label: ref, full: ref };
+}
+
+// Issue #853: copy-to-clipboard control for the Claim # cell so reception can
+// lift the full identifier during calls without manual select-and-copy.
+// stopPropagation keeps the click off the row's detail-drawer handler.
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={`Copy ${label}`}
+      title={`Copy: ${value}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard?.writeText(value).then(
+          () => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+          },
+          () => toast.error("Copy failed"),
+        );
+      }}
+      className="shrink-0 rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+    >
+      {copied ? (
+        <Check className="h-3.5 w-3.5 text-emerald-600" />
+      ) : (
+        <Copy className="h-3.5 w-3.5" />
+      )}
+    </button>
+  );
+}
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
@@ -356,15 +409,28 @@ export default function InsuranceClaimsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-              {rows.map((r) => (
+              {rows.map((r) => {
+                // Issue #853: concise Claim # label — legacy refs are
+                // "LEGACY-<uuid>", far too long to render raw.
+                const claimRef = claimRefDisplay(r);
+                return (
                 <tr
                   key={r.id}
                   data-testid="claim-row"
                   onClick={() => setSelectedId(r.id)}
                   className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/30"
                 >
-                  <td className="px-4 py-2 font-mono text-xs">
-                    {r.providerClaimRef ?? r.id.slice(0, 8)}
+                  <td className="px-4 py-2">
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        data-testid="claim-ref"
+                        className="block max-w-[12rem] truncate font-mono text-xs"
+                        title={claimRef.full}
+                      >
+                        {claimRef.label}
+                      </span>
+                      <CopyButton value={claimRef.full} label="claim reference" />
+                    </div>
                   </td>
                   <td className="px-4 py-2">
                     {r.tpaProvider}
@@ -397,7 +463,7 @@ export default function InsuranceClaimsPage() {
                       : "—"}
                   </td>
                   <td className="px-4 py-2 text-right font-mono">
-                    {r.amountClaimed?.toLocaleString("en-IN") ?? "—"}
+                    {formatINR(r.amountClaimed)}
                   </td>
                   <td
                     className="px-4 py-2 text-right font-mono"
@@ -415,9 +481,9 @@ export default function InsuranceClaimsPage() {
                       approved status still render an em-dash.
                     */}
                     {r.amountApproved != null
-                      ? r.amountApproved.toLocaleString("en-IN")
+                      ? formatINR(r.amountApproved)
                       : ["APPROVED", "PARTIALLY_APPROVED", "SETTLED"].includes(r.status)
-                        ? r.amountClaimed?.toLocaleString("en-IN") ?? "—"
+                        ? formatINR(r.amountClaimed)
                         : "—"}
                   </td>
                   <td className="px-4 py-2">
@@ -432,7 +498,8 @@ export default function InsuranceClaimsPage() {
                     </span>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -554,17 +621,10 @@ function ClaimDrawer({
                 <Field label="Insurer" value={detail.insurerName} />
                 <Field label="Policy #" value={detail.policyNumber} />
                 <Field label="Diagnosis" value={detail.diagnosis} />
-                <Field
-                  label="Claimed"
-                  value={`₹${detail.amountClaimed.toLocaleString("en-IN")}`}
-                />
+                <Field label="Claimed" value={formatINR(detail.amountClaimed)} />
                 <Field
                   label="Approved"
-                  value={
-                    detail.amountApproved != null
-                      ? `₹${detail.amountApproved.toLocaleString("en-IN")}`
-                      : "—"
-                  }
+                  value={formatINR(detail.amountApproved)}
                 />
                 <Field label="Status" value={detail.status} />
               </dl>

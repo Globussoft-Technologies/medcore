@@ -9,6 +9,7 @@ import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { Plus, BedDouble } from "lucide-react";
 import { DataTable, Column } from "@/components/DataTable";
+import { formatDate } from "@/lib/format";
 
 // Issue #509: page-level gate matching API authorize() in
 // apps/api/src/routes/admissions.ts (ADMIN, DOCTOR, NURSE, RECEPTION across
@@ -331,7 +332,7 @@ export default function AdmissionsPage() {
       key: "admittedAt",
       label: "Admitted",
       sortable: true,
-      render: (a) => new Date(a.admittedAt).toLocaleDateString(),
+      render: (a) => formatDate(a.admittedAt),
     },
     {
       key: "diagnosis",

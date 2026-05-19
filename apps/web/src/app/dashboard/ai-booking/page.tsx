@@ -626,13 +626,13 @@ export default function AIBookingPage() {
   if (step === "summary") {
     return (
       <div className="flex h-[calc(100vh-4rem)] items-center justify-center p-4">
-        <div className="max-w-lg w-full bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50">
-            <p className="font-semibold text-gray-800 flex items-center gap-2">
+        <div className="max-w-lg w-full bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden dark:bg-gray-800 dark:border-gray-700">
+          <div className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50 dark:border-gray-700 dark:from-blue-950 dark:to-indigo-950">
+            <p className="font-semibold text-gray-800 flex items-center gap-2 dark:text-gray-100">
               <CheckCircle className="w-5 h-5 text-blue-600" />
               {language === "hi" ? "मैंने यह समझा" : "Here's what I understood"}
             </p>
-            <p className="text-xs text-gray-500 mt-0.5">
+            <p className="text-xs text-gray-500 mt-0.5 dark:text-gray-400">
               {language === "hi"
                 ? "कृपया जाँचें और सही करें यदि आवश्यक हो"
                 : "Please review and correct if needed"}
@@ -641,7 +641,7 @@ export default function AIBookingPage() {
 
           <div className="p-6 space-y-4">
             <div>
-              <label htmlFor="ai-booking-summary-complaint" className="block text-xs font-medium text-gray-600 mb-1">
+              <label htmlFor="ai-booking-summary-complaint" className="block text-xs font-medium text-gray-600 mb-1 dark:text-gray-300">
                 {language === "hi" ? "मुख्य समस्या" : "Chief Complaint"}
               </label>
               <input
@@ -649,14 +649,14 @@ export default function AIBookingPage() {
                 type="text"
                 value={summaryFields.chiefComplaint}
                 onChange={(e) => setSummaryFields((f) => ({ ...f, chiefComplaint: e.target.value }))}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                 placeholder={language === "hi" ? "उदा. बुखार के साथ सिरदर्द" : "e.g. Fever with headache"}
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="ai-booking-summary-onset" className="block text-xs font-medium text-gray-600 mb-1">
+                <label htmlFor="ai-booking-summary-onset" className="block text-xs font-medium text-gray-600 mb-1 dark:text-gray-300">
                   {language === "hi" ? "शुरुआत" : "Onset"}
                 </label>
                 <input
@@ -664,12 +664,12 @@ export default function AIBookingPage() {
                   type="text"
                   value={summaryFields.onset || ""}
                   onChange={(e) => setSummaryFields((f) => ({ ...f, onset: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                   placeholder={language === "hi" ? "उदा. अचानक" : "e.g. Sudden"}
                 />
               </div>
               <div>
-                <label htmlFor="ai-booking-summary-duration" className="block text-xs font-medium text-gray-600 mb-1">
+                <label htmlFor="ai-booking-summary-duration" className="block text-xs font-medium text-gray-600 mb-1 dark:text-gray-300">
                   {language === "hi" ? "अवधि" : "Duration"}
                 </label>
                 <input
@@ -677,14 +677,14 @@ export default function AIBookingPage() {
                   type="text"
                   value={summaryFields.duration || ""}
                   onChange={(e) => setSummaryFields((f) => ({ ...f, duration: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                   placeholder={language === "hi" ? "उदा. 2 दिन" : "e.g. 2 days"}
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="ai-booking-summary-severity" className="block text-xs font-medium text-gray-600 mb-1">
+              <label htmlFor="ai-booking-summary-severity" className="block text-xs font-medium text-gray-600 mb-1 dark:text-gray-300">
                 {language === "hi" ? "गंभीरता (1–10)" : "Severity (1–10)"}
               </label>
               <div className="flex items-center gap-3">
@@ -699,7 +699,7 @@ export default function AIBookingPage() {
                   }
                   className="flex-1 accent-blue-600"
                 />
-                <span className="w-8 text-center text-sm font-semibold text-gray-700">
+                <span className="w-8 text-center text-sm font-semibold text-gray-700 dark:text-gray-200">
                   {summaryFields.severity ?? 5}
                 </span>
               </div>
@@ -709,7 +709,7 @@ export default function AIBookingPage() {
           <div className="px-6 pb-6 flex gap-3">
             <button
               onClick={() => setStep("chat")}
-              className="flex items-center gap-2 px-4 py-2 border border-gray-200 text-gray-600 rounded-xl text-sm hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 border border-gray-200 text-gray-600 rounded-xl text-sm hover:bg-gray-50 transition-colors dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
             >
               <ArrowLeft className="w-4 h-4" />
               {language === "hi" ? "वापस जाएँ" : "Go back"}
@@ -732,11 +732,12 @@ export default function AIBookingPage() {
 
   return (
     <div className="flex h-[calc(100vh-4rem)] gap-4 p-4">
-      {/* Issue #651: page lacked any <h1> landmark. Screen readers
-          announced only the generic chat header.
-          Issue #852: the previous `sr-only` H1 satisfied screen readers but
-          gave sighted users no visible page heading. Bring it on-screen for
-          both audiences. */}
+      {/* Issue #651 / #852: AI Booking landmark <h1> for the chat state.
+          The pre-chat intake card carries the *visible* "AI Booking" H1
+          (see above); this chat state keeps an sr-only H1 — the panel
+          already renders a visible "MedCore AI Assistant" header, so a
+          second on-screen heading would be redundant. sr-only still gives
+          screen-reader users the page landmark. */}
       <h1 className="sr-only">AI Booking Assistant</h1>
       {/* ── Chat panel ─────────────────────────────────── */}
       <div className="flex flex-col flex-1 bg-white rounded-2xl shadow border border-gray-100 overflow-hidden dark:bg-gray-800 dark:border-gray-700">
@@ -795,7 +796,7 @@ export default function AIBookingPage() {
                         className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
                           msg.role === "user"
                             ? "bg-blue-600 text-white rounded-tr-sm"
-                            : "bg-gray-100 text-gray-800 rounded-tl-sm"
+                            : "bg-gray-100 text-gray-800 rounded-tl-sm dark:bg-gray-700 dark:text-gray-100"
                         }`}
                       >
                         {msg.content}
@@ -828,7 +829,7 @@ export default function AIBookingPage() {
               <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
                 <Bot className="w-4 h-4 text-blue-600" />
               </div>
-              <div className="bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5">
+              <div className="bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5 dark:bg-gray-700">
                 <div className="flex gap-1 items-center h-5">
                   <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
                   <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
@@ -856,7 +857,7 @@ export default function AIBookingPage() {
                 key={chip.complaint}
                 onClick={() => setInput(chip.complaint)}
                 disabled={loading || starting}
-                className="px-3 py-1 text-xs bg-blue-50 text-blue-700 rounded-full border border-blue-100 hover:bg-blue-100 hover:border-blue-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="px-3 py-1 text-xs bg-blue-50 text-blue-700 rounded-full border border-blue-100 hover:bg-blue-100 hover:border-blue-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed dark:bg-blue-950 dark:text-blue-300 dark:border-blue-900 dark:hover:bg-blue-900 dark:hover:border-blue-800"
               >
                 {chip.label}
               </button>
@@ -870,7 +871,7 @@ export default function AIBookingPage() {
             <button
               onClick={handleHandoff}
               disabled={handoffLoading || loading}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 hover:text-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 hover:text-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed dark:text-gray-400 dark:border-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200"
             >
               {handoffLoading ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -883,7 +884,7 @@ export default function AIBookingPage() {
         )}
 
         {/* Input — read-only when handed off */}
-        <div className="p-3 border-t border-gray-100">
+        <div className="p-3 border-t border-gray-100 dark:border-gray-700">
           {handedOff ? (
             <p className="text-xs text-center text-gray-400 py-1">
               Chat handed off to reception. This conversation is now read-only.
@@ -898,7 +899,7 @@ export default function AIBookingPage() {
                   placeholder={uiStrings.inputPlaceholder}
                   rows={1}
                   disabled={loading || starting || !sessionId}
-                  className="flex-1 resize-none border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
+                  className="flex-1 resize-none border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 dark:disabled:bg-gray-800"
                 />
                 {hasSpeechRecognition && (
                   <button
@@ -908,7 +909,7 @@ export default function AIBookingPage() {
                     className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                       listening
                         ? "bg-red-500 hover:bg-red-600 text-white"
-                        : "bg-gray-100 hover:bg-gray-200 text-gray-600"
+                        : "bg-gray-100 hover:bg-gray-200 text-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-300"
                     }`}
                   >
                     {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
@@ -934,13 +935,13 @@ export default function AIBookingPage() {
 
       {/* ── Doctor suggestion panel ────────────────────── */}
       {step === "doctors" && (
-        <div className="w-96 flex flex-col bg-white rounded-2xl shadow border border-gray-100 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-emerald-50 to-teal-50">
-            <p className="font-semibold text-gray-800 text-sm flex items-center gap-2">
+        <div className="w-96 flex flex-col bg-white rounded-2xl shadow border border-gray-100 overflow-hidden dark:bg-gray-800 dark:border-gray-700">
+          <div className="px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-emerald-50 to-teal-50 dark:border-gray-700 dark:from-emerald-950 dark:to-teal-950">
+            <p className="font-semibold text-gray-800 text-sm flex items-center gap-2 dark:text-gray-100">
               <Stethoscope className="w-4 h-4 text-emerald-600" />
               {language === "hi" ? "अनुशंसित डॉक्टर" : "Recommended Doctors"}
             </p>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               {language === "hi" ? "आपके लक्षणों के आधार पर" : "Based on your symptoms"}
             </p>
             {triageConfidence !== null && (
@@ -962,17 +963,17 @@ export default function AIBookingPage() {
                   onClick={() => handleDoctorSelect(doc)}
                   className={`w-full text-left p-3 rounded-xl border transition-all ${
                     selectedDoctor?.doctorId === doc.doctorId
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-gray-200 hover:border-blue-200 hover:bg-gray-50"
+                      ? "border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-950"
+                      : "border-gray-200 hover:border-blue-200 hover:bg-gray-50 dark:border-gray-700 dark:hover:border-blue-500 dark:hover:bg-gray-700"
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <p className="font-medium text-sm text-gray-800">{doc.name}</p>
+                        <p className="font-medium text-sm text-gray-800 dark:text-gray-100">{doc.name}</p>
                         {/* GAP-T8: GP-first badge */}
                         {doc.isGPFallback && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-200 dark:border-amber-800">
                             GP recommended first
                           </span>
                         )}
@@ -985,7 +986,7 @@ export default function AIBookingPage() {
                       <ChevronRight className="w-4 h-4 text-gray-400 ml-auto" />
                     </div>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1 line-clamp-2">{doc.reasoning}</p>
+                  <p className="text-xs text-gray-500 mt-1 line-clamp-2 dark:text-gray-400">{doc.reasoning}</p>
                 </button>
               ))
             )}
@@ -1027,16 +1028,16 @@ export default function AIBookingPage() {
 
       {/* ── Slot picker panel ─────────────────────────── */}
       {step === "booking" && selectedDoctor && (
-        <div className="w-96 flex flex-col bg-white rounded-2xl shadow border border-gray-100 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-emerald-50 to-teal-50">
+        <div className="w-96 flex flex-col bg-white rounded-2xl shadow border border-gray-100 overflow-hidden dark:bg-gray-800 dark:border-gray-700">
+          <div className="px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-emerald-50 to-teal-50 dark:border-gray-700 dark:from-emerald-950 dark:to-teal-950">
             <button
               onClick={() => setStep("doctors")}
-              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 mb-1"
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 mb-1 dark:text-gray-400 dark:hover:text-gray-200"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               {language === "hi" ? "डॉक्टर सूची" : "Doctor list"}
             </button>
-            <p className="font-semibold text-gray-800 text-sm">{selectedDoctor.name}</p>
+            <p className="font-semibold text-gray-800 text-sm dark:text-gray-100">{selectedDoctor.name}</p>
             <p className="text-xs text-blue-600">{selectedDoctor.specialty}</p>
             {triageConfidence !== null && (
               <div className="mt-2">
@@ -1046,7 +1047,7 @@ export default function AIBookingPage() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
-            <p className="text-xs font-semibold text-gray-600 flex items-center gap-1">
+            <p className="text-xs font-semibold text-gray-600 flex items-center gap-1 dark:text-gray-300">
               <Calendar className="w-3.5 h-3.5" />
               {language === "hi" ? "तारीख और स्लॉट चुनें" : "Select Date & Slot"}
             </p>
@@ -1055,7 +1056,7 @@ export default function AIBookingPage() {
               value={selectedDate}
               min={new Date().toISOString().split("T")[0]}
               onChange={(e) => handleDateChange(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             />
             {slots.length > 0 ? (
               <div className="grid grid-cols-3 gap-1.5 max-h-28 overflow-y-auto">
@@ -1066,7 +1067,7 @@ export default function AIBookingPage() {
                     className={`text-xs py-1.5 rounded-lg border transition-all ${
                       selectedSlot?.startTime === slot.startTime
                         ? "bg-blue-600 text-white border-blue-600"
-                        : "border-gray-200 hover:border-blue-300"
+                        : "border-gray-200 hover:border-blue-300 dark:border-gray-600 dark:text-gray-200 dark:hover:border-blue-500"
                     }`}
                   >
                     {slot.startTime}

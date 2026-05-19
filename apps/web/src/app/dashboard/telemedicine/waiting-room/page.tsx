@@ -18,6 +18,7 @@ import { toast } from "@/lib/toast";
 import { getSocket } from "@/lib/socket";
 import { useAuthStore } from "@/lib/store";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { formatDateTime } from "@/lib/format";
 import { Video, Mic, MicOff, VideoOff, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 
 interface SessionLite {
@@ -227,7 +228,7 @@ export default function TelemedicineWaitingRoomPage() {
             {sessions.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.sessionNumber} — {formatDoctorName(s.doctor.user.name)} (
-                {new Date(s.scheduledAt).toLocaleString()})
+                {formatDateTime(s.scheduledAt)})
               </option>
             ))}
           </select>
@@ -242,7 +243,7 @@ export default function TelemedicineWaitingRoomPage() {
             <p className="text-sm text-gray-500">{session.doctor.specialization}</p>
           )}
           <p className="mt-2 text-sm text-gray-600">
-            Scheduled: {new Date(session.scheduledAt).toLocaleString()}
+            Scheduled: {formatDateTime(session.scheduledAt)}
           </p>
         </div>
       )}

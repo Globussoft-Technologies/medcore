@@ -1834,7 +1834,15 @@ export default function AppointmentsPage() {
             ) : (
               <table className="w-full">
                 <thead>
-                  <tr className="border-b text-left text-sm text-gray-700 dark:border-gray-700 dark:text-gray-200">
+                  {/* Issue #866: header row was text-gray-700 dark:text-gray-200
+                      which is still washed-out grey-on-dark; bump to gray-100
+                      on dark and add an explicit bg-gray-50 dark:bg-gray-900/40
+                      header band so the table header is clearly demarcated.
+                      Also: for the PATIENT role's Past tab every row's Actions
+                      cell is empty (no reschedule / cancel for COMPLETED),
+                      so we suppress the column entirely on that tab to
+                      reclaim the ~120 px and remove the dead affordance. */}
+                  <tr className="border-b bg-gray-50 text-left text-sm font-semibold uppercase tracking-wide text-gray-700 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-100">
                     {!isPatient && (
                       <th className="px-4 py-3 w-8">
                         <input
@@ -1856,7 +1864,9 @@ export default function AppointmentsPage() {
                     <th className="px-4 py-3">{t("dashboard.appointments.col.time")}</th>
                     <th className="px-4 py-3">{t("dashboard.appointments.col.type")}</th>
                     <th className="px-4 py-3">{t("dashboard.appointments.col.status")}</th>
-                    <th className="px-4 py-3">{t("dashboard.appointments.col.actions")}</th>
+                    {!(isPatient && patientTab === "past") && (
+                      <th className="px-4 py-3">{t("dashboard.appointments.col.actions")}</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -1932,6 +1942,12 @@ export default function AppointmentsPage() {
                           {displayStatus.replace(/_/g, " ")}
                         </span>
                       </td>
+                      {/* Issue #866: hide the Actions cell entirely for the
+                          PATIENT Past tab — past appointments are COMPLETED /
+                          CANCELLED / NO_SHOW so none of the row buttons below
+                          render anyway, and the dead column was wasting
+                          ~120 px of horizontal table real-estate. */}
+                      {!(isPatient && patientTab === "past") && (
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-2">
                           {/* Reschedule for BOOKED / CHECKED_IN */}
@@ -2000,6 +2016,7 @@ export default function AppointmentsPage() {
                           )}
                         </div>
                       </td>
+                      )}
                     </tr>
                     );
                   })}

@@ -273,16 +273,16 @@ const labFlagColors: Record<string, string> = {
 };
 
 const timelineColorMap: Record<string, { border: string; bg: string; icon: string }> = {
-  blue: { border: "border-blue-400", bg: "bg-blue-50", icon: "text-blue-600" },
-  indigo: { border: "border-indigo-400", bg: "bg-indigo-50", icon: "text-indigo-600" },
-  green: { border: "border-green-400", bg: "bg-green-50", icon: "text-green-600" },
-  cyan: { border: "border-cyan-400", bg: "bg-cyan-50", icon: "text-cyan-600" },
-  purple: { border: "border-purple-400", bg: "bg-purple-50", icon: "text-purple-600" },
-  gray: { border: "border-gray-300", bg: "bg-gray-50", icon: "text-gray-500" },
-  amber: { border: "border-amber-400", bg: "bg-amber-50", icon: "text-amber-600" },
-  rose: { border: "border-rose-400", bg: "bg-rose-50", icon: "text-rose-600" },
-  orange: { border: "border-orange-400", bg: "bg-orange-50", icon: "text-orange-600" },
-  red: { border: "border-red-500", bg: "bg-red-50", icon: "text-red-600" },
+  blue: { border: "border-blue-400 dark:border-blue-500", bg: "bg-blue-50 dark:bg-blue-900/30", icon: "text-blue-600 dark:text-blue-300" },
+  indigo: { border: "border-indigo-400 dark:border-indigo-500", bg: "bg-indigo-50 dark:bg-indigo-900/30", icon: "text-indigo-600 dark:text-indigo-300" },
+  green: { border: "border-green-400 dark:border-green-500", bg: "bg-green-50 dark:bg-green-900/30", icon: "text-green-600 dark:text-green-300" },
+  cyan: { border: "border-cyan-400 dark:border-cyan-500", bg: "bg-cyan-50 dark:bg-cyan-900/30", icon: "text-cyan-600 dark:text-cyan-300" },
+  purple: { border: "border-purple-400 dark:border-purple-500", bg: "bg-purple-50 dark:bg-purple-900/30", icon: "text-purple-600 dark:text-purple-300" },
+  gray: { border: "border-gray-300 dark:border-gray-600", bg: "bg-gray-50 dark:bg-gray-700/40", icon: "text-gray-500 dark:text-gray-300" },
+  amber: { border: "border-amber-400 dark:border-amber-500", bg: "bg-amber-50 dark:bg-amber-900/30", icon: "text-amber-600 dark:text-amber-300" },
+  rose: { border: "border-rose-400 dark:border-rose-500", bg: "bg-rose-50 dark:bg-rose-900/30", icon: "text-rose-600 dark:text-rose-300" },
+  orange: { border: "border-orange-400 dark:border-orange-500", bg: "bg-orange-50 dark:bg-orange-900/30", icon: "text-orange-600 dark:text-orange-300" },
+  red: { border: "border-red-500 dark:border-red-500", bg: "bg-red-50 dark:bg-red-900/30", icon: "text-red-600 dark:text-red-300" },
 };
 
 const timelineIconMap = {
@@ -1162,12 +1162,12 @@ function TimelineTab({ patientId }: { patientId: string }) {
     })();
   }, [patientId]);
 
-  if (loading) return <div className="p-6 text-gray-500">Loading timeline...</div>;
+  if (loading) return <div className="p-6 text-gray-500 dark:text-gray-400">Loading timeline...</div>;
 
   if (entries.length === 0) {
     return (
-      <div className="rounded-xl bg-white p-8 text-center shadow-sm">
-        <p className="text-gray-400">No timeline events yet</p>
+      <div className="rounded-xl bg-white p-8 text-center shadow-sm dark:bg-gray-800">
+        <p className="text-gray-400 dark:text-gray-500">No timeline events yet</p>
       </div>
     );
   }
@@ -1175,9 +1175,9 @@ function TimelineTab({ patientId }: { patientId: string }) {
   const shown = entries.slice(0, visible);
 
   return (
-    <div className="rounded-xl bg-white p-6 shadow-sm">
-      <h2 className="mb-5 text-lg font-semibold">Patient Timeline</h2>
-      <div className="relative space-y-3 before:absolute before:left-5 before:top-2 before:h-full before:w-0.5 before:bg-gray-200">
+    <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
+      <h2 className="mb-5 text-lg font-semibold text-gray-900 dark:text-gray-100">Patient Timeline</h2>
+      <div className="relative space-y-3 before:absolute before:left-5 before:top-2 before:h-full before:w-0.5 before:bg-gray-200 dark:before:bg-gray-700">
         {shown.map((e) => {
           const colors =
             timelineColorMap[e.color] || timelineColorMap.gray;
@@ -1186,7 +1186,7 @@ function TimelineTab({ patientId }: { patientId: string }) {
           return (
             <div key={e.id} className="relative flex items-start gap-4 pl-0">
               <div
-                className={`relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-white bg-white shadow ${colors.icon}`}
+                className={`relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-white bg-white shadow dark:border-gray-800 dark:bg-gray-800 ${colors.icon}`}
               >
                 <Icon size={18} />
               </div>
@@ -1194,8 +1194,8 @@ function TimelineTab({ patientId }: { patientId: string }) {
                 className={`flex-1 rounded-lg border-l-4 ${colors.border} ${colors.bg} p-3`}
               >
                 <div className="flex items-center justify-between gap-3">
-                  <p className="font-medium text-gray-800">{e.title}</p>
-                  <p className="shrink-0 text-xs text-gray-500">
+                  <p className="font-medium text-gray-800 dark:text-gray-100">{e.title}</p>
+                  <p className="shrink-0 text-xs text-gray-500 dark:text-gray-400">
                     {new Date(e.timestamp).toLocaleString("en-IN", {
                       day: "2-digit",
                       month: "short",
@@ -1206,16 +1206,16 @@ function TimelineTab({ patientId }: { patientId: string }) {
                   </p>
                 </div>
                 {e.description && (
-                  <p className="mt-1 text-sm text-gray-600">{e.description}</p>
+                  <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{e.description}</p>
                 )}
                 <div className="mt-1 flex items-center gap-2">
-                  <span className="text-xs uppercase tracking-wide text-gray-400">
+                  <span className="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500">
                     {e.type}
                   </span>
                   {e.link && (
                     <Link
                       href={e.link}
-                      className="text-xs text-primary hover:underline"
+                      className="text-xs text-primary hover:underline dark:text-primary-300"
                     >
                       view
                     </Link>

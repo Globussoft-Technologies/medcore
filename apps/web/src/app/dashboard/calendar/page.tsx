@@ -514,46 +514,112 @@ export default function UnifiedCalendarPage() {
           The "Today" anchor for week view is `cursor` (set by the prev/next
           buttons); for the Day view we pin to today's date so toggling Day
           jumps you back to the live picture. */}
-      {viewMode === "day" && (
-        <div
-          data-testid="cal-day-view"
-          className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800"
-        >
-          <h2 className="mb-3 text-sm font-semibold">
-            {new Date().toLocaleDateString("en-IN", {
-              weekday: "long",
-              day: "numeric",
-              month: "long",
-              year: "numeric",
-            })}
-          </h2>
-          {(byDate[todayYmd] || []).length === 0 ? (
-            <p className="text-xs text-gray-400">No events scheduled today.</p>
-          ) : (
-            <ul className="space-y-1">
-              {(byDate[todayYmd] || []).map((e) => (
-                <li key={e.id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelected(e)}
-                    className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-white ${e.color}`}
+      {viewMode === "day" && (() => {
+        // Issue #869: the Day view was a single "No events scheduled today"
+        // banner with a near-invisible header in dark mode and no notion of
+        // time-of-day at all — users had no way to see when slots would fit.
+        // Render an 06:00–22:00 hour grid (matching the booking-page slot
+        // window), bucket the day's events by hour, and pair every surface
+        // with a dark: token so the date header is legible on a dark card.
+        const dayEvents = byDate[todayYmd] || [];
+        const HOUR_START = 6;
+        const HOUR_END = 22;
+        const eventsByHour: Record<number, CalEvent[]> = {};
+        for (const ev of dayEvents) {
+          const hh = ev.time ? parseInt(ev.time.slice(0, 2), 10) : NaN;
+          const bucket = Number.isFinite(hh) ? hh : -1;
+          if (!eventsByHour[bucket]) eventsByHour[bucket] = [];
+          eventsByHour[bucket].push(ev);
+        }
+        const hours: number[] = [];
+        for (let h = HOUR_START; h <= HOUR_END; h++) hours.push(h);
+        const untimedEvents = eventsByHour[-1] || [];
+        return (
+          <div
+            data-testid="cal-day-view"
+            className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800"
+          >
+            <h2 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">
+              {new Date().toLocaleDateString("en-IN", {
+                weekday: "long",
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}
+            </h2>
+            {dayEvents.length === 0 && (
+              <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+                No events scheduled today.
+              </p>
+            )}
+            {untimedEvents.length > 0 && (
+              <div className="mb-3">
+                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  All day
+                </p>
+                <ul className="space-y-1">
+                  {untimedEvents.map((e) => (
+                    <li key={e.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelected(e)}
+                        className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-white ${e.color}`}
+                      >
+                        <span>{e.title}</span>
+                        {e.subtitle && (
+                          <span className="ml-auto truncate opacity-90">
+                            {e.subtitle}
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700">
+              {hours.map((h) => {
+                const hourEvents = eventsByHour[h] || [];
+                return (
+                  <div
+                    key={h}
+                    className="grid grid-cols-[60px_1fr] border-b border-gray-200 last:border-b-0 dark:border-gray-700"
+                    style={{ minHeight: "44px" }}
                   >
-                    {e.time && (
-                      <span className="font-semibold">{e.time}</span>
-                    )}
-                    <span>{e.title}</span>
-                    {e.subtitle && (
-                      <span className="ml-auto truncate opacity-90">
-                        {e.subtitle}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+                    <div className="border-r border-gray-200 px-2 py-1 text-right text-[11px] text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                      {String(h).padStart(2, "0")}:00
+                    </div>
+                    <div className="space-y-1 px-2 py-1">
+                      {hourEvents.length === 0 ? (
+                        <span className="block h-full" aria-hidden="true" />
+                      ) : (
+                        hourEvents.map((e) => (
+                          <button
+                            key={e.id}
+                            type="button"
+                            onClick={() => setSelected(e)}
+                            className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs text-white ${e.color}`}
+                          >
+                            {e.time && (
+                              <span className="font-semibold">{e.time}</span>
+                            )}
+                            <span className="truncate">{e.title}</span>
+                            {e.subtitle && (
+                              <span className="ml-auto truncate opacity-90">
+                                {e.subtitle}
+                              </span>
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {viewMode === "week" && (() => {
         // Anchor the week to `cursor` if cursor is in the displayed month,

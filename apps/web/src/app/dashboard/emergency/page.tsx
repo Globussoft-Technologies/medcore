@@ -463,13 +463,13 @@ export default function EmergencyPage() {
       {/* Stats */}
       {stats && (
         <div className="mb-6 grid gap-3 md:grid-cols-4 lg:grid-cols-7">
-          <div className="rounded-xl bg-white p-4 shadow-sm">
-            <p className="text-xs text-gray-500">Active</p>
-            <p className="text-2xl font-bold">{stats.totalActive}</p>
+          <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Active</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.totalActive}</p>
           </div>
-          <div className="rounded-xl bg-white p-4 shadow-sm">
-            <p className="text-xs text-gray-500">Waiting</p>
-            <p data-testid="waiting-kpi" className="text-2xl font-bold">
+          <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Waiting</p>
+            <p data-testid="waiting-kpi" className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               {waitingKpiCount}
             </p>
           </div>
@@ -495,18 +495,18 @@ export default function EmergencyPage() {
 
       {stats && (
         <div className="mb-6 grid gap-3 md:grid-cols-2">
-          <div className="rounded-xl bg-white p-4 shadow-sm">
-            <p className="text-xs text-gray-500">Avg Wait Time</p>
-            <p data-testid="er-avg-wait" className="text-xl font-semibold">
+          <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Avg Wait Time</p>
+            <p data-testid="er-avg-wait" className="text-xl font-semibold text-gray-900 dark:text-gray-100">
               {/* Issue #425: server may emit NaN / negative on stale rows. */}
               {Number.isFinite(stats.avgWaitMin) && stats.avgWaitMin >= 0
                 ? formatElapsed(stats.avgWaitMin)
                 : "—"}
             </p>
           </div>
-          <div className="rounded-xl bg-white p-4 shadow-sm">
-            <p className="text-xs text-gray-500">Available Beds</p>
-            <p className="text-xl font-semibold">{stats.availableBeds}</p>
+          <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Available Beds</p>
+            <p className="text-xl font-semibold text-gray-900 dark:text-gray-100">{stats.availableBeds}</p>
           </div>
         </div>
       )}
@@ -531,7 +531,7 @@ export default function EmergencyPage() {
       {loading ? (
         <div
           data-testid="er-loading"
-          className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm"
+          className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400"
         >
           Loading...
         </div>
@@ -540,18 +540,18 @@ export default function EmergencyPage() {
           {columns.map((col) => {
             const colCases = cases.filter(col.filter);
             return (
-              <div key={col.key} className="rounded-xl bg-gray-50 p-3">
+              <div key={col.key} className="rounded-xl bg-gray-50 p-3 dark:bg-gray-900/40">
                 <div className="mb-3 flex items-center justify-between px-1">
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-600">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
                     {col.label}
                   </h3>
-                  <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium">
+                  <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium dark:bg-gray-700 dark:text-gray-200">
                     {colCases.length}
                   </span>
                 </div>
                 <div className="space-y-2">
                   {colCases.length === 0 ? (
-                    <p className="py-6 text-center text-xs text-gray-400">
+                    <p className="py-6 text-center text-xs text-gray-400 dark:text-gray-500">
                       No cases
                     </p>
                   ) : (
@@ -577,10 +577,10 @@ export default function EmergencyPage() {
                               mewsScore: c.mewsScore?.toString() || "",
                             });
                           }}
-                          className="w-full rounded-lg border bg-white p-3 text-left shadow-sm transition hover:shadow-md"
+                          className="w-full rounded-lg border bg-white p-3 text-left shadow-sm transition hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700/60"
                         >
                           <div className="mb-1 flex items-center justify-between">
-                            <span className="text-xs font-semibold text-gray-400">
+                            <span className="text-xs font-semibold text-gray-400 dark:text-gray-500">
                               {c.caseNumber}
                             </span>
                             {c.triageLevel && (
@@ -591,24 +591,24 @@ export default function EmergencyPage() {
                               </span>
                             )}
                           </div>
-                          <p className="text-sm font-semibold">
+                          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                             {c.patient?.user.name ||
                               c.unknownName ||
                               "Unknown"}
                           </p>
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
                             {c.unknownAge ? `${c.unknownAge}y ` : ""}
                             {c.unknownGender || ""}
                             {c.arrivalMode ? ` · ${c.arrivalMode}` : ""}
                           </p>
-                          <p className="mt-1 line-clamp-2 text-xs text-gray-600">
+                          <p className="mt-1 line-clamp-2 text-xs text-gray-600 dark:text-gray-300">
                             {c.chiefComplaint}
                           </p>
                           <div className="mt-2 flex items-center justify-between text-xs">
                             <span
                               data-testid={`er-wait-${c.id}`}
                               className={
-                                overdue ? "font-semibold text-red-600" : "text-gray-500"
+                                overdue ? "font-semibold text-red-600 dark:text-red-400" : "text-gray-500 dark:text-gray-400"
                               }
                             >
                               {overdue && <AlertTriangle size={12} className="mr-1 inline" />}
@@ -619,7 +619,7 @@ export default function EmergencyPage() {
                                 : "—"}
                             </span>
                             {c.attendingDoctor && (
-                              <span className="truncate text-gray-500">
+                              <span className="truncate text-gray-500 dark:text-gray-400">
                                 {formatDoctorName(c.attendingDoctor.user.name)}
                               </span>
                             )}

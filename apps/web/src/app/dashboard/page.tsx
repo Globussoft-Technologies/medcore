@@ -1230,12 +1230,12 @@ function PatientHome() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Upcoming appointment */}
         <div className="rounded-xl bg-white dark:bg-gray-800 p-5 shadow-sm">
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
             <Calendar size={14} /> My Upcoming Appointment
           </h2>
           {!upcoming ? (
             <div className="py-6 text-center">
-              <p className="text-sm text-gray-400">No upcoming appointments</p>
+              <p className="text-sm text-gray-400 dark:text-gray-500">No upcoming appointments</p>
               <Link
                 href="/dashboard/ai-booking"
                 className="mt-2 inline-block rounded-lg bg-primary px-3 py-1.5 text-xs text-white hover:opacity-90"
@@ -1244,24 +1244,24 @@ function PatientHome() {
               </Link>
             </div>
           ) : (
-            <div className="rounded-lg bg-gradient-to-br from-blue-50 to-white p-4">
-              <p className="text-lg font-semibold text-gray-800">
+            <div className="rounded-lg bg-gradient-to-br from-blue-50 to-white p-4 dark:from-blue-900/30 dark:to-gray-800">
+              <p className="text-lg font-semibold text-gray-800 dark:text-gray-100">
                 {new Date(upcoming.date).toLocaleDateString("en-IN", {
                   weekday: "long",
                   day: "numeric",
                   month: "short",
                 })}{" "}
                 {upcoming.slotStart && (
-                  <span className="text-primary">· {upcoming.slotStart}</span>
+                  <span className="text-primary dark:text-primary-300">· {upcoming.slotStart}</span>
                 )}
               </p>
-              <p className="mt-1 text-sm text-gray-600">
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
                 {upcoming.doctor?.user?.name ? formatDoctorName(upcoming.doctor.user.name) : "—"}
                 {upcoming.doctor?.specialization
                   ? ` · ${upcoming.doctor.specialization}`
                   : ""}
               </p>
-              <p className="mt-0.5 text-xs text-gray-500">
+              <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
                 Type: {upcoming.type}
               </p>
               <div className="mt-3 flex gap-2">
@@ -1273,9 +1273,14 @@ function PatientHome() {
                     Join Session
                   </Link>
                 )}
+                {/* Issue #864: CTA was border-only + transparent bg — on the
+                    dark surface the chip's text picked up the dark-mode body
+                    colour against the dark card and rendered invisible.
+                    Force a primary-tinted button with explicit text + bg in
+                    both modes. */}
                 <Link
                   href={`/dashboard/appointments?id=${upcoming.id}`}
-                  className="rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
+                  className="rounded-lg border border-primary/30 bg-white px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 dark:border-primary-400/40 dark:bg-primary-500/20 dark:text-primary-100 dark:hover:bg-primary-500/30"
                 >
                   View Details
                 </Link>
@@ -1287,18 +1292,18 @@ function PatientHome() {
         {/* Pending bills */}
         <div className="rounded-xl bg-white dark:bg-gray-800 p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
               <CreditCard size={14} /> My Pending Bills
             </h2>
             <Link
               href="/dashboard/billing"
-              className="text-xs text-primary hover:underline"
+              className="text-xs text-primary hover:underline dark:text-primary-300"
             >
               All bills
             </Link>
           </div>
           {bills.length === 0 ? (
-            <p className="py-6 text-center text-sm text-gray-400">
+            <p className="py-6 text-center text-sm text-gray-400 dark:text-gray-500">
               {/* Issue #404: when the fetch fails we no longer want a falsely
                   cheerful "No pending bills" — show the em-dash placeholder
                   the same way `formatINR(null)` would render. */}
@@ -1309,14 +1314,16 @@ function PatientHome() {
               {bills.map((b: any) => (
                 <div
                   key={b.id}
-                  className="flex items-center gap-3 rounded-lg border border-amber-100 bg-amber-50/40 p-3"
+                  className="flex items-center gap-3 rounded-lg border border-amber-100 bg-amber-50/40 p-3 dark:border-amber-900/40 dark:bg-amber-900/20"
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-800">
+                    <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
                       {/* Issue #403: canonical ₹ formatter, no more "Rs." */}
                       {formatINR(b.totalAmount || 0)}
                     </p>
-                    <p className="truncate text-[11px] text-gray-500">
+                    {/* Issue #863: subtitle was text-gray-500 — invisible on
+                        the dark card. Pair with dark:text-gray-300 for AA. */}
+                    <p className="truncate text-[11px] text-gray-500 dark:text-gray-300">
                       {/* Issue #438: shared `DD MMM YYYY` formatter. */}
                       #{b.invoiceNumber} · {formatDate(b.createdAt)}
                     </p>
@@ -1336,18 +1343,18 @@ function PatientHome() {
         {/* Prescriptions */}
         <div className="rounded-xl bg-white dark:bg-gray-800 p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
               <FileText size={14} /> Recent Prescriptions
             </h2>
             <Link
               href="/dashboard/prescriptions"
-              className="text-xs text-primary hover:underline"
+              className="text-xs text-primary hover:underline dark:text-primary-300"
             >
               All
             </Link>
           </div>
           {rx.length === 0 ? (
-            <p className="py-6 text-center text-sm text-gray-400">
+            <p className="py-6 text-center text-sm text-gray-400 dark:text-gray-500">
               {rxFailed ? "—" : "No prescriptions yet"}
             </p>
           ) : (
@@ -1355,13 +1362,15 @@ function PatientHome() {
               {rx.map((p: any) => (
                 <div
                   key={p.id}
-                  className="flex items-center gap-3 rounded-lg border border-green-100 bg-green-50/40 p-3"
+                  className="flex items-center gap-3 rounded-lg border border-green-100 bg-green-50/40 p-3 dark:border-green-900/40 dark:bg-green-900/20"
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="truncate text-sm font-semibold text-gray-800">
+                    <p className="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">
                       {p.diagnosis}
                     </p>
-                    <p className="truncate text-[11px] text-gray-500">
+                    {/* Issue #863: subtitle was text-gray-500 — invisible on
+                        the dark card. Pair with dark:text-gray-300 for AA. */}
+                    <p className="truncate text-[11px] text-gray-500 dark:text-gray-300">
                       {/* Issue #438: shared `DD MMM YYYY` formatter. */}
                       {p.doctor?.user?.name ? formatDoctorName(p.doctor.user.name) : "—"} ·{" "}
                       {formatDate(p.createdAt)}
@@ -1370,7 +1379,7 @@ function PatientHome() {
                   <div className="flex gap-1">
                     <Link
                       href={`/dashboard/prescriptions?id=${p.id}`}
-                      className="rounded-lg border px-2 py-1 text-[11px] hover:bg-white"
+                      className="rounded-lg border px-2 py-1 text-[11px] hover:bg-white dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
                     >
                       View
                     </Link>

@@ -431,7 +431,7 @@ function LoginPageInner() {
                     id="login-email-err"
                     data-testid="error-email"
                     role={fieldErrors.email ? "alert" : undefined}
-                    className="mt-1 min-h-[1rem] text-xs text-red-600"
+                    className="mt-1 min-h-[1rem] text-xs text-red-600 dark:text-red-400"
                   >
                     {fieldErrors.email ?? ""}
                   </p>
@@ -484,7 +484,7 @@ function LoginPageInner() {
                     id="login-password-err"
                     data-testid="error-password"
                     role={fieldErrors.password ? "alert" : undefined}
-                    className="mt-1 min-h-[1rem] text-xs text-red-600"
+                    className="mt-1 min-h-[1rem] text-xs text-red-600 dark:text-red-400"
                   >
                     {fieldErrors.password ?? ""}
                   </p>

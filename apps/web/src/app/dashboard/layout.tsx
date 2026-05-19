@@ -263,8 +263,9 @@ const navByRole: Record<
     { href: "/dashboard/queue", label: "Queue", icon: Monitor },
     { href: "/dashboard/wards", label: "Wards", icon: Hotel },
     { href: "/dashboard/admissions", label: "Admissions", icon: BedDouble },
-    { href: "/dashboard/pharmacy", label: "Pharmacy", icon: Package },
-    { href: "/dashboard/controlled-substances", label: "Controlled Register", icon: ShieldAlert },
+    // Issue #839: Pharmacy + Controlled Register removed — both routes
+    // 403 for RECEPTION (PHARMACIST-only per the API authorize()). Surfacing
+    // them in the sidebar broke "least surprise": click → Access Denied.
     { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
     { href: "/dashboard/refunds", label: "Refunds", icon: Undo2 },
     { href: "/dashboard/payment-plans", label: "Payment Plans", icon: CreditCard },
@@ -284,8 +285,8 @@ const navByRole: Record<
     { href: "/dashboard/my-schedule", label: "My Schedule", icon: CalendarDays },
     { href: "/dashboard/my-leaves", label: "My Leaves", icon: PlaneTakeoff },
     { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
-    { href: "/dashboard/ai-booking", label: "AI Booking", icon: Bot },
-    { href: "/dashboard/predictions", label: "No-Show Predictions", icon: TrendingUp },
+    // Issue #839: AI Booking + No-Show Predictions removed — both routes
+    // 403 for RECEPTION (DOCTOR/ADMIN-only per the API authorize()).
     { href: "/dashboard/insurance-claims", label: "Insurance Claims", icon: Workflow },
     { href: "/dashboard/abdm", label: "ABDM / ABHA", icon: ShieldCheck },
   ],

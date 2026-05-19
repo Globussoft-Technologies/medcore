@@ -106,17 +106,17 @@ export default function PaymentPlansPage() {
     `px-4 py-2 text-sm font-medium rounded-lg transition ${
       tab === t
         ? "bg-primary text-white"
-        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+        : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
     }`;
 
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-gray-900 dark:text-gray-100">
             <CreditCard className="text-primary" /> Payment Plans
           </h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Installment / EMI plans for outstanding invoices
           </p>
         </div>
@@ -150,18 +150,18 @@ export default function PaymentPlansPage() {
         </button>
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : tab === "OVERDUE" ? (
           overdue.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
+            <div className="p-8 text-center text-gray-500 dark:text-gray-400">
               No overdue installments.
             </div>
           ) : (
             <table className="w-full">
               <thead>
-                <tr className="border-b text-left text-sm text-gray-500">
+                <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                   <th className="px-4 py-3">Plan #</th>
                   <th className="px-4 py-3">Patient</th>
                   <th className="px-4 py-3">Invoice</th>
@@ -174,7 +174,7 @@ export default function PaymentPlansPage() {
                 {overdue.map((r) => (
                   <tr
                     key={r.id}
-                    className="cursor-pointer border-b last:border-0 hover:bg-gray-50"
+                    className="cursor-pointer border-b border-gray-200 last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700"
                     onClick={() => setDetailId(r.plan.id)}
                   >
                     <td className="px-4 py-3 font-mono text-sm">
@@ -182,21 +182,21 @@ export default function PaymentPlansPage() {
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-medium">{r.plan.patient.user.name}</p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
                         {r.plan.patient.user.phone}
                       </p>
                     </td>
                     <td className="px-4 py-3 text-sm">
                       {r.plan.invoice.invoiceNumber}
                     </td>
-                    <td className="px-4 py-3 text-sm text-red-600">
+                    <td className="px-4 py-3 text-sm text-red-600 dark:text-red-400">
                       {new Date(r.dueDate).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3 text-sm font-semibold">
                       {fmtMoney(r.amount)}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/40 dark:text-red-300">
                         OVERDUE
                       </span>
                     </td>
@@ -206,13 +206,13 @@ export default function PaymentPlansPage() {
             </table>
           )
         ) : plans.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No plans in this category.
           </div>
         ) : (
           <table className="w-full">
             <thead>
-              <tr className="border-b text-left text-sm text-gray-500">
+              <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Plan #</th>
                 <th className="px-4 py-3">Patient</th>
                 <th className="px-4 py-3">Invoice</th>
@@ -231,7 +231,7 @@ export default function PaymentPlansPage() {
                 return (
                   <tr
                     key={p.id}
-                    className="cursor-pointer border-b last:border-0 hover:bg-gray-50"
+                    className="cursor-pointer border-b border-gray-200 last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700"
                     onClick={() => setDetailId(p.id)}
                   >
                     <td className="px-4 py-3 font-mono text-sm">
@@ -239,7 +239,7 @@ export default function PaymentPlansPage() {
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-medium">{p.patient.user.name}</p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
                         {p.patient.mrNumber}
                       </p>
                     </td>
@@ -257,13 +257,13 @@ export default function PaymentPlansPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <div className="h-2 w-24 rounded-full bg-gray-200">
+                        <div className="h-2 w-24 rounded-full bg-gray-200 dark:bg-gray-700">
                           <div
                             className="h-2 rounded-full bg-green-500"
                             style={{ width: `${pct}%` }}
                           />
                         </div>
-                        <span className="text-xs text-gray-500">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
                           {paid}/{p.installments}
                         </span>
                       </div>
@@ -277,12 +277,12 @@ export default function PaymentPlansPage() {
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                           p.status === "ACTIVE"
-                            ? "bg-blue-100 text-blue-700"
+                            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
                             : p.status === "COMPLETED"
-                              ? "bg-green-100 text-green-700"
+                              ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
                               : p.status === "DEFAULTED"
-                                ? "bg-red-100 text-red-700"
-                                : "bg-gray-100 text-gray-700"
+                                ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                                : "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
                         }`}
                       >
                         {p.status}
@@ -434,16 +434,16 @@ function NewPlanModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <form
         onSubmit={submit}
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white shadow-xl"
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
         data-testid="new-plan-modal"
         noValidate
       >
-        <div className="flex items-center justify-between border-b px-6 py-4">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700">
           <h2 className="text-lg font-bold">New Payment Plan</h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full p-1 hover:bg-gray-100"
+            className="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-gray-700"
             aria-label="Close"
           >
             <X size={18} />
@@ -474,15 +474,15 @@ function NewPlanModal({
               Outstanding Invoice
             </label>
             {!patientId ? (
-              <p className="rounded border border-dashed bg-gray-50 px-3 py-2 text-xs text-gray-500">
+              <p className="rounded border border-dashed border-gray-300 bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-400">
                 Select a patient first.
               </p>
             ) : loadingInv ? (
-              <p className="text-xs text-gray-500">Loading invoices...</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Loading invoices...</p>
             ) : invoices.length === 0 ? (
               <p
                 data-testid="new-plan-no-invoices"
-                className="rounded border border-dashed bg-yellow-50 px-3 py-2 text-xs text-yellow-700"
+                className="rounded border border-dashed border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-700 dark:border-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-200"
               >
                 Patient has no outstanding invoice. Create / load an invoice in
                 Billing first.
@@ -493,7 +493,7 @@ function NewPlanModal({
                 value={invoiceId}
                 onChange={(e) => setInvoiceId(e.target.value)}
                 data-testid="new-plan-invoice"
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               >
                 <option value="">Select invoice...</option>
                 {invoices.map((i) => (
@@ -507,9 +507,9 @@ function NewPlanModal({
           </div>
 
           {selectedInvoice && (
-            <div className="rounded border bg-gray-50 px-3 py-2 text-xs">
+            <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-xs dark:border-gray-600 dark:bg-gray-700">
               <div className="flex justify-between">
-                <span className="text-gray-500">Total amount</span>
+                <span className="text-gray-500 dark:text-gray-400">Total amount</span>
                 <span
                   className="font-medium"
                   data-testid="new-plan-total"
@@ -534,7 +534,7 @@ function NewPlanModal({
                 data-testid="new-plan-installments"
                 value={installments}
                 onChange={(e) => setInstallments(e.target.value)}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                 required
               />
             </div>
@@ -549,7 +549,7 @@ function NewPlanModal({
                   )
                 }
                 data-testid="new-plan-frequency"
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               >
                 <option value="WEEKLY">Weekly</option>
                 <option value="BIWEEKLY">Biweekly</option>
@@ -569,7 +569,7 @@ function NewPlanModal({
                 value={startDate}
                 data-testid="new-plan-start"
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                 required
               />
             </div>
@@ -585,7 +585,7 @@ function NewPlanModal({
                 data-testid="new-plan-down-payment"
                 value={downPayment}
                 onChange={(e) => setDownPayment(e.target.value)}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               />
             </div>
           </div>
@@ -593,19 +593,19 @@ function NewPlanModal({
           {error && (
             <p
               data-testid="new-plan-error"
-              className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+              className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-700 dark:bg-red-900/30 dark:text-red-300"
             >
               {error}
             </p>
           )}
         </div>
 
-        <div className="flex justify-end gap-2 border-t bg-gray-50 px-6 py-3">
+        <div className="flex justify-end gap-2 border-t border-gray-200 bg-gray-50 px-6 py-3 dark:border-gray-700 dark:bg-gray-900">
           <button
             type="button"
             onClick={onClose}
             disabled={submitting}
-            className="rounded-lg border bg-white px-4 py-2 text-sm"
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
           >
             Cancel
           </button>
@@ -670,52 +670,52 @@ function PlanDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b px-6 py-4">
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700">
           <h2 className="text-lg font-bold">
             Payment Plan {plan?.planNumber ?? ""}
           </h2>
           <button
             onClick={onClose}
-            className="rounded-full p-1 hover:bg-gray-100"
+            className="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-gray-700"
           >
             <X size={18} />
           </button>
         </div>
 
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : !plan ? (
-          <div className="p-8 text-center text-gray-500">Not found.</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Not found.</div>
         ) : (
           <div className="space-y-4 p-6">
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <p className="text-xs text-gray-500">Patient</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Patient</p>
                 <p className="font-medium">{plan.patient.user.name}</p>
-                <p className="text-xs text-gray-500">{plan.patient.mrNumber}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{plan.patient.mrNumber}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Invoice</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Invoice</p>
                 <Link
                   href={`/dashboard/billing/${plan.invoice.id}`}
                   className="font-medium text-primary hover:underline"
                 >
                   {plan.invoice.invoiceNumber}
                 </Link>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   Total: {fmtMoney(plan.invoice.totalAmount)}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Installments</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Installments</p>
                 <p className="font-medium">
                   {plan.installments} × {fmtMoney(plan.installmentAmount)} (
                   {plan.frequency})
                 </p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Down Payment</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Down Payment</p>
                 <p className="font-medium">{fmtMoney(plan.downPayment)}</p>
               </div>
             </div>
@@ -726,7 +726,7 @@ function PlanDetailModal({
                 id="plan-pay-mode"
                 value={mode}
                 onChange={(e) => setMode(e.target.value)}
-                className="rounded border px-2 py-1 text-sm"
+                className="rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               >
                 {["CASH", "CARD", "UPI", "ONLINE", "INSURANCE"].map((m) => (
                   <option key={m} value={m}>
@@ -736,10 +736,10 @@ function PlanDetailModal({
               </select>
             </div>
 
-            <div className="overflow-hidden rounded-lg border">
+            <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
               <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr className="text-left text-sm text-gray-500">
+                <thead className="bg-gray-50 dark:bg-gray-900">
+                  <tr className="text-left text-sm text-gray-500 dark:text-gray-400">
                     <th className="px-3 py-2">#</th>
                     <th className="px-3 py-2">Due Date</th>
                     <th className="px-3 py-2">Amount</th>
@@ -756,7 +756,7 @@ function PlanDetailModal({
                         new Date(b.dueDate).getTime()
                     )
                     .map((r, i) => (
-                      <tr key={r.id} className="border-t">
+                      <tr key={r.id} className="border-t border-gray-200 dark:border-gray-700">
                         <td className="px-3 py-2 text-sm">{i + 1}</td>
                         <td className="px-3 py-2 text-sm">
                           {new Date(r.dueDate).toLocaleDateString()}
@@ -768,12 +768,12 @@ function PlanDetailModal({
                           <span
                             className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                               r.status === "PAID"
-                                ? "bg-green-100 text-green-700"
+                                ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
                                 : r.status === "OVERDUE"
-                                  ? "bg-red-100 text-red-700"
+                                  ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
                                   : r.status === "WAIVED"
-                                    ? "bg-gray-100 text-gray-600"
-                                    : "bg-yellow-100 text-yellow-700"
+                                    ? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+                                    : "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300"
                             }`}
                           >
                             {r.status}

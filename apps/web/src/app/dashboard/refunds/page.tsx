@@ -95,36 +95,38 @@ export default function RefundsPage() {
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Refunds</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Refunds</h1>
       </div>
 
       {/* Filter */}
-      <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl bg-white p-4 shadow-sm">
+      <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
         <div>
-          <label htmlFor="refunds-from" className="mb-1 block text-xs text-gray-500">From</label>
+          <label htmlFor="refunds-from" className="mb-1 block text-xs text-gray-500 dark:text-gray-400">From</label>
           <input
             id="refunds-from"
             type="date"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm"
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
           />
         </div>
         <div>
-          <label htmlFor="refunds-to" className="mb-1 block text-xs text-gray-500">To</label>
+          <label htmlFor="refunds-to" className="mb-1 block text-xs text-gray-500 dark:text-gray-400">To</label>
           <input
             id="refunds-to"
             type="date"
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            className={`rounded-lg border px-3 py-2 text-sm ${
-              reversedRange ? "border-red-500" : ""
+            className={`rounded-lg border px-3 py-2 text-sm text-gray-900 dark:text-gray-100 ${
+              reversedRange
+                ? "border-red-500 bg-white dark:bg-gray-900"
+                : "border-gray-300 bg-white dark:border-gray-700 dark:bg-gray-900"
             }`}
             aria-invalid={reversedRange}
             aria-describedby={reversedRange ? "refunds-to-error" : undefined}
           />
           {reversedRange && (
-            <p id="refunds-to-error" className="mt-1 text-xs text-red-600">
+            <p id="refunds-to-error" className="mt-1 text-xs text-red-600 dark:text-red-400">
               End date must be on or after start date
             </p>
           )}
@@ -137,29 +139,29 @@ export default function RefundsPage() {
           Apply
         </button>
         <div className="ml-auto text-right">
-          <p className="text-xs uppercase tracking-wider text-gray-400">
+          <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500">
             Total Refunded (period)
           </p>
-          <p className="mt-1 text-xl font-bold text-orange-600">
+          <p className="mt-1 text-xl font-bold text-orange-600 dark:text-orange-400">
             {fmtMoney(total)}
           </p>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
             {rows.length} refund{rows.length === 1 ? "" : "s"}
           </p>
         </div>
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : rows.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No refunds in this period.
           </div>
         ) : (
           <table className="w-full">
             <thead>
-              <tr className="border-b text-left text-sm text-gray-500">
+              <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Date</th>
                 <th className="px-4 py-3">Invoice #</th>
                 <th className="px-4 py-3">Patient</th>
@@ -170,7 +172,10 @@ export default function RefundsPage() {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="border-b last:border-0">
+                <tr
+                  key={r.id}
+                  className="border-b border-gray-200 last:border-0 dark:border-gray-700"
+                >
                   <td className="px-4 py-3 text-sm">
                     {new Date(r.paidAt).toLocaleString("en-IN")}
                   </td>
@@ -184,15 +189,15 @@ export default function RefundsPage() {
                   </td>
                   <td className="px-4 py-3">
                     <p className="font-medium">{r.invoice.patient.user.name}</p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                       {r.invoice.patient.user.phone}
                     </p>
                   </td>
-                  <td className="px-4 py-3 text-sm font-semibold text-orange-600">
+                  <td className="px-4 py-3 text-sm font-semibold text-orange-600 dark:text-orange-400">
                     {fmtMoney(r.amount)}
                   </td>
                   <td className="px-4 py-3 text-sm">{r.mode}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
+                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
                     {r.reason || "—"}
                   </td>
                 </tr>

@@ -54,11 +54,14 @@ const channelIcon: Record<string, React.ElementType> = {
   PUSH: Smartphone,
 };
 
+// NB: the preferences-row icon chip reads .split(" ")[0]/[1] off these
+// strings, so the bg/text classes must stay at indices 0/1 — append any
+// dark: variants after them.
 const channelColor: Record<string, string> = {
-  WHATSAPP: "bg-green-100 text-green-700",
-  SMS: "bg-orange-100 text-orange-700",
-  EMAIL: "bg-blue-100 text-blue-700",
-  PUSH: "bg-purple-100 text-purple-700",
+  WHATSAPP: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+  SMS: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+  EMAIL: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+  PUSH: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
 };
 
 export default function NotificationsPage() {
@@ -212,7 +215,7 @@ export default function NotificationsPage() {
       </div>
 
       {/* Notification List */}
-      <div className="mb-6 rounded-xl bg-white shadow-sm">
+      <div className="mb-6 rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading && notifications.length === 0 ? (
           <div className="divide-y divide-gray-100 dark:divide-gray-700">
             <table className="w-full"><tbody>
@@ -240,16 +243,18 @@ export default function NotificationsPage() {
                   }}
                   data-testid={`notification-row-${notification.id}`}
                   data-read={isRead ? "true" : "false"}
-                  className={`flex cursor-pointer items-start gap-4 border-b px-5 py-4 transition last:border-0 hover:bg-gray-50 ${
+                  className={`flex cursor-pointer items-start gap-4 border-b border-gray-100 px-5 py-4 transition last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/40 ${
                     !isRead
-                      ? "border-l-4 border-l-blue-500 bg-blue-50/40"
+                      ? "border-l-4 border-l-blue-500 bg-blue-50/40 dark:bg-blue-900/20"
                       : ""
                   }`}
                 >
                   <div className="mt-0.5 flex-shrink-0">
                     <div
                       className={`flex h-9 w-9 items-center justify-center rounded-full ${
-                        !isRead ? "bg-blue-100" : "bg-gray-100"
+                        !isRead
+                          ? "bg-blue-100 dark:bg-blue-900/40"
+                          : "bg-gray-100 dark:bg-gray-700"
                       }`}
                     >
                       <Bell
@@ -265,22 +270,23 @@ export default function NotificationsPage() {
                       <p
                         className={`text-sm ${
                           !isRead
-                            ? "font-semibold text-gray-900"
-                            : "font-medium text-gray-700"
+                            ? "font-semibold text-gray-900 dark:text-gray-100"
+                            : "font-medium text-gray-700 dark:text-gray-300"
                         }`}
                       >
                         {notification.title}
                       </p>
                       <span
                         className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
-                          channelColor[notification.channel] || "bg-gray-100 text-gray-600"
+                          channelColor[notification.channel] ||
+                          "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
                         }`}
                       >
                         <ChannelIcon size={10} />
                         {notification.channel}
                       </span>
                     </div>
-                    <p className="mt-0.5 text-sm text-gray-500">
+                    <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
                       {notification.message}
                     </p>
                     <p className="mt-1 text-xs text-gray-400">
@@ -299,7 +305,7 @@ export default function NotificationsPage() {
                 <button
                   onClick={loadMore}
                   disabled={loading}
-                  className="rounded-lg border px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700/40"
                 >
                   {loading ? "Loading..." : "Load More"}
                 </button>
@@ -310,7 +316,7 @@ export default function NotificationsPage() {
       </div>
 
       {/* Preferences Section */}
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         <button
           onClick={() => setPrefsOpen(!prefsOpen)}
           className="flex w-full items-center justify-between px-5 py-4 text-left"
@@ -324,11 +330,11 @@ export default function NotificationsPage() {
         </button>
 
         {prefsOpen && (
-          <div className="border-t px-5 pb-5">
+          <div className="border-t border-gray-200 px-5 pb-5 dark:border-gray-700">
             {prefsLoading ? (
-              <div className="py-6 text-center text-gray-500">Loading preferences...</div>
+              <div className="py-6 text-center text-gray-500 dark:text-gray-400">Loading preferences...</div>
             ) : preferences.length === 0 ? (
-              <div className="py-6 text-center text-gray-500">
+              <div className="py-6 text-center text-gray-500 dark:text-gray-400">
                 No preference settings available
               </div>
             ) : (
@@ -338,7 +344,7 @@ export default function NotificationsPage() {
                   return (
                     <div
                       key={pref.channel}
-                      className="flex items-center justify-between rounded-lg border px-4 py-3"
+                      className="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-3 dark:border-gray-700"
                     >
                       <div className="flex items-center gap-3">
                         <div
@@ -371,7 +377,7 @@ export default function NotificationsPage() {
                           togglePreference(pref.channel, !pref.enabled)
                         }
                         className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                          pref.enabled ? "bg-primary" : "bg-gray-300"
+                          pref.enabled ? "bg-primary" : "bg-gray-300 dark:bg-gray-600"
                         }`}
                       >
                         <span

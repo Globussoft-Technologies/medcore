@@ -243,18 +243,18 @@ export default function ComplaintsPage() {
   }
 
   const priorityColor: Record<string, string> = {
-    LOW: "bg-gray-100 text-gray-700",
-    MEDIUM: "bg-blue-100 text-blue-700",
-    HIGH: "bg-orange-100 text-orange-700",
-    CRITICAL: "bg-red-100 text-red-700",
+    LOW: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200",
+    MEDIUM: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+    HIGH: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+    CRITICAL: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
   };
 
   const statusColor: Record<string, string> = {
-    OPEN: "bg-yellow-100 text-yellow-700",
-    UNDER_REVIEW: "bg-blue-100 text-blue-700",
-    RESOLVED: "bg-green-100 text-green-700",
-    ESCALATED: "bg-red-100 text-red-700",
-    CLOSED: "bg-gray-100 text-gray-700",
+    OPEN: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
+    UNDER_REVIEW: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+    RESOLVED: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+    ESCALATED: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+    CLOSED: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200",
   };
 
   // SLA calculations for dashboard
@@ -286,7 +286,7 @@ export default function ComplaintsPage() {
       {stats?.overdueUnassignedCount && stats.overdueUnassignedCount > 0 ? (
         <div
           data-testid="complaints-overdue-banner"
-          className="mb-4 flex items-start gap-3 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800"
+          className="mb-4 flex items-start gap-3 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/30 dark:text-red-200"
         >
           <span className="text-lg">⚠</span>
           <div>
@@ -295,7 +295,7 @@ export default function ComplaintsPage() {
               {stats.overdueUnassignedCount === 1 ? "" : "s"} overdue (&gt;200h)
               and unassigned
             </p>
-            <p className="text-xs text-red-700">
+            <p className="text-xs text-red-700 dark:text-red-300">
               Assign these to an owner to restart the SLA clock or escalate to
               the Medical Director.
             </p>
@@ -308,8 +308,8 @@ export default function ComplaintsPage() {
           enforced at the source. Falls back to byStatus.OPEN for older
           servers that haven't deployed the stats fix yet. */}
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-        <div className="rounded-xl bg-white p-4 shadow-sm">
-          <p className="text-xs text-gray-500">Total Open</p>
+        <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Total Open</p>
           <p
             data-testid="complaints-total-open"
             className="text-2xl font-bold text-yellow-600"
@@ -317,8 +317,8 @@ export default function ComplaintsPage() {
             {stats?.totalOpen ?? stats?.byStatus.OPEN ?? 0}
           </p>
         </div>
-        <div className="rounded-xl bg-white p-4 shadow-sm">
-          <p className="text-xs text-gray-500">Critical Open</p>
+        <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Critical Open</p>
           <p
             data-testid="complaints-critical-open"
             className="text-2xl font-bold text-red-600"
@@ -326,15 +326,15 @@ export default function ComplaintsPage() {
             {stats?.criticalOpen || 0}
           </p>
         </div>
-        <div className="rounded-xl bg-white p-4 shadow-sm">
-          <p className="text-xs text-gray-500">Overdue (&gt;7d)</p>
+        <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Overdue (&gt;7d)</p>
           <p className="text-2xl font-bold text-orange-600">
             {stats?.overdueCount || 0}
           </p>
         </div>
-        <div className="rounded-xl bg-white p-4 shadow-sm">
-          <p className="text-xs text-gray-500">Avg Resolution</p>
-          <p className="text-2xl font-bold text-gray-700">
+        <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Avg Resolution</p>
+          <p className="text-2xl font-bold text-gray-700 dark:text-gray-200">
             {stats?.avgResolutionHours || 0}h
           </p>
         </div>
@@ -349,7 +349,7 @@ export default function ComplaintsPage() {
             className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
               tab === t.key
                 ? "bg-primary text-white"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
             }`}
           >
             {t.label}
@@ -361,20 +361,20 @@ export default function ComplaintsPage() {
         <div className="space-y-6">
           {/* SLA Summary cards */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div className="rounded-xl bg-white p-5 shadow-sm">
-              <p className="text-xs text-gray-500">At Risk (&lt;25% time left)</p>
+            <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+              <p className="text-xs text-gray-500 dark:text-gray-400">At Risk (&lt;25% time left)</p>
               <p className="text-3xl font-bold text-orange-600">
                 {atRisk.length}
               </p>
             </div>
-            <div className="rounded-xl bg-white p-5 shadow-sm">
-              <p className="text-xs text-gray-500">SLA Breached</p>
+            <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+              <p className="text-xs text-gray-500 dark:text-gray-400">SLA Breached</p>
               <p className="text-3xl font-bold text-red-600">
                 {breached.length}
               </p>
             </div>
-            <div className="rounded-xl bg-white p-5 shadow-sm">
-              <p className="text-xs text-gray-500">Avg Response Time</p>
+            <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Avg Response Time</p>
               <p className="text-3xl font-bold">
                 {stats?.avgResolutionHours || 0}h
               </p>
@@ -382,21 +382,21 @@ export default function ComplaintsPage() {
           </div>
 
           {/* At-risk list */}
-          <div className="rounded-xl bg-white shadow-sm">
-            <div className="border-b p-4">
+          <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
+            <div className="border-b border-gray-200 p-4 dark:border-gray-700">
               <h3 className="font-semibold">At-Risk Complaints</h3>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 Less than 25% of SLA time remaining
               </p>
             </div>
             {atRisk.length === 0 ? (
-              <p className="p-6 text-center text-sm text-gray-500">
+              <p className="p-6 text-center text-sm text-gray-500 dark:text-gray-400">
                 No at-risk complaints.
               </p>
             ) : (
               <table className="w-full">
                 <thead>
-                  <tr className="border-b text-left text-xs text-gray-500">
+                  <tr className="border-b border-gray-200 text-left text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
                     <th className="px-4 py-2">Ticket</th>
                     <th className="px-4 py-2">Priority</th>
                     <th className="px-4 py-2">Category</th>
@@ -408,7 +408,7 @@ export default function ComplaintsPage() {
                   {atRisk.map((c) => {
                     const sla = formatSla(computeSlaDue(c), now);
                     return (
-                      <tr key={c.id} className="border-b last:border-0 text-sm">
+                      <tr key={c.id} className="border-b border-gray-100 last:border-0 text-sm dark:border-gray-700">
                         <td className="px-4 py-2 font-mono text-xs">
                           {c.ticketNumber}
                         </td>
@@ -442,15 +442,15 @@ export default function ComplaintsPage() {
 
           {/* Breached list */}
           {breached.length > 0 && (
-            <div className="rounded-xl bg-white shadow-sm">
-              <div className="border-b p-4">
+            <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
+              <div className="border-b border-gray-200 p-4 dark:border-gray-700">
                 <h3 className="font-semibold text-red-600">
                   SLA Breached ({breached.length})
                 </h3>
               </div>
               <table className="w-full">
                 <thead>
-                  <tr className="border-b text-left text-xs text-gray-500">
+                  <tr className="border-b border-gray-200 text-left text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
                     <th className="px-4 py-2">Ticket</th>
                     <th className="px-4 py-2">Priority</th>
                     <th className="px-4 py-2">Category</th>
@@ -461,7 +461,7 @@ export default function ComplaintsPage() {
                   {breached.map((c) => {
                     const sla = formatSla(computeSlaDue(c), now);
                     return (
-                      <tr key={c.id} className="border-b last:border-0 text-sm">
+                      <tr key={c.id} className="border-b border-gray-100 last:border-0 text-sm dark:border-gray-700">
                         <td className="px-4 py-2 font-mono text-xs">
                           {c.ticketNumber}
                         </td>
@@ -486,17 +486,17 @@ export default function ComplaintsPage() {
         </div>
       ) : (
         /* Regular table */
-        <div className="rounded-xl bg-white shadow-sm">
+        <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
           {loading ? (
-            <div className="p-8 text-center text-gray-500">Loading...</div>
+            <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
           ) : complaints.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
+            <div className="p-8 text-center text-gray-500 dark:text-gray-400">
               No complaints in this category
             </div>
           ) : (
             <table className="w-full">
               <thead>
-                <tr className="border-b text-left text-sm text-gray-500">
+                <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                   <th className="px-4 py-3">Ticket</th>
                   <th className="px-4 py-3">Patient</th>
                   <th className="px-4 py-3">Category</th>
@@ -544,7 +544,7 @@ export default function ComplaintsPage() {
                     (now - new Date(c.createdAt).getTime()) / 86400000
                   );
                   return (
-                    <tr key={c.id} className="border-b last:border-0">
+                    <tr key={c.id} className="border-b border-gray-100 last:border-0 dark:border-gray-700">
                       <td className="px-4 py-3 font-mono text-xs font-semibold">
                         {c.ticketNumber}
                       </td>
@@ -560,17 +560,17 @@ export default function ComplaintsPage() {
                       >
                         {c.patient?.user.name ? (
                           <>
-                            <div className="font-medium text-gray-900">
+                            <div className="font-medium text-gray-900 dark:text-gray-100">
                               {c.patient.user.name}
                             </div>
                             {c.name && c.name !== c.patient.user.name && (
-                              <div className="text-xs text-gray-500">
+                              <div className="text-xs text-gray-500 dark:text-gray-400">
                                 Caller: {c.name}
                               </div>
                             )}
                           </>
                         ) : (
-                          <span className="text-gray-700">
+                          <span className="text-gray-700 dark:text-gray-300">
                             {c.name || "-"}
                           </span>
                         )}
@@ -597,7 +597,7 @@ export default function ComplaintsPage() {
                               className={
                                 sla.overdue
                                   ? "font-semibold text-red-600"
-                                  : "text-gray-600"
+                                  : "text-gray-600 dark:text-gray-400"
                               }
                               data-testid={`complaint-sla-${c.ticketNumber}`}
                             >
@@ -610,10 +610,10 @@ export default function ComplaintsPage() {
                               <span
                                 className={`inline-block w-fit rounded-full px-1.5 py-0 text-[10px] font-medium ${
                                   ageDays >= 7
-                                    ? "bg-red-100 text-red-700"
+                                    ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
                                     : ageDays >= 3
-                                      ? "bg-amber-100 text-amber-700"
-                                      : "bg-gray-100 text-gray-600"
+                                      ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                                      : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
                                 }`}
                                 data-testid={`complaint-age-${c.ticketNumber}`}
                                 aria-label={`Open for ${ageDays} day${ageDays === 1 ? "" : "s"}`}
@@ -630,7 +630,7 @@ export default function ComplaintsPage() {
                         <select
                           value={c.assignedTo || ""}
                           onChange={(e) => assign(c.id, e.target.value)}
-                          className="rounded border px-2 py-1 text-xs"
+                          className="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                           disabled={isResolved}
                         >
                           <option value="">
@@ -643,7 +643,7 @@ export default function ComplaintsPage() {
                           ))}
                         </select>
                       </td>
-                      <td className="px-4 py-3 text-xs text-gray-500">
+                      <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
                         {new Date(c.createdAt).toLocaleDateString()}
                       </td>
                       <td className="px-4 py-3">
@@ -681,11 +681,11 @@ export default function ComplaintsPage() {
       {/* New complaint modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
             <h3 className="mb-4 text-lg font-semibold">New Complaint</h3>
             <div className="space-y-3">
               <div>
-                <label htmlFor="complaint-patient-id" className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="complaint-patient-id" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                   Patient ID (optional)
                 </label>
                 <input
@@ -695,36 +695,36 @@ export default function ComplaintsPage() {
                     setForm({ ...form, patientId: e.target.value })
                   }
                   placeholder="UUID of patient if known"
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label htmlFor="complaint-caller-name" className="mb-1 block text-xs font-medium text-gray-600">
+                  <label htmlFor="complaint-caller-name" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                     Caller Name
                   </label>
                   <input
                     id="complaint-caller-name"
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                   />
                 </div>
                 <div>
-                  <label htmlFor="complaint-phone" className="mb-1 block text-xs font-medium text-gray-600">
+                  <label htmlFor="complaint-phone" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                     Phone
                   </label>
                   <input
                     id="complaint-phone"
                     value={form.phone}
                     onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                   />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label htmlFor="complaint-category" className="mb-1 block text-xs font-medium text-gray-600">
+                  <label htmlFor="complaint-category" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                     Category
                   </label>
                   <select
@@ -733,7 +733,7 @@ export default function ComplaintsPage() {
                     onChange={(e) =>
                       setForm({ ...form, category: e.target.value })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                   >
                     {CATEGORIES.map((c) => (
                       <option key={c} value={c}>
@@ -743,7 +743,7 @@ export default function ComplaintsPage() {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="complaint-priority" className="mb-1 block text-xs font-medium text-gray-600">
+                  <label htmlFor="complaint-priority" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                     Priority
                   </label>
                   <select
@@ -752,7 +752,7 @@ export default function ComplaintsPage() {
                     onChange={(e) =>
                       setForm({ ...form, priority: e.target.value })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                   >
                     {PRIORITIES.map((p) => (
                       <option key={p} value={p}>
@@ -763,7 +763,7 @@ export default function ComplaintsPage() {
                 </div>
               </div>
               <div>
-                <label htmlFor="complaint-description" className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="complaint-description" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                   Description
                 </label>
                 <textarea
@@ -773,14 +773,14 @@ export default function ComplaintsPage() {
                     setForm({ ...form, description: e.target.value })
                   }
                   rows={4}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                 />
               </div>
             </div>
             <div className="mt-5 flex justify-end gap-3">
               <button
                 onClick={() => setShowModal(false)}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700"
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 dark:border-gray-600 dark:text-gray-300"
               >
                 Cancel
               </button>
@@ -798,7 +798,7 @@ export default function ComplaintsPage() {
       {/* Resolve modal */}
       {resolveId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
             <h3 className="mb-4 text-lg font-semibold">Resolve Complaint</h3>
             <textarea
               value={resolveText}
@@ -813,7 +813,7 @@ export default function ComplaintsPage() {
                   setResolveId(null);
                   setResolveText("");
                 }}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700"
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 dark:border-gray-600 dark:text-gray-300"
               >
                 Cancel
               </button>

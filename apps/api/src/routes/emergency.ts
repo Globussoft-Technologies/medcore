@@ -509,6 +509,88 @@ router.patch(
         disposition: req.body.disposition,
       }).catch(console.error);
 
+      // Issue #893: high-acuity LWBS escalation. A pediatric RTA / chest-pain
+      // / stroke patient walking out of ER without care is a sentinel safety
+      // event. Fanout an EMERGENCY_LWBS_ESCALATION notification to all ADMIN
+      // users + the attending doctor (if assigned), plus a dedicated audit
+      // row so the incident is greppable in the audit log without joining
+      // through emergency_cases. Triggered only when:
+      //   disposition === LEFT_WITHOUT_BEING_SEEN
+      //   AND triageLevel IN (RESUSCITATION, EMERGENT, URGENT)  // P1/P2/P3
+      // Lower-acuity LWBS (LESS_URGENT / NON_URGENT) is routine and noisy
+      // to escalate. Fire-and-forget — must not fail the close response.
+      const HIGH_ACUITY = new Set(["RESUSCITATION", "EMERGENT", "URGENT"]);
+      if (
+        req.body.disposition === "LEFT_WITHOUT_BEING_SEEN" &&
+        updated.triageLevel &&
+        HIGH_ACUITY.has(updated.triageLevel)
+      ) {
+        (async () => {
+          try {
+            const recipients = await prisma.user.findMany({
+              where: {
+                OR: [
+                  { role: Role.ADMIN },
+                  ...(updated.attendingDoctorId
+                    ? [
+                        {
+                          doctor: { id: updated.attendingDoctorId },
+                        } as { doctor: { id: string } },
+                      ]
+                    : []),
+                ],
+                isActive: true,
+              },
+              select: { id: true, name: true },
+            });
+            const patientName =
+              updated.patient?.user?.name ?? updated.unknownName ?? "Unknown patient";
+            const title = `LWBS — ${updated.triageLevel} triage left ER without being seen (${updated.caseNumber})`;
+            const message = `${patientName} (triaged ${updated.triageLevel}) left ER without being seen. Chief complaint: ${updated.chiefComplaint ?? "unspecified"}. Please review and arrange recall.`;
+            await Promise.all(
+              recipients.map((u) =>
+                prisma.notification.create({
+                  data: {
+                    userId: u.id,
+                    type: "EMERGENCY_LWBS_ESCALATION",
+                    // NotificationChannel has WHATSAPP/SMS/EMAIL/PUSH only —
+                    // PUSH is the closest analog to in-app for staff devices.
+                    channel: "PUSH",
+                    title,
+                    message,
+                    data: {
+                      emergencyCaseId: updated.id,
+                      caseNumber: updated.caseNumber,
+                      triageLevel: updated.triageLevel,
+                      patientId: updated.patientId,
+                    },
+                    deliveryStatus: "QUEUED",
+                  },
+                }),
+              ),
+            );
+            await auditLog(
+              req,
+              "EMERGENCY_LWBS_ESCALATION",
+              "emergencyCase",
+              updated.id,
+              {
+                caseNumber: updated.caseNumber,
+                triageLevel: updated.triageLevel,
+                patientId: updated.patientId,
+                fanoutCount: recipients.length,
+                severity: "HIGH",
+              },
+            );
+            console.warn(
+              `[emergency-lwbs] case=${updated.caseNumber} triage=${updated.triageLevel} fanout=${recipients.length}`,
+            );
+          } catch (err) {
+            console.error("[emergency-lwbs] escalation failed:", err);
+          }
+        })();
+      }
+
       const io = req.app.get("io");
       if (io) {
         io.emit("emergency:update", {

@@ -2,11 +2,14 @@ name: Release validation
 
 # Heavy-suite validation gate run BEFORE a release is declared.
 #
-# Trigger model: manual only (`workflow_dispatch`). The user explicitly
-# tells the team "do a release" → someone hits Run workflow on this file
-# → all four validation jobs run on Linux against a fresh DB. If any fail,
-# fix the failure on `main`, then re-trigger. A clean run on `main` HEAD
-# is the green light to declare the release.
+# Trigger model: scheduled every 2 hours + manual (`workflow_dispatch`).
+# The cron auto-runs the full suite every 2 hours so a regression on `main`
+# is caught even when nobody triggers a release; the manual "Run workflow"
+# button stays as the on-demand / backup path a release captain uses
+# before declaring a release. Either way all validation jobs run on Linux
+# against a fresh DB. If any fail, fix the failure on `main`, then
+# re-trigger. A clean run on `main` HEAD is the green light to declare
+# the release.
 #
 # Why separate from the per-push `test` workflow:
 #   - Per-push runs the FAST gate (unit + contract + smoke + integration +
@@ -48,7 +51,27 @@ name: Release validation
 # the "are we good to call this a release" gate.
 
 on:
+  # Manual / on-demand — the original entry point. A release captain hits
+  # "Run workflow" before declaring a release, or to re-run as a backup.
   workflow_dispatch:
+
+  # Scheduled auto-run, every 2 hours. GitHub cron is UTC and recurring-only
+  # (there is no one-off calendar-date trigger). `30 */2 * * *` fires at :30
+  # past every even hour (00:30, 02:30, 04:30 … UTC) — 12 runs/day. The :30
+  # minute offset avoids GitHub's top-of-hour scheduler load spike (which
+  # can delay jobs cronned at :00).
+  # COST NOTE: this is the heavy full-validation suite (~24 parallel jobs
+  # incl. the Chromium + WebKit Playwright matrix). Every 2h = ~12 runs/day —
+  # keep an eye on the Actions-minutes spend; drop to twice-daily
+  # ("30 20,8 * * *") or daily ("30 20 * * *") if it gets expensive.
+  # Change the cadence here:
+  #   hourly                          → "30 * * * *"
+  #   twice daily (02:00 + 14:00 IST) → "30 20,8 * * *"
+  #   once daily, 02:00 IST           → "30 20 * * *"
+  # NB: scheduled runs only fire from this file on the default branch (main),
+  # and GitHub auto-disables the schedule after 60 days of repo inactivity.
+  schedule:
+    - cron: "30 */2 * * *"
 
 # Default token: read-only repo access. No release-validation step needs
 # to mutate the repo or write to packages.

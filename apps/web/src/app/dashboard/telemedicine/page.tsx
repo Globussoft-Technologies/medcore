@@ -502,11 +502,21 @@ export default function TelemedicinePage() {
                       {s.chiefComplaint}
                     </p>
                   )}
-                  {s.durationMin != null && (
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {/* Issue #872: keep completed-session cards visually
+                      uniform — always render a Duration row on the
+                      Completed tab, falling back to "not recorded" when the
+                      API returned no duration (e.g. a session ended without
+                      a tracked start). Non-completed sessions have no
+                      duration concept, so the row stays hidden for them. */}
+                  {s.durationMin != null ? (
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 dark:text-gray-400">
                       Duration: {s.durationMin} min
                     </p>
-                  )}
+                  ) : s.status === "COMPLETED" ? (
+                    <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                      Duration: not recorded
+                    </p>
+                  ) : null}
                   {s.patientRating && (
                     <div className="mt-1 flex items-center gap-1 text-xs text-yellow-500">
                       {Array.from({ length: s.patientRating }).map((_, i) => (

@@ -33,9 +33,11 @@
 -- mismatches we haven't seen.
 -- ================================================================
 
+-- NB: patients has no `updatedAt` column (different from User/Doctor models),
+-- so we don't write one. The patientId-keyed audit chain on User.updatedAt
+-- is the closest auditability surface, but that's a different concern.
 UPDATE patients
-SET age = NULL,
-    "updatedAt" = now()
+SET age = NULL
 WHERE "mrNumber" IN ('MR000003', 'MR000273', 'MR000275')
   AND age IS NOT NULL
   AND "dateOfBirth" IS NOT NULL

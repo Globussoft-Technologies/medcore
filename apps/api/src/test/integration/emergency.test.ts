@@ -230,6 +230,7 @@ describeIfDB("Emergency API (integration)", () => {
       .send({
         status: "LEFT_WITHOUT_BEING_SEEN",
         disposition: "LEFT_WITHOUT_BEING_SEEN",
+        outcomeNotes: "Patient left before consultation",
       });
     expect(closeRes.status).toBe(200);
     // Fanout is fire-and-forget — poll briefly for the notification(s).
@@ -284,6 +285,7 @@ describeIfDB("Emergency API (integration)", () => {
       .send({
         status: "LEFT_WITHOUT_BEING_SEEN",
         disposition: "LEFT_WITHOUT_BEING_SEEN",
+        outcomeNotes: "Patient left before consultation",
       });
     expect(closeRes.status).toBe(200);
     // Wait a tick to let any (incorrect) fire-and-forget run.

@@ -63,20 +63,25 @@ const entityTypes = [
   "LabResult",
 ];
 
+// Issue #830: action badges previously used pastel `bg-*-100 text-*-700` only,
+// which renders as a barely-visible low-contrast pill on the dark-mode table
+// surface. Pairing every base colour with a `dark:bg-*-900/40 dark:text-*-300`
+// variant keeps the WCAG AA contrast on both themes without changing the
+// visual language (still soft / chip-style).
 const actionColors: Record<string, string> = {
-  AUTH_LOGIN: "bg-blue-100 text-blue-700",
-  USER_REGISTER: "bg-blue-100 text-blue-700",
-  AUTH_LOGOUT: "bg-blue-100 text-blue-700",
-  APPOINTMENT_CREATE: "bg-green-100 text-green-700",
-  WALK_IN_REGISTER: "bg-green-100 text-green-700",
-  APPOINTMENT_STATUS_UPDATE: "bg-yellow-100 text-yellow-700",
-  INVOICE_CREATE: "bg-purple-100 text-purple-700",
-  PAYMENT_CREATE: "bg-purple-100 text-purple-700",
-  PRESCRIPTION_CREATE: "bg-teal-100 text-teal-700",
+  AUTH_LOGIN: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  USER_REGISTER: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  AUTH_LOGOUT: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  APPOINTMENT_CREATE: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+  WALK_IN_REGISTER: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+  APPOINTMENT_STATUS_UPDATE: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300",
+  INVOICE_CREATE: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+  PAYMENT_CREATE: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+  PRESCRIPTION_CREATE: "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300",
 };
 
 function getActionColor(action: string) {
-  return actionColors[action] || "bg-gray-100 text-gray-700";
+  return actionColors[action] || "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200";
 }
 
 // Issue #79: historical rows write entity in inconsistent casing
@@ -218,7 +223,7 @@ export default function AuditPage() {
   if (!user || user.role !== "ADMIN") {
     return (
       <div className="flex h-64 items-center justify-center">
-        <p className="text-gray-500">Access denied. Admin only.</p>
+        <p className="text-gray-500 dark:text-gray-400">Access denied. Admin only.</p>
       </div>
     );
   }
@@ -228,21 +233,25 @@ export default function AuditPage() {
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Shield size={24} className="text-gray-700" />
+          <Shield size={24} className="text-gray-700 dark:text-gray-200" />
           <h1 className="text-2xl font-bold">Audit Log</h1>
         </div>
         <button
           onClick={handleExport}
-          className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
         >
           <Download size={14} /> Export CSV
         </button>
       </div>
 
-      {/* Retention banner */}
+      {/* Retention banner — Issue #829: the original `bg-blue-50 text-blue-800`
+          combo fails AA on dark backgrounds (light-blue surface against the
+          near-black app shell, with mid-blue text). Pair with a dark-tinted
+          surface + readable foreground so the same shape works on both
+          themes. */}
       {retention && (
-        <div className="mb-4 flex items-start gap-3 rounded-xl bg-blue-50 p-4 text-sm text-blue-800">
-          <Info size={18} className="mt-0.5 text-blue-600" />
+        <div className="mb-4 flex items-start gap-3 rounded-xl bg-blue-50 p-4 text-sm text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">
+          <Info size={18} className="mt-0.5 text-blue-600 dark:text-blue-300" />
           <div>
             <p className="font-medium">
               Retention: {retention.retentionDays} days ·{" "}
@@ -264,9 +273,9 @@ export default function AuditPage() {
       )}
 
       {/* Filters */}
-      <div className="mb-6 grid grid-cols-1 gap-3 rounded-xl bg-white p-4 shadow-sm md:grid-cols-4">
+      <div className="mb-6 grid grid-cols-1 gap-3 rounded-xl bg-white p-4 shadow-sm md:grid-cols-4 dark:bg-gray-800">
         <div>
-          <label htmlFor="audit-filter-from" className="mb-1 block text-xs font-medium text-gray-500">
+          <label htmlFor="audit-filter-from" className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
             From
           </label>
           <input
@@ -274,11 +283,11 @@ export default function AuditPage() {
             type="date"
             value={fromDate}
             onChange={(e) => setFromDate(e.target.value)}
-            className="w-full rounded-lg border px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 dark:scheme-dark"
           />
         </div>
         <div>
-          <label htmlFor="audit-filter-to" className="mb-1 block text-xs font-medium text-gray-500">
+          <label htmlFor="audit-filter-to" className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
             To
           </label>
           <input
@@ -286,11 +295,11 @@ export default function AuditPage() {
             type="date"
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}
-            className="w-full rounded-lg border px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 dark:scheme-dark"
           />
         </div>
         <div>
-          <label htmlFor="audit-filter-entity" className="mb-1 block text-xs font-medium text-gray-500">
+          <label htmlFor="audit-filter-entity" className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
             Entity Type
           </label>
           <select
@@ -298,7 +307,7 @@ export default function AuditPage() {
             data-testid="audit-entity-filter"
             value={entity}
             onChange={(e) => setEntity(e.target.value)}
-            className="w-full rounded-lg border px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 dark:scheme-dark"
           >
             <option value="">All</option>
             {entityTypes.map((et) => (
@@ -309,14 +318,14 @@ export default function AuditPage() {
           </select>
         </div>
         <div>
-          <label htmlFor="audit-filter-action" className="mb-1 block text-xs font-medium text-gray-500">
+          <label htmlFor="audit-filter-action" className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
             Action
           </label>
           <select
             id="audit-filter-action"
             value={action}
             onChange={(e) => setAction(e.target.value)}
-            className="w-full rounded-lg border px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 dark:scheme-dark"
           >
             <option value="">All</option>
             {filterOpts?.actions?.map((a) => (
@@ -327,14 +336,14 @@ export default function AuditPage() {
           </select>
         </div>
         <div>
-          <label htmlFor="audit-filter-user" className="mb-1 block text-xs font-medium text-gray-500">
+          <label htmlFor="audit-filter-user" className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
             User
           </label>
           <select
             id="audit-filter-user"
             value={userId}
             onChange={(e) => setUserId(e.target.value)}
-            className="w-full rounded-lg border px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 dark:scheme-dark"
           >
             <option value="">All</option>
             {filterOpts?.users?.map((u) => (
@@ -345,7 +354,7 @@ export default function AuditPage() {
           </select>
         </div>
         <div>
-          <label htmlFor="audit-filter-ip" className="mb-1 block text-xs font-medium text-gray-500">
+          <label htmlFor="audit-filter-ip" className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
             IP Contains
           </label>
           <input
@@ -354,11 +363,11 @@ export default function AuditPage() {
             value={ipContains}
             onChange={(e) => setIpContains(e.target.value)}
             placeholder="e.g. 192.168."
-            className="w-full rounded-lg border px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 dark:scheme-dark"
           />
         </div>
         <div className="md:col-span-2">
-          <label htmlFor="audit-filter-q" className="mb-1 block text-xs font-medium text-gray-500">
+          <label htmlFor="audit-filter-q" className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
             Free-text search (entity, action, details)
           </label>
           <input
@@ -367,7 +376,7 @@ export default function AuditPage() {
             value={freeText}
             onChange={(e) => setFreeText(e.target.value)}
             placeholder="Search..."
-            className="w-full rounded-lg border px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 dark:scheme-dark"
           />
         </div>
         <div className="md:col-span-4 flex justify-end">
@@ -381,11 +390,11 @@ export default function AuditPage() {
       </div>
 
       {/* Table */}
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading && entries.length === 0 ? (
           <div className="p-4"><SkeletonTable rows={8} columns={6} /></div>
         ) : entries.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No audit entries found
           </div>
         ) : (
@@ -393,7 +402,7 @@ export default function AuditPage() {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b text-left text-sm text-gray-500">
+                  <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                     <th className="whitespace-nowrap px-4 py-3">Timestamp</th>
                     <th className="whitespace-nowrap px-4 py-3">User</th>
                     <th className="whitespace-nowrap px-4 py-3">Action</th>
@@ -405,12 +414,12 @@ export default function AuditPage() {
                 <tbody>
                   {entries.map((entry) => (
                     <tr key={entry.id} className="border-b last:border-0">
-                      <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-600">
+                      <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
                         {formatTimestamp(entry.timestamp)}
                       </td>
                       <td className="px-4 py-3">
                         <p className="text-sm font-medium">{entry.userName}</p>
-                        <p className="text-xs text-gray-400">
+                        <p className="text-xs text-gray-400 dark:text-gray-500">
                           {entry.userEmail}
                         </p>
                       </td>
@@ -435,11 +444,11 @@ export default function AuditPage() {
                             data-testid={`audit-entity-${entry.id}`}
                             title={entry.entityId ?? ""}
                           >
-                            <p className="text-sm text-gray-800">
+                            <p className="text-sm text-gray-800 dark:text-gray-100">
                               {entry.entityLabel}
                             </p>
                             {entry.entityId && (
-                              <code className="text-[10px] text-gray-400">
+                              <code className="text-[10px] text-gray-400 dark:text-gray-500">
                                 {entry.entityId}
                               </code>
                             )}
@@ -447,13 +456,13 @@ export default function AuditPage() {
                         ) : entry.entityId ? (
                           <code
                             data-testid={`audit-entity-${entry.id}`}
-                            className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600"
+                            className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300"
                           >
                             {entry.entityId}
                           </code>
                         ) : null}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-500">
+                      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                         {entry.ipAddress ?? ""}
                       </td>
                     </tr>
@@ -467,7 +476,7 @@ export default function AuditPage() {
                 <button
                   onClick={loadMore}
                   disabled={loading}
-                  className="rounded-lg border px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
                 >
                   {loading ? "Loading..." : "Load More"}
                 </button>

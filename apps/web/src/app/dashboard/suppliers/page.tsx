@@ -16,7 +16,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
-import { Truck, Plus, X, Mail, Phone, MapPin, FileText, Edit2, Power } from "lucide-react";
+import { Truck, Plus, X, Mail, Phone, MapPin, FileText, Edit2, Power, Search } from "lucide-react";
 
 interface SupplierRecord {
   id: string;
@@ -140,7 +140,7 @@ export default function SuppliersPage() {
           <h1 className="flex items-center gap-2 text-2xl font-bold">
             <Truck className="text-primary" size={28} /> Suppliers
           </h1>
-          <p className="text-sm text-gray-500">Manage medicine and equipment vendors</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Manage medicine and equipment vendors</p>
         </div>
         <button
           onClick={() => setShowAdd(true)}
@@ -151,15 +151,32 @@ export default function SuppliersPage() {
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search suppliers by name, contact or GST..."
-          className="w-full max-w-sm rounded-lg border px-3 py-2 text-sm"
-        />
+        {/* Issue #832: left search icon to match the Asset Management /
+            patients / icd10 search pattern. The relative wrapper plus the
+            absolutely-positioned icon mirrors the convention so the visual
+            language of "this is a search field" is consistent across
+            modules. `pl-9` reserves space so the placeholder/value never
+            overlaps the glyph. */}
+        <div className="relative w-full max-w-sm">
+          <Search
+            size={16}
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400"
+          />
+          <label htmlFor="suppliers-search" className="sr-only">
+            Search suppliers
+          </label>
+          <input
+            id="suppliers-search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search suppliers by name, contact or GST..."
+            className="w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+          />
+        </div>
         {/* Issue #692: toggle to show deactivated suppliers — needed
             for the re-activation workflow. */}
-        <label className="flex items-center gap-2 text-sm text-gray-600">
+        <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
           <input
             type="checkbox"
             checked={showInactive}
@@ -172,15 +189,15 @@ export default function SuppliersPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr,400px]">
-        <div className="rounded-xl bg-white shadow-sm">
+        <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
           {loading ? (
-            <div className="p-8 text-center text-gray-500">Loading...</div>
+            <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
           ) : suppliers.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">No suppliers found</div>
+            <div className="p-8 text-center text-gray-500 dark:text-gray-400">No suppliers found</div>
           ) : (
             <table className="w-full">
               <thead>
-                <tr className="border-b text-left text-sm text-gray-500">
+                <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                   <th className="px-4 py-3">Supplier</th>
                   <th className="px-4 py-3">Contact</th>
                   <th className="px-4 py-3">Phone</th>
@@ -203,9 +220,9 @@ export default function SuppliersPage() {
                     } ${!s.isActive ? "opacity-60" : ""}`}
                   >
                     <td className="px-4 py-3">
-                      <p className="font-medium text-gray-900">{s.name}</p>
+                      <p className="font-medium text-gray-900 dark:text-gray-100">{s.name}</p>
                       {s.paymentTerms && (
-                        <p className="text-xs text-gray-600">{s.paymentTerms}</p>
+                        <p className="text-xs text-gray-600 dark:text-gray-300">{s.paymentTerms}</p>
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-800">
@@ -243,7 +260,7 @@ export default function SuppliersPage() {
                           data-testid={`supplier-edit-${s.id}`}
                           aria-label={`Edit ${s.name}`}
                           title="Edit"
-                          className="rounded p-1 text-gray-600 hover:bg-gray-100"
+                          className="rounded p-1 text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
                         >
                           <Edit2 size={14} />
                         </button>
@@ -270,16 +287,16 @@ export default function SuppliersPage() {
         </div>
 
         {selectedId && (
-          <aside className="rounded-xl bg-white p-5 shadow-sm">
+          <aside className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
             {!detail ? (
-              <div className="text-sm text-gray-500">Loading...</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">Loading...</div>
             ) : (
               <>
                 <div className="mb-4 flex items-start justify-between">
                   <div>
                     <h2 className="text-lg font-bold">{detail.name}</h2>
                     {detail.contactPerson && (
-                      <p className="text-sm text-gray-500">{detail.contactPerson}</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">{detail.contactPerson}</p>
                     )}
                   </div>
                   <button
@@ -287,7 +304,7 @@ export default function SuppliersPage() {
                       setSelectedId(null);
                       setDetail(null);
                     }}
-                    className="text-gray-400 hover:text-gray-600"
+                    className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
                   >
                     <X size={20} />
                   </button>
@@ -328,11 +345,11 @@ export default function SuppliersPage() {
                 />
 
                 <div>
-                  <h3 className="mb-2 text-sm font-semibold text-gray-700">
+                  <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
                     Recent Purchase Orders
                   </h3>
                   {detail.purchaseOrders.length === 0 ? (
-                    <p className="text-sm text-gray-500">No purchase orders yet</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">No purchase orders yet</p>
                   ) : (
                     <ul className="space-y-2">
                       {detail.purchaseOrders.map((po) => (
@@ -348,7 +365,7 @@ export default function SuppliersPage() {
                               {po.status}
                             </span>
                           </div>
-                          <div className="mt-1 flex justify-between text-xs text-gray-500">
+                          <div className="mt-1 flex justify-between text-xs text-gray-500 dark:text-gray-400">
                             <span>{po.items.length} items</span>
                             <span>Rs. {po.totalAmount.toFixed(2)}</span>
                           </div>
@@ -460,10 +477,10 @@ function AddSupplierModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-2xl">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-2xl dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Add Supplier</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">
             <X size={20} />
           </button>
         </div>
@@ -548,7 +565,7 @@ function AddSupplierModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+              className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
             >
               Cancel
             </button>
@@ -636,12 +653,12 @@ function EditSupplierModal({
       aria-labelledby="edit-supplier-title"
       data-testid="supplier-edit-modal"
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-2xl">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-2xl dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
           <h2 id="edit-supplier-title" className="text-lg font-bold">
             Edit Supplier
           </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">
             <X size={20} />
           </button>
         </div>
@@ -742,7 +759,7 @@ function EditSupplierModal({
               />
               <span>
                 Active{" "}
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
                   (uncheck to hide from default list)
                 </span>
               </span>
@@ -758,7 +775,7 @@ function EditSupplierModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+              className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
             >
               Cancel
             </button>
@@ -820,11 +837,11 @@ function SupplierContractPanel({
   return (
     <div className="mb-4 rounded-lg border bg-gray-50 p-3">
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-700">Contract</h3>
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Contract</h3>
         {!edit && (
           <button
             onClick={() => setEdit(true)}
-            className="rounded border px-2 py-0.5 text-xs hover:bg-white"
+            className="rounded border px-2 py-0.5 text-xs hover:bg-white dark:border-gray-600 dark:hover:bg-gray-700"
           >
             {supplier.contractStart || supplier.contractEnd ? "Edit" : "Add"}
           </button>
@@ -834,7 +851,7 @@ function SupplierContractPanel({
         <div className="space-y-2">
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label htmlFor={`supplier-${supplier.id}-contract-start`} className="text-xs text-gray-500">Start</label>
+              <label htmlFor={`supplier-${supplier.id}-contract-start`} className="text-xs text-gray-500 dark:text-gray-400">Start</label>
               <input
                 id={`supplier-${supplier.id}-contract-start`}
                 type="date"
@@ -844,7 +861,7 @@ function SupplierContractPanel({
               />
             </div>
             <div>
-              <label htmlFor={`supplier-${supplier.id}-contract-end`} className="text-xs text-gray-500">End</label>
+              <label htmlFor={`supplier-${supplier.id}-contract-end`} className="text-xs text-gray-500 dark:text-gray-400">End</label>
               <input
                 id={`supplier-${supplier.id}-contract-end`}
                 type="date"
@@ -871,17 +888,17 @@ function SupplierContractPanel({
           </div>
         </div>
       ) : (
-        <div className="text-xs text-gray-700">
+        <div className="text-xs text-gray-700 dark:text-gray-200">
           {supplier.contractStart || supplier.contractEnd ? (
             <>
               <p>
-                <span className="text-gray-500">Start:</span>{" "}
+                <span className="text-gray-500 dark:text-gray-400">Start:</span>{" "}
                 {supplier.contractStart
                   ? new Date(supplier.contractStart).toLocaleDateString()
                   : "—"}
               </p>
               <p>
-                <span className="text-gray-500">End:</span>{" "}
+                <span className="text-gray-500 dark:text-gray-400">End:</span>{" "}
                 {supplier.contractEnd
                   ? new Date(supplier.contractEnd).toLocaleDateString()
                   : "—"}
@@ -898,7 +915,7 @@ function SupplierContractPanel({
               </p>
             </>
           ) : (
-            <p className="text-gray-500">No contract dates set.</p>
+            <p className="text-gray-500 dark:text-gray-400">No contract dates set.</p>
           )}
         </div>
       )}

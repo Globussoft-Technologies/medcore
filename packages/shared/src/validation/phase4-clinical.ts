@@ -253,26 +253,53 @@ export const assignEmergencyDoctorSchema = z.object({
 // Issue #424: both `disposition` and `outcomeNotes` were stored XSS sinks —
 // the close modal lets the doctor type free text, then the chart detail page
 // renders both directly. Reject HTML/script payloads at the schema layer.
-export const updateEmergencyStatusSchema = z.object({
-  status: z.enum(EMERGENCY_STATUS),
-  attendingDoctorId: z.string().uuid().optional(),
-  disposition: z
-    .string({ error: "Disposition is required" })
-    .trim()
-    .min(1, "Disposition is required")
-    .refine((v) => !containsHtmlOrScript(v), {
-      message:
-        "Disposition contains characters that aren't allowed (e.g. < > or HTML tags)",
-    }),
-  outcomeNotes: z
-    .string({ error: "Outcome notes are required" })
-    .trim()
-    .min(1, "Outcome notes are required")
-    .refine((v) => !containsHtmlOrScript(v), {
-      message:
-        "Outcome notes contain characters that aren't allowed (e.g. < > or HTML tags)",
-    }),
-});
+// Issue #893 (May 2026): `outcomeNotes` is required for ordinary closures
+// (DISCHARGED / ADMITTED / TRANSFERRED / DECEASED) where the attending
+// clinician records the patient's outcome. But for the LWBS path
+// (status === "LEFT_WITHOUT_BEING_SEEN", disposition mirroring the same)
+// there is by definition no clinical handoff to document — the patient left
+// before being seen. Forcing `outcomeNotes` here blocked the LWBS escalation
+// pipeline (#893) and surfaced as the two failing close-handler tests on
+// c8f7412. We accept the input either way and use `.superRefine()` to
+// require `outcomeNotes` only when the status is NOT LWBS. The XSS guard
+// from #424 still applies when notes are provided.
+export const updateEmergencyStatusSchema = z
+  .object({
+    status: z.enum(EMERGENCY_STATUS),
+    attendingDoctorId: z.string().uuid().optional(),
+    disposition: z
+      .string({ error: "Disposition is required" })
+      .trim()
+      .min(1, "Disposition is required")
+      .refine((v) => !containsHtmlOrScript(v), {
+        message:
+          "Disposition contains characters that aren't allowed (e.g. < > or HTML tags)",
+      }),
+    outcomeNotes: z
+      .string()
+      .trim()
+      .optional()
+      .refine(
+        (v) => v === undefined || !containsHtmlOrScript(v),
+        {
+          message:
+            "Outcome notes contain characters that aren't allowed (e.g. < > or HTML tags)",
+        },
+      ),
+  })
+  .superRefine((data, ctx) => {
+    if (data.status === "LEFT_WITHOUT_BEING_SEEN") return;
+    // Every other closure status requires non-empty outcome notes — same
+    // intent as the original #424 hardening, just relaxed for the LWBS
+    // path where there is no clinical handoff to capture.
+    if (!data.outcomeNotes || data.outcomeNotes.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["outcomeNotes"],
+        message: "Outcome notes are required",
+      });
+    }
+  });
 
 // Issue #424: MLC fields are rendered into the chart and the medico-legal
 // printout — XSS payload there would be highly embarrassing. Reject markup.

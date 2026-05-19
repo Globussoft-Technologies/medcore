@@ -55,6 +55,40 @@ function initials(name: string): string {
     .toUpperCase();
 }
 
+/**
+ * Issue #850 — sanitize a chat last-message preview before rendering.
+ *
+ * The chat list shows the trailing text of each room's last message as a
+ * single-line preview. A staging seed row in `All Staff Announcements`
+ * literally read `alert('XSS')` and was rendered verbatim, which both
+ * presents an injection-shaped payload as legitimate operational content
+ * AND demonstrates the preview slot does nothing to defuse script-like
+ * input. This helper:
+ *   1. Strips any HTML/script tags so a payload like `<script>alert(1)</script>`
+ *      shows as plain text without the surrounding markup.
+ *   2. Collapses adjacent whitespace + trims, so single-line previews stay
+ *      legible.
+ *   3. If the result still matches a JS-call-shape pattern (e.g.
+ *      `alert(...)`, `eval(...)`, `<script>`, `onerror=`), masks it to
+ *      `[blocked content]` so seed-data injections don't surface as
+ *      apparent operational content.
+ * The full message body (rendered with `whitespace-pre-wrap` in the chat
+ * canvas) is unaffected — we only sanitize the at-a-glance preview slot.
+ */
+function sanitizeChatPreview(raw: string | undefined | null): string {
+  if (!raw) return "";
+  // Strip tags (greedy match of `<...>` blocks)
+  const stripped = String(raw).replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  if (!stripped) return "";
+  // Pattern-match script-shaped seed data and mask it; everything else
+  // passes through as plain text.
+  const SUSPICIOUS = /(?:\b(?:alert|eval|prompt|confirm|document\.|window\.|javascript:)\b|on\w+\s*=)/i;
+  if (SUSPICIOUS.test(stripped)) {
+    return "[blocked content]";
+  }
+  return stripped;
+}
+
 function groupByDate(messages: Message[]): Array<{ date: string; msgs: Message[] }> {
   const groups: Record<string, Message[]> = {};
   for (const m of messages) {
@@ -338,7 +372,7 @@ export default function ChatPage() {
                     </div>
                     <div className="flex items-center justify-between">
                       <p className="truncate text-xs text-gray-500 dark:text-gray-400">
-                        {room.lastMessage?.content || "No messages yet"}
+                        {sanitizeChatPreview(room.lastMessage?.content) || "No messages yet"}
                       </p>
                       {room.unreadCount > 0 && (
                         <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-xs text-white">

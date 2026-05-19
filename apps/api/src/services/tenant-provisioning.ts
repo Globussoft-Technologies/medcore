@@ -105,7 +105,14 @@ const DEFAULT_TEMPLATES: TemplateSeed[] = [
     type: "APPOINTMENT_REMINDER" as NTy,
     channel: "SMS" as NCh,
     name: "Appointment Reminder (SMS)",
-    body: "Reminder: {{patientName}}, you have an appointment with Dr. {{doctorName}} tomorrow at {{time}}. Token: {{tokenNumber}}. - {{hospitalName}}",
+    // Issue #879: never bake the word "tomorrow" into the persisted SMS
+    // body. The notification row outlives "tomorrow" by days and the
+    // patient ends up reading a temporally-false reminder. Use the
+    // {{date}} variable (already populated upstream as a DD-MMM-YYYY
+    // string) so a row read 2 days later still says "is scheduled for
+    // 09 May 2026" — factually correct even after the appointment has
+    // passed.
+    body: "Reminder: {{patientName}}, you have an appointment with Dr. {{doctorName}} on {{date}} at {{time}}. Token: {{tokenNumber}}. - {{hospitalName}}",
   },
   {
     type: "APPOINTMENT_CANCELLED" as NTy,

@@ -392,6 +392,10 @@ export default function BillingPage() {
     PARTIAL: "bg-yellow-100 text-yellow-700",
     PAID: "bg-green-100 text-green-700",
     REFUNDED: "bg-gray-100 text-gray-500",
+    // Issue #859: refund-due credit state — purple-tinted so it stands
+    // apart from the green PAID badge and Reception can spot it at a
+    // glance in the list.
+    OVERPAID: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-200",
   };
 
   const tabs: Array<{ id: Tab; label: string }> = [
@@ -440,20 +444,31 @@ export default function BillingPage() {
         });
         const displayTotal = hasItems ? totals.totalAmount : inv.totalAmount;
         const balance = Math.max(0, displayTotal - netPaid);
+        // Issue #859: when payments exceed the invoice total, the
+        // legacy status (PAID) and balance (clamped to 0) hide a
+        // refund-due credit. Surface the overpayment so Reception can
+        // act on it. We compute the surplus from the raw netPaid minus
+        // displayTotal — any positive value means the patient is
+        // owed a refund.
+        const overpaid = Math.max(0, netPaid - displayTotal);
         const age = daysAgo(inv.createdAt);
         // Issue #235: a row stored as PAID with non-zero balance must
         // display as PARTIAL — derivePaymentStatus is the single rule.
-        const displayStatus = derivePaymentStatus(
+        // Issue #859: when overpaid, force display to OVERPAID so the
+        // PAID badge doesn't silently swallow the credit-due state.
+        const baseStatus = derivePaymentStatus(
           inv.paymentStatus,
           displayTotal,
           netPaid
         );
+        const displayStatus = overpaid > 0 ? "OVERPAID" : baseStatus;
         return {
           ...inv,
           paid,
           refunded,
           netPaid,
           balance,
+          overpaid,
           age,
           displayStatus,
           displayTotal,
@@ -657,14 +672,31 @@ export default function BillingPage() {
                   <td
                     className="px-4 py-3 text-sm font-semibold"
                   >
-                    <MoneyValue
-                      amount={inv.balance}
-                      tone={
-                        inv.balance > 0
-                          ? "text-red-600 dark:text-red-400"
-                          : "text-gray-500 dark:text-gray-400"
-                      }
-                    />
+                    {/* Issue #859: when overpaid, show the credit
+                        amount instead of the clamped-to-zero balance.
+                        The Status badge already says OVERPAID; this
+                        cell makes the magnitude visible so Reception
+                        knows how much refund is owed without opening
+                        the invoice. */}
+                    {inv.overpaid > 0 ? (
+                      <div className="flex flex-col items-end">
+                        <span
+                          data-testid={`bills-credit-${inv.id}`}
+                          className="text-xs font-medium text-purple-700 dark:text-purple-300"
+                        >
+                          CREDIT {fmtMoney(inv.overpaid)}
+                        </span>
+                      </div>
+                    ) : (
+                      <MoneyValue
+                        amount={inv.balance}
+                        tone={
+                          inv.balance > 0
+                            ? "text-red-600 dark:text-red-400"
+                            : "text-gray-500 dark:text-gray-400"
+                        }
+                      />
+                    )}
                   </td>
                   {/* Issue #400: Age must be computed per-row from the
                       invoice's createdAt, not a hardcoded constant. The

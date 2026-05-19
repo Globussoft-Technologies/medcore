@@ -8,6 +8,7 @@ import { formatDoctorName } from "@/lib/format-doctor-name";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useTranslation } from "@/lib/i18n";
+import { useAuthStore } from "@/lib/store";
 import { extractFieldErrors } from "@/lib/field-errors";
 import {
   categorizeService,
@@ -105,6 +106,15 @@ export default function InvoiceDetailPage() {
   const id = params.id as string;
   const confirm = useConfirm();
   const { t } = useTranslation();
+  // Issue #861: cashier controls (Apply Discount, Record Payment, Record
+  // Refund, Create Plan) must never render for PATIENT role. Even though
+  // the API enforces RBAC, exposing the buttons in a patient UI is a
+  // trust + UX defect — the patient sees admin-shaped controls, clicks
+  // them, gets confusing error toasts. Gate everything off `isStaff`
+  // below; PATIENT (and any other non-staff role) only sees Print +
+  // Pay Online + Back.
+  const { user } = useAuthStore();
+  const isStaff = user?.role === "ADMIN" || user?.role === "RECEPTION";
   const [invoice, setInvoice] = useState<InvoiceDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [hospital, setHospital] = useState<HospitalProfile>(DEFAULT_HOSPITAL);
@@ -525,7 +535,12 @@ export default function InvoiceDetailPage() {
           <ArrowLeft size={16} /> Back to Billing
         </Link>
         <div className="flex flex-wrap items-center gap-2">
-          {displayStatus !== "PAID" &&
+          {/* Issue #861: cashier-only controls. PATIENT must never see
+              Apply Discount, Record Payment, Record Refund, or Create
+              Plan — those are admin/reception operations. The patient
+              keeps Pay Online + Print + Back. */}
+          {isStaff &&
+            displayStatus !== "PAID" &&
             displayStatus !== "REFUNDED" && (
               <button
                 onClick={() => setDiscOpen(true)}
@@ -534,7 +549,7 @@ export default function InvoiceDetailPage() {
                 <Percent size={14} /> Apply Discount
               </button>
             )}
-          {balance > 0 && (
+          {isStaff && balance > 0 && (
             <button
               onClick={() => {
                 setPayAmount(String(balance));
@@ -561,7 +576,7 @@ export default function InvoiceDetailPage() {
               )}
             </button>
           )}
-          {netPaid > 0 && (
+          {isStaff && netPaid > 0 && (
             <button
               onClick={() => {
                 setRefundAmount(String(netPaid));
@@ -572,7 +587,7 @@ export default function InvoiceDetailPage() {
               <Undo2 size={14} /> Record Refund
             </button>
           )}
-          {balance > 0 && (
+          {isStaff && balance > 0 && (
             <button
               onClick={() => setPlanOpen(true)}
               className="flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"

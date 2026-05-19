@@ -1803,7 +1803,27 @@ router.post(
       });
       const nextToken = (last?.tokenNumber ?? 0) + 1;
 
-      const transferNote = `[TRANSFERRED from ${existing.doctorId} by ${req.user!.userId}] ${reason}`;
+      // Issue #842: embed FRIENDLY names in the transfer note rather than
+      // the raw doctorId / userId UUIDs. The previous note shape
+      // `[TRANSFERRED from <doctorUuid> by <userUuid>] <reason>` surfaced
+      // verbatim in the patient timeline / Recent Activity widget, leaking
+      // internal identifiers AND being unreadable at a glance for
+      // reception. Resolve both UUIDs to display names server-side here.
+      const [fromDoctor, actor] = await Promise.all([
+        prisma.doctor.findUnique({
+          where: { id: existing.doctorId },
+          include: { user: { select: { name: true } } },
+        }),
+        prisma.user.findUnique({
+          where: { id: req.user!.userId },
+          select: { name: true },
+        }),
+      ]);
+      const fromName = fromDoctor?.user?.name
+        ? `Dr. ${fromDoctor.user.name.replace(/^Dr\.?\s+/i, "")}`
+        : "previous doctor";
+      const actorName = actor?.name || "staff";
+      const transferNote = `[TRANSFERRED from ${fromName} by ${actorName}] ${reason}`;
 
       const updated = await prisma.appointment.update({
         where: { id: existing.id },

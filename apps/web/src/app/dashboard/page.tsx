@@ -1127,6 +1127,27 @@ function QuickAction({
 // Patient Portal Home
 // ──────────────────────────────────────────────────────────
 
+// Issue #867: friendly labels for AppointmentType enum values so the
+// patient hero card matches the My Appointments list ("Walk-in", not
+// "WALK_IN"). Keep this local — it's used only by the patient dashboard.
+const APPT_TYPE_LABELS: Record<string, string> = {
+  WALK_IN: "Walk-in",
+  TELEMEDICINE: "Telemedicine",
+  IN_PERSON: "In-person",
+  FOLLOW_UP: "Follow-up",
+  EMERGENCY: "Emergency",
+  SCHEDULED: "Scheduled",
+};
+function displayApptType(raw: string | null | undefined): string {
+  if (!raw) return "—";
+  if (APPT_TYPE_LABELS[raw]) return APPT_TYPE_LABELS[raw];
+  // Best-effort fallback: TITLE_CASE → Title case with hyphens.
+  return raw
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
 function PatientHome() {
   const [upcoming, setUpcoming] = useState<any | null>(null);
   const [bills, setBills] = useState<any[]>([]);
@@ -1173,22 +1194,48 @@ function PatientHome() {
         return Array.isArray(arr) ? arr : [];
       };
       const apArr = safeArr(settled[0]);
-      // Issue #546 (2026-05-05): the API filter `from=today` already excludes
-      // past calendar dates, but the upcoming card was still rendering rows
-      // dated today-or-earlier in some races (timezone boundary, sort by
-      // ascending date that picks the OLDEST first). Belt-and-braces: drop
-      // anything strictly before the start of today's local day, and prefer
-      // the EARLIEST upcoming row (sort ascending) only among the remaining.
-      const todayMidnight = new Date();
-      todayMidnight.setHours(0, 0, 0, 0);
+      // Issue #546 (2026-05-05) + Issue #865 (2026-05-19): the API filter
+      // `from=today` is silently ignored by the appointments list handler
+      // (apps/api/src/routes/appointments.ts:303 doesn't read `from`), so a
+      // PATIENT's full BOOKED history comes back ordered DESC. Apr-14 rows
+      // were still surfacing on the patient dashboard's "My Upcoming" card
+      // on May-11+. Belt-and-braces:
+      //   1. Drop anything strictly before the start of today's local day.
+      //   2. Compare on a YYYY-MM-DD basis (not ISO time) to avoid the
+      //      timezone-shift class — `a.date` may arrive as "2026-04-14"
+      //      OR "2026-04-14T00:00:00.000Z" depending on the row's storage,
+      //      and `new Date("2026-04-14")` parses as UTC midnight which can
+      //      land on May-10 in IST around the edge.
+      //   3. Restrict to truly upcoming statuses (BOOKED / CHECKED_IN).
+      //      A CANCELLED / COMPLETED / NO_SHOW row should never be the
+      //      "My Upcoming Appointment" hero.
+      //   4. Sort ASCENDING and pick the earliest upcoming row.
+      const now = new Date();
+      const todayYmd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const UPCOMING_STATUSES = new Set(["BOOKED", "CHECKED_IN"]);
+      const dateYmd = (raw: unknown): string | null => {
+        if (typeof raw !== "string") return null;
+        // Bare YYYY-MM-DD OR full ISO — just take the first 10 chars,
+        // which is always the date in the API's wire format.
+        return raw.length >= 10 ? raw.slice(0, 10) : null;
+      };
       const futureOnly = apArr.filter((a: any) => {
-        if (!a?.date) return false;
-        return new Date(a.date).getTime() >= todayMidnight.getTime();
+        const ymd = dateYmd(a?.date);
+        if (!ymd) return false;
+        if (ymd < todayYmd) return false;
+        if (!UPCOMING_STATUSES.has(a?.status)) return false;
+        return true;
       });
-      const upc = futureOnly.sort(
-        (a: any, b: any) =>
-          new Date(a.date).getTime() - new Date(b.date).getTime()
-      )[0];
+      const upc = futureOnly.sort((a: any, b: any) => {
+        const ay = dateYmd(a.date) ?? "";
+        const by = dateYmd(b.date) ?? "";
+        if (ay !== by) return ay.localeCompare(by);
+        // Tie-break on slotStart so an earlier slot today wins over a
+        // later one — keeps the hero card pointed at the next consult.
+        const as = String(a.slotStart ?? "");
+        const bs = String(b.slotStart ?? "");
+        return as.localeCompare(bs);
+      })[0];
       setUpcoming(upc || null);
       setBills(safeArr(settled[1]));
       setBillsFailed(settled[1].status === "rejected");
@@ -1261,8 +1308,11 @@ function PatientHome() {
                   ? ` · ${upcoming.doctor.specialization}`
                   : ""}
               </p>
+              {/* Issue #867: don't expose raw enums — map WALK_IN, TELEMEDICINE,
+                  IN_PERSON, FOLLOW_UP, EMERGENCY to friendly labels matching
+                  the My Appointments list (which already uses "Walk-in"). */}
               <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                Type: {upcoming.type}
+                Type: {displayApptType(upcoming.type)}
               </p>
               <div className="mt-3 flex gap-2">
                 {upcoming.type === "TELEMEDICINE" && (

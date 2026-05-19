@@ -964,13 +964,34 @@ router.get(
       };
       const entries: Entry[] = [];
 
+      // Issue #842: legacy transferred-appointment notes were persisted
+      // with the shape `[TRANSFERRED from <doctorUuid> by <userUuid>] reason`.
+      // The fix at appointments.ts:1806 (write-side) embeds friendly names
+      // for any new transfer, but historical rows are still in the DB.
+      // Scrub any legacy UUIDs out of the description text shown to the
+      // user — replace with a generic "previous doctor" / "staff" tag,
+      // preserving the reason text after the bracket.
+      const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+      const scrubTransferNote = (note: string): string =>
+        note.replace(
+          /\[TRANSFERRED from ([^\]]+) by ([^\]]+)\]/g,
+          (_full, from: string, by: string) => {
+            const fromClean = UUID_RE.test(from) ? "previous doctor" : from;
+            UUID_RE.lastIndex = 0;
+            const byClean = UUID_RE.test(by) ? "staff" : by;
+            UUID_RE.lastIndex = 0;
+            return `[Transferred from ${fromClean} by ${byClean}]`;
+          },
+        );
+
       for (const a of appointments) {
+        const cleanNotes = a.notes ? scrubTransferNote(a.notes) : "";
         entries.push({
           id: `appt-${a.id}`,
           type: "appointment",
           title: `Appointment with ${formatDoctorName(a.doctor?.user?.name) || "—"}`,
           description: `${a.type} · ${a.status.replace(/_/g, " ")}${
-            a.notes ? ` · ${a.notes}` : ""
+            cleanNotes ? ` · ${cleanNotes}` : ""
           }`,
           timestamp: new Date(a.date).toISOString(),
           icon: "Calendar",

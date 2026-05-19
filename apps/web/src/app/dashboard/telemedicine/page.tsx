@@ -74,6 +74,22 @@ const STATUS_COLORS: Record<string, string> = {
   CANCELLED: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
 };
 
+/**
+ * Issue #860: staging telemedicine seed data has `chiefComplaint = "E2E
+ * waiting-room seed"` (test fixture marker, see e2e/telemedicine-waiting-
+ * room.spec.ts:113) bleeding into the user-facing card subtitle. Treat
+ * any seed marker as an empty description so the card omits the
+ * subtitle line entirely rather than surface internal test metadata.
+ */
+const SEED_MARKERS = [/^e2e\s+waiting-room\s+seed$/i, /^e2e\s+seed$/i];
+function displayChiefComplaint(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (SEED_MARKERS.some((re) => re.test(trimmed))) return null;
+  return trimmed;
+}
+
 function joinActive(session: TelemedicineSession): boolean {
   if (session.status === "IN_PROGRESS") return true;
   if (session.status !== "SCHEDULED" && session.status !== "WAITING") return false;
@@ -497,11 +513,19 @@ export default function TelemedicinePage() {
                   <p className="text-gray-600 dark:text-gray-300">
                     {formatDateTime(s.scheduledAt)}
                   </p>
-                  {s.chiefComplaint && (
-                    <p className="mt-1 line-clamp-2 text-xs text-gray-500 dark:text-gray-400">
-                      {s.chiefComplaint}
-                    </p>
-                  )}
+                  {/* Issue #860: strip seed-fixture markers from the
+                      chief-complaint subtitle. `displayChiefComplaint` returns
+                      null for any "E2E waiting-room seed"-style marker so
+                      the card omits the row rather than surface test
+                      metadata as if it were a clinical description. */}
+                  {(() => {
+                    const cc = displayChiefComplaint(s.chiefComplaint);
+                    return cc ? (
+                      <p className="mt-1 line-clamp-2 text-xs text-gray-500 dark:text-gray-400">
+                        {cc}
+                      </p>
+                    ) : null;
+                  })()}
                   {/* Issue #872: keep completed-session cards visually
                       uniform — always render a Duration row on the
                       Completed tab, falling back to "not recorded" when the

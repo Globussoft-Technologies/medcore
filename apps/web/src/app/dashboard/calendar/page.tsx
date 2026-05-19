@@ -253,12 +253,27 @@ export default function UnifiedCalendarPage() {
           slotStart: a.slotStart,
           date: a.date,
         });
+        // Issue #871: for a PATIENT viewer the chip's `title` was the
+        // patient's OWN name — useless on their own calendar. Pivot the
+        // chip composition by role: PATIENTs see "<type> · Dr. <name>"
+        // (the doctor + appointment type are what matters to them);
+        // staff see the patient's name as before so they can scan their
+        // schedule by patient. The full row (date/time/type/status) is
+        // still in the subtitle that the detail popup renders.
+        const apptTypeLabel = String(a.type || "").replace(/_/g, " ").toLowerCase();
+        const doctorDisplay = a.doctor?.user?.name
+          ? formatDoctorName(a.doctor.user.name)
+          : "—";
+        const titleForViewer =
+          user.role === "PATIENT"
+            ? `${apptTypeLabel} · ${doctorDisplay}`
+            : a.patient?.user?.name || "Patient";
         collected.push({
           id: `appt-${a.id}`,
           date: fmtYmd(d),
           time: apptTime,
-          title: a.patient?.user?.name || "Patient",
-          subtitle: `${a.type} · ${a.doctor?.user?.name ? formatDoctorName(a.doctor.user.name) : "—"} · ${apptStatus}`,
+          title: titleForViewer,
+          subtitle: `${apptTypeLabel} · ${doctorDisplay} · ${apptStatus}`,
           type: "appointment",
           href: `/dashboard/appointments?id=${a.id}`,
           color: "bg-blue-500",
@@ -283,12 +298,23 @@ export default function UnifiedCalendarPage() {
       for (const t of telemed.data || []) {
         const d = new Date(t.scheduledAt || t.startedAt || Date.now());
         if (Number.isNaN(d.getTime())) continue; // Issue #593: skip bad rows
+        // Issue #871: a PATIENT viewer was seeing "Telemedicine · <ownName>"
+        // on every chip — their own name added no information. Show the
+        // doctor for PATIENT, the patient for staff.
+        const teleDoctor = t.doctor?.user?.name
+          ? formatDoctorName(t.doctor.user.name)
+          : "—";
+        const telePatient = t.patient?.user?.name || "";
         collected.push({
           id: `tele-${t.id}`,
           date: fmtYmd(d),
           time: hhmm(d),
-          title: `Telemedicine · ${t.patient?.user?.name || ""}`,
-          subtitle: `${t.doctor?.user?.name ? formatDoctorName(t.doctor.user.name) : "—"}`,
+          title:
+            user.role === "PATIENT"
+              ? `Telemedicine · ${teleDoctor}`
+              : `Telemedicine · ${telePatient}`,
+          subtitle:
+            user.role === "PATIENT" ? telePatient || teleDoctor : teleDoctor,
           type: "telemedicine",
           href: `/dashboard/telemedicine?id=${t.id}`,
           color: "bg-purple-500",
@@ -316,11 +342,23 @@ export default function UnifiedCalendarPage() {
       for (const rx of rxFollow.data || []) {
         if (!rx.followUpDate) continue;
         const d = parseEventDate(rx.followUpDate);
+        // Issue #871: PATIENT viewers were getting "Follow-up · <ownName>"
+        // chips — show the diagnosis (their actual reason to come in) and
+        // doctor instead, which is the information they need at a glance.
+        const rxDoctor = rx.doctor?.user?.name
+          ? formatDoctorName(rx.doctor.user.name)
+          : "—";
         collected.push({
           id: `followup-${rx.id}`,
           date: fmtYmd(d),
-          title: `Follow-up · ${rx.patient?.user?.name || ""}`,
-          subtitle: `For ${rx.diagnosis}`,
+          title:
+            user.role === "PATIENT"
+              ? `Follow-up · ${rx.diagnosis || rxDoctor}`
+              : `Follow-up · ${rx.patient?.user?.name || ""}`,
+          subtitle:
+            user.role === "PATIENT"
+              ? `${rxDoctor}`
+              : `For ${rx.diagnosis}`,
           type: "followup",
           href: `/dashboard/prescriptions?id=${rx.id}`,
           color: "bg-emerald-500",
@@ -530,11 +568,19 @@ export default function UnifiedCalendarPage() {
           and holidays — and stays self-documenting. */}
       <div className="flex flex-wrap gap-3 rounded-xl bg-white p-3 text-xs shadow-sm dark:bg-gray-800">
         <Legend color="bg-blue-500" Icon={CalendarIcon} label="Appointment" />
+        {/* Issue #870: hide clinical-workflow categories (Surgery, ANC)
+            from the PATIENT legend — these are staff/clinical taxonomy
+            and have no place on a patient-facing calendar. Telemedicine
+            and Follow-up are patient-relevant so they stay. */}
         {user?.role !== "PHARMACIST" && user?.role !== "LAB_TECH" && (
           <>
-            <Legend color="bg-rose-500" Icon={Scissors} label="Surgery" />
+            {user?.role !== "PATIENT" && (
+              <Legend color="bg-rose-500" Icon={Scissors} label="Surgery" />
+            )}
             <Legend color="bg-purple-500" Icon={Video} label="Telemedicine" />
-            <Legend color="bg-pink-500" Icon={Baby} label="ANC" />
+            {user?.role !== "PATIENT" && (
+              <Legend color="bg-pink-500" Icon={Baby} label="ANC" />
+            )}
             <Legend color="bg-emerald-500" Icon={FileText} label="Follow-up" />
           </>
         )}
@@ -666,9 +712,25 @@ export default function UnifiedCalendarPage() {
       })()}
 
       {viewMode === "week" && (() => {
-        // Anchor the week to `cursor` if cursor is in the displayed month,
-        // otherwise to today. Sun-start to match the month-grid header.
-        const anchor = new Date();
+        // Issue #868: Week view previously rendered a 7-cell strip with
+        // NO hour grid and was anchored to `new Date()` regardless of the
+        // user's prev/next navigation — clicking Week always jumped you
+        // to "this week" and showed nothing if today's week had no events.
+        // Two fixes here:
+        //   1. Anchor the week to `cursor` (the same state prev/next
+        //      drives) so the user's navigation is honored. If `cursor`
+        //      sits in the same month as today, prefer today so the
+        //      "Today" button feels natural; otherwise pick the first
+        //      day of the cursor's month.
+        //   2. Render an 06:00-22:00 hour grid (matching Day view and
+        //      the booking-slot window) so events bucket into their
+        //      start hour and the user can see when slots fit.
+        const today = new Date();
+        const anchor =
+          cursor.getMonth() === today.getMonth() &&
+          cursor.getFullYear() === today.getFullYear()
+            ? today
+            : new Date(cursor.getFullYear(), cursor.getMonth(), 1);
         const sun = new Date(anchor);
         sun.setDate(anchor.getDate() - anchor.getDay());
         const days: Date[] = [];
@@ -677,52 +739,126 @@ export default function UnifiedCalendarPage() {
           d.setDate(sun.getDate() + i);
           days.push(d);
         }
+        const HOUR_START = 6;
+        const HOUR_END = 22;
+        const hours: number[] = [];
+        for (let h = HOUR_START; h <= HOUR_END; h++) hours.push(h);
+        // Bucket each day's events into hour rows — same shape as the
+        // Day view so the user gets a real time-grid, not a flat strip.
+        const dayBuckets = days.map((d) => {
+          const ymd = fmtYmd(d);
+          const evs = byDate[ymd] || [];
+          const byHour: Record<number, CalEvent[]> = {};
+          const untimed: CalEvent[] = [];
+          for (const ev of evs) {
+            if (!ev.time) {
+              untimed.push(ev);
+              continue;
+            }
+            const hh = parseInt(ev.time.slice(0, 2), 10);
+            if (!Number.isFinite(hh)) {
+              untimed.push(ev);
+              continue;
+            }
+            const bucketHour = Math.min(Math.max(hh, HOUR_START), HOUR_END);
+            (byHour[bucketHour] ||= []).push(ev);
+          }
+          return { d, ymd, byHour, untimed };
+        });
         return (
           <div
             data-testid="cal-week-view"
-            className="rounded-xl bg-white p-3 shadow-sm dark:bg-gray-800"
+            className="overflow-x-auto rounded-xl bg-white p-3 shadow-sm dark:bg-gray-800"
           >
-            <div className="grid grid-cols-7 gap-2">
-              {days.map((d) => {
-                const ymd = fmtYmd(d);
-                const dayEvents = byDate[ymd] || [];
+            {/* Day-of-week header row */}
+            <div
+              className="grid border-b border-gray-200 dark:border-gray-700"
+              style={{ gridTemplateColumns: "60px repeat(7, minmax(0, 1fr))" }}
+            >
+              <div />
+              {dayBuckets.map(({ d, ymd, untimed }) => {
                 const isToday = ymd === todayYmd;
                 return (
                   <div
-                    key={ymd}
-                    className={`min-h-[140px] rounded-lg border p-2 ${
-                      isToday ? "border-primary bg-blue-50/40" : "border-gray-100"
+                    key={`hdr-${ymd}`}
+                    className={`px-2 py-1.5 text-center text-[11px] font-semibold ${
+                      isToday
+                        ? "text-primary dark:text-blue-300"
+                        : "text-gray-700 dark:text-gray-200"
                     }`}
                   >
-                    <div className="mb-1 text-[11px] font-semibold text-gray-500 dark:text-gray-400">
-                      {d.toLocaleDateString("en-IN", {
-                        weekday: "short",
-                        day: "numeric",
-                      })}
+                    <div>
+                      {d.toLocaleDateString("en-IN", { weekday: "short" })}
                     </div>
-                    <div className="space-y-0.5">
-                      {dayEvents.slice(0, 5).map((e) => (
-                        <button
-                          key={e.id}
-                          type="button"
-                          onClick={() => setSelected(e)}
-                          className={`block w-full truncate rounded px-1.5 py-0.5 text-left text-[10px] text-white ${e.color}`}
-                        >
-                          {e.time && (
-                            <span className="font-semibold">{e.time} · </span>
-                          )}
-                          {e.title}
-                        </button>
-                      ))}
-                      {dayEvents.length > 5 && (
-                        <p className="text-[10px] text-gray-500 dark:text-gray-400">
-                          +{dayEvents.length - 5} more
-                        </p>
-                      )}
-                    </div>
+                    <div className="text-sm font-bold">{d.getDate()}</div>
+                    {untimed.length > 0 && (
+                      <div className="mt-1 space-y-0.5">
+                        {untimed.slice(0, 2).map((e) => (
+                          <button
+                            key={e.id}
+                            type="button"
+                            onClick={() => setSelected(e)}
+                            className={`block w-full truncate rounded px-1 py-0.5 text-left text-[9px] text-white ${e.color}`}
+                            title={e.title}
+                          >
+                            {e.title}
+                          </button>
+                        ))}
+                        {untimed.length > 2 && (
+                          <p className="text-[9px] text-gray-500 dark:text-gray-400">
+                            +{untimed.length - 2}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
+            </div>
+            {/* Hour-row time grid */}
+            <div className="rounded-b-lg border-x border-b border-gray-200 dark:border-gray-700">
+              {hours.map((h) => (
+                <div
+                  key={h}
+                  className="grid border-b border-gray-200 last:border-b-0 dark:border-gray-700"
+                  style={{
+                    gridTemplateColumns: "60px repeat(7, minmax(0, 1fr))",
+                    minHeight: "48px",
+                  }}
+                >
+                  <div className="border-r border-gray-200 px-2 py-1 text-right text-[11px] text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                    {String(h).padStart(2, "0")}:00
+                  </div>
+                  {dayBuckets.map(({ ymd, byHour }) => {
+                    const cellEvents = byHour[h] || [];
+                    return (
+                      <div
+                        key={`${ymd}-${h}`}
+                        className="space-y-0.5 border-r border-gray-100 px-1 py-0.5 last:border-r-0 dark:border-gray-700"
+                      >
+                        {cellEvents.map((e) => (
+                          <button
+                            key={e.id}
+                            type="button"
+                            onClick={() => setSelected(e)}
+                            className={`block w-full truncate rounded px-1 py-0.5 text-left text-[10px] text-white ${e.color}`}
+                            title={
+                              e.time
+                                ? `${e.time} — ${e.title}${e.subtitle ? ` · ${e.subtitle}` : ""}`
+                                : e.title
+                            }
+                          >
+                            {e.time && (
+                              <span className="font-semibold">{e.time} · </span>
+                            )}
+                            {e.title}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           </div>
         );

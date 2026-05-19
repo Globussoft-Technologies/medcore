@@ -249,9 +249,9 @@ function CustomizeDashboardModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg">
-        <h2 className="mb-4 text-lg font-semibold">Customize Dashboard</h2>
-        <p className="mb-4 text-sm text-gray-500">
+      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg dark:bg-gray-800">
+        <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">Customize Dashboard</h2>
+        <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
           Toggle sections on or off. Your preferences are saved.
         </p>
         <div className="mb-6 space-y-2">
@@ -261,7 +261,7 @@ function CustomizeDashboardModal({
             return (
               <label
                 key={k}
-                className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 hover:bg-gray-50"
+                className="flex cursor-pointer items-center gap-3 rounded-lg border border-gray-200 p-3 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/50"
               >
                 <input
                   type="checkbox"
@@ -269,7 +269,7 @@ function CustomizeDashboardModal({
                   onChange={() => toggle(k)}
                   className="h-4 w-4"
                 />
-                <span className="text-sm">{WIDGET_LABELS[k]}</span>
+                <span className="text-sm text-gray-900 dark:text-gray-100">{WIDGET_LABELS[k]}</span>
               </label>
             );
           })}
@@ -277,7 +277,7 @@ function CustomizeDashboardModal({
         <div className="flex justify-end gap-2">
           <button
             onClick={onClose}
-            className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             Cancel
           </button>
@@ -575,7 +575,7 @@ export default function DashboardPage() {
           {!isPatient && (
             <button
               onClick={() => setShowCustomize(true)}
-              className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
             >
               Customize Dashboard
             </button>

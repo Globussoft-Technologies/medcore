@@ -584,7 +584,7 @@ export default function UnifiedCalendarPage() {
                       isToday ? "border-primary bg-blue-50/40" : "border-gray-100"
                     }`}
                   >
-                    <div className="mb-1 text-[11px] font-semibold text-gray-500">
+                    <div className="mb-1 text-[11px] font-semibold text-gray-500 dark:text-gray-400">
                       {d.toLocaleDateString("en-IN", {
                         weekday: "short",
                         day: "numeric",
@@ -605,7 +605,7 @@ export default function UnifiedCalendarPage() {
                         </button>
                       ))}
                       {dayEvents.length > 5 && (
-                        <p className="text-[10px] text-gray-500">
+                        <p className="text-[10px] text-gray-500 dark:text-gray-400">
                           +{dayEvents.length - 5} more
                         </p>
                       )}
@@ -710,7 +710,7 @@ export default function UnifiedCalendarPage() {
                     </button>
                   ))}
                   {dayEvents.length > 3 && (
-                    <p className="text-[10px] font-medium text-gray-500">
+                    <p className="text-[10px] font-medium text-gray-500 dark:text-gray-400">
                       +{dayEvents.length - 3} more
                     </p>
                   )}
@@ -739,14 +739,14 @@ export default function UnifiedCalendarPage() {
               </h3>
               <button
                 onClick={() => setSelected(null)}
-                className="text-gray-400 hover:text-gray-700"
+                className="text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200"
               >
                 <X size={16} />
               </button>
             </div>
             <div className="space-y-2 p-4 text-sm">
               {selected.subtitle && <p>{selected.subtitle}</p>}
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 {parseEventDate(selected.date).toLocaleDateString("en-IN", {
                   weekday: "long",
                   day: "numeric",
@@ -887,7 +887,7 @@ function NewEventDialog({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="rounded p-1 text-gray-500 hover:bg-gray-100"
+            className="rounded p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
           >
             <X size={18} />
           </button>
@@ -923,7 +923,7 @@ function NewEventDialog({
                   e.target.value as (typeof NEW_EVENT_CATEGORIES)[number]["value"]
                 )
               }
-              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
             >
               {NEW_EVENT_CATEGORIES.map((c) => (
                 <option key={c.value} value={c.value}>
@@ -994,7 +994,7 @@ function NewEventDialog({
               data-testid="cal-new-event-color"
               value={color}
               onChange={(e) => setColor(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
             >
               {NEW_EVENT_COLORS.map((c) => (
                 <option key={c.value} value={c.value}>
@@ -1013,7 +1013,7 @@ function NewEventDialog({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
-              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
             />
           </div>
           {errors._ && (
@@ -1024,7 +1024,7 @@ function NewEventDialog({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-gray-200 px-4 py-2 text-sm hover:bg-gray-50"
+            className="rounded-lg border border-gray-200 px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700"
           >
             Cancel
           </button>
@@ -1054,8 +1054,8 @@ function Legend({
   return (
     <div className="flex items-center gap-1.5">
       <span className={`inline-block h-3 w-3 rounded ${color}`} />
-      <Icon size={12} className="text-gray-500" />
-      <span className="text-gray-700">{label}</span>
+      <Icon size={12} className="text-gray-500 dark:text-gray-400" />
+      <span className="text-gray-700 dark:text-gray-200">{label}</span>
     </div>
   );
 }

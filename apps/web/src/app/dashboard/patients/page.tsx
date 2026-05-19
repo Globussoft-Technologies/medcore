@@ -507,7 +507,7 @@ export default function PatientsPage() {
         <Search
           size={16}
           aria-hidden="true"
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600"
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600 dark:text-gray-400"
         />
         <label htmlFor="patient-search" className="sr-only">
           {t("common.search")}

@@ -216,7 +216,7 @@ function DonutChart({
               className="inline-block h-3 w-3 rounded-sm"
               style={{ backgroundColor: seg.color }}
             />
-            <span className="text-gray-700">
+            <span className="text-gray-700 dark:text-gray-200">
               {seg.label} ({seg.value})
             </span>
           </div>
@@ -239,10 +239,10 @@ function HBarChart({
         return (
           <div key={it.label}>
             <div className="mb-1 flex items-center justify-between text-sm">
-              <span className="font-medium text-gray-700">{it.label}</span>
-              <span className="text-gray-600">{it.value}</span>
+              <span className="font-medium text-gray-700 dark:text-gray-200">{it.label}</span>
+              <span className="text-gray-600 dark:text-gray-300">{it.value}</span>
             </div>
-            <div className="h-3 w-full overflow-hidden rounded-full bg-gray-100">
+            <div className="h-3 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
               <div
                 className="h-full rounded-full transition-all"
                 style={{ width: `${pct}%`, backgroundColor: it.color }}
@@ -1036,17 +1036,17 @@ export default function AppointmentsPage() {
       {/* Cancel confirmation dialog */}
       {cancellingId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
             <h3 className="text-lg font-semibold text-gray-800">
               {t("dashboard.actions.cancelAppointment")}
             </h3>
-            <p className="mt-2 text-sm text-gray-700">
+            <p className="mt-2 text-sm text-gray-700 dark:text-gray-200">
               {t("dashboard.appointments.cancelConfirm")}
             </p>
             <div className="mt-5 flex justify-end gap-3">
               <button
                 onClick={() => setCancellingId(null)}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 {t("dashboard.actions.keepAppointment")}
               </button>
@@ -1170,11 +1170,11 @@ export default function AppointmentsPage() {
       {/* Reschedule modal */}
       {reschedTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
             <div className="flex items-start justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-gray-800">Reschedule</h3>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
                   {reschedTarget.patient.user.name} — Token #{reschedTarget.tokenNumber}
                 </p>
               </div>
@@ -1205,13 +1205,13 @@ export default function AppointmentsPage() {
             <div className="mt-4">
               <p className="mb-2 text-sm font-medium">Available Slots</p>
               {reschedLoading ? (
-                <p className="text-sm text-gray-500">Loading…</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
               ) : Object.keys(reschedSlotsByDate).length === 0 ? (
-                <p className="text-sm text-gray-500">No slots available.</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">No slots available.</p>
               ) : (
                 Object.entries(reschedSlotsByDate).map(([d, list]) => (
                   <div key={d} className="mb-3">
-                    <p className="mb-1 text-xs font-semibold uppercase text-gray-500">
+                    <p className="mb-1 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
                       {formatShortDate(d)} ({dayOfWeekName(d)})
                     </p>
                     <div className="flex flex-wrap gap-2">
@@ -1241,13 +1241,13 @@ export default function AppointmentsPage() {
       {/* Calendar event details popup */}
       {selectedEvent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
             <div className="flex items-start justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-gray-800">
                   Token #{selectedEvent.tokenNumber}
                 </h3>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
                   {selectedEvent.patientName} → {formatDoctorName(selectedEvent.doctorName)}
                 </p>
               </div>
@@ -1261,7 +1261,7 @@ export default function AppointmentsPage() {
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
               <div>
-                <p className="text-gray-500">Start</p>
+                <p className="text-gray-500 dark:text-gray-400">Start</p>
                 <p className="font-medium">
                   {new Date(selectedEvent.startDateTime).toLocaleString("en-IN", {
                     dateStyle: "medium",
@@ -1270,7 +1270,7 @@ export default function AppointmentsPage() {
                 </p>
               </div>
               <div>
-                <p className="text-gray-500">Status</p>
+                <p className="text-gray-500 dark:text-gray-400">Status</p>
                 <span
                   className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${
                     STATUS_COLORS[
@@ -1288,11 +1288,11 @@ export default function AppointmentsPage() {
                 </span>
               </div>
               <div>
-                <p className="text-gray-500">Type</p>
+                <p className="text-gray-500 dark:text-gray-400">Type</p>
                 <p className="font-medium">{selectedEvent.type}</p>
               </div>
               <div>
-                <p className="text-gray-500">Priority</p>
+                <p className="text-gray-500 dark:text-gray-400">Priority</p>
                 <p className="font-medium">{selectedEvent.priority}</p>
               </div>
             </div>
@@ -1363,7 +1363,7 @@ export default function AppointmentsPage() {
         <div className="flex items-center gap-3">
           {/* View toggle */}
           <div
-            className="inline-flex overflow-hidden rounded-lg border border-gray-200"
+            className="inline-flex overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700"
             role="group"
             aria-label="View mode"
           >
@@ -1399,7 +1399,7 @@ export default function AppointmentsPage() {
               <button
                 onClick={exportCSV}
                 aria-label="Export appointments to CSV"
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 Export CSV
               </button>
@@ -1792,7 +1792,7 @@ export default function AppointmentsPage() {
               <button
                 onClick={() => setSelectedIds(new Set())}
                 disabled={bulkBusy}
-                className="ml-auto rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+                className="ml-auto rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 Clear
               </button>
@@ -1834,7 +1834,7 @@ export default function AppointmentsPage() {
             ) : (
               <table className="w-full">
                 <thead>
-                  <tr className="border-b text-left text-sm text-gray-700">
+                  <tr className="border-b text-left text-sm text-gray-700 dark:border-gray-700 dark:text-gray-200">
                     {!isPatient && (
                       <th className="px-4 py-3 w-8">
                         <input
@@ -1904,7 +1904,7 @@ export default function AppointmentsPage() {
                       {!isPatient && (
                         <td className="px-4 py-3">
                           <p className="font-medium">{apt.patient.user.name}</p>
-                          <p className="text-xs text-gray-500">{apt.patient.user.phone}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{apt.patient.user.phone}</p>
                         </td>
                       )}
                       <td className="px-4 py-3 text-sm">{apt.doctor.user.name}</td>
@@ -2017,23 +2017,23 @@ export default function AppointmentsPage() {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => setCalWeekStart(startOfWeek(new Date()))}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-50"
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 Today
               </button>
               <button
                 onClick={() => setCalWeekStart(addDays(calWeekStart, -7))}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-50"
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 ← Prev Week
               </button>
               <button
                 onClick={() => setCalWeekStart(addDays(calWeekStart, 7))}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-50"
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 Next Week →
               </button>
-              <span className="ml-2 text-sm font-medium text-gray-700">
+              <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-200">
                 {formatShortDate(toISODate(calWeekStart))} –{" "}
                 {formatShortDate(toISODate(addDays(calWeekStart, 6)))}
               </span>
@@ -2053,14 +2053,14 @@ export default function AppointmentsPage() {
             </select>
           </div>
 
-          <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
+          <div className="overflow-x-auto rounded-xl bg-white shadow-sm dark:bg-gray-800">
             {calLoading ? (
-              <div className="p-8 text-center text-gray-500">Loading calendar…</div>
+              <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading calendar…</div>
             ) : (
               <div className="min-w-200">
                 {/* Header row */}
                 <div
-                  className="grid border-b bg-gray-50 text-xs font-semibold text-gray-700"
+                  className="grid border-b bg-gray-50 text-xs font-semibold text-gray-700 dark:border-gray-700 dark:bg-gray-900/50 dark:text-gray-200"
                   style={{ gridTemplateColumns: "60px repeat(7, 1fr)" }}
                 >
                   <div className="px-2 py-2" />
@@ -2091,7 +2091,7 @@ export default function AppointmentsPage() {
                       minHeight: "56px",
                     }}
                   >
-                    <div className="border-r px-2 py-1 text-right text-gray-500">
+                    <div className="border-r px-2 py-1 text-right text-gray-500 dark:border-gray-700 dark:text-gray-400">
                       {String(h).padStart(2, "0")}:00
                     </div>
                     {calDays.map((d) => {
@@ -2104,7 +2104,7 @@ export default function AppointmentsPage() {
                       return (
                         <div
                           key={iso + "-" + h}
-                          className="relative border-l bg-white hover:bg-gray-50"
+                          className="relative border-l bg-white hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700/50"
                         >
                           {hourEvents.map((ev) => {
                             const min = parseInt(ev.startDateTime.slice(14, 16), 10) || 0;
@@ -2162,7 +2162,7 @@ export default function AppointmentsPage() {
                   className="inline-block h-3 w-3 rounded-sm"
                   style={{ backgroundColor: STATUS_HEX[s] }}
                 />
-                <span className="text-gray-700">{s.replace(/_/g, " ")}</span>
+                <span className="text-gray-700 dark:text-gray-200">{s.replace(/_/g, " ")}</span>
               </div>
             ))}
           </div>
@@ -2174,7 +2174,7 @@ export default function AppointmentsPage() {
         <>
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <div>
-              <label htmlFor="appt-stats-from" className="mb-1 block text-xs font-medium text-gray-600">From</label>
+              <label htmlFor="appt-stats-from" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">From</label>
               <input
                 id="appt-stats-from"
                 type="date"
@@ -2184,7 +2184,7 @@ export default function AppointmentsPage() {
               />
             </div>
             <div>
-              <label htmlFor="appt-stats-to" className="mb-1 block text-xs font-medium text-gray-600">To</label>
+              <label htmlFor="appt-stats-to" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">To</label>
               <input
                 id="appt-stats-to"
                 type="date"
@@ -2194,7 +2194,7 @@ export default function AppointmentsPage() {
               />
             </div>
             <div>
-              <label htmlFor="appt-stats-doctor" className="mb-1 block text-xs font-medium text-gray-600">Doctor</label>
+              <label htmlFor="appt-stats-doctor" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Doctor</label>
               <select
                 id="appt-stats-doctor"
                 value={statsDoctor}
@@ -2264,7 +2264,7 @@ export default function AppointmentsPage() {
               </div>
 
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                <section className="rounded-xl bg-white p-5 shadow-sm">
+                <section className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
                   <h2 className="mb-4 font-semibold">By Status</h2>
                   <DonutChart
                     segments={ALL_STATUSES.map((s) => ({
@@ -2275,10 +2275,10 @@ export default function AppointmentsPage() {
                   />
                 </section>
 
-                <section className="rounded-xl bg-white p-5 shadow-sm">
+                <section className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
                   <h2 className="mb-4 font-semibold">By Doctor</h2>
                   {statsByDoctor.length === 0 ? (
-                    <p className="text-sm text-gray-500">No data.</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">No data.</p>
                   ) : (
                     <HBarChart
                       items={statsByDoctor.map((s) => ({
@@ -2290,7 +2290,7 @@ export default function AppointmentsPage() {
                   )}
                 </section>
 
-                <section className="rounded-xl bg-white p-5 shadow-sm">
+                <section className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
                   <h2 className="mb-4 font-semibold">By Day of Week</h2>
                   <HBarChart items={statsByDayOfWeek} />
                 </section>
@@ -2355,13 +2355,13 @@ function WaitlistModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Join Waitlist</h3>
           <button
             onClick={onClose}
             aria-label="Close dialog"
-            className="text-gray-600 hover:text-gray-800"
+            className="text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100"
           >
             <span aria-hidden="true">✕</span>
           </button>
@@ -2387,7 +2387,7 @@ function WaitlistModal({
             ))}
           </select>
           <div>
-            <label htmlFor="waitlist-pref-date" className="text-xs text-gray-500">Preferred Date</label>
+            <label htmlFor="waitlist-pref-date" className="text-xs text-gray-500 dark:text-gray-400">Preferred Date</label>
             <input
               id="waitlist-pref-date"
               type="date"
@@ -2528,10 +2528,10 @@ function MultiPatientPicker({
         {open && query.trim().length >= 2 && (
           <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-lg border border-gray-200 bg-white text-gray-900 shadow-lg dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
             {loading && (
-              <li className="px-3 py-2 text-xs text-gray-500">Searching...</li>
+              <li className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">Searching...</li>
             )}
             {!loading && results.length === 0 && (
-              <li className="px-3 py-2 text-xs text-gray-500">No matches</li>
+              <li className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">No matches</li>
             )}
             {!loading &&
               results.map((p) => {
@@ -2552,7 +2552,7 @@ function MultiPatientPicker({
                     }
                   >
                     <div className="font-medium">{p.name}</div>
-                    <div className="text-[11px] text-gray-500">
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400">
                       {p.mrNumber ? `MR#${p.mrNumber}` : ""}
                       {p.mrNumber && p.phone ? " · " : ""}
                       {p.phone || ""}
@@ -2618,10 +2618,10 @@ function SinglePatientPicker({
       {open && query.trim().length >= 2 && (
         <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-lg border border-gray-200 bg-white text-gray-900 shadow-lg dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
           {loading && (
-            <li className="px-3 py-2 text-xs text-gray-500">Searching...</li>
+            <li className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">Searching...</li>
           )}
           {!loading && results.length === 0 && (
-            <li className="px-3 py-2 text-xs text-gray-500">No matches</li>
+            <li className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">No matches</li>
           )}
           {!loading &&
             results.map((p) => (
@@ -2635,7 +2635,7 @@ function SinglePatientPicker({
                 className="cursor-pointer px-3 py-2 text-sm hover:bg-blue-50"
               >
                 <div className="font-medium">{p.name}</div>
-                <div className="text-[11px] text-gray-500">
+                <div className="text-[11px] text-gray-500 dark:text-gray-400">
                   {p.mrNumber ? `MR#${p.mrNumber}` : ""}
                   {p.mrNumber && p.phone ? " · " : ""}
                   {p.phone || ""}
@@ -2684,20 +2684,20 @@ function GroupAppointmentModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Group Appointment</h3>
           <button
             onClick={onClose}
             aria-label="Close dialog"
-            className="text-gray-600 hover:text-gray-800"
+            className="text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100"
           >
             <span aria-hidden="true">✕</span>
           </button>
         </div>
         <div className="space-y-3">
           <div>
-            <label className="mb-1 block text-xs text-gray-500">
+            <label className="mb-1 block text-xs text-gray-500 dark:text-gray-400">
               Patients ({selectedPatients.length} selected)
             </label>
             <MultiPatientPicker
@@ -2719,7 +2719,7 @@ function GroupAppointmentModal({
           </select>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label htmlFor="group-appt-date" className="text-xs text-gray-500">Date</label>
+              <label htmlFor="group-appt-date" className="text-xs text-gray-500 dark:text-gray-400">Date</label>
               <input
                 id="group-appt-date"
                 type="date"
@@ -2729,7 +2729,7 @@ function GroupAppointmentModal({
               />
             </div>
             <div>
-              <label htmlFor="group-appt-slot" className="text-xs text-gray-500">Slot Start</label>
+              <label htmlFor="group-appt-slot" className="text-xs text-gray-500 dark:text-gray-400">Slot Start</label>
               <input
                 id="group-appt-slot"
                 type="time"
@@ -2804,20 +2804,20 @@ function CoordinatedVisitModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Coordinate Multi-Doctor Visit</h3>
           <button
             onClick={onClose}
             aria-label="Close dialog"
-            className="text-gray-600 hover:text-gray-800"
+            className="text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100"
           >
             <span aria-hidden="true">✕</span>
           </button>
         </div>
         <div className="space-y-3">
           <div>
-            <label className="mb-1 block text-xs text-gray-500">Patient</label>
+            <label className="mb-1 block text-xs text-gray-500 dark:text-gray-400">Patient</label>
             <SinglePatientPicker
               selected={selectedPatient}
               onChange={setSelectedPatient}
@@ -2831,7 +2831,7 @@ function CoordinatedVisitModal({
             className="w-full rounded-lg border px-3 py-2 text-sm"
           />
           <div>
-            <label htmlFor="coord-visit-date" className="text-xs text-gray-500">Visit Date</label>
+            <label htmlFor="coord-visit-date" className="text-xs text-gray-500 dark:text-gray-400">Visit Date</label>
             <input
               id="coord-visit-date"
               type="date"
@@ -2841,7 +2841,7 @@ function CoordinatedVisitModal({
             />
           </div>
           <div>
-            <p className="mb-1 text-xs font-medium text-gray-600">
+            <p className="mb-1 text-xs font-medium text-gray-600 dark:text-gray-300">
               Select Doctors (back-to-back slots):
             </p>
             <div className="max-h-48 space-y-1 overflow-y-auto rounded border p-2">

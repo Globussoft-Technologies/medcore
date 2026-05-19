@@ -475,7 +475,8 @@ export default function UsersPage() {
         ) : users.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">No users found</div>
         ) : (
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px]">
             <thead>
               <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Name</th>
@@ -579,6 +580,7 @@ export default function UsersPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
@@ -591,7 +593,7 @@ export default function UsersPage() {
           <form
             onSubmit={saveEdit}
             noValidate
-            className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
+            className="relative w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
           >
             {/* Issue #826: close (X) button so users can dismiss the modal
                 without scrolling to the Cancel footer. */}
@@ -736,7 +738,7 @@ export default function UsersPage() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
           data-testid="reset-code-modal"
         >
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
+          <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
             <h3 className="mb-2 text-lg font-semibold text-gray-900 dark:text-gray-100">Password Reset Code</h3>
             <p className="text-sm text-gray-600 dark:text-gray-300">
               Share this 6-digit code with{" "}

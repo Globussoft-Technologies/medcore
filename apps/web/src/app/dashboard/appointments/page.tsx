@@ -1188,7 +1188,7 @@ export default function AppointmentsPage() {
             aria-labelledby="confirm-appointment-title"
             data-testid="confirm-appointment-dialog"
           >
-            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
+            <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
               <h3
                 id="confirm-appointment-title"
                 className="text-lg font-semibold text-gray-800 dark:text-gray-100"
@@ -1278,7 +1278,7 @@ export default function AppointmentsPage() {
       {/* Reschedule modal */}
       {reschedTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
+          <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
             <div className="flex items-start justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-gray-800">Reschedule</h3>
@@ -1349,7 +1349,7 @@ export default function AppointmentsPage() {
       {/* Calendar event details popup */}
       {selectedEvent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
+          <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
             <div className="flex items-start justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-gray-800">
@@ -1930,7 +1930,8 @@ export default function AppointmentsPage() {
                 }
               />
             ) : (
-              <table className="w-full">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[860px]">
                 <thead>
                   {/* Issue #866: header row was text-gray-700 dark:text-gray-200
                       which is still washed-out grey-on-dark; bump to gray-100
@@ -2120,6 +2121,7 @@ export default function AppointmentsPage() {
                   })}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         </>
@@ -2470,7 +2472,7 @@ function WaitlistModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-800">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Join Waitlist</h3>
           <button
@@ -2799,7 +2801,7 @@ function GroupAppointmentModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-800">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Group Appointment</h3>
           <button

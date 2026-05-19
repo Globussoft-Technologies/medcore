@@ -228,7 +228,8 @@ export default function AssetsPage() {
         <p className="text-gray-500 dark:text-gray-400">Loading...</p>
       ) : (
         <div className="rounded-lg bg-white shadow dark:bg-gray-800">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[760px]">
             <thead className="border-b bg-gray-50 text-left text-xs uppercase text-gray-500 dark:border-gray-700 dark:bg-gray-700 dark:text-gray-300">
               <tr>
                 <th className="p-3">Tag</th>
@@ -311,6 +312,7 @@ export default function AssetsPage() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
@@ -638,7 +640,7 @@ function AddAssetModal({
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <input
               placeholder="Location"
               className="rounded border p-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
@@ -722,7 +724,7 @@ function AssignModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-lg bg-white p-6 dark:bg-gray-800">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-lg bg-white p-6 dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Assign {asset.name}</h2>
           <button onClick={onClose} className="text-gray-400 dark:text-gray-500">✕</button>
@@ -808,7 +810,7 @@ function MaintenanceModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-lg bg-white p-6 dark:bg-gray-800">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-lg bg-white p-6 dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Log Maintenance — {asset.name}</h2>
           <button onClick={onClose} className="text-gray-400 dark:text-gray-500">✕</button>

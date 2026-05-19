@@ -835,7 +835,7 @@ export default function PrescriptionsPage() {
           )}
 
           {!editingId && (
-          <div className="mb-4 grid grid-cols-2 gap-4">
+          <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Issue #120 (Apr 2026): replace raw "paste a UUID" inputs with
                 the shared EntityPicker. Patient picker comes first so the
                 appointment picker can scope to that patient — picking a
@@ -1339,7 +1339,8 @@ export default function PrescriptionsPage() {
 
               {expanded === rx.id && (
                 <div className="mt-4 border-t border-gray-200 pt-4 dark:border-gray-700">
-                  <table className="w-full text-sm">
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-sm min-w-[720px]">
                     <thead>
                       <tr className="text-left text-gray-500 dark:text-gray-400">
                         <th className="pb-2">Medicine</th>
@@ -1365,6 +1366,7 @@ export default function PrescriptionsPage() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                   {rx.advice && (
                     <p className="mt-3 text-sm">
                       <span className="font-medium">Advice:</span> {rx.advice}
@@ -1500,7 +1502,7 @@ export default function PrescriptionsPage() {
       {/* Drug Interaction Alert Modal */}
       {showInteractionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-xl dark:bg-gray-800">
+          <div className="w-full max-h-[90vh] overflow-y-auto max-w-2xl overflow-hidden rounded-xl bg-white shadow-xl dark:bg-gray-800">
             <div className="border-b border-red-200 bg-red-50 px-6 py-4">
               <h2 className="text-lg font-semibold text-red-800">
                 Drug Interaction Warning
@@ -1600,7 +1602,8 @@ export default function PrescriptionsPage() {
             ) : !genericData || genericData.alternatives.length === 0 ? (
               <p className="text-gray-500 dark:text-gray-400">No cheaper generics in stock.</p>
             ) : (
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[720px]">
                 <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500 dark:bg-gray-900/50 dark:text-gray-400">
                   <tr>
                     <th className="p-2">Brand</th>
@@ -1652,6 +1655,7 @@ export default function PrescriptionsPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         </div>

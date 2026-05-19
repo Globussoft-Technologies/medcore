@@ -457,7 +457,7 @@ export default function VitalsPage() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="vitals-bp-systolic" className="mb-1 block text-sm font-medium">
                     BP Systolic (mmHg)
@@ -758,7 +758,7 @@ export default function VitalsPage() {
                 </div>
               </div>
 
-              <div className="mt-4 grid grid-cols-2 gap-4">
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="vitals-resp-rate" className="mb-1 block text-sm font-medium">
                     Respiratory Rate (/min)

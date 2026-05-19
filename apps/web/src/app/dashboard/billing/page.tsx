@@ -817,7 +817,7 @@ export default function BillingPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div
             onClick={(e) => e.stopPropagation()}
-            className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-2xl"
+            className="mx-4 w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-2xl"
           >
             <h2 className="mb-4 text-lg font-bold">
               Record Payment — {payInv.invoiceNumber}
@@ -876,7 +876,7 @@ export default function BillingPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div
             onClick={(e) => e.stopPropagation()}
-            className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-2xl"
+            className="mx-4 w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-2xl"
           >
             <h2 className="mb-4 text-lg font-bold">
               Issue Refund — {refundInv.invoiceNumber}
@@ -951,7 +951,7 @@ export default function BillingPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div
             onClick={(e) => e.stopPropagation()}
-            className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-2xl"
+            className="mx-4 w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-2xl"
           >
             <h2 className="mb-4 text-lg font-bold">
               Apply Discount — {discInv.invoiceNumber}

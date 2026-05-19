@@ -1074,7 +1074,7 @@ export default function InvoiceDetailPage() {
       {/* Discount modal */}
       {discOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-2xl dark:bg-gray-800 dark:text-gray-100">
+          <div className="mx-4 w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-2xl dark:bg-gray-800 dark:text-gray-100">
             <h2 className="mb-4 text-lg font-bold">Apply Discount</h2>
             <div className="space-y-3">
               <div className="flex gap-2">
@@ -1147,7 +1147,7 @@ export default function InvoiceDetailPage() {
       {/* Payment modal */}
       {payOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-2xl dark:bg-gray-800 dark:text-gray-100">
+          <div className="mx-4 w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-2xl dark:bg-gray-800 dark:text-gray-100">
             <h2 className="mb-4 text-lg font-bold">Record Payment</h2>
             <div className="space-y-3">
               <div>
@@ -1237,7 +1237,7 @@ export default function InvoiceDetailPage() {
       {/* Refund modal */}
       {refundOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-2xl dark:bg-gray-800 dark:text-gray-100">
+          <div className="mx-4 w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-2xl dark:bg-gray-800 dark:text-gray-100">
             <h2 className="mb-4 text-lg font-bold">Issue Refund</h2>
             <div className="space-y-3">
               <div>
@@ -1318,7 +1318,7 @@ export default function InvoiceDetailPage() {
           tampered client can't overpay. */}
       {payOnlineOpen && invoice && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-2xl dark:bg-gray-800 dark:text-gray-100">
+          <div className="mx-4 w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-2xl dark:bg-gray-800 dark:text-gray-100">
             <h2 className="mb-1 text-lg font-bold">Pay Online</h2>
             <p className="mb-4 text-xs text-gray-500 dark:text-gray-400">
               Outstanding balance: {fmtMoney(balance)}
@@ -1446,7 +1446,7 @@ function CreatePlanModal({
       <form
         onSubmit={submit}
         noValidate
-        className="w-full max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
+        className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Create Payment Plan</h2>

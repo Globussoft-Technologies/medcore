@@ -639,7 +639,7 @@ export default function TelemedicinePage() {
           <form
             onSubmit={submitSchedule}
             noValidate
-            className="w-full max-w-2xl rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-2xl rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
           >
             <h2 className="mb-4 text-lg font-semibold">Schedule Telemedicine Session</h2>
 

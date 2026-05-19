@@ -145,7 +145,7 @@ function ResolutionModal({
       aria-labelledby="ai-fraud-resolve-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
     >
-      <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl dark:bg-gray-800">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-5 shadow-xl dark:bg-gray-800">
         <h2
           id="ai-fraud-resolve-title"
           className="mb-1 text-lg font-semibold text-gray-900 dark:text-gray-100"

@@ -143,7 +143,8 @@ export default function PreAuthPage() {
             No requests in this category.
           </div>
         ) : (
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px]">
             <thead>
               <tr className="border-b text-left text-sm text-gray-500">
                 <th className="px-4 py-3">Request #</th>
@@ -216,6 +217,7 @@ export default function PreAuthPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
@@ -573,7 +575,7 @@ function UpdateStatusModal({
       <form
         onSubmit={submit}
         noValidate
-        className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+        className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-xl"
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Update {row.requestNumber}</h2>

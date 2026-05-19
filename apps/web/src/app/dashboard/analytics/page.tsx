@@ -2212,7 +2212,7 @@ function DrillDownModal({ data, onClose }: { data: DrillDown; onClose: () => voi
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl rounded-xl bg-white shadow-xl"
+        className="w-full max-h-[90vh] overflow-y-auto max-w-2xl rounded-xl bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b px-6 py-4">

@@ -426,7 +426,7 @@ export default function AntenatalPage() {
           <form
             onSubmit={submitCase}
             noValidate
-            className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-2xl rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
           >
             <h2 className="mb-4 text-lg font-semibold">New Antenatal Case</h2>
 
@@ -493,7 +493,7 @@ export default function AntenatalPage() {
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="anc-doctor" className="mb-1 block text-sm font-medium">Doctor</label>
                   <select

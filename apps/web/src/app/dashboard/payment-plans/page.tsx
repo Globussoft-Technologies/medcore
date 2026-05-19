@@ -210,7 +210,8 @@ export default function PaymentPlansPage() {
             No plans in this category.
           </div>
         ) : (
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px]">
             <thead>
               <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Plan #</th>
@@ -293,6 +294,7 @@ export default function PaymentPlansPage() {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
@@ -737,7 +739,8 @@ function PlanDetailModal({
             </div>
 
             <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
-              <table className="w-full">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px]">
                 <thead className="bg-gray-50 dark:bg-gray-900">
                   <tr className="text-left text-sm text-gray-500 dark:text-gray-400">
                     <th className="px-3 py-2">#</th>
@@ -795,6 +798,7 @@ function PlanDetailModal({
                     ))}
                 </tbody>
               </table>
+              </div>
             </div>
           </div>
         )}

@@ -128,7 +128,8 @@ export default function InsuranceProvidersPage() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl bg-white shadow-sm dark:bg-gray-800">
-          <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
+          <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700 min-w-[720px]">
             <thead className="bg-gray-50 dark:bg-gray-900">
               <tr>
                 <th className="px-4 py-2 text-left font-medium text-gray-600 dark:text-gray-300">
@@ -208,6 +209,7 @@ export default function InsuranceProvidersPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

@@ -74,7 +74,7 @@ export function ConfirmDialog({
       onClick={onCancel}
     >
       <div
-        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
+        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
         onClick={(e) => e.stopPropagation()}
       >
         <h3

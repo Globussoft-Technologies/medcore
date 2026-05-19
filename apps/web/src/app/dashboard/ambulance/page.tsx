@@ -539,7 +539,7 @@ function AddAmbulanceModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-lg rounded-lg bg-white p-6">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-lg bg-white p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Add Ambulance</h2>
           <button onClick={onClose} className="text-gray-400">✕</button>
@@ -553,7 +553,7 @@ function AddAmbulanceModal({
               setForm({ ...form, vehicleNumber: e.target.value })
             }
           />
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <input
               placeholder="Make"
               className="rounded border p-2"
@@ -730,7 +730,7 @@ function DispatchModal({
         data-testid="dispatch-modal"
         role="dialog"
         aria-label="Dispatch Ambulance"
-        className="w-full max-w-lg rounded-lg bg-white p-6"
+        className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-lg bg-white p-6"
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Dispatch Ambulance</h2>
@@ -792,7 +792,7 @@ function DispatchModal({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <input
               placeholder="Caller name"
               className="rounded border p-2"
@@ -970,7 +970,7 @@ function CompleteTripModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-lg bg-white p-6">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-lg bg-white p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Complete {trip.tripNumber}</h2>
           <button onClick={onClose} className="text-gray-400">✕</button>

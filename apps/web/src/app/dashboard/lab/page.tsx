@@ -341,7 +341,8 @@ export default function LabPage() {
               )}
             </div>
           ) : (
-            <table className="w-full">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px]">
               <thead>
                 <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                   <th className="px-4 py-3">Order #</th>
@@ -594,6 +595,7 @@ export default function LabPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       )}
@@ -712,7 +714,7 @@ function NewOrderModal({
       <form
         onSubmit={submit}
         noValidate
-        className="w-full max-w-2xl rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
+        className="w-full max-h-[90vh] overflow-y-auto max-w-2xl rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
       >
         <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">
           New Lab Order

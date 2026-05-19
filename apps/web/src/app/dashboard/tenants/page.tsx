@@ -539,7 +539,7 @@ function CreateTenantModal({
             <h4 className="mb-2 text-sm font-semibold text-gray-700">
               {t("tenants.create.adminSection", "First Admin User")}
             </h4>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label={t("tenants.create.adminName", "Name")}>
                 <input
                   data-testid="tenants-create-admin-name"
@@ -586,7 +586,7 @@ function CreateTenantModal({
             <h4 className="mb-2 text-sm font-semibold text-gray-700">
               {t("tenants.create.hospitalSection", "Hospital Details (optional)")}
             </h4>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label={t("tenants.create.hospitalPhone", "Phone")}>
                 <input
                   data-testid="tenants-create-hospital-phone"

@@ -375,7 +375,8 @@ export default function VisitorsPage() {
         ) : (Array.isArray(visitors) ? visitors : []).length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">No visitors</div>
         ) : (
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px]">
             <thead>
               <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Photo</th>
@@ -466,6 +467,7 @@ export default function VisitorsPage() {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
@@ -474,7 +476,7 @@ export default function VisitorsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
             <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">Check In Visitor</h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="col-span-2">
                 <label htmlFor="visitor-name" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                   Name *

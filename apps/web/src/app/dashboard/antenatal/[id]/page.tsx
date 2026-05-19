@@ -779,7 +779,7 @@ export default function AncCaseDetailPage() {
             showDeliveryForm ? (
               <form onSubmit={submitDelivery} noValidate>
                 <h3 className="mb-3 font-semibold">Record Delivery</h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label htmlFor="anc-delivery-type" className="mb-1 block text-sm font-medium">
                       Delivery Type

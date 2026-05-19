@@ -195,7 +195,8 @@ export default function SuppliersPage() {
           ) : suppliers.length === 0 ? (
             <div className="p-8 text-center text-gray-500 dark:text-gray-400">No suppliers found</div>
           ) : (
-            <table className="w-full">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px]">
               <thead>
                 <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                   <th className="px-4 py-3">Supplier</th>
@@ -283,6 +284,7 @@ export default function SuppliersPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
 
@@ -503,7 +505,7 @@ function AddSupplierModal({
               className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label htmlFor="add-supplier-phone" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Phone</label>
               <input
@@ -534,7 +536,7 @@ function AddSupplierModal({
               className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label htmlFor="add-supplier-gst" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">GST Number</label>
               <input
@@ -686,7 +688,7 @@ function EditSupplierModal({
               className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label htmlFor="edit-supplier-phone" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Phone
@@ -723,7 +725,7 @@ function EditSupplierModal({
               className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label htmlFor="edit-supplier-gst" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 GST Number

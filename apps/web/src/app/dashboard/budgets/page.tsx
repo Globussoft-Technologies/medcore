@@ -358,7 +358,7 @@ export default function BudgetsPage() {
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+          <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl">
             <h3 className="mb-4 text-lg font-semibold">
               {editingRow ? `Edit Budget — ${editingRow.category}` : "Set Monthly Budget"}
             </h3>
@@ -437,7 +437,7 @@ export default function BudgetsPage() {
       {viewingRow && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div
-            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl"
             data-testid="budget-view-modal"
           >
             <h3 className="mb-1 text-lg font-semibold">

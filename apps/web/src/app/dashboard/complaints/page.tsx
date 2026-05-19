@@ -681,7 +681,7 @@ export default function ComplaintsPage() {
       {/* New complaint modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
+          <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
             <h3 className="mb-4 text-lg font-semibold">New Complaint</h3>
             <div className="space-y-3">
               <div>
@@ -798,7 +798,7 @@ export default function ComplaintsPage() {
       {/* Resolve modal */}
       {resolveId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
+          <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
             <h3 className="mb-4 text-lg font-semibold">Resolve Complaint</h3>
             <textarea
               value={resolveText}

@@ -2145,7 +2145,7 @@ export default function ScribePage() {
     <>
       {consentTarget && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 dark:bg-gray-800">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto p-6 space-y-4 dark:bg-gray-800">
             <div className="flex items-start gap-3">
               <ShieldAlert className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" />
               <div>

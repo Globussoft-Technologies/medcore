@@ -157,7 +157,8 @@ export default function DiscountApprovalsPage() {
             No {tab.toLowerCase()} approvals.
           </div>
         ) : (
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px]">
             <thead>
               <tr className="border-b text-left text-sm text-gray-500">
                 <th className="px-4 py-3">Requested</th>
@@ -246,6 +247,7 @@ export default function DiscountApprovalsPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

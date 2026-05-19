@@ -367,7 +367,7 @@ export default function PatientBillingPage() {
       {/* Bulk payment modal */}
       {bulkOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
+          <div className="mx-4 w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-2xl">
             <h2 className="mb-4 text-lg font-bold">Record Bulk Payment</h2>
             <p className="mb-3 text-xs text-gray-500">
               Applied oldest-first across {selectedInvoices.length} selected
@@ -428,7 +428,7 @@ export default function PatientBillingPage() {
       {/* Bulk discount modal */}
       {discOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
+          <div className="mx-4 w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-2xl">
             <h2 className="mb-4 text-lg font-bold">Apply Discount</h2>
             <p className="mb-3 text-xs text-gray-500">
               Applied to each of {selectedInvoices.length} selected invoice

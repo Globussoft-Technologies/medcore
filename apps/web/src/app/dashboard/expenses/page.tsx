@@ -260,7 +260,8 @@ export default function ExpensesPage() {
         ) : expenses.length === 0 ? (
           <div className="p-8 text-center text-gray-500">No expenses found</div>
         ) : (
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px]">
             <thead>
               <tr className="border-b text-left text-sm text-gray-500">
                 <th className="px-4 py-3">Date</th>
@@ -314,6 +315,7 @@ export default function ExpensesPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
@@ -397,7 +399,7 @@ function AddExpenseModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Add Expense</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
@@ -424,7 +426,7 @@ function AddExpenseModal({
               ))}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label htmlFor="add-expense-amount" className="mb-1 block text-sm font-medium">Amount *</label>
               <input

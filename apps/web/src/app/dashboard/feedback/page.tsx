@@ -425,7 +425,8 @@ export default function FeedbackPage() {
         ) : feedbacks.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">No feedback yet</div>
         ) : (
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px]">
             <thead>
               <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Date</th>
@@ -469,6 +470,7 @@ export default function FeedbackPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

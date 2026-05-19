@@ -499,7 +499,7 @@ function TraumaScoreModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Revised Trauma Score</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">

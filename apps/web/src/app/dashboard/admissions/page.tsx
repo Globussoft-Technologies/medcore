@@ -496,7 +496,7 @@ export default function AdmissionsPage() {
           <form
             onSubmit={submitAdmission}
             noValidate
-            className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-2xl rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
           >
             <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">
               Admit Patient

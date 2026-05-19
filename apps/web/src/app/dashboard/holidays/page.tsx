@@ -256,7 +256,8 @@ export default function HolidaysPage() {
             No holidays configured for {year}. Click &ldquo;Import Template&rdquo; to start.
           </div>
         ) : (
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px]">
             <thead>
               <tr className="border-b text-left text-xs text-gray-500">
                 <th className="px-4 py-3">Date</th>
@@ -322,13 +323,14 @@ export default function HolidaysPage() {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div
-            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl"
             data-testid="holiday-form-modal"
           >
             <h3 className="mb-4 text-lg font-semibold">

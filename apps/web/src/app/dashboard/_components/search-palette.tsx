@@ -228,7 +228,7 @@ export function SearchPalette({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl overflow-hidden rounded-xl bg-white text-gray-900 shadow-xl dark:bg-gray-900 dark:text-gray-100"
+        className="w-full max-h-[90vh] overflow-y-auto max-w-2xl overflow-hidden rounded-xl bg-white text-gray-900 shadow-xl dark:bg-gray-900 dark:text-gray-100"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-white/10">

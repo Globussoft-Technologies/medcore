@@ -337,7 +337,7 @@ export default function MedicinesPage() {
       {/* Detail Modal */}
       {selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-2xl rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100">
+          <div className="w-full max-h-[90vh] overflow-y-auto max-w-2xl rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100">
             <div className="mb-4 flex items-start justify-between">
               <div>
                 <h2 className="text-xl font-bold">{selected.name}</h2>
@@ -415,7 +415,7 @@ export default function MedicinesPage() {
           <form
             onSubmit={createMedicine}
             noValidate
-            className="w-full max-w-lg rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
           >
             <h2 className="mb-4 text-lg font-semibold">
               {editing ? `Edit ${editing.name}` : "Add Medicine"}

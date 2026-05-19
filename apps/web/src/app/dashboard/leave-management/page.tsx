@@ -285,7 +285,7 @@ export default function LeaveManagementPage() {
           <form
             onSubmit={handleRejectSubmit}
             noValidate
-            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl"
           >
             <h2 className="mb-4 text-lg font-semibold">Reject Leave Request</h2>
             <div>

@@ -524,7 +524,7 @@ function OverviewTab({
                   className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="discharge-final-diagnosis" className="text-xs font-medium text-gray-600">
                     Final Diagnosis
@@ -653,7 +653,7 @@ function OverviewTab({
       {/* Transfer Modal */}
       {transferOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-gray-800 p-6 shadow-xl">
+          <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-2xl bg-white dark:bg-gray-800 p-6 shadow-xl">
             <h3 className="mb-4 font-semibold">Transfer to New Bed</h3>
             <select
               value={newBedId}
@@ -2978,7 +2978,7 @@ function MarAdministerModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white dark:bg-gray-800 p-6 shadow-xl">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white dark:bg-gray-800 p-6 shadow-xl">
         <h3 className="mb-4 font-semibold">Record Administration</h3>
         <div className="mb-3 rounded-lg bg-gray-50 p-3 text-sm">
           <div className="font-medium">{order.medicineName}</div>

@@ -238,7 +238,7 @@ export function PatientEditModal({
           the form, labels, inputs, footer borders, and footer buttons
           all flip with the theme. */}
       <form
-        className="w-full max-w-2xl rounded-xl bg-white shadow-xl dark:bg-gray-800"
+        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl dark:bg-gray-800"
         onClick={(e) => e.stopPropagation()}
         onSubmit={submit}
       >

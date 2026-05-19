@@ -404,7 +404,8 @@ export default function PharmacyPage() {
           returns.length === 0 ? (
             <div className="p-8 text-center text-gray-500 dark:text-gray-400">No returns.</div>
           ) : (
-            <table className="w-full">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px]">
               <thead>
                 <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                   <th className="px-4 py-3">Return #</th>
@@ -440,12 +441,14 @@ export default function PharmacyPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )
         ) : tab === "transfers" ? (
           transfers.length === 0 ? (
             <div className="p-8 text-center text-gray-500 dark:text-gray-400">No transfers.</div>
           ) : (
-            <table className="w-full">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px]">
               <thead>
                 <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                   <th className="px-4 py-3">Transfer #</th>
@@ -479,6 +482,7 @@ export default function PharmacyPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )
         ) : tab === "valuation" ? (
           <div>
@@ -513,7 +517,8 @@ export default function PharmacyPage() {
                 No valuation data.
               </div>
             ) : (
-              <table className="w-full">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px]">
                 <thead>
                   <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                     <th className="px-4 py-3">Medicine</th>
@@ -540,6 +545,7 @@ export default function PharmacyPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         ) : items.length === 0 ? (
@@ -547,7 +553,8 @@ export default function PharmacyPage() {
             No inventory items.
           </div>
         ) : (
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px]">
             <thead>
               <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Medicine</th>
@@ -624,6 +631,7 @@ export default function PharmacyPage() {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
@@ -720,7 +728,7 @@ function ReturnModal({
       <form
         onSubmit={submit}
         noValidate
-        className="w-full max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
+        className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
       >
         <h2 className="mb-4 text-lg font-bold">
           Return {item.medicine.name} ({item.batchNumber})
@@ -880,7 +888,7 @@ function TransferModal({
       <form
         onSubmit={submit}
         noValidate
-        className="w-full max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
+        className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
       >
         <h2 className="mb-4 text-lg font-bold">
           Transfer {item.medicine.name} ({item.batchNumber})
@@ -1064,7 +1072,7 @@ function AddStockModal({
       <form
         onSubmit={submit}
         noValidate
-        className="w-full max-w-lg rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
+        className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
       >
         <h2 className="mb-4 text-lg font-semibold">Add Stock</h2>
 

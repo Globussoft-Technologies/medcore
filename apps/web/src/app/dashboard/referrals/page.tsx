@@ -515,7 +515,7 @@ export default function ReferralsPage() {
                 )}
               </div>
             ) : (
-              <div className="mb-4 grid grid-cols-2 gap-4">
+              <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="referral-ext-provider" className="mb-1 block text-sm font-medium">
                     Hospital / Specialist
@@ -636,7 +636,7 @@ export default function ReferralsPage() {
           onClick={() => setSelected(null)}
         >
           <div
-            className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-xl rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-start justify-between">

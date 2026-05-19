@@ -373,7 +373,7 @@ export default function OTPage() {
           <form
             onSubmit={submit}
             noValidate
-            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl"
           >
             <h2 className="mb-4 text-lg font-semibold">
               {editing ? "Edit OT" : "Add Operating Theater"}
@@ -390,7 +390,7 @@ export default function OTPage() {
               />
             </div>
 
-            <div className="mb-3 grid grid-cols-2 gap-3">
+            <div className="mb-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label htmlFor="ot-floor" className="mb-1 block text-sm font-medium">Floor</label>
                 <input

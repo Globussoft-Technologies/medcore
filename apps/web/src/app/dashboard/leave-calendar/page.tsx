@@ -266,7 +266,7 @@ export default function LeaveCalendarPage() {
           onClick={() => setSelectedDate(null)}
         >
           <div
-            className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-2xl bg-white p-6 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">

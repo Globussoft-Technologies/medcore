@@ -530,7 +530,7 @@ function ReportsPageBody() {
               role="dialog"
               aria-modal="true"
             >
-              <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+              <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-xl">
                 <h3 className="mb-4 text-lg font-semibold">Generate Report</h3>
                 <div className="space-y-3">
                   <div>
@@ -551,7 +551,7 @@ function ReportsPageBody() {
                       ))}
                     </select>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label htmlFor="report-generate-from" className="mb-1 block text-xs font-medium text-gray-600">
                         From
@@ -611,7 +611,7 @@ function ReportsPageBody() {
               role="dialog"
               aria-modal="true"
             >
-              <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+              <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-xl">
                 <h3 className="mb-4 text-lg font-semibold">Schedule Report</h3>
                 <div className="space-y-3">
                   <div>
@@ -646,7 +646,7 @@ function ReportsPageBody() {
                       ))}
                     </select>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label htmlFor="report-schedule-frequency" className="mb-1 block text-xs font-medium text-gray-600">
                         Frequency

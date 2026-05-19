@@ -520,7 +520,7 @@ function LogEntryModal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
           <h2
             id="symptom-diary-modal-title"

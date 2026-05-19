@@ -537,7 +537,8 @@ function OvertimePanel({
         ) : rows.length === 0 ? (
           <div className="p-8 text-center text-slate-500">No overtime records.</div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[760px]">
             <thead>
               <tr className="border-b text-left text-xs text-slate-500">
                 <th className="px-3 py-2">Staff</th>
@@ -588,6 +589,7 @@ function OvertimePanel({
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

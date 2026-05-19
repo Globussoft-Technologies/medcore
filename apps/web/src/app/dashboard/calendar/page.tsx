@@ -975,7 +975,7 @@ export default function UnifiedCalendarPage() {
           onClick={() => setSelected(null)}
         >
           <div
-            className="w-full max-w-md rounded-xl bg-white shadow-xl dark:bg-gray-800"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white shadow-xl dark:bg-gray-800"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b px-4 py-3">
@@ -1123,7 +1123,7 @@ function NewEventDialog({
       <form
         onSubmit={submit}
         noValidate
-        className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800"
+        className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800"
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 id="cal-new-event-title" className="text-lg font-semibold">

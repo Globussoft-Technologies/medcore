@@ -382,7 +382,8 @@ export default function InsuranceClaimsPage() {
       )}
       {rows.length > 0 && (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
-          <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-800">
+          <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-800 min-w-[880px]">
             <thead className="bg-gray-50 dark:bg-gray-800/50">
               <tr>
                 <th className="px-4 py-2 text-left font-medium text-gray-600 dark:text-gray-300">
@@ -502,6 +503,7 @@ export default function InsuranceClaimsPage() {
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
@@ -831,7 +833,7 @@ function NewClaimModal({
       <form
         onSubmit={submit}
         noValidate
-        className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-gray-900"
+        className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-gray-900"
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Submit new claim</h2>

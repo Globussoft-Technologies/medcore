@@ -458,7 +458,7 @@ export default function WardsPage() {
             onSubmit={createGlobalBed}
             noValidate
             data-testid="add-bed-modal"
-            className="w-full max-w-lg rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
           >
             <h2 className="mb-4 text-lg font-semibold">Add Bed</h2>
             <div className="space-y-3">
@@ -536,7 +536,7 @@ export default function WardsPage() {
           <form
             onSubmit={createWard}
             noValidate
-            className="w-full max-w-lg rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
           >
             <h2 className="mb-4 text-lg font-semibold">Add New Ward</h2>
             <div className="space-y-3">
@@ -705,7 +705,8 @@ function OccupancyForecast() {
         </svg>
       </div>
       <div className="bg-white text-gray-900 border border-gray-200 rounded-lg overflow-hidden dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[760px]">
           <thead className="bg-slate-50 text-xs text-slate-600 uppercase dark:bg-gray-900/40 dark:text-slate-300">
             <tr>
               <th className="px-3 py-2 text-left">Date</th>
@@ -747,6 +748,7 @@ function OccupancyForecast() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

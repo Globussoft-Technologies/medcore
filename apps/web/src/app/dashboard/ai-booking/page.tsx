@@ -473,7 +473,7 @@ export default function AIBookingPage() {
   if (isEmergency) {
     return (
       <div className="min-h-screen bg-red-50 flex items-center justify-center p-4">
-        <div className="max-w-lg w-full bg-white rounded-2xl shadow-xl border-2 border-red-500 p-8 text-center">
+        <div className="max-w-lg w-full max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-xl border-2 border-red-500 p-8 text-center">
           <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-red-700 mb-2">Emergency Detected</h1>
           <p className="text-gray-600 mb-4">{emergencyReason}</p>
@@ -502,7 +502,7 @@ export default function AIBookingPage() {
       : "/dashboard/queue";
     return (
       <div className="min-h-screen bg-green-50 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
+        <div className="max-w-md w-full max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-xl p-8 text-center">
           <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-gray-800 mb-2">Appointment Booked!</h1>
           <div className="bg-gray-50 rounded-xl p-4 text-left space-y-2 mb-6">
@@ -543,7 +543,7 @@ export default function AIBookingPage() {
             all. We now expose a visible H1 on the intake card so screen
             readers AND sighted users get the page landmark consistently. */}
         <h1 className="mb-4 text-2xl font-bold">AI Booking</h1>
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden dark:bg-gray-800 dark:border-gray-700">
+        <div className="max-w-md w-full max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden dark:bg-gray-800 dark:border-gray-700">
           <div className="px-6 py-5 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50 dark:border-gray-700 dark:from-blue-950 dark:to-indigo-950">
             <p className="font-semibold text-gray-800 flex items-center gap-2 dark:text-gray-100">
               <Bot className="w-5 h-5 text-blue-600 dark:text-blue-400" />
@@ -626,7 +626,7 @@ export default function AIBookingPage() {
   if (step === "summary") {
     return (
       <div className="flex h-[calc(100vh-4rem)] items-center justify-center p-4">
-        <div className="max-w-lg w-full bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden dark:bg-gray-800 dark:border-gray-700">
+        <div className="max-w-lg w-full max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden dark:bg-gray-800 dark:border-gray-700">
           <div className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50 dark:border-gray-700 dark:from-blue-950 dark:to-indigo-950">
             <p className="font-semibold text-gray-800 flex items-center gap-2 dark:text-gray-100">
               <CheckCircle className="w-5 h-5 text-blue-600" />
@@ -654,7 +654,7 @@ export default function AIBookingPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="ai-booking-summary-onset" className="block text-xs font-medium text-gray-600 mb-1 dark:text-gray-300">
                   {language === "hi" ? "शुरुआत" : "Onset"}

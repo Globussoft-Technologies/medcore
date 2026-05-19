@@ -976,7 +976,7 @@ function DonorModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-lg rounded-lg bg-white p-6">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-lg bg-white p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Register Donor</h2>
           <button onClick={onClose} className="text-gray-400">✕</button>
@@ -1042,7 +1042,7 @@ function DonorModal({
               </p>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <select
               className="rounded border p-2"
               value={form.bloodGroup}
@@ -1062,7 +1062,7 @@ function DonorModal({
               <option value="OTHER">Other</option>
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <input
                 type="date"
@@ -1191,7 +1191,7 @@ function RequestModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-lg rounded-lg bg-white p-6">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-lg bg-white p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">New Blood Request</h2>
           <button onClick={onClose} className="text-gray-400">✕</button>
@@ -1231,7 +1231,7 @@ function RequestModal({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <select
               className="rounded border p-2"
               value={form.bloodGroup}
@@ -1252,7 +1252,7 @@ function RequestModal({
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <input
               type="number"
               min={1}
@@ -1336,7 +1336,7 @@ function DeferralModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-lg bg-white p-6">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-lg bg-white p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Add Donor Deferral</h2>
           <button onClick={onClose} className="text-gray-400">✕</button>
@@ -1503,7 +1503,7 @@ function SeparationModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-lg rounded-lg bg-white p-6">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-lg bg-white p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Separate Components</h2>
           <button onClick={onClose} className="text-gray-400">✕</button>

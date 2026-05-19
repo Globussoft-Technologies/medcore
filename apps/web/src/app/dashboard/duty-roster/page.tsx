@@ -438,7 +438,7 @@ export default function DutyRosterPage() {
             data-testid="add-shift-modal"
             onSubmit={submitAdd}
             noValidate
-            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
           >
             <h2 className="mb-4 text-lg font-semibold">Assign Shift</h2>
             <div className="space-y-3">
@@ -491,7 +491,7 @@ export default function DutyRosterPage() {
                   ))}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="add-shift-start-time" className="mb-1 block text-sm font-medium">
                     Start Time
@@ -560,7 +560,7 @@ export default function DutyRosterPage() {
           <form
             onSubmit={submitBulk}
             noValidate
-            className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-xl rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
           >
             <h2 className="mb-4 text-lg font-semibold">Bulk Schedule</h2>
             <div className="space-y-3">
@@ -591,7 +591,7 @@ export default function DutyRosterPage() {
                   ))}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="bulk-shift-from" className="mb-1 block text-sm font-medium">From</label>
                   <input
@@ -636,7 +636,7 @@ export default function DutyRosterPage() {
                   ))}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="bulk-shift-start-time" className="mb-1 block text-sm font-medium">
                     Start Time

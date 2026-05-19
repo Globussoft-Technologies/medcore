@@ -151,7 +151,8 @@ export default function PurchaseOrdersPage() {
         ) : orders.length === 0 ? (
           <div className="p-8 text-center text-gray-500">No purchase orders found</div>
         ) : (
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px]">
             <thead>
               <tr className="border-b text-left text-sm text-gray-500">
                 <th className="px-4 py-3">PO #</th>
@@ -232,6 +233,7 @@ export default function PurchaseOrdersPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
@@ -399,7 +401,7 @@ function NewPOModal({
           </button>
         </div>
         <form onSubmit={handleSubmit} noValidate className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label htmlFor="po-supplier" className="mb-1 block text-sm font-medium">Supplier *</label>
               <select
@@ -439,7 +441,8 @@ function NewPOModal({
                 + Add Row
               </button>
             </div>
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[720px]">
               <thead>
                 <tr className="border-b text-left text-xs text-gray-500">
                   <th className="py-1">Medicine (optional)</th>
@@ -513,9 +516,10 @@ function NewPOModal({
                 })}
               </tbody>
             </table>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label htmlFor="po-tax-percentage" className="mb-1 block text-sm font-medium">Tax %</label>
               <input

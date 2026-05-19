@@ -219,9 +219,11 @@ export default function NotificationsPage() {
       <div className="mb-6 rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading && notifications.length === 0 ? (
           <div className="divide-y divide-gray-100 dark:divide-gray-700">
-            <table className="w-full"><tbody>
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px]"><tbody>
               {Array.from({ length: 5 }).map((_, i) => (<SkeletonRow key={i} columns={3} />))}
             </tbody></table>
+            </div>
           </div>
         ) : notifications.length === 0 ? (
           <div className="flex flex-col items-center gap-2 p-12 text-gray-400">

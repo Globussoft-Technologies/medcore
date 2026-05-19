@@ -276,7 +276,7 @@ export default function MyLeavesPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <form
             onSubmit={submitLeave}
-            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl"
             noValidate
           >
             <h2 className="mb-4 text-lg font-semibold">Request Leave</h2>
@@ -299,7 +299,7 @@ export default function MyLeavesPage() {
                   <option value="UNPAID">Unpaid</option>
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="leave-from" className="mb-1 block text-sm font-medium">
                     From

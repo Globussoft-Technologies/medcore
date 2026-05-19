@@ -313,7 +313,7 @@ export default function MySchedulePage() {
           <form
             onSubmit={submitLeave}
             noValidate
-            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
           >
             <h2 className="mb-4 text-lg font-semibold">Request Leave</h2>
             <div className="space-y-3">

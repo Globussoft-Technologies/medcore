@@ -1124,23 +1124,24 @@ export default function DashboardLayout({
         className="flex-1 overflow-y-auto bg-bg dark:bg-gray-900"
       >
         {/* Mobile top bar */}
-        <div className="no-print sticky top-0 z-30 flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-gray-800 md:hidden">
+        <div className="no-print sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-gray-200 bg-white px-2 py-2 dark:border-gray-700 dark:bg-gray-800 sm:px-4 md:hidden">
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
             aria-label={t("common.openMenu")}
-            className="flex h-11 w-11 items-center justify-center rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             <Menu size={20} aria-hidden="true" />
           </button>
-          {/* Mobile top-bar logo — same theme swap. Both variants pinned to
-              the same 140×28 box for visual parity. */}
+          {/* Mobile top-bar logo — same theme swap. Logo shrinks on narrow
+              viewports (issue #816) so it doesn't push the language dropdown
+              + search button into the avatar area at 375px. */}
           <Image
             src={logoHorizontal}
             alt="MedCore"
             width={140}
             height={28}
-            className="h-7 w-[140px] object-contain dark:hidden"
+            className="h-6 w-[100px] shrink object-contain sm:h-7 sm:w-[140px] dark:hidden"
             priority
           />
           <Image
@@ -1148,10 +1149,10 @@ export default function DashboardLayout({
             alt="MedCore"
             width={140}
             height={28}
-            className="hidden h-7 w-[140px] object-contain dark:block"
+            className="hidden h-6 w-[100px] shrink object-contain sm:h-7 sm:w-[140px] dark:block"
             priority
           />
-          <div className="flex items-center gap-1">
+          <div className="flex shrink-0 items-center gap-1">
             {/* Issue #137: language switcher mirrors the sidebar one for
                 small screens where the sidebar is collapsed by default. */}
             <LanguageDropdown

@@ -13,6 +13,7 @@ import {
   Edit2,
   KeyRound,
   Power,
+  X,
 } from "lucide-react";
 import { extractFieldErrors, type FieldErrorMap } from "@/lib/field-errors";
 import { Role, sanitizeUserInput } from "@medcore/shared";
@@ -541,11 +542,20 @@ export default function UsersPage() {
                       <button
                         onClick={() => toggleActive(u)}
                         disabled={u.id === user?.id}
-                        className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50 ${
+                        className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-gray-50 disabled:cursor-not-allowed disabled:border-dashed disabled:border-gray-300 disabled:bg-gray-100 disabled:text-gray-400 disabled:opacity-100 disabled:hover:bg-gray-100 dark:disabled:border-gray-700 dark:disabled:bg-gray-800 dark:disabled:text-gray-500 ${
                           u.isActive !== false ? "text-red-600" : "text-green-600"
                         }`}
                         title={
-                          u.isActive !== false
+                          u.id === user?.id
+                            ? "You cannot disable your own account"
+                            : u.isActive !== false
+                            ? "Disable account"
+                            : "Re-enable account"
+                        }
+                        aria-label={
+                          u.id === user?.id
+                            ? "Cannot disable your own account"
+                            : u.isActive !== false
                             ? "Disable account"
                             : "Re-enable account"
                         }
@@ -581,14 +591,25 @@ export default function UsersPage() {
           <form
             onSubmit={saveEdit}
             noValidate
-            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
           >
-            <h3 className="mb-4 text-lg font-semibold">Edit {editing.name}</h3>
+            {/* Issue #826: close (X) button so users can dismiss the modal
+                without scrolling to the Cancel footer. */}
+            <button
+              type="button"
+              onClick={() => setEditing(null)}
+              aria-label="Close"
+              data-testid="user-edit-close"
+              className="absolute right-3 top-3 rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+            >
+              <X size={16} />
+            </button>
+            <h3 className="mb-4 text-lg font-semibold pr-8 dark:text-slate-100">Edit {editing.name}</h3>
             <div className="space-y-3">
               <div>
                 <label
                   htmlFor="edit-name"
-                  className="mb-1 block text-xs font-medium text-slate-700"
+                  className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
                 >
                   Full Name
                 </label>
@@ -598,7 +619,7 @@ export default function UsersPage() {
                   onChange={(e) =>
                     setEditForm({ ...editForm, name: e.target.value })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                   data-testid="user-edit-name"
                   aria-invalid={editError.name ? true : undefined}
                 />
@@ -611,10 +632,36 @@ export default function UsersPage() {
                   </p>
                 )}
               </div>
+              {/* Issue #827: surface the user's email as a read-only identity
+                  field. The PATCH endpoint does not accept email changes
+                  (User.email is the immutable login identifier — see #891),
+                  but hiding it from the modal made the list's Email column
+                  inconsistent with the editor. Read-only keeps that contract
+                  intact while giving the admin the context they expected. */}
+              <div>
+                <label
+                  htmlFor="edit-email"
+                  className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
+                >
+                  Email
+                </label>
+                <input
+                  id="edit-email"
+                  type="email"
+                  value={editing.email ?? ""}
+                  readOnly
+                  disabled
+                  data-testid="user-edit-email"
+                  className="w-full cursor-not-allowed rounded-lg border bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
+                />
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Email is the login identifier and cannot be changed here.
+                </p>
+              </div>
               <div>
                 <label
                   htmlFor="edit-phone"
-                  className="mb-1 block text-xs font-medium text-slate-700"
+                  className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
                 >
                   Phone
                 </label>
@@ -624,7 +671,7 @@ export default function UsersPage() {
                   onChange={(e) =>
                     setEditForm({ ...editForm, phone: e.target.value })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                   data-testid="user-edit-phone"
                   aria-invalid={editError.phone ? true : undefined}
                 />
@@ -635,7 +682,7 @@ export default function UsersPage() {
               <div>
                 <label
                   htmlFor="edit-role"
-                  className="mb-1 block text-xs font-medium text-slate-700"
+                  className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
                 >
                   Role
                 </label>
@@ -646,7 +693,7 @@ export default function UsersPage() {
                     setEditForm({ ...editForm, role: e.target.value })
                   }
                   disabled={editing.id === user?.id}
-                  className="w-full rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
+                  className="w-full rounded-lg border px-3 py-2 text-sm disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                   data-testid="user-edit-role"
                 >
                   {STAFF_ROLE_OPTIONS.map((opt) => (
@@ -656,7 +703,7 @@ export default function UsersPage() {
                   ))}
                 </select>
                 {editing.id === user?.id && (
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                     You cannot change your own role.
                   </p>
                 )}
@@ -666,7 +713,7 @@ export default function UsersPage() {
               <button
                 type="button"
                 onClick={() => setEditing(null)}
-                className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+                className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
               >
                 Cancel
               </button>

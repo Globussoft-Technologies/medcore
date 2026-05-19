@@ -253,26 +253,65 @@ export const assignEmergencyDoctorSchema = z.object({
 // Issue #424: both `disposition` and `outcomeNotes` were stored XSS sinks —
 // the close modal lets the doctor type free text, then the chart detail page
 // renders both directly. Reject HTML/script payloads at the schema layer.
-export const updateEmergencyStatusSchema = z.object({
-  status: z.enum(EMERGENCY_STATUS),
-  attendingDoctorId: z.string().uuid().optional(),
-  disposition: z
-    .string({ error: "Disposition is required" })
-    .trim()
-    .min(1, "Disposition is required")
-    .refine((v) => !containsHtmlOrScript(v), {
-      message:
-        "Disposition contains characters that aren't allowed (e.g. < > or HTML tags)",
-    }),
-  outcomeNotes: z
-    .string({ error: "Outcome notes are required" })
-    .trim()
-    .min(1, "Outcome notes are required")
-    .refine((v) => !containsHtmlOrScript(v), {
-      message:
-        "Outcome notes contain characters that aren't allowed (e.g. < > or HTML tags)",
-    }),
-});
+// Issue #893 (May 2026): `outcomeNotes` is required for ordinary closures
+// (DISCHARGED / ADMITTED / TRANSFERRED / DECEASED) where the attending
+// clinician records the patient's outcome. But for the LWBS path
+// (status === "LEFT_WITHOUT_BEING_SEEN") there is by definition no clinical
+// handoff to document — the patient left before being seen.
+//
+// Implemented as a discriminated union on `status` so:
+//   - LWBS arm: outcomeNotes is optional (XSS guard still fires when given)
+//   - Every other arm: outcomeNotes keeps the original #424 contract
+//     (non-empty + XSS-free), and its `min(1)` is reported at the FIELD
+//     level — important because emergency-deep.test.ts:228 expects both
+//     "disposition" and "outcomeNotes" in the field-level error list when
+//     a DISCHARGED close is submitted with neither (issue #88 regression).
+//     A `.superRefine` short-circuits on field failures, so we couldn't use
+//     it here — discriminated union keeps both checks at field level.
+const dispositionField = z
+  .string()
+  .trim()
+  .min(1, "Disposition is required")
+  .refine((v) => !containsHtmlOrScript(v), {
+    message:
+      "Disposition contains characters that aren't allowed (e.g. < > or HTML tags)",
+  });
+const outcomeNotesXssRefine = (v: string | undefined) =>
+  v === undefined || !containsHtmlOrScript(v);
+const outcomeNotesXssMessage =
+  "Outcome notes contain characters that aren't allowed (e.g. < > or HTML tags)";
+
+const NON_LWBS_STATUSES = EMERGENCY_STATUS.filter(
+  (s) => s !== "LEFT_WITHOUT_BEING_SEEN",
+) as Exclude<(typeof EMERGENCY_STATUS)[number], "LEFT_WITHOUT_BEING_SEEN">[];
+
+export const updateEmergencyStatusSchema = z.discriminatedUnion("status", [
+  // LWBS arm — no outcomeNotes requirement, but XSS guard if provided.
+  z.object({
+    status: z.literal("LEFT_WITHOUT_BEING_SEEN"),
+    attendingDoctorId: z.string().uuid().optional(),
+    disposition: dispositionField,
+    outcomeNotes: z
+      .string()
+      .trim()
+      .optional()
+      .refine(outcomeNotesXssRefine, { message: outcomeNotesXssMessage }),
+  }),
+  // Every other closure status — outcomeNotes required + XSS-free, same as
+  // the original #424 contract.
+  z.object({
+    status: z.enum(NON_LWBS_STATUSES as [string, ...string[]]),
+    attendingDoctorId: z.string().uuid().optional(),
+    disposition: dispositionField,
+    outcomeNotes: z
+      .string()
+      .trim()
+      .min(1, "Outcome notes are required")
+      .refine((v) => !containsHtmlOrScript(v), {
+        message: outcomeNotesXssMessage,
+      }),
+  }),
+]);
 
 // Issue #424: MLC fields are rendered into the chart and the medico-legal
 // printout — XSS payload there would be highly embarrassing. Reject markup.

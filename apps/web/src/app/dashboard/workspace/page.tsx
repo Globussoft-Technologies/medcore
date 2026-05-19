@@ -90,7 +90,7 @@ export default function DoctorWorkspacePage() {
 
   if (!user || user.role !== "DOCTOR") {
     return (
-      <div className="p-8 text-center text-gray-500">
+      <div className="p-8 text-center text-gray-500 dark:text-gray-400">
         Workspace is for doctors only.
       </div>
     );
@@ -100,12 +100,12 @@ export default function DoctorWorkspacePage() {
     <div className="space-y-4">
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Workspace</h1>
-          <p className="text-sm text-gray-500">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Workspace</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Everything you need for today, {formatDoctorName(user.name)}
           </p>
         </div>
-        <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+        <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary dark:bg-primary/20">
           DOCTOR
         </span>
       </div>
@@ -145,9 +145,9 @@ export default function DoctorWorkspacePage() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Column 1: Queue right now */}
-        <div className="rounded-xl bg-white p-4 shadow-sm">
+        <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
               <Monitor size={14} /> My Queue
             </h2>
             <Link
@@ -158,41 +158,41 @@ export default function DoctorWorkspacePage() {
             </Link>
           </div>
           {currentToken ? (
-            <div className="mb-3 rounded-lg border border-primary/50 bg-primary/5 p-3">
+            <div className="mb-3 rounded-lg border border-primary/50 bg-primary/5 p-3 dark:bg-primary/10">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">
                 Current Token #{currentToken.tokenNumber}
               </p>
-              <p className="mt-0.5 text-sm font-semibold">
+              <p className="mt-0.5 text-sm font-semibold text-gray-900 dark:text-gray-100">
                 {currentToken.patient?.user?.name || "—"}
               </p>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 {currentToken.type} · {currentToken.status.replace(/_/g, " ")}
               </p>
             </div>
           ) : (
-            <p className="mb-3 rounded-lg bg-gray-50 p-3 text-xs text-gray-500">
+            <p className="mb-3 rounded-lg bg-gray-50 p-3 text-xs text-gray-500 dark:bg-gray-900/50 dark:text-gray-400">
               No patient currently in consultation
             </p>
           )}
-          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
             Next in line
           </p>
           {queue.length === 0 ? (
-            <p className="p-2 text-xs text-gray-400">Queue is empty</p>
+            <p className="p-2 text-xs text-gray-400 dark:text-gray-500">Queue is empty</p>
           ) : (
             <div className="space-y-1">
               {queue.map((q) => (
                 <div
                   key={q.id}
-                  className="flex items-center gap-2 rounded-lg bg-gray-50 px-2 py-1.5"
+                  className="flex items-center gap-2 rounded-lg bg-gray-50 px-2 py-1.5 dark:bg-gray-900/50"
                 >
-                  <span className="rounded bg-white px-1.5 py-0.5 font-mono text-xs font-semibold">
+                  <span className="rounded bg-white px-1.5 py-0.5 font-mono text-xs font-semibold text-gray-900 dark:bg-gray-700 dark:text-gray-100">
                     #{q.tokenNumber}
                   </span>
-                  <span className="flex-1 truncate text-xs">
+                  <span className="flex-1 truncate text-xs text-gray-900 dark:text-gray-100">
                     {q.patient?.user?.name || "—"}
                   </span>
-                  <span className="text-[11px] text-gray-500">
+                  <span className="text-[11px] text-gray-500 dark:text-gray-400">
                     {q.status.replace(/_/g, " ")}
                   </span>
                 </div>
@@ -202,8 +202,8 @@ export default function DoctorWorkspacePage() {
         </div>
 
         {/* Column 2: Pending Tasks */}
-        <div className="rounded-xl bg-white p-4 shadow-sm">
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700">
+        <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
             <ClipboardList size={14} /> My Pending Tasks
           </h2>
           <div className="space-y-2">
@@ -235,32 +235,32 @@ export default function DoctorWorkspacePage() {
         </div>
 
         {/* Column 3: Today's appointments */}
-        <div className="rounded-xl bg-white p-4 shadow-sm">
+        <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
               <Calendar size={14} /> Today&apos;s Appointments
             </h2>
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600">
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600 dark:bg-gray-700 dark:text-gray-300">
               {appts.length}
             </span>
           </div>
           {appts.length === 0 ? (
-            <p className="p-2 text-xs text-gray-400">No appointments today</p>
+            <p className="p-2 text-xs text-gray-400 dark:text-gray-500">No appointments today</p>
           ) : (
             <div className="space-y-1">
               {appts.slice(0, 8).map((a) => (
                 <Link
                   key={a.id}
                   href={`/dashboard/appointments?id=${a.id}`}
-                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50"
+                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-700/50"
                 >
-                  <span className="w-12 shrink-0 text-xs text-gray-500">
+                  <span className="w-12 shrink-0 text-xs text-gray-500 dark:text-gray-400">
                     {a.slotStart || "—"}
                   </span>
-                  <span className="flex-1 truncate text-xs font-medium">
+                  <span className="flex-1 truncate text-xs font-medium text-gray-900 dark:text-gray-100">
                     {a.patient?.user?.name || "Patient"}
                   </span>
-                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px]">
+                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-700 dark:bg-gray-700 dark:text-gray-300">
                     {a.status.replace(/_/g, " ")}
                   </span>
                 </Link>
@@ -272,9 +272,9 @@ export default function DoctorWorkspacePage() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Admitted */}
-        <div className="rounded-xl bg-white p-4 shadow-sm">
+        <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
               <BedDouble size={14} /> My Admitted Patients
             </h2>
             <Link
@@ -285,24 +285,24 @@ export default function DoctorWorkspacePage() {
             </Link>
           </div>
           {admitted.length === 0 ? (
-            <p className="p-2 text-xs text-gray-400">No active admissions</p>
+            <p className="p-2 text-xs text-gray-400 dark:text-gray-500">No active admissions</p>
           ) : (
             <div className="space-y-2">
               {admitted.slice(0, 8).map((a) => (
                 <Link
                   key={a.id}
                   href={`/dashboard/ipd/${a.id}`}
-                  className="flex items-center gap-3 rounded-lg border border-gray-100 p-2.5 hover:border-primary/40"
+                  className="flex items-center gap-3 rounded-lg border border-gray-100 p-2.5 hover:border-primary/40 dark:border-gray-700 dark:hover:border-primary/60"
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="truncate text-sm font-medium">
+                    <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
                       {a.patient?.user?.name || "—"}
                     </p>
-                    <p className="truncate text-[11px] text-gray-500">
+                    <p className="truncate text-[11px] text-gray-500 dark:text-gray-400">
                       {a.admissionNumber} · {a.reason}
                     </p>
                   </div>
-                  <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-medium text-purple-700">
+                  <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-medium text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
                     {a.bed?.ward?.name
                       ? `${a.bed.ward.name}/${a.bed.bedNumber}`
                       : "—"}
@@ -314,9 +314,9 @@ export default function DoctorWorkspacePage() {
         </div>
 
         {/* Recent prescriptions */}
-        <div className="rounded-xl bg-white p-4 shadow-sm">
+        <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
               <Pill size={14} /> Recent Prescriptions
             </h2>
             <Link
@@ -327,23 +327,23 @@ export default function DoctorWorkspacePage() {
             </Link>
           </div>
           {recentRx.length === 0 ? (
-            <p className="p-2 text-xs text-gray-400">No prescriptions written yet</p>
+            <p className="p-2 text-xs text-gray-400 dark:text-gray-500">No prescriptions written yet</p>
           ) : (
             <div className="space-y-1.5">
               {recentRx.map((rx: any) => (
                 <Link
                   key={rx.id}
                   href={`/dashboard/prescriptions?id=${rx.id}`}
-                  className="flex items-center gap-3 rounded-lg border border-gray-100 p-2 hover:border-primary/40"
+                  className="flex items-center gap-3 rounded-lg border border-gray-100 p-2 hover:border-primary/40 dark:border-gray-700 dark:hover:border-primary/60"
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{rx.diagnosis}</p>
-                    <p className="truncate text-[11px] text-gray-500">
+                    <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{rx.diagnosis}</p>
+                    <p className="truncate text-[11px] text-gray-500 dark:text-gray-400">
                       {rx.patient?.user?.name || "—"} ·{" "}
                       {new Date(rx.createdAt).toLocaleDateString()}
                     </p>
                   </div>
-                  <span className="text-[11px] text-gray-500">
+                  <span className="text-[11px] text-gray-500 dark:text-gray-400">
                     {rx.items?.length || 0} item
                     {rx.items?.length === 1 ? "" : "s"}
                   </span>
@@ -355,7 +355,7 @@ export default function DoctorWorkspacePage() {
       </div>
 
       {!loaded && (
-        <p className="text-center text-xs text-gray-400">Loading…</p>
+        <p className="text-center text-xs text-gray-400 dark:text-gray-500">Loading…</p>
       )}
     </div>
   );
@@ -396,14 +396,14 @@ function TaskRow({
   return (
     <Link
       href={href}
-      className="flex items-center justify-between rounded-lg border border-gray-100 p-2.5 hover:border-primary/40"
+      className="flex items-center justify-between rounded-lg border border-gray-100 p-2.5 hover:border-primary/40 dark:border-gray-700 dark:hover:border-primary/60"
     >
-      <span className="text-sm text-gray-700">{label}</span>
+      <span className="text-sm text-gray-700 dark:text-gray-200">{label}</span>
       <span className="flex items-center gap-1.5">
-        <span className={`text-lg font-bold ${count > 0 ? color : "text-gray-300"}`}>
+        <span className={`text-lg font-bold ${count > 0 ? color : "text-gray-300 dark:text-gray-600"}`}>
           {count}
         </span>
-        <ArrowRight size={14} className="text-gray-400" />
+        <ArrowRight size={14} className="text-gray-400 dark:text-gray-500" />
       </span>
     </Link>
   );

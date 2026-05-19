@@ -223,12 +223,12 @@ export default function WalkInPage() {
           text-lg line that visually disappeared next to the giant token. */}
       {result && (
         <div
-          className="mb-6 rounded-xl bg-green-50 border-2 border-green-200 p-8 text-center"
+          className="mb-6 rounded-xl bg-green-50 border-2 border-green-200 p-8 text-center dark:bg-green-900/30 dark:border-green-800"
           data-testid="walkin-success"
         >
-          <p className="text-sm text-green-600">Token Assigned</p>
+          <p className="text-sm text-green-600 dark:text-green-300">Token Assigned</p>
           <p
-            className="text-6xl font-bold text-green-700"
+            className="text-6xl font-bold text-green-700 dark:text-green-300"
             data-testid="walkin-token"
           >
             {result.tokenNumber}
@@ -247,7 +247,7 @@ export default function WalkInPage() {
               MR # {result.mrNumber}
             </p>
           )}
-          <p className="mt-2 text-sm text-gray-500">Doctor: {result.doctorName}</p>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Doctor: {result.doctorName}</p>
           <button
             onClick={() => setResult(null)}
             className="mt-4 rounded-lg bg-primary px-6 py-2 text-sm font-medium text-white"
@@ -283,10 +283,15 @@ export default function WalkInPage() {
                     aria-pressed={isSelected}
                     data-selected={isSelected ? "true" : "false"}
                     onClick={() => setSelectedDoctor(d.id)}
-                    className={`relative rounded-lg border-2 p-3 text-left text-sm text-gray-900 transition focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 dark:text-gray-100 ${
+                    className={`relative rounded-lg border-2 p-3 text-left text-sm text-gray-900 transition hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 dark:text-gray-100 ${
                       isSelected
                         ? "border-primary bg-blue-50 ring-2 ring-primary/40 dark:border-blue-400 dark:bg-blue-900/30"
                         : "border-gray-200 hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-500"
+                    } ${
+                      // Issue #856: dim the non-chosen tiles ONLY after a
+                      // doctor is picked — so the selected one stands out.
+                      // Before any selection every tile stays full-opacity.
+                      selectedDoctor && !isSelected ? "opacity-60" : ""
                     }`}
                   >
                     {isSelected && (

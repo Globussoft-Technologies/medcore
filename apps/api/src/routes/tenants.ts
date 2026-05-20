@@ -62,6 +62,15 @@ const updateTenantSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
   plan: planEnum.optional(),
   active: z.boolean().optional(),
+  // Pearl gap #10b — per-tenant Razorpay creds + ADMIN TOTP policy.
+  // razorpayKeySecret accepts null to clear (rotate); razorpayMode is
+  // an informational label that the gateway URL doesn't actually depend
+  // on (Razorpay routes by keyId prefix), but the super-admin UI shows
+  // it to make accidental "test keys in prod" easier to spot.
+  razorpayKeyId: z.string().trim().min(8).max(64).nullable().optional(),
+  razorpayKeySecret: z.string().trim().min(8).max(128).nullable().optional(),
+  razorpayMode: z.enum(["test", "live"]).nullable().optional(),
+  requireAdminTOTP: z.boolean().optional(),
 });
 
 // ─── Guards ──────────────────────────────────────────────────────────
@@ -334,8 +343,26 @@ router.patch(
           ...(body.name !== undefined ? { name: body.name } : {}),
           ...(body.plan !== undefined ? { plan: body.plan } : {}),
           ...(body.active !== undefined ? { active: body.active } : {}),
+          ...(body.razorpayKeyId !== undefined ? { razorpayKeyId: body.razorpayKeyId } : {}),
+          ...(body.razorpayKeySecret !== undefined ? { razorpayKeySecret: body.razorpayKeySecret } : {}),
+          ...(body.razorpayMode !== undefined ? { razorpayMode: body.razorpayMode } : {}),
+          ...(body.requireAdminTOTP !== undefined ? { requireAdminTOTP: body.requireAdminTOTP } : {}),
         },
       });
+      // Pearl #10b — bust the Razorpay creds cache so the next payment
+      // call uses the new keys immediately (no stale 60s window).
+      if (
+        body.razorpayKeyId !== undefined ||
+        body.razorpayKeySecret !== undefined ||
+        body.razorpayMode !== undefined
+      ) {
+        try {
+          const { invalidateRazorpayCacheForTenant } = await import("../services/razorpay");
+          invalidateRazorpayCacheForTenant(tenant.id);
+        } catch {
+          /* circular-import safety — non-fatal */
+        }
+      }
 
       // If hospital name changed, mirror it into tenant-scoped SystemConfig
       // so downstream PDF/notification renderers pick it up.

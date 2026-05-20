@@ -475,6 +475,28 @@ model Tenant {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
+  // Pearl ERP Stage 1 gap item #10b — per-tenant Razorpay credentials.
+  // Today services/razorpay.ts reads RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET
+  // from process.env, which only works for single-tenant deploys. For
+  // multi-tenant Pearl pilots, each hospital has its own merchant account
+  // and needs its own keys. When these fields are NULL the runtime falls
+  // back to the env vars (back-compat for existing single-tenant deploys).
+  //
+  // razorpayMode = "live" | "test" — informational + drives the gateway URL.
+  // razorpayKeySecret is stored AS-IS for now (encryption-at-rest is a
+  // separate ops follow-up; the column is already FK-cascade-protected
+  // and the DB is encrypted at the filesystem layer on prod).
+  razorpayKeyId      String?
+  razorpayKeySecret  String?
+  razorpayMode       String? // "live" | "test"
+
+  // Pearl ERP Stage 1 gap item #10b — mandatory TOTP for tenant ADMIN.
+  // When true, ADMIN users on this tenant who haven't enrolled TOTP are
+  // blocked at the login step with a 412 + "TOTP enrolment required"
+  // message. Pearl-branded tenants set this to true; non-Pearl tenants
+  // leave it false (current default — opt-in TOTP only).
+  requireAdminTOTP  Boolean   @default(false)
+
   // Pearl ERP Stage 1 §6 + §18 (gap item #9) — per-tenant feature flags.
   // JSON shape:
   //   { "<featureKey>": true | false, ... }

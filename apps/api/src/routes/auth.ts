@@ -910,6 +910,29 @@ router.post(
       // operator on this IP isn't locked out by a previous user's typos.
       clearFailedLogins(ip);
 
+      // Pearl gap #10b — mandatory TOTP for tenant ADMIN.
+      // If the tenant has requireAdminTOTP=true AND the user is ADMIN
+      // AND they haven't enrolled 2FA, block the login with 412
+      // (Precondition Failed) + a clear message + a one-shot tempToken
+      // they can swap for the /auth/2fa/enroll endpoint to set up.
+      if (user.tenantId && user.role === "ADMIN" && !user.twoFactorEnabled) {
+        const tenant = await prisma.tenant.findUnique({
+          where: { id: user.tenantId },
+          select: { requireAdminTOTP: true },
+        });
+        if (tenant?.requireAdminTOTP) {
+          const enrolToken = await issueTempToken(user.id);
+          res.status(412).json({
+            success: false,
+            data: { totpEnrolmentRequired: true, enrolToken },
+            error:
+              "This tenant requires ADMIN users to enroll TOTP before signing in. " +
+              "Use the returned enrolToken to call /auth/2fa/setup.",
+          });
+          return;
+        }
+      }
+
       // If 2FA is enabled, do not issue real tokens — return a temp token.
       if (user.twoFactorEnabled && user.twoFactorSecret) {
         const tempToken = await issueTempToken(user.id);

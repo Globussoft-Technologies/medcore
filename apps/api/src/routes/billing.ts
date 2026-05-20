@@ -962,7 +962,7 @@ router.post(
       // and /verify-payment can't reconcile.
       const expectedPaiseForNewOrder = Math.round(chargeAmount * 100);
       if (invoice.razorpayOrderId) {
-        const existingPaise = await fetchOrderAmount(invoice.razorpayOrderId);
+        const existingPaise = await fetchOrderAmount(invoice.razorpayOrderId, req.tenantId);
         if (existingPaise !== null && existingPaise !== expectedPaiseForNewOrder) {
           console.warn("[billing] discarding stale razorpayOrderId", {
             invoiceId,
@@ -975,7 +975,7 @@ router.post(
         }
       }
 
-      const order = await createPaymentOrder(invoiceId, chargeAmount);
+      const order = await createPaymentOrder(invoiceId, chargeAmount, req.tenantId);
 
       // Persist the order id on the invoice so the webhook handler can look up
       // the invoice in O(1) and the /verify-payment route can sanity-check
@@ -1041,7 +1041,7 @@ router.post(
       }
       if (!(await assertPatientOwnsResource(req, res, ownerInvoice.patientId))) return;
 
-      const isValid = verifyPayment(razorpayOrderId, razorpayPaymentId, razorpaySignature);
+      const isValid = await verifyPayment(razorpayOrderId, razorpayPaymentId, razorpaySignature, req.tenantId);
 
       if (!isValid) {
         res.status(400).json({
@@ -1112,7 +1112,7 @@ router.post(
       // exact rupee amount the user agreed to pay, and Razorpay's modal won't
       // accept a different amount. If the lookup fails (mock mode / network
       // blip), fall back to charging the full remaining as before.
-      const orderStatedPaise = await fetchOrderAmount(razorpayOrderId).catch(
+      const orderStatedPaise = await fetchOrderAmount(razorpayOrderId, req.tenantId).catch(
         () => null
       );
       const capturedAmount =

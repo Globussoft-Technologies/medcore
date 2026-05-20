@@ -1,34 +1,88 @@
 import crypto from "crypto";
+import { prisma } from "@medcore/db";
 
-const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID;
-const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET;
+const ENV_RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID;
+const ENV_RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET;
 
+interface RazorpayCreds {
+  keyId: string;
+  keySecret: string;
+  source: "tenant" | "env";
+}
+
+// Pearl gap #10b — per-tenant Razorpay credentials.
+// Per-tenant instance cache + creds cache, both keyed by tenantId.
+// Env fallback uses tenantId='__env__' so the single-tenant path keeps
+// using a single cached instance.
 let Razorpay: any = null;
-let razorpayInstance: any = null;
+const instanceByTenant = new Map<string, any>();
+const credsByTenant = new Map<string, { creds: RazorpayCreds | null; expiresAt: number }>();
+const CREDS_TTL_MS = 60_000;
 
-function getRazorpayInstance(): any | null {
-  if (razorpayInstance) return razorpayInstance;
+async function getCreds(tenantId: string | null | undefined): Promise<RazorpayCreds | null> {
+  const cacheKey = tenantId ?? "__env__";
+  const cached = credsByTenant.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.creds;
 
-  if (!RAZORPAY_KEY_ID || !RAZORPAY_KEY_SECRET) {
+  let creds: RazorpayCreds | null = null;
+  if (tenantId) {
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { razorpayKeyId: true, razorpayKeySecret: true },
+    });
+    if (tenant?.razorpayKeyId && tenant?.razorpayKeySecret) {
+      creds = {
+        keyId: tenant.razorpayKeyId,
+        keySecret: tenant.razorpayKeySecret,
+        source: "tenant",
+      };
+    }
+  }
+  if (!creds && ENV_RAZORPAY_KEY_ID && ENV_RAZORPAY_KEY_SECRET) {
+    creds = {
+      keyId: ENV_RAZORPAY_KEY_ID,
+      keySecret: ENV_RAZORPAY_KEY_SECRET,
+      source: "env",
+    };
+  }
+  credsByTenant.set(cacheKey, { creds, expiresAt: Date.now() + CREDS_TTL_MS });
+  return creds;
+}
+
+async function getRazorpayInstance(tenantId: string | null | undefined): Promise<any | null> {
+  const cacheKey = tenantId ?? "__env__";
+  if (instanceByTenant.has(cacheKey)) return instanceByTenant.get(cacheKey);
+
+  const creds = await getCreds(tenantId);
+  if (!creds) {
     console.warn(
-      "[Razorpay] RAZORPAY_KEY_ID and/or RAZORPAY_KEY_SECRET not configured. " +
-        "Online payments will return mock data."
+      "[Razorpay] No credentials available (neither tenant override nor env). " +
+        "Online payments will return mock data.",
     );
+    instanceByTenant.set(cacheKey, null);
     return null;
   }
 
   try {
-    // Dynamic import — razorpay may not be installed in all environments
     Razorpay = require("razorpay");
-    razorpayInstance = new Razorpay({
-      key_id: RAZORPAY_KEY_ID,
-      key_secret: RAZORPAY_KEY_SECRET,
-    });
-    return razorpayInstance;
+    const inst = new Razorpay({ key_id: creds.keyId, key_secret: creds.keySecret });
+    instanceByTenant.set(cacheKey, inst);
+    return inst;
   } catch {
     console.warn("[Razorpay] razorpay package not installed. Using mock mode.");
+    instanceByTenant.set(cacheKey, null);
     return null;
   }
+}
+
+/** Test-only reset. Also called by the PATCH endpoint when admin rotates creds. */
+export function invalidateRazorpayCacheForTenant(tenantId: string): void {
+  instanceByTenant.delete(tenantId);
+  credsByTenant.delete(tenantId);
+}
+export function __resetRazorpayCacheForTests(): void {
+  instanceByTenant.clear();
+  credsByTenant.clear();
 }
 
 export interface RazorpayOrder {
@@ -52,9 +106,11 @@ export interface RazorpayOrder {
  */
 export async function createPaymentOrder(
   invoiceId: string,
-  amount: number
+  amount: number,
+  tenantId?: string | null,
 ): Promise<RazorpayOrder> {
-  const instance = getRazorpayInstance();
+  const instance = await getRazorpayInstance(tenantId);
+  const creds = await getCreds(tenantId);
 
   // Amount in paise (Razorpay uses smallest currency unit)
   const amountPaise = Math.round(amount * 100);
@@ -62,8 +118,8 @@ export async function createPaymentOrder(
   if (!instance) {
     if (process.env.NODE_ENV === "production") {
       throw new Error(
-        "Razorpay not configured (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET unset). " +
-          "Refusing to create a mock order in production — see #903."
+        "Razorpay not configured (no tenant override + no RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET env). " +
+          "Refusing to create a mock order in production — see #903.",
       );
     }
     // Non-production mock mode
@@ -73,7 +129,7 @@ export async function createPaymentOrder(
       orderId: mockOrderId,
       amount: amountPaise,
       currency: "INR",
-      keyId: RAZORPAY_KEY_ID || "rzp_test_mock",
+      keyId: creds?.keyId || "rzp_test_mock",
     };
   }
 
@@ -81,16 +137,14 @@ export async function createPaymentOrder(
     amount: amountPaise,
     currency: "INR",
     receipt: invoiceId,
-    notes: {
-      invoiceId,
-    },
+    notes: { invoiceId },
   });
 
   return {
     orderId: order.id,
     amount: order.amount,
     currency: order.currency,
-    keyId: RAZORPAY_KEY_ID!,
+    keyId: creds!.keyId,
   };
 }
 
@@ -104,27 +158,29 @@ export async function createPaymentOrder(
  * - Non-production: when the secret is unset, returns true so the
  *   dev/test flow can complete without real Razorpay creds.
  */
-export function verifyPayment(
+export async function verifyPayment(
   razorpayOrderId: string,
   razorpayPaymentId: string,
-  signature: string
-): boolean {
-  if (!RAZORPAY_KEY_SECRET) {
+  signature: string,
+  tenantId?: string | null,
+): Promise<boolean> {
+  const creds = await getCreds(tenantId);
+  if (!creds) {
     if (process.env.NODE_ENV === "production") {
       console.error(
-        "[Razorpay] RAZORPAY_KEY_SECRET unset in production — refusing payment verification (#903)."
+        "[Razorpay] No credentials in production — refusing payment verification (#903).",
       );
       return false;
     }
     console.warn(
-      "[Razorpay] No key secret — skipping signature verification (mock mode, non-production only)."
+      "[Razorpay] No key secret — skipping signature verification (mock mode, non-production only).",
     );
     return true;
   }
 
   const body = `${razorpayOrderId}|${razorpayPaymentId}`;
   const expectedSignature = crypto
-    .createHmac("sha256", RAZORPAY_KEY_SECRET)
+    .createHmac("sha256", creds.keySecret)
     .update(body)
     .digest("hex");
 
@@ -185,9 +241,10 @@ export function verifyWebhookSignature(
  * back to local invoice math instead of failing closed in dev.
  */
 export async function fetchOrderAmountPaid(
-  orderId: string
+  orderId: string,
+  tenantId?: string | null,
 ): Promise<number | null> {
-  const instance = getRazorpayInstance();
+  const instance = await getRazorpayInstance(tenantId);
   if (!instance) return null;
   try {
     const order = await instance.orders.fetch(orderId);
@@ -207,9 +264,10 @@ export async function fetchOrderAmountPaid(
  * `null` in mock mode or when Razorpay can't be reached.
  */
 export async function fetchOrderAmount(
-  orderId: string
+  orderId: string,
+  tenantId?: string | null,
 ): Promise<number | null> {
-  const instance = getRazorpayInstance();
+  const instance = await getRazorpayInstance(tenantId);
   if (!instance) return null;
   try {
     const order = await instance.orders.fetch(orderId);

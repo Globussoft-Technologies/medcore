@@ -166,9 +166,20 @@ describeIfDB("Agent Console API (integration)", () => {
     expect(res.body.success).toBe(true);
     const msg = res.body.data;
     expect(msg.roomId).toBe(chatRoomId);
-    // The template must include the doctor name + specialty + slot info
+    // The template must include the doctor name + specialty + slot info.
     expect(msg.content).toContain("Suggested doctor");
-    expect(msg.content).toContain(doctor.user.name);
+    // Issues #201 + #841 (commit 78562a0): the route now routes
+    // doctor.user.name through formatDoctorName(), which strips repeated
+    // "Dr. " prefixes (faker.person.fullName() occasionally returns
+    // names that already carry a title, producing "Dr. Dr. <name>" via
+    // the factory at apps/api/src/test/factories.ts:104). Assert against
+    // the canonical formatted form: a single "Dr. " followed by the raw
+    // person-name tokens. We use the last-name token to make the assert
+    // immune to whatever title pattern faker happens to return.
+    const personTokens = doctor.user.name.replace(/^(Dr\.?\s+)+/i, "").trim().split(/\s+/);
+    const lastName = personTokens[personTokens.length - 1];
+    expect(msg.content).toContain(lastName);
+    expect(msg.content).toMatch(/^Suggested doctor: Dr\. /);
     expect(msg.content).toContain("Pulmonology");
     expect(msg.content).toContain("10:00");
   });

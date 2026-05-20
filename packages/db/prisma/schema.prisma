@@ -39,6 +39,22 @@ enum AppointmentType {
   WALK_IN
 }
 
+// Pearl ERP Stage 1 §2.1.2 — per-doctor appointment mode. TOKEN is
+// the legacy MedCore behaviour (every appointment gets a tokenNumber)
+// and is the default for backward compatibility.
+enum AppointmentMode {
+  CALLING
+  TOKEN
+  SLOT
+}
+
+// Pearl ERP Stage 1 §3.2 — last-hour booking policy per doctor.
+enum LastHourPolicy {
+  ACCEPT_ALL
+  BLOCK_NEW
+  WALK_IN_ONLY
+}
+
 enum Priority {
   NORMAL
   URGENT
@@ -751,6 +767,16 @@ model Doctor {
   subSpecialty    String?
   bio             String?
 
+  // Pearl ERP Stage 1 §2.1.2 / §3.2 — per-doctor appointment mode +
+  // knobs. Default TOKEN preserves legacy MedCore behaviour; new
+  // doctors / Pearl pilots can opt into CALLING or SLOT.
+  appointmentMode        AppointmentMode @default(TOKEN)
+  tokenPrefix            String?
+  tokenStartNumber       Int?
+  dailyAppointmentLimit  Int?
+  nearTurnAlertThreshold Int?
+  lastHourPolicy         LastHourPolicy?
+
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -923,9 +949,17 @@ model Appointment {
   patientId             String
   doctorId              String
   date                  DateTime          @db.Date
-  slotStart             String? // HH:MM — null for walk-ins
+  slotStart             String? // HH:MM — null for walk-ins / CALLING-mode
   slotEnd               String?
-  tokenNumber           Int
+  // tokenNumber: legacy TOKEN-mode bookings carry a sequential number.
+  // CALLING / SLOT mode bookings leave this null (Pearl §2.1.2).
+  // Postgres treats multiple NULLs as distinct so the existing
+  // @@unique [doctorId, date, tokenNumber] still enforces uniqueness
+  // among TOKEN-mode rows without blocking null-token rows.
+  tokenNumber           Int?
+  // arrivalSeq: CALLING-mode arrival counter, scoped per doctor + date.
+  // Null for TOKEN / SLOT mode bookings.
+  arrivalSeq            Int?
   type                  AppointmentType
   status                AppointmentStatus @default(BOOKED)
   priority              Priority          @default(NORMAL)
@@ -965,6 +999,10 @@ model Appointment {
   feedbacks PatientFeedback[]
 
   @@unique([doctorId, date, tokenNumber])
+  // Pearl §2.1.2 — SLOT-mode no-double-booking. Postgres allows
+  // multiple NULL slotStart values so this does not regress walk-ins
+  // or CALLING/TOKEN-mode rows.
+  @@unique([doctorId, date, slotStart])
   @@index([doctorId, date])
   @@index([patientId])
   @@index([date, status])

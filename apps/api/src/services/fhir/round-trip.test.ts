@@ -159,7 +159,9 @@ async function exportPatientEverything(
  */
 interface DbSnapshot {
   patient: string;
-  appointments: Array<{ id: string; hash: string; tokenNumber: number }>;
+  // tokenNumber became nullable in the Pearl §2.1.2 schema change for
+  // CALLING / SLOT-mode bookings.
+  appointments: Array<{ id: string; hash: string; tokenNumber: number | null }>;
   consultations: Array<{ id: string; hash: string }>;
   prescriptions: Array<{ id: string; hash: string }>;
   prescriptionItems: Array<{ id: string; hash: string }>;

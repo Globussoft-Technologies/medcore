@@ -126,8 +126,12 @@ router.get(
         // Vulnerability bump
         const rd = y.rank - x.rank;
         if (rd !== 0) return rd;
-        // Fall back to token order
-        return x.a.tokenNumber - y.a.tokenNumber;
+        // Fall back to token order. Pearl §2.1.2 made tokenNumber
+        // nullable for CALLING / SLOT-mode bookings; treat null as
+        // last so token-mode rows still sort first by token while
+        // null-token rows fall to the end. CALLING-mode arrivalSeq
+        // ordering is the next-PR concern.
+        return (x.a.tokenNumber ?? Number.MAX_SAFE_INTEGER) - (y.a.tokenNumber ?? Number.MAX_SAFE_INTEGER);
       });
 
       // Dedupe-per-patient mode: keep the highest-priority entry (already

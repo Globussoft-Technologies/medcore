@@ -1152,7 +1152,10 @@ router.post(
       const dateObj = new Date(date);
       const groupId = `GRP-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
-      const created: Array<{ id: string; tokenNumber: number; patientId: string }> = [];
+      // tokenNumber is nullable since the Pearl §2.1.2 schema change for
+      // CALLING/SLOT-mode bookings; the group-booking flow itself always
+      // sets it, but the type now honestly reflects the schema.
+      const created: Array<{ id: string; tokenNumber: number | null; patientId: string }> = [];
       let nextToken = await getNextToken(doctorId, dateObj);
       for (const patientId of patientIds) {
         const appt = await prisma.appointment.create({

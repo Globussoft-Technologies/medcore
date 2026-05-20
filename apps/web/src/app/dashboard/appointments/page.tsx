@@ -23,6 +23,9 @@ interface Doctor {
   id: string;
   user: { name: string };
   specialization: string;
+  // Pearl ERP Stage 1 §2.1.2 — TOKEN is the legacy MedCore behaviour;
+  // CALLING / SLOT activate alternate booking flows below.
+  appointmentMode?: "CALLING" | "TOKEN" | "SLOT";
 }
 
 interface Appointment {
@@ -705,7 +708,12 @@ export default function AppointmentsPage() {
       return;
     }
     const slotStartTime = slotOverride ?? confirmDialog.slotStartTime;
-    if (!slotStartTime) {
+    // Pearl ERP Stage 1 §2.1.2 — CALLING-mode doctors don't take a slot.
+    // For SLOT and TOKEN, we still require the picker to have produced
+    // a slotStartTime (the slot picker is the only path into this fn).
+    const doctorMode =
+      doctors.find((d) => d.id === selectedDoctor)?.appointmentMode ?? "TOKEN";
+    if (doctorMode !== "CALLING" && !slotStartTime) {
       toast.error("Please pick a slot before booking");
       return;
     }
@@ -722,12 +730,16 @@ export default function AppointmentsPage() {
         });
         toast.success(`Created ${recOccurrences} recurring appointments.`);
       } else {
-        await api.post("/appointments/book", {
+        const body: Record<string, unknown> = {
           patientId,
           doctorId: selectedDoctor,
           date: selectedDate,
-          slotId: slotStartTime,
-        });
+        };
+        // Omit slotId for CALLING-mode bookings; the API mints arrivalSeq.
+        if (doctorMode !== "CALLING" && slotStartTime) {
+          body.slotId = slotStartTime;
+        }
+        await api.post("/appointments/book", body);
         toast.success("Appointment booked!");
       }
       setConfirmDialog({ open: false, slotStartTime: "", slotEndTime: "" });
@@ -1786,7 +1798,36 @@ export default function AppointmentsPage() {
                   Pick a doctor and date above to load available slots.
                 </div>
               )}
-              {selectedDoctor && slotsWithPast.length === 0 && (
+              {/* Pearl ERP Stage 1 §2.1.2 — CALLING-mode doctors don't take
+                  slots; the patient just joins today's arrival-order queue.
+                  We branch the whole "no slots / slots / book" panel off
+                  the selected doctor's appointmentMode (TOKEN is the
+                  legacy default and keeps the slot picker). */}
+              {selectedDoctor &&
+                doctors.find((d) => d.id === selectedDoctor)?.appointmentMode === "CALLING" && (
+                  <div
+                    className="mt-4 rounded-lg border border-blue-300 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-700 dark:bg-blue-900/20 dark:text-blue-100"
+                    data-testid="appt-book-calling-mode"
+                  >
+                    <p className="mb-3">
+                      This doctor uses an <strong>arrival-order queue</strong>. No
+                      slot time needed — the patient is added to today's queue
+                      and seen in arrival order.
+                    </p>
+                    <button
+                      type="button"
+                      data-testid="appt-book-calling-add"
+                      onClick={() => bookAppointment("")}
+                      className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+                    >
+                      Add to today&apos;s queue
+                    </button>
+                  </div>
+                )}
+
+              {selectedDoctor &&
+                doctors.find((d) => d.id === selectedDoctor)?.appointmentMode !== "CALLING" &&
+                slotsWithPast.length === 0 && (
                 <div
                   className="mt-4 rounded-lg border border-dashed border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200"
                   data-testid="appt-book-no-slots"
@@ -1804,7 +1845,9 @@ export default function AppointmentsPage() {
                 </div>
               )}
 
-              {slotsWithPast.length > 0 && (
+              {selectedDoctor &&
+                doctors.find((d) => d.id === selectedDoctor)?.appointmentMode !== "CALLING" &&
+                slotsWithPast.length > 0 && (
                 <div className="mt-4" data-testid="appt-book-slots">
                   <p className="mb-2 text-sm font-medium">
                     {isRecurring

@@ -94,7 +94,8 @@ vi.mock("../services/revenue", () => ({
 }));
 vi.mock("../services/razorpay", () => ({
   createPaymentOrder: vi.fn(),
-  verifyPayment: vi.fn(() => true),
+  // Pearl #10b — verifyPayment is async now (per-tenant cred lookup).
+  verifyPayment: vi.fn(async () => true),
   fetchOrderAmountPaid: vi.fn(async () => null),
   // Real HMAC verify so signature behaviour is exercised, not stubbed.
   verifyWebhookSignature: (raw: Buffer, signature: string, secret: string | undefined) => {

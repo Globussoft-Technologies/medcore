@@ -28,7 +28,7 @@ describe("razorpay service - mock mode", () => {
 
   it("verifyPayment returns true in mock mode (no secret)", async () => {
     const mod = await import("./razorpay");
-    expect(mod.verifyPayment("o", "p", "garbage")).toBe(true);
+    expect(await mod.verifyPayment("o", "p", "garbage")).toBe(true);
   });
 });
 
@@ -57,7 +57,7 @@ describe("razorpay service - production fail-closed guards (#903)", () => {
     const mod = await import("./razorpay");
     // Even a syntactically-valid HMAC fails because the secret is missing
     // — we don't trust ANY payment in production without the secret.
-    expect(mod.verifyPayment("o", "p", "a".repeat(64))).toBe(false);
+    expect(await mod.verifyPayment("o", "p", "a".repeat(64))).toBe(false);
   });
 });
 
@@ -81,11 +81,11 @@ describe("razorpay verifyPayment - signature verification", () => {
       .createHmac("sha256", SECRET)
       .update(`${orderId}|${paymentId}`)
       .digest("hex");
-    expect(mod.verifyPayment(orderId, paymentId, expected)).toBe(true);
+    expect(await mod.verifyPayment(orderId, paymentId, expected)).toBe(true);
   });
 
   it("returns false for an invalid signature", async () => {
     const mod = await import("./razorpay");
-    expect(mod.verifyPayment("order_abc", "pay_xyz", "deadbeef")).toBe(false);
+    expect(await mod.verifyPayment("order_abc", "pay_xyz", "deadbeef")).toBe(false);
   });
 });

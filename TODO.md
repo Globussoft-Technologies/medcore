@@ -6,22 +6,22 @@ is independently shippable. Full per-session history lives under
 
 ---
 
-## 🏠 HOME PICKUP — handoff from 2026-05-20 evening: Pearl ERP Stage 1 gap analysis + 3 of top 10 closed
+## 🏠 HOME PICKUP — handoff from 2026-05-21 night: Pearl ERP Stage 1 — 4 of top 10 closed, **M1 spine complete**
 
-**Read first:** [`docs/archive/SESSION_SNAPSHOT_2026-05-20-evening.md`](docs/archive/SESSION_SNAPSHOT_2026-05-20-evening.md) — full handoff.
+**Read first:** [`docs/archive/SESSION_SNAPSHOT_2026-05-20-evening.md`](docs/archive/SESSION_SNAPSHOT_2026-05-20-evening.md) — last full handoff (covers items 1, 7, 10a). This banner adds today's item 8.
 
-**State at handoff** (HEAD on `main` = `704a5f5` — `feat(db,api,web): Pearl §2.1.4 — Doctor.nmcRegNumber + render on Rx PDF`):
+**State at handoff** (HEAD on `main` = `02192a4` — `feat(db,api,web): Pearl M1 #8 — threaded AppointmentRemark + per-row Quick Actions (§2.1.7 + §2.1.8)`):
 - ✅ Working tree clean for code; the source PRD `Hardik's Req_pearl woman.txt` remains untracked at the repo root (intentional).
-- ✅ **Pearl ERP Stage 1 gap analysis shipped** ([`docs/PEARL_STAGE1_GAP_ANALYSIS.md`](docs/PEARL_STAGE1_GAP_ANALYSIS.md), 419 lines). Headline: MedCore covers ~65-70% of Pearl Stage 1. Top-10 ordered build list sums to ~17-18 engineer-weeks — fits inside Pearl's own 18-week calendar.
-- ✅ **Pearl M1 build #1 (`appointmentMode`) — end-to-end in 5 PRs.** Schema (`bfd11a8`) → API settings PATCH (`6913d62`) → API booking branch (`e35081b`) → web doctor settings editor (`fd58688`) → web booking form branch (`47131fa`) → token-board 3-layout (`6febb54`). Admin flips a doctor to CALLING/SLOT and every surface (booking, queue, display board) follows.
-- ✅ **Pearl §2.1.4 Rx safety gate — 2 more closures.** Build #7 `954b141`: `PatientAllergy` cross-reference at Rx create + override-with-reason path + audit. Build #10a `704a5f5`: `Doctor.nmcRegNumber` schema + Rx PDF render (both info block + signature block) + settings editor.
+- ✅ **Pearl ERP Stage 1 gap analysis shipped** ([`docs/PEARL_STAGE1_GAP_ANALYSIS.md`](docs/PEARL_STAGE1_GAP_ANALYSIS.md), 419 lines).
+- ✅ **Pearl M1 build #1 (`appointmentMode`)** — end-to-end (5 PRs, see prior snapshot).
+- ✅ **Pearl §2.1.4 Rx safety gate** — `PatientAllergy` block (`954b141`) + `Doctor.nmcRegNumber` on Rx PDF (`704a5f5`).
+- ✅ **Pearl M1 build #8 — `AppointmentRemark` + Quick-Action buttons** (`02192a4`, 1341 LOC, 8 files). Schema migration `20260520000004` + AppointmentRemarkVisibility enum (ALL_STAFF/DOCTOR_ONLY/RECEPTION_ONLY/PRIVATE). 5 API endpoints (POST/GET/PATCH-body/DELETE/PATCH-pin) with viewer-filtered list + reply-visibility-inheritance + audit on every mutation. 9 integration tests. `AppointmentRemarksModal` component wired into `/dashboard/appointments` row "Remarks" button. 4 quick-action buttons (WhatsApp/Call/Email + Add-to-Lead stub) on every `/dashboard/patients` row. **Closes M1 §2.1.7 + §2.1.8 — Pearl M1 spine is now complete.**
 
-### 🔥 Top priority for next session — Pearl gap analysis top-10 (3 of 10 closed)
+### 🔥 Top priority for next session — Pearl gap analysis top-10 (4 of 10 closed)
 
-1. **Gap #8 — Threaded `AppointmentRemark` + Quick-Action buttons** (~1 wk). Same shape as today's builds: schema + Zod + route + UI. Lowest-friction next pickup. Closes PRD §2.1.7 + §2.1.8.
-2. **Gap #9 — Tenant feature-flag mechanism + hide Stage-2+ surfaces** (~1 wk). Operational requirement for any Pearl pilot (hides IPD/OT/Telemed/etc. that Pearl Stage 1 excludes per PRD §18).
-3. **Gap #10b — Razorpay live cred per tenant + mandatory-TOTP toggle for tenant ADMIN** (~1 wk). Finishes the compliance bundle started in #10a.
-4. **Gap #3 — Lead pipeline** (~1.5 wk) — first of the multi-week items; cleanest "new module" to start when there's appetite. Closes M2 §3.3.
+1. **Gap #9 — Tenant feature-flag mechanism + hide Stage-2+ surfaces** (~1 wk). Operational requirement for any Pearl pilot (hides IPD/OT/Telemed/etc. that Pearl Stage 1 excludes per PRD §18). Lowest-friction next pickup.
+2. **Gap #10b — Razorpay live cred per tenant + mandatory-TOTP toggle for tenant ADMIN** (~1 wk). Finishes the compliance bundle started in #10a.
+3. **Gap #3 — Lead pipeline** (~1.5 wk) — first of the multi-week items; cleanest "new module" to start when there's appetite. Closes M2 §3.3. Also unlocks the "Add to Lead" stub button shipped today.
 5. **Bigger multi-week items** (each warrants a dedicated session, do NOT chunk):
    - #2 Branch model + branchScopedPrisma (3-4 wk)
    - #4 Campaign engine (2.5 wk)
@@ -31,8 +31,10 @@ is independently shippable. Full per-session history lives under
 ### 📦 New artifacts this session
 
 - `docs/PEARL_STAGE1_GAP_ANALYSIS.md` (`b86e69f`) — 419 lines, the team's first gap analysis against the Pearl ERP PRD.
-- `docs/archive/SESSION_SNAPSHOT_2026-05-20-evening.md` — full handoff for next pickup.
-- 2 new schema migrations: `20260520000002_pearl_m1_doctor_appointment_mode`, `20260520000003_pearl_m1_doctor_nmc_reg_number`. Both additive, backward-compat (default values preserve legacy behaviour).
+- `docs/archive/SESSION_SNAPSHOT_2026-05-20-evening.md` — last full handoff.
+- 3 new schema migrations: `20260520000002_pearl_m1_doctor_appointment_mode`, `20260520000003_pearl_m1_doctor_nmc_reg_number`, `20260520000004_pearl_m1_appointment_remarks`. All additive, backward-compat.
+- `apps/web/src/components/AppointmentRemarksModal.tsx` (`02192a4`) — reusable threaded-remarks modal (350 LOC). Mountable anywhere an appointmentId is in scope.
+- `apps/api/src/test/integration/appointment-remarks.test.ts` — 9 integration tests pinning visibility scoping + reply inheritance + pin ordering + author-only edit + author+ADMIN delete + PATIENT 403.
 
 ### 🩹 Carry-overs (from prior pickups — still open)
 

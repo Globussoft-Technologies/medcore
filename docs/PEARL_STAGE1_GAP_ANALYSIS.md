@@ -57,8 +57,8 @@ MedCore covers the OPD spine well — registration, vitals, consult, Rx writer, 
 | 2.1.5 | Multi-doctor side-by-side | ✅ Present | `/display/page.tsx` renders all doctors | Grid layout. |
 | 2.1.5 | Patient name redaction on public displays | 🟡 Partial | `/display/page.tsx` only shows token + waiting count, no patient name | Effectively redacted by omission; Pearl's "first name + last initial" rule isn't built but the current behavior is *more* private. |
 | 2.1.6 | Receptionist marks arrived → doctor sees in queue → doctor calls next → routed to pharmacy/billing | ✅ Present | `Appointment.checkInAt`, `consultationStartedAt`, `consultationEndedAt`, [`routes/queue.ts`](../apps/api/src/routes/queue.ts) | All state transitions wired. |
-| 2.1.7 | Threaded remarks per appointment (multi-role, visibility-scoped, pinnable, audited) | ❌ Missing | — | `Appointment.notes` is a single string field. No `AppointmentRemark` table. |
-| 2.1.8 | Quick-action buttons (WhatsApp / Email / Call / Add to CRM) on every patient row | ❌ Missing | — | No per-row icon buttons; the `Add to CRM` action has no destination (no Lead model). |
+| 2.1.7 | Threaded remarks per appointment (multi-role, visibility-scoped, pinnable, audited) | ✅ Present | `AppointmentRemark` model (migration `20260520000004`) + 5 endpoints in `routes/appointments.ts` + `AppointmentRemarksModal` | Closed 2026-05-21 via `02192a4` (gap item #8). Visibility ALL_STAFF / DOCTOR_ONLY / RECEPTION_ONLY / PRIVATE with reply-visibility-inheritance, pin/unpin (DOCTOR+ADMIN), author-only edit, author+ADMIN delete, audit on every mutation. 9 integration tests. |
+| 2.1.8 | Quick-action buttons (WhatsApp / Email / Call / Add to CRM) on every patient row | ✅ Present | `apps/web/src/app/dashboard/patients/page.tsx` Actions column | Closed 2026-05-21 via `02192a4` (gap item #8). WhatsApp / Call / Email open native handlers via `wa.me` / `tel:` / `mailto:`. Add-to-Lead shows a "coming with Pearl M2 lead pipeline" toast until gap item #3 lands. |
 
 ---
 
@@ -189,7 +189,7 @@ Closest fit to today's MedCore. Sidebar + topbar + role-scoped views are all the
 | 7.2 | ⌘K command palette | ❌ Missing | — | — |
 | 7.2 | Skeleton loaders on every fetch | 🟡 Partial | Many pages have skeletons | Not enforced universally. |
 | 7.2 | Toast + EmptyState primitives | ✅ Present | [`apps/web/src/lib/toast.ts`](../apps/web/src/lib/toast.ts) + various EmptyState components | — |
-| 7.2 | Quick-action buttons on every patient name | ❌ Missing | — | See §2.1.8. |
+| 7.2 | Quick-action buttons on every patient name | ✅ Present | See §2.1.8. | Closed 2026-05-21 via `02192a4`. |
 | 7.2 | Multi-tenant + branch-aware scoping | 🟡 Partial | `tenantScopedPrisma` ([`services/tenant-prisma.ts`](../apps/api/src/services/tenant-prisma.ts)) | Tenant yes; **branch no**. |
 | 7.2 | i18n (EN + HI shell) | ✅ Present | `apps/web/src/lib/i18n.ts` | Flat dict, EN+HI shipped. |
 
@@ -346,7 +346,7 @@ Ordered by Pearl-criticality × MedCore-build-cost ratio. Effort is engineer-wee
 | 5 | **Build patient PWA route group `apps/web/src/app/patient/` + service worker + phone-OTP login route** | 3 weeks | Closes M5 §6.1+6.2. Backend ~90% reused. |
 | 6 | **Build super-admin route group `apps/web/src/app/super-admin/` on separate vhost + onboarding wizard + Pearl-billing surface (`PearlSubscription`, `PearlInvoice`)** | 2.5 weeks | Closes M7 §8.1+8.3. |
 | 7 | **Wire `PatientAllergy` into `routes/prescriptions.ts` allergy-block + override-with-reason path** | 2 days | Pearl §2.1.4 acceptance criterion. |
-| 8 | **Threaded `AppointmentRemark` model + per-row Quick-Action buttons (WhatsApp / Email / Call / Add-to-Lead) on patient lists** | 1 week | Closes M1 §2.1.7 + §2.1.8. |
+| 8 | ~~**Threaded `AppointmentRemark` model + per-row Quick-Action buttons (WhatsApp / Email / Call / Add-to-Lead) on patient lists**~~ | ~~1 week~~ | ✅ **CLOSED 2026-05-21 via `02192a4`** (M1 §2.1.7 + §2.1.8 both green). |
 | 9 | **Tenant feature-flag mechanism + hide Stage-2+ surfaces per §6 of this doc** | 1 week | Operational requirement for any Pearl pilot — without this, the hospital sees IPD/OT/Telemed and asks "why am I paying for this?". |
 | 10 | **Add `Doctor.nmcRegNumber` + render on Rx PDF + audit; add Razorpay live cred per tenant + mandatory-TOTP toggle for tenant ADMIN role** | 1 week | Compliance + onboarding-wizard prerequisites. |
 

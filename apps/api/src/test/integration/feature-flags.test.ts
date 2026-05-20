@@ -17,6 +17,23 @@ describeIfDB("Feature Flags API (Pearl §6 + §18 — integration)", () => {
     __resetFeatureFlagsCacheForTests();
     adminToken = await getAuthToken("ADMIN");
     receptionToken = await getAuthToken("RECEPTION");
+    // resetDB() doesn't seed a Tenant row; the PATCH /feature-flags
+    // handler's tenant-resolution chain needs at least one Tenant to
+    // attach overrides to. Create the default tenant and link the
+    // admin user to it so req.tenantId resolves cleanly.
+    const prisma = await getPrisma();
+    let tenant = await prisma.tenant.findUnique({ where: { subdomain: "default" } });
+    if (!tenant) {
+      tenant = await prisma.tenant.create({
+        data: { name: "Default Test Tenant", subdomain: "default" },
+      });
+    }
+    await prisma.user.update({
+      where: { email: "admin@test.local" },
+      data: { tenantId: tenant.id },
+    });
+    // Refresh admin token so it carries the new tenantId claim.
+    adminToken = await getAuthToken("ADMIN");
     const mod = await import("../../app");
     app = mod.app;
   });

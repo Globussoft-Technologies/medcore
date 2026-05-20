@@ -65,6 +65,20 @@ async function getNextToken(doctorId: string, date: Date): Promise<number> {
  return (result._max.tokenNumber ?? 0) + 1;
 }
 
+// Pearl ERP Stage 1 §2.1.2 — CALLING-mode arrival counter, scoped per
+// (doctorId, date). Mirrors getNextToken but reads arrivalSeq.
+async function getNextArrivalSeq(doctorId: string, date: Date): Promise<number> {
+  const dayStart = new Date(date);
+  dayStart.setUTCHours(0, 0, 0, 0);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+  const result = await prisma.appointment.aggregate({
+    where: { doctorId, date: { gte: dayStart, lt: dayEnd } },
+    _max: { arrivalSeq: true },
+  });
+  return (result._max.arrivalSeq ?? 0) + 1;
+}
+
 // Helper: read integer SystemConfig with fallback
 async function getConfigInt(key: string, fallback: number): Promise<number> {
   const row = await prisma.systemConfig.findUnique({ where: { key } });
@@ -150,27 +164,66 @@ router.post(
         return;
       }
 
-      // slotId is actually the slot start time passed from frontend
-      // Check if slot is already booked
-      const existing = await prisma.appointment.findFirst({
-        where: {
-          doctorId,
-          date: dateObj,
-          slotStart: slotId,
-          status: { notIn: ["CANCELLED", "NO_SHOW"] },
-        },
+      // Pearl ERP Stage 1 §2.1.2 — branch by the doctor's appointmentMode.
+      // TOKEN = legacy MedCore behaviour (sequential tokenNumber, slot
+      //   optional). SLOT = HH:MM slotId is required, no token, double-
+      //   booking blocked by @@unique (doctorId, date, slotStart).
+      //   CALLING = arrival-order queue, no token, no slot — arrivalSeq
+      //   minted as a per-(doctor, date) counter.
+      const doctor = await prisma.doctor.findUnique({
+        where: { id: doctorId },
+        select: { appointmentMode: true },
       });
+      if (!doctor) {
+        res.status(404).json({ success: false, data: null, error: "Doctor not found" });
+        return;
+      }
+      const mode = doctor.appointmentMode;
 
-      if (existing) {
-        res.status(409).json({
+      if (mode === "SLOT" && !slotId) {
+        res.status(400).json({
           success: false,
           data: null,
-          error: "This slot is already booked",
+          error: "SLOT-mode bookings require a slotId (HH:MM)",
         });
         return;
       }
 
-      let tokenNumber = await getNextToken(doctorId, dateObj);
+      // Slot-collision pre-check applies to TOKEN (if a slot is provided)
+      // and SLOT modes. CALLING ignores slot.
+      if (slotId && mode !== "CALLING") {
+        const existing = await prisma.appointment.findFirst({
+          where: {
+            doctorId,
+            date: dateObj,
+            slotStart: slotId,
+            status: { notIn: ["CANCELLED", "NO_SHOW"] },
+          },
+        });
+        if (existing) {
+          res.status(409).json({
+            success: false,
+            data: null,
+            error: "This slot is already booked",
+          });
+          return;
+        }
+      }
+
+      // Mode-specific token / arrival / slot assignment.
+      let tokenNumber: number | null = null;
+      let arrivalSeq: number | null = null;
+      let slotStartToUse: string | null = null;
+      if (mode === "TOKEN") {
+        tokenNumber = await getNextToken(doctorId, dateObj);
+        slotStartToUse = slotId ?? null;
+      } else if (mode === "SLOT") {
+        slotStartToUse = slotId!; // required-for-SLOT, validated above
+      } else {
+        // CALLING — no token, no slot, just an arrival counter.
+        arrivalSeq = await getNextArrivalSeq(doctorId, dateObj);
+      }
+
       let appointment: any;
       for (let attempt = 0; attempt < 5; attempt++) {
         try {
@@ -179,8 +232,9 @@ router.post(
               patientId,
               doctorId,
               date: dateObj,
-              slotStart: slotId,
+              slotStart: slotStartToUse,
               tokenNumber,
+              arrivalSeq,
               type: "SCHEDULED",
               status: "BOOKED",
               notes,
@@ -196,7 +250,21 @@ router.post(
           });
           break;
         } catch (err: any) {
-          if (err?.code === "P2002" && attempt < 4) { tokenNumber++; continue; }
+          if (err?.code === "P2002" && attempt < 4) {
+            // P2002 retry: bump the appropriate counter for TOKEN /
+            // CALLING. For SLOT mode the conflict means the slot is
+            // genuinely double-booked (the @@unique on slotStart fired)
+            // and there is nothing to bump — return 409 cleanly.
+            if (mode === "TOKEN" && tokenNumber !== null) { tokenNumber++; continue; }
+            if (mode === "CALLING" && arrivalSeq !== null) { arrivalSeq++; continue; }
+            // SLOT mode P2002
+            res.status(409).json({
+              success: false,
+              data: null,
+              error: "This slot is already booked",
+            });
+            return;
+          }
           throw err;
         }
       }

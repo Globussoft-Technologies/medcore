@@ -163,4 +163,98 @@ describeIfDB("Appointments API (integration)", () => {
     const res = await request(app).get("/api/v1/appointments");
     expect(res.status).toBe(401);
   });
+
+  // ─────────────────────────────────────────────────────────
+  // Pearl ERP Stage 1 §2.1.2 — per-doctor appointmentMode
+  // (CALLING / TOKEN / SLOT). Default TOKEN behaviour is
+  // exercised by the existing "books a scheduled appointment"
+  // test above; these cover the two new branches.
+  // ─────────────────────────────────────────────────────────
+
+  it("CALLING mode: book mints arrivalSeq, no tokenNumber, no slot", async () => {
+    const prisma = await getPrisma();
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    await prisma.doctor.update({
+      where: { id: doctor.id },
+      data: { appointmentMode: "CALLING" },
+    });
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+
+    const res = await request(app)
+      .post("/api/v1/appointments/book")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ patientId: patient.id, doctorId: doctor.id, date: tomorrow });
+    expect([200, 201]).toContain(res.status);
+    expect(res.body.data?.arrivalSeq).toBeGreaterThan(0);
+    expect(res.body.data?.tokenNumber).toBeNull();
+    expect(res.body.data?.slotStart).toBeNull();
+  });
+
+  it("CALLING mode: second booking increments arrivalSeq, never collides on slot", async () => {
+    const prisma = await getPrisma();
+    const a = await createPatientFixture();
+    const b = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    await prisma.doctor.update({
+      where: { id: doctor.id },
+      data: { appointmentMode: "CALLING" },
+    });
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+
+    const first = await request(app)
+      .post("/api/v1/appointments/book")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ patientId: a.id, doctorId: doctor.id, date: tomorrow });
+    expect([200, 201]).toContain(first.status);
+
+    const second = await request(app)
+      .post("/api/v1/appointments/book")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ patientId: b.id, doctorId: doctor.id, date: tomorrow });
+    expect([200, 201]).toContain(second.status);
+    expect(second.body.data.arrivalSeq).toBe(first.body.data.arrivalSeq + 1);
+  });
+
+  it("SLOT mode: requires slotId — 400 when omitted", async () => {
+    const prisma = await getPrisma();
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    await prisma.doctor.update({
+      where: { id: doctor.id },
+      data: { appointmentMode: "SLOT" },
+    });
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+
+    const res = await request(app)
+      .post("/api/v1/appointments/book")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ patientId: patient.id, doctorId: doctor.id, date: tomorrow });
+    expect(res.status).toBe(400);
+  });
+
+  it("SLOT mode: book at HH:MM mints no tokenNumber and stores slotStart", async () => {
+    const prisma = await getPrisma();
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    await prisma.doctor.update({
+      where: { id: doctor.id },
+      data: { appointmentMode: "SLOT" },
+    });
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+
+    const res = await request(app)
+      .post("/api/v1/appointments/book")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        patientId: patient.id,
+        doctorId: doctor.id,
+        date: tomorrow,
+        slotId: "10:15",
+      });
+    expect([200, 201]).toContain(res.status);
+    expect(res.body.data.tokenNumber).toBeNull();
+    expect(res.body.data.arrivalSeq).toBeNull();
+    expect(res.body.data.slotStart).toBe("10:15");
+  });
 });

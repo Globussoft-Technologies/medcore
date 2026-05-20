@@ -8,11 +8,26 @@ const API_BASE =
 const WS_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 const CACHE_KEY = "medcore_display_queue_cache";
 
+// Pearl ERP Stage 1 §2.1.5 — mode-aware display board. The /queue
+// endpoint now returns appointmentMode + per-mode fields; cards
+// branch their layout below.
+type AppointmentMode = "CALLING" | "TOKEN" | "SLOT";
+
+interface UpcomingSlot {
+  slotStart: string;
+  patientLabel: string;
+  status: string;
+}
+
 interface DoctorQueue {
   doctorId: string;
   doctorName: string;
   specialization: string | null;
+  appointmentMode?: AppointmentMode;
   currentToken: number | null;
+  nextToken?: number | null;
+  currentArrivalSeq?: number | null;
+  upcomingSlots?: UpcomingSlot[];
   waitingCount: number;
 }
 
@@ -186,65 +201,9 @@ export default function TokenDisplayPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {doctors.map((doc) => {
-              const isActive = doc.currentToken !== null;
-              return (
-                <div
-                  key={doc.doctorId}
-                  className={`rounded-2xl border-2 p-6 transition-all ${
-                    isActive
-                      ? "border-emerald-500/50 bg-emerald-950/40 shadow-lg shadow-emerald-500/10"
-                      : "border-slate-700 bg-slate-900/60"
-                  }`}
-                >
-                  <div className="mb-4">
-                    <h2
-                      className={`text-2xl font-bold ${
-                        isActive ? "text-white" : "text-slate-400"
-                      }`}
-                    >
-                      {formatDoctorName(doc.doctorName)}
-                    </h2>
-                    {doc.specialization && (
-                      <p className="mt-1 text-sm text-slate-500">
-                        {doc.specialization}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="mb-4 text-center">
-                    <p
-                      className={`text-xs font-semibold uppercase tracking-widest ${
-                        isActive ? "text-emerald-400" : "text-slate-600"
-                      }`}
-                    >
-                      {isActive ? "Now Serving" : "No Patient"}
-                    </p>
-                    <p
-                      className={`mt-1 font-mono font-black leading-none ${
-                        isActive
-                          ? "text-8xl text-emerald-400"
-                          : "text-7xl text-slate-700"
-                      }`}
-                    >
-                      {isActive ? doc.currentToken : "--"}
-                    </p>
-                  </div>
-
-                  <div
-                    className={`rounded-lg px-3 py-2 text-center text-sm font-medium ${
-                      isActive
-                        ? "bg-emerald-900/50 text-emerald-300"
-                        : "bg-slate-800 text-slate-500"
-                    }`}
-                  >
-                    {doc.waitingCount > 0
-                      ? `${doc.waitingCount} patient${doc.waitingCount > 1 ? "s" : ""} waiting`
-                      : "No patients waiting"}
-                  </div>
-                </div>
-              );
-            })}
+            {doctors.map((doc) => (
+              <DoctorCard key={doc.doctorId} doc={doc} />
+            ))}
           </div>
         )}
       </main>
@@ -253,6 +212,139 @@ export default function TokenDisplayPage() {
         Token Display Board &mdash; Auto-refreshes every{" "}
         {offline ? "30s (offline)" : "10s"}
       </footer>
+    </div>
+  );
+}
+
+// Pearl ERP Stage 1 §2.1.5 — three card layouts in one screen. The
+// existing TOKEN layout is preserved; CALLING and SLOT branches render
+// arrival counters and an upcoming-slots strip respectively. Doctors
+// without an appointmentMode (legacy data) fall back to TOKEN.
+function DoctorCard({ doc }: { doc: DoctorQueue }) {
+  const mode: AppointmentMode = doc.appointmentMode ?? "TOKEN";
+  const isActive = doc.currentToken !== null || doc.currentArrivalSeq !== null;
+
+  return (
+    <div
+      data-testid={`display-card-${mode.toLowerCase()}`}
+      className={`rounded-2xl border-2 p-6 transition-all ${
+        isActive
+          ? "border-emerald-500/50 bg-emerald-950/40 shadow-lg shadow-emerald-500/10"
+          : "border-slate-700 bg-slate-900/60"
+      }`}
+    >
+      <div className="mb-4 flex items-start justify-between gap-2">
+        <div>
+          <h2 className={`text-2xl font-bold ${isActive ? "text-white" : "text-slate-400"}`}>
+            {formatDoctorName(doc.doctorName)}
+          </h2>
+          {doc.specialization && (
+            <p className="mt-1 text-sm text-slate-500">{doc.specialization}</p>
+          )}
+        </div>
+        <span className="rounded-full bg-slate-800/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          {mode}
+        </span>
+      </div>
+
+      {mode === "TOKEN" && (
+        <>
+          <div className="mb-3 text-center">
+            <p
+              className={`text-xs font-semibold uppercase tracking-widest ${
+                isActive ? "text-emerald-400" : "text-slate-600"
+              }`}
+            >
+              {isActive ? "Now Serving" : "No Patient"}
+            </p>
+            <p
+              className={`mt-1 font-mono font-black leading-none ${
+                isActive ? "text-7xl text-emerald-400" : "text-6xl text-slate-700"
+              }`}
+            >
+              {isActive ? doc.currentToken : "--"}
+            </p>
+          </div>
+          {doc.nextToken != null && (
+            <div className="mb-3 text-center">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                Next
+              </p>
+              <p className="mt-0.5 font-mono text-3xl font-bold text-slate-300">
+                {doc.nextToken}
+              </p>
+            </div>
+          )}
+          <div
+            className={`rounded-lg px-3 py-2 text-center text-sm font-medium ${
+              isActive ? "bg-emerald-900/50 text-emerald-300" : "bg-slate-800 text-slate-500"
+            }`}
+          >
+            {doc.waitingCount > 0
+              ? `${doc.waitingCount} patient${doc.waitingCount > 1 ? "s" : ""} waiting`
+              : "No patients waiting"}
+          </div>
+        </>
+      )}
+
+      {mode === "CALLING" && (
+        <>
+          <div className="mb-3 text-center">
+            <p
+              className={`text-xs font-semibold uppercase tracking-widest ${
+                isActive ? "text-emerald-400" : "text-slate-600"
+              }`}
+            >
+              {isActive ? "Now Serving Arrival #" : "Arrival Queue"}
+            </p>
+            <p
+              className={`mt-1 font-mono font-black leading-none ${
+                isActive ? "text-7xl text-emerald-400" : "text-6xl text-slate-700"
+              }`}
+            >
+              {isActive ? doc.currentArrivalSeq : "--"}
+            </p>
+          </div>
+          <div
+            className={`rounded-lg px-3 py-2 text-center text-sm font-medium ${
+              isActive ? "bg-emerald-900/50 text-emerald-300" : "bg-slate-800 text-slate-500"
+            }`}
+          >
+            {doc.waitingCount > 0
+              ? `${doc.waitingCount} in arrival queue`
+              : "Queue empty"}
+          </div>
+        </>
+      )}
+
+      {mode === "SLOT" && (
+        <>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+            Next 3 Slots
+          </p>
+          {!doc.upcomingSlots || doc.upcomingSlots.length === 0 ? (
+            <p className="rounded-lg bg-slate-800 px-3 py-3 text-center text-sm text-slate-500">
+              No upcoming slots today
+            </p>
+          ) : (
+            <ul className="space-y-1.5" data-testid="display-slot-strip">
+              {doc.upcomingSlots.map((s, i) => (
+                <li
+                  key={`${s.slotStart}-${i}`}
+                  className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm ${
+                    i === 0
+                      ? "bg-emerald-900/50 text-emerald-200"
+                      : "bg-slate-800/70 text-slate-300"
+                  }`}
+                >
+                  <span className="font-mono font-semibold">{s.slotStart}</span>
+                  <span className="text-xs text-slate-400">{s.patientLabel}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
     </div>
   );
 }

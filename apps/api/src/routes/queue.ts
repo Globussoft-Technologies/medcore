@@ -244,11 +244,72 @@ router.get(
             },
           });
 
+          // Pearl ERP Stage 1 §2.1.5 — mode-aware display board data.
+          // TOKEN: nextToken is the lowest waiting token; CALLING:
+          // currentArrivalSeq is the active arrival counter; SLOT:
+          // upcomingSlots lists the next 3 booked appointments by
+          // slot time. Patient name is redacted to "First L." on the
+          // public-facing display per PRD §2.1.5.
+          let nextToken: number | null = null;
+          let currentArrivalSeq: number | null = null;
+          let upcomingSlots: Array<{
+            slotStart: string;
+            patientLabel: string;
+            status: string;
+          }> = [];
+
+          if (doc.appointmentMode === "TOKEN") {
+            const next = await prisma.appointment.findFirst({
+              where: {
+                doctorId: doc.id,
+                date: todayRange,
+                status: { in: ["BOOKED", "CHECKED_IN"] },
+                tokenNumber: { not: null },
+              },
+              orderBy: { tokenNumber: "asc" },
+              select: { tokenNumber: true },
+            });
+            nextToken = next?.tokenNumber ?? null;
+          } else if (doc.appointmentMode === "CALLING") {
+            currentArrivalSeq = current?.arrivalSeq ?? null;
+          } else if (doc.appointmentMode === "SLOT") {
+            const rows = await prisma.appointment.findMany({
+              where: {
+                doctorId: doc.id,
+                date: todayRange,
+                status: { in: ["BOOKED", "CHECKED_IN"] },
+                slotStart: { not: null },
+              },
+              orderBy: { slotStart: "asc" },
+              take: 3,
+              include: {
+                patient: { select: { user: { select: { name: true } } } },
+              },
+            });
+            upcomingSlots = rows
+              .filter((r) => r.slotStart)
+              .map((r) => {
+                const fullName = r.patient?.user?.name ?? "";
+                const parts = fullName.trim().split(/\s+/);
+                const first = parts[0] ?? "—";
+                const lastInitial = parts.length > 1 ? `${parts[parts.length - 1][0]}.` : "";
+                return {
+                  slotStart: r.slotStart as string,
+                  patientLabel: lastInitial ? `${first} ${lastInitial}` : first,
+                  status: r.status,
+                };
+              });
+          }
+
           return {
             doctorId: doc.id,
             doctorName: doc.user.name,
             specialization: doc.specialization,
+            appointmentMode: doc.appointmentMode,
             currentToken: current?.tokenNumber ?? null,
+            nextToken,
+            currentArrivalSeq,
+            upcomingSlots,
             waitingCount,
           };
         })

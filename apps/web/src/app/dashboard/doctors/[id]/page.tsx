@@ -21,13 +21,23 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
-import { ArrowLeft, Stethoscope, Edit as EditIcon, Calendar } from "lucide-react";
+import { ArrowLeft, Stethoscope, Edit as EditIcon, Calendar, Settings } from "lucide-react";
+
+type AppointmentMode = "CALLING" | "TOKEN" | "SLOT";
+type LastHourPolicy = "ACCEPT_ALL" | "BLOCK_NEW" | "WALK_IN_ONLY";
 
 interface DoctorRecord {
   id: string;
   specialization: string;
   qualification: string;
   registrationNumber?: string | null;
+  // Pearl ERP Stage 1 §2.1.2 / §3.2 — per-doctor appointment mode + knobs.
+  appointmentMode?: AppointmentMode;
+  tokenPrefix?: string | null;
+  tokenStartNumber?: number | null;
+  dailyAppointmentLimit?: number | null;
+  nearTurnAlertThreshold?: number | null;
+  lastHourPolicy?: LastHourPolicy | null;
   user: {
     id: string;
     name: string;
@@ -43,6 +53,18 @@ interface DoctorRecord {
     slotDurationMinutes: number;
   }>;
 }
+
+const MODE_LABEL: Record<AppointmentMode, string> = {
+  CALLING: "Calling (arrival-order queue)",
+  TOKEN: "Token (sequential numbers)",
+  SLOT: "Slot (fixed appointment times)",
+};
+
+const POLICY_LABEL: Record<LastHourPolicy, string> = {
+  ACCEPT_ALL: "Accept all bookings",
+  BLOCK_NEW: "Block new bookings",
+  WALK_IN_ONLY: "Walk-ins only",
+};
 
 const DAY_NAMES = [
   "Sunday",
@@ -214,6 +236,8 @@ export default function DoctorDetailPage() {
         </dl>
       </div>
 
+      <AppointmentModeCard doctor={doctor} isAdmin={isAdmin} onUpdated={setDoctor} />
+
       <div className="mt-6 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
         <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
           <Calendar size={14} /> Weekly Schedule
@@ -258,6 +282,278 @@ export default function DoctorDetailPage() {
           </table>
         )}
       </div>
+    </div>
+  );
+}
+
+// Pearl ERP Stage 1 §2.1.2 / §3.2 — per-doctor appointment-mode editor.
+// Non-admins see a read-only summary. Admins can edit mode + knobs and
+// the form PATCHes /api/v1/doctors/:id/appointment-mode on save.
+function AppointmentModeCard({
+  doctor,
+  isAdmin,
+  onUpdated,
+}: {
+  doctor: DoctorRecord;
+  isAdmin: boolean;
+  onUpdated: (next: DoctorRecord) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const currentMode: AppointmentMode = doctor.appointmentMode ?? "TOKEN";
+  const [mode, setMode] = useState<AppointmentMode>(currentMode);
+  const [tokenPrefix, setTokenPrefix] = useState<string>(doctor.tokenPrefix ?? "");
+  const [tokenStartNumber, setTokenStartNumber] = useState<string>(
+    doctor.tokenStartNumber != null ? String(doctor.tokenStartNumber) : "",
+  );
+  const [dailyLimit, setDailyLimit] = useState<string>(
+    doctor.dailyAppointmentLimit != null ? String(doctor.dailyAppointmentLimit) : "",
+  );
+  const [nearTurn, setNearTurn] = useState<string>(
+    doctor.nearTurnAlertThreshold != null ? String(doctor.nearTurnAlertThreshold) : "",
+  );
+  const [policy, setPolicy] = useState<LastHourPolicy | "">(doctor.lastHourPolicy ?? "");
+
+  const onSave = async () => {
+    setSaving(true);
+    try {
+      const body: Record<string, unknown> = { appointmentMode: mode };
+      // Blank text → explicit null (clear). Non-blank → value.
+      body.tokenPrefix = tokenPrefix.trim() === "" ? null : tokenPrefix.trim();
+      body.tokenStartNumber = tokenStartNumber.trim() === "" ? null : Number(tokenStartNumber);
+      body.dailyAppointmentLimit = dailyLimit.trim() === "" ? null : Number(dailyLimit);
+      body.nearTurnAlertThreshold = nearTurn.trim() === "" ? null : Number(nearTurn);
+      body.lastHourPolicy = policy === "" ? null : policy;
+
+      const res = await api.patch<{ data: DoctorRecord }>(
+        `/doctors/${doctor.id}/appointment-mode`,
+        body,
+      );
+      // The PATCH endpoint returns only the new mode/knob fields; merge
+      // them back onto the existing doctor record so other panels (e.g.
+      // weekly schedule) stay rendered.
+      const next: DoctorRecord = { ...doctor, ...res.data };
+      onUpdated(next);
+      toast.success("Appointment mode updated");
+      setEditing(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save appointment mode");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="mt-6 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800"
+      data-testid="doctor-detail-appointment-mode"
+    >
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
+          <Settings size={14} /> Appointment Mode
+        </h2>
+        {isAdmin && !editing && (
+          <button
+            type="button"
+            data-testid="appointment-mode-edit"
+            onClick={() => setEditing(true)}
+            className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <EditIcon size={12} /> Edit
+          </button>
+        )}
+      </div>
+
+      {!editing ? (
+        <dl
+          className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+          data-testid="appointment-mode-summary"
+        >
+          <div>
+            <dt className="text-xs font-medium uppercase text-gray-500">Mode</dt>
+            <dd
+              className="text-sm text-gray-900 dark:text-gray-100"
+              data-testid="appointment-mode-value"
+            >
+              {MODE_LABEL[currentMode]}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase text-gray-500">Token prefix</dt>
+            <dd className="text-sm text-gray-900 dark:text-gray-100">
+              {doctor.tokenPrefix || "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase text-gray-500">Token start #</dt>
+            <dd className="text-sm text-gray-900 dark:text-gray-100">
+              {doctor.tokenStartNumber ?? "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase text-gray-500">Daily limit</dt>
+            <dd className="text-sm text-gray-900 dark:text-gray-100">
+              {doctor.dailyAppointmentLimit ?? "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase text-gray-500">Near-turn alert</dt>
+            <dd className="text-sm text-gray-900 dark:text-gray-100">
+              {doctor.nearTurnAlertThreshold != null
+                ? `${doctor.nearTurnAlertThreshold} patients away`
+                : "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase text-gray-500">Last-hour policy</dt>
+            <dd className="text-sm text-gray-900 dark:text-gray-100">
+              {doctor.lastHourPolicy ? POLICY_LABEL[doctor.lastHourPolicy] : "—"}
+            </dd>
+          </div>
+        </dl>
+      ) : (
+        <form
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSave();
+          }}
+        >
+          <div className="sm:col-span-2">
+            <label className="mb-1 block text-xs font-medium uppercase text-gray-500">
+              Mode
+            </label>
+            <select
+              value={mode}
+              onChange={(e) => setMode(e.target.value as AppointmentMode)}
+              data-testid="appointment-mode-select"
+              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+            >
+              <option value="CALLING">Calling (arrival-order queue)</option>
+              <option value="TOKEN">Token (sequential numbers)</option>
+              <option value="SLOT">Slot (fixed appointment times)</option>
+            </select>
+            <p className="mt-1 text-xs text-gray-500">
+              {mode === "CALLING" &&
+                "Patients arrive and are seen in arrival order. No tokens, no slot times."}
+              {mode === "TOKEN" &&
+                "Each booking gets a sequential token number. Slot time is optional."}
+              {mode === "SLOT" &&
+                "Each booking takes a fixed HH:MM slot. The system blocks double-booking."}
+            </p>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase text-gray-500">
+              Token prefix
+            </label>
+            <input
+              type="text"
+              maxLength={8}
+              value={tokenPrefix}
+              onChange={(e) => setTokenPrefix(e.target.value)}
+              placeholder="T"
+              data-testid="appointment-mode-token-prefix"
+              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase text-gray-500">
+              Token start #
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={99999}
+              value={tokenStartNumber}
+              onChange={(e) => setTokenStartNumber(e.target.value)}
+              data-testid="appointment-mode-token-start"
+              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase text-gray-500">
+              Daily appointment limit
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={500}
+              value={dailyLimit}
+              onChange={(e) => setDailyLimit(e.target.value)}
+              data-testid="appointment-mode-daily-limit"
+              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase text-gray-500">
+              Near-turn alert (patients away)
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={nearTurn}
+              onChange={(e) => setNearTurn(e.target.value)}
+              data-testid="appointment-mode-near-turn"
+              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="mb-1 block text-xs font-medium uppercase text-gray-500">
+              Last-hour policy
+            </label>
+            <select
+              value={policy}
+              onChange={(e) => setPolicy(e.target.value as LastHourPolicy | "")}
+              data-testid="appointment-mode-policy"
+              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+            >
+              <option value="">— Default —</option>
+              <option value="ACCEPT_ALL">Accept all bookings</option>
+              <option value="BLOCK_NEW">Block new bookings</option>
+              <option value="WALK_IN_ONLY">Walk-ins only</option>
+            </select>
+          </div>
+          <div className="flex gap-2 sm:col-span-2">
+            <button
+              type="submit"
+              disabled={saving}
+              data-testid="appointment-mode-save"
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => {
+                setEditing(false);
+                // reset form to current values
+                setMode(currentMode);
+                setTokenPrefix(doctor.tokenPrefix ?? "");
+                setTokenStartNumber(
+                  doctor.tokenStartNumber != null ? String(doctor.tokenStartNumber) : "",
+                );
+                setDailyLimit(
+                  doctor.dailyAppointmentLimit != null
+                    ? String(doctor.dailyAppointmentLimit)
+                    : "",
+                );
+                setNearTurn(
+                  doctor.nearTurnAlertThreshold != null
+                    ? String(doctor.nearTurnAlertThreshold)
+                    : "",
+                );
+                setPolicy(doctor.lastHourPolicy ?? "");
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }

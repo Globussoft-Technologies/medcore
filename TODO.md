@@ -6,7 +6,45 @@ is independently shippable. Full per-session history lives under
 
 ---
 
-## 🏠 HOME PICKUP — handoff from 2026-05-18 evening: PR wave cleared + #908 deploy unblocked end-to-end
+## 🏠 HOME PICKUP — handoff from 2026-05-20 evening: Pearl ERP Stage 1 gap analysis + 3 of top 10 closed
+
+**Read first:** [`docs/archive/SESSION_SNAPSHOT_2026-05-20-evening.md`](docs/archive/SESSION_SNAPSHOT_2026-05-20-evening.md) — full handoff.
+
+**State at handoff** (HEAD on `main` = `704a5f5` — `feat(db,api,web): Pearl §2.1.4 — Doctor.nmcRegNumber + render on Rx PDF`):
+- ✅ Working tree clean for code; the source PRD `Hardik's Req_pearl woman.txt` remains untracked at the repo root (intentional).
+- ✅ **Pearl ERP Stage 1 gap analysis shipped** ([`docs/PEARL_STAGE1_GAP_ANALYSIS.md`](docs/PEARL_STAGE1_GAP_ANALYSIS.md), 419 lines). Headline: MedCore covers ~65-70% of Pearl Stage 1. Top-10 ordered build list sums to ~17-18 engineer-weeks — fits inside Pearl's own 18-week calendar.
+- ✅ **Pearl M1 build #1 (`appointmentMode`) — end-to-end in 5 PRs.** Schema (`bfd11a8`) → API settings PATCH (`6913d62`) → API booking branch (`e35081b`) → web doctor settings editor (`fd58688`) → web booking form branch (`47131fa`) → token-board 3-layout (`6febb54`). Admin flips a doctor to CALLING/SLOT and every surface (booking, queue, display board) follows.
+- ✅ **Pearl §2.1.4 Rx safety gate — 2 more closures.** Build #7 `954b141`: `PatientAllergy` cross-reference at Rx create + override-with-reason path + audit. Build #10a `704a5f5`: `Doctor.nmcRegNumber` schema + Rx PDF render (both info block + signature block) + settings editor.
+
+### 🔥 Top priority for next session — Pearl gap analysis top-10 (3 of 10 closed)
+
+1. **Gap #8 — Threaded `AppointmentRemark` + Quick-Action buttons** (~1 wk). Same shape as today's builds: schema + Zod + route + UI. Lowest-friction next pickup. Closes PRD §2.1.7 + §2.1.8.
+2. **Gap #9 — Tenant feature-flag mechanism + hide Stage-2+ surfaces** (~1 wk). Operational requirement for any Pearl pilot (hides IPD/OT/Telemed/etc. that Pearl Stage 1 excludes per PRD §18).
+3. **Gap #10b — Razorpay live cred per tenant + mandatory-TOTP toggle for tenant ADMIN** (~1 wk). Finishes the compliance bundle started in #10a.
+4. **Gap #3 — Lead pipeline** (~1.5 wk) — first of the multi-week items; cleanest "new module" to start when there's appetite. Closes M2 §3.3.
+5. **Bigger multi-week items** (each warrants a dedicated session, do NOT chunk):
+   - #2 Branch model + branchScopedPrisma (3-4 wk)
+   - #4 Campaign engine (2.5 wk)
+   - #5 Patient PWA + phone-OTP (3 wk)
+   - #6 Super-admin host + Pearl-billing (2.5 wk)
+
+### 📦 New artifacts this session
+
+- `docs/PEARL_STAGE1_GAP_ANALYSIS.md` (`b86e69f`) — 419 lines, the team's first gap analysis against the Pearl ERP PRD.
+- `docs/archive/SESSION_SNAPSHOT_2026-05-20-evening.md` — full handoff for next pickup.
+- 2 new schema migrations: `20260520000002_pearl_m1_doctor_appointment_mode`, `20260520000003_pearl_m1_doctor_nmc_reg_number`. Both additive, backward-compat (default values preserve legacy behaviour).
+
+### 🩹 Carry-overs (from prior pickups — still open)
+
+- **Mobile SDK 53→55 holistic migration** — tracked in **#920**. `apps/mobile` is an incoherent SDK 53/55 hybrid.
+- **vitest 2→4 paired migration** — tracked in **#921**.
+- **~15-20 STAGING UI bugs remaining** (date/time format inconsistency, raw enum display, calendar week view shape, sidebar role mismatches). Bulk-amenable via `/medcore-fanout`.
+- **Demo SSH connectivity** (port 22 + 443 timeouts since ~12:00 UTC 2026-05-19) — ops/hosting follow-up if still down.
+- #599 PHARMACIST policy, visual baseline regen, the 9 #772 user-blocked items.
+
+---
+
+## 🏠 PRIOR PICKUP — handoff from 2026-05-18 evening: PR wave cleared + #908 deploy unblocked end-to-end (kept for log)
 
 **Read first:** [`docs/archive/SESSION_SNAPSHOT_2026-05-18-evening.md`](docs/archive/SESSION_SNAPSHOT_2026-05-18-evening.md) — full handoff.
 

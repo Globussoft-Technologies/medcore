@@ -5,8 +5,12 @@ name: Auto-merge
 #
 # Flow:
 #   feature branch → PR targeting main → "Test" workflow runs →
-#   on green, this workflow squash-merges the PR automatically, UNLESS
-#   the PR has a merge conflict with main (then it's left open + commented).
+#   on green, this workflow squash-merges the PR automatically AND deletes
+#   the source branch, UNLESS the PR has a merge conflict with main (then
+#   it's left open + commented + the branch is kept for the author to push
+#   the conflict resolution onto). Failed-test PRs never reach this
+#   workflow at all (gated by `workflow_run.conclusion == 'success'`),
+#   so their branches are also preserved.
 #
 # Why the `workflow_run` trigger:
 #   It fires AFTER the "Test" workflow finishes, so
@@ -104,7 +108,12 @@ jobs:
             exit 0
           fi
 
-          # Green + conflict-free → squash-merge, but keep the source branch.
+          # Green + conflict-free → squash-merge AND delete the source branch.
+          # Failed-test / conflict cases never reach here, so any branch that
+          # gets deleted by this line is one whose work has fully landed on
+          # main. Conflicting PRs keep their branch (the skip-path above
+          # returns before this), giving the author somewhere to push the
+          # conflict resolution.
           echo "Merging PR #${PR_NUM} into main…"
-          gh pr merge "$PR_NUM" --repo "$REPO" --squash
-          echo "::notice::PR #${PR_NUM} auto-merged into main."
+          gh pr merge "$PR_NUM" --repo "$REPO" --squash --delete-branch
+          echo "::notice::PR #${PR_NUM} auto-merged into main; source branch deleted."

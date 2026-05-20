@@ -47,6 +47,33 @@ ALTER TABLE "doctors"
 ALTER TABLE "appointments" ALTER COLUMN "tokenNumber" DROP NOT NULL;
 ALTER TABLE "appointments" ADD COLUMN "arrivalSeq" INTEGER;
 
+-- 2026-05-21 dedup gate (added after the first demo deploy hit P3018
+-- on a pre-existing (doctorId, date, slotStart) duplicate — group
+-- bookings made via the pre-fix route shared a single slotStart across
+-- N patients, which is exactly the case the new unique index rejects).
+-- Before creating the unique index, null out slotStart on all-but-the-
+-- oldest of each colliding set. Affected rows lose the explicit slot
+-- time (the original time is still preserved in the appointment's
+-- notes/groupId metadata for downstream display) but keep tokenNumber +
+-- status + every other field. Solo SLOT-mode bookings (1 doctor / 1
+-- date / 1 slot / 1 patient) are not touched.
+UPDATE "appointments"
+SET    "slotStart" = NULL
+WHERE  "id" IN (
+  SELECT  "id"
+  FROM    (
+    SELECT
+      "id",
+      ROW_NUMBER() OVER (
+        PARTITION BY "doctorId", "date", "slotStart"
+        ORDER BY "createdAt" ASC, "id" ASC
+      ) AS rn
+    FROM   "appointments"
+    WHERE  "slotStart" IS NOT NULL
+  ) ranked
+  WHERE rn > 1
+);
+
 -- New unique to enforce SLOT-mode no-double-booking. Postgres allows
 -- multiple NULL slotStart values; this only enforces uniqueness on
 -- non-null slot times, so existing walk-ins / null-slot rows do not

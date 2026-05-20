@@ -6,7 +6,24 @@ is independently shippable. Full per-session history lives under
 
 ---
 
-## 🏠 HOME PICKUP — handoff from 2026-05-21 night: Pearl ERP Stage 1 — 4 of top 10 closed, **M1 spine complete**
+## 🏠 HOME PICKUP — handoff from 2026-05-21 overnight: Pearl ERP Stage 1 — **7 of top 10 closed** (autonomous cron + manual ship)
+
+**State at handoff** (HEAD on `main` = `928018f` — `feat(db,api,web): Pearl gap #3 — CRM lead pipeline (M2 §3.3)`):
+- ✅ **Tier 1 + Tier 2 of remaining Pearl gaps all closed in this autonomous session**:
+  - `#9 Tenant feature flags` (`d6a5370`, 665 LOC) — schema + migration `20260520000005` + 16 FEATURE_KEYS + `requireFeature(key)` middleware (404) + GET/PATCH endpoints (ADMIN-gated, audit-logged, null-clears) + `useFeatureFlags()` hook + sidebar nav filter + telemedicine/admissions/ai-radiology routes gated as proof points + 5 integration tests.
+  - `#10b Razorpay-per-tenant + ADMIN TOTP` (`a7d1b12`, 273 LOC) — migration `20260520000006` adds Tenant.razorpayKeyId/Secret/Mode/requireAdminTOTP. Razorpay service rewritten with per-tenant 60s LRU + invalidate-on-write. Login flow rejects ADMIN-without-2FA on Pearl tenants (412 + enrolToken). 3 integration tests.
+  - `#3 Lead pipeline` (`928018f`, 1294 LOC) — migration `20260520000007` + Lead + LeadActivity + 3 enums. 6 endpoints (CRUD + activities + convert). Status changes + doctor allocations auto-log activities. Lead → Patient `$transaction`. Idempotent MarketingEnquiry promotion. Web `/dashboard/leads` page + sidebar nav. Patient-row "Add to Lead" button live. 7 integration tests.
+
+### 🔥 Top priority for next session — Pearl gap top-10 (7 of 10 closed)
+
+The 3 remaining items are all multi-week (need scope-cut into single-session pieces); the autonomous cron (`7572d655`, every 30 min, session-only) will pick these up if the editor stays open overnight. Otherwise next-session pickup:
+
+1. **Gap #2 — Branch model + branchScopedPrisma + branch picker** (~3-4 wk). Scope-cut chain: schema-only migration first → branchScopedPrisma wrapper → branch picker UI → migrate ~20 tenant-scoped tables to branch-scoped.
+2. **Gap #4 — Campaign engine** (~2.5 wk). Scope-cut chain: Campaign + CampaignSend schema → audience builder API → A/B + send-window scheduling → /dashboard/campaigns UI.
+3. **Gap #5 — Patient PWA + phone-OTP** (~3 wk). Scope-cut chain: phone-OTP login backend → /patient route group → service worker + offline cache → PWA install prompt.
+4. **Gap #6 — Super-admin host + Pearl-billing** (~2.5 wk). Scope-cut chain: route group on separate vhost → onboarding wizard → Pearl-billing surface (PearlSubscription, PearlInvoice).
+
+Also still on the board: detail-page for `/dashboard/leads/[id]` (activity timeline + inline convert modal) — scope-cut from #3, deferred because the list page + API surface the PRD requirement.
 
 **Read first:** [`docs/archive/SESSION_SNAPSHOT_2026-05-20-evening.md`](docs/archive/SESSION_SNAPSHOT_2026-05-20-evening.md) — last full handoff (covers items 1, 7, 10a). This banner adds today's item 8.
 

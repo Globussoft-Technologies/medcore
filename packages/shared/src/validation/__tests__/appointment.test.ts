@@ -29,9 +29,21 @@ describe("bookAppointmentSchema", () => {
   it("rejects non-uuid patientId", () => {
     expect(bookAppointmentSchema.safeParse({ ...valid, patientId: "abc" }).success).toBe(false);
   });
-  it("rejects missing slotId", () => {
-    const { slotId, ...rest } = valid;
-    expect(bookAppointmentSchema.safeParse(rest).success).toBe(false);
+  // Pearl §2.1.2 (2026-05-20): slotId became optional at the schema
+  // layer because CALLING-mode doctors do not take a slot at all. The
+  // booking handler enforces per-mode requirements ("required for SLOT,
+  // ignored for CALLING, optional for TOKEN") — the integration test
+  // `Appointments API (integration) > SLOT mode: requires slotId — 400
+  // when omitted` pins that behaviour. Here we just confirm the schema
+  // change is intentional.
+  it("accepts missing slotId (per-mode requirement enforced at route)", () => {
+    const { slotId: _omit, ...rest } = valid;
+    expect(bookAppointmentSchema.safeParse(rest).success).toBe(true);
+  });
+  it("rejects malformed slotId when present", () => {
+    expect(
+      bookAppointmentSchema.safeParse({ ...valid, slotId: "9 am" }).success,
+    ).toBe(false);
   });
   // Issue #491: past calendar date must be rejected before slot-conflict
   // logic ever runs (the bug let "01-01-2020" populate a slot grid).

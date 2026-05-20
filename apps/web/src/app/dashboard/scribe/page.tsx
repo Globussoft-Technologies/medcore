@@ -2439,14 +2439,14 @@ export default function ScribePage() {
         <div className="flex-1 flex flex-col bg-white rounded-2xl shadow border border-gray-100 overflow-hidden dark:bg-gray-800 dark:border-gray-700">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50 dark:border-gray-700 dark:from-blue-900/30 dark:to-indigo-900/30">
             <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4 text-blue-600" />
-              <p className="font-semibold text-sm text-gray-800">AI-Drafted SOAP Note</p>
+              <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <p className="font-semibold text-sm text-gray-800 dark:text-gray-100">AI-Drafted SOAP Note</p>
               {isCompletedSession ? (
-                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full dark:bg-green-900/40 dark:text-green-300">
                   Completed
                 </span>
               ) : soapDraft ? (
-                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full dark:bg-blue-900/40 dark:text-blue-300">
                   Auto-updating
                 </span>
               ) : null}

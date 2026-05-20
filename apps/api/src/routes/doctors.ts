@@ -359,6 +359,7 @@ router.patch(
       if (req.body.dailyAppointmentLimit !== undefined) data.dailyAppointmentLimit = req.body.dailyAppointmentLimit;
       if (req.body.nearTurnAlertThreshold !== undefined) data.nearTurnAlertThreshold = req.body.nearTurnAlertThreshold;
       if (req.body.lastHourPolicy !== undefined) data.lastHourPolicy = req.body.lastHourPolicy;
+      if (req.body.nmcRegNumber !== undefined) data.nmcRegNumber = req.body.nmcRegNumber;
 
       const updated = await prisma.doctor.update({
         where: { id: req.params.id },
@@ -371,6 +372,7 @@ router.patch(
           dailyAppointmentLimit: true,
           nearTurnAlertThreshold: true,
           lastHourPolicy: true,
+          nmcRegNumber: true,
         },
       });
 

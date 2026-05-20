@@ -30,6 +30,9 @@ interface DoctorRecord {
   id: string;
   specialization: string;
   qualification: string;
+  // Legacy field name from the early read-only page; kept for back-compat
+  // with any cached payload. The canonical Pearl §2.1.4 field is
+  // `nmcRegNumber` below — the page renders that one preferentially.
   registrationNumber?: string | null;
   // Pearl ERP Stage 1 §2.1.2 / §3.2 — per-doctor appointment mode + knobs.
   appointmentMode?: AppointmentMode;
@@ -38,6 +41,9 @@ interface DoctorRecord {
   dailyAppointmentLimit?: number | null;
   nearTurnAlertThreshold?: number | null;
   lastHourPolicy?: LastHourPolicy | null;
+  // Pearl ERP Stage 1 §2.1.4 — NMC registration number printed on every
+  // signed Rx PDF.
+  nmcRegNumber?: string | null;
   user: {
     id: string;
     name: string;
@@ -200,12 +206,12 @@ export default function DoctorDetailPage() {
                 </>
               ) : null}
             </p>
-            {doctor.registrationNumber && (
+            {(doctor.nmcRegNumber || doctor.registrationNumber) && (
               <p
                 className="mt-1 text-xs text-gray-500"
                 data-testid="doctor-detail-regno"
               >
-                Reg #{doctor.registrationNumber}
+                NMC Reg #{doctor.nmcRegNumber || doctor.registrationNumber}
               </p>
             )}
           </div>
@@ -314,6 +320,7 @@ function AppointmentModeCard({
     doctor.nearTurnAlertThreshold != null ? String(doctor.nearTurnAlertThreshold) : "",
   );
   const [policy, setPolicy] = useState<LastHourPolicy | "">(doctor.lastHourPolicy ?? "");
+  const [nmcReg, setNmcReg] = useState<string>(doctor.nmcRegNumber ?? "");
 
   const onSave = async () => {
     setSaving(true);
@@ -325,6 +332,7 @@ function AppointmentModeCard({
       body.dailyAppointmentLimit = dailyLimit.trim() === "" ? null : Number(dailyLimit);
       body.nearTurnAlertThreshold = nearTurn.trim() === "" ? null : Number(nearTurn);
       body.lastHourPolicy = policy === "" ? null : policy;
+      body.nmcRegNumber = nmcReg.trim() === "" ? null : nmcReg.trim();
 
       const res = await api.patch<{ data: DoctorRecord }>(
         `/doctors/${doctor.id}/appointment-mode`,
@@ -409,6 +417,15 @@ function AppointmentModeCard({
             <dt className="text-xs font-medium uppercase text-gray-500">Last-hour policy</dt>
             <dd className="text-sm text-gray-900 dark:text-gray-100">
               {doctor.lastHourPolicy ? POLICY_LABEL[doctor.lastHourPolicy] : "—"}
+            </dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-xs font-medium uppercase text-gray-500">NMC Reg #</dt>
+            <dd
+              className="text-sm text-gray-900 dark:text-gray-100"
+              data-testid="appointment-mode-nmc-reg-summary"
+            >
+              {doctor.nmcRegNumber || "—"}
             </dd>
           </div>
         </dl>
@@ -515,6 +532,20 @@ function AppointmentModeCard({
               <option value="WALK_IN_ONLY">Walk-ins only</option>
             </select>
           </div>
+          <div className="sm:col-span-2">
+            <label className="mb-1 block text-xs font-medium uppercase text-gray-500">
+              NMC Reg # (printed on every Rx)
+            </label>
+            <input
+              type="text"
+              maxLength={32}
+              value={nmcReg}
+              onChange={(e) => setNmcReg(e.target.value)}
+              placeholder="e.g. NMC/2024/12345"
+              data-testid="appointment-mode-nmc-reg"
+              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+            />
+          </div>
           <div className="flex gap-2 sm:col-span-2">
             <button
               type="submit"
@@ -546,6 +577,7 @@ function AppointmentModeCard({
                     : "",
                 );
                 setPolicy(doctor.lastHourPolicy ?? "");
+                setNmcReg(doctor.nmcRegNumber ?? "");
               }}
               className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >

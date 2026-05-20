@@ -244,6 +244,9 @@ export const doctorAppointmentModeSchema = z
     dailyAppointmentLimit: z.number().int().min(1).max(500).nullable().optional(),
     nearTurnAlertThreshold: z.number().int().min(1).max(50).nullable().optional(),
     lastHourPolicy: z.enum(["ACCEPT_ALL", "BLOCK_NEW", "WALK_IN_ONLY"]).nullable().optional(),
+    // Pearl ERP Stage 1 §2.1.4 — NMC registration number on the Doctor
+    // profile; rendered on every signed Rx PDF.
+    nmcRegNumber: z.string().max(32).nullable().optional(),
   })
   .refine((val) => Object.values(val).some((v) => v !== undefined), {
     message: "At least one field is required",

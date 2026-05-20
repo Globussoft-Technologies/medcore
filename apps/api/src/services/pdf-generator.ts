@@ -282,8 +282,12 @@ export async function generatePrescriptionPDFBuffer(
 
   drawKeyVal(doc, "Doctor", `Dr. ${doctor.user.name}`, 310, topY);
   drawKeyVal(doc, "Qualification", doctor.qualification || "-", 310, topY + 28);
-  drawKeyVal(doc, "Date", formatDate(prescription.createdAt), 310, topY + 56);
-  doc.y = topY + 90;
+  // Pearl ERP Stage 1 §2.1.4 — every signed Rx must carry the NMC
+  // registration number. Renders "-" when blank so admins can spot
+  // missing entries during pilot rollout.
+  drawKeyVal(doc, "NMC Reg #", doctor.nmcRegNumber || "-", 310, topY + 56);
+  drawKeyVal(doc, "Date", formatDate(prescription.createdAt), 310, topY + 84);
+  doc.y = topY + 118;
 
   // Diagnosis box
   doc.rect(40, doc.y, 515, 28).fill("#f1f5f9");
@@ -337,6 +341,11 @@ export async function generatePrescriptionPDFBuffer(
   if (doctor.qualification) {
     doc.font("Helvetica").fontSize(8).fillColor("#64748b")
       .text(doctor.qualification, 380, qrY + 84, { width: 175, align: "center" });
+  }
+  // Pearl §2.1.4 — NMC reg # under the signature.
+  if (doctor.nmcRegNumber) {
+    doc.font("Helvetica").fontSize(8).fillColor("#64748b")
+      .text(`NMC Reg #${doctor.nmcRegNumber}`, 380, qrY + 96, { width: 175, align: "center" });
   }
   doc.strokeColor("#475569").lineWidth(0.5)
     .moveTo(395, qrY + 65).lineTo(540, qrY + 65).stroke();

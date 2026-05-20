@@ -327,6 +327,36 @@ describeIfDB("Doctors API (integration)", () => {
     expect(res.status).toBe(403);
   });
 
+  it("PATCH appointment-mode: persists NMC reg number (Pearl §2.1.4)", async () => {
+    const doctor = await createDoctorFixture();
+    const prisma = await getPrisma();
+
+    await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ nmcRegNumber: "NMC/2024/12345" })
+      .expect(200);
+
+    const after = await prisma.doctor.findUnique({
+      where: { id: doctor.id },
+      select: { nmcRegNumber: true },
+    });
+    expect(after?.nmcRegNumber).toBe("NMC/2024/12345");
+
+    // Empty string in body clears the field.
+    await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ nmcRegNumber: null })
+      .expect(200);
+
+    const cleared = await prisma.doctor.findUnique({
+      where: { id: doctor.id },
+      select: { nmcRegNumber: true },
+    });
+    expect(cleared?.nmcRegNumber).toBeNull();
+  });
+
   it("PATCH appointment-mode: writes an audit log entry", async () => {
     const doctor = await createDoctorFixture();
     const prisma = await getPrisma();

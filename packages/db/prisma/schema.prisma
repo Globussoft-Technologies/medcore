@@ -777,6 +777,10 @@ model Doctor {
   nearTurnAlertThreshold Int?
   lastHourPolicy         LastHourPolicy?
 
+  // Pearl ERP Stage 1 §2.1.4 — NMC (National Medical Commission)
+  // registration number. Required to render on every signed Rx PDF.
+  nmcRegNumber String?
+
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 

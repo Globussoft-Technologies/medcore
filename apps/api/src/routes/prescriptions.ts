@@ -120,6 +120,85 @@ async function checkDrugInteractions(
   return { warnings, hasBlocking };
 }
 
+// Pearl ERP Stage 1 §2.1.4 — drug-allergy block. Reads the patient's
+// PatientAllergy rows and cross-references each medicine being
+// prescribed against them. Match strategy: case-insensitive bidirectional
+// substring against the medicine's brand name + generic name. False
+// positives are preferable to misses (a missed allergy is a patient
+// safety event; a false positive is an override-with-reason). The
+// override is gated at the route handler — this helper just surfaces
+// the conflicts.
+async function checkPatientAllergies(
+  medicineNames: string[],
+  patientId: string,
+): Promise<{
+  conflicts: Array<{
+    medicineName: string;
+    allergen: string;
+    severity: string;
+    reaction: string | null;
+  }>;
+}> {
+  if (medicineNames.length === 0) return { conflicts: [] };
+
+  const allergies = await prisma.patientAllergy.findMany({
+    where: { patientId },
+    select: { allergen: true, severity: true, reaction: true },
+  });
+  if (allergies.length === 0) return { conflicts: [] };
+
+  // Resolve each medicine name to (brand, generic) tokens. Unknown names
+  // (free-text prescriptions outside the master) fall back to the name
+  // itself.
+  const medicines = await prisma.medicine.findMany({
+    where: {
+      OR: medicineNames.flatMap((n) => [
+        { name: { equals: n, mode: "insensitive" as const } },
+        { genericName: { equals: n, mode: "insensitive" as const } },
+      ]),
+    },
+    select: { name: true, genericName: true },
+  });
+
+  const tokensByName = new Map<string, string[]>();
+  for (const n of medicineNames) {
+    const key = n.toLowerCase();
+    const matched = medicines.find(
+      (m) =>
+        m.name.toLowerCase() === key ||
+        (m.genericName && m.genericName.toLowerCase() === key),
+    );
+    const tokens = matched
+      ? [matched.name, matched.genericName].filter((s): s is string => !!s).map((s) => s.toLowerCase())
+      : [key];
+    tokensByName.set(n, tokens);
+  }
+
+  const conflicts: Array<{
+    medicineName: string;
+    allergen: string;
+    severity: string;
+    reaction: string | null;
+  }> = [];
+  for (const medName of medicineNames) {
+    const tokens = tokensByName.get(medName) ?? [medName.toLowerCase()];
+    for (const a of allergies) {
+      const allergen = a.allergen.toLowerCase().trim();
+      if (!allergen) continue;
+      const hit = tokens.some((t) => t.includes(allergen) || allergen.includes(t));
+      if (hit) {
+        conflicts.push({
+          medicineName: medName,
+          allergen: a.allergen,
+          severity: a.severity,
+          reaction: a.reaction,
+        });
+      }
+    }
+  }
+  return { conflicts };
+}
+
 // POST /api/v1/prescriptions/check-interactions — preview-only (no save)
 router.post(
   "/check-interactions",
@@ -154,8 +233,17 @@ router.post(
   validate(createPrescriptionSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { appointmentId, patientId, diagnosis, items, advice, followUpDate, overrideWarnings } =
-        req.body as {
+      const {
+        appointmentId,
+        patientId,
+        diagnosis,
+        items,
+        advice,
+        followUpDate,
+        overrideWarnings,
+        overrideAllergies,
+        allergyOverrideReason,
+      } = req.body as {
           appointmentId: string;
           patientId: string;
           diagnosis: string;
@@ -163,6 +251,8 @@ router.post(
           advice?: string;
           followUpDate?: string;
           overrideWarnings?: boolean;
+          overrideAllergies?: boolean;
+          allergyOverrideReason?: string;
         };
 
       // ─── Issue #898 ───────────────────────────────────────────────────
@@ -217,6 +307,38 @@ router.post(
           warnings,
         });
         return;
+      }
+
+      // Pearl ERP Stage 1 §2.1.4 — drug-allergy block. Cross-references
+      // the patient's PatientAllergy rows against the medicines being
+      // prescribed; any conflict aborts unless the prescriber supplies
+      // `overrideAllergies=true` AND a `allergyOverrideReason` (the Zod
+      // schema enforces the reason; we audit the override below).
+      const { conflicts: allergyConflicts } = await checkPatientAllergies(
+        names,
+        patientId,
+      );
+      if (allergyConflicts.length > 0 && !overrideAllergies) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Patient allergy conflict — Rx blocked",
+          allergyConflicts,
+        });
+        return;
+      }
+      if (allergyConflicts.length > 0 && overrideAllergies) {
+        auditLog(
+          req,
+          "PRESCRIPTION_ALLERGY_OVERRIDE",
+          "patient",
+          patientId,
+          {
+            conflicts: allergyConflicts,
+            reason: allergyOverrideReason,
+            medicineNames: names,
+          },
+        ).catch(console.error);
       }
 
       // Get doctor record from user

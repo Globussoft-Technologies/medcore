@@ -541,4 +541,163 @@ describeIfDB("Prescriptions API (integration)", () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/medicineId/i);
   });
+
+  // ─────────────────────────────────────────────────────────
+  // Pearl ERP Stage 1 §2.1.4 — drug-allergy block + override
+  // ─────────────────────────────────────────────────────────
+
+  it("blocks Rx when a prescribed medicine matches a patient allergy", async () => {
+    const { doctor, token } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    const prisma = await getPrisma();
+    // Patient has a documented Penicillin allergy.
+    await prisma.patientAllergy.create({
+      data: {
+        patientId: patient.id,
+        allergen: "Penicillin",
+        severity: "SEVERE",
+        reaction: "Anaphylaxis",
+        notedBy: doctor.userId,
+      },
+    });
+
+    const res = await request(app)
+      .post("/api/v1/prescriptions")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        diagnosis: "URI",
+        items: [
+          {
+            medicineName: "Penicillin V 500mg",
+            dosage: "500mg",
+            frequency: "TID",
+            duration: "5 days",
+          },
+        ],
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/allergy/i);
+    expect(Array.isArray(res.body.allergyConflicts)).toBe(true);
+    expect(res.body.allergyConflicts[0].allergen).toBe("Penicillin");
+  });
+
+  it("allows Rx when overrideAllergies=true with a reason", async () => {
+    const { doctor, token } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    const prisma = await getPrisma();
+    await prisma.patientAllergy.create({
+      data: {
+        patientId: patient.id,
+        allergen: "Penicillin",
+        severity: "MODERATE",
+        reaction: "Rash",
+        notedBy: doctor.userId,
+      },
+    });
+
+    const res = await request(app)
+      .post("/api/v1/prescriptions")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        diagnosis: "URI",
+        items: [
+          {
+            medicineName: "Amoxicillin 500mg",
+            dosage: "500mg",
+            frequency: "TID",
+            duration: "5 days",
+          },
+        ],
+        overrideAllergies: true,
+        allergyOverrideReason: "Mild past reaction; risk/benefit favours treatment",
+      });
+    expect([200, 201]).toContain(res.status);
+
+    // Audit log entry should record the override.
+    await new Promise((r) => setTimeout(r, 60));
+    const auditCount = await prisma.auditLog.count({
+      where: {
+        action: "PRESCRIPTION_ALLERGY_OVERRIDE",
+        entity: "patient",
+        entityId: patient.id,
+      },
+    });
+    expect(auditCount).toBeGreaterThan(0);
+  });
+
+  it("rejects overrideAllergies=true without an allergyOverrideReason (400)", async () => {
+    const { doctor, token } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    const res = await request(app)
+      .post("/api/v1/prescriptions")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        diagnosis: "URI",
+        items: [
+          {
+            medicineName: "Amoxicillin 500mg",
+            dosage: "500mg",
+            frequency: "TID",
+            duration: "5 days",
+          },
+        ],
+        overrideAllergies: true,
+        // no reason
+      });
+    expect(res.status).toBe(400);
+  });
+
+  it("allows Rx when patient has unrelated allergies", async () => {
+    const { doctor, token } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    const prisma = await getPrisma();
+    await prisma.patientAllergy.create({
+      data: {
+        patientId: patient.id,
+        allergen: "Sulfa",
+        severity: "MODERATE",
+        notedBy: doctor.userId,
+      },
+    });
+
+    const res = await request(app)
+      .post("/api/v1/prescriptions")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        diagnosis: "Pain",
+        items: [
+          {
+            medicineName: "Paracetamol 500mg",
+            dosage: "500mg",
+            frequency: "TID",
+            duration: "3 days",
+          },
+        ],
+      });
+    expect([200, 201]).toContain(res.status);
+  });
 });

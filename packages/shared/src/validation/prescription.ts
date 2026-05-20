@@ -66,18 +66,31 @@ const prescriptionItemSchema = z.object({
   refills: z.number().int().min(0).max(12).optional(),
 });
 
-export const createPrescriptionSchema = z.object({
-  appointmentId: z.string().uuid(),
-  patientId: z.string().uuid(),
-  diagnosis: z.string().min(1, "Diagnosis is required"),
-  items: z.array(prescriptionItemSchema).min(1, "At least one medicine is required"),
-  advice: z.string().optional(),
-  followUpDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
-    .optional(),
-  overrideWarnings: z.boolean().optional(),
-});
+// Pearl ERP Stage 1 §2.1.4 — drug-allergy block must be overrideable with
+// a reason. `overrideAllergies=true` requires a non-empty `allergyOverrideReason`
+// so the audit trail captures WHY the prescriber went ahead.
+export const createPrescriptionSchema = z
+  .object({
+    appointmentId: z.string().uuid(),
+    patientId: z.string().uuid(),
+    diagnosis: z.string().min(1, "Diagnosis is required"),
+    items: z.array(prescriptionItemSchema).min(1, "At least one medicine is required"),
+    advice: z.string().optional(),
+    followUpDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
+      .optional(),
+    overrideWarnings: z.boolean().optional(),
+    overrideAllergies: z.boolean().optional(),
+    allergyOverrideReason: z.string().min(3).max(500).optional(),
+  })
+  .refine(
+    (val) => !val.overrideAllergies || (val.allergyOverrideReason?.trim().length ?? 0) >= 3,
+    {
+      path: ["allergyOverrideReason"],
+      message: "allergyOverrideReason (>=3 chars) is required when overrideAllergies=true",
+    },
+  );
 
 // Edit-mode counterpart of createPrescriptionSchema. Deliberately omits
 // appointmentId and patientId — those are immutable identifiers on an

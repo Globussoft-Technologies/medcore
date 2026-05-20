@@ -614,7 +614,13 @@ describeIfDB("Prescriptions API (integration)", () => {
         diagnosis: "URI",
         items: [
           {
-            medicineName: "Amoxicillin 500mg",
+            // Same medicine as the BLOCK test above so the same
+            // bidirectional-substring match in checkPatientAllergies fires
+            // — that's the precondition for the override branch (and the
+            // audit row) to ever execute. "Amoxicillin" → "Penicillin"
+            // doesn't substring-match either way (drug-class lookup is a
+            // separate, ontology-heavy follow-up).
+            medicineName: "Penicillin V 500mg",
             dosage: "500mg",
             frequency: "TID",
             duration: "5 days",
@@ -625,15 +631,21 @@ describeIfDB("Prescriptions API (integration)", () => {
       });
     expect([200, 201]).toContain(res.status);
 
-    // Audit log entry should record the override.
-    await new Promise((r) => setTimeout(r, 60));
-    const auditCount = await prisma.auditLog.count({
-      where: {
-        action: "PRESCRIPTION_ALLERGY_OVERRIDE",
-        entity: "patient",
-        entityId: patient.id,
-      },
-    });
+    // Audit log entry should record the override. The route uses
+    // .catch(console.error) on auditLog so it's fire-and-forget — poll
+    // briefly instead of relying on a single sleep window.
+    let auditCount = 0;
+    for (let i = 0; i < 30; i++) {
+      auditCount = await prisma.auditLog.count({
+        where: {
+          action: "PRESCRIPTION_ALLERGY_OVERRIDE",
+          entity: "patient",
+          entityId: patient.id,
+        },
+      });
+      if (auditCount > 0) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
     expect(auditCount).toBeGreaterThan(0);
   });
 

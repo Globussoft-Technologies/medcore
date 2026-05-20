@@ -323,7 +323,10 @@ describeIfDB("OT/Surgery API — DEEP (integration)", () => {
     const p1 = await createPatientFixture();
     const p2 = await createPatientFixture();
     const surgeon = await createDoctorFixture();
-    const when = new Date("2026-05-20T10:00:00.000Z").toISOString();
+    // scheduledAt's Zod refine rejects past timestamps. Use +7 days from
+    // "now" so the test ages gracefully instead of breaking on a fixed
+    // calendar date as it did on 2026-05-21.
+    const when = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     const r1 = await scheduleSurgery({
       patientId: p1.id,
       surgeonId: surgeon.id,

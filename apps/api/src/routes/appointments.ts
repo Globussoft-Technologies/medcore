@@ -1224,6 +1224,18 @@ router.post(
       const dateObj = new Date(date);
       const groupId = `GRP-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
+      // Pearl §2.1.2 added `@@unique([doctorId, date, slotStart])` to block
+      // solo SLOT-mode double-booking. Group bookings intentionally share a
+      // start time across N patients (yoga therapy, group counselling), so
+      // they must store `slotStart = null` to dodge the unique constraint.
+      // The intended start time is preserved in `notes` so the frontend can
+      // still display it and the original `slotStart` query parameter is
+      // honored for audit-log payload + downstream reminder cascades.
+      const groupNoteTime = slotStart ? ` @ ${slotStart}` : "";
+      const groupNotes = notes
+        ? `[GROUP${groupNoteTime}] ${notes}`
+        : `[GROUP ${groupId}${groupNoteTime}]`;
+
       // tokenNumber is nullable since the Pearl §2.1.2 schema change for
       // CALLING/SLOT-mode bookings; the group-booking flow itself always
       // sets it, but the type now honestly reflects the schema.
@@ -1235,11 +1247,12 @@ router.post(
             patientId,
             doctorId,
             date: dateObj,
-            slotStart: slotStart ?? null,
+            // Null intentional — see comment above.
+            slotStart: null,
             tokenNumber: nextToken,
             type: "SCHEDULED",
             status: "BOOKED",
-            notes: notes ? `[GROUP] ${notes}` : `[GROUP ${groupId}]`,
+            notes: groupNotes,
             groupId,
           },
         });

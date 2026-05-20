@@ -36,7 +36,7 @@ on:
     workflows: ["Test"]
     types: [completed]
 
-# Needed to merge the PR, delete its branch, and post a skip comment.
+# Needed to merge the PR and post a skip comment.
 permissions:
   contents: write
   pull-requests: write
@@ -104,7 +104,7 @@ jobs:
             exit 0
           fi
 
-          # Green + conflict-free → squash-merge and delete the branch.
+          # Green + conflict-free → squash-merge, but keep the source branch.
           echo "Merging PR #${PR_NUM} into main…"
-          gh pr merge "$PR_NUM" --repo "$REPO" --squash --delete-branch
+          gh pr merge "$PR_NUM" --repo "$REPO" --squash
           echo "::notice::PR #${PR_NUM} auto-merged into main."

@@ -67,10 +67,16 @@ describe("razorpay verifyPayment - signature verification", () => {
   beforeEach(() => {
     vi.resetModules();
     process.env.RAZORPAY_KEY_SECRET = SECRET;
+    // Pearl #10b: getCreds() requires BOTH env vars to leave mock mode.
+    // Without RAZORPAY_KEY_ID it falls through to mock-mode and returns
+    // true unconditionally, breaking the "invalid signature → false"
+    // assertion below.
+    process.env.RAZORPAY_KEY_ID = "rzp_test_keyid";
   });
 
   afterEach(() => {
     delete process.env.RAZORPAY_KEY_SECRET;
+    delete process.env.RAZORPAY_KEY_ID;
   });
 
   it("returns true for a valid HMAC SHA256 signature", async () => {

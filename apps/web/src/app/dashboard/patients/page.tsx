@@ -342,13 +342,27 @@ export default function PatientsPage() {
           )}
           <button
             type="button"
-            onClick={() =>
-              toast.info(
-                "Lead pipeline coming in Pearl Stage 1 M2 — patient stays in registry for now.",
-              )
-            }
+            onClick={async () => {
+              // Pearl §3.3 — promote a patient back to a lead so a
+              // re-engagement / upsell flow can attach to the CRM.
+              try {
+                await api.post("/leads", {
+                  name: p.user?.name ?? "Unknown patient",
+                  phone: p.user?.phone ?? undefined,
+                  email:
+                    p.user?.email && !p.user.email.endsWith("@medcore.invalid")
+                      ? p.user.email
+                      : undefined,
+                  source: "REFERRAL",
+                  notes: `Promoted from patient ${p.mrNumber}`,
+                });
+                toast.success(`${p.user?.name ?? "Patient"} added to CRM as a lead.`);
+              } catch (err: any) {
+                toast.error(err?.message ?? "Failed to add to CRM");
+              }
+            }}
             aria-label={`Add ${p.user?.name ?? "patient"} to CRM`}
-            title="Add to Lead (coming soon)"
+            title="Add to Lead"
             data-testid={`quickaction-add-to-lead-${p.id}`}
             className="rounded p-1.5 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30"
           >

@@ -669,7 +669,119 @@ model Tenant {
   // Pearl §2.1.7 — appointment remarks scoped to this tenant.
   appointmentRemarks AppointmentRemark[]
 
+  // Pearl §3.3 (gap item #3) — CRM lead pipeline scoped to this tenant.
+  leads          Lead[]
+  leadActivities LeadActivity[]
+
   @@map("tenants")
+}
+
+// Pearl ERP Stage 1 §3.3 (gap item #3) — CRM lead pipeline.
+// Six-stage state machine: NEW → QUALIFIED → ENGAGED → BOOKED →
+// CONVERTED → LOST. Multi-source intake (WEB, WALK_IN, PHONE,
+// WHATSAPP, REFERRAL, OTHER) with an activity log per lead and
+// an optional `convertedPatientId` link when the lead becomes a
+// real patient.
+//
+// Distinct from MarketingEnquiry (the flat marketing-site contact-
+// form row). A MarketingEnquiry can promote to a Lead via
+// POST /api/v1/leads with marketingEnquiryId set.
+enum LeadStatus {
+  NEW
+  QUALIFIED
+  ENGAGED
+  BOOKED
+  CONVERTED
+  LOST
+}
+
+enum LeadSource {
+  WEB
+  WALK_IN
+  PHONE
+  WHATSAPP
+  REFERRAL
+  OTHER
+}
+
+enum LeadActivityType {
+  STATUS_CHANGE
+  NOTE
+  CALL
+  MESSAGE
+  EMAIL
+  WHATSAPP_OUTBOUND
+  DOCTOR_ALLOCATION
+  CONVERSION
+}
+
+model Lead {
+  id              String     @id @default(uuid())
+  name            String
+  phone           String?
+  email           String?
+  source          LeadSource @default(WEB)
+  status          LeadStatus @default(NEW)
+  // Optional links — let lead "want a derm consult" or "from Dr. X's
+  // referral" carry the soft preference into the conversion flow.
+  preferredDoctorId String?
+  assignedToUserId  String?
+  // Free-text scratchpad — chief complaint, notes from the intake call.
+  notes           String?
+  // Lifecycle attribution. convertedPatientId is set by the CONVERT
+  // endpoint and is the link that distinguishes a CONVERTED lead from
+  // a LOST one (some hospitals re-engage LOST leads later).
+  convertedAt     DateTime?
+  convertedPatientId String?
+  // Optional promotion path — a MarketingEnquiry row can be promoted
+  // into a Lead; we keep the back-ref so duplicate-promotion is easy
+  // to detect (findFirst on this column).
+  marketingEnquiryId String? @unique
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  preferredDoctor   Doctor?           @relation("LeadPreferredDoctor", fields: [preferredDoctorId], references: [id], onDelete: SetNull)
+  assignedToUser    User?             @relation("LeadAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  convertedPatient  Patient?          @relation("LeadConvertedPatient", fields: [convertedPatientId], references: [id], onDelete: SetNull)
+  marketingEnquiry  MarketingEnquiry? @relation(fields: [marketingEnquiryId], references: [id], onDelete: SetNull)
+  activities        LeadActivity[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([source])
+  @@index([assignedToUserId])
+  @@index([preferredDoctorId])
+  @@map("leads")
+}
+
+model LeadActivity {
+  id           String           @id @default(uuid())
+  leadId       String
+  authorUserId String?
+  type         LeadActivityType
+  // Optional structured payload (e.g. {fromStatus: "NEW", toStatus: "QUALIFIED"}
+  // for STATUS_CHANGE; {channel: "WHATSAPP", body: "..."} for outbound).
+  data         Json?
+  // Free-text summary visible in the activity stream.
+  body         String?
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  lead       Lead  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  authorUser User? @relation("LeadActivityAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId])
+  @@index([authorUserId])
+  @@index([type])
+  @@index([tenantId])
+  @@map("lead_activities")
 }
 
 // ─── USERS & AUTH ───────────────────────────────────────
@@ -748,6 +860,10 @@ model User {
 
   // Pearl §2.1.7 — appointment remarks this user has authored.
   appointmentRemarks AppointmentRemark[] @relation("AppointmentRemarkAuthor")
+
+  // Pearl §3.3 (gap item #3) — leads this user owns + activities they've logged.
+  leadsAssigned    Lead[]         @relation("LeadAssignedTo")
+  leadActivities   LeadActivity[] @relation("LeadActivityAuthor")
 
   @@index([email])
   @@index([phone])
@@ -849,6 +965,9 @@ model Doctor {
   waitlistEntries      WaitlistEntry[]
   controlledEntries    ControlledSubstanceEntry[]
   aiScribeSessions     AIScribeSession[]
+
+  // Pearl §3.3 (gap item #3) — leads soft-assigned to this doctor.
+  leadsPreferred Lead[] @relation("LeadPreferredDoctor")
 
   @@index([tenantId])
   @@map("doctors")
@@ -987,6 +1106,10 @@ model Patient {
   // ── PRD closure (2026-04-24) ─────────────────────────────
   dataExports         PatientDataExport[]
   medicationIncidents MedicationIncident[]
+
+  // Pearl §3.3 (gap item #3) — backref for the Lead that converted into
+  // this patient (if any). Most patients have no source-lead.
+  convertedFromLeads Lead[] @relation("LeadConvertedPatient")
 
   @@index([mrNumber])
   @@index([tenantId])
@@ -4241,6 +4364,10 @@ model MarketingEnquiry {
   source               String    @default("website")
   createdAt            DateTime  @default(now())
   forwardedToCrmAt     DateTime?
+
+  // Pearl §3.3 (gap item #3) — back-ref so we can detect duplicate
+  // promotion (one MarketingEnquiry → one Lead).
+  promotedLead Lead?
 
   @@index([createdAt])
   @@index([email])

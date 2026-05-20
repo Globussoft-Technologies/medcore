@@ -26,6 +26,7 @@ import { createServer } from "http";
 import { Server as SocketServer } from "socket.io";
 import { authRouter } from "./routes/auth";
 import { featureFlagsRouter } from "./routes/feature-flags";
+import { leadRouter } from "./routes/leads";
 import { patientRouter } from "./routes/patients";
 import { appointmentRouter } from "./routes/appointments";
 import { doctorRouter } from "./routes/doctors";
@@ -248,6 +249,7 @@ export function buildApp() {
     process.env.NODE_ENV === "test" ? (_: any, __: any, n: any) => n() : rateLimit(30, 60_000);
   app.use("/api/v1/auth", authLimiter, authRouter);
   app.use("/api/v1/feature-flags", featureFlagsRouter);
+  app.use("/api/v1/leads", leadRouter);
   app.use("/api/v1/patients", patientRouter);
   app.use("/api/v1/appointments", appointmentRouter);
   app.use("/api/v1/doctors", doctorRouter);

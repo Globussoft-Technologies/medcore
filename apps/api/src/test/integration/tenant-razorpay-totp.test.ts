@@ -25,9 +25,17 @@ describeIfDB("Tenant Razorpay + ADMIN TOTP policy (Pearl #10b)", () => {
 
   it("PATCH /tenants/:id persists razorpayKeyId + razorpayKeySecret + mode + requireAdminTOTP", async () => {
     const prisma = await getPrisma();
-    const tenant = await prisma.tenant.findFirst({ select: { id: true } });
+    // resetDB() doesn't always seed a Tenant row (single-tenant mode). Create
+    // a fresh one for this test if absent; the route is super-admin scoped
+    // so it works against any Tenant row that exists.
+    let tenant = await prisma.tenant.findFirst({ select: { id: true } });
+    if (!tenant) {
+      tenant = await prisma.tenant.create({
+        data: { name: "Default Test Tenant", subdomain: "default" },
+        select: { id: true },
+      });
+    }
     expect(tenant).toBeTruthy();
-    if (!tenant) return;
 
     const res = await request(app)
       .patch(`/api/v1/tenants/${tenant.id}`)

@@ -124,8 +124,9 @@ describeIfDB("Lead pipeline API (Pearl §3.3 — integration)", () => {
   });
 
   it("GET /leads?status=NEW filters correctly", async () => {
-    await request(app).post("/api/v1/leads").set("Authorization", `Bearer ${receptionToken}`).send({ name: "A", phone: "+919876543214", source: "WEB" });
-    const b = await request(app).post("/api/v1/leads").set("Authorization", `Bearer ${receptionToken}`).send({ name: "B", phone: "+919876543215", source: "WEB" });
+    // createLeadSchema requires name ≥ 2 chars; use real names.
+    await request(app).post("/api/v1/leads").set("Authorization", `Bearer ${receptionToken}`).send({ name: "Alice Filter", phone: "+919876543214", source: "WEB" });
+    const b = await request(app).post("/api/v1/leads").set("Authorization", `Bearer ${receptionToken}`).send({ name: "Bob Filter", phone: "+919876543215", source: "WEB" });
     // Move B out of NEW.
     await request(app).patch(`/api/v1/leads/${b.body.data.id}`).set("Authorization", `Bearer ${receptionToken}`).send({ status: "QUALIFIED" });
 

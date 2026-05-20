@@ -52,12 +52,32 @@ router.patch(
   validate(updateFeatureFlagsSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const tenantId = req.tenantId;
+      // tenantId resolution chain:
+      //   1. req.tenantId (set by auth middleware from JWT claim) — primary
+      //   2. fall back to the caller's User.tenantId — covers users whose
+      //      JWT predates the tenantId claim or single-tenant deploys
+      //   3. fall back to the default tenant by subdomain='default' —
+      //      single-tenant deploys with no Tenant.id in JWT at all
+      let tenantId = req.tenantId;
+      if (!tenantId) {
+        const userTenant = await prisma.user.findUnique({
+          where: { id: req.user!.userId },
+          select: { tenantId: true },
+        });
+        tenantId = userTenant?.tenantId ?? undefined;
+      }
+      if (!tenantId) {
+        const defaultTenant = await prisma.tenant.findUnique({
+          where: { subdomain: "default" },
+          select: { id: true },
+        });
+        tenantId = defaultTenant?.id ?? undefined;
+      }
       if (!tenantId) {
         res.status(400).json({
           success: false,
           data: null,
-          error: "No tenant context — feature flags are tenant-scoped.",
+          error: "No tenant context — feature flags require at least one tenant row.",
         });
         return;
       }

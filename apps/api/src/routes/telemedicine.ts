@@ -32,8 +32,14 @@ import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { signedJitsiRoomUrl } from "../services/jitsi";
 
+import { requireFeature } from "../middleware/feature-flag";
+
 const router = Router();
 router.use(authenticate);
+// Pearl §6 + §18 (gap item #9): Telemedicine is a Stage-2+ feature.
+// Pearl-branded tenants set `telemedicine=false` and every route here
+// 404s before authorize ever runs. Non-Pearl tenants pass through.
+router.use(requireFeature("telemedicine"));
 
 async function nextSessionNumber(): Promise<string> {
   // Use rawPrisma — sessionNumber is globally @unique on the

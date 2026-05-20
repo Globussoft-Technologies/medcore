@@ -4,6 +4,8 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
+import { useFeatureFlags } from "@/lib/feature-flags-client";
+import type { FeatureKey } from "@medcore/shared";
 import { onAuthBroadcast } from "@/lib/auth-broadcast";
 import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
@@ -373,6 +375,7 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const { user, isLoading, loadSession, logout } = useAuthStore();
+  const featureFlags = useFeatureFlags();
   const { t } = useTranslation();
   const [searchOpen, setSearchOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -848,7 +851,34 @@ export default function DashboardLayout({
   const tNav = (label: string) =>
     NAV_LABEL_TO_KEY[label] ? t(NAV_LABEL_TO_KEY[label], label) : label;
 
-  const nav = navByRole[user.role] || navByRole.PATIENT;
+  // Pearl §6 + §18 (gap item #9) — filter nav by tenant feature flags.
+  // The map below pairs route prefixes with the feature key that gates
+  // them. When the tenant has the key disabled, the nav entry is hidden
+  // (and the API 404s anyway via requireFeature middleware).
+  const FEATURE_GATED_ROUTES: Record<string, FeatureKey> = {
+    "/dashboard/admissions": "ipd",
+    "/dashboard/wards": "ipd",
+    "/dashboard/medication": "ipd",
+    "/dashboard/nurse-rounds": "ipd",
+    "/dashboard/operating-theaters": "ot",
+    "/dashboard/telemedicine": "telemedicine",
+    "/dashboard/ai-radiology": "aiRadiology",
+    "/dashboard/ai-followup": "aiFollowup",
+    "/dashboard/ai-coaching": "aiCoaching",
+    "/dashboard/predictions": "predictiveCds",
+    "/dashboard/payroll": "hrmsPayroll",
+    "/dashboard/leave-management": "hrmsPayroll",
+    "/dashboard/duty-roster": "hrmsPayroll",
+    "/dashboard/scribe": "voiceRx",
+    "/dashboard/ai-fraud": "aiFraud",
+    "/dashboard/ai-kpis": "predictiveCds",
+  };
+  const rawNav = navByRole[user.role] || navByRole.PATIENT;
+  const nav = rawNav.filter((item) => {
+    const key = FEATURE_GATED_ROUTES[item.href];
+    if (!key) return true; // ungated nav item — always show
+    return featureFlags[key];
+  });
   const bottomNav = bottomNavByRole[user.role] || bottomNavByRole.PATIENT;
 
   return (

@@ -475,6 +475,25 @@ model Tenant {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
+  // Pearl ERP Stage 1 §6 + §18 (gap item #9) — per-tenant feature flags.
+  // JSON shape:
+  //   { "<featureKey>": true | false, ... }
+  //   featureKey ∈ packages/shared/src/feature-flags.ts FEATURE_KEYS.
+  // Default for every existing tenant = null = "all features enabled"
+  // (current MedCore behaviour — no regression). Pearl-branded tenants
+  // explicitly set the §6 list to false to hide Stage-2+ surfaces (IPD,
+  // OT, telemedicine, voice-rx, AI-discharge, predictive CDS, AI
+  // radiology, HRMS, NABH dashboard, etc.) so the OPD-class scope stays
+  // clean and matches the SoW the hospital signed.
+  //
+  // Resolution at runtime:
+  //   - apps/api: services/feature-flags.ts → isFeatureEnabled(tenantId, key)
+  //   - apps/web: lib/feature-flags-client.ts wraps GET /api/v1/feature-flags
+  //   - middleware/feature-flag.ts blocks API routes for disabled features
+  //     with 404 (not 403 — Pearl tenants shouldn't even learn the routes
+  //     exist).
+  featureFlags Json?
+
   users                User[]
   doctors              Doctor[]
   patients             Patient[]

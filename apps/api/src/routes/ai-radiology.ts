@@ -119,6 +119,12 @@ async function attachSignedUrls(
 export const aiRadiologyRouter = Router();
 
 aiRadiologyRouter.use(authenticate);
+// Pearl §6 + §18 (gap item #9): AI radiology is a Stage-2+ feature.
+// Pearl-branded tenants set `aiRadiology=false` in tenant.featureFlags
+// and every route here 404s before authorize/rate-limit ever runs.
+// Non-Pearl tenants pass through (default = enabled).
+import { requireFeature } from "../middleware/feature-flag";
+aiRadiologyRouter.use(requireFeature("aiRadiology"));
 // #511 audit (file-level, 2026-05-09): every handler applies
 // `authorize(Role.DOCTOR, Role.ADMIN)` — PATIENT is excluded from
 // radiology drafting, study upload, and approval surfaces. Verified-safe.

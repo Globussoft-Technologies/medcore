@@ -27,8 +27,14 @@ import { auditLog } from "../middleware/audit";
 import { generateDischargeSummaryHTML } from "../services/pdf";
 import { generateDischargeSummaryPDFBuffer } from "../services/pdf-generator";
 
+import { requireFeature } from "../middleware/feature-flag";
+
 const router = Router();
 router.use(authenticate);
+// Pearl §6 + §18 (gap item #9): IPD is a Stage-2+ feature. Pearl-branded
+// tenants set `ipd=false` and every admission/eMAR/nurse-rounds route
+// 404s before authorize runs. Non-Pearl tenants pass through.
+router.use(requireFeature("ipd"));
 
 // Generate next admission number like IPD000001
 async function nextAdmissionNumber(): Promise<string> {

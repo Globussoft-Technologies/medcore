@@ -625,6 +625,9 @@ model Tenant {
   //    20260504000002_audit_log_tenant_id) ──────────────────────────────────
   auditLogs AuditLog[]
 
+  // Pearl §2.1.7 — appointment remarks scoped to this tenant.
+  appointmentRemarks AppointmentRemark[]
+
   @@map("tenants")
 }
 
@@ -701,6 +704,9 @@ model User {
 
   // ── Issue #718 (calendar events created by admins) ───────────────────
   calendarEventsCreated CalendarEvent[]
+
+  // Pearl §2.1.7 — appointment remarks this user has authored.
+  appointmentRemarks AppointmentRemark[] @relation("AppointmentRemarkAuthor")
 
   @@index([email])
   @@index([phone])
@@ -1002,6 +1008,9 @@ model Appointment {
   // ── PRD closure (2026-04-24) ─────────────────────────────
   feedbacks PatientFeedback[]
 
+  // Pearl §2.1.7 — threaded remarks per appointment.
+  remarks AppointmentRemark[] @relation("AppointmentRemarks")
+
   @@unique([doctorId, date, tokenNumber])
   // Pearl §2.1.2 — SLOT-mode no-double-booking. Postgres allows
   // multiple NULL slotStart values so this does not regress walk-ins
@@ -1014,6 +1023,58 @@ model Appointment {
   @@index([coordinatedVisitId])
   @@index([tenantId])
   @@map("appointments")
+}
+
+// Pearl §2.1.7 — threaded, visibility-scoped, pinnable remarks attached
+// to an Appointment. Replaces the single `Appointment.notes` string with
+// a multi-author conversation that Reception / Doctor / Nurse can each
+// contribute to with role-controlled visibility.
+//
+// Visibility model:
+//   ALL_STAFF       — every non-PATIENT role on the same tenant
+//   DOCTOR_ONLY     — DOCTOR + ADMIN
+//   RECEPTION_ONLY  — RECEPTION + ADMIN
+//   PRIVATE         — author only (+ ADMIN)
+// PATIENT role never sees remarks (clinical notes are staff-internal).
+//
+// Threading: optional `parentRemarkId` lets a remark reply to an earlier
+// one. Replies inherit the parent's visibility at write time (enforced
+// in the route handler) so a PRIVATE thread can't leak via a reply.
+//
+// Pinning: any DOCTOR/ADMIN can pin the most important remark to the
+// top of the list (pinned-first, then desc by createdAt).
+enum AppointmentRemarkVisibility {
+  ALL_STAFF
+  DOCTOR_ONLY
+  RECEPTION_ONLY
+  PRIVATE
+}
+
+model AppointmentRemark {
+  id              String                       @id @default(uuid())
+  appointmentId   String
+  authorUserId    String
+  parentRemarkId  String?
+  body            String
+  visibility      AppointmentRemarkVisibility @default(ALL_STAFF)
+  isPinned        Boolean                      @default(false)
+  createdAt       DateTime                     @default(now())
+  updatedAt       DateTime                     @updatedAt
+  editedAt        DateTime?
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  appointment   Appointment        @relation("AppointmentRemarks", fields: [appointmentId], references: [id], onDelete: Cascade)
+  author        User               @relation("AppointmentRemarkAuthor", fields: [authorUserId], references: [id])
+  parent        AppointmentRemark? @relation("AppointmentRemarkThread", fields: [parentRemarkId], references: [id], onDelete: SetNull)
+  replies       AppointmentRemark[] @relation("AppointmentRemarkThread")
+
+  @@index([appointmentId])
+  @@index([authorUserId])
+  @@index([parentRemarkId])
+  @@index([tenantId])
+  @@map("appointment_remarks")
 }
 
 // ─── PATIENT FAMILY LINKS (bidirectional) ───────────────

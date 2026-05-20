@@ -8,7 +8,7 @@ import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { formatPatientAge } from "@/lib/format";
-import { Search, Plus, Users } from "lucide-react";
+import { Search, Plus, Users, MessageCircle, Phone, Mail, UserPlus } from "lucide-react";
 import { DataTable, Column } from "@/components/DataTable";
 import { extractFieldErrors } from "@/lib/field-errors";
 
@@ -290,6 +290,72 @@ export default function PatientsPage() {
       filterable: true,
       hideMobile: true,
       render: (p) => p.bloodGroup || "—",
+    },
+    // Pearl §2.1.8 — per-row Quick-Action buttons (WhatsApp / Email /
+    // Call / Add-to-Lead). Pure client-side links (wa.me, mailto:, tel:)
+    // for the first three; the "Add to Lead" action is a stub awaiting
+    // the Lead pipeline (Pearl Stage-1 item #3, tracked separately).
+    // PATIENT role doesn't see this column because the page itself
+    // already redirects them away (#382 + PATIENTS_ALLOWED Set).
+    {
+      key: "quickActions",
+      label: t("dashboard.patients.col.quickActions") || "Actions",
+      sortable: false,
+      filterable: false,
+      hideMobile: false,
+      render: (p) => (
+        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          {p.user?.phone && (
+            <>
+              <a
+                href={`https://wa.me/${p.user.phone.replace(/[^\d+]/g, "")}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Open WhatsApp chat with ${p.user.name}`}
+                title="WhatsApp"
+                data-testid={`quickaction-whatsapp-${p.id}`}
+                className="rounded p-1.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30"
+              >
+                <MessageCircle size={16} aria-hidden="true" />
+              </a>
+              <a
+                href={`tel:${p.user.phone}`}
+                aria-label={`Call ${p.user.name}`}
+                title="Call"
+                data-testid={`quickaction-call-${p.id}`}
+                className="rounded p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30"
+              >
+                <Phone size={16} aria-hidden="true" />
+              </a>
+            </>
+          )}
+          {p.user?.email && (
+            <a
+              href={`mailto:${p.user.email}`}
+              aria-label={`Email ${p.user.name}`}
+              title="Email"
+              data-testid={`quickaction-email-${p.id}`}
+              className="rounded p-1.5 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
+            >
+              <Mail size={16} aria-hidden="true" />
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={() =>
+              toast.info(
+                "Lead pipeline coming in Pearl Stage 1 M2 — patient stays in registry for now.",
+              )
+            }
+            aria-label={`Add ${p.user?.name ?? "patient"} to CRM`}
+            title="Add to Lead (coming soon)"
+            data-testid={`quickaction-add-to-lead-${p.id}`}
+            className="rounded p-1.5 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30"
+          >
+            <UserPlus size={16} aria-hidden="true" />
+          </button>
+        </div>
+      ),
     },
   ];
 

@@ -264,3 +264,44 @@ export type CoordinatedVisitInput = z.infer<typeof coordinatedVisitSchema>;
 export type TransferAppointmentInput = z.infer<typeof transferAppointmentSchema>;
 export type MarkLwbsInput = z.infer<typeof markLwbsSchema>;
 export type DoctorAppointmentModeInput = z.infer<typeof doctorAppointmentModeSchema>;
+
+// ─── Pearl ERP Stage 1 §2.1.7 — threaded appointment remarks ──────────
+// POST   /api/v1/appointments/:id/remarks                — create
+// GET    /api/v1/appointments/:id/remarks                — list (viewer-filtered)
+// PATCH  /api/v1/appointments/:id/remarks/:remarkId      — edit body (author-only)
+// DELETE /api/v1/appointments/:id/remarks/:remarkId      — delete (author + ADMIN)
+// PATCH  /api/v1/appointments/:id/remarks/:remarkId/pin  — pin/unpin (DOCTOR/ADMIN)
+export const appointmentRemarkVisibilityValues = [
+  "ALL_STAFF",
+  "DOCTOR_ONLY",
+  "RECEPTION_ONLY",
+  "PRIVATE",
+] as const;
+
+export const createAppointmentRemarkSchema = z.object({
+  body: z
+    .string()
+    .trim()
+    .min(1, "Remark body cannot be empty")
+    .max(5000, "Remark body cannot exceed 5000 characters"),
+  visibility: z.enum(appointmentRemarkVisibilityValues).optional(),
+  parentRemarkId: z.string().uuid().nullable().optional(),
+});
+
+export const updateAppointmentRemarkSchema = z.object({
+  body: z
+    .string()
+    .trim()
+    .min(1, "Remark body cannot be empty")
+    .max(5000, "Remark body cannot exceed 5000 characters"),
+});
+
+export const pinAppointmentRemarkSchema = z.object({
+  isPinned: z.boolean(),
+});
+
+export type CreateAppointmentRemarkInput = z.infer<typeof createAppointmentRemarkSchema>;
+export type UpdateAppointmentRemarkInput = z.infer<typeof updateAppointmentRemarkSchema>;
+export type PinAppointmentRemarkInput = z.infer<typeof pinAppointmentRemarkSchema>;
+export type AppointmentRemarkVisibility =
+  (typeof appointmentRemarkVisibilityValues)[number];

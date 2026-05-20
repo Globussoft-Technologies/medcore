@@ -13,6 +13,10 @@ import {
   recurringAppointmentSchema,
   transferAppointmentSchema,
   markLwbsSchema,
+  createAppointmentRemarkSchema,
+  updateAppointmentRemarkSchema,
+  pinAppointmentRemarkSchema,
+  appointmentRemarkVisibilityValues,
   DEFAULT_SLOT_DURATION_MINUTES,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
@@ -1965,6 +1969,342 @@ router.patch(
       next(err);
     }
   }
+);
+
+// ─── Pearl ERP Stage 1 §2.1.7 — threaded appointment remarks ──────────
+//
+// What / which modules / why:
+//   - Replaces Appointment.notes (single string) with a multi-author
+//     conversation under the AppointmentRemark model (#20260520000004).
+//   - Visibility model: ALL_STAFF (default), DOCTOR_ONLY, RECEPTION_ONLY,
+//     PRIVATE. PATIENT role never reaches these handlers (no
+//     Role.PATIENT in authorize()).
+//   - Threading via parentRemarkId; replies inherit the parent's
+//     visibility at write time so a PRIVATE thread can't leak via reply.
+//   - Pinning is DOCTOR/ADMIN-only (only those roles drive triage of
+//     "what's the latest important note on this case").
+//   - Audited via auditLog() — every create/edit/delete/pin emits a
+//     row keyed by entity=appointment_remark for greppability.
+
+const REMARK_VISIBILITY_TO_ROLES: Record<
+  (typeof appointmentRemarkVisibilityValues)[number] | string,
+  Set<string>
+> = {
+  ALL_STAFF: new Set([
+    Role.ADMIN,
+    Role.DOCTOR,
+    Role.NURSE,
+    Role.RECEPTION,
+    Role.PHARMACIST,
+    Role.LAB_TECH,
+  ]),
+  DOCTOR_ONLY: new Set([Role.ADMIN, Role.DOCTOR]),
+  RECEPTION_ONLY: new Set([Role.ADMIN, Role.RECEPTION]),
+  PRIVATE: new Set([Role.ADMIN]), // + author override checked at runtime
+};
+
+// Whether the caller is allowed to read a remark of the given visibility.
+// PRIVATE-scoped remarks are visible to the author and ADMIN; everything
+// else is role-keyed via the table above.
+function canViewRemark(
+  visibility: string,
+  role: string,
+  isAuthor: boolean,
+): boolean {
+  if (isAuthor) return true;
+  const roles = REMARK_VISIBILITY_TO_ROLES[visibility];
+  if (!roles) return false;
+  return roles.has(role);
+}
+
+// POST /api/v1/appointments/:id/remarks — create a remark
+router.post(
+  "/:id/remarks",
+  authorize(
+    Role.ADMIN,
+    Role.DOCTOR,
+    Role.NURSE,
+    Role.RECEPTION,
+    Role.PHARMACIST,
+    Role.LAB_TECH,
+  ),
+  validate(createAppointmentRemarkSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const appt = await prisma.appointment.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, tenantId: true },
+      });
+      if (!appt) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Appointment not found",
+        });
+        return;
+      }
+
+      // Inherit parent's visibility on a reply so PRIVATE threads can't
+      // leak via a child remark that picks a more-open scope.
+      let visibility = req.body.visibility ?? "ALL_STAFF";
+      if (req.body.parentRemarkId) {
+        const parent = await prisma.appointmentRemark.findUnique({
+          where: { id: req.body.parentRemarkId },
+          select: { visibility: true, appointmentId: true },
+        });
+        if (!parent || parent.appointmentId !== appt.id) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "Parent remark does not belong to this appointment",
+          });
+          return;
+        }
+        visibility = parent.visibility;
+      }
+
+      const remark = await prisma.appointmentRemark.create({
+        data: {
+          appointmentId: appt.id,
+          authorUserId: req.user!.userId,
+          parentRemarkId: req.body.parentRemarkId ?? null,
+          body: req.body.body.trim(),
+          visibility,
+          tenantId: req.tenantId ?? appt.tenantId,
+        },
+        include: {
+          author: { select: { id: true, name: true, role: true } },
+        },
+      });
+
+      auditLog(
+        req,
+        "APPOINTMENT_REMARK_CREATE",
+        "appointment_remark",
+        remark.id,
+        {
+          appointmentId: appt.id,
+          visibility,
+          parentRemarkId: req.body.parentRemarkId ?? null,
+        },
+      ).catch(console.error);
+
+      res.status(201).json({ success: true, data: remark, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// GET /api/v1/appointments/:id/remarks — list (viewer-filtered)
+router.get(
+  "/:id/remarks",
+  authorize(
+    Role.ADMIN,
+    Role.DOCTOR,
+    Role.NURSE,
+    Role.RECEPTION,
+    Role.PHARMACIST,
+    Role.LAB_TECH,
+  ),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const appt = await prisma.appointment.findUnique({
+        where: { id: req.params.id },
+        select: { id: true },
+      });
+      if (!appt) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Appointment not found",
+        });
+        return;
+      }
+
+      const role = req.user!.role;
+      const callerId = req.user!.userId;
+
+      const all = await prisma.appointmentRemark.findMany({
+        where: { appointmentId: appt.id },
+        include: {
+          author: { select: { id: true, name: true, role: true } },
+        },
+        // Pinned first, then newest first.
+        orderBy: [{ isPinned: "desc" }, { createdAt: "desc" }],
+      });
+
+      const visible = all.filter((r) =>
+        canViewRemark(r.visibility, role, r.authorUserId === callerId),
+      );
+
+      res.json({ success: true, data: visible, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// PATCH /api/v1/appointments/:id/remarks/:remarkId — edit body (author-only)
+router.patch(
+  "/:id/remarks/:remarkId",
+  authorize(
+    Role.ADMIN,
+    Role.DOCTOR,
+    Role.NURSE,
+    Role.RECEPTION,
+    Role.PHARMACIST,
+    Role.LAB_TECH,
+  ),
+  validate(updateAppointmentRemarkSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const remark = await prisma.appointmentRemark.findUnique({
+        where: { id: req.params.remarkId },
+        select: {
+          id: true,
+          appointmentId: true,
+          authorUserId: true,
+        },
+      });
+      if (!remark || remark.appointmentId !== req.params.id) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Remark not found" });
+        return;
+      }
+
+      const callerId = req.user!.userId;
+      const role = req.user!.role;
+      // Only the author can edit body (ADMIN can NOT edit someone else's
+      // body — clinical-record integrity. ADMIN can DELETE though).
+      if (remark.authorUserId !== callerId) {
+        res.status(403).json({
+          success: false,
+          data: null,
+          error: "Only the remark's author can edit its body",
+        });
+        return;
+      }
+      void role;
+
+      const updated = await prisma.appointmentRemark.update({
+        where: { id: remark.id },
+        data: {
+          body: req.body.body.trim(),
+          editedAt: new Date(),
+        },
+        include: {
+          author: { select: { id: true, name: true, role: true } },
+        },
+      });
+
+      auditLog(
+        req,
+        "APPOINTMENT_REMARK_EDIT",
+        "appointment_remark",
+        updated.id,
+        { appointmentId: req.params.id },
+      ).catch(console.error);
+
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// DELETE /api/v1/appointments/:id/remarks/:remarkId — author + ADMIN
+router.delete(
+  "/:id/remarks/:remarkId",
+  authorize(
+    Role.ADMIN,
+    Role.DOCTOR,
+    Role.NURSE,
+    Role.RECEPTION,
+    Role.PHARMACIST,
+    Role.LAB_TECH,
+  ),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const remark = await prisma.appointmentRemark.findUnique({
+        where: { id: req.params.remarkId },
+        select: { id: true, appointmentId: true, authorUserId: true },
+      });
+      if (!remark || remark.appointmentId !== req.params.id) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Remark not found" });
+        return;
+      }
+
+      const callerId = req.user!.userId;
+      const role = req.user!.role;
+      if (remark.authorUserId !== callerId && role !== Role.ADMIN) {
+        res.status(403).json({
+          success: false,
+          data: null,
+          error: "Only the author or an ADMIN can delete this remark",
+        });
+        return;
+      }
+
+      await prisma.appointmentRemark.delete({ where: { id: remark.id } });
+
+      auditLog(
+        req,
+        "APPOINTMENT_REMARK_DELETE",
+        "appointment_remark",
+        remark.id,
+        { appointmentId: req.params.id, deletedBy: role },
+      ).catch(console.error);
+
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// PATCH /api/v1/appointments/:id/remarks/:remarkId/pin — DOCTOR + ADMIN
+router.patch(
+  "/:id/remarks/:remarkId/pin",
+  authorize(Role.ADMIN, Role.DOCTOR),
+  validate(pinAppointmentRemarkSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const remark = await prisma.appointmentRemark.findUnique({
+        where: { id: req.params.remarkId },
+        select: { id: true, appointmentId: true },
+      });
+      if (!remark || remark.appointmentId !== req.params.id) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Remark not found" });
+        return;
+      }
+
+      const updated = await prisma.appointmentRemark.update({
+        where: { id: remark.id },
+        data: { isPinned: req.body.isPinned },
+        include: {
+          author: { select: { id: true, name: true, role: true } },
+        },
+      });
+
+      auditLog(
+        req,
+        req.body.isPinned ? "APPOINTMENT_REMARK_PIN" : "APPOINTMENT_REMARK_UNPIN",
+        "appointment_remark",
+        updated.id,
+        { appointmentId: req.params.id },
+      ).catch(console.error);
+
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
 );
 
 export { router as appointmentRouter };

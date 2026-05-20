@@ -15,7 +15,8 @@ import {
 import { SkeletonTable } from "@/components/Skeleton";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityPicker } from "@/components/EntityPicker";
-import { Calendar } from "lucide-react";
+import { AppointmentRemarksModal } from "@/components/AppointmentRemarksModal";
+import { Calendar, MessageSquare } from "lucide-react";
 
 // ─── Types ─────────────────────────────────────────
 
@@ -447,6 +448,9 @@ export default function AppointmentsPage() {
   const [reschedDate, setReschedDate] = useState(toISODate(new Date()));
   const [reschedSlots, setReschedSlots] = useState<Slot[]>([]);
   const [reschedLoading, setReschedLoading] = useState(false);
+
+  // Pearl §2.1.7 — remarks modal target (single appointment).
+  const [remarksTarget, setRemarksTarget] = useState<Appointment | null>(null);
 
   // ─── Calendar view state ──────────
   const [calWeekStart, setCalWeekStart] = useState<Date>(startOfWeek(new Date()));
@@ -1287,6 +1291,15 @@ export default function AppointmentsPage() {
       })()}
 
 
+      {/* Pearl §2.1.7 — Remarks modal */}
+      {remarksTarget && (
+        <AppointmentRemarksModal
+          appointmentId={remarksTarget.id}
+          patientName={remarksTarget.patient.user.name}
+          onClose={() => setRemarksTarget(null)}
+        />
+      )}
+
       {/* Reschedule modal */}
       {reschedTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -2092,6 +2105,22 @@ export default function AppointmentsPage() {
                       {!(isPatient && patientTab === "past") && (
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-2">
+                          {/* Pearl §2.1.7 — Remarks panel. Any non-PATIENT
+                              role can open the threaded remarks for an
+                              appointment. The server enforces visibility
+                              scoping (DOCTOR_ONLY / RECEPTION_ONLY / PRIVATE
+                              are filtered by viewer role). */}
+                          {!isPatient && (
+                            <button
+                              onClick={() => setRemarksTarget(apt)}
+                              aria-label={`Open remarks for ${apt.patient.user.name}`}
+                              className="flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                              title="Threaded remarks"
+                            >
+                              <MessageSquare size={12} aria-hidden="true" />
+                              Remarks
+                            </button>
+                          )}
                           {/* Reschedule for BOOKED / CHECKED_IN */}
                           {["BOOKED", "CHECKED_IN"].includes(apt.status) &&
                             (isPatient ||

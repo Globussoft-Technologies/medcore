@@ -10,7 +10,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { prisma } from "@medcore/db";
-import { Role, FEATURE_KEYS, type FeatureKey } from "@medcore/shared";
+import { Role, FEATURE_KEYS } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
@@ -24,10 +24,16 @@ router.use(authenticate);
 
 // PATCH body shape: partial map of FeatureKey → boolean. Server merges
 // with the existing stored object (null overrides clear individual keys).
-const featureKeyEnum = z.enum(FEATURE_KEYS as unknown as [FeatureKey, ...FeatureKey[]]);
+//
+// Zod 4 quirk: `z.record(enum, value)` requires EVERY enum key to be
+// present (strictness changed from Zod 3). We want a partial body, so
+// use `z.record(z.string(), value)` and validate the keys at runtime
+// against FEATURE_KEYS in the handler — gives us partial semantics +
+// keeps the type-narrow on the value side.
 const updateFeatureFlagsSchema = z.object({
-  flags: z.record(featureKeyEnum, z.boolean().nullable()),
+  flags: z.record(z.string(), z.boolean().nullable()),
 });
+const VALID_KEYS = new Set<string>(FEATURE_KEYS as readonly string[]);
 
 // GET — return effective resolved flags for the caller's tenant.
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
@@ -63,6 +69,19 @@ router.patch(
       if (!tenant) {
         res.status(404).json({ success: false, data: null, error: "Tenant not found" });
         return;
+      }
+
+      // Reject any unknown keys (since the Zod schema can't enum-validate
+      // partial records in Zod 4).
+      for (const k of Object.keys(req.body.flags)) {
+        if (!VALID_KEYS.has(k)) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: `Unknown feature key: ${k}`,
+          });
+          return;
+        }
       }
 
       const current = (tenant.featureFlags ?? {}) as Record<string, unknown>;

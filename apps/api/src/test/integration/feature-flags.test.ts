@@ -64,7 +64,7 @@ describeIfDB("Feature Flags API (Pearl §6 + §18 — integration)", () => {
   it("disabling 'telemedicine' makes GET /telemedicine/sessions 404", async () => {
     // Before disable: route is reachable (200 or other non-404).
     const before = await request(app)
-      .get("/api/v1/telemedicine/sessions")
+      .get("/api/v1/telemedicine/")
       .set("Authorization", `Bearer ${adminToken}`);
     expect(before.status).not.toBe(404);
 
@@ -77,7 +77,7 @@ describeIfDB("Feature Flags API (Pearl §6 + §18 — integration)", () => {
 
     // After disable: 404.
     const after = await request(app)
-      .get("/api/v1/telemedicine/sessions")
+      .get("/api/v1/telemedicine/")
       .set("Authorization", `Bearer ${adminToken}`);
     expect(after.status).toBe(404);
   });

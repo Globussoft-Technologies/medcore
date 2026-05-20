@@ -230,6 +230,22 @@ export const bookAppointmentWithOverrideSchema = bookAppointmentSchema.extend({
   overrideNoShow: z.boolean().optional(),
 });
 
+// ─── Pearl ERP Stage 1 §2.1.2 / §3.2 — per-doctor appointment mode + knobs ─
+// PATCH /api/v1/doctors/:id/appointment-mode. Every field is optional so
+// callers can update one knob at a time; `null` explicitly clears a knob.
+export const doctorAppointmentModeSchema = z
+  .object({
+    appointmentMode: z.enum(["CALLING", "TOKEN", "SLOT"]).optional(),
+    tokenPrefix: z.string().max(8).nullable().optional(),
+    tokenStartNumber: z.number().int().min(1).max(99999).nullable().optional(),
+    dailyAppointmentLimit: z.number().int().min(1).max(500).nullable().optional(),
+    nearTurnAlertThreshold: z.number().int().min(1).max(50).nullable().optional(),
+    lastHourPolicy: z.enum(["ACCEPT_ALL", "BLOCK_NEW", "WALK_IN_ONLY"]).nullable().optional(),
+  })
+  .refine((val) => Object.values(val).some((v) => v !== undefined), {
+    message: "At least one field is required",
+  });
+
 export type BookAppointmentInput = z.infer<typeof bookAppointmentSchema>;
 export type WalkInInput = z.infer<typeof walkInSchema>;
 export type UpdateAppointmentStatusInput = z.infer<typeof updateAppointmentStatusSchema>;
@@ -241,3 +257,4 @@ export type WaitlistEntryInput = z.infer<typeof waitlistEntrySchema>;
 export type CoordinatedVisitInput = z.infer<typeof coordinatedVisitSchema>;
 export type TransferAppointmentInput = z.infer<typeof transferAppointmentSchema>;
 export type MarkLwbsInput = z.infer<typeof markLwbsSchema>;
+export type DoctorAppointmentModeInput = z.infer<typeof doctorAppointmentModeSchema>;

@@ -229,4 +229,120 @@ describeIfDB("Doctors API (integration)", () => {
       });
     expect([200, 201]).toContain(res.status);
   });
+
+  // ─────────────────────────────────────────────────────────
+  // PATCH /api/v1/doctors/:id/appointment-mode
+  // Pearl ERP Stage 1 §2.1.2 / §3.2 — per-doctor mode + knobs.
+  // ─────────────────────────────────────────────────────────
+
+  it("PATCH appointment-mode: ADMIN can set CALLING mode + knobs", async () => {
+    const doctor = await createDoctorFixture();
+    const res = await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        appointmentMode: "CALLING",
+        tokenPrefix: "C",
+        tokenStartNumber: 1,
+        nearTurnAlertThreshold: 3,
+        lastHourPolicy: "BLOCK_NEW",
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.data.appointmentMode).toBe("CALLING");
+    expect(res.body.data.tokenPrefix).toBe("C");
+    expect(res.body.data.nearTurnAlertThreshold).toBe(3);
+    expect(res.body.data.lastHourPolicy).toBe("BLOCK_NEW");
+  });
+
+  it("PATCH appointment-mode: PATCH semantics — undefined fields are untouched", async () => {
+    const doctor = await createDoctorFixture();
+    const prisma = await getPrisma();
+
+    // First set tokenPrefix + appointmentMode
+    await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ appointmentMode: "SLOT", tokenPrefix: "S" })
+      .expect(200);
+
+    // Then update only dailyAppointmentLimit — tokenPrefix must stay "S"
+    await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ dailyAppointmentLimit: 40 })
+      .expect(200);
+
+    const after = await prisma.doctor.findUnique({
+      where: { id: doctor.id },
+      select: {
+        appointmentMode: true,
+        tokenPrefix: true,
+        dailyAppointmentLimit: true,
+      },
+    });
+    expect(after?.appointmentMode).toBe("SLOT");
+    expect(after?.tokenPrefix).toBe("S");
+    expect(after?.dailyAppointmentLimit).toBe(40);
+  });
+
+  it("PATCH appointment-mode: null clears a knob", async () => {
+    const doctor = await createDoctorFixture();
+    const prisma = await getPrisma();
+
+    await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ tokenPrefix: "T", dailyAppointmentLimit: 50 })
+      .expect(200);
+
+    await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ tokenPrefix: null })
+      .expect(200);
+
+    const after = await prisma.doctor.findUnique({
+      where: { id: doctor.id },
+      select: { tokenPrefix: true, dailyAppointmentLimit: true },
+    });
+    expect(after?.tokenPrefix).toBeNull();
+    expect(after?.dailyAppointmentLimit).toBe(50); // unchanged
+  });
+
+  it("PATCH appointment-mode: rejects invalid enum value (400)", async () => {
+    const doctor = await createDoctorFixture();
+    const res = await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ appointmentMode: "BANANA" });
+    expect(res.status).toBe(400);
+  });
+
+  it("PATCH appointment-mode: PATIENT role is forbidden (403)", async () => {
+    const doctor = await createDoctorFixture();
+    const res = await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${patientToken}`)
+      .send({ appointmentMode: "TOKEN" });
+    expect(res.status).toBe(403);
+  });
+
+  it("PATCH appointment-mode: writes an audit log entry", async () => {
+    const doctor = await createDoctorFixture();
+    const prisma = await getPrisma();
+    const before = await prisma.auditLog.count({
+      where: { entity: "doctor", entityId: doctor.id, action: "DOCTOR_APPOINTMENT_MODE_UPDATE" },
+    });
+    await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ appointmentMode: "SLOT" })
+      .expect(200);
+    // auditLog is fire-and-forget; allow a brief window for the insert.
+    await new Promise((r) => setTimeout(r, 50));
+    const after = await prisma.auditLog.count({
+      where: { entity: "doctor", entityId: doctor.id, action: "DOCTOR_APPOINTMENT_MODE_UPDATE" },
+    });
+    expect(after).toBeGreaterThan(before);
+  });
 });

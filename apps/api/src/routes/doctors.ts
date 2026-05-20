@@ -4,9 +4,16 @@ import { Router, Request, Response, NextFunction } from "express";
 // tenant-scoped models (see services/tenant-prisma.ts). We alias it to
 // `prisma` so every existing call site keeps working without edits.
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
-import { Role, doctorScheduleSchema, scheduleOverrideSchema, DEFAULT_SLOT_DURATION_MINUTES } from "@medcore/shared";
+import {
+  Role,
+  doctorScheduleSchema,
+  scheduleOverrideSchema,
+  doctorAppointmentModeSchema,
+  DEFAULT_SLOT_DURATION_MINUTES,
+} from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import { auditLog } from "../middleware/audit";
 
 const router = Router();
 router.use(authenticate);
@@ -305,6 +312,73 @@ router.post(
       });
 
       res.json({ success: true, data: override, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/doctors/:id/appointment-mode
+//
+// Pearl ERP Stage 1 §2.1.2 + §3.2 — set per-doctor appointment mode
+// (CALLING / TOKEN / SLOT) and the booking-knobs that come with it
+// (tokenPrefix, tokenStartNumber, dailyAppointmentLimit,
+// nearTurnAlertThreshold, lastHourPolicy).
+//
+// Patch semantics: every field is optional. `undefined` leaves the
+// column untouched; `null` explicitly clears a knob. Role-gated to
+// ADMIN (DOCTOR can edit their OWN row — looked up via doctor.userId).
+router.patch(
+  "/:id/appointment-mode",
+  authorize(Role.ADMIN, Role.DOCTOR),
+  validate(doctorAppointmentModeSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      // DOCTOR role may only edit their own appointment mode. ADMIN can edit any.
+      if (req.user?.role === Role.DOCTOR) {
+        const target = await prisma.doctor.findUnique({
+          where: { id: req.params.id },
+          select: { userId: true },
+        });
+        if (!target || target.userId !== req.user.userId) {
+          res.status(403).json({
+            success: false,
+            data: null,
+            error: "Doctors may only update their own appointment mode",
+          });
+          return;
+        }
+      }
+
+      // Build the update payload explicitly so undefined fields don't
+      // accidentally clobber existing values (PATCH semantics).
+      const data: Record<string, unknown> = {};
+      if (req.body.appointmentMode !== undefined) data.appointmentMode = req.body.appointmentMode;
+      if (req.body.tokenPrefix !== undefined) data.tokenPrefix = req.body.tokenPrefix;
+      if (req.body.tokenStartNumber !== undefined) data.tokenStartNumber = req.body.tokenStartNumber;
+      if (req.body.dailyAppointmentLimit !== undefined) data.dailyAppointmentLimit = req.body.dailyAppointmentLimit;
+      if (req.body.nearTurnAlertThreshold !== undefined) data.nearTurnAlertThreshold = req.body.nearTurnAlertThreshold;
+      if (req.body.lastHourPolicy !== undefined) data.lastHourPolicy = req.body.lastHourPolicy;
+
+      const updated = await prisma.doctor.update({
+        where: { id: req.params.id },
+        data,
+        select: {
+          id: true,
+          appointmentMode: true,
+          tokenPrefix: true,
+          tokenStartNumber: true,
+          dailyAppointmentLimit: true,
+          nearTurnAlertThreshold: true,
+          lastHourPolicy: true,
+        },
+      });
+
+      auditLog(req, "DOCTOR_APPOINTMENT_MODE_UPDATE", "doctor", req.params.id, {
+        changes: data,
+      }).catch(console.error);
+
+      res.json({ success: true, data: updated, error: null });
     } catch (err) {
       next(err);
     }

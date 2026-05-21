@@ -51,9 +51,9 @@ function pct(score: number): string {
 
 function RiskBadge({ level }: { level: "low" | "medium" | "high" }) {
   const styles: Record<"low" | "medium" | "high", string> = {
-    low: "bg-green-100 text-green-700 border border-green-200",
-    medium: "bg-amber-100 text-amber-700 border border-amber-200",
-    high: "bg-red-100 text-red-700 border border-red-200",
+    low: "bg-green-100 text-green-700 border border-green-200 dark:bg-green-900/40 dark:text-green-200 dark:border-green-700/50",
+    medium: "bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-900/40 dark:text-amber-200 dark:border-amber-700/50",
+    high: "bg-red-100 text-red-700 border border-red-200 dark:bg-red-900/40 dark:text-red-200 dark:border-red-700/50",
   };
   const labels: Record<"low" | "medium" | "high", string> = {
     low: "Low",
@@ -74,7 +74,7 @@ function RiskBadge({ level }: { level: "low" | "medium" | "high" }) {
 function Spinner() {
   return (
     <div className="flex items-center justify-center py-20">
-      <RefreshCw className="w-7 h-7 text-indigo-500 animate-spin" />
+      <RefreshCw className="w-7 h-7 text-indigo-500 dark:text-indigo-400 animate-spin" />
     </div>
   );
 }
@@ -92,27 +92,27 @@ function SummaryStats({ rows }: SummaryStatsProps) {
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-start gap-3 shadow-sm">
-        <Calendar className="w-5 h-5 text-indigo-500 mt-0.5" />
+      <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-start gap-3 shadow-sm dark:bg-gray-800 dark:border-white/10 dark:shadow-none">
+        <Calendar className="w-5 h-5 text-indigo-500 dark:text-indigo-400 mt-0.5" />
         <div>
-          <p className="text-xs text-gray-500 font-medium">Total Appointments</p>
-          <p className="text-2xl font-bold text-gray-800 mt-0.5">{total}</p>
+          <p className="text-xs text-gray-500 font-medium dark:text-gray-300">Total Appointments</p>
+          <p className="text-2xl font-bold text-gray-800 mt-0.5 dark:text-gray-100">{total}</p>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-start gap-3 shadow-sm">
-        <ShieldAlert className="w-5 h-5 text-red-500 mt-0.5" />
+      <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-start gap-3 shadow-sm dark:bg-gray-800 dark:border-white/10 dark:shadow-none">
+        <ShieldAlert className="w-5 h-5 text-red-500 dark:text-red-400 mt-0.5" />
         <div>
-          <p className="text-xs text-gray-500 font-medium">High Risk</p>
-          <p className="text-2xl font-bold text-red-600 mt-0.5">{highCount}</p>
+          <p className="text-xs text-gray-500 font-medium dark:text-gray-300">High Risk</p>
+          <p className="text-2xl font-bold text-red-600 mt-0.5 dark:text-red-400">{highCount}</p>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-start gap-3 shadow-sm">
-        <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5" />
+      <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-start gap-3 shadow-sm dark:bg-gray-800 dark:border-white/10 dark:shadow-none">
+        <AlertTriangle className="w-5 h-5 text-amber-500 dark:text-amber-400 mt-0.5" />
         <div>
-          <p className="text-xs text-gray-500 font-medium">Medium Risk</p>
-          <p className="text-2xl font-bold text-amber-600 mt-0.5">{mediumCount}</p>
+          <p className="text-xs text-gray-500 font-medium dark:text-gray-300">Medium Risk</p>
+          <p className="text-2xl font-bold text-amber-600 mt-0.5 dark:text-amber-400">{mediumCount}</p>
         </div>
       </div>
     </div>
@@ -124,19 +124,19 @@ function SummaryStats({ rows }: SummaryStatsProps) {
 function PredictionsTable({ rows }: { rows: PredictionRow[] }) {
   if (rows.length === 0) {
     return (
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center py-16 gap-3">
-        <CheckCircle className="w-10 h-10 text-gray-300" />
-        <p className="text-sm text-gray-400">No booked appointments found for this date.</p>
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center py-16 gap-3 dark:bg-gray-800 dark:border-white/10 dark:shadow-none">
+        <CheckCircle className="w-10 h-10 text-gray-300 dark:text-gray-600" />
+        <p className="text-sm text-gray-400 dark:text-gray-400">No booked appointments found for this date.</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden dark:bg-gray-800 dark:border-white/10 dark:shadow-none">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-50 text-xs text-gray-500 uppercase border-b border-gray-100">
+            <tr className="bg-gray-50 text-xs text-gray-500 uppercase border-b border-gray-100 dark:bg-gray-900/40 dark:text-gray-300 dark:border-white/10">
               <th className="px-4 py-3 text-left font-medium">Patient</th>
               <th className="px-4 py-3 text-left font-medium">Doctor</th>
               <th className="px-4 py-3 text-left font-medium">Slot</th>
@@ -150,15 +150,15 @@ function PredictionsTable({ rows }: { rows: PredictionRow[] }) {
             {rows.map((row, idx) => (
               <tr
                 key={row.appointmentId}
-                className={`border-t border-gray-100 hover:bg-gray-50 transition-colors ${
-                  idx % 2 === 0 ? "" : "bg-gray-50/50"
+                className={`border-t border-gray-100 hover:bg-gray-50 transition-colors dark:border-white/5 dark:hover:bg-white/5 ${
+                  idx % 2 === 0 ? "" : "bg-gray-50/50 dark:bg-white/2"
                 }`}
               >
                 {/* Patient */}
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <User className="w-4 h-4 text-gray-400 shrink-0" />
-                    <span className="font-medium text-gray-800">
+                    <User className="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
+                    <span className="font-medium text-gray-800 dark:text-gray-100">
                       {row.appointment.patientName}
                     </span>
                   </div>
@@ -167,15 +167,15 @@ function PredictionsTable({ rows }: { rows: PredictionRow[] }) {
                 {/* Doctor */}
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <Stethoscope className="w-4 h-4 text-gray-400 shrink-0" />
-                    <span className="text-gray-700">{row.appointment.doctorName}</span>
+                    <Stethoscope className="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
+                    <span className="text-gray-700 dark:text-gray-200">{row.appointment.doctorName}</span>
                   </div>
                 </td>
 
                 {/* Slot */}
                 <td className="px-4 py-3">
-                  <div className="flex items-center gap-1 text-gray-700">
-                    <Clock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                  <div className="flex items-center gap-1 text-gray-700 dark:text-gray-200">
+                    <Clock className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0" />
                     {row.appointment.slotStart ?? "—"}
                     {row.appointment.slotEnd ? ` – ${row.appointment.slotEnd}` : ""}
                   </div>
@@ -189,7 +189,7 @@ function PredictionsTable({ rows }: { rows: PredictionRow[] }) {
                 {/* Score */}
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden dark:bg-gray-700">
                       <div
                         className={`h-full rounded-full ${
                           row.riskLevel === "high"
@@ -201,7 +201,7 @@ function PredictionsTable({ rows }: { rows: PredictionRow[] }) {
                         style={{ width: pct(row.riskScore) }}
                       />
                     </div>
-                    <span className="text-xs font-semibold text-gray-700 tabular-nums">
+                    <span className="text-xs font-semibold text-gray-700 tabular-nums dark:text-gray-200">
                       {pct(row.riskScore)}
                     </span>
                   </div>
@@ -210,12 +210,12 @@ function PredictionsTable({ rows }: { rows: PredictionRow[] }) {
                 {/* Risk Factors */}
                 <td className="px-4 py-3 max-w-xs">
                   {row.factors.length === 0 ? (
-                    <span className="text-gray-400 text-xs">None</span>
+                    <span className="text-gray-400 text-xs dark:text-gray-500">None</span>
                   ) : (
                     <ul className="space-y-0.5">
                       {row.factors.map((f, i) => (
-                        <li key={i} className="text-xs text-gray-600 flex items-start gap-1">
-                          <span className="mt-0.5 shrink-0 text-gray-400">•</span>
+                        <li key={i} className="text-xs text-gray-600 flex items-start gap-1 dark:text-gray-300">
+                          <span className="mt-0.5 shrink-0 text-gray-400 dark:text-gray-500">•</span>
                           {f}
                         </li>
                       ))}
@@ -229,13 +229,13 @@ function PredictionsTable({ rows }: { rows: PredictionRow[] }) {
                     <TrendingUp
                       className={`w-4 h-4 shrink-0 mt-0.5 ${
                         row.riskLevel === "high"
-                          ? "text-red-500"
+                          ? "text-red-500 dark:text-red-400"
                           : row.riskLevel === "medium"
-                          ? "text-amber-500"
-                          : "text-green-500"
+                          ? "text-amber-500 dark:text-amber-400"
+                          : "text-green-500 dark:text-green-400"
                       }`}
                     />
-                    <span className="text-xs text-gray-700">{row.recommendation}</span>
+                    <span className="text-xs text-gray-700 dark:text-gray-200">{row.recommendation}</span>
                   </div>
                 </td>
               </tr>
@@ -277,16 +277,16 @@ export default function PredictionsPage() {
   }, [date, token]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+    <div>
+      <div className="space-y-6">
 
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <ShieldAlert className="w-7 h-7 text-indigo-600" />
+            <ShieldAlert className="w-7 h-7 text-indigo-600 dark:text-indigo-400" />
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">No-Show Predictions</h1>
-              <p className="text-sm text-gray-500 mt-0.5">
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">No-Show Predictions</h1>
+              <p className="text-sm text-gray-500 mt-0.5 dark:text-gray-400">
                 Daily risk analysis for OPD appointments
               </p>
             </div>
@@ -295,7 +295,7 @@ export default function PredictionsPage() {
           {/* Controls */}
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-2">
-              <label htmlFor="predictions-date" className="text-xs font-medium text-gray-500 whitespace-nowrap">
+              <label htmlFor="predictions-date" className="text-xs font-medium text-gray-500 whitespace-nowrap dark:text-gray-300">
                 Date
               </label>
               <input
@@ -306,7 +306,7 @@ export default function PredictionsPage() {
                   setDate(e.target.value);
                   setLoaded(false);
                 }}
-                className="text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                className="text-sm border border-gray-300 bg-white text-gray-900 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:scheme-dark"
               />
             </div>
             <button
@@ -329,7 +329,7 @@ export default function PredictionsPage() {
 
         {/* Error */}
         {!loading && error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center gap-2 dark:bg-red-900/30 dark:border-red-700/50 dark:text-red-200">
             <AlertTriangle className="w-4 h-4 shrink-0" />
             {error}
           </div>
@@ -345,9 +345,9 @@ export default function PredictionsPage() {
 
         {/* Initial state prompt */}
         {!loading && !error && !loaded && (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center py-20 gap-3">
-            <Calendar className="w-10 h-10 text-gray-300" />
-            <p className="text-sm text-gray-400">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center py-20 gap-3 dark:bg-gray-800 dark:border-white/10 dark:shadow-none">
+            <Calendar className="w-10 h-10 text-gray-300 dark:text-gray-600" />
+            <p className="text-sm text-gray-400 dark:text-gray-400">
               Select a date and click &quot;Load Predictions&quot; to begin.
             </p>
           </div>

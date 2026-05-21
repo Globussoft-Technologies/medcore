@@ -66,12 +66,9 @@ const prescriptionItemSchema = z.object({
   refills: z.number().int().min(0).max(12).optional(),
 });
 
-// Pearl ERP Stage 1 §2.1.4 (gap-item #7) — drug-allergy block must be
-// overrideable with a clinical reason. The switch is simply a non-empty
-// `allergyOverrideReason` on the body (>=10 chars so the reason is
-// meaningful for a future reviewer). The legacy `overrideAllergies=true`
-// boolean is still accepted for back-compat, in which case the reason
-// must still be supplied if the field is present at all.
+// Pearl ERP Stage 1 §2.1.4 — drug-allergy block must be overrideable with
+// a reason. `overrideAllergies=true` requires a non-empty `allergyOverrideReason`
+// so the audit trail captures WHY the prescriber went ahead.
 export const createPrescriptionSchema = z
   .object({
     appointmentId: z.string().uuid(),
@@ -85,29 +82,13 @@ export const createPrescriptionSchema = z
       .optional(),
     overrideWarnings: z.boolean().optional(),
     overrideAllergies: z.boolean().optional(),
-    allergyOverrideReason: z.string().max(500).optional(),
+    allergyOverrideReason: z.string().min(3).max(500).optional(),
   })
   .refine(
-    (val) =>
-      !val.overrideAllergies ||
-      (val.allergyOverrideReason?.trim().length ?? 0) >= 10,
+    (val) => !val.overrideAllergies || (val.allergyOverrideReason?.trim().length ?? 0) >= 3,
     {
       path: ["allergyOverrideReason"],
-      message:
-        "allergyOverrideReason (>=10 chars) is required when overrideAllergies=true",
-    },
-  )
-  .refine(
-    (val) => {
-      // If the prescriber typed any reason, it must be a meaningful
-      // one — empty / 1-char strings indicate accidental submission.
-      const r = val.allergyOverrideReason?.trim() ?? "";
-      return r.length === 0 || r.length >= 10;
-    },
-    {
-      path: ["allergyOverrideReason"],
-      message:
-        "allergyOverrideReason must be at least 10 characters when supplied",
+      message: "allergyOverrideReason (>=3 chars) is required when overrideAllergies=true",
     },
   );
 
@@ -117,32 +98,16 @@ export const createPrescriptionSchema = z
 // silently retarget an Rx onto a different patient or visit. items is
 // required because the wire-replace happens atomically (delete + recreate
 // in a tx) so the caller MUST send the full desired set, not a partial.
-export const updatePrescriptionSchema = z
-  .object({
-    diagnosis: z.string().min(1, "Diagnosis is required"),
-    items: z
-      .array(prescriptionItemSchema)
-      .min(1, "At least one medicine is required"),
-    advice: z.string().optional(),
-    followUpDate: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
-      .optional(),
-    overrideWarnings: z.boolean().optional(),
-    overrideAllergies: z.boolean().optional(),
-    allergyOverrideReason: z.string().max(500).optional(),
-  })
-  .refine(
-    (val) => {
-      const r = val.allergyOverrideReason?.trim() ?? "";
-      return r.length === 0 || r.length >= 10;
-    },
-    {
-      path: ["allergyOverrideReason"],
-      message:
-        "allergyOverrideReason must be at least 10 characters when supplied",
-    },
-  );
+export const updatePrescriptionSchema = z.object({
+  diagnosis: z.string().min(1, "Diagnosis is required"),
+  items: z.array(prescriptionItemSchema).min(1, "At least one medicine is required"),
+  advice: z.string().optional(),
+  followUpDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
+    .optional(),
+  overrideWarnings: z.boolean().optional(),
+});
 
 export const copyPrescriptionSchema = z.object({
   previousPrescriptionId: z.string().uuid(),

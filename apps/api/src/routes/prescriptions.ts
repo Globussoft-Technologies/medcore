@@ -120,32 +120,29 @@ async function checkDrugInteractions(
   return { warnings, hasBlocking };
 }
 
-// Pearl ERP Stage 1 §2.1.4 (gap-item #7) — drug-allergy block. Reads
-// the patient's ACTIVE PatientAllergy rows and cross-references each
-// prescribed medicine against them. Match strategy: case-insensitive
-// bidirectional substring against the medicine's brand name + generic
-// name (mirrors the duplicate-drug engine — no separate normaliser).
-// False positives are preferable to misses (a missed allergy is a
-// patient-safety event; a false positive is one override-with-reason
-// click). The override gate lives in the route handler — this helper
-// just surfaces the conflicts, tagged with the item index so the UI
-// can map them back to specific Rx line items.
+// Pearl ERP Stage 1 §2.1.4 — drug-allergy block. Reads the patient's
+// PatientAllergy rows and cross-references each medicine being
+// prescribed against them. Match strategy: case-insensitive bidirectional
+// substring against the medicine's brand name + generic name. False
+// positives are preferable to misses (a missed allergy is a patient
+// safety event; a false positive is an override-with-reason). The
+// override is gated at the route handler — this helper just surfaces
+// the conflicts.
 async function checkPatientAllergies(
   medicineNames: string[],
   patientId: string,
 ): Promise<{
   conflicts: Array<{
-    itemIndex: number;
     medicineName: string;
-    allergySubstance: string;
-    allergySeverity: string;
+    allergen: string;
+    severity: string;
     reaction: string | null;
   }>;
 }> {
   if (medicineNames.length === 0) return { conflicts: [] };
 
   const allergies = await prisma.patientAllergy.findMany({
-    where: { patientId, active: true },
+    where: { patientId },
     select: { allergen: true, severity: true, reaction: true },
   });
   if (allergies.length === 0) return { conflicts: [] };
@@ -178,14 +175,12 @@ async function checkPatientAllergies(
   }
 
   const conflicts: Array<{
-    itemIndex: number;
     medicineName: string;
-    allergySubstance: string;
-    allergySeverity: string;
+    allergen: string;
+    severity: string;
     reaction: string | null;
   }> = [];
-  for (let idx = 0; idx < medicineNames.length; idx++) {
-    const medName = medicineNames[idx];
+  for (const medName of medicineNames) {
     const tokens = tokensByName.get(medName) ?? [medName.toLowerCase()];
     for (const a of allergies) {
       const allergen = a.allergen.toLowerCase().trim();
@@ -193,10 +188,9 @@ async function checkPatientAllergies(
       const hit = tokens.some((t) => t.includes(allergen) || allergen.includes(t));
       if (hit) {
         conflicts.push({
-          itemIndex: idx,
           medicineName: medName,
-          allergySubstance: a.allergen,
-          allergySeverity: a.severity,
+          allergen: a.allergen,
+          severity: a.severity,
           reaction: a.reaction,
         });
       }
@@ -315,29 +309,36 @@ router.post(
         return;
       }
 
-      // Pearl ERP Stage 1 §2.1.4 (gap-item #7) — drug-allergy block.
-      // Cross-references the patient's ACTIVE PatientAllergy rows against
-      // the medicines being prescribed. The override switch is simply a
-      // non-empty `allergyOverrideReason` (>=10 chars) on the body — no
-      // separate boolean flag is required. (`overrideAllergies=true` is
-      // still honoured for callers on the older contract.)
+      // Pearl ERP Stage 1 §2.1.4 — drug-allergy block. Cross-references
+      // the patient's PatientAllergy rows against the medicines being
+      // prescribed; any conflict aborts unless the prescriber supplies
+      // `overrideAllergies=true` AND a `allergyOverrideReason` (the Zod
+      // schema enforces the reason; we audit the override below).
       const { conflicts: allergyConflicts } = await checkPatientAllergies(
         names,
         patientId,
       );
-      const overrideReasonTrimmed =
-        typeof allergyOverrideReason === "string"
-          ? allergyOverrideReason.trim()
-          : "";
-      const hasValidOverride = overrideReasonTrimmed.length >= 10;
-      if (allergyConflicts.length > 0 && !hasValidOverride && !overrideAllergies) {
-        res.status(409).json({
+      if (allergyConflicts.length > 0 && !overrideAllergies) {
+        res.status(400).json({
           success: false,
-          data: { allergyConflicts },
-          error:
-            "Allergy conflict — supply allergyOverrideReason to proceed",
+          data: null,
+          error: "Patient allergy conflict — Rx blocked",
+          allergyConflicts,
         });
         return;
+      }
+      if (allergyConflicts.length > 0 && overrideAllergies) {
+        auditLog(
+          req,
+          "PRESCRIPTION_ALLERGY_OVERRIDE",
+          "patient",
+          patientId,
+          {
+            conflicts: allergyConflicts,
+            reason: allergyOverrideReason,
+            medicineNames: names,
+          },
+        ).catch(console.error);
       }
 
       // Get doctor record from user
@@ -383,17 +384,6 @@ router.post(
           advice,
           followUpDate: followUpDate ? new Date(followUpDate) : undefined,
           signatureUrl: doctor?.signatureUrl,
-          // Pearl §2.1.4 (gap-item #7) — persist the override on the Rx
-          // row whenever the block was bypassed, so reviewers + pharmacy
-          // see the reason without needing to dig in AuditLog.
-          allergyOverrideReason:
-            allergyConflicts.length > 0 && (hasValidOverride || overrideAllergies)
-              ? overrideReasonTrimmed || null
-              : null,
-          allergyOverrideAt:
-            allergyConflicts.length > 0 && (hasValidOverride || overrideAllergies)
-              ? new Date()
-              : null,
           items: {
             create: normalizedItems,
           },
@@ -416,24 +406,6 @@ router.post(
         warningCount: warnings.length,
         overrideWarnings: Boolean(overrideWarnings),
       }).catch(console.error);
-
-      // Pearl §2.1.4 (gap-item #7) — explicit audit row for the bypass
-      // event itself. PRESCRIPTION_ALLERGY_OVERRIDE rows are what the
-      // compliance dashboard counts; the PRESCRIPTION_CREATE row above
-      // captures the create-event regardless of override.
-      if (allergyConflicts.length > 0 && (hasValidOverride || overrideAllergies)) {
-        auditLog(
-          req,
-          "PRESCRIPTION_ALLERGY_OVERRIDE",
-          "prescription",
-          prescription.id,
-          {
-            allergyConflicts,
-            reason: overrideReasonTrimmed,
-            prescribedBy: doctorId,
-          },
-        ).catch(console.error);
-      }
 
       // Index the prescription into the RAG knowledge base so cohort/chart
       // searches ("which of my patients are on metformin?") can find it.
@@ -465,31 +437,22 @@ router.patch(
   validate(updatePrescriptionSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const {
-        diagnosis,
-        items,
-        advice,
-        followUpDate,
-        overrideWarnings,
-        overrideAllergies,
-        allergyOverrideReason,
-      } = req.body as {
-        diagnosis: string;
-        items: Array<{
-          medicineId?: string;
-          medicineName: string;
-          dosage: string;
-          frequency: string;
-          duration: string;
-          instructions?: string;
-          refills?: number;
-        }>;
-        advice?: string;
-        followUpDate?: string;
-        overrideWarnings?: boolean;
-        overrideAllergies?: boolean;
-        allergyOverrideReason?: string;
-      };
+      const { diagnosis, items, advice, followUpDate, overrideWarnings } =
+        req.body as {
+          diagnosis: string;
+          items: Array<{
+            medicineId?: string;
+            medicineName: string;
+            dosage: string;
+            frequency: string;
+            duration: string;
+            instructions?: string;
+            refills?: number;
+          }>;
+          advice?: string;
+          followUpDate?: string;
+          overrideWarnings?: boolean;
+        };
 
       // ─── Issue #898 (PATCH parity with POST) ────────────────────────
       // Same medicineId-resolution contract as the create handler. Bad id
@@ -573,28 +536,6 @@ router.patch(
         return;
       }
 
-      // Pearl §2.1.4 (gap-item #7) — PATCH parity with POST: the edit
-      // path MUST re-run the drug-allergy check so a doctor cannot
-      // bypass the block by adding the allergic medicine via Edit.
-      const { conflicts: allergyConflicts } = await checkPatientAllergies(
-        names,
-        existing.patientId,
-      );
-      const overrideReasonTrimmed =
-        typeof allergyOverrideReason === "string"
-          ? allergyOverrideReason.trim()
-          : "";
-      const hasValidOverride = overrideReasonTrimmed.length >= 10;
-      if (allergyConflicts.length > 0 && !hasValidOverride && !overrideAllergies) {
-        res.status(409).json({
-          success: false,
-          data: { allergyConflicts },
-          error:
-            "Allergy conflict — supply allergyOverrideReason to proceed",
-        });
-        return;
-      }
-
       const updated = await prisma.$transaction(async (tx) => {
         await tx.prescriptionItem.deleteMany({
           where: { prescriptionId: existing.id },
@@ -605,14 +546,6 @@ router.patch(
             diagnosis,
             advice,
             followUpDate: followUpDate ? new Date(followUpDate) : null,
-            allergyOverrideReason:
-              allergyConflicts.length > 0 && (hasValidOverride || overrideAllergies)
-                ? overrideReasonTrimmed || null
-                : null,
-            allergyOverrideAt:
-              allergyConflicts.length > 0 && (hasValidOverride || overrideAllergies)
-                ? new Date()
-                : null,
             items: { create: normalizedItems },
           },
           include: {
@@ -633,22 +566,6 @@ router.patch(
         warningCount: warnings.length,
         overrideWarnings: Boolean(overrideWarnings),
       }).catch(console.error);
-
-      // Pearl §2.1.4 (gap-item #7) — explicit override audit row on edit
-      // path so a bypass via PATCH is just as discoverable as via POST.
-      if (allergyConflicts.length > 0 && (hasValidOverride || overrideAllergies)) {
-        auditLog(
-          req,
-          "PRESCRIPTION_ALLERGY_OVERRIDE",
-          "prescription",
-          updated.id,
-          {
-            allergyConflicts,
-            reason: overrideReasonTrimmed,
-            prescribedBy: existing.doctorId,
-          },
-        ).catch(console.error);
-      }
 
       // Re-index for RAG so cohort/chart searches see the latest content.
       fireAndForgetIngest("ingestPrescription", () =>

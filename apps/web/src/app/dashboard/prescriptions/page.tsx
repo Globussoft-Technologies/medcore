@@ -172,22 +172,6 @@ export default function PrescriptionsPage() {
   const [showInteractionModal, setShowInteractionModal] = useState(false);
   const [checkingInteractions, setCheckingInteractions] = useState(false);
 
-  // Pearl §2.1.4 (gap-item #7) — drug-allergy block UI state. When the
-  // API returns 409 with `allergyConflicts`, the modal lists each
-  // medicine ↔ allergy hit and asks the prescriber for a clinical
-  // override reason (>=10 chars). On submit the form is re-POSTed with
-  // `allergyOverrideReason` set.
-  interface AllergyConflict {
-    itemIndex: number;
-    medicineName: string;
-    allergySubstance: string;
-    allergySeverity: string;
-    reaction?: string | null;
-  }
-  const [allergyConflicts, setAllergyConflicts] = useState<AllergyConflict[]>([]);
-  const [showAllergyModal, setShowAllergyModal] = useState(false);
-  const [allergyOverrideReason, setAllergyOverrideReason] = useState("");
-
   // Generic substitution
   interface GenericAlt {
     id: string;
@@ -500,15 +484,8 @@ export default function PrescriptionsPage() {
     }
   }
 
-  async function submitPrescription(
-    override: boolean,
-    allergyReason?: string,
-  ) {
+  async function submitPrescription(override: boolean) {
     try {
-      const allergyOverrideReasonPayload =
-        allergyReason && allergyReason.trim().length >= 10
-          ? allergyReason.trim()
-          : undefined;
       if (editingId) {
         // Edit mode: PATCH /:id. appointment/patient are immutable on the
         // server side, so we deliberately omit them from the payload.
@@ -518,7 +495,6 @@ export default function PrescriptionsPage() {
           advice: form.advice || undefined,
           followUpDate: form.followUpDate || undefined,
           overrideWarnings: override,
-          allergyOverrideReason: allergyOverrideReasonPayload,
         });
         toast.success("Prescription updated");
       } else {
@@ -530,7 +506,6 @@ export default function PrescriptionsPage() {
           advice: form.advice || undefined,
           followUpDate: form.followUpDate || undefined,
           overrideWarnings: override,
-          allergyOverrideReason: allergyOverrideReasonPayload,
         });
       }
       resetForm();
@@ -540,24 +515,13 @@ export default function PrescriptionsPage() {
         payload?: {
           warnings?: InteractionWarning[];
           error?: string;
-          data?: {
-            existingPrescriptionId?: string;
-            allergyConflicts?: AllergyConflict[];
-          };
+          data?: { existingPrescriptionId?: string };
         };
       };
       // Drug-interaction modal flow.
       if (anyErr.payload?.warnings && anyErr.payload.warnings.length > 0) {
         setInteractionWarnings(anyErr.payload.warnings);
         setShowInteractionModal(true);
-        return;
-      }
-      // Pearl §2.1.4 — drug-allergy block (409 with allergyConflicts).
-      const conflicts = anyErr.payload?.data?.allergyConflicts;
-      if (conflicts && conflicts.length > 0) {
-        setAllergyConflicts(conflicts);
-        setAllergyOverrideReason("");
-        setShowAllergyModal(true);
         return;
       }
       // 409 "already exists" fallback: load the existing Rx into the form
@@ -1607,112 +1571,6 @@ export default function PrescriptionsPage() {
       {checkingInteractions && (
         <div className="fixed bottom-6 right-6 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white shadow-lg">
           Checking drug interactions...
-        </div>
-      )}
-
-      {/* Pearl §2.1.4 — Drug-Allergy Block Modal */}
-      {showAllergyModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          data-testid="rx-allergy-modal"
-        >
-          <div className="w-full max-h-[90vh] overflow-y-auto max-w-2xl overflow-hidden rounded-xl bg-white shadow-xl dark:bg-gray-800">
-            <div className="border-b border-red-200 bg-red-50 px-6 py-4">
-              <h2 className="text-lg font-semibold text-red-800">
-                Patient Allergy Conflict
-              </h2>
-              <p className="mt-1 text-sm text-red-700">
-                One or more prescribed medicines conflict with this patient&apos;s
-                recorded allergies. Provide a clinical reason to override and
-                proceed.
-              </p>
-            </div>
-            <div className="max-h-[40vh] overflow-y-auto p-6">
-              <ul className="space-y-3">
-                {allergyConflicts.map((c, i) => (
-                  <li
-                    key={i}
-                    className={`rounded-lg border-l-4 p-3 ${
-                      c.allergySeverity === "SEVERE"
-                        ? "border-red-500 bg-red-50"
-                        : c.allergySeverity === "MODERATE"
-                        ? "border-orange-400 bg-orange-50"
-                        : "border-yellow-400 bg-yellow-50"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">
-                        {c.medicineName} ↔ {c.allergySubstance}
-                      </span>
-                      <span
-                        className={`rounded px-2 py-0.5 text-xs font-semibold ${
-                          c.allergySeverity === "SEVERE"
-                            ? "bg-red-600 text-white"
-                            : c.allergySeverity === "MODERATE"
-                            ? "bg-orange-500 text-white"
-                            : "bg-yellow-500 text-white"
-                        }`}
-                      >
-                        {c.allergySeverity}
-                      </span>
-                    </div>
-                    {c.reaction ? (
-                      <p className="mt-1 text-sm text-gray-700 dark:text-gray-200">
-                        Known reaction: {c.reaction}
-                      </p>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div className="border-t border-gray-200 px-6 py-4">
-              <label
-                htmlFor="rx-allergy-override-reason"
-                className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200"
-              >
-                Clinical reason for override (min 10 characters)
-              </label>
-              <textarea
-                id="rx-allergy-override-reason"
-                data-testid="rx-allergy-override-reason"
-                value={allergyOverrideReason}
-                onChange={(e) => setAllergyOverrideReason(e.target.value)}
-                rows={3}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-                placeholder="e.g. Documented prior tolerance at lower dose; benefit outweighs risk; alternative unavailable…"
-              />
-              <p className="mt-1 text-xs text-gray-500">
-                {allergyOverrideReason.trim().length}/10 minimum
-              </p>
-            </div>
-            <div className="flex items-center justify-end gap-3 border-t bg-gray-50 px-6 py-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAllergyModal(false);
-                  setAllergyConflicts([]);
-                  setAllergyOverrideReason("");
-                }}
-                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                data-testid="rx-allergy-override-submit"
-                disabled={allergyOverrideReason.trim().length < 10}
-                onClick={async () => {
-                  const reason = allergyOverrideReason.trim();
-                  if (reason.length < 10) return;
-                  setShowAllergyModal(false);
-                  await submitPrescription(false, reason);
-                }}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Override and Save
-              </button>
-            </div>
-          </div>
         </div>
       )}
 

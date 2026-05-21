@@ -1342,13 +1342,6 @@ model Prescription {
   rejectionReason String?
   rejectedAt      DateTime?
   rejectedBy      String?
-  // Pearl ERP Stage 1 §2.1.4 (gap-item #7, migration
-  // 20260520000008) — when the prescriber overrides the
-  // drug-allergy block the clinical reason is persisted ON the
-  // Rx so a downstream reviewer / pharmacist sees it without
-  // having to dig in AuditLog. NULL means no override fired.
-  allergyOverrideReason String?
-  allergyOverrideAt     DateTime?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 
@@ -2148,11 +2141,6 @@ model PatientAllergy {
   notes     String?
   notedBy   String // user id
   notedAt   DateTime        @default(now())
-  // Pearl ERP Stage 1 §2.1.4 (gap-item #7) — soft-flag so an
-  // erroneously logged allergy can be deactivated without
-  // deleting the row. Only active=true entries feed the Rx
-  // drug-allergy block engine.
-  active    Boolean         @default(true)
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)

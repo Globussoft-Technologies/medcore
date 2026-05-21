@@ -23,16 +23,15 @@ export default function PatientLandingPage() {
         >
           Sign in
         </Link>
-        <a
-          href="#"
-          aria-disabled="true"
+        <button
+          type="button"
+          disabled
           title="Available after sign in"
-          onClick={(e) => e.preventDefault()}
           className="inline-flex h-11 min-w-[44px] cursor-not-allowed items-center justify-center rounded-md border border-slate-300 px-6 text-sm font-medium text-slate-400"
           data-testid="patient-landing-book"
         >
           Book an appointment
-        </a>
+        </button>
       </div>
     </section>
   );

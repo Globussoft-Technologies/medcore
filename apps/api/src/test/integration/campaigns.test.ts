@@ -181,7 +181,10 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
     expect(res.status).toBe(400);
   });
 
-  it("PATCH status=RUNNING is rejected by Zod (dispatcher-only)", async () => {
+  it("PATCH DRAFT→RUNNING is rejected by the state-machine guard (dispatcher-only path)", async () => {
+    // RUNNING stays in operatorWriteableStatusEnum because PAUSED→RUNNING
+    // is a legitimate resume path. DRAFT→RUNNING is blocked by the route's
+    // OPERATOR_STATUS_TRANSITIONS map with 409 — not by Zod.
     const list = await request(app)
       .get("/api/v1/campaigns")
       .set("Authorization", `Bearer ${adminAToken}`);
@@ -191,7 +194,7 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
       .patch(`/api/v1/campaigns/${target.id}`)
       .set("Authorization", `Bearer ${adminAToken}`)
       .send({ status: "RUNNING" });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(409);
   });
 
   it("PATCH invalid state-machine transition is rejected with 409", async () => {

@@ -19,6 +19,8 @@ import {
   resetTour,
 } from "@/components/OnboardingTour";
 import { LanguageDropdown } from "@/components/LanguageDropdown";
+import { BranchPicker } from "@/components/BranchPicker";
+import { useBranchStore } from "@/lib/branch-store";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   LayoutDashboard,
@@ -389,6 +391,19 @@ export default function DashboardLayout({
   useEffect(() => {
     loadSession();
   }, [loadSession]);
+
+  // Pearl ERP Stage 1 gap #2 piece 3 — once auth has settled with a real
+  // user, fetch the tenant's branch list so the topbar picker has
+  // options and the api-client interceptor has a sensible default
+  // X-Branch-Id. Fires once per session: the underlying store guards
+  // against repeated loads via its `isLoading` flag, and we re-trigger
+  // when `user?.id` changes (e.g. cross-tab cookie swap that lands on
+  // a different principal).
+  const loadBranches = useBranchStore((s) => s.loadBranches);
+  useEffect(() => {
+    if (!user?.id) return;
+    void loadBranches();
+  }, [user?.id, loadBranches]);
 
   // Cross-tab cookie-swap defence (#524 / #538 / #540 / #564 / #567 / #584).
   // Belt-and-suspenders companion to the module-init subscription in
@@ -1064,6 +1079,14 @@ export default function DashboardLayout({
               instanceId="mc-lang-sidebar"
               className="text-slate-700 dark:text-gray-300"
             />
+            {/* Pearl ERP Stage 1 gap #2 piece 3 — branch picker.
+                Renders only when the tenant has >1 active branch (the
+                component itself returns null otherwise), so single-
+                branch tenants get no extra topbar chrome. */}
+            <BranchPicker
+              instanceId="mc-branch-sidebar"
+              className="text-slate-700 dark:text-gray-300"
+            />
             {/* Issue #485 + #508: theme toggle extracted into its own
                 component. Inlined version was missing both `type="button"`
                 (could submit if ever wrapped in a form) and `aria-pressed`
@@ -1191,6 +1214,10 @@ export default function DashboardLayout({
               persistToServer
               instanceId="mc-lang-mobile"
             />
+            {/* Pearl ERP Stage 1 gap #2 piece 3 — branch picker
+                (mobile mirror). Same auto-hide rule on single-branch
+                tenants applies. */}
+            <BranchPicker instanceId="mc-branch-mobile" />
             <button
               type="button"
               onClick={() => setSearchOpen(true)}

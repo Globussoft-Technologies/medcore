@@ -92,6 +92,76 @@ describe("api client", () => {
       "medcore_csrf=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
   });
 
+  // Pearl ERP Stage 1 gap #2 piece 3 — the api-client should attach
+  // X-Branch-Id from the branch-store on every NON-auth/branches
+  // outbound request so the API's branchContextMiddleware can scope
+  // queries via branchScopedPrisma.
+  it("attaches X-Branch-Id from branch-store on a normal GET (#pearl-gap-2-piece-3)", async () => {
+    const { useBranchStore, __resetBranchStoreForTests } = await import(
+      "../branch-store"
+    );
+    __resetBranchStoreForTests();
+    useBranchStore.getState().setCurrentBranchId("br-test-1");
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), { status: 200 })
+      );
+    await api.get("/patients");
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>)["X-Branch-Id"]).toBe(
+      "br-test-1"
+    );
+    __resetBranchStoreForTests();
+  });
+
+  it("does NOT attach X-Branch-Id on /auth/* endpoints (skip-list)", async () => {
+    const { useBranchStore, __resetBranchStoreForTests } = await import(
+      "../branch-store"
+    );
+    __resetBranchStoreForTests();
+    useBranchStore.getState().setCurrentBranchId("br-test-1");
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), { status: 200 })
+      );
+    await api.get("/auth/me");
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>)["X-Branch-Id"]).toBeUndefined();
+    __resetBranchStoreForTests();
+  });
+
+  it("does NOT attach X-Branch-Id on /branches (the picker's own list)", async () => {
+    const { useBranchStore, __resetBranchStoreForTests } = await import(
+      "../branch-store"
+    );
+    __resetBranchStoreForTests();
+    useBranchStore.getState().setCurrentBranchId("br-test-1");
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), { status: 200 })
+      );
+    await api.get("/branches?active=true");
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>)["X-Branch-Id"]).toBeUndefined();
+    __resetBranchStoreForTests();
+  });
+
+  it("does NOT attach X-Branch-Id when no branch is selected (legacy passthrough)", async () => {
+    const { __resetBranchStoreForTests } = await import("../branch-store");
+    __resetBranchStoreForTests();
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), { status: 200 })
+      );
+    await api.get("/patients");
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>)["X-Branch-Id"]).toBeUndefined();
+  });
+
   it("GET does NOT attach X-CSRF-Token (safe method, server skips check)", async () => {
     document.cookie = "medcore_csrf=abc123; path=/";
     const fetchSpy = vi

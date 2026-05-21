@@ -1,7 +1,28 @@
 import { toast } from "@/lib/toast";
 import { sanitizeNextPath } from "@/lib/utils";
+import { getCurrentBranchId } from "@/lib/branch-store";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+
+/**
+ * Pearl ERP Stage 1 gap #2 piece 3 — request interceptor that attaches
+ * the user's selected branch as `X-Branch-Id` so the API's
+ * `branchContextMiddleware` (piece 2a) can scope reads/writes to that
+ * branch automatically.
+ *
+ * Skip-list: the auth/branches endpoints don't need branch scoping
+ * (the branches list itself drives the picker, and auth flows pre-date
+ * a known branch). Server-side requests skip entirely — there's no
+ * store to read from in that context. Degrades to no-header when the
+ * id is null — the API treats that as "no branch context" and the
+ * caller gets pre-piece-2a behaviour (tenant-scoped only).
+ */
+const BRANCH_HEADER_SKIP_PREFIXES = ["/auth/", "/branches"];
+
+function shouldAttachBranchHeader(endpoint: string): boolean {
+  if (typeof window === "undefined") return false;
+  return !BRANCH_HEADER_SKIP_PREFIXES.some((p) => endpoint.startsWith(p));
+}
 
 interface FetchOptions extends RequestInit {
   token?: string;
@@ -132,6 +153,18 @@ async function request<T>(
   if (MUTATION_METHODS.has(method)) {
     const csrf = readCsrfToken();
     if (csrf) headers["X-CSRF-Token"] = csrf;
+  }
+
+  // Pearl ERP Stage 1 gap #2 piece 3 — branch context.
+  // When the user has picked a branch in the topbar picker, every
+  // outbound request (except auth/branches per the skip-list above)
+  // carries `X-Branch-Id: <id>` so the API's branchContextMiddleware
+  // can scope queries through `branchScopedPrisma` (piece 2a). When no
+  // branch is selected OR the request is server-side, no header is
+  // sent and the API falls back to pre-piece-2a behaviour.
+  if (shouldAttachBranchHeader(endpoint)) {
+    const branchId = getCurrentBranchId();
+    if (branchId) headers["X-Branch-Id"] = branchId;
   }
 
   // Issue #377 (2026-04-26): bound every request with an AbortController

@@ -102,11 +102,22 @@ export function requireBranchId(): string {
  * the Prisma schema — any model that gains a `branchId` column MUST be
  * added here or the extension will not scope it.
  *
- * Piece 2a (2026-05-21): exactly one entry — `Appointment`. Piece 2b
- * expands to Invoice, Doctor, Patient, and the remaining transactional
- * tables flagged in `docs/PEARL_STAGE1_GAP_ANALYSIS.md` §3.1.
+ * Piece 2a (2026-05-21): `Appointment` only — POC.
+ * Piece 2b (2026-05-21 follow-up): + `Invoice`, `Doctor`, `Patient` —
+ *   the three highest-traffic transactional / identity tables. Schema
+ *   migration `20260521000002` adds the columns + FKs + backfills
+ *   existing rows to each tenant's `isDefault` branch so legacy data
+ *   remains visible after the extension's auto-filter kicks in.
+ *
+ * Future pieces will expand to Prescription / LabOrder / DoctorSchedule
+ * etc. when their per-branch UX surfaces are designed.
  */
-export const BRANCH_SCOPED_MODELS = new Set<string>(["Appointment"]);
+export const BRANCH_SCOPED_MODELS = new Set<string>([
+  "Appointment",
+  "Invoice",
+  "Doctor",
+  "Patient",
+]);
 
 /** Operations on which we INJECT `branchId` into `args.data`. */
 const CREATE_OPERATIONS = new Set<string>(["create", "createMany", "upsert"]);

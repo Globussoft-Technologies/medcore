@@ -28,7 +28,9 @@ describe("Patient PWA scaffold — gap #5 piece 1 of 4", () => {
     render(<PatientLandingPage />);
     const book = screen.getByTestId("patient-landing-book");
     expect(book).toBeInTheDocument();
-    expect(book).toHaveAttribute("aria-disabled", "true");
+    // Native <button disabled> — semantic + no event handler needed (Next.js
+    // server components reject onClick props).
+    expect(book).toBeDisabled();
     expect(book).toHaveAttribute("title", "Available after sign in");
   });
 

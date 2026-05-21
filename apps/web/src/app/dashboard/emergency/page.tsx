@@ -99,6 +99,19 @@ const TRIAGE_TARGET_MIN: Record<string, number> = {
   NON_URGENT: 120,
 };
 
+// Shared styling for the case side-panel form controls. Without the dark
+// variants these inputs render as near-invisible faint boxes on the dark ER
+// board — transparent background, light default border, and gray placeholder
+// text all wash out against the panel's dark:bg-gray-800.
+const PANEL_FIELD =
+  "rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 placeholder-gray-400 focus:border-primary focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
+
+// Shared styling for the intake-modal form controls. The modal renders over the
+// dark ER board, so without explicit colors these inputs inherit the layout's
+// light text and become invisible on the white card.
+const MODAL_FIELD =
+  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
+
 // Issue #162 / #163 — wrap the shared helper so call-sites stay terse but
 // every reading goes through the same year-2000-sentinel clamp.
 function elapsedMin(dateStr: string | null | undefined): number {
@@ -641,7 +654,7 @@ export default function EmergencyPage() {
           <form
             onSubmit={submitIntake}
             noValidate
-            className="w-full max-h-[90vh] overflow-y-auto max-w-2xl rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-2xl rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
           >
             <h2 className="mb-4 text-lg font-semibold">Register Emergency Case</h2>
 
@@ -653,7 +666,9 @@ export default function EmergencyPage() {
                   setIntakePatient(null);
                 }}
                 className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
-                  !unknownMode ? "bg-primary text-white" : "bg-gray-100"
+                  !unknownMode
+                    ? "bg-primary text-white"
+                    : "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"
                 }`}
               >
                 Registered Patient
@@ -665,7 +680,9 @@ export default function EmergencyPage() {
                   setIntakePatient(null);
                 }}
                 className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
-                  unknownMode ? "bg-primary text-white" : "bg-gray-100"
+                  unknownMode
+                    ? "bg-primary text-white"
+                    : "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"
                 }`}
               >
                 Unknown / Unregistered
@@ -681,7 +698,7 @@ export default function EmergencyPage() {
                   {intakePatient ? (
                     <div
                       data-testid="er-patient-selected"
-                      className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2 text-sm"
+                      className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900/40"
                     >
                       <span>
                         <strong>{intakePatient.user.name}</strong>
@@ -723,8 +740,10 @@ export default function EmergencyPage() {
                               return n;
                             });
                         }}
-                        className={`w-full rounded-lg border px-3 py-2 text-sm ${
-                          intakeErrors.patientId ? "border-red-500 bg-red-50" : ""
+                        className={`w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder-gray-400 ${
+                          intakeErrors.patientId
+                            ? "border-red-500 bg-red-50"
+                            : "bg-white dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                         }`}
                       />
                       {intakeErrors.patientId && (
@@ -736,7 +755,7 @@ export default function EmergencyPage() {
                         </p>
                       )}
                       {intakeResults.length > 0 && (
-                        <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white shadow-sm">
+                        <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
                           {intakeResults.map((p) => (
                             <button
                               key={p.id}
@@ -745,7 +764,7 @@ export default function EmergencyPage() {
                                 setIntakePatient(p);
                                 setIntakeResults([]);
                               }}
-                              className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50"
+                              className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
                             >
                               <strong>{p.user.name}</strong>
                               {p.mrNumber && ` · ${p.mrNumber}`}
@@ -779,8 +798,10 @@ export default function EmergencyPage() {
                             return n;
                           });
                       }}
-                      className={`w-full rounded-lg border px-3 py-2 text-sm ${
-                        intakeErrors.unknownName ? "border-red-500 bg-red-50" : ""
+                      className={`w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder-gray-400 ${
+                        intakeErrors.unknownName
+                          ? "border-red-500 bg-red-50"
+                          : "bg-white dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                       }`}
                     />
                     {intakeErrors.unknownName && (
@@ -801,7 +822,7 @@ export default function EmergencyPage() {
                       onChange={(e) =>
                         setIntakeForm({ ...intakeForm, unknownAge: e.target.value })
                       }
-                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                      className={MODAL_FIELD}
                     />
                   </div>
                   <div className="col-span-2">
@@ -812,7 +833,7 @@ export default function EmergencyPage() {
                       onChange={(e) =>
                         setIntakeForm({ ...intakeForm, unknownGender: e.target.value })
                       }
-                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                      className={MODAL_FIELD}
                     >
                       <option value="">—</option>
                       <option value="MALE">Male</option>
@@ -836,7 +857,7 @@ export default function EmergencyPage() {
                   onChange={(e) =>
                     setIntakeForm({ ...intakeForm, arrivalMode: e.target.value })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                 >
                   <option value="WALK_IN">Walk-in</option>
                   <option value="AMBULANCE">Ambulance</option>
@@ -866,8 +887,10 @@ export default function EmergencyPage() {
                         return n;
                       });
                   }}
-                  className={`w-full rounded-lg border px-3 py-2 text-sm ${
-                    intakeErrors.chiefComplaint ? "border-red-500 bg-red-50" : ""
+                  className={`w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder-gray-400 ${
+                    intakeErrors.chiefComplaint
+                      ? "border-red-500 bg-red-50"
+                      : "bg-white dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                   }`}
                 />
                 {intakeErrors.chiefComplaint && (
@@ -888,7 +911,7 @@ export default function EmergencyPage() {
                   setShowIntakeModal(false);
                   setIntakeErrors({});
                 }}
-                className="rounded-lg border px-4 py-2 text-sm"
+                className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>
@@ -906,7 +929,7 @@ export default function EmergencyPage() {
       {/* Side panel */}
       {selectedCase && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/40">
-          <div className="h-full w-full max-w-xl overflow-y-auto bg-white p-6 shadow-xl">
+          <div className="h-full w-full max-w-xl overflow-y-auto bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100">
             <div className="mb-4 flex items-start justify-between">
               <div>
                 <p className="text-xs font-semibold text-gray-400">
@@ -917,7 +940,7 @@ export default function EmergencyPage() {
                     selectedCase.unknownName ||
                     "Unknown"}
                 </h2>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
                   Arrived {new Date(selectedCase.arrivedAt).toLocaleString()} ·{" "}
                   {/* Issue #425 */}
                   {selectedCase.arrivedAt
@@ -928,22 +951,22 @@ export default function EmergencyPage() {
               <div className="flex items-center gap-2">
                 <Link
                   href={`/dashboard/emergency/${selectedCase.id}`}
-                  className="rounded-lg border px-3 py-1 text-xs hover:bg-gray-50"
+                  className="rounded-lg border px-3 py-1 text-xs hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700"
                 >
                   Full Details
                 </Link>
                 <button
                   onClick={() => setSelectedCase(null)}
-                  className="rounded-full p-1 hover:bg-gray-100"
+                  className="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-gray-700"
                 >
                   <X size={18} />
                 </button>
               </div>
             </div>
 
-            <div className="mb-5 rounded-lg bg-gray-50 p-3 text-sm">
+            <div className="mb-5 rounded-lg bg-gray-50 p-3 text-sm dark:bg-gray-900/40">
               <p className="font-medium">Chief Complaint</p>
-              <p className="text-gray-700">{selectedCase.chiefComplaint}</p>
+              <p className="text-gray-700 dark:text-gray-300">{selectedCase.chiefComplaint}</p>
             </div>
 
             {/* Triage section */}
@@ -971,7 +994,7 @@ export default function EmergencyPage() {
                         className={`rounded-full px-3 py-1 text-xs font-medium ${
                           triageForm.triageLevel === level
                             ? TRIAGE_COLORS[level]
-                            : "bg-gray-100 text-gray-700"
+                            : "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"
                         }`}
                       >
                         {level.replace("_", " ")}
@@ -985,7 +1008,7 @@ export default function EmergencyPage() {
                       onChange={(e) =>
                         setTriageForm({ ...triageForm, vitalsBP: e.target.value })
                       }
-                      className="rounded-lg border px-3 py-2"
+                      className={PANEL_FIELD}
                     />
                     <input
                       placeholder="Pulse"
@@ -993,7 +1016,7 @@ export default function EmergencyPage() {
                       onChange={(e) =>
                         setTriageForm({ ...triageForm, vitalsPulse: e.target.value })
                       }
-                      className="rounded-lg border px-3 py-2"
+                      className={PANEL_FIELD}
                     />
                     <input
                       placeholder="Resp rate"
@@ -1001,7 +1024,7 @@ export default function EmergencyPage() {
                       onChange={(e) =>
                         setTriageForm({ ...triageForm, vitalsResp: e.target.value })
                       }
-                      className="rounded-lg border px-3 py-2"
+                      className={PANEL_FIELD}
                     />
                     <input
                       placeholder="SpO2 %"
@@ -1009,7 +1032,7 @@ export default function EmergencyPage() {
                       onChange={(e) =>
                         setTriageForm({ ...triageForm, vitalsSpO2: e.target.value })
                       }
-                      className="rounded-lg border px-3 py-2"
+                      className={PANEL_FIELD}
                     />
                     <input
                       placeholder="Temp °C"
@@ -1017,10 +1040,10 @@ export default function EmergencyPage() {
                       onChange={(e) =>
                         setTriageForm({ ...triageForm, vitalsTemp: e.target.value })
                       }
-                      className="rounded-lg border px-3 py-2"
+                      className={PANEL_FIELD}
                     />
                     <div>
-                      <label className="mb-1 flex items-center text-xs text-gray-600">
+                      <label className="mb-1 flex items-center text-xs text-gray-600 dark:text-gray-300">
                         GCS
                         <InfoIcon tooltip="GCS — Glasgow Coma Scale. Scores consciousness from 3 (deep coma) to 15 (fully alert). Sums eye, verbal, and motor response." />
                       </label>
@@ -1030,11 +1053,11 @@ export default function EmergencyPage() {
                         onChange={(e) =>
                           setTriageForm({ ...triageForm, glasgowComa: e.target.value })
                         }
-                        className="w-full rounded-lg border px-3 py-2"
+                        className={`w-full ${PANEL_FIELD}`}
                       />
                     </div>
                     <div className="col-span-2">
-                      <label className="mb-1 flex items-center text-xs text-gray-600">
+                      <label className="mb-1 flex items-center text-xs text-gray-600 dark:text-gray-300">
                         MEWS
                         <InfoIcon tooltip="MEWS — Modified Early Warning Score. Range 0–14. Based on vitals to flag deteriorating patients. >4 indicates urgent review." />
                         <span className="ml-3">RTS</span>
@@ -1046,7 +1069,7 @@ export default function EmergencyPage() {
                         onChange={(e) =>
                           setTriageForm({ ...triageForm, mewsScore: e.target.value })
                         }
-                        className="w-full rounded-lg border px-3 py-2"
+                        className={`w-full ${PANEL_FIELD}`}
                       />
                     </div>
                   </div>
@@ -1069,7 +1092,7 @@ export default function EmergencyPage() {
                     <select
                       value={assignDoctorId}
                       onChange={(e) => setAssignDoctorId(e.target.value)}
-                      className="flex-1 rounded-lg border px-3 py-2 text-sm"
+                      className={`flex-1 text-sm ${PANEL_FIELD}`}
                     >
                       <option value="">Select Doctor</option>
                       {doctors.map((d) => (
@@ -1099,7 +1122,7 @@ export default function EmergencyPage() {
                     onChange={(e) =>
                       setCloseForm({ ...closeForm, status: e.target.value })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className={`w-full text-sm ${PANEL_FIELD}`}
                   >
                     <option value="DISCHARGED">Discharged</option>
                     <option value="ADMITTED">Admitted</option>
@@ -1124,8 +1147,10 @@ export default function EmergencyPage() {
                             return n;
                           });
                       }}
-                      className={`w-full rounded-lg border px-3 py-2 text-sm ${
-                        closeErrors.disposition ? "border-red-500 bg-red-50" : ""
+                      className={`w-full text-sm ${
+                        closeErrors.disposition
+                          ? "rounded-lg border border-red-500 bg-red-50 px-3 py-2 text-gray-900 placeholder-gray-400"
+                          : PANEL_FIELD
                       }`}
                     />
                     {closeErrors.disposition && (
@@ -1153,8 +1178,10 @@ export default function EmergencyPage() {
                             return n;
                           });
                       }}
-                      className={`w-full rounded-lg border px-3 py-2 text-sm ${
-                        closeErrors.outcomeNotes ? "border-red-500 bg-red-50" : ""
+                      className={`w-full text-sm ${
+                        closeErrors.outcomeNotes
+                          ? "rounded-lg border border-red-500 bg-red-50 px-3 py-2 text-gray-900 placeholder-gray-400"
+                          : PANEL_FIELD
                       }`}
                     />
                     {closeErrors.outcomeNotes && (

@@ -47,6 +47,11 @@ import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { compileAudience } from "../services/audience-compiler";
+import {
+  dispatchCampaign,
+  isWithinSendWindow,
+  nextSendWindowStart,
+} from "../services/campaign-dispatcher";
 
 const router = Router();
 router.use(authenticate);
@@ -473,6 +478,139 @@ router.post(
           audienceName: audience.name,
           audienceComputedAt: computedAt.toISOString(),
           sampleIds: sampleRows.map((p) => p.id),
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── POST /:id/dispatch — Pearl §5.1 piece 2b sync dispatcher (ADMIN) ──
+//
+// Drives a Campaign from DRAFT/SCHEDULED → RUNNING → COMPLETED in one
+// request. Audience must already be attached + the send-window (if any)
+// must be open NOW; otherwise 400/409 with a clarifying body. Body is
+// empty — all state lives on the Campaign + its CampaignAudience.
+//
+// The actual fan-out (audience compile → per-(patient,channel) channel
+// adapter call → CampaignSend row write) lives in services/campaign-
+// dispatcher.ts so it can later be lifted into a background worker
+// (piece 3) without re-shaping the endpoint contract. Sync today gives
+// the operator immediate feedback on a 1k-patient pilot.
+router.post(
+  "/:id/dispatch",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = await resolveTenantId(req);
+      if (!tenantId) {
+        res.status(404).json({ success: false, data: null, error: "Campaign not found" });
+        return;
+      }
+      const campaign = await prisma.campaign.findFirst({
+        where: { id: req.params.id, tenantId },
+      });
+      if (!campaign) {
+        res.status(404).json({ success: false, data: null, error: "Campaign not found" });
+        return;
+      }
+
+      // State-machine guard. RUNNING means a prior dispatch is in flight
+      // (or paused mid-flight); COMPLETED/CANCELLED are terminal.
+      if (campaign.status === "RUNNING") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: "Campaign is already RUNNING; wait for it to complete or PAUSE it first",
+        });
+        return;
+      }
+      if (campaign.status === "COMPLETED" || campaign.status === "CANCELLED") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `Campaign is in terminal state ${campaign.status} and cannot be re-dispatched`,
+        });
+        return;
+      }
+
+      if (!campaign.audienceId) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Cannot dispatch a campaign with no audience attached",
+        });
+        return;
+      }
+      if (!campaign.channels || campaign.channels.length === 0) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Cannot dispatch a campaign with no channels enabled",
+        });
+        return;
+      }
+
+      // Pearl §5.1 send-window clamp. Reject (not queue) — keeps the
+      // sync contract simple; piece 3's background worker is the right
+      // place to auto-queue an out-of-window dispatch.
+      if (!isWithinSendWindow(campaign.sendWindowStart, campaign.sendWindowEnd)) {
+        const nextStart = nextSendWindowStart(campaign.sendWindowStart as number);
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: "Outside the campaign's configured send window (IST quiet-hour clamp)",
+          nextWindowStart: nextStart.toISOString(),
+        });
+        return;
+      }
+
+      // Flip status BEFORE running the sync fan-out so a parallel
+      // dispatch request hits the RUNNING guard above.
+      const startedAt = new Date();
+      await prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { status: "RUNNING", startedAt },
+      });
+
+      let summary;
+      try {
+        summary = await dispatchCampaign(prisma, {
+          campaignId: campaign.id,
+          tenantId,
+        });
+      } catch (err) {
+        // Roll the campaign back to PAUSED so the operator can resume
+        // after investigating; preserve the partial CampaignSend rows
+        // already written by the dispatcher.
+        await prisma.campaign.update({
+          where: { id: campaign.id },
+          data: { status: "PAUSED" },
+        });
+        throw err;
+      }
+
+      const completedAt = new Date();
+      await prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { status: "COMPLETED", completedAt },
+      });
+
+      auditLog(req, "CAMPAIGN_DISPATCH", "campaign", campaign.id, {
+        startedAt: startedAt.toISOString(),
+        completedAt: completedAt.toISOString(),
+        summary,
+      }).catch(console.error);
+
+      res.json({
+        success: true,
+        data: {
+          campaignId: campaign.id,
+          startedAt: startedAt.toISOString(),
+          completedAt: completedAt.toISOString(),
+          summary,
         },
         error: null,
       });

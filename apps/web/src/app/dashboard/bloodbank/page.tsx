@@ -357,7 +357,7 @@ export default function BloodBankPage() {
                     className="rounded-lg bg-white p-4 text-gray-900 shadow border border-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700"
                   >
                     <div className="flex items-center justify-between">
-                      <div className="text-2xl font-bold text-red-600">
+                      <div className="text-2xl font-bold text-red-600 dark:text-red-400">
                         {prettyGroup(g)}
                       </div>
                       <div className="text-3xl font-bold">{total}</div>
@@ -374,7 +374,7 @@ export default function BloodBankPage() {
                       ))}
                     </div>
                     {expiring > 0 && (
-                      <div className="mt-3 flex items-center gap-1 rounded bg-red-50 px-2 py-1 text-xs text-red-700">
+                      <div className="mt-3 flex items-center gap-1 rounded bg-red-50 px-2 py-1 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-200">
                         <AlertTriangle size={14} />
                         {expiring} expiring in 7 days
                       </div>
@@ -388,15 +388,15 @@ export default function BloodBankPage() {
           {tab === "donors" && (
             <div>
               <div className="mb-3 flex items-center gap-3">
-                <div className="flex flex-1 items-center gap-2 rounded border bg-white px-3 py-2">
-                  <Search size={16} className="text-gray-400" />
+                <div className="flex flex-1 items-center gap-2 rounded border border-gray-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-gray-800">
+                  <Search size={16} className="text-gray-400 dark:text-gray-400" />
                   <input
                     type="text"
                     value={donorSearch}
                     onChange={(e) => setDonorSearch(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && load()}
                     placeholder="Search by name, phone, donor number"
-                    className="flex-1 outline-none"
+                    className="flex-1 bg-transparent text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-400"
                   />
                 </div>
                 {canRegisterDonor && (
@@ -420,15 +420,15 @@ export default function BloodBankPage() {
                         toast.error(err instanceof Error ? err.message : "Failed");
                       }
                     }}
-                    className="flex items-center gap-2 rounded border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-700 hover:bg-blue-100"
+                    className="flex items-center gap-2 rounded border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-700 hover:bg-blue-100 dark:border-blue-700/50 dark:bg-blue-900/30 dark:text-blue-200 dark:hover:bg-blue-900/50"
                   >
                     Send Reminders
                   </button>
                 )}
               </div>
-              <div className="rounded-lg bg-white shadow">
+              <div className="overflow-hidden rounded-lg bg-white shadow dark:bg-gray-800 dark:ring-1 dark:ring-white/10">
                 <table className="w-full text-sm">
-                  <thead className="border-b bg-gray-50 text-left text-xs uppercase text-gray-500">
+                  <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs uppercase text-gray-500 dark:border-white/10 dark:bg-gray-900/40 dark:text-gray-300">
                     <tr>
                       <th className="p-3">Donor #</th>
                       <th className="p-3">Name</th>
@@ -442,31 +442,31 @@ export default function BloodBankPage() {
                   </thead>
                   <tbody>
                     {donors.map((d) => (
-                      <tr key={d.id} className="border-b hover:bg-gray-50">
-                        <td className="p-3 font-mono text-xs">{d.donorNumber}</td>
-                        <td className="p-3 font-medium">{d.name}</td>
-                        <td className="p-3">{d.phone}</td>
-                        <td className="p-3 font-bold text-red-600">
+                      <tr key={d.id} className="border-b border-gray-200 hover:bg-gray-50 dark:border-white/5 dark:hover:bg-white/5">
+                        <td className="p-3 font-mono text-xs text-gray-700 dark:text-gray-200">{d.donorNumber}</td>
+                        <td className="p-3 font-medium text-gray-900 dark:text-gray-100">{d.name}</td>
+                        <td className="p-3 text-gray-700 dark:text-gray-200">{d.phone}</td>
+                        <td className="p-3 font-bold text-red-600 dark:text-red-400">
                           {prettyGroup(d.bloodGroup)}
                         </td>
-                        <td className="p-3">{d.totalDonations}</td>
-                        <td className="p-3 text-xs text-gray-500">
+                        <td className="p-3 text-gray-700 dark:text-gray-200">{d.totalDonations}</td>
+                        <td className="p-3 text-xs text-gray-500 dark:text-gray-400">
                           {d.lastDonation
                             ? new Date(d.lastDonation).toLocaleDateString()
                             : "—"}
                         </td>
                         <td className="p-3">
                           {d.isEligible ? (
-                            <span className="text-green-600">Yes</span>
+                            <span className="text-green-600 dark:text-green-400">Yes</span>
                           ) : (
-                            <span className="text-gray-400">No</span>
+                            <span className="text-gray-400 dark:text-gray-500">No</span>
                           )}
                         </td>
                         <td className="p-3">
                           {canApprove && (
                             <button
                               onClick={() => setDeferralDonorId(d.id)}
-                              className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800 hover:bg-amber-100"
+                              className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800 hover:bg-amber-100 dark:border-amber-700/50 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-900/50"
                             >
                               Add Deferral
                             </button>
@@ -476,7 +476,7 @@ export default function BloodBankPage() {
                     ))}
                     {donors.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="p-6 text-center text-gray-400">
+                        <td colSpan={8} className="p-6 text-center text-gray-400 dark:text-gray-500">
                           No donors found
                         </td>
                       </tr>
@@ -488,9 +488,9 @@ export default function BloodBankPage() {
           )}
 
           {tab === "donations" && (
-            <div className="rounded-lg bg-white shadow">
+            <div className="overflow-hidden rounded-lg bg-white shadow dark:bg-gray-800 dark:ring-1 dark:ring-white/10">
               <table className="w-full text-sm">
-                <thead className="border-b bg-gray-50 text-left text-xs uppercase text-gray-500">
+                <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs uppercase text-gray-500 dark:border-white/10 dark:bg-gray-900/40 dark:text-gray-300">
                   <tr>
                     <th className="p-3">Unit #</th>
                     <th className="p-3">Donor</th>
@@ -503,23 +503,23 @@ export default function BloodBankPage() {
                 </thead>
                 <tbody>
                   {donations.map((d) => (
-                    <tr key={d.id} className="border-b hover:bg-gray-50">
-                      <td className="p-3 font-mono text-xs">{d.unitNumber}</td>
-                      <td className="p-3">{d.donor.name}</td>
-                      <td className="p-3 font-bold text-red-600">
+                    <tr key={d.id} className="border-b border-gray-200 hover:bg-gray-50 dark:border-white/5 dark:hover:bg-white/5">
+                      <td className="p-3 font-mono text-xs text-gray-700 dark:text-gray-200">{d.unitNumber}</td>
+                      <td className="p-3 text-gray-900 dark:text-gray-100">{d.donor.name}</td>
+                      <td className="p-3 font-bold text-red-600 dark:text-red-400">
                         {prettyGroup(d.donor.bloodGroup)}
                       </td>
-                      <td className="p-3 text-xs text-gray-500">
+                      <td className="p-3 text-xs text-gray-500 dark:text-gray-400">
                         {new Date(d.donatedAt).toLocaleDateString()}
                       </td>
-                      <td className="p-3">{d.volumeMl} ml</td>
+                      <td className="p-3 text-gray-700 dark:text-gray-200">{d.volumeMl} ml</td>
                       <td className="p-3">
                         {d.approved ? (
-                          <span className="rounded bg-green-100 px-2 py-0.5 text-xs text-green-700">
+                          <span className="rounded bg-green-100 px-2 py-0.5 text-xs text-green-700 dark:bg-green-900/40 dark:text-green-200">
                             Approved
                           </span>
                         ) : (
-                          <span className="rounded bg-yellow-100 px-2 py-0.5 text-xs text-yellow-700">
+                          <span className="rounded bg-yellow-100 px-2 py-0.5 text-xs text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-200">
                             Pending
                           </span>
                         )}
@@ -554,7 +554,7 @@ export default function BloodBankPage() {
                   ))}
                   {donations.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="p-6 text-center text-gray-400">
+                      <td colSpan={7} className="p-6 text-center text-gray-400 dark:text-gray-500">
                         No donations recorded
                       </td>
                     </tr>
@@ -576,9 +576,9 @@ export default function BloodBankPage() {
                   </button>
                 )}
               </div>
-              <div className="rounded-lg bg-white shadow">
+              <div className="overflow-hidden rounded-lg bg-white shadow dark:bg-gray-800 dark:ring-1 dark:ring-white/10">
                 <table className="w-full text-sm">
-                  <thead className="border-b bg-gray-50 text-left text-xs uppercase text-gray-500">
+                  <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs uppercase text-gray-500 dark:border-white/10 dark:bg-gray-900/40 dark:text-gray-300">
                     <tr>
                       <th className="p-3">Request #</th>
                       <th className="p-3">Patient</th>
@@ -590,11 +590,11 @@ export default function BloodBankPage() {
                   </thead>
                   <tbody>
                     {requests.map((r) => (
-                      <tr key={r.id} className="border-b hover:bg-gray-50">
-                        <td className="p-3 font-mono text-xs">{r.requestNumber}</td>
-                        <td className="p-3">{r.patient.user.name}</td>
-                        <td className="p-3">
-                          <span className="font-bold text-red-600">
+                      <tr key={r.id} className="border-b border-gray-200 hover:bg-gray-50 dark:border-white/5 dark:hover:bg-white/5">
+                        <td className="p-3 font-mono text-xs text-gray-700 dark:text-gray-200">{r.requestNumber}</td>
+                        <td className="p-3 text-gray-900 dark:text-gray-100">{r.patient.user.name}</td>
+                        <td className="p-3 text-gray-700 dark:text-gray-200">
+                          <span className="font-bold text-red-600 dark:text-red-400">
                             {prettyGroup(r.bloodGroup)}
                           </span>{" "}
                           {prettyComponent(r.component)} × {r.unitsRequested}
@@ -603,10 +603,10 @@ export default function BloodBankPage() {
                           <span
                             className={`rounded px-2 py-0.5 text-xs ${
                               r.urgency === "EMERGENCY"
-                                ? "bg-red-100 text-red-700"
+                                ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200"
                                 : r.urgency === "URGENT"
-                                ? "bg-orange-100 text-orange-700"
-                                : "bg-gray-100 text-gray-700"
+                                ? "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-200"
+                                : "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"
                             }`}
                           >
                             {r.urgency}
@@ -614,11 +614,11 @@ export default function BloodBankPage() {
                         </td>
                         <td className="p-3">
                           {r.fulfilled ? (
-                            <span className="rounded bg-green-100 px-2 py-0.5 text-xs text-green-700">
+                            <span className="rounded bg-green-100 px-2 py-0.5 text-xs text-green-700 dark:bg-green-900/40 dark:text-green-200">
                               Fulfilled
                             </span>
                           ) : (
-                            <span className="rounded bg-yellow-100 px-2 py-0.5 text-xs text-yellow-700">
+                            <span className="rounded bg-yellow-100 px-2 py-0.5 text-xs text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-200">
                               Open
                             </span>
                           )}
@@ -637,7 +637,7 @@ export default function BloodBankPage() {
                     ))}
                     {requests.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="p-6 text-center text-gray-400">
+                        <td colSpan={6} className="p-6 text-center text-gray-400 dark:text-gray-500">
                           No requests
                         </td>
                       </tr>
@@ -694,21 +694,21 @@ export default function BloodBankPage() {
 
       {matchingRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="max-h-[85vh] w-full max-w-2xl overflow-auto rounded-lg bg-white p-6">
+          <div className="max-h-[85vh] w-full max-w-2xl overflow-auto rounded-lg bg-white p-6 dark:bg-gray-800 dark:ring-1 dark:ring-white/10">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-bold">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">
                 Match Units for {matchingRequest.requestNumber}
               </h2>
               <button
                 onClick={() => setMatchingRequest(null)}
-                className="text-gray-400 hover:text-gray-700"
+                className="text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200"
               >
                 ✕
               </button>
             </div>
-            <p className="mb-3 text-sm text-gray-600">
+            <p className="mb-3 text-sm text-gray-600 dark:text-gray-300">
               Patient: {matchingRequest.patient.user.name} • Need:{" "}
-              <span className="font-bold text-red-600">
+              <span className="font-bold text-red-600 dark:text-red-400">
                 {prettyGroup(matchingRequest.bloodGroup)}
               </span>{" "}
               {prettyComponent(matchingRequest.component)} ×{" "}
@@ -716,7 +716,7 @@ export default function BloodBankPage() {
             </p>
             <div className="space-y-2">
               {matchUnits.length === 0 && (
-                <p className="text-sm text-gray-400">No compatible units available.</p>
+                <p className="text-sm text-gray-400 dark:text-gray-500">No compatible units available.</p>
               )}
               {matchUnits.map((u) => {
                 const checked = selectedMatchIds.has(u.id);
@@ -734,12 +734,12 @@ export default function BloodBankPage() {
                   <label
                     key={u.id}
                     data-testid={`abo-unit-${u.unitNumber}`}
-                    className={`flex cursor-pointer items-center gap-3 rounded border p-3 hover:bg-gray-50 ${
+                    className={`flex cursor-pointer items-center gap-3 rounded border p-3 hover:bg-gray-50 dark:hover:bg-white/5 ${
                       expired
-                        ? "border-red-400 bg-red-50 opacity-70"
+                        ? "border-red-400 bg-red-50 opacity-70 dark:border-red-700/50 dark:bg-red-900/20"
                         : incompatible
-                        ? "border-yellow-400 bg-yellow-50"
-                        : ""
+                        ? "border-yellow-400 bg-yellow-50 dark:border-yellow-700/50 dark:bg-yellow-900/20"
+                        : "border-gray-200 dark:border-white/10"
                     }`}
                   >
                     <input
@@ -755,8 +755,8 @@ export default function BloodBankPage() {
                       }}
                     />
                     <div className="flex-1">
-                      <div className="font-mono text-xs">{u.unitNumber}</div>
-                      <div className="text-xs text-gray-500">
+                      <div className="font-mono text-xs text-gray-700 dark:text-gray-200">{u.unitNumber}</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
                         {prettyGroup(u.bloodGroup)} •{" "}
                         {prettyComponent(u.component)} • {u.volumeMl}ml • exp{" "}
                         {new Date(u.expiresAt).toLocaleDateString()}
@@ -764,13 +764,13 @@ export default function BloodBankPage() {
                       {expired && (
                         <div
                           data-testid={`expired-badge-${u.unitNumber}`}
-                          className="mt-1 inline-flex items-center gap-1 rounded bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-800"
+                          className="mt-1 inline-flex items-center gap-1 rounded bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-800 dark:bg-red-900/40 dark:text-red-200"
                         >
                           <AlertTriangle size={12} /> EXPIRED — not issuable
                         </div>
                       )}
                       {!expired && incompatible && (
-                        <div className="mt-1 inline-flex items-center gap-1 rounded bg-yellow-100 px-2 py-0.5 text-[11px] font-semibold text-yellow-800">
+                        <div className="mt-1 inline-flex items-center gap-1 rounded bg-yellow-100 px-2 py-0.5 text-[11px] font-semibold text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200">
                           <AlertTriangle size={12} /> ABO mismatch with{" "}
                           {sharedPrettyGroup(matchingRequest.bloodGroup)}
                         </div>
@@ -787,7 +787,7 @@ export default function BloodBankPage() {
             {selectedMismatches.length > 0 && (
               <div
                 data-testid="abo-mismatch-warning"
-                className="mt-4 rounded-lg border border-yellow-400 bg-yellow-50 p-3 text-sm text-yellow-900"
+                className="mt-4 rounded-lg border border-yellow-400 bg-yellow-50 p-3 text-sm text-yellow-900 dark:border-yellow-700/50 dark:bg-yellow-900/20 dark:text-yellow-100"
               >
                 <div className="flex items-center gap-2 font-semibold">
                   <AlertTriangle size={16} />
@@ -803,7 +803,7 @@ export default function BloodBankPage() {
                   . Issuing requires a documented clinical reason for the
                   override (audited).
                 </p>
-                <label className="mt-2 block text-xs font-medium text-yellow-900">
+                <label className="mt-2 block text-xs font-medium text-yellow-900 dark:text-yellow-100">
                   Clinical reason (required, ≥10 chars)
                 </label>
                 <textarea
@@ -811,7 +811,7 @@ export default function BloodBankPage() {
                   value={aboOverrideReason}
                   onChange={(e) => setAboOverrideReason(e.target.value)}
                   rows={2}
-                  className="mt-1 w-full rounded border border-yellow-300 bg-white px-2 py-1 text-sm"
+                  className="mt-1 w-full rounded border border-yellow-300 bg-white px-2 py-1 text-sm text-gray-900 placeholder:text-gray-400 dark:border-yellow-700/40 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                   placeholder="e.g. Massive haemorrhage, no compatible O- in stock, attending Dr Rao authorised emergency override"
                 />
               </div>
@@ -820,14 +820,14 @@ export default function BloodBankPage() {
             <div className="mt-5 flex justify-end gap-2">
               <button
                 onClick={() => setMatchingRequest(null)}
-                className="rounded border px-4 py-2 text-sm"
+                className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-white/15 dark:text-gray-200 dark:hover:bg-white/5"
               >
                 Cancel
               </button>
               <button
                 disabled={selectedMatchIds.size === 0}
                 onClick={() => reserveUnits(24)}
-                className="rounded border border-amber-500 bg-amber-50 px-4 py-2 text-sm text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                className="rounded border border-amber-500 bg-amber-50 px-4 py-2 text-sm text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700/50 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-900/50"
               >
                 Reserve {selectedMatchIds.size} Unit(s) (24h)
               </button>
@@ -853,9 +853,9 @@ export default function BloodBankPage() {
         const reserved = units.filter((u) => u.status === "RESERVED");
         if (reserved.length === 0) return null;
         return (
-          <div className="mt-6 rounded-xl bg-white p-5 shadow">
+          <div className="mt-6 rounded-xl bg-white p-5 shadow dark:bg-gray-800 dark:ring-1 dark:ring-white/10">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="font-semibold text-amber-800">
+              <h3 className="font-semibold text-amber-800 dark:text-amber-300">
                 Reserved Units ({reserved.length})
               </h3>
             </div>
@@ -868,12 +868,12 @@ export default function BloodBankPage() {
                     key={u.id}
                     className={`rounded-lg border p-3 ${
                       expired
-                        ? "border-red-400 bg-red-50"
-                        : "border-amber-300 bg-amber-50"
+                        ? "border-red-400 bg-red-50 dark:border-red-700/50 dark:bg-red-900/20"
+                        : "border-amber-300 bg-amber-50 dark:border-amber-700/50 dark:bg-amber-900/20"
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-xs">{u.unitNumber}</span>
+                      <span className="font-mono text-xs text-gray-700 dark:text-gray-200">{u.unitNumber}</span>
                       <span
                         className={`rounded px-2 py-0.5 text-[10px] font-bold text-white ${
                           expired ? "bg-red-600" : "bg-amber-500"
@@ -882,25 +882,25 @@ export default function BloodBankPage() {
                         {expired ? "EXPIRED" : "RESERVED"}
                       </span>
                     </div>
-                    <p className="mt-1 text-xs text-gray-600">
+                    <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">
                       {u.bloodGroup.replace(/_/g, " ")} • {u.component.replace(/_/g, " ")}
                     </p>
                     {expired && (
                       <p
                         data-testid={`expired-badge-${u.unitNumber}`}
-                        className="mt-1 inline-flex items-center gap-1 rounded bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-800"
+                        className="mt-1 inline-flex items-center gap-1 rounded bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-800 dark:bg-red-900/40 dark:text-red-200"
                       >
                         <AlertTriangle size={12} /> Past expiry — discard
                       </p>
                     )}
                     {!expired && u.reservedUntil && (
-                      <p className="mt-1 text-xs font-medium text-amber-800">
+                      <p className="mt-1 text-xs font-medium text-amber-800 dark:text-amber-300">
                         {formatRemaining(u.reservedUntil)}
                       </p>
                     )}
                     <button
                       onClick={() => releaseReservation(u.id)}
-                      className="mt-2 text-xs font-medium text-red-600 hover:underline"
+                      className="mt-2 text-xs font-medium text-red-600 hover:underline dark:text-red-400"
                     >
                       Release
                     </button>
@@ -974,12 +974,16 @@ function DonorModal({
     }
   }
 
+  const inputBase =
+    "w-full rounded border border-gray-300 bg-white p-2 text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500";
+  const inputErr =
+    "border-red-500 bg-red-50 dark:border-red-500 dark:bg-red-900/20";
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-lg bg-white p-6">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-lg bg-white p-6 dark:bg-gray-800 dark:ring-1 dark:ring-white/10">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold">Register Donor</h2>
-          <button onClick={onClose} className="text-gray-400">✕</button>
+          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Register Donor</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200">✕</button>
         </div>
         <div className="space-y-3">
           <div>
@@ -987,9 +991,7 @@ function DonorModal({
               placeholder="Full name"
               data-testid="donor-name"
               aria-invalid={!!fieldErrors.name}
-              className={`w-full rounded border p-2 ${
-                fieldErrors.name ? "border-red-500 bg-red-50" : ""
-              }`}
+              className={`${inputBase} ${fieldErrors.name ? inputErr : ""}`}
               value={form.name}
               onChange={(e) => {
                 setForm({ ...form, name: e.target.value });
@@ -997,7 +999,7 @@ function DonorModal({
               }}
             />
             {fieldErrors.name && (
-              <p data-testid="error-donor-name" className="mt-1 text-xs text-red-600">
+              <p data-testid="error-donor-name" className="mt-1 text-xs text-red-600 dark:text-red-400">
                 {fieldErrors.name}
               </p>
             )}
@@ -1007,9 +1009,7 @@ function DonorModal({
               placeholder="Phone"
               data-testid="donor-phone"
               aria-invalid={!!fieldErrors.phone}
-              className={`w-full rounded border p-2 ${
-                fieldErrors.phone ? "border-red-500 bg-red-50" : ""
-              }`}
+              className={`${inputBase} ${fieldErrors.phone ? inputErr : ""}`}
               value={form.phone}
               onChange={(e) => {
                 setForm({ ...form, phone: e.target.value });
@@ -1017,7 +1017,7 @@ function DonorModal({
               }}
             />
             {fieldErrors.phone && (
-              <p data-testid="error-donor-phone" className="mt-1 text-xs text-red-600">
+              <p data-testid="error-donor-phone" className="mt-1 text-xs text-red-600 dark:text-red-400">
                 {fieldErrors.phone}
               </p>
             )}
@@ -1027,9 +1027,7 @@ function DonorModal({
               placeholder="Email"
               data-testid="donor-email"
               aria-invalid={!!fieldErrors.email}
-              className={`w-full rounded border p-2 ${
-                fieldErrors.email ? "border-red-500 bg-red-50" : ""
-              }`}
+              className={`${inputBase} ${fieldErrors.email ? inputErr : ""}`}
               value={form.email}
               onChange={(e) => {
                 setForm({ ...form, email: e.target.value });
@@ -1037,14 +1035,14 @@ function DonorModal({
               }}
             />
             {fieldErrors.email && (
-              <p data-testid="error-donor-email" className="mt-1 text-xs text-red-600">
+              <p data-testid="error-donor-email" className="mt-1 text-xs text-red-600 dark:text-red-400">
                 {fieldErrors.email}
               </p>
             )}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <select
-              className="rounded border p-2"
+              className={inputBase}
               value={form.bloodGroup}
               onChange={(e) => setForm({ ...form, bloodGroup: e.target.value })}
             >
@@ -1053,7 +1051,7 @@ function DonorModal({
               ))}
             </select>
             <select
-              className="rounded border p-2"
+              className={inputBase}
               value={form.gender}
               onChange={(e) => setForm({ ...form, gender: e.target.value })}
             >
@@ -1068,9 +1066,7 @@ function DonorModal({
                 type="date"
                 data-testid="donor-dob"
                 aria-invalid={!!fieldErrors.dateOfBirth}
-                className={`w-full rounded border p-2 ${
-                  fieldErrors.dateOfBirth ? "border-red-500 bg-red-50" : ""
-                }`}
+                className={`${inputBase} dark:scheme-dark ${fieldErrors.dateOfBirth ? inputErr : ""}`}
                 value={form.dateOfBirth}
                 onChange={(e) => {
                   setForm({ ...form, dateOfBirth: e.target.value });
@@ -1080,7 +1076,7 @@ function DonorModal({
               {fieldErrors.dateOfBirth && (
                 <p
                   data-testid="error-donor-dob"
-                  className="mt-1 text-xs text-red-600"
+                  className="mt-1 text-xs text-red-600 dark:text-red-400"
                 >
                   {fieldErrors.dateOfBirth}
                 </p>
@@ -1092,9 +1088,7 @@ function DonorModal({
                 placeholder="Weight (kg)"
                 data-testid="donor-weight"
                 aria-invalid={!!fieldErrors.weight}
-                className={`w-full rounded border p-2 ${
-                  fieldErrors.weight ? "border-red-500 bg-red-50" : ""
-                }`}
+                className={`${inputBase} ${fieldErrors.weight ? inputErr : ""}`}
                 value={form.weight}
                 onChange={(e) => {
                   setForm({ ...form, weight: e.target.value });
@@ -1104,7 +1098,7 @@ function DonorModal({
               {fieldErrors.weight && (
                 <p
                   data-testid="error-donor-weight"
-                  className="mt-1 text-xs text-red-600"
+                  className="mt-1 text-xs text-red-600 dark:text-red-400"
                 >
                   {fieldErrors.weight}
                 </p>
@@ -1113,20 +1107,20 @@ function DonorModal({
           </div>
           <textarea
             placeholder="Address"
-            className="w-full rounded border p-2"
+            className={inputBase}
             rows={2}
             value={form.address}
             onChange={(e) => setForm({ ...form, address: e.target.value })}
           />
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded border px-4 py-2 text-sm">
+          <button onClick={onClose} className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-white/15 dark:text-gray-200 dark:hover:bg-white/5">
             Cancel
           </button>
           <button
             onClick={save}
             disabled={saving || !form.name || !form.phone}
-            className="rounded bg-red-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+            className="rounded bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50"
           >
             {saving ? "Saving..." : "Register"}
           </button>
@@ -1189,35 +1183,37 @@ function RequestModal({
     }
   }
 
+  const inputBase =
+    "rounded border border-gray-300 bg-white p-2 text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500";
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-lg bg-white p-6">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-lg bg-white p-6 dark:bg-gray-800 dark:ring-1 dark:ring-white/10">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold">New Blood Request</h2>
-          <button onClick={onClose} className="text-gray-400">✕</button>
+          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">New Blood Request</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200">✕</button>
         </div>
         <div className="space-y-3">
           <div>
-            <label htmlFor="bb-req-patient" className="text-xs text-gray-600">Patient</label>
+            <label htmlFor="bb-req-patient" className="text-xs text-gray-600 dark:text-gray-300">Patient</label>
             <div className="flex gap-2">
               <input
                 id="bb-req-patient"
                 placeholder="Search patient by name / MR"
-                className="flex-1 rounded border p-2"
+                className={`flex-1 ${inputBase}`}
                 value={patientSearch}
                 onChange={(e) => setPatientSearch(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && searchPatients()}
               />
               <button
                 onClick={searchPatients}
-                className="rounded border px-3 text-sm"
+                className="rounded border border-gray-300 px-3 text-sm text-gray-700 hover:bg-gray-50 dark:border-white/15 dark:text-gray-200 dark:hover:bg-white/5"
               >
                 Search
               </button>
             </div>
             {patients.length > 0 && (
               <select
-                className="mt-2 w-full rounded border p-2"
+                className={`mt-2 w-full ${inputBase}`}
                 value={patientId}
                 onChange={(e) => setPatientId(e.target.value)}
               >
@@ -1233,7 +1229,7 @@ function RequestModal({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <select
-              className="rounded border p-2"
+              className={inputBase}
               value={form.bloodGroup}
               onChange={(e) => setForm({ ...form, bloodGroup: e.target.value })}
             >
@@ -1242,7 +1238,7 @@ function RequestModal({
               ))}
             </select>
             <select
-              className="rounded border p-2"
+              className={inputBase}
               value={form.component}
               onChange={(e) => setForm({ ...form, component: e.target.value })}
             >
@@ -1257,14 +1253,14 @@ function RequestModal({
               type="number"
               min={1}
               placeholder="Units"
-              className="rounded border p-2"
+              className={inputBase}
               value={form.unitsRequested}
               onChange={(e) =>
                 setForm({ ...form, unitsRequested: Number(e.target.value) })
               }
             />
             <select
-              className="rounded border p-2"
+              className={inputBase}
               value={form.urgency}
               onChange={(e) => setForm({ ...form, urgency: e.target.value })}
             >
@@ -1275,20 +1271,20 @@ function RequestModal({
           </div>
           <textarea
             placeholder="Clinical reason"
-            className="w-full rounded border p-2"
+            className={`w-full ${inputBase}`}
             rows={2}
             value={form.reason}
             onChange={(e) => setForm({ ...form, reason: e.target.value })}
           />
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded border px-4 py-2 text-sm">
+          <button onClick={onClose} className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-white/15 dark:text-gray-200 dark:hover:bg-white/5">
             Cancel
           </button>
           <button
             onClick={save}
             disabled={saving || !form.reason || !patientId}
-            className="rounded bg-red-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+            className="rounded bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50"
           >
             {saving ? "Saving..." : "Submit Request"}
           </button>
@@ -1334,21 +1330,24 @@ function DeferralModal({
     }
   }
 
+  const labelCls = "mb-1 block text-xs text-gray-600 dark:text-gray-300";
+  const inputCls =
+    "w-full rounded border border-gray-300 bg-white p-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500";
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-lg bg-white p-6">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-lg bg-white p-6 dark:bg-gray-800 dark:ring-1 dark:ring-white/10">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold">Add Donor Deferral</h2>
-          <button onClick={onClose} className="text-gray-400">✕</button>
+          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Add Donor Deferral</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200">✕</button>
         </div>
         <div className="space-y-3">
           <div>
-            <label htmlFor="bb-deferral-reason" className="mb-1 block text-xs text-gray-600">Reason</label>
+            <label htmlFor="bb-deferral-reason" className={labelCls}>Reason</label>
             <select
               id="bb-deferral-reason"
               value={form.reason}
               onChange={(e) => setForm({ ...form, reason: e.target.value })}
-              className="w-full rounded border p-2 text-sm"
+              className={inputCls}
             >
               {[
                 "Recent travel",
@@ -1368,12 +1367,12 @@ function DeferralModal({
             </select>
           </div>
           <div>
-            <label htmlFor="bb-deferral-type" className="mb-1 block text-xs text-gray-600">Deferral Type</label>
+            <label htmlFor="bb-deferral-type" className={labelCls}>Deferral Type</label>
             <select
               id="bb-deferral-type"
               value={form.deferralType}
               onChange={(e) => setForm({ ...form, deferralType: e.target.value })}
-              className="w-full rounded border p-2 text-sm"
+              className={inputCls}
             >
               <option value="TEMPORARY">Temporary</option>
               <option value="PERMANENT">Permanent</option>
@@ -1381,17 +1380,17 @@ function DeferralModal({
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label htmlFor="bb-deferral-start" className="mb-1 block text-xs text-gray-600">Start Date</label>
+              <label htmlFor="bb-deferral-start" className={labelCls}>Start Date</label>
               <input
                 id="bb-deferral-start"
                 type="date"
                 value={form.startDate}
                 onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-                className="w-full rounded border p-2 text-sm"
+                className={`${inputCls} dark:scheme-dark`}
               />
             </div>
             <div>
-              <label htmlFor="bb-deferral-end" className="mb-1 block text-xs text-gray-600">
+              <label htmlFor="bb-deferral-end" className={labelCls}>
                 End Date {form.deferralType === "PERMANENT" ? "(N/A)" : ""}
               </label>
               <input
@@ -1400,29 +1399,29 @@ function DeferralModal({
                 disabled={form.deferralType === "PERMANENT"}
                 value={form.endDate}
                 onChange={(e) => setForm({ ...form, endDate: e.target.value })}
-                className="w-full rounded border p-2 text-sm disabled:bg-gray-100"
+                className={`${inputCls} dark:scheme-dark disabled:bg-gray-100 dark:disabled:bg-gray-900/60`}
               />
             </div>
           </div>
           <div>
-            <label htmlFor="bb-deferral-notes" className="mb-1 block text-xs text-gray-600">Notes</label>
+            <label htmlFor="bb-deferral-notes" className={labelCls}>Notes</label>
             <textarea
               id="bb-deferral-notes"
               rows={2}
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              className="w-full rounded border p-2 text-sm"
+              className={inputCls}
             />
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded border px-4 py-2 text-sm">
+          <button onClick={onClose} className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-white/15 dark:text-gray-200 dark:hover:bg-white/5">
             Cancel
           </button>
           <button
             onClick={save}
             disabled={saving}
-            className="rounded bg-amber-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+            className="rounded bg-amber-600 px-4 py-2 text-sm text-white hover:bg-amber-700 disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save Deferral"}
           </button>
@@ -1503,12 +1502,12 @@ function SeparationModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-lg bg-white p-6">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-lg bg-white p-6 dark:bg-gray-800 dark:ring-1 dark:ring-white/10">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold">Separate Components</h2>
-          <button onClick={onClose} className="text-gray-400">✕</button>
+          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Separate Components</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200">✕</button>
         </div>
-        <p className="mb-3 text-xs text-gray-500">
+        <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
           Select components to produce from this donation. Each component will
           create corresponding blood units in inventory.
         </p>
@@ -1518,14 +1517,14 @@ function SeparationModal({
             return (
               <div
                 key={c.key}
-                className="flex items-center gap-3 rounded border p-3"
+                className="flex items-center gap-3 rounded border border-gray-200 p-3 dark:border-white/10"
               >
                 <input
                   type="checkbox"
                   checked={st.enabled}
                   onChange={() => toggle(c.key)}
                 />
-                <div className="flex-1 text-sm font-medium">{c.label}</div>
+                <div className="flex-1 text-sm font-medium text-gray-900 dark:text-gray-100">{c.label}</div>
                 <input
                   type="number"
                   min={1}
@@ -1533,7 +1532,7 @@ function SeparationModal({
                   disabled={!st.enabled}
                   value={st.unitsProduced}
                   onChange={(e) => setField(c.key, "unitsProduced", e.target.value)}
-                  className="w-16 rounded border p-1 text-sm disabled:bg-gray-100"
+                  className="w-16 rounded border border-gray-300 bg-white p-1 text-sm text-gray-900 placeholder:text-gray-400 disabled:bg-gray-100 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 dark:disabled:bg-gray-900/60"
                   placeholder="Units"
                   title="Units produced"
                 />
@@ -1542,7 +1541,7 @@ function SeparationModal({
                   disabled={!st.enabled}
                   value={st.volumeMl}
                   onChange={(e) => setField(c.key, "volumeMl", e.target.value)}
-                  className="w-20 rounded border p-1 text-sm disabled:bg-gray-100"
+                  className="w-20 rounded border border-gray-300 bg-white p-1 text-sm text-gray-900 placeholder:text-gray-400 disabled:bg-gray-100 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 dark:disabled:bg-gray-900/60"
                   placeholder="Vol ml"
                   title="Volume (ml)"
                 />
@@ -1551,13 +1550,13 @@ function SeparationModal({
           })}
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded border px-4 py-2 text-sm">
+          <button onClick={onClose} className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-white/15 dark:text-gray-200 dark:hover:bg-white/5">
             Cancel
           </button>
           <button
             onClick={save}
             disabled={saving}
-            className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+            className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {saving ? "Processing..." : "Separate"}
           </button>

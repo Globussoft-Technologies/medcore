@@ -72,20 +72,20 @@ export default function PediatricPage() {
         </p>
       </div>
 
-      <div className="mb-4 flex items-center gap-2 rounded-xl bg-white p-3 shadow-sm dark:bg-gray-800 dark:shadow-none dark:ring-1 dark:ring-white/10">
-        <Search size={16} className="text-gray-400 dark:text-gray-500" />
+      <div className="mb-4 flex items-center gap-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-gray-800 dark:shadow-none">
+        <Search size={16} className="text-gray-400 dark:text-gray-400" />
         <input
           type="text"
           placeholder="Search by name or MR number"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="flex-1 border-0 bg-transparent px-2 py-1 text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-500"
+          className="flex-1 border-0 bg-transparent px-2 py-1 text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-400"
         />
       </div>
 
       <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800 dark:shadow-none dark:ring-1 dark:ring-white/10">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+          <div className="p-8 text-center text-gray-500 dark:text-gray-300">
             Loading...
           </div>
         ) : patients.length === 0 ? (
@@ -93,10 +93,10 @@ export default function PediatricPage() {
             <div className="rounded-full bg-primary/10 p-3 text-primary dark:bg-primary/20">
               <Baby size={28} />
             </div>
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-100">
               No pediatric patients found.
             </p>
-            <p className="max-w-sm text-xs text-gray-500 dark:text-gray-400">
+            <p className="max-w-sm text-xs text-gray-500 dark:text-gray-300">
               Patients under 18 will appear here once registered. Try adjusting
               your search.
             </p>
@@ -104,13 +104,13 @@ export default function PediatricPage() {
         ) : (
           <table className="w-full">
             <thead>
-              <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-white/10 dark:text-gray-400">
-                <th className="px-4 py-3">MR Number</th>
-                <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">Age</th>
-                <th className="px-4 py-3">Gender</th>
-                <th className="px-4 py-3">Phone</th>
-                <th className="px-4 py-3">Action</th>
+              <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-white/10 dark:text-gray-300">
+                <th className="px-4 py-3 font-semibold">MR Number</th>
+                <th className="px-4 py-3 font-semibold">Name</th>
+                <th className="px-4 py-3 font-semibold">Age</th>
+                <th className="px-4 py-3 font-semibold">Gender</th>
+                <th className="px-4 py-3 font-semibold">Phone</th>
+                <th className="px-4 py-3 font-semibold">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -119,9 +119,9 @@ export default function PediatricPage() {
                 return (
                   <tr
                     key={p.id}
-                    className="border-b border-gray-200 last:border-0 dark:border-white/10"
+                    className="border-b border-gray-200 last:border-0 hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5"
                   >
-                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">
+                    <td className="px-4 py-3 font-mono text-sm font-medium text-gray-900 dark:text-gray-100">
                       {p.mrNumber}
                     </td>
                     <td className="px-4 py-3">
@@ -132,13 +132,13 @@ export default function PediatricPage() {
                         {p.user.name}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                    <td className="px-4 py-3 text-sm text-gray-800 dark:text-gray-100">
                       {age !== null ? `${age}y` : "—"}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                    <td className="px-4 py-3 text-sm text-gray-800 dark:text-gray-100">
                       {p.gender}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                    <td className="px-4 py-3 text-sm text-gray-800 dark:text-gray-100">
                       {p.user.phone || "—"}
                     </td>
                     <td className="px-4 py-3">

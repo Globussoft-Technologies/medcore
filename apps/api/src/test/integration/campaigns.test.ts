@@ -684,4 +684,164 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
       expect(res.body.nextWindowStart).toBeTruthy();
     }
   });
+
+  // ─────────────────────────────────────────────────────────
+  // Pearl §5.1 piece 3 — A/B variants + GET /:id/stats rollup
+  // ─────────────────────────────────────────────────────────
+
+  it("dispatch with A/B variants records a variantId on every CampaignSend (piece 3a)", async () => {
+    const prisma = await getPrisma();
+
+    const aud = await prisma.campaignAudience.create({
+      data: {
+        tenantId: tenantAId,
+        name: "AB test audience",
+        rules: { filters: [{ field: "gender", op: "eq", value: "FEMALE" }] },
+      },
+    });
+
+    const passwordHash = await bcrypt.hash("MedCoreT3st-2026", 4);
+    const ts = Date.now() + 100;
+    // 20 patients so the two-variant 50/50 split has enough samples that
+    // both variants are essentially always hit (chance of one variant
+    // getting all 20 is 2 * 0.5^20 ≈ 1.9e-6 — effectively never).
+    for (let i = 0; i < 20; i++) {
+      const u = await prisma.user.create({
+        data: {
+          email: `ab-${i}-${ts}@test.local`,
+          name: `AB Patient ${i}`,
+          phone: `97${String(ts).slice(-7)}${i % 10}`,
+          passwordHash,
+          role: "PATIENT",
+          tenantId: tenantAId,
+        },
+      });
+      await prisma.patient.create({
+        data: {
+          userId: u.id,
+          mrNumber: `MR-AB-${ts}-${i}`,
+          gender: "FEMALE",
+          tenantId: tenantAId,
+        },
+      });
+    }
+
+    const created = await request(app)
+      .post("/api/v1/campaigns")
+      .set("Authorization", `Bearer ${adminAToken}`)
+      .send({
+        name: "AB-piece-3a",
+        channels: ["SMS"],
+        body: "default body",
+        audienceId: aud.id,
+        abVariants: [
+          { id: "A", weight: 50, bodyOverride: "VARIANT A: Hi {{patient.firstName}}" },
+          { id: "B", weight: 50, bodyOverride: "VARIANT B: Hi {{patient.firstName}}" },
+        ],
+      });
+    expect(created.status).toBe(201);
+
+    const dispatch = await request(app)
+      .post(`/api/v1/campaigns/${created.body.data.id}/dispatch`)
+      .set("Authorization", `Bearer ${adminAToken}`);
+    expect(dispatch.status).toBe(200);
+    expect(dispatch.body.data.summary.sent).toBe(20);
+
+    const sends = await prisma.campaignSend.findMany({
+      where: { campaignId: created.body.data.id },
+    });
+    expect(sends.length).toBe(20);
+    expect(sends.every((s: { variantId: string | null }) => s.variantId === "A" || s.variantId === "B")).toBe(true);
+    // Both variants used (50/50 over 20 trials — see comment above).
+    const variantIds = new Set(sends.map((s: { variantId: string | null }) => s.variantId));
+    expect(variantIds.has("A")).toBe(true);
+    expect(variantIds.has("B")).toBe(true);
+  });
+
+  it("GET /:id/stats returns total + byStatus + byChannel + byVariant rollups (piece 3b)", async () => {
+    const prisma = await getPrisma();
+
+    const aud = await prisma.campaignAudience.create({
+      data: {
+        tenantId: tenantAId,
+        name: "Stats test audience",
+        rules: { filters: [{ field: "gender", op: "eq", value: "FEMALE" }] },
+      },
+    });
+
+    const passwordHash = await bcrypt.hash("MedCoreT3st-2026", 4);
+    const ts = Date.now() + 200;
+    for (let i = 0; i < 3; i++) {
+      const u = await prisma.user.create({
+        data: {
+          email: `stats-${i}-${ts}@test.local`,
+          name: `Stats P ${i}`,
+          phone: `98${String(ts).slice(-7)}${i}`,
+          passwordHash,
+          role: "PATIENT",
+          tenantId: tenantAId,
+        },
+      });
+      await prisma.patient.create({
+        data: {
+          userId: u.id,
+          mrNumber: `MR-STAT-${ts}-${i}`,
+          gender: "FEMALE",
+          tenantId: tenantAId,
+        },
+      });
+    }
+
+    const created = await request(app)
+      .post("/api/v1/campaigns")
+      .set("Authorization", `Bearer ${adminAToken}`)
+      .send({
+        name: "Stats-piece-3b",
+        channels: ["WHATSAPP", "SMS"],
+        body: "hello",
+        audienceId: aud.id,
+      });
+    expect(created.status).toBe(201);
+
+    await request(app)
+      .post(`/api/v1/campaigns/${created.body.data.id}/dispatch`)
+      .set("Authorization", `Bearer ${adminAToken}`)
+      .expect(200);
+
+    const stats = await request(app)
+      .get(`/api/v1/campaigns/${created.body.data.id}/stats`)
+      .set("Authorization", `Bearer ${adminAToken}`);
+    expect(stats.status).toBe(200);
+    expect(stats.body.data.total).toBe(6); // 3 patients × 2 channels
+    expect(stats.body.data.byStatus.SENT).toBe(6);
+    expect(stats.body.data.byStatus.FAILED).toBe(0);
+    expect(stats.body.data.byChannel.WHATSAPP?.SENT).toBe(3);
+    expect(stats.body.data.byChannel.WHATSAPP?.total).toBe(3);
+    expect(stats.body.data.byChannel.SMS?.SENT).toBe(3);
+    expect(stats.body.data.byChannel.SMS?.total).toBe(3);
+    // No abVariants on this campaign → byVariant is empty.
+    expect(Object.keys(stats.body.data.byVariant).length).toBe(0);
+  });
+
+  it("GET /:id/stats RBAC: RECEPTION cannot read (403)", async () => {
+    const prisma = await getPrisma();
+    const created = await prisma.campaign.create({
+      data: { name: "rbac-stats", channels: ["SMS"], tenantId: tenantAId },
+    });
+    const res = await request(app)
+      .get(`/api/v1/campaigns/${created.id}/stats`)
+      .set("Authorization", `Bearer ${receptionAToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("GET /:id/stats cross-tenant 404", async () => {
+    const prisma = await getPrisma();
+    const created = await prisma.campaign.create({
+      data: { name: "xtenant-stats", channels: ["SMS"], tenantId: tenantBId },
+    });
+    const res = await request(app)
+      .get(`/api/v1/campaigns/${created.id}/stats`)
+      .set("Authorization", `Bearer ${adminAToken}`);
+    expect(res.status).toBe(404);
+  });
 });

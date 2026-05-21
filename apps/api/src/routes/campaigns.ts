@@ -620,4 +620,104 @@ router.post(
   },
 );
 
+// ── GET /:id/stats — Pearl §5.1 piece 3 tracking aggregates (ADMIN) ──
+//
+// Returns a rollup of CampaignSend rows for one Campaign: overall
+// totals + per-status counts + per-channel matrix + per-variant counts
+// (when A/B variants are configured). Reads only; no side effects. The
+// per-variant block is empty when the campaign has no abVariants — the
+// operator can still see channel-level performance without an A/B.
+router.get(
+  "/:id/stats",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = await resolveTenantId(req);
+      if (!tenantId) {
+        res.status(404).json({ success: false, data: null, error: "Campaign not found" });
+        return;
+      }
+      const campaign = await prisma.campaign.findFirst({
+        where: { id: req.params.id, tenantId },
+        select: { id: true, name: true, status: true, channels: true },
+      });
+      if (!campaign) {
+        res.status(404).json({ success: false, data: null, error: "Campaign not found" });
+        return;
+      }
+
+      const [byStatus, byChannelStatus, byVariant] = await Promise.all([
+        prisma.campaignSend.groupBy({
+          by: ["status"],
+          where: { campaignId: campaign.id, tenantId },
+          _count: { _all: true },
+        }),
+        prisma.campaignSend.groupBy({
+          by: ["channel", "status"],
+          where: { campaignId: campaign.id, tenantId },
+          _count: { _all: true },
+        }),
+        prisma.campaignSend.groupBy({
+          by: ["variantId", "status"],
+          where: { campaignId: campaign.id, tenantId, variantId: { not: null } },
+          _count: { _all: true },
+        }),
+      ]);
+
+      const statusTotals: Record<string, number> = {
+        QUEUED: 0, SENT: 0, DELIVERED: 0, READ: 0,
+        BOUNCED: 0, FAILED: 0, SUPPRESSED: 0,
+      };
+      let total = 0;
+      for (const row of byStatus) {
+        statusTotals[row.status] = row._count._all;
+        total += row._count._all;
+      }
+
+      // Pivot per-channel × status into { channel: { status: count } }
+      // so the UI can render a matrix without further reshaping.
+      const channelMatrix: Record<string, Record<string, number>> = {};
+      for (const row of byChannelStatus) {
+        if (!channelMatrix[row.channel]) {
+          channelMatrix[row.channel] = {
+            QUEUED: 0, SENT: 0, DELIVERED: 0, READ: 0,
+            BOUNCED: 0, FAILED: 0, SUPPRESSED: 0, total: 0,
+          };
+        }
+        channelMatrix[row.channel][row.status] = row._count._all;
+        channelMatrix[row.channel].total += row._count._all;
+      }
+
+      const variantMatrix: Record<string, Record<string, number>> = {};
+      for (const row of byVariant) {
+        if (!row.variantId) continue;
+        if (!variantMatrix[row.variantId]) {
+          variantMatrix[row.variantId] = {
+            QUEUED: 0, SENT: 0, DELIVERED: 0, READ: 0,
+            BOUNCED: 0, FAILED: 0, SUPPRESSED: 0, total: 0,
+          };
+        }
+        variantMatrix[row.variantId][row.status] = row._count._all;
+        variantMatrix[row.variantId].total += row._count._all;
+      }
+
+      res.json({
+        success: true,
+        data: {
+          campaignId: campaign.id,
+          campaignName: campaign.name,
+          status: campaign.status,
+          total,
+          byStatus: statusTotals,
+          byChannel: channelMatrix,
+          byVariant: variantMatrix,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 export { router as campaignsRouter };

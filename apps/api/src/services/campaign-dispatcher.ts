@@ -113,6 +113,54 @@ function splitName(full: string): { firstName: string; lastName: string } {
   return { firstName: parts[0], lastName: parts[parts.length - 1] };
 }
 
+// Pearl §5.1 piece 3 — A/B variant resolution at dispatch.
+//
+// abVariants is persisted as Json on Campaign (shape validated by the
+// createCampaignSchema in @medcore/shared); we re-validate here at
+// runtime so a malformed row from a manual DB edit doesn't crash the
+// dispatcher. Returns null when no variants are configured (the
+// dispatcher then falls back to campaign.subject/body unchanged).
+export interface CampaignVariant {
+  id: string;
+  weight: number;
+  subjectOverride?: string;
+  bodyOverride?: string;
+}
+
+export function parseAbVariants(raw: unknown): CampaignVariant[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out: CampaignVariant[] = [];
+  for (const v of raw) {
+    if (!v || typeof v !== "object") continue;
+    const obj = v as Record<string, unknown>;
+    const id = typeof obj.id === "string" ? obj.id.trim() : "";
+    const weight = typeof obj.weight === "number" ? Math.floor(obj.weight) : 0;
+    if (!id || weight <= 0) continue;
+    const subjectOverride =
+      typeof obj.subjectOverride === "string" ? obj.subjectOverride : undefined;
+    const bodyOverride =
+      typeof obj.bodyOverride === "string" ? obj.bodyOverride : undefined;
+    out.push({ id, weight, subjectOverride, bodyOverride });
+  }
+  return out.length > 0 ? out : null;
+}
+
+// Weighted random pick. Math.random() is fine for A/B distribution —
+// we want true randomness, not determinism (so re-dispatch can re-roll
+// for a re-targeted patient set). Conversion attribution (piece 3c)
+// reads variantId off CampaignSend, so the picker just needs to be
+// reasonably uniform over many runs.
+export function pickVariant(variants: CampaignVariant[]): CampaignVariant {
+  const totalWeight = variants.reduce((sum, v) => sum + v.weight, 0);
+  let pick = Math.random() * totalWeight;
+  for (const v of variants) {
+    pick -= v.weight;
+    if (pick <= 0) return v;
+  }
+  // Float drift edge — fall back to the last variant.
+  return variants[variants.length - 1];
+}
+
 // Map CampaignChannel → NotificationPreference.channel (same string set
 // in the current schema, but kept explicit so a future divergence is
 // caught at the boundary).
@@ -188,6 +236,7 @@ export async function dispatchCampaign(
 
   const channels = (campaign.channels || []) as CampaignChannel[];
   const tenantCtx = { name: campaign.tenant?.name ?? "" };
+  const variants = parseAbVariants(campaign.abVariants);
 
   for (const patient of patients) {
     if (!patient.user) continue;
@@ -202,8 +251,15 @@ export async function dispatchCampaign(
       },
       tenant: tenantCtx,
     };
-    const substitutedBody = substituteTemplate(campaign.body, ctx);
-    const substitutedSubject = substituteTemplate(campaign.subject ?? "", ctx);
+
+    // Pearl §5.1 piece 3 — pick a variant per recipient (not per
+    // channel — same patient gets the same copy across channels).
+    const variant = variants ? pickVariant(variants) : null;
+    const variantId: string | null = variant?.id ?? null;
+    const sourceBody = variant?.bodyOverride ?? campaign.body;
+    const sourceSubject = variant?.subjectOverride ?? campaign.subject ?? "";
+    const substitutedBody = substituteTemplate(sourceBody, ctx);
+    const substitutedSubject = substituteTemplate(sourceSubject, ctx);
 
     for (const channel of channels) {
       summary.total += 1;
@@ -221,6 +277,7 @@ export async function dispatchCampaign(
             tenantId: campaign.tenantId,
             patientId: patient.id,
             channel,
+            variantId,
             status: "SUPPRESSED",
             failureReason: "patient opted out of this channel",
           },
@@ -247,6 +304,7 @@ export async function dispatchCampaign(
             tenantId: campaign.tenantId,
             patientId: patient.id,
             channel,
+            variantId,
             status: "SENT",
             sentAt: new Date(),
           },
@@ -259,6 +317,7 @@ export async function dispatchCampaign(
             tenantId: campaign.tenantId,
             patientId: patient.id,
             channel,
+            variantId,
             status: "SUPPRESSED",
             failureReason: result.error ?? "address missing",
           },
@@ -271,6 +330,7 @@ export async function dispatchCampaign(
             tenantId: campaign.tenantId,
             patientId: patient.id,
             channel,
+            variantId,
             status: "FAILED",
             failedAt: new Date(),
             failureReason: result.error ?? "channel adapter failed",

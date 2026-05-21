@@ -673,7 +673,51 @@ model Tenant {
   leads          Lead[]
   leadActivities LeadActivity[]
 
+  // Pearl §7.2 + §8.1 (gap item #2 — piece 1 of 3) — branch model.
+  // Per-tenant branches (e.g. MAIN, JKR, BTM); the picker + branch
+  // scoping on other tables ships in pieces 2 and 3.
+  branches Branch[]
+
   @@map("tenants")
+}
+
+// Pearl ERP Stage 1 §7.2 + §8.1 (gap item #2 — piece 1 of 3) — branch model.
+//
+// A tenant (hospital) can run from multiple branches. Pearl explicitly
+// requires branch-aware scoping on every transactional table; this
+// model is the foundation. Pieces 2 (branchScopedPrisma + branchId on
+// ~20 tables) and 3 (branch picker UI + report filters) ship later.
+//
+// Invariant: exactly one Branch per tenant must have isDefault=true.
+// Postgres has no first-class partial unique index for "one row per
+// (tenantId) where isDefault=true" that Prisma can declare in schema,
+// so this is API-enforced (see apps/api/src/routes/branches.ts —
+// POST auto-defaults the first branch, PATCH that sets isDefault=true
+// atomically unsets it on the previous default, DELETE refuses to
+// soft-delete the default).
+model Branch {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  code      String? // short label like "MAIN", "JKR" — optional
+  address   String?
+  city      String?
+  state     String?
+  pincode   String?
+  phone     String?
+  email     String?
+  gstin     String?
+  isDefault Boolean  @default(false)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([tenantId, active])
+  @@map("branches")
 }
 
 // Pearl ERP Stage 1 §3.3 (gap item #3) — CRM lead pipeline.

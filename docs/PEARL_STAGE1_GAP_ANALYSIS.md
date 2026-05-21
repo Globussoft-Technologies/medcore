@@ -183,14 +183,14 @@ Closest fit to today's MedCore. Sidebar + topbar + role-scoped views are all the
 | 7.1 | Doctor view (OPD queue, 3-col consult, Rx, templates, favourites, CRM activity) | 🟡 Partial | `/dashboard/queue/`, `/dashboard/scribe/`, `/dashboard/prescriptions/` | Each surface exists; "CRM activity on a patient" surface doesn't (no Lead/CRM data). |
 | 7.1 | Pharmacy view (Kanban + master + inventory) | 🟡 Partial | `/dashboard/pharmacy/`, `/dashboard/medicines/` | List view, not Kanban. |
 | 7.1 | Billing view | ✅ Present | `/dashboard/billing/`, `/dashboard/bills/` | — |
-| 7.1 | Admin view (users / roles / branches / settings / audit / reports) | 🟡 Partial | `/dashboard/users/`, `/dashboard/settings/`, `/dashboard/audit/`, `/dashboard/reports/` | **No branches** (no Branch model). |
+| 7.1 | Admin view (users / roles / branches / settings / audit / reports) | 🟡 Partial | `/dashboard/users/`, `/dashboard/settings/`, `/dashboard/audit/`, `/dashboard/reports/`, [`routes/branches.ts`](../apps/api/src/routes/branches.ts) | Branch CRUD API shipped 2026-05-21 (gap #2 piece 1 of 3); branch admin UI pending (piece 3). |
 | 7.1 | Owner / SLT dashboard | ✅ Present | `/dashboard/admin-console/` (live tiles), `/dashboard/analytics/` | KPI tiles. |
 | 7.2 | Design tokens (`design-tokens.ts`) | ✅ Present | Tailwind config + `globals.css` | Token-driven via Tailwind. |
 | 7.2 | ⌘K command palette | ❌ Missing | — | — |
 | 7.2 | Skeleton loaders on every fetch | 🟡 Partial | Many pages have skeletons | Not enforced universally. |
 | 7.2 | Toast + EmptyState primitives | ✅ Present | [`apps/web/src/lib/toast.ts`](../apps/web/src/lib/toast.ts) + various EmptyState components | — |
 | 7.2 | Quick-action buttons on every patient name | ✅ Present | See §2.1.8. | Closed 2026-05-21 via `02192a4`. |
-| 7.2 | Multi-tenant + branch-aware scoping | 🟡 Partial | `tenantScopedPrisma` ([`services/tenant-prisma.ts`](../apps/api/src/services/tenant-prisma.ts)) | Tenant yes; **branch no**. |
+| 7.2 | Multi-tenant + branch-aware scoping | 🟡 Partial | `tenantScopedPrisma` ([`services/tenant-prisma.ts`](../apps/api/src/services/tenant-prisma.ts)); `Branch` model + CRUD API in [`routes/branches.ts`](../apps/api/src/routes/branches.ts) | Tenant yes; **branch model + CRUD shipped 2026-05-21 (piece 1 of 3)**. Pending: piece 2 = `branchScopedPrisma` + `branchId` on Appointment/Invoice/Doctor/Patient; piece 3 = branch picker UI + report filters. |
 | 7.2 | i18n (EN + HI shell) | ✅ Present | `apps/web/src/lib/i18n.ts` | Flat dict, EN+HI shipped. |
 
 ---
@@ -230,16 +230,15 @@ Pearl wants this on a **separate URL** (`admin.pearl-erp.in`) with elevated `sup
 
 ### 3.1 Multi-tenancy + branch-awareness (PRD §7.2)
 
-MedCore has solid multi-tenancy: every Pearl-relevant table carries `tenantId`, and [`tenantScopedPrisma`](../packages/db/src/) auto-injects tenant on create and auto-filters on read. **There is NO `Branch` model in the schema** — Pearl explicitly requires per-tenant *multi-branch* support, with reports filtering by branch and the admin onboarding wizard creating a "first branch + super-admin user" in step 2 of 8.
+MedCore has solid multi-tenancy: every Pearl-relevant table carries `tenantId`, and [`tenantScopedPrisma`](../packages/db/src/) auto-injects tenant on create and auto-filters on read. The `Branch` model + CRUD API shipped 2026-05-21 as **piece 1 of 3** ([`routes/branches.ts`](../apps/api/src/routes/branches.ts), migration `20260520000010_pearl_branch_model`).
 
-This is a **schema-level gap** requiring:
-- new `Branch` model with `id, tenantId, name, address, gstin, ...`
-- `branchId` on ~20 tables (`Appointment`, `Invoice`, `Doctor`, `DoctorSchedule`, `Patient`?, `InventoryItem`, `User`, ...)
-- `branchScopedPrisma` extension layer alongside `tenantScopedPrisma`
-- branch filter on every report
-- branch picker in topbar
+**Piece 1 closed 2026-05-21** — `Branch` schema + 5-endpoint CRUD + RBAC + 15 integration tests. The Branch model is per-tenant with the "exactly one default per tenant" invariant API-enforced (POST auto-defaults the first branch, PATCH that sets isDefault=true atomically transfers, DELETE refuses to soft-delete the default).
 
-Estimate: **3-4 engineer-weeks** including the migration of existing data to a single default branch per tenant.
+**Still pending** (pieces 2 + 3):
+- piece 2 — `branchScopedPrisma` extension layer alongside `tenantScopedPrisma` + `branchId` on ~20 tables (`Appointment`, `Invoice`, `Doctor`, `DoctorSchedule`, `Patient`?, `InventoryItem`, `User`, ...) + backfill each tenant's existing rows with its `isDefault` branch
+- piece 3 — branch filter on every report + branch picker in topbar + branch-aware nav
+
+Estimate remaining: **2-3 engineer-weeks** for pieces 2 + 3 (was 3-4 weeks for all three).
 
 ### 3.2 i18n — EN + HI shell + clinical-content English (PRD §7.2)
 
@@ -340,7 +339,7 @@ Ordered by Pearl-criticality × MedCore-build-cost ratio. Effort is engineer-wee
 | # | Move | Effort | Why |
 |---|---|---|---|
 | 1 | ~~**Add `Doctor.appointmentMode` + Calling/Token/Slot routing in `routes/appointments.ts` + token board variant rendering**~~ | ~~1 week~~ | ✅ **CLOSED 2026-05-21 — all 3 pieces shipped**. Piece 1 = schema + API foundation + dailyLimit/lastHour/tokenPrefix enforcement (commits `bfd11a8` + `6913d62` + `e35081b` + `af48756`). Piece 2 = doctor-profile mode-picker UI — all 6 knobs editable from `/dashboard/doctors/:id` (commit `fd58688`). Piece 3 = token-board variant rendering + Calling-mode arrival-queue feed + SLOT first-name-last-initial redaction + mode-tagged display-board API (commit `6febb54`, plus closure annotations + 3 `queue.test.ts` plumbing assertions). End-to-end Pearl M1 #1 now lands: admin sets mode → booking form branches → display board reflects it. |
-| 2 | **Add `Branch` model + branchId on ~20 tables + `branchScopedPrisma` + branch picker in topbar** | 3-4 weeks | Pearl M6+M7 mandate this. Migration: backfill default branch per tenant. |
+| 2 | **Add `Branch` model + branchId on ~20 tables + `branchScopedPrisma` + branch picker in topbar** | 3-4 weeks | 🚧 **In progress — piece 1 of 3 closed 2026-05-21** (Branch model + CRUD API + 15 integration tests; migration `20260520000010_pearl_branch_model`; `routes/branches.ts`). Pending: piece 2 = `branchScopedPrisma` + `branchId` on Appointment/Invoice/Doctor/Patient (~2 wk); piece 3 = branch picker UI + report filters (~1 wk). |
 | 3 | ~~**Build Lead pipeline (`Lead` model + 6-stage state machine + activity log + convert-to-patient)**~~ | ~~1.5 weeks~~ | ✅ **CLOSED 2026-05-21**. Migration `20260520000007_pearl_lead_pipeline` (Lead + LeadActivity + 3 enums). 6 endpoints in `routes/leads.ts`: POST/GET/GET-detail/PATCH/POST-activities/POST-convert. Status changes + doctor allocation auto-log activities. POST /convert creates User+Patient in a transaction, mints MR, writes CONVERSION activity. Idempotent MarketingEnquiry → Lead promotion via @@unique. Web `/dashboard/leads` page with stage chips, source filter, search, status-dropdown, create modal. "Add to Lead" button on patient row wired live (was stub). 7 integration tests. |
 | 4 | **Build Campaign engine (`Campaign`, `CampaignSend`, `CampaignAudience`, audience builder UI, 4-channel dispatcher, send-window respect, A/B variant)** | 2.5 weeks | Closes M4 §5.1 entirely. Reuses existing `services/channels/*`. |
 | 5 | **Build patient PWA route group `apps/web/src/app/patient/` + service worker + phone-OTP login route** | 3 weeks | Closes M5 §6.1+6.2. Backend ~90% reused. |

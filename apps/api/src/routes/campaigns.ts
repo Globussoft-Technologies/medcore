@@ -646,7 +646,12 @@ router.get(
         return;
       }
 
-      const [byStatus, byChannelStatus, byVariant] = await Promise.all([
+      // Pearl §5.1 piece 3c — add click + conversion counts to the
+      // rollup. Both are simple where-filtered counts on the same
+      // CampaignSend table; the byVariant matrix is augmented with
+      // per-variant clicks + conversions so the operator can compare
+      // variant performance end-to-end (impressions → clicks → conv).
+      const [byStatus, byChannelStatus, byVariant, clicked, converted, clickedByVariant, convertedByVariant] = await Promise.all([
         prisma.campaignSend.groupBy({
           by: ["status"],
           where: { campaignId: campaign.id, tenantId },
@@ -660,6 +665,22 @@ router.get(
         prisma.campaignSend.groupBy({
           by: ["variantId", "status"],
           where: { campaignId: campaign.id, tenantId, variantId: { not: null } },
+          _count: { _all: true },
+        }),
+        prisma.campaignSend.count({
+          where: { campaignId: campaign.id, tenantId, clickedAt: { not: null } },
+        }),
+        prisma.campaignSend.count({
+          where: { campaignId: campaign.id, tenantId, convertedAt: { not: null } },
+        }),
+        prisma.campaignSend.groupBy({
+          by: ["variantId"],
+          where: { campaignId: campaign.id, tenantId, variantId: { not: null }, clickedAt: { not: null } },
+          _count: { _all: true },
+        }),
+        prisma.campaignSend.groupBy({
+          by: ["variantId"],
+          where: { campaignId: campaign.id, tenantId, variantId: { not: null }, convertedAt: { not: null } },
           _count: { _all: true },
         }),
       ]);
@@ -695,10 +716,21 @@ router.get(
           variantMatrix[row.variantId] = {
             QUEUED: 0, SENT: 0, DELIVERED: 0, READ: 0,
             BOUNCED: 0, FAILED: 0, SUPPRESSED: 0, total: 0,
+            clicked: 0, converted: 0,
           };
         }
         variantMatrix[row.variantId][row.status] = row._count._all;
         variantMatrix[row.variantId].total += row._count._all;
+      }
+      for (const row of clickedByVariant) {
+        if (row.variantId && variantMatrix[row.variantId]) {
+          variantMatrix[row.variantId].clicked = row._count._all;
+        }
+      }
+      for (const row of convertedByVariant) {
+        if (row.variantId && variantMatrix[row.variantId]) {
+          variantMatrix[row.variantId].converted = row._count._all;
+        }
       }
 
       res.json({
@@ -711,6 +743,8 @@ router.get(
           byStatus: statusTotals,
           byChannel: channelMatrix,
           byVariant: variantMatrix,
+          clicked,
+          converted,
         },
         error: null,
       });
@@ -721,3 +755,57 @@ router.get(
 );
 
 export { router as campaignsRouter };
+
+// ── publicCampaignsRouter — Pearl §5.1 piece 3c click tracker ────────
+//
+// Mounted UNAUTHENTICATED at /api/v1/public/campaigns alongside the
+// existing Rx-QR verify router (services/pdf-generator.ts pattern).
+// Recipients tap a link inside a WhatsApp/SMS/email message that the
+// dispatcher minted at send time — there is no auth context, the
+// signature is the obscurity of the `sendId` cuid plus the audit row
+// (an attacker guessing a sendId reveals only that *somebody*
+// received that send; no PII leaks via this endpoint).
+import { prisma as rawPrisma } from "@medcore/db";
+
+const publicRouter = Router();
+
+publicRouter.get(
+  "/campaigns/click/:sendId",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const send = await rawPrisma.campaignSend.findUnique({
+        where: { id: req.params.sendId },
+        select: {
+          id: true,
+          clickedAt: true,
+          campaign: { select: { id: true, linkTargetUrl: true } },
+        },
+      });
+      if (!send) {
+        res.status(404).type("text/plain").send("Not found");
+        return;
+      }
+
+      // Record clickedAt only on the FIRST tap (so a refresh / re-share
+      // doesn't move the attribution-window anchor forward). Subsequent
+      // taps still redirect — they just don't update the timestamp.
+      if (!send.clickedAt) {
+        await rawPrisma.campaignSend.update({
+          where: { id: send.id },
+          data: { clickedAt: new Date() },
+        });
+      }
+
+      const target = send.campaign?.linkTargetUrl;
+      if (target) {
+        res.redirect(302, target);
+        return;
+      }
+      res.status(200).type("text/plain").send("Click recorded. Thank you.");
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+export { publicRouter as publicCampaignsRouter };

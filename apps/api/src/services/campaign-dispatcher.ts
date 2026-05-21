@@ -76,6 +76,9 @@ export function nextSendWindowStart(start: number, now: Date = new Date()): Date
 // Token substitution. Supported tokens:
 //   {{patient.firstName}}, {{patient.lastName}}, {{patient.fullName}}
 //   {{patient.mrNumber}}, {{tenant.name}}
+//   {{campaignClickUrl}}            (Pearl §5.1 piece 3c — single-level
+//                                    token that resolves to the click-
+//                                    tracking redirect for this send)
 // Unknown tokens are left in the output verbatim so the operator can
 // spot a typo on receipt rather than ship a silently-blank message.
 interface TokenContext {
@@ -86,6 +89,7 @@ interface TokenContext {
     mrNumber: string;
   };
   tenant: { name: string };
+  campaignClickUrl?: string;
 }
 
 export function substituteTemplate(
@@ -95,7 +99,11 @@ export function substituteTemplate(
   if (!template) return "";
   return template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (raw, path: string) => {
     const parts = path.split(".");
-    // Only allow two-level paths and only the documented top-level keys.
+    // Single-level token: campaignClickUrl.
+    if (parts.length === 1) {
+      if (parts[0] === "campaignClickUrl") return ctx.campaignClickUrl ?? raw;
+      return raw;
+    }
     if (parts.length !== 2) return raw;
     const top = parts[0] as keyof TokenContext;
     if (top !== "patient" && top !== "tenant") return raw;
@@ -104,6 +112,21 @@ export function substituteTemplate(
     if (!(inner in obj)) return raw;
     return obj[inner] ?? raw;
   });
+}
+
+// Pearl §5.1 piece 3c — public base URL for the click-tracking
+// redirect. Defaults are dev-friendly; production is set via the
+// `PUBLIC_API_URL` env var (matches the existing convention used for
+// the Rx-QR verify URL in services/pdf-generator.ts, which hard-codes
+// the demo host — same one is the right default here).
+function publicApiBaseUrl(): string {
+  return (process.env.PUBLIC_API_URL || "https://medcore.globusdemos.com/api/v1").replace(/\/$/, "");
+}
+
+export function buildClickUrl(sendId: string): string {
+  // Mounted on the unauthenticated `/api/v1/public` mount alongside
+  // the existing Rx-QR verify router — same shape, same precedent.
+  return `${publicApiBaseUrl()}/public/campaigns/click/${sendId}`;
 }
 
 function splitName(full: string): { firstName: string; lastName: string } {
@@ -258,11 +281,34 @@ export async function dispatchCampaign(
     const variantId: string | null = variant?.id ?? null;
     const sourceBody = variant?.bodyOverride ?? campaign.body;
     const sourceSubject = variant?.subjectOverride ?? campaign.subject ?? "";
-    const substitutedBody = substituteTemplate(sourceBody, ctx);
-    const substitutedSubject = substituteTemplate(sourceSubject, ctx);
 
     for (const channel of channels) {
       summary.total += 1;
+
+      // Pearl §5.1 piece 3c — create the CampaignSend row FIRST so its
+      // id can be embedded in the click-tracking URL substituted into
+      // the message body. Initial status QUEUED; we promote to
+      // SENT/FAILED/SUPPRESSED after the channel adapter resolves.
+      const send = await prisma.campaignSend.create({
+        data: {
+          campaignId: campaign.id,
+          tenantId: campaign.tenantId,
+          patientId: patient.id,
+          channel,
+          variantId,
+          status: "QUEUED",
+        },
+      });
+
+      const clickUrl = buildClickUrl(send.id);
+      const substitutedBody = substituteTemplate(sourceBody, {
+        ...ctx,
+        campaignClickUrl: clickUrl,
+      });
+      const substitutedSubject = substituteTemplate(sourceSubject, {
+        ...ctx,
+        campaignClickUrl: clickUrl,
+      });
 
       // Patient opt-out check. `enabled === false` row → suppress; rows
       // missing for a channel default to enabled (consistent with the
@@ -271,13 +317,9 @@ export async function dispatchCampaign(
         (p) => p.channel === PREF_CHANNEL[channel],
       );
       if (pref && pref.enabled === false) {
-        await prisma.campaignSend.create({
+        await prisma.campaignSend.update({
+          where: { id: send.id },
           data: {
-            campaignId: campaign.id,
-            tenantId: campaign.tenantId,
-            patientId: patient.id,
-            channel,
-            variantId,
             status: "SUPPRESSED",
             failureReason: "patient opted out of this channel",
           },
@@ -298,39 +340,24 @@ export async function dispatchCampaign(
       );
 
       if (result.ok) {
-        await prisma.campaignSend.create({
-          data: {
-            campaignId: campaign.id,
-            tenantId: campaign.tenantId,
-            patientId: patient.id,
-            channel,
-            variantId,
-            status: "SENT",
-            sentAt: new Date(),
-          },
+        await prisma.campaignSend.update({
+          where: { id: send.id },
+          data: { status: "SENT", sentAt: new Date() },
         });
         summary.sent += 1;
       } else if (result.addressMissing) {
-        await prisma.campaignSend.create({
+        await prisma.campaignSend.update({
+          where: { id: send.id },
           data: {
-            campaignId: campaign.id,
-            tenantId: campaign.tenantId,
-            patientId: patient.id,
-            channel,
-            variantId,
             status: "SUPPRESSED",
             failureReason: result.error ?? "address missing",
           },
         });
         summary.suppressed += 1;
       } else {
-        await prisma.campaignSend.create({
+        await prisma.campaignSend.update({
+          where: { id: send.id },
           data: {
-            campaignId: campaign.id,
-            tenantId: campaign.tenantId,
-            patientId: patient.id,
-            channel,
-            variantId,
             status: "FAILED",
             failedAt: new Date(),
             failureReason: result.error ?? "channel adapter failed",

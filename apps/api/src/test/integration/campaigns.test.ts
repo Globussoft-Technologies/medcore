@@ -844,4 +844,178 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
       .set("Authorization", `Bearer ${adminAToken}`);
     expect(res.status).toBe(404);
   });
+
+  // ─────────────────────────────────────────────────────────
+  // Pearl §5.1 piece 3c — click + conversion attribution
+  // ─────────────────────────────────────────────────────────
+
+  it("GET /public/campaigns/click/:sendId records clickedAt + 302s when linkTargetUrl set", async () => {
+    const prisma = await getPrisma();
+    const aud = await prisma.campaignAudience.create({
+      data: {
+        tenantId: tenantAId,
+        name: "Click test",
+        rules: { filters: [{ field: "gender", op: "eq", value: "FEMALE" }] },
+      },
+    });
+    const passwordHash = await bcrypt.hash("MedCoreT3st-2026", 4);
+    const ts = Date.now() + 300;
+    const user = await prisma.user.create({
+      data: {
+        email: `click-${ts}@test.local`,
+        name: "Click P",
+        phone: `99${String(ts).slice(-7)}0`,
+        passwordHash,
+        role: "PATIENT",
+        tenantId: tenantAId,
+      },
+    });
+    await prisma.patient.create({
+      data: {
+        userId: user.id,
+        mrNumber: `MR-CLICK-${ts}`,
+        gender: "FEMALE",
+        tenantId: tenantAId,
+      },
+    });
+
+    const created = await request(app)
+      .post("/api/v1/campaigns")
+      .set("Authorization", `Bearer ${adminAToken}`)
+      .send({
+        name: "Click-piece-3c",
+        channels: ["SMS"],
+        body: "Tap {{campaignClickUrl}}",
+        audienceId: aud.id,
+        linkTargetUrl: "https://example.com/landing",
+      });
+    expect(created.status).toBe(201);
+
+    await request(app)
+      .post(`/api/v1/campaigns/${created.body.data.id}/dispatch`)
+      .set("Authorization", `Bearer ${adminAToken}`)
+      .expect(200);
+
+    const send = await prisma.campaignSend.findFirst({
+      where: { campaignId: created.body.data.id },
+    });
+    expect(send).toBeTruthy();
+    expect(send!.clickedAt).toBeNull();
+
+    // Unauthenticated GET — public click endpoint.
+    const click = await request(app).get(`/api/v1/public/campaigns/click/${send!.id}`);
+    expect(click.status).toBe(302);
+    expect(click.headers.location).toBe("https://example.com/landing");
+
+    const refreshed = await prisma.campaignSend.findUnique({ where: { id: send!.id } });
+    expect(refreshed?.clickedAt).toBeTruthy();
+  });
+
+  it("GET /public/campaigns/click/:sendId 404 for unknown id", async () => {
+    const res = await request(app).get("/api/v1/public/campaigns/click/does-not-exist");
+    expect(res.status).toBe(404);
+  });
+
+  it("conversion attribution: appointment booked after a click credits the most-recent send", async () => {
+    const prisma = await getPrisma();
+
+    // Audience + 1 female patient.
+    const aud = await prisma.campaignAudience.create({
+      data: {
+        tenantId: tenantAId,
+        name: "Conv test",
+        rules: { filters: [{ field: "gender", op: "eq", value: "FEMALE" }] },
+      },
+    });
+    const passwordHash = await bcrypt.hash("MedCoreT3st-2026", 4);
+    const ts = Date.now() + 400;
+    const user = await prisma.user.create({
+      data: {
+        email: `conv-${ts}@test.local`,
+        name: "Conv P",
+        phone: `91${String(ts).slice(-7)}0`,
+        passwordHash,
+        role: "PATIENT",
+        tenantId: tenantAId,
+      },
+    });
+    const patient = await prisma.patient.create({
+      data: {
+        userId: user.id,
+        mrNumber: `MR-CONV-${ts}`,
+        gender: "FEMALE",
+        tenantId: tenantAId,
+      },
+    });
+
+    // Need a doctor + JWT for the patient to book against.
+    const doc = await prisma.user.create({
+      data: {
+        email: `conv-doc-${ts}@test.local`,
+        name: "Dr Conv",
+        phone: `92${String(ts).slice(-7)}0`,
+        passwordHash,
+        role: "DOCTOR",
+        tenantId: tenantAId,
+      },
+    });
+    const doctorRow = await prisma.doctor.create({
+      data: { userId: doc.id, tenantId: tenantAId },
+    });
+    const patientToken = signWith("PATIENT", user.id, user.email!, tenantAId);
+
+    const created = await request(app)
+      .post("/api/v1/campaigns")
+      .set("Authorization", `Bearer ${adminAToken}`)
+      .send({
+        name: "Conv-piece-3c",
+        channels: ["SMS"],
+        body: "Book at {{campaignClickUrl}}",
+        audienceId: aud.id,
+        linkTargetUrl: "https://example.com/book",
+      });
+    expect(created.status).toBe(201);
+
+    await request(app)
+      .post(`/api/v1/campaigns/${created.body.data.id}/dispatch`)
+      .set("Authorization", `Bearer ${adminAToken}`)
+      .expect(200);
+
+    const send = await prisma.campaignSend.findFirst({
+      where: { campaignId: created.body.data.id, patientId: patient.id },
+    });
+    expect(send).toBeTruthy();
+
+    // Simulate a click.
+    await request(app).get(`/api/v1/public/campaigns/click/${send!.id}`).expect(302);
+
+    // Now book an appointment for the same patient.
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const book = await request(app)
+      .post("/api/v1/appointments/book")
+      .set("Authorization", `Bearer ${patientToken}`)
+      .send({
+        patientId: patient.id,
+        doctorId: doctorRow.id,
+        date: tomorrow,
+        slotId: "10:00",
+      });
+    expect([200, 201]).toContain(book.status);
+
+    // Attribution is fire-and-forget; allow it a brief window.
+    await new Promise((r) => setTimeout(r, 100));
+
+    const attributed = await prisma.campaignSend.findUnique({ where: { id: send!.id } });
+    expect(attributed?.convertedAt).toBeTruthy();
+    expect(attributed?.convertedType).toBe("APPOINTMENT");
+    expect(attributed?.convertedRefId).toBe(book.body.data.id);
+
+    // Stats endpoint reflects the click + conversion.
+    const stats = await request(app)
+      .get(`/api/v1/campaigns/${created.body.data.id}/stats`)
+      .set("Authorization", `Bearer ${adminAToken}`)
+      .expect(200);
+    expect(stats.body.data.clicked).toBe(1);
+    expect(stats.body.data.converted).toBe(1);
+  });
 });

@@ -27,6 +27,7 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
+import { recordCampaignConversion } from "../services/campaign-conversion";
 import {
   onAppointmentBooked,
   onAppointmentCancelled,
@@ -368,6 +369,16 @@ router.post(
       // Fire-and-forget notification
       onAppointmentBooked(appointment as any).catch(console.error);
       auditLog(req, "APPOINTMENT_CREATE", "appointment", appointment.id, { patientId, doctorId, date }).catch(console.error);
+
+      // Pearl §5.1 piece 3c — campaign conversion attribution.
+      // If this patient recently clicked a campaign link (default
+      // 7-day window), credit the most-recent click. Fire-and-forget;
+      // never blocks the booking response.
+      recordCampaignConversion(prisma as any, {
+        patientId,
+        type: "APPOINTMENT",
+        refId: appointment.id,
+      }).catch((err) => console.error("[campaign attribution] ", err));
 
       // Pearl ERP Stage 1 §3.2 — user-facing token. Doctors with a
       // tokenPrefix get "<prefix><n>" (e.g. "A12") in the response;

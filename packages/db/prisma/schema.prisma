@@ -5583,6 +5583,13 @@ model Campaign {
   // Shape: [{ id, weight, subjectOverride?, bodyOverride? }].
   abVariants Json?
 
+  // Pearl §5.1 piece 3c — destination URL the click endpoint 302s to
+  // after recording clickedAt. Per-campaign so the marketer can land
+  // each campaign on its own page (booking deep-link / landing page /
+  // form). When null the click endpoint records clickedAt and returns
+  // a plain-text 200 acknowledgement.
+  linkTargetUrl String?
+
   // Operator who created the campaign (audit trail; nullable in case the
   // creator user is later deleted — onDelete: SetNull preserves the row).
   createdById String?
@@ -5658,6 +5665,24 @@ model CampaignSend {
   failedAt      DateTime?
   failureReason String?
 
+  // Pearl §5.1 piece 3c — click + conversion attribution.
+  //   clickedAt        set by GET /api/v1/campaigns/click/:sendId
+  //                    when the recipient taps the trackable URL the
+  //                    dispatcher minted into the message body.
+  //   convertedAt      set by recordCampaignConversion() when a
+  //                    downstream event (appointment booked / invoice
+  //                    generated within the attribution window — default
+  //                    7 days) is credited to this send.
+  //   convertedRefId   id of the appointment/invoice that earned the
+  //                    credit (drill-down from the stats endpoint).
+  //   convertedType    "APPOINTMENT" | "INVOICE" | future. Kept as
+  //                    free text so the catalog can grow without a
+  //                    chained schema migration.
+  clickedAt      DateTime?
+  convertedAt    DateTime?
+  convertedRefId String?
+  convertedType  String?
+
   // FK to the Notification row created via the existing per-channel
   // adapter (piece 2). Optional because some channels (e.g. raw SMS via
   // a non-Notification path) may not have a 1:1 Notification row.
@@ -5675,5 +5700,10 @@ model CampaignSend {
   @@index([tenantId])
   @@index([campaignId, status])
   @@index([patientId])
+  // Pearl §5.1 piece 3c — attribution lookup: "find the patient's
+  // most recent clicked-but-not-converted CampaignSend within the
+  // attribution window". `convertedAt IS NULL` filter prunes the
+  // small tail in-memory.
+  @@index([patientId, clickedAt])
   @@map("campaign_sends")
 }

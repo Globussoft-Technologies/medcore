@@ -103,10 +103,16 @@ describe("ComplaintsPage", () => {
 
   it("renders the KPI cards with stat totals", async () => {
     render(<ComplaintsPage />);
+    // The Total Open <p> renders on the very first paint with the
+    // fallback "0" (stats is null until the async /complaints/stats
+    // call resolves). Waiting only on element presence races the
+    // post-fetch re-render — locally the microtask wins, but on CI's
+    // slower scheduler the synchronous follow-up assertion read "0".
+    // Wait on the actual textContent so we re-evaluate until stats
+    // arrives and the KPI flips to "3".
     await waitFor(() =>
-      expect(screen.getByTestId("complaints-total-open")).toBeInTheDocument()
+      expect(screen.getByTestId("complaints-total-open")).toHaveTextContent("3")
     );
-    expect(screen.getByTestId("complaints-total-open").textContent).toBe("3");
   });
 
   it("keeps rendering when the complaints/stats endpoints reject", async () => {

@@ -6,7 +6,61 @@ is independently shippable. Full per-session history lives under
 
 ---
 
-## 🏠 OFFICE PICKUP — handoff from 2026-05-21 morning: Pearl ERP Stage 1 — **7 of top 10 fully closed + all 4 Tier-3 chains started**
+## 🏠 HOME PICKUP — handoff from 2026-05-21 evening: Pearl gap #4 5/6 sub-pieces done + #2 piece 2b deferred follow-up closed
+
+**Read first:** [`docs/archive/SESSION_SNAPSHOT_2026-05-21-evening.md`](docs/archive/SESSION_SNAPSHOT_2026-05-21-evening.md) — full handoff.
+
+**State at handoff** (HEAD on `main` = `a9b1e7a` — `feat(db): Pearl §7.2 piece 2b — branchId on Invoice + Doctor + Patient`):
+- ✅ Working tree clean for code (`Hardik's Req_pearl woman.txt` source PRD remains untracked).
+- ✅ **4 Pearl gap commits this session** building on the morning's 7-of-10 closure.
+
+### ✅ Closed this session
+
+- **Gap #4 piece 2b** (`9f26e74`) — Campaign sync dispatcher + `POST /:id/dispatch`. Fans out audience × channels, NotificationPreference opt-out → SUPPRESSED, IST send-window clamp, full state machine (DRAFT/SCHEDULED → RUNNING → COMPLETED or → PAUSED on error). 5 integration tests.
+- **Gap #4 piece 3a + 3b** (`8ed9d63`) — A/B variant resolution at dispatch (weighted random per recipient, variantId persisted on all 4 CampaignSend outcomes) + `GET /:id/stats` (per-channel matrix + per-variant matrix). 4 integration tests.
+- **Gap #4 piece 3c** (`18359bf`) — Click + conversion attribution. Migration `20260521000001`. Dispatcher refactored to create-row-first so `{{campaignClickUrl}}` token can embed the sendId. Public click endpoint at `/api/v1/public/campaigns/click/:sendId` (302s to `Campaign.linkTargetUrl`). Conversion service does last-touch attribution within 7-day window; wired into `POST /appointments/book`. Stats endpoint extended with clicks + conversions (top-level + per-variant). 3 integration tests.
+- **Gap #2 piece 2b** (`a9b1e7a`) — Migration `20260521000002` adds `branchId` (nullable, FK→branches with SetNull, indexed) to Invoice/Doctor/Patient. Per-tenant backfill to each tenant's `isDefault` branch. `BRANCH_SCOPED_MODELS` extended. 7-test unit suite pins the allow-list.
+
+### 🚧 Pearl gap status — 7 of 10 fully closed + 2 with sub-pieces remaining
+
+| # | Item | Status |
+|---|---|---|
+| 4 | Campaign engine | 🚧 pieces 1+2a+2b+3a+3b+3c done — **only piece 4 (UI) remains for full closure** |
+| 5 | Patient PWA | 🚧 pieces 1+2 done — pieces 3 (shell pages) + 4 (offline cache) pending |
+| 6 | Super-admin | 🚧 piece 1 done — pieces 2 (onboarding wizard) + 3 (PearlSubscription) + 4 (cross-tenant metrics + DPDP) pending |
+| 2c | Branch route flip + JWT claim | 🆕 carved out of piece 2b: flip patients/doctors/billing routes from `tenantScopedPrisma` → `branchScopedPrisma`; add `branchId` to JWT signing + auth middleware claim read |
+
+### 🔥 Top priority for next session
+
+1. **Gap #4 piece 4 — Campaigns UI** (~1.5 wk). Closes gap #4 entirely. List + create + audience builder + tracking dashboard reading from the stats endpoint shipped this session. UI patterns mirror `/dashboard/leads`.
+2. **Gap #5 piece 3 — Patient PWA shell pages** (~1.5 wk). Dashboard tiles + my-appointments + my-Rx + my-bills. Backend ~90% reused. Piece 4 (offline cache) is gated on this.
+3. **Gap #2 piece 2c** (~1 wk). Route flip is safe (extension early-exits without context) — each route file can be its own commit. JWT-claim piece is small + contained.
+4. **Gap #6 piece 2 — super-admin onboarding wizard** (~1.5 wk). Pearl §8.1 + the deferred server-side `middleware.ts` gate.
+5. **Gap #6 piece 3 — PearlSubscription + PearlInvoice schema** (~1 wk).
+
+After #4 piece 4 + #5 piece 3 close, gap doc will be **9 of 10 fully closed** (only #6 sub-pieces will remain).
+
+### 📦 New artifacts this session
+
+- `services/campaign-dispatcher.ts` (~340 lines after 3 commits).
+- `services/campaign-conversion.ts` (~75 lines).
+- `routes/campaigns.ts` now exports `publicCampaignsRouter` (mounted at `/api/v1/public` alongside Rx-QR verify).
+- 2 migrations: `20260521000001` (click + conversion fields) + `20260521000002` (branchId on 3 tables + per-tenant backfill).
+- 7-test unit suite at `packages/db/src/__tests__/branch-prisma.test.ts`.
+
+### Carry-overs / known issues (unchanged from morning)
+
+- **Deploy job intermittent SSH failures** — infra-only; code-gates green; subsequent pushes auto-recover.
+- **Stale TodoWrite reminder** in harness — safe to ignore at session start.
+- **Mandatory pre-flight grep** — agents must `git log` + `grep` files they'll touch before scaffolding (prevents parallel-impl regressions like the reverted `3e3b34c`).
+
+### Cron mechanics
+
+Cron `7572d655` from the morning's autonomous session has likely expired (~7-day cap). Re-arm at session start by re-firing the Pearl gap-close prompt if you want autonomous overnight progress. Self-terminates when the gap doc has zero ❌/🟡 rows.
+
+---
+
+## 🏠 PRIOR PICKUP — handoff from 2026-05-21 morning: Pearl ERP Stage 1 — **7 of top 10 fully closed + all 4 Tier-3 chains started** (kept for log)
 
 **State at handoff** (HEAD on `main` = `f6bb3de` — `feat(api,web,db,shared): #5 piece 2/4 — patient phone-OTP login backend + login page`):
 

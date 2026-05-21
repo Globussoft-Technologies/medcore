@@ -1,0 +1,430 @@
+/**
+ * Campaign CRUD API — Pearl ERP Stage 1 gap item #4 (piece 1 of 4).
+ *
+ * What / which modules / why:
+ *   - Pearl PRD §5.1 mandates a richer Campaign engine than the existing
+ *     single-shot NotificationBroadcast (drip / trigger / cohort, 4-channel
+ *     fan-out, send-window respect, A/B variants, conversion attribution).
+ *   - The Campaign + CampaignSend + CampaignAudience schemas shipped in
+ *     migration `20260520000012_pearl_campaign_engine_schema`. This file is
+ *     the HTTP surface for the schema-only piece 1: create / list / get /
+ *     update / soft-cancel a Campaign, plus a stubbed preview endpoint that
+ *     will return real estimated recipients once the piece-2 audience
+ *     compiler ships.
+ *   - 6 endpoints, all ADMIN-gated (operators manage Campaigns; the public
+ *     does not). tenantId is resolved from auth context (mirrors
+ *     branches.ts), never accepted in the request body.
+ *
+ * State machine (operator-initiated transitions only — dispatcher transitions
+ * SCHEDULED→RUNNING and *→COMPLETED ship in piece 2):
+ *   DRAFT     → SCHEDULED | CANCELLED
+ *   SCHEDULED → DRAFT     | CANCELLED
+ *   RUNNING   → PAUSED    | CANCELLED
+ *   PAUSED    → RUNNING   | CANCELLED
+ *   COMPLETED → (terminal — 409)
+ *   CANCELLED → (terminal — 409)
+ *
+ * Audit:
+ *   - CAMPAIGN_CREATE / CAMPAIGN_UPDATE / CAMPAIGN_CANCEL on entity="campaign".
+ *     Uses `auditLog(...).catch(console.error)` per the project safe-audit
+ *     convention (CLAUDE.md gotcha #1).
+ */
+
+import { Router, Request, Response, NextFunction } from "express";
+import { prisma } from "@medcore/db";
+import {
+  Role,
+  createCampaignSchema,
+  updateCampaignSchema,
+  OPERATOR_STATUS_TRANSITIONS,
+} from "@medcore/shared";
+import type { CreateCampaignInput, UpdateCampaignInput } from "@medcore/shared";
+import { authenticate, authorize } from "../middleware/auth";
+import { validate } from "../middleware/validate";
+import { auditLog } from "../middleware/audit";
+
+const router = Router();
+router.use(authenticate);
+
+// Mirror branches.ts:resolveTenantId — chain: req.tenantId → caller's
+// User.tenantId → default tenant by subdomain.
+async function resolveTenantId(req: Request): Promise<string | undefined> {
+  let tenantId = req.tenantId;
+  if (!tenantId) {
+    const userTenant = await prisma.user.findUnique({
+      where: { id: req.user!.userId },
+      select: { tenantId: true },
+    });
+    tenantId = userTenant?.tenantId ?? undefined;
+  }
+  if (!tenantId) {
+    const defaultTenant = await prisma.tenant.findUnique({
+      where: { subdomain: "default" },
+      select: { id: true },
+    });
+    tenantId = defaultTenant?.id ?? undefined;
+  }
+  return tenantId;
+}
+
+// ── POST / — create campaign (ADMIN) ──────────────────────────────────
+router.post(
+  "/",
+  authorize(Role.ADMIN),
+  validate(createCampaignSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = await resolveTenantId(req);
+      if (!tenantId) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "No tenant context — campaigns require a tenant.",
+        });
+        return;
+      }
+
+      const body = req.body as CreateCampaignInput;
+
+      // If audienceId provided, verify it belongs to the same tenant.
+      if (body.audienceId) {
+        const aud = await prisma.campaignAudience.findFirst({
+          where: { id: body.audienceId, tenantId },
+          select: { id: true },
+        });
+        if (!aud) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "audienceId does not exist for this tenant",
+          });
+          return;
+        }
+      }
+
+      // Same check for templateId.
+      if (body.templateId) {
+        const tpl = await prisma.notificationTemplate.findFirst({
+          where: { id: body.templateId, OR: [{ tenantId }, { tenantId: null }] },
+          select: { id: true },
+        });
+        if (!tpl) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "templateId does not exist for this tenant",
+          });
+          return;
+        }
+      }
+
+      const created = await prisma.campaign.create({
+        data: {
+          tenantId,
+          name: body.name,
+          description: body.description ?? null,
+          status: body.status ?? "DRAFT",
+          kind: body.kind ?? "BROADCAST",
+          channels: body.channels,
+          templateId: body.templateId ?? null,
+          subject: body.subject ?? null,
+          body: body.body ?? null,
+          audienceId: body.audienceId ?? null,
+          scheduledAt: body.scheduledAt ?? null,
+          sendWindowStart: body.sendWindowStart ?? null,
+          sendWindowEnd: body.sendWindowEnd ?? null,
+          abVariants: body.abVariants ?? undefined,
+          createdById: req.user!.userId,
+        },
+      });
+
+      auditLog(req, "CAMPAIGN_CREATE", "campaign", created.id, {
+        name: created.name,
+        kind: created.kind,
+        status: created.status,
+        channels: created.channels,
+      }).catch(console.error);
+
+      res.status(201).json({ success: true, data: created, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── GET / — list campaigns (ADMIN) ────────────────────────────────────
+router.get(
+  "/",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = await resolveTenantId(req);
+      if (!tenantId) {
+        res.json({ success: true, data: [], error: null });
+        return;
+      }
+
+      const { status } = req.query as { status?: string };
+      const where: Record<string, unknown> = { tenantId };
+      if (status) where.status = status;
+
+      const campaigns = await prisma.campaign.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }],
+        include: {
+          _count: { select: { sends: true } },
+        },
+      });
+      res.json({ success: true, data: campaigns, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── GET /:id — get one (ADMIN) ────────────────────────────────────────
+router.get(
+  "/:id",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = await resolveTenantId(req);
+      if (!tenantId) {
+        res.status(404).json({ success: false, data: null, error: "Campaign not found" });
+        return;
+      }
+      const campaign = await prisma.campaign.findFirst({
+        where: { id: req.params.id, tenantId },
+        include: {
+          audience: true,
+          _count: { select: { sends: true } },
+        },
+      });
+      if (!campaign) {
+        res.status(404).json({ success: false, data: null, error: "Campaign not found" });
+        return;
+      }
+      res.json({ success: true, data: campaign, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── PATCH /:id — update (ADMIN) ───────────────────────────────────────
+router.patch(
+  "/:id",
+  authorize(Role.ADMIN),
+  validate(updateCampaignSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = await resolveTenantId(req);
+      if (!tenantId) {
+        res.status(404).json({ success: false, data: null, error: "Campaign not found" });
+        return;
+      }
+      const body = req.body as UpdateCampaignInput;
+      const existing = await prisma.campaign.findFirst({
+        where: { id: req.params.id, tenantId },
+      });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Campaign not found" });
+        return;
+      }
+
+      // State-machine guard. The Zod schema already excludes COMPLETED
+      // and RUNNING from operator-writeable values; here we additionally
+      // verify the (current → next) transition is allowed.
+      if (body.status && body.status !== existing.status) {
+        const allowed = OPERATOR_STATUS_TRANSITIONS[existing.status] ?? [];
+        if (!allowed.includes(body.status)) {
+          res.status(409).json({
+            success: false,
+            data: null,
+            error: `Cannot transition campaign from ${existing.status} to ${body.status}`,
+          });
+          return;
+        }
+      }
+
+      // Cross-reference checks for newly assigned audience / template.
+      if (body.audienceId !== undefined && body.audienceId !== null) {
+        const aud = await prisma.campaignAudience.findFirst({
+          where: { id: body.audienceId, tenantId },
+          select: { id: true },
+        });
+        if (!aud) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "audienceId does not exist for this tenant",
+          });
+          return;
+        }
+      }
+      if (body.templateId !== undefined && body.templateId !== null) {
+        const tpl = await prisma.notificationTemplate.findFirst({
+          where: { id: body.templateId, OR: [{ tenantId }, { tenantId: null }] },
+          select: { id: true },
+        });
+        if (!tpl) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "templateId does not exist for this tenant",
+          });
+          return;
+        }
+      }
+
+      const updated = await prisma.campaign.update({
+        where: { id: existing.id },
+        data: {
+          ...(body.name !== undefined ? { name: body.name } : {}),
+          ...(body.description !== undefined ? { description: body.description } : {}),
+          ...(body.status !== undefined ? { status: body.status } : {}),
+          ...(body.kind !== undefined ? { kind: body.kind } : {}),
+          ...(body.channels !== undefined ? { channels: body.channels } : {}),
+          ...(body.templateId !== undefined ? { templateId: body.templateId } : {}),
+          ...(body.subject !== undefined ? { subject: body.subject } : {}),
+          ...(body.body !== undefined ? { body: body.body } : {}),
+          ...(body.audienceId !== undefined ? { audienceId: body.audienceId } : {}),
+          ...(body.scheduledAt !== undefined ? { scheduledAt: body.scheduledAt } : {}),
+          ...(body.sendWindowStart !== undefined
+            ? { sendWindowStart: body.sendWindowStart }
+            : {}),
+          ...(body.sendWindowEnd !== undefined ? { sendWindowEnd: body.sendWindowEnd } : {}),
+          ...(body.abVariants !== undefined ? { abVariants: body.abVariants ?? undefined } : {}),
+          ...(body.cancelReason !== undefined ? { cancelReason: body.cancelReason } : {}),
+          // If the operator is transitioning to CANCELLED via PATCH (rare
+          // — the dedicated DELETE is the canonical path), stamp the
+          // cancelledAt as a side effect.
+          ...(body.status === "CANCELLED" && existing.status !== "CANCELLED"
+            ? { cancelledAt: new Date() }
+            : {}),
+        },
+      });
+
+      auditLog(
+        req,
+        "CAMPAIGN_UPDATE",
+        "campaign",
+        updated.id,
+        body as Record<string, unknown>,
+      ).catch(console.error);
+
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── DELETE /:id — soft-cancel (ADMIN) ─────────────────────────────────
+// Cannot cancel a COMPLETED campaign (it's already over).
+router.delete(
+  "/:id",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = await resolveTenantId(req);
+      if (!tenantId) {
+        res.status(404).json({ success: false, data: null, error: "Campaign not found" });
+        return;
+      }
+      const existing = await prisma.campaign.findFirst({
+        where: { id: req.params.id, tenantId },
+      });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Campaign not found" });
+        return;
+      }
+      if (existing.status === "COMPLETED") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: "Cannot cancel a COMPLETED campaign.",
+        });
+        return;
+      }
+      if (existing.status === "CANCELLED") {
+        // Idempotent — already cancelled.
+        res.json({
+          success: true,
+          data: { id: existing.id, status: existing.status, cancelledAt: existing.cancelledAt },
+          error: null,
+        });
+        return;
+      }
+
+      const reason =
+        typeof req.body?.cancelReason === "string" ? req.body.cancelReason : undefined;
+
+      const updated = await prisma.campaign.update({
+        where: { id: existing.id },
+        data: {
+          status: "CANCELLED",
+          cancelledAt: new Date(),
+          ...(reason ? { cancelReason: reason } : {}),
+        },
+      });
+
+      auditLog(req, "CAMPAIGN_CANCEL", "campaign", updated.id, {
+        previousStatus: existing.status,
+        cancelReason: reason ?? null,
+      }).catch(console.error);
+
+      res.json({
+        success: true,
+        data: {
+          id: updated.id,
+          status: updated.status,
+          cancelledAt: updated.cancelledAt,
+          cancelReason: updated.cancelReason,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── POST /:id/sends/preview — estimate recipients (ADMIN) ─────────────
+// Piece 1 stub: returns 0 + a forward-looking note. Piece 2 will compile
+// the linked CampaignAudience.rules into a Prisma `where` over Patient
+// and return the real count (plus update audience.estimatedSize +
+// lastComputedAt as a side effect).
+router.post(
+  "/:id/sends/preview",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = await resolveTenantId(req);
+      if (!tenantId) {
+        res.status(404).json({ success: false, data: null, error: "Campaign not found" });
+        return;
+      }
+      const campaign = await prisma.campaign.findFirst({
+        where: { id: req.params.id, tenantId },
+        select: { id: true, audienceId: true },
+      });
+      if (!campaign) {
+        res.status(404).json({ success: false, data: null, error: "Campaign not found" });
+        return;
+      }
+      res.json({
+        success: true,
+        data: {
+          estimatedRecipients: 0,
+          note: "audience compiler ships in piece 2 of gap item #4",
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+export { router as campaignsRouter };

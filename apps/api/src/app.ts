@@ -125,6 +125,8 @@ import { aiDocQaRouter } from "./routes/ai-doc-qa";
 import { aiSentimentRouter } from "./routes/ai-sentiment";
 import { tenantsRouter } from "./routes/tenants";
 import { branchesRouter } from "./routes/branches";
+import { campaignsRouter } from "./routes/campaigns";
+import { campaignAudiencesRouter } from "./routes/campaign-audiences";
 import { settingsRouter } from "./routes/settings";
 import { agentConsoleRouter } from "./routes/agent-console";
 import { aiKpisRouter } from "./routes/ai-kpis";
@@ -358,6 +360,8 @@ export function buildApp() {
   app.use("/api/v1/ai/sentiment", aiSentimentRouter);
   app.use("/api/v1/tenants", tenantsRouter);
   app.use("/api/v1/branches", branchesRouter);
+  app.use("/api/v1/campaigns", campaignsRouter);
+  app.use("/api/v1/campaign-audiences", campaignAudiencesRouter);
   app.use("/api/v1/settings", settingsRouter);
   app.use("/api/v1/agent-console", agentConsoleRouter);
   app.use("/api/v1/ai/kpis", aiKpisRouter);

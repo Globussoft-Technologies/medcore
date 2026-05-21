@@ -678,6 +678,12 @@ model Tenant {
   // scoping on other tables ships in pieces 2 and 3.
   branches Branch[]
 
+  // Pearl §5.1 (gap item #4 — piece 1 of 4) — Campaign engine.
+  // Schema-only piece 1; dispatcher + A/B + UI ship in pieces 2-4.
+  campaigns         Campaign[]
+  campaignAudiences CampaignAudience[]
+  campaignSends     CampaignSend[]
+
   @@map("tenants")
 }
 
@@ -726,6 +732,48 @@ model Branch {
   @@index([tenantId])
   @@index([tenantId, active])
   @@map("branches")
+}
+
+// Pearl ERP Stage 1 §5.1 (gap item #4 — piece 1 of 4) — Campaign engine enums.
+// CampaignKind: BROADCAST is a one-off blast (the multi-stage cousin of
+// NotificationBroadcast); DRIP is a time-spaced sequence; TRIGGER fires on
+// events (birthday, anniversary, etc.); COHORT_REMINDER nudges a saved
+// audience on a cadence. CampaignChannel mirrors NotificationChannel for
+// future cross-wiring (piece 2 dispatcher will substitute NotificationChannel
+// when routing through the existing services/channels/ adapters) but is
+// kept distinct so the Campaign surface can evolve independently. SendStatus
+// is per-recipient and is written by the dispatcher (piece 2).
+enum CampaignChannel {
+  WHATSAPP
+  SMS
+  EMAIL
+  PUSH
+}
+
+enum CampaignKind {
+  BROADCAST
+  DRIP
+  TRIGGER
+  COHORT_REMINDER
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum SendStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  BOUNCED
+  FAILED
+  SUPPRESSED
 }
 
 // Pearl ERP Stage 1 §3.3 (gap item #3) — CRM lead pipeline.
@@ -916,6 +964,11 @@ model User {
   // Pearl §3.3 (gap item #3) — leads this user owns + activities they've logged.
   leadsAssigned    Lead[]         @relation("LeadAssignedTo")
   leadActivities   LeadActivity[] @relation("LeadActivityAuthor")
+
+  // Pearl §5.1 (gap item #4 — piece 1 of 4) — campaigns this user created.
+  // Named relation so later pieces (A/B variant assignment, etc.) can add
+  // distinct relations to User without colliding.
+  campaignsCreated Campaign[] @relation("CampaignCreator")
 
   @@index([email])
   @@index([phone])
@@ -1162,6 +1215,9 @@ model Patient {
   // Pearl §3.3 (gap item #3) — backref for the Lead that converted into
   // this patient (if any). Most patients have no source-lead.
   convertedFromLeads Lead[] @relation("LeadConvertedPatient")
+
+  // Pearl §5.1 (gap item #4 — piece 1 of 4) — per-recipient campaign sends.
+  campaignSends CampaignSend[]
 
   @@index([mrNumber])
   @@index([tenantId])
@@ -1683,6 +1739,12 @@ model Notification {
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   user User @relation(fields: [userId], references: [id])
+
+  // Pearl §5.1 (gap item #4 — piece 1 of 4) — when a CampaignSend is
+  // dispatched through the existing per-channel adapters (piece 2), the
+  // resulting Notification row is linked back here for delivery-status
+  // joins. Nullable (most Notifications are not campaign-originated).
+  campaignSend CampaignSend?
 
   @@unique([dedupKey])
   @@index([userId, createdAt])
@@ -3764,6 +3826,11 @@ model NotificationTemplate {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  // Pearl §5.1 (gap item #4 — piece 1 of 4) — Campaigns that reuse this
+  // template for body/subject substitution. Optional FK; an ad-hoc Campaign
+  // can author its body inline instead.
+  campaigns Campaign[]
+
   @@unique([type, channel])
   @@index([tenantId])
   @@map("notification_templates")
@@ -5422,4 +5489,160 @@ model MedicationIncident {
   @@index([scribeSessionId])
   @@index([patientId])
   @@map("medication_incidents")
+}
+
+// ─── PEARL §5.1 CAMPAIGN ENGINE (gap item #4 — piece 1 of 4) ─────────────
+// Per the gap analysis (docs/PEARL_STAGE1_GAP_ANALYSIS.md §5 + §7 row #4),
+// MedCore today has NotificationBroadcast (single-shot send-to-audience-
+// string) and ChronicCarePlan (per-patient care plans). Pearl §5.1 needs
+// the richer multi-stage campaign cousin: drip / trigger / cohort, A/B
+// variants, conversion attribution, send-window clamps, audience builder
+// DSL. Piece 1 of 4 ships the data model + CRUD API only — the audience
+// compiler ships in piece 2, A/B + tracking in piece 3, UI in piece 4.
+//
+// Coexists with NotificationBroadcast (not a replacement). Existing
+// /dashboard/broadcasts continues to work for one-off blasts.
+
+model Campaign {
+  id          String         @id @default(cuid())
+  tenantId    String
+  name        String
+  description String?
+  status      CampaignStatus @default(DRAFT)
+  kind        CampaignKind   @default(BROADCAST)
+
+  // Multi-channel fan-out. A single Campaign can send the SAME message
+  // body across all enabled channels; piece 2's dispatcher will create
+  // one CampaignSend row per (recipient × channel) and one Notification
+  // row per send via the existing per-channel adapters.
+  channels CampaignChannel[]
+
+  // Optional template reference. If null, body+subject below are the
+  // free-text source (with {{patient.firstName}}-style tokens that the
+  // piece-2 dispatcher substitutes).
+  templateId String?
+  template   NotificationTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  subject String? // for EMAIL channel
+  body    String? @db.Text
+
+  // Audience — saved CampaignAudience rule that the piece-2 compiler
+  // resolves to a patient set. Nullable so a Campaign can be drafted
+  // before its audience is chosen (or set inline at send time).
+  audienceId String?
+  audience   CampaignAudience? @relation(fields: [audienceId], references: [id], onDelete: SetNull)
+
+  // Lifecycle timestamps. scheduledAt is set when status flips
+  // DRAFT → SCHEDULED; startedAt + completedAt are written by the
+  // piece-2 dispatcher; cancelledAt + cancelReason are set when an
+  // operator cancels in-flight or before launch.
+  scheduledAt   DateTime?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  cancelledAt   DateTime?
+  cancelReason  String?
+
+  // Send-window clamp (Pearl §5.1 — IST quiet-hour respect). Integer
+  // minute-of-day, 0..1439. Both must be set together (API-validated).
+  // The dispatcher clamps every send to fall within this window.
+  sendWindowStart Int?
+  sendWindowEnd   Int?
+
+  // A/B variants — persisted config; resolution + weighting ships in piece 3.
+  // Shape: [{ id, weight, subjectOverride?, bodyOverride? }].
+  abVariants Json?
+
+  // Operator who created the campaign (audit trail; nullable in case the
+  // creator user is later deleted — onDelete: SetNull preserves the row).
+  createdById String?
+  createdBy   User?   @relation("CampaignCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sends  CampaignSend[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([scheduledAt])
+  @@map("campaigns")
+}
+
+model CampaignAudience {
+  id          String  @id @default(cuid())
+  tenantId    String
+  name        String
+  description String?
+
+  // DSL placeholder. Piece 2 of 4 defines the compiler that turns this
+  // JSON into a Prisma `where` over Patient. Suggested shape:
+  //   { filters: [{ field, op, value }, ...], cohortId?, includeOptedOut? }
+  // Stored as Json to keep the schema flexible while the DSL solidifies.
+  rules Json
+
+  // Last computed audience size (written by the piece-2 compiler when
+  // POST /api/v1/campaigns/:id/sends/preview is called).
+  estimatedSize   Int?
+  lastComputedAt  DateTime?
+
+  // Soft-active flag — audiences referenced by historical Campaigns
+  // must not be hard-deleted; the PATCH-active=false flow is the only
+  // way to retire one (the routes file deliberately omits a DELETE).
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaigns Campaign[]
+
+  @@index([tenantId])
+  @@index([tenantId, active])
+  @@map("campaign_audiences")
+}
+
+model CampaignSend {
+  id         String          @id @default(cuid())
+  campaignId String
+  // Denormalized tenantId so tenant-scoped queries don't need a Campaign
+  // join. Always equals campaign.tenantId; enforced by the dispatcher
+  // when writing the row in piece 2.
+  tenantId   String
+  patientId  String
+  channel    CampaignChannel
+  // A/B variant resolved at dispatch time (piece 3). Free-text id so the
+  // schema doesn't need to evolve when the variant config shape does.
+  variantId  String?
+
+  status SendStatus @default(QUEUED)
+
+  // Status-transition timestamps. The piece-2 dispatcher writes sentAt
+  // immediately when the channel-adapter accepts the payload. The
+  // delivery / read callbacks (WhatsApp business API, email open beacon,
+  // etc.) backfill deliveredAt / readAt asynchronously.
+  sentAt        DateTime?
+  deliveredAt   DateTime?
+  readAt        DateTime?
+  failedAt      DateTime?
+  failureReason String?
+
+  // FK to the Notification row created via the existing per-channel
+  // adapter (piece 2). Optional because some channels (e.g. raw SMS via
+  // a non-Notification path) may not have a 1:1 Notification row.
+  notificationId String?       @unique
+  notification   Notification? @relation(fields: [notificationId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient  Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([tenantId])
+  @@index([campaignId, status])
+  @@index([patientId])
+  @@map("campaign_sends")
 }

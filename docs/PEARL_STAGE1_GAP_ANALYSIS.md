@@ -9,7 +9,7 @@
 
 ## 1. TL;DR — top-line gap summary
 
-**Rough coverage of Pearl Stage 1 deliverables: ~65-70%.**
+**Rough coverage of Pearl Stage 1 deliverables: ~75-78%** (refreshed 2026-05-22 — was 65-70% in the original draft; bumped after 7 of 10 Top-10 items closed in the 2026-05-20/21 burndown and pieces 1+2 of #5/#6 landing 2026-05-22).
 
 MedCore is broader than Pearl Stage 1 needs on the clinical, AI, IPD/OT, lab, and interop axes, but **narrower** on three of Pearl's seven modules: M2's lead-pipeline CRM, M4's campaign engine, and M7's super-admin panel. The biggest single architectural gap is structural — there is **no `Branch` model in the schema**, no separate super-admin URL surface, and no Lead/Campaign data model at all. Pearl's "patient PWA" is satisfied at the manifest level but MedCore's patient app is the RN/Expo `apps/mobile`, not a web-installable PWA UX. Pearl's spec mandates "raw SQL via pg" — MedCore uses Prisma; this is a stylistic mismatch that does NOT need to be resolved before a Pearl pilot.
 
@@ -58,7 +58,7 @@ MedCore covers the OPD spine well — registration, vitals, consult, Rx writer, 
 | 2.1.5 | Patient name redaction on public displays | ✅ Present | [`/display/page.tsx`](../apps/web/src/app/display/page.tsx), [`routes/queue.ts` SLOT redaction](../apps/api/src/routes/queue.ts) | Closed 2026-05-21 via `6febb54`. TOKEN + CALLING layouts show no name at all (token/arrival #). SLOT layout uses Pearl's "first name + last initial" rule, applied server-side in `queue.ts` before serialisation so the wire never carries the full surname (`Priya Sharma` → `Priya S.`). |
 | 2.1.6 | Receptionist marks arrived → doctor sees in queue → doctor calls next → routed to pharmacy/billing | ✅ Present | `Appointment.checkInAt`, `consultationStartedAt`, `consultationEndedAt`, [`routes/queue.ts`](../apps/api/src/routes/queue.ts) | All state transitions wired. |
 | 2.1.7 | Threaded remarks per appointment (multi-role, visibility-scoped, pinnable, audited) | ✅ Present | `AppointmentRemark` model (migration `20260520000004`) + 5 endpoints in `routes/appointments.ts` + `AppointmentRemarksModal` | Closed 2026-05-21 via `02192a4` (gap item #8). Visibility ALL_STAFF / DOCTOR_ONLY / RECEPTION_ONLY / PRIVATE with reply-visibility-inheritance, pin/unpin (DOCTOR+ADMIN), author-only edit, author+ADMIN delete, audit on every mutation. 9 integration tests. |
-| 2.1.8 | Quick-action buttons (WhatsApp / Email / Call / Add to CRM) on every patient row | ✅ Present | `apps/web/src/app/dashboard/patients/page.tsx` Actions column | Closed 2026-05-21 via `02192a4` (gap item #8). WhatsApp / Call / Email open native handlers via `wa.me` / `tel:` / `mailto:`. Add-to-Lead shows a "coming with Pearl M2 lead pipeline" toast until gap item #3 lands. |
+| 2.1.8 | Quick-action buttons (WhatsApp / Email / Call / Add to CRM) on every patient row | ✅ Present | `apps/web/src/app/dashboard/patients/page.tsx` Actions column | Closed 2026-05-21 via `02192a4` (gap item #8). WhatsApp / Call / Email open native handlers via `wa.me` / `tel:` / `mailto:`. Add-to-Lead **now wired live** post-`928018f` (Pearl gap #3 closed same evening) — POSTs to `/leads` with `source: "REFERRAL"` + toast feedback. (Inline comment in `page.tsx:296` still describes the old stub behaviour — cosmetic drift, action itself is live.) |
 
 ---
 
@@ -69,8 +69,8 @@ Booking + slot picker + cancel/reschedule/no-show + reminders cascade exists tod
 | PRD § | Pearl feature | Status | MedCore reference | Notes |
 |---|---|---|---|---|
 | 3.1 | Booking form supports per-doctor channels (only enabled channels shown) | ❌ Missing | — | Follows from M1 §2.1.2 — no per-doctor mode. |
-| 3.1 | Slot picker from `doctor_appointment_preferences` (hours / duration / buffer / last-hour) | 🟡 Partial | `DoctorSchedule.slotDurationMinutes`, `DoctorSchedule.bufferMinutes`, `ScheduleOverride` | Working hours + slot duration + buffer modelled. **No `lastHourPolicy` field**, no `dailyLimit`, no `nearTurnAlertThreshold`, no `tokenPrefix`. |
-| 3.1 | Conflict prevention (unique `(doctorId, date, slotTime)`) | 🟡 Partial | `Appointment @@unique [doctorId, date, tokenNumber]` | Uniqueness is on tokenNumber not slotTime. Same end effect for token-mode, but slot-time uniqueness isn't enforced. |
+| 3.1 | Slot picker from `doctor_appointment_preferences` (hours / duration / buffer / last-hour) | ✅ Present | `DoctorSchedule.slotDurationMinutes`, `DoctorSchedule.bufferMinutes`, `ScheduleOverride`; per-doctor `tokenPrefix` / `tokenStartNumber` / `dailyAppointmentLimit` / `nearTurnAlertThreshold` / `lastHourPolicy` on `Doctor` (`schema.prisma:1077-1081`) | **Closed 2026-05-21** — all 5 mode knobs landed in `bfd11a8` + enforcement in `af48756`; admin-editable on doctor profile (`fd58688`). |
+| 3.1 | Conflict prevention (unique `(doctorId, date, slotTime)`) | ✅ Present | `Appointment @@unique [doctorId, date, slotStart]` (`schema.prisma:1349`), migration `20260520000002` | **Closed 2026-05-20** via `5b176c7` — added dedup gate before the slotStart unique index so existing rows survive the migration; nullable slotStart still allowed for walk-ins / CALLING-mode (Postgres treats multiple NULLs as distinct). |
 | 3.1 | Bulk-edit dialog for admins (defaults across many doctors) | ❌ Missing | — | No bulk-edit surface. |
 | 3.1 | Walk-in flow (token issued or arrival_seq incremented) | ✅ Present | `routes/appointments.ts /walk-in`, [`/dashboard/walk-in/`](../apps/web/src/app/dashboard/walk-in/) | Token mode only. |
 | 3.1 | Cancel / reschedule / no-show flows with reasons | ✅ Present | `routes/appointments.ts` PATCH `/:id/reschedule`, `/cancel`, `services/auto-noshow.ts`, `lwbsReason` field | Reasons captured. |
@@ -78,11 +78,11 @@ Booking + slot picker + cancel/reschedule/no-show + reminders cascade exists tod
 | 3.2 | Reminders config (booked / 24h pre / 1h pre / no-show recovery +30m / bill-due +3d / lab-ready +24h) | ✅ Present | `NotificationTemplate` + `NotificationSchedule` + `services/notification-triggers.ts`, [`/dashboard/notification-templates/`](../apps/web/src/app/dashboard/notification-templates/) | Templates editable per type+channel. Cadence is hardcoded in `notification-triggers.ts` — not a tenant-editable rule DSL. |
 | 3.2 | Holiday calendar (closes booking) | ✅ Present | `Holiday` model `schema.prisma:3356`, [`/dashboard/holidays/`](../apps/web/src/app/dashboard/holidays/) | Wired to booking checks. |
 | 3.2 | Patient opt-in / opt-out enforcement | ✅ Present | `NotificationPreference` model `schema.prisma:1366` | Per-channel preference. |
-| 3.3 | **Lead pipeline (New → Qualified → Engaged → Booked → Converted → Lost)** | ❌ Missing | — | **No `Lead` model.** Only `MarketingEnquiry` (a flat row from the marketing-site contact form). |
-| 3.3 | Lead capture from web / walk-in / phone / WhatsApp / referral | 🟡 Partial | `MarketingEnquiry` (web only), `Referral` model (doctor-to-doctor) | Single-source lead. No multi-source lead. |
-| 3.3 | Activity log per lead (calls / messages / doctor allocation / outcomes) | ❌ Missing | — | Follows from above. |
-| 3.3 | Conversion attribution (source + CRM rep) | ❌ Missing | — | — |
-| 3.3 | One-click "convert lead → patient" | ❌ Missing | — | — |
+| 3.3 | **Lead pipeline (New → Qualified → Engaged → Booked → Converted → Lost)** | ✅ Present | `Lead` + `LeadActivity` + `LeadStatus` / `LeadSource` / `LeadActivityType` enums (migration `20260520000007_pearl_lead_pipeline`); 6 endpoints in [`routes/leads.ts`](../apps/api/src/routes/leads.ts); [`/dashboard/leads/`](../apps/web/src/app/dashboard/leads/) | **Closed 2026-05-21 via `928018f`** (Pearl gap #3). 6-stage state machine + filter chips + search + status-dropdown + create modal. |
+| 3.3 | Lead capture from web / walk-in / phone / WhatsApp / referral | ✅ Present | `LeadSource` enum (WEB / WALKIN / PHONE / WHATSAPP / REFERRAL); idempotent MarketingEnquiry → Lead promotion via `@@unique` | **Closed 2026-05-21 via `928018f`**. Multi-source enum with idempotent promotion path. |
+| 3.3 | Activity log per lead (calls / messages / doctor allocation / outcomes) | ✅ Present | `LeadActivity` model; status changes + doctor allocation auto-log activities (`routes/leads.ts`) | **Closed 2026-05-21 via `928018f`**. |
+| 3.3 | Conversion attribution (source + CRM rep) | ✅ Present | `Lead.source`, `Lead.assignedToId`, `CONVERSION` activity row | **Closed 2026-05-21 via `928018f`**. |
+| 3.3 | One-click "convert lead → patient" | ✅ Present | `POST /api/v1/leads/:id/convert` creates User+Patient in a transaction, mints MR, writes CONVERSION activity | **Closed 2026-05-21 via `928018f`**. |
 
 ---
 
@@ -112,7 +112,7 @@ This is one of MedCore's strongest modules. Pearl Stage 1 wants invoice list/det
 | 4.4 | Pharmacy turnover by item | ✅ Present | `routes/pharmacy.ts` | — |
 | 4.4 | Expiring batches (30/60/90) | ✅ Present | `routes/pharmacy.ts` | — |
 | 4.4 | Referring-doctor commission ledger | ❌ Missing | — | Follows from §4.1 commission gap. |
-| 4.4 | Lead-to-patient conversion funnel | ❌ Missing | — | Follows from §3.3 lead gap. |
+| 4.4 | Lead-to-patient conversion funnel | 🟡 Partial | `Lead` + `LeadActivity` + `CONVERSION` activity row (post-`928018f`) — funnel-aggregation report endpoint not yet built | Data is now there post-Pearl gap #3; a dedicated `routes/analytics.ts` funnel query + dashboard tile is the remaining piece. |
 | 4.4 | No-show rate by doctor / day-of-week | 🟡 Partial | `Patient.noShowCount`, `services/auto-noshow.ts` | Per-patient count exists; the doctor/DOW pivot isn't a built report. |
 | 4.4 | Revenue by service type | ✅ Present | `routes/analytics.ts` + `InvoiceItem.category` group-by | — |
 | 4.4 | GST report (output / input / payable) | ✅ Present | Per-line `cgst`/`sgst` persisted (Issue #901 was specifically about exact-DECIMAL GST math) | GSTR-1 export. |
@@ -204,7 +204,7 @@ Pearl wants this on a **separate URL** (`admin.pearl-erp.in`) with elevated `sup
 | 8.1 | Tenant list with per-tenant KPIs | 🟡 Partial | [`/dashboard/tenants/`](../apps/web/src/app/dashboard/tenants/), [`routes/tenants.ts`](../apps/api/src/routes/tenants.ts), [`/super-admin/`](../apps/web/src/app/super-admin/) (piece 1 of 4 — route-group scaffold shipped 2026-05-21) | Tenant list + create/update; KPI panel per tenant not built. |
 | 8.1 | Onboarding wizard (8 steps) | 🟡 Partial | `services/tenant-provisioning.ts createTenant()` is a single atomic POST; [`/super-admin/onboard/`](../apps/web/src/app/super-admin/onboard/) MVP wizard shipped 2026-05-22 (piece 2 of 4) — 3 of 8 PRD steps (tenant + first branch + super-admin user) via [`routes/tenant-onboarding.ts`](../apps/api/src/routes/tenant-onboarding.ts) | Piece 2 shipped 2026-05-22 — 3 of 8 steps in MVP wizard (tenant + first branch + super-admin user). Remaining 5 steps (HFR/HPR/WhatsApp/Razorpay/post-creation) deferred to piece 2b. |
 | 8.1 | Suspend / archive / restore + 90-day S3 archival | 🟡 Partial | `Tenant.active`, `services/tenant-provisioning.ts deactivateTenant()` | Suspend yes; archival to S3 not built. |
-| 8.1 | Per-tenant feature flag overrides | ❌ Missing | — | `SystemConfig` is global, not per-tenant feature flag. |
+| 8.1 | Per-tenant feature flag overrides | ✅ Present | `Tenant.featureFlags Json?` (migration `20260520000005_pearl_tenant_feature_flags`); `FEATURE_KEYS` (16 keys) in `packages/shared`; [`services/feature-flags.ts`](../apps/api/src/services/feature-flags.ts) 60s-LRU resolver; [`middleware/feature-flag.ts`](../apps/api/src/middleware/feature-flag.ts) `requireFeature(key)` → 404; [`routes/feature-flags.ts`](../apps/api/src/routes/feature-flags.ts) GET/PATCH (ADMIN-gated); web `useFeatureFlags()` hook + sidebar nav filter | **Closed 2026-05-21 via `d6a5370`** (Pearl gap #9). Applied to telemedicine + admissions + ai-radiology routers. 5 integration tests pin RBAC + 404-on-disable + null-clears-override. |
 | 8.2 | Cross-tenant super-admin list | 🟡 Partial | Admin users with `tenantId == null` is the current "super-admin" pattern (see `routes/tenants.ts:requireSuperAdmin`); [`/super-admin/`](../apps/web/src/app/super-admin/) layout client-side gate now enforces the same pattern (piece 1 of 4: route-group scaffold shipped 2026-05-21) | No dedicated `SuperAdmin` model; permissions are coarse. |
 | 8.2 | Granular permission grants (per-tenant / per-module / can-onboard-tenant / can-view-billing / can-trigger-jobs) | ❌ Missing | — | Role-only RBAC today. |
 | 8.2 | Audit trail per super-admin action | ✅ Present | `AuditLog` model + `services/tenant-context.ts` actor logging | Wired. |
@@ -312,7 +312,109 @@ OTel + structured logging + Sentry already wired (see `apps/web/instrumentation.
 
 ---
 
-## 6. Out-of-scope (Pearl Stage 2+) — MedCore surface to hide
+## 6. Acceptance-criteria coverage (PRD §2.2 / §3.4 / §4.5 / §5.3 / §6.3 / §7.3)
+
+Each Pearl module ends in a numbered list of measurable acceptance bullets — mostly timing-based (`< 6 min`, `< 30 s`, `< 60 s`, `< 90 s`, `< 5 min`). The matrix above tracks **feature presence**; this section tracks **acceptance-criterion presence** (timing/behaviour assertion exists in a Playwright spec or integration test).
+
+| PRD § | Acceptance bullet | Status | Notes / where it would land |
+|---|---|---|---|
+| 2.2 | New patient: register → arrive → consult → Rx sign → print in **< 6 min** | ❌ Not measured | Functionally possible today; no end-to-end timed spec. `e2e/opd-flow.spec.ts` would assert. |
+| 2.2 | All 3 doctor modes (Calling / Token / Slot) render on the same hospital with three different doctors | 🟡 Functional but not e2e-validated | 3 `queue.test.ts` plumbing assertions exist (commit `97542ec`); end-to-end multi-doctor display rendering isn't covered. |
+| 2.2 | Drug-allergy block actually blocks Rx sign with override-with-reason path | ✅ Validated | Integration test in `prescriptions.test.ts` (post-`954b141`) — 400 + `allergyConflicts[]` + override path persisted. |
+| 2.2 | WhatsApp share of printed Rx sends signed-PDF link | 🟡 Functional but not timed | Share button + signed-PDF URL exist; no e2e that asserts the WhatsApp deep-link triggers. |
+| 3.4 | Receptionist books an appointment in **< 30 s** for a returning patient | ❌ Not measured | Functional. No timing assertion — would need `e2e/appointment-booking.spec.ts` with `performance.now()` bracket. |
+| 3.4 | Doctor with only "Calling" mode enabled: booking form hides slot/token UI entirely | 🟡 Functional but not e2e-validated | Implementation in `47131fa`; no DOM-level "absence" assertion in e2e. |
+| 3.4 | Patient booked for tomorrow morning receives WhatsApp confirmation within **60 s** | ❌ Not measured | Notification orchestrator triggers; no async timing assertion against the WhatsApp adapter. |
+| 3.4 | Lead-to-patient conversion preserves activity history | ✅ Validated | `leads.test.ts` (post-`928018f`) asserts CONVERSION activity row + activity-history survival. |
+| 4.5 | Invoice creation + payment recording + receipt print in **< 60 s** | ❌ Not measured | Functional via billing routes + `pdf-generator.ts`. |
+| 4.5 | GST invoice format passes a chartered accountant's review | 🟡 Manual sign-off only | Per-line CGST/SGST + HSN/SAC persisted (#901); CA-review tracked outside this doc. |
+| 4.5 | Outstanding bills report tallies to the AR aging sum | 🟡 Functional but not e2e-validated | Aging endpoint exists; no integration test that asserts sum-of-rows == aging-total. |
+| 4.5 | Pharmacy dispense auto-creates billing line item with correct price and tax | ✅ Validated | `pharmacy.test.ts` covers the StockMovement → InvoiceItem chain. |
+| 5.3 (PRD M4) | Marketing admin builds an audience of "all hypertensives over 55, opted-in to WhatsApp" in **< 60 s** | 🟡 Backend ready, UI gap | Audience compiler shipped (`f701b52`); audience-builder UI = Campaign piece 4. |
+| 5.3 (PRD M4) | Campaign WhatsApp template: delivery rate **≥ 95%** over 1,000-patient pilot | ❌ Not measured | Dispatcher (Campaign piece 2b) + tracking rollups (piece 3) ship before this can be measured. |
+| 5.3 (PRD M4) | Patient who clicks campaign link can self-book; booking attributed to campaign | 🟡 Click event modelled (`18359bf`), self-book flow gap | Patient PWA booking page = M5 piece 3. |
+| 5.3 (PRD M4) | Quiet-hour clamp prevents 22:00 sends | 🟡 Schema-level only | `Campaign.sendWindowStart/End` shipped (piece 1); dispatcher-side enforcement = piece 2b. |
+| 6.3 (PRD M5) | New patient self-registers + books first appointment in **< 90 s** | ❌ Not measured | Patient-self-registration UI not built (M5 piece 3 dependency). |
+| 6.3 (PRD M5) | Returning patient: phone+OTP → today's appointment → "I've arrived" → reception queue update | 🟡 Phone OTP + login page shipped, dashboard tile pending | Pieces 2+4 shipped 2026-05-21/22; dashboard + arrive-button = piece 3. |
+| 6.3 (PRD M5) | Patient downloads signed Rx PDF + scans QR + verifies hash match | ✅ Validated | `/verify/` route + QR via `qrcode` lib + signed-URL hash verify. |
+| 6.3 (PRD M5) | UPI bill payment completes within **5 s** and updates invoice status | 🟡 Razorpay HMAC webhook present, timing not asserted | `razorpay-webhook.test.ts` covers correctness; no `< 5 s` assertion. |
+| 7.3 (PRD M6) | Reception: registration + book + arrived in **< 60 s** | ❌ Not measured | — |
+| 7.3 (PRD M6) | Doctor opens OPD visit + types/voices Rx + signs in **< 60 s** | ❌ Not measured | — |
+| 7.3 (PRD M6) | Pharmacy dispenses 3-item Rx + collects payment in **< 90 s** | ❌ Not measured | — |
+| 7.3 (PRD M6) | Admin onboards new doctor (user + role + working hours + appointment mode) in **< 5 min** | 🟡 Functional, untimed | All editing surfaces exist post-`fd58688`. |
+| 7.3 (PRD M6) | Lighthouse desktop score **≥ 90** on Dashboard, OPD Consult, Rx Writer | ❌ Not measured | No Lighthouse CI budget in `release.yml`. See §7 NFR coverage below. |
+| 8.7 (PRD M7) | Operator onboards new tenant + first branch + super-admin + WhatsApp + payment gateway in **< 30 min** via wizard | 🟡 3 of 8 wizard steps shipped (2026-05-22 via `4c9bf16`) | Pieces 2b (5 remaining wizard steps) outstanding. |
+| 8.7 (PRD M7) | Suspending tenant blocks all logins within **60 s** + pauses background jobs | 🟡 Suspend yes, timing not asserted | `deactivateTenant()` works synchronously; cross-job pause-on-suspend not built. |
+| 8.7 (PRD M7) | Super-admin TOTP enrolment cannot be skipped | 🟡 Per-tenant `requireAdminTOTP` toggle shipped (`a7d1b12`) | Default `false` — operator must enable per-tenant. |
+| 8.7 (PRD M7) | DPDP delete request executes in **< 60 s** with auditable receipt | 🟡 Per-patient export yes, cross-tenant purge workbench no | See §8 Compliance posture coverage. |
+
+**Top-line:** of 25 acceptance bullets across the 6 acceptance sections, **3 are ✅ Validated, 14 are 🟡 Functional-but-not-measured, 8 are ❌ Not-measured**. The Lighthouse + timing budgets are the largest single gap; adding them is mostly Playwright + a `performance.now()` bracket + a `lighthouse-ci` job in `release.yml`.
+
+---
+
+## 7. NFR coverage (PRD §6.2 + §10)
+
+Pearl Stage 1 has explicit non-functional requirements: PWA installability, offline tolerance, Lighthouse Perf/A11y budgets, 44px touch targets, Indian DPDP-residency hosting, observability stack. These cross-cut the module matrix and aren't called out per-row above.
+
+| PRD § | NFR | Status | What flips it to ✅ |
+|---|---|---|---|
+| 6.2 | Installable as a PWA on Android Chrome + iOS Safari | 🟡 Partial | Manifest + SW registered under `/patient` scope (M5 piece 1); install banner / `beforeinstallprompt` capture not wired. Adding an Install button in the patient layout flips it. |
+| 6.2 | Offline-tolerant SW caching dashboard + recent records | 🟡 Partial | Shell + static-asset caching shipped (`b28e695`, M5 piece 4). API responses deliberately uncached. Flips to ✅ when M5 piece 3 ships the dashboard + records pages + adds a cache strategy for the read-only `/api/v1/patients/me/*` GETs. |
+| 6.2 | Lighthouse mobile Performance **≥ 85** on Dashboard / Bills / Book Appointment | ❌ Not measured | Add `lighthouse-ci` step in `release.yml` against the `/patient/*` routes with budgets in `lighthouserc.json`. |
+| 6.2 | Lighthouse mobile Accessibility **≥ 95** | ❌ Not measured | Same job — Lighthouse runs both audits in one shot. |
+| 6.2 | Languages — English + Hindi at launch | ✅ Present | `apps/web/src/lib/i18n.ts` flat-dict EN+HI. Gujarati optional per pilot. |
+| 6.2 | Touch-friendly **44px** minimum targets | 🟡 Convention-only | `apps/web/src/app/patient/login/page.tsx` follows the 44px rule explicitly. No global Tailwind utility or Playwright `getBoundingClientRect()` audit enforcing it across all patient routes. |
+| 10 | Indian DPDP residency (AWS Mumbai `ap-south-1` or DO Bangalore) | ❌ Demo host out-of-region | Demo runs on `163.227.174.141`. Deploy-target gap, not code. Production Pearl tenants must move infra. |
+| 10 | Observability — OTel traces + structured pino logs + Grafana dashboards | 🟡 OTel + Sentry yes, Grafana dashboards no | `apps/web/instrumentation.ts` + `apps/api/src/services/metrics.ts` export OTel; no shipped Grafana JSON. |
+| 10 | CI/CD via GitHub Actions → staging → production | ✅ Present | `.github/workflows/release.yml` validates + the `test.yml` post-merge deploy gates flow on green. |
+
+---
+
+## 8. Compliance posture coverage (PRD §12)
+
+Pearl §12 mandates 7 compliance posture clauses. These overlap the matrix but deserve a flat audit so the operator can show a compliance reviewer one table.
+
+| PRD § / clause | Pearl ask | Status | Reference / what's left |
+|---|---|---|---|
+| 12.a | DPDP Act 2023 — granular consent at registration + opt-in/out per channel | ✅ Present | `NotificationPreference` + ABDM `ConsentArtefact` + registration capture. |
+| 12.a | DPDP Act 2023 — right to erasure with **full audit** | 🟡 Partial | `PatientDataExport` covers export (`routes/patient-data-export.ts`); per-patient erasure with cross-surface purge + auditable receipt is a Pearl §8.6 workbench gap. |
+| 12.a | DPDP — AP-South-1 residency | ❌ Infra gap | See §7 NFR row above. |
+| 12.b | ABDM M1 (ABHA create / link / verify) | ✅ Present | `routes/abdm.ts` (668 lines) + `services/abdm/`. |
+| 12.b | ABDM M1 — **HFR + HPR onboarding** for the tenant | 🟡 Wizard step deferred | Super-admin onboarding wizard MVP (`4c9bf16`) covers steps 1-3 of 8; HFR/HPR onboarding is step 5 of the PRD's 8-step wizard, deferred to piece 2b. |
+| 12.c | Telemedicine Practice Guidelines 2020 — Stage 1 covers OPD only (no telemed) | ✅ Telemed feature-flagged off | Telemed routes gated by `requireFeature("telemedicine")` post-`d6a5370`. |
+| 12.c | Schedule H / H1 / X flags in Rx writer | ✅ Present | `Medicine.schedule` + `isNarcotic` + `ControlledSubstanceEntry`. |
+| 12.c | Schedule X prescriptions require manual review + override | 🟡 Flag present, gated UI not specific | Controlled-substance register tracks dispense; an explicit Schedule-X gating UI (vs the generic CDSS override) isn't separately built. |
+| 12.d | IT Act 2000 — digital signature on every Rx (NMC reg + SHA-256 of canonical Rx JSON) | ✅ Present | `Doctor.nmcRegNumber` (closed via `704a5f5`, gap #10a) renders on Rx PDF; signed-PDF QR + signed-URL verify at `/verify/`. |
+| 12.d | Full eSign with Aadhaar ESP | ❌ Stage 2 | Explicitly deferred to Stage 2 in PRD §12. |
+| 12.e | GST — invoices conform to GST format + HSN/SAC per line | ✅ Present | `InvoiceItem.hsnSac` + per-line `cgst`/`sgst` (issue #901 was the DECIMAL-exact rounding fix). |
+| 12.f | TDS on professional fees report | 🟡 Computable, no dedicated endpoint | `Doctor.consultationFee` + invoice "consultation" line items present; dedicated TDS report endpoint not built. |
+| 12.g | Audit logging — every clinical + admin action logged with actor / timestamp / IP | ✅ Present | `AuditLog` model + `services/tenant-context.ts` actor logging; route-level `auditLog()`/`safeAudit()` wrappers used widely. |
+
+---
+
+## 9. Pilot go-live success criteria (PRD §16)
+
+PRD §16 lists 11 production-readiness checks that flip the pilot hospital to "Stage-1 live". These are **measured during the hyper-care window** (PRD §13 weeks 17-18 + 3 months post-go-live), not engineering deliverables — listed here so the next session knows they exist as a measurement plan.
+
+| PRD §16 criterion | Status (always pre-pilot) |
+|---|---|
+| ≥ 80% of OPD visits recorded in Pearl (not paper / parallel system) | Pre-pilot — measured during hyper-care window |
+| ≥ 80% of prescriptions typed + signed + printed in Pearl | Pre-pilot — measured during hyper-care window |
+| ≥ 90% of patients receive appointment reminder via WhatsApp | Pre-pilot — measured during hyper-care window |
+| Pharmacy dispensing through Kanban (not paper bill-books) | Pre-pilot — measured during hyper-care window |
+| All collections (cash + digital) recorded in Pearl billing | Pre-pilot — measured during hyper-care window |
+| GST + TDS monthly reports downloadable + tally to accountant's books | Pre-pilot — measured during hyper-care window |
+| At least one campaign sent through Pearl with > 50 patients reached | Pre-pilot — measured during hyper-care window (blocked on Campaign engine pieces 2b/3/4) |
+| Patient PWA ≥ 25% adoption (% of returning patients who log in within 30 days) | Pre-pilot — measured during hyper-care window (blocked on M5 piece 3 + onboarding flow) |
+| Doctor + reception NPS **≥ +40** after 4 weeks | Pre-pilot — measured during hyper-care window |
+| Zero data-loss + zero unauthorised cross-tenant access | Pre-pilot — tenant isolation tested but no production audit log of zero-incident weeks |
+| DPDP delete request executed at least once in test environment with full audit | 🟡 Per-patient export tested; cross-tenant purge workbench is a Pearl §8.6 build (not yet shipped) |
+
+**Operator note:** these are not engineering build items; they are KPI gates the pilot hospital must hit for 2 consecutive weeks before the operator declares "Stage 1 live". The Campaign engine + Patient PWA dashboard are the two engineering dependencies blocking 2 of the 11 criteria.
+
+---
+
+## 10. Out-of-scope (Pearl Stage 2+) — MedCore surface to hide
 
 Pearl PRD §18 explicitly excludes a long list of features that **MedCore already ships**. For a Pearl-branded tenant deployment, these need to be **hidden behind a tenant-feature-flag** (or per-role nav suppression) so the OPD-class scope stays clean and matches the SoW the hospital signed.
 
@@ -334,12 +436,16 @@ Pearl PRD §18 explicitly excludes a long list of features that **MedCore alread
 | Agentic Revenue Cycle | (not built) | N/A. |
 | HRMS / payroll | `routes/hr-ops.ts`, `routes/leaves.ts`, `routes/expenses.ts`, `payroll.ts`, `LeaveBalance`, `OvertimeRecord`, `StaffCertification`, `/dashboard/payroll/`, `/dashboard/leave-management/`, `/dashboard/duty-roster/` | Hide. **However** — staff shifts + leave + holiday calendar should stay (needed for doctor-mode scheduling). |
 | Asset / biomed tracker | `routes/assets.ts`, `Asset`/`AssetMaintenance`/`AssetTransfer`/`AssetAssignment`, `/dashboard/assets/` | Hide. |
+| RIS / PACS / DICOM viewer | (not built — distinct from `ai-radiology.ts` which is the AI triage layer on top of existing study metadata) | N/A — no DICOM viewer surface to hide. |
+| Self-service kiosk + Bluetooth thermal printer | (not built — no kiosk route group, no Web Bluetooth printer adapter) | N/A — fresh Stage-2+ build. |
+| Multi-language voice prompts | (not built — i18n shipped is text-only; no TTS / voice-prompt asset pack) | N/A. |
+| Pearl Agent Factory | (not built — out-of-scope agent-DSL platform per PRD §18) | N/A. |
 
-**Recommended mechanism:** add a `Tenant.featureFlags` Json column (already implied by the Pearl §8.1 "feature flag overrides per tenant" requirement) and gate route nav + API routes accordingly. This unifies the Pearl-Stage-1 hiding work with the Pearl-Stage-2 enable-when-paid work.
+**Recommended mechanism:** `Tenant.featureFlags Json?` (shipped 2026-05-21 via `d6a5370`, Pearl gap #9) + `requireFeature(key)` middleware + `useFeatureFlags()` hook + sidebar nav filter. Already wired against telemedicine + admissions + ai-radiology routers; extending to the remaining surfaces above is a half-day fanout per router. This unifies Pearl-Stage-1 hiding with Pearl-Stage-2 enable-when-paid.
 
 ---
 
-## 7. Top 10 recommended next moves to close Stage 1
+## 11. Top 10 recommended next moves to close Stage 1
 
 Ordered by Pearl-criticality × MedCore-build-cost ratio. Effort is engineer-weeks (1 engineer FT).
 
@@ -365,25 +471,25 @@ Ordered by Pearl-criticality × MedCore-build-cost ratio. Effort is engineer-wee
 | Pearl-asked-for table | MedCore model | Notes |
 |---|---|---|
 | `tenants` | `Tenant` ✅ | `subdomain`-keyed |
-| `branches` | ❌ MISSING | — |
+| `branches` | `Branch` ✅ (closed 2026-05-21 via `e0f8fa9`+`f37570c`+`1b21df4`+`a9b1e7a`) | piece 2b extends `branchId` to Invoice/Doctor/Patient (in-flight) |
 | `users` | `User` ✅ | with Role enum |
-| `doctor_appointment_preferences` | partial — `DoctorSchedule` + `ScheduleOverride` ✅ | no `appointmentMode` field |
+| `doctor_appointment_preferences` | `DoctorSchedule` + `ScheduleOverride` + `Doctor.appointmentMode` / `tokenPrefix` / `tokenStartNumber` / `dailyAppointmentLimit` / `nearTurnAlertThreshold` / `lastHourPolicy` ✅ (closed 2026-05-21 via `bfd11a8`+`af48756`+`fd58688`) | per-channel toggles + buffer still as a piece-2b polish |
 | `patients` | `Patient` ✅ | + many extensions |
-| `appointments` | `Appointment` ✅ | token-mode only |
-| `appointment_remarks` | ❌ MISSING | only `Appointment.notes` freetext |
+| `appointments` | `Appointment` ✅ | TOKEN / SLOT / CALLING modes all supported post-`bfd11a8`+`e35081b`; `branchId` added in `f37570c` |
+| `appointment_remarks` | `AppointmentRemark` ✅ (closed 2026-05-21 via `02192a4`) | thread + visibility scope + pin + audit |
 | `consultations` (SOAP) | `Consultation` ✅ + `AIScribeSession.soapDraft/soapFinal` Json | |
 | `vitals` | `Vitals` + `IpdVitals` ✅ | |
 | `prescriptions` | `Prescription` + `PrescriptionItem` ✅ | |
 | `prescription_templates` | `PrescriptionTemplate` ✅ | |
 | `medicines_master` | `Medicine` ✅ | Schedule + isNarcotic + leaflet |
 | `drug_interactions` | `DrugInteraction` ✅ | |
-| `patient_allergies` | `PatientAllergy` ✅ | not wired to Rx-block |
+| `patient_allergies` | `PatientAllergy` ✅ | wired to Rx-block + override-with-reason post-`954b141` (2026-05-20) |
 | `invoices` | `Invoice` + `InvoiceItem` + `Payment` ✅ | Decimal money |
 | `coverage_status` (NHCX stub) | `InsuranceClaim2.status` ✅ | richer than Pearl stub |
 | `pharmacy_issues` / dispense | `StockMovement` + pharmacy routes ✅ | |
 | `inventory_batches` | `InventoryItem.batchNumber/expiryDate` ✅ | |
-| `leads` | ❌ MISSING — only `MarketingEnquiry` | |
-| `lead_activities` | ❌ MISSING | |
+| `leads` | `Lead` ✅ (closed 2026-05-21 via `928018f`) | 6-stage status enum + multi-source enum |
+| `lead_activities` | `LeadActivity` ✅ (closed 2026-05-21 via `928018f`) | auto-logged on status / doctor-allocation / conversion |
 | `campaigns` | `Campaign` ✅ (piece 1 of 4, 2026-05-21) — `NotificationBroadcast` (legacy one-off) coexists | dispatcher = piece 2 |
 | `campaign_sends` | `CampaignSend` ✅ (piece 1 of 4, 2026-05-21) | per-recipient row written by dispatcher = piece 2 |
 | `audience` | `CampaignAudience` ✅ (piece 1 of 4, 2026-05-21) | DSL compiler = piece 2 |
@@ -396,7 +502,7 @@ Ordered by Pearl-criticality × MedCore-build-cost ratio. Effort is engineer-wee
 | `abha_links` | `AbhaLink` ✅ | |
 | `consent_artefacts` | `ConsentArtefact` ✅ | |
 | `care_contexts` (ABDM) | `CareContext` ✅ | |
-| `feature_flags` (per tenant) | ❌ MISSING — only global `SystemConfig` | |
+| `feature_flags` (per tenant) | `Tenant.featureFlags Json?` ✅ (closed 2026-05-21 via `d6a5370`) | + `FEATURE_KEYS` registry in `packages/shared` |
 | `pearl_subscriptions` / `pearl_invoices` | ❌ MISSING | Stage 1 Pearl-billing surface |
 | `support_tickets` | partial — `Complaint` ✅ (patient→hospital, not operator inbox) | |
 | `super_admin_audit` | partial — `AuditLog` scoped to non-tenant actors | |
@@ -424,3 +530,18 @@ Ordered by Pearl-criticality × MedCore-build-cost ratio. Effort is engineer-wee
 ---
 
 End of Pearl Stage 1 gap analysis.
+
+---
+
+## Rebuild log
+
+**2026-05-22 — section-by-section rebuild against in-repo PRD.**
+
+- **Source-of-truth alignment:** PRD now in-repo at `docs/PEARL-ERP-STAGE-1-SOW.md` (commit `8a89ec5`); previously this gap doc was authored against an untracked PRD on the original author's laptop. The matrix above is now grep-verifiable against the in-tree SoW.
+- **Rows flipped from ❌/🟡 to ✅:** 11 — §3.1 slot picker + slot uniqueness; §3.3 lead pipeline (5 rows); §4.4 lead-to-patient funnel (🟡 — schema there, report endpoint pending); §8.1 per-tenant feature flags; Appendix A: `branches`, `feature_flags`, `leads`, `lead_activities`, `appointment_remarks`, `doctor_appointment_preferences`, `appointments` (mode-stale annotation refresh), `patient_allergies` (Rx-block wiring stale annotation refresh).
+- **Sections added:** 4 new — §6 Acceptance-criteria coverage (25 acceptance bullets across 6 module sections); §7 NFR coverage (9 NFRs from PRD §6.2 + §10); §8 Compliance posture coverage (13 clauses from PRD §12); §9 Pilot go-live success criteria (11 KPI gates from PRD §16).
+- **§10 Out-of-Scope expansion:** added 4 missing items to mirror PRD §18's full 19-item list — RIS/PACS/DICOM viewer; Self-service kiosk + Bluetooth thermal printer; Multi-language voice prompts; Pearl Agent Factory. Recommended-mechanism note updated to point at the shipped `Tenant.featureFlags` (no longer "implied requirement").
+- **TL;DR refresh:** top-line coverage estimate bumped from ~65-70% to ~75-78% after recomputing against the closed rows from the 2026-05-20/21 overnight Pearl burndown + the 2026-05-22 #5/#6 piece 2 landings.
+- **Top-10 list:** untouched in scope (still Stage 1 only); renumbered as §11 to accommodate the inserted §6-§9.
+- **Scope retained for follow-up:** the inline comment in `apps/web/src/app/dashboard/patients/page.tsx:296` still describes the old "Add to Lead" stub even though the action is wired live — annotated but not edited (docs-only commit per instructions).
+- **No source code, no tests, no schema touched.** Single docs-only commit.

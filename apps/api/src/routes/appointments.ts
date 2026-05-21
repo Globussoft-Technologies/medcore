@@ -174,9 +174,17 @@ router.post(
       //   booking blocked by @@unique (doctorId, date, slotStart).
       //   CALLING = arrival-order queue, no token, no slot — arrivalSeq
       //   minted as a per-(doctor, date) counter.
+      // Also pull the Pearl §3.2 booking-policy knobs (tokenPrefix,
+      // dailyAppointmentLimit, lastHourPolicy) so the per-doctor caps
+      // can be enforced before we commit a row.
       const doctor = await prisma.doctor.findUnique({
         where: { id: doctorId },
-        select: { appointmentMode: true },
+        select: {
+          appointmentMode: true,
+          tokenPrefix: true,
+          dailyAppointmentLimit: true,
+          lastHourPolicy: true,
+        },
       });
       if (!doctor) {
         res.status(404).json({ success: false, data: null, error: "Doctor not found" });
@@ -191,6 +199,76 @@ router.post(
           error: "SLOT-mode bookings require a slotId (HH:MM)",
         });
         return;
+      }
+
+      // Pearl ERP Stage 1 §3.2 — per-doctor daily appointment cap. Null =
+      // unlimited; otherwise count same-day, non-cancelled appointments and
+      // reject the (N+1)th booking with 409. Cancelled / no-show rows do
+      // NOT consume the cap so a no-show patient's slot frees up.
+      if (
+        doctor.dailyAppointmentLimit !== null &&
+        doctor.dailyAppointmentLimit !== undefined
+      ) {
+        const dayStart = new Date(dateObj);
+        dayStart.setUTCHours(0, 0, 0, 0);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+        const sameDayCount = await prisma.appointment.count({
+          where: {
+            doctorId,
+            date: { gte: dayStart, lt: dayEnd },
+            status: { notIn: ["CANCELLED", "NO_SHOW"] },
+          },
+        });
+        if (sameDayCount >= doctor.dailyAppointmentLimit) {
+          res.status(409).json({
+            success: false,
+            data: null,
+            error: `Doctor daily appointment limit (${doctor.dailyAppointmentLimit}) reached for ${date}`,
+          });
+          return;
+        }
+      }
+
+      // Pearl ERP Stage 1 §3.2 — last-hour booking policy. BLOCK_NEW =
+      // reject any booking whose slotId falls within the last 60 min of
+      // the doctor's working day for that weekday (read from
+      // DoctorSchedule.endTime; the latest endTime across overlapping
+      // shifts wins). ACCEPT_ALL / WALK_IN_ONLY / null = handler does
+      // not gate here (WALK_IN_ONLY restricts to the walk-in route, which
+      // is a separate concern). CALLING-mode has no slotId so the policy
+      // can't apply.
+      if (
+        doctor.lastHourPolicy === "BLOCK_NEW" &&
+        slotId &&
+        /^\d{2}:\d{2}$/.test(slotId)
+      ) {
+        const dayOfWeek = dateObj.getUTCDay(); // 0=Sun..6=Sat — matches DoctorSchedule
+        const schedules = await prisma.doctorSchedule.findMany({
+          where: { doctorId, dayOfWeek },
+          select: { endTime: true },
+        });
+        if (schedules.length > 0) {
+          const [sh, sm] = slotId.split(":").map(Number);
+          const slotMin = sh * 60 + sm;
+          // Find the latest endTime to define the last-hour window. A
+          // doctor with two shifts (morning + evening) gets one last-hour
+          // gate per shift; reject if the slot falls within the last-hour
+          // window of ANY shift it lands inside.
+          for (const sched of schedules) {
+            const m = /^(\d{2}):(\d{2})$/.exec(sched.endTime);
+            if (!m) continue;
+            const endMin = Number(m[1]) * 60 + Number(m[2]);
+            if (slotMin >= endMin - 60 && slotMin < endMin) {
+              res.status(409).json({
+                success: false,
+                data: null,
+                error: "Last-hour bookings are blocked for this doctor",
+              });
+              return;
+            }
+          }
+        }
       }
 
       // Slot-collision pre-check applies to TOKEN (if a slot is provided)
@@ -286,7 +364,19 @@ router.post(
       onAppointmentBooked(appointment as any).catch(console.error);
       auditLog(req, "APPOINTMENT_CREATE", "appointment", appointment.id, { patientId, doctorId, date }).catch(console.error);
 
-      res.status(201).json({ success: true, data: appointment, error: null });
+      // Pearl ERP Stage 1 §3.2 — user-facing token. Doctors with a
+      // tokenPrefix get "<prefix><n>" (e.g. "A12") in the response;
+      // the raw integer column is unchanged. displayToken is null for
+      // CALLING / SLOT (no token at all).
+      const displayToken =
+        appointment.tokenNumber !== null && appointment.tokenNumber !== undefined
+          ? `${doctor.tokenPrefix ?? ""}${appointment.tokenNumber}`
+          : null;
+      res.status(201).json({
+        success: true,
+        data: { ...appointment, displayToken },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

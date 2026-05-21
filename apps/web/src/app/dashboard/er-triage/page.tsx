@@ -86,9 +86,9 @@ const TRIAGE_CONFIG: Record<
 };
 
 const MEWS_COLOR = (score: number) => {
-  if (score >= 5) return "text-red-700 bg-red-100";
-  if (score >= 3) return "text-orange-700 bg-orange-100";
-  return "text-green-700 bg-green-100";
+  if (score >= 5) return "text-red-700 bg-red-100 dark:text-red-200 dark:bg-red-900/40";
+  if (score >= 3) return "text-orange-700 bg-orange-100 dark:text-orange-200 dark:bg-orange-900/40";
+  return "text-green-700 bg-green-100 dark:text-green-200 dark:bg-green-900/40";
 };
 
 const MEWS_LABEL = (score: number) => {
@@ -197,26 +197,26 @@ export default function ERTriagePage() {
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
-          <Activity className="w-5 h-5 text-red-600" />
+        <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center dark:bg-red-900/40">
+          <Activity className="w-5 h-5 text-red-600 dark:text-red-300" />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-gray-900">ER Triage Assistant</h1>
-          <p className="text-sm text-gray-500">AI-assisted ESI triage — for clinical use only</p>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">ER Triage Assistant</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">AI-assisted ESI triage — for clinical use only</p>
         </div>
       </div>
 
       {/* Form card */}
-      <div className="bg-white rounded-2xl shadow border border-gray-100 p-6">
-        <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
-          <ClipboardList className="w-4 h-4 text-gray-400" />
+      <div className="bg-white rounded-2xl shadow border border-gray-100 p-6 dark:bg-gray-800 dark:border-white/10 dark:shadow-none">
+        <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2 dark:text-gray-200">
+          <ClipboardList className="w-4 h-4 text-gray-400 dark:text-gray-500" />
           Patient Presentation
         </h2>
 
         <div className="grid grid-cols-1 gap-4">
           {/* Chief Complaint */}
           <div>
-            <label htmlFor="triage-chief-complaint" className="block text-xs font-medium text-gray-600 mb-1">
+            <label htmlFor="triage-chief-complaint" className="block text-xs font-medium text-gray-600 mb-1 dark:text-gray-300">
               Chief Complaint <span className="text-red-500">*</span>
             </label>
             <input
@@ -225,25 +225,25 @@ export default function ERTriagePage() {
               value={form.chiefComplaint}
               onChange={set("chiefComplaint")}
               placeholder="e.g. Sudden onset chest pain, radiating to left arm"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+              className="w-full border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
             />
           </div>
 
           {/* Vitals row */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div>
-              <label htmlFor="triage-bp" className="block text-xs font-medium text-gray-600 mb-1">BP (mmHg)</label>
+              <label htmlFor="triage-bp" className="block text-xs font-medium text-gray-600 mb-1 dark:text-gray-300">BP (mmHg)</label>
               <input
                 id="triage-bp"
                 type="text"
                 value={form.bp}
                 onChange={set("bp")}
                 placeholder="e.g. 120/80"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                className="w-full border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
               />
             </div>
             <div>
-              <label htmlFor="triage-pulse" className="block text-xs font-medium text-gray-600 mb-1">Pulse (bpm)</label>
+              <label htmlFor="triage-pulse" className="block text-xs font-medium text-gray-600 mb-1 dark:text-gray-300">Pulse (bpm)</label>
               <input
                 id="triage-pulse"
                 type="number"
@@ -252,11 +252,11 @@ export default function ERTriagePage() {
                 placeholder="e.g. 88"
                 min={0}
                 max={300}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                className="w-full border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
               />
             </div>
             <div>
-              <label htmlFor="triage-resp" className="block text-xs font-medium text-gray-600 mb-1">Resp Rate (/min)</label>
+              <label htmlFor="triage-resp" className="block text-xs font-medium text-gray-600 mb-1 dark:text-gray-300">Resp Rate (/min)</label>
               <input
                 id="triage-resp"
                 type="number"
@@ -265,11 +265,11 @@ export default function ERTriagePage() {
                 placeholder="e.g. 18"
                 min={0}
                 max={100}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                className="w-full border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
               />
             </div>
             <div>
-              <label htmlFor="triage-spo2" className="block text-xs font-medium text-gray-600 mb-1">SpO2 (%)</label>
+              <label htmlFor="triage-spo2" className="block text-xs font-medium text-gray-600 mb-1 dark:text-gray-300">SpO2 (%)</label>
               <input
                 id="triage-spo2"
                 type="number"
@@ -278,11 +278,11 @@ export default function ERTriagePage() {
                 placeholder="e.g. 98"
                 min={0}
                 max={100}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                className="w-full border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
               />
             </div>
             <div>
-              <label htmlFor="triage-temp" className="block text-xs font-medium text-gray-600 mb-1">Temperature (°C)</label>
+              <label htmlFor="triage-temp" className="block text-xs font-medium text-gray-600 mb-1 dark:text-gray-300">Temperature (°C)</label>
               <input
                 id="triage-temp"
                 type="number"
@@ -292,11 +292,11 @@ export default function ERTriagePage() {
                 step="0.1"
                 min={30}
                 max={45}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                className="w-full border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
               />
             </div>
             <div>
-              <label htmlFor="triage-gcs" className="block text-xs font-medium text-gray-600 mb-1">GCS (3–15)</label>
+              <label htmlFor="triage-gcs" className="block text-xs font-medium text-gray-600 mb-1 dark:text-gray-300">GCS (3–15)</label>
               <input
                 id="triage-gcs"
                 type="number"
@@ -305,14 +305,14 @@ export default function ERTriagePage() {
                 placeholder="e.g. 15"
                 min={3}
                 max={15}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                className="w-full border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
               />
             </div>
           </div>
 
           {/* Demographics */}
           <div>
-            <label htmlFor="triage-patient-age" className="block text-xs font-medium text-gray-600 mb-1">Patient Age (years)</label>
+            <label htmlFor="triage-patient-age" className="block text-xs font-medium text-gray-600 mb-1 dark:text-gray-300">Patient Age (years)</label>
             <input
               id="triage-patient-age"
               type="number"
@@ -321,20 +321,20 @@ export default function ERTriagePage() {
               placeholder="e.g. 45"
               min={0}
               max={120}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+              className="w-full border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
             />
           </div>
 
           {/* Brief history */}
           <div>
-            <label htmlFor="triage-brief-history" className="block text-xs font-medium text-gray-600 mb-1">Brief History</label>
+            <label htmlFor="triage-brief-history" className="block text-xs font-medium text-gray-600 mb-1 dark:text-gray-300">Brief History</label>
             <textarea
               id="triage-brief-history"
               value={form.briefHistory}
               onChange={set("briefHistory")}
               rows={3}
               placeholder="Known conditions, relevant history, onset, medications..."
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 resize-none"
+              className="w-full border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 resize-none dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
             />
           </div>
         </div>
@@ -345,7 +345,7 @@ export default function ERTriagePage() {
           <div
             data-testid="er-triage-error-banner"
             role="alert"
-            className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+            className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-700/50 dark:bg-red-900/30 dark:text-red-200"
           >
             <div className="flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
@@ -358,7 +358,7 @@ export default function ERTriagePage() {
                 data-testid="er-triage-retry"
                 onClick={handleAssess}
                 disabled={loading || !form.chiefComplaint.trim()}
-                className="rounded-lg border border-red-300 bg-white px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+                className="rounded-lg border border-red-300 bg-white px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50 dark:border-red-700/50 dark:bg-red-900/40 dark:text-red-200 dark:hover:bg-red-900/60"
               >
                 Retry
               </button>
@@ -388,7 +388,7 @@ export default function ERTriagePage() {
       {assessment && cfg && (
         <div className="space-y-4">
           {/* Triage level badge + MEWS + disposition */}
-          <div className="bg-white rounded-2xl shadow border border-gray-100 p-6 space-y-4">
+          <div className="bg-white rounded-2xl shadow border border-gray-100 p-6 space-y-4 dark:bg-gray-800 dark:border-white/10 dark:shadow-none">
             <div className="flex flex-wrap items-center gap-4">
               {/* Level badge */}
               <div
@@ -416,11 +416,11 @@ export default function ERTriagePage() {
 
               {/* Disposition + time target */}
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-gray-500 font-medium">Disposition</p>
-                <p className="text-base font-semibold text-gray-800">{assessment.disposition}</p>
-                <p className="mt-1 text-xs font-semibold text-gray-500">
+                <p className="text-xs text-gray-500 font-medium dark:text-gray-400">Disposition</p>
+                <p className="text-base font-semibold text-gray-800 dark:text-gray-100">{assessment.disposition}</p>
+                <p className="mt-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
                   Time to physician:{" "}
-                  <span className={`font-bold ${assessment.suggestedTriageLevel <= 2 ? "text-red-600" : "text-gray-700"}`}>
+                  <span className={`font-bold ${assessment.suggestedTriageLevel <= 2 ? "text-red-600 dark:text-red-400" : "text-gray-700 dark:text-gray-200"}`}>
                     {ESI_TIME[assessment.suggestedTriageLevel] ?? "—"}
                   </span>
                 </p>
@@ -429,15 +429,15 @@ export default function ERTriagePage() {
 
             {/* Vitals recap strip */}
             {(form.bp || form.pulse || form.resp || form.spO2 || form.temp || form.gcs) && (
-              <div className="border-t border-gray-100 pt-3">
-                <p className="text-xs font-semibold text-gray-500 mb-2">Vitals at Assessment</p>
+              <div className="border-t border-gray-100 pt-3 dark:border-white/10">
+                <p className="text-xs font-semibold text-gray-500 mb-2 dark:text-gray-400">Vitals at Assessment</p>
                 <div className="flex flex-wrap gap-2">
-                  {form.bp && <span className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700"><span className="font-medium">BP</span> {form.bp}</span>}
-                  {form.pulse && <span className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700"><span className="font-medium">HR</span> {form.pulse} bpm</span>}
-                  {form.resp && <span className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700"><span className="font-medium">RR</span> {form.resp}/min</span>}
-                  {form.spO2 && <span className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700"><span className="font-medium">SpO₂</span> {form.spO2}%</span>}
-                  {form.temp && <span className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700"><span className="font-medium">Temp</span> {form.temp}°C</span>}
-                  {form.gcs && <span className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700"><span className="font-medium">GCS</span> {form.gcs}/15</span>}
+                  {form.bp && <span className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700 dark:bg-gray-900/40 dark:border-white/10 dark:text-gray-200"><span className="font-medium">BP</span> {form.bp}</span>}
+                  {form.pulse && <span className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700 dark:bg-gray-900/40 dark:border-white/10 dark:text-gray-200"><span className="font-medium">HR</span> {form.pulse} bpm</span>}
+                  {form.resp && <span className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700 dark:bg-gray-900/40 dark:border-white/10 dark:text-gray-200"><span className="font-medium">RR</span> {form.resp}/min</span>}
+                  {form.spO2 && <span className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700 dark:bg-gray-900/40 dark:border-white/10 dark:text-gray-200"><span className="font-medium">SpO₂</span> {form.spO2}%</span>}
+                  {form.temp && <span className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700 dark:bg-gray-900/40 dark:border-white/10 dark:text-gray-200"><span className="font-medium">Temp</span> {form.temp}°C</span>}
+                  {form.gcs && <span className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700 dark:bg-gray-900/40 dark:border-white/10 dark:text-gray-200"><span className="font-medium">GCS</span> {form.gcs}/15</span>}
                 </div>
               </div>
             )}
@@ -448,17 +448,17 @@ export default function ERTriagePage() {
             <div
               className={`rounded-2xl border p-5 ${
                 isHighAcuity
-                  ? "bg-red-50 border-red-200"
-                  : "bg-white border-gray-100 shadow"
+                  ? "bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-700/50"
+                  : "bg-white border-gray-100 shadow dark:bg-gray-800 dark:border-white/10 dark:shadow-none"
               }`}
             >
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 mb-3">
-                <Zap className={`w-4 h-4 ${isHighAcuity ? "text-red-500" : "text-amber-500"}`} />
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 mb-3 dark:text-gray-100">
+                <Zap className={`w-4 h-4 ${isHighAcuity ? "text-red-500 dark:text-red-400" : "text-amber-500 dark:text-amber-400"}`} />
                 Immediate Actions
               </h3>
               <ul className="space-y-1.5">
                 {assessment.immediateActions.map((action, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                  <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-200">
                     <span
                       className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold ${
                         isHighAcuity ? "bg-red-500 text-white" : "bg-amber-400 text-white"
@@ -475,16 +475,16 @@ export default function ERTriagePage() {
 
           {/* Investigations */}
           {assessment.suggestedInvestigations.length > 0 && (
-            <div className="bg-white rounded-2xl shadow border border-gray-100 p-5">
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 mb-3">
-                <Activity className="w-4 h-4 text-blue-500" />
+            <div className="bg-white rounded-2xl shadow border border-gray-100 p-5 dark:bg-gray-800 dark:border-white/10 dark:shadow-none">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 mb-3 dark:text-gray-100">
+                <Activity className="w-4 h-4 text-blue-500 dark:text-blue-400" />
                 Suggested Investigations
               </h3>
               <ul className="flex flex-wrap gap-2">
                 {assessment.suggestedInvestigations.map((inv, i) => (
                   <li
                     key={i}
-                    className="px-3 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-full border border-blue-100"
+                    className="px-3 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-full border border-blue-100 dark:bg-blue-900/40 dark:text-blue-200 dark:border-blue-700/50"
                   >
                     {inv}
                   </li>
@@ -495,15 +495,15 @@ export default function ERTriagePage() {
 
           {/* Red flags */}
           {assessment.redFlags.length > 0 && (
-            <div className="bg-white rounded-2xl shadow border border-red-100 p-5">
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-red-700 mb-3">
-                <ShieldAlert className="w-4 h-4 text-red-500" />
+            <div className="bg-white rounded-2xl shadow border border-red-100 p-5 dark:bg-gray-800 dark:border-red-700/50 dark:shadow-none">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-red-700 mb-3 dark:text-red-300">
+                <ShieldAlert className="w-4 h-4 text-red-500 dark:text-red-400" />
                 Red Flags Identified
               </h3>
               <ul className="space-y-1">
                 {assessment.redFlags.map((flag, i) => (
-                  <li key={i} className="flex items-center gap-2 text-sm text-red-700">
-                    <AlertTriangle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+                  <li key={i} className="flex items-center gap-2 text-sm text-red-700 dark:text-red-200">
+                    <AlertTriangle className="w-3.5 h-3.5 text-red-400 dark:text-red-400 shrink-0" />
                     {flag}
                   </li>
                 ))}
@@ -512,30 +512,30 @@ export default function ERTriagePage() {
           )}
 
           {/* AI Reasoning — collapsible */}
-          <div className="bg-white rounded-2xl shadow border border-gray-100 overflow-hidden">
+          <div className="bg-white rounded-2xl shadow border border-gray-100 overflow-hidden dark:bg-gray-800 dark:border-white/10 dark:shadow-none">
             <button
               onClick={() => setReasoningOpen((o) => !o)}
-              className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+              className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors dark:text-gray-200 dark:hover:bg-white/5"
             >
               <span className="flex items-center gap-2">
-                <Stethoscope className="w-4 h-4 text-gray-400" />
+                <Stethoscope className="w-4 h-4 text-gray-400 dark:text-gray-500" />
                 AI Reasoning
               </span>
               {reasoningOpen ? (
-                <ChevronUp className="w-4 h-4 text-gray-400" />
+                <ChevronUp className="w-4 h-4 text-gray-400 dark:text-gray-500" />
               ) : (
-                <ChevronDown className="w-4 h-4 text-gray-400" />
+                <ChevronDown className="w-4 h-4 text-gray-400 dark:text-gray-500" />
               )}
             </button>
             {reasoningOpen && (
-              <div className="px-5 pb-4 text-sm text-gray-600 leading-relaxed border-t border-gray-100 pt-3">
+              <div className="px-5 pb-4 text-sm text-gray-600 leading-relaxed border-t border-gray-100 pt-3 dark:text-gray-300 dark:border-white/10">
                 {assessment.aiReasoning}
               </div>
             )}
           </div>
 
           {/* Disclaimer */}
-          <p className="text-xs italic text-gray-400 text-center px-2">{assessment.disclaimer}</p>
+          <p className="text-xs italic text-gray-400 text-center px-2 dark:text-gray-500">{assessment.disclaimer}</p>
         </div>
       )}
     </div>

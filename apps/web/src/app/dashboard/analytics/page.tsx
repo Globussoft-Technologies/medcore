@@ -979,6 +979,46 @@ export default function AnalyticsPage() {
             page-break-inside: avoid;
           }
         }
+        .dark .analytics-page {
+          color: #e5e7eb;
+        }
+        .dark .analytics-page h1,
+        .dark .analytics-page h2,
+        .dark .analytics-page h3 {
+          color: #f3f4f6 !important;
+        }
+        .dark .analytics-page .bg-white {
+          background-color: #1f2937 !important;
+        }
+        .dark .analytics-page .text-gray-800 {
+          color: #f3f4f6 !important;
+        }
+        .dark .analytics-page .text-gray-700 {
+          color: #e5e7eb !important;
+        }
+        .dark .analytics-page .text-gray-600,
+        .dark .analytics-page .text-gray-500 {
+          color: #9ca3af !important;
+        }
+        .dark .analytics-page .border,
+        .dark .analytics-page .border-gray-100,
+        .dark .analytics-page .border-gray-200 {
+          border-color: #374151 !important;
+        }
+        .dark .analytics-page input,
+        .dark .analytics-page select,
+        .dark .analytics-page textarea {
+          background-color: #111827 !important;
+          color: #f3f4f6 !important;
+          border-color: #4b5563 !important;
+        }
+        .dark .analytics-page input::placeholder,
+        .dark .analytics-page textarea::placeholder {
+          color: #9ca3af !important;
+        }
+        .dark .analytics-page .hover\\:bg-gray-50:hover {
+          background-color: #374151 !important;
+        }
       `}</style>
 
       {/* Header + filter bar */}
@@ -2154,7 +2194,7 @@ function KpiCard({
   const showDelta = deltaPct !== undefined;
   const positive = (deltaPct || 0) >= 0;
   return (
-    <div className="rounded-xl bg-white p-6 shadow-sm">
+    <div className="flex h-full flex-col rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800 dark:shadow-none dark:ring-1 dark:ring-white/10">
       <div className="flex items-start justify-between">
         <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${bg}`}>
           <Icon size={20} className={color} />
@@ -2162,7 +2202,9 @@ function KpiCard({
         {showDelta && (
           <span
             className={`flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-medium ${
-              positive ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
+              positive
+                ? "bg-green-50 text-green-700 dark:bg-green-900/40 dark:text-green-200"
+                : "bg-red-50 text-red-700 dark:bg-red-900/40 dark:text-red-200"
             }`}
             title={prevValue !== undefined ? `Previous: ${prevValue}` : undefined}
           >
@@ -2171,12 +2213,19 @@ function KpiCard({
           </span>
         )}
       </div>
-      <p className="mt-3 text-sm text-gray-500">{label}</p>
-      <p className="text-2xl font-bold text-gray-900">{loading ? "..." : value}</p>
-      {sub && <p className="mt-1 text-xs text-gray-400">{sub}</p>}
-      {prevValue !== undefined && showDelta && (
-        <p className="mt-1 text-[10px] text-gray-400">Previous: {prevValue}</p>
-      )}
+      <p className="mt-3 text-sm text-gray-500 dark:text-gray-300">{label}</p>
+      <p
+        className="truncate text-2xl font-bold whitespace-nowrap text-gray-900 dark:text-gray-100"
+        title={typeof value === "string" || typeof value === "number" ? String(value) : undefined}
+      >
+        {loading ? "..." : value}
+      </p>
+      <div className="mt-1 min-h-[2.5rem] space-y-0.5">
+        {sub && <p className="text-xs text-gray-500 dark:text-gray-400">{sub}</p>}
+        {prevValue !== undefined && showDelta && (
+          <p className="text-[10px] text-gray-400 dark:text-gray-500">Previous: {prevValue}</p>
+        )}
+      </div>
     </div>
   );
 }

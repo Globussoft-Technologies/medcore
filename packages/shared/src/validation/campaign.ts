@@ -131,21 +131,103 @@ export const updateCampaignSchema = z
     },
   );
 
+// ── Audience rule DSL (piece 2a of 4 — 2026-05-21) ─────────────────────
+//
+// The compiler (`apps/api/src/services/audience-compiler.ts`) turns this
+// JSON into a Prisma `where` over Patient. v1 supports a small predicate
+// set per the PRD §5.1 "demographic + clinical filters" requirement.
+//
+// Design note — permissive runtime shape over strict discriminated union:
+//   We use a permissive `{ field, op, value }` triple at the Zod level
+//   (any string field / op, value unknown) rather than the strict
+//   `z.discriminatedUnion` of every (field, op, value) combination. Why:
+//   1) Tenants' saved audiences must survive DSL evolution — a future
+//      field/op rename should NOT 400 their existing campaigns.
+//   2) The piece-1 integration tests already shipped audiences with
+//      `op:"gt"` and `field:"chronicConditions.code"` (out-of-v1-DSL).
+//      Compiler treats unknown predicates as no-op + warns; storage
+//      stays lossless.
+//   3) The compiler is the single source of truth for which (field, op)
+//      pairs actually filter. Zod just enforces *structural* validity
+//      (filters is an array, matchMode is ALL/ANY, top-level keys are
+//      `filters` / `matchMode` only — see `.strict()` below).
+//
+// v1-supported predicates (handled by compiler — anything else is no-op):
+//   - { field: "gender", op: "eq", value: "MALE" | "FEMALE" | "OTHER" }
+//   - { field: "age", op: "gte" | "lte", value: number }
+//       (computed from Patient.dateOfBirth)
+//   - { field: "lastVisitDays", op: "gte" | "lte", value: number }
+//       (days since most recent Appointment.date; gte = "no visit in
+//        last N days", lte = "had a visit within N days")
+//   - { field: "abhaLinked", op: "eq", value: boolean }
+//       (boolean → Patient.abhaId IS NULL / IS NOT NULL)
+//   - { field: "city", op: "eq" | "in", value: string | string[] }
+//       (NOTE: Patient has no `city` column in the current schema; the
+//        compiler emits a no-op + warning for this filter until Patient
+//        gains an address.city field. Documented in the gap doc.)
+//   - { field: "branchId", op: "eq", value: string }
+//       (NOTE: Patient.branchId does NOT exist yet — only Appointment
+//        has branchId per `f37570c`. Compiler emits a no-op + warning
+//        for this filter until Pearl gap #2 piece 2b lands. Documented
+//        in the gap doc.)
+//   - { field: "optedOut", op: "eq", value: boolean }
+//       (no Patient.optedOut column today either — compiler emits no-op
+//        + warning. NotificationPreference is per-user-per-channel, so
+//        "globally opted out" can't be expressed without a join the
+//        compiler doesn't yet do. Documented in the gap doc.)
+
+export const AUDIENCE_FILTER_FIELDS = [
+  "gender",
+  "age",
+  "lastVisitDays",
+  "abhaLinked",
+  "city",
+  "branchId",
+  "optedOut",
+] as const;
+
+export const AUDIENCE_FILTER_OPS = ["eq", "gte", "lte", "in"] as const;
+
+export const AUDIENCE_MATCH_MODES = ["ALL", "ANY"] as const;
+
+// A single filter triple. Permissive at Zod (field/op are strings; value
+// is unknown) so saved campaigns survive DSL evolution and the unknown-
+// field test from piece 1 still passes. Compiler handles the (field, op)
+// → Prisma `where`-clause mapping and warns on unknown pairs.
+export const audienceFilterSchema = z
+  .object({
+    field: z.string().trim().min(1).max(80),
+    op: z.string().trim().min(1).max(20),
+    value: z.unknown(),
+  })
+  .strict();
+
+// Top-level rules envelope. `.strict()` rejects unknown TOP-level keys —
+// this is what the spec calls "malformed rules → 400 from Zod
+// refinement". Unknown FILTER fields are handled by the compiler as
+// no-ops, not by Zod (see design note above).
+export const audienceRulesSchema = z
+  .object({
+    filters: z.array(audienceFilterSchema).optional(),
+    matchMode: z.enum(AUDIENCE_MATCH_MODES).optional(),
+  })
+  .strict();
+
+export type AudienceFilter = z.infer<typeof audienceFilterSchema>;
+export type AudienceRules = z.infer<typeof audienceRulesSchema>;
+
 // ── createCampaignAudienceSchema ─────────────────────────────────────
 export const createCampaignAudienceSchema = z.object({
   name: z.string().trim().min(2).max(200),
   description: z.string().trim().max(2000).optional().nullable(),
-  // Piece 2 of 4 defines the rule DSL. For now the API only enforces
-  // "is a JSON object" — concrete shape validation lands when the
-  // compiler does.
-  rules: z.record(z.string(), z.unknown()),
+  rules: audienceRulesSchema,
   active: z.boolean().optional(),
 });
 
 export const updateCampaignAudienceSchema = z.object({
   name: z.string().trim().min(2).max(200).optional(),
   description: z.string().trim().max(2000).nullable().optional(),
-  rules: z.record(z.string(), z.unknown()).optional(),
+  rules: audienceRulesSchema.optional(),
   active: z.boolean().optional(),
 });
 

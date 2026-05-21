@@ -25,12 +25,14 @@ import {
   updateCampaignAudienceSchema,
 } from "@medcore/shared";
 import type {
+  AudienceRules,
   CreateCampaignAudienceInput,
   UpdateCampaignAudienceInput,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { compileAudience } from "../services/audience-compiler";
 
 const router = Router();
 router.use(authenticate);
@@ -194,6 +196,84 @@ router.patch(
       ).catch(console.error);
 
       res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── POST /:id/compile — compute audience size + sample (ADMIN) ────────
+// Pearl §5.1 piece 2a (2026-05-21). Loads the audience, compiles its
+// `rules` JSON DSL into a Prisma `where` over Patient via the pure
+// `compileAudience(rules)` service, runs `count` + a 5-row sample, and
+// persists `estimatedSize` + `lastComputedAt` back to the audience so
+// the next preview can short-circuit if the underlying patient set is
+// believed unchanged (piece 2b dispatcher concern).
+router.post(
+  "/:id/compile",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = await resolveTenantId(req);
+      if (!tenantId) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Campaign audience not found" });
+        return;
+      }
+
+      const audience = await prisma.campaignAudience.findFirst({
+        where: { id: req.params.id, tenantId },
+      });
+      if (!audience) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Campaign audience not found" });
+        return;
+      }
+
+      const compiledWhere = compileAudience((audience.rules ?? {}) as AudienceRules);
+      const whereWithTenant = { tenantId, AND: [compiledWhere] };
+
+      const [count, sampleRows] = await Promise.all([
+        prisma.patient.count({ where: whereWithTenant }),
+        prisma.patient.findMany({
+          where: whereWithTenant,
+          take: 5,
+          select: {
+            id: true,
+            mrNumber: true,
+            user: { select: { name: true } },
+          },
+        }),
+      ]);
+
+      const computedAt = new Date();
+      await prisma.campaignAudience.update({
+        where: { id: audience.id },
+        data: { estimatedSize: count, lastComputedAt: computedAt },
+      });
+
+      const sample = sampleRows.map((p) => ({
+        id: p.id,
+        mrNumber: p.mrNumber,
+        name: p.user?.name ?? null,
+      }));
+
+      auditLog(req, "CAMPAIGN_AUDIENCE_COMPILE", "campaign_audience", audience.id, {
+        count,
+      }).catch(console.error);
+
+      res.json({
+        success: true,
+        data: {
+          count,
+          sampleIds: sample.map((s) => s.id),
+          sample,
+          lastComputedAt: computedAt.toISOString(),
+        },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

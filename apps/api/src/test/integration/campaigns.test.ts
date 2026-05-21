@@ -369,17 +369,90 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
     expect(cross.status).toBe(404);
   });
 
-  it("POST /:id/sends/preview returns the piece-1 stub", async () => {
+  it("POST /:id/sends/preview on a campaign with no audience → 0 + note", async () => {
+    // Pearl §5.1 piece 2a (2026-05-21). Preview now returns a real audience-
+    // compiled count when the campaign has an audience attached; for the
+    // older test fixtures (campaigns created earlier in this suite without
+    // an audienceId), the response carries 0 + a "No audience attached"
+    // note instead of the piece-1 stub message.
     const list = await request(app)
       .get("/api/v1/campaigns")
       .set("Authorization", `Bearer ${adminAToken}`);
-    const target = list.body.data[0];
+    const target = list.body.data.find((c: any) => !c.audienceId);
+    expect(target).toBeTruthy();
 
     const res = await request(app)
       .post(`/api/v1/campaigns/${target.id}/sends/preview`)
       .set("Authorization", `Bearer ${adminAToken}`);
     expect(res.status).toBe(200);
     expect(res.body.data.estimatedRecipients).toBe(0);
-    expect(res.body.data.note).toMatch(/piece 2/);
+    expect(res.body.data.note).toMatch(/No audience/i);
+  });
+
+  it("POST /:id/sends/preview with an audience compiles the rules and returns the real count (piece 2a)", async () => {
+    // Pearl §5.1 piece 2a — seed 2 female + 1 male patients on tenant A,
+    // create a CampaignAudience with `gender eq FEMALE`, link a Campaign
+    // to it, then hit preview and expect estimatedRecipients == 2.
+    const prisma = await getPrisma();
+
+    const audience = await prisma.campaignAudience.create({
+      data: {
+        tenantId: tenantAId,
+        name: "Preview test — females",
+        rules: { filters: [{ field: "gender", op: "eq", value: "FEMALE" }] },
+      },
+    });
+
+    const passwordHash = await bcrypt.hash("MedCoreT3st-2026", 4);
+    const ts2 = Date.now();
+    async function seedPatient(gender: "MALE" | "FEMALE", idx: number) {
+      const user = await prisma.user.create({
+        data: {
+          email: `prev-${gender.toLowerCase()}-${idx}-${ts2}@test.local`,
+          name: `Preview ${gender} ${idx}`,
+          phone: `94${String(ts2).slice(-7)}${idx}`,
+          passwordHash,
+          role: "PATIENT",
+          tenantId: tenantAId,
+        },
+      });
+      return prisma.patient.create({
+        data: {
+          userId: user.id,
+          mrNumber: `MR-PREV-${ts2}-${idx}`,
+          gender,
+          tenantId: tenantAId,
+        },
+      });
+    }
+    await seedPatient("FEMALE", 1);
+    await seedPatient("FEMALE", 2);
+    await seedPatient("MALE", 3);
+
+    const camp = await request(app)
+      .post("/api/v1/campaigns")
+      .set("Authorization", `Bearer ${adminAToken}`)
+      .send({
+        name: "Preview-piece-2a campaign",
+        channels: ["SMS"],
+        audienceId: audience.id,
+      });
+    expect(camp.status).toBe(201);
+
+    const preview = await request(app)
+      .post(`/api/v1/campaigns/${camp.body.data.id}/sends/preview`)
+      .set("Authorization", `Bearer ${adminAToken}`);
+    expect(preview.status).toBe(200);
+    expect(preview.body.data.estimatedRecipients).toBe(2);
+    expect(preview.body.data.audienceName).toBe("Preview test — females");
+    expect(Array.isArray(preview.body.data.sampleIds)).toBe(true);
+    expect(preview.body.data.sampleIds.length).toBe(2);
+
+    // Side effect: audience.estimatedSize + lastComputedAt updated.
+    const refreshed = await prisma.campaignAudience.findUnique({
+      where: { id: audience.id },
+    });
+    expect(refreshed?.estimatedSize).toBe(2);
+    expect(refreshed?.lastComputedAt).toBeTruthy();
   });
 });

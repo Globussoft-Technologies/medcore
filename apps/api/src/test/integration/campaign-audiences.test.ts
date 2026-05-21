@@ -210,6 +210,175 @@ describeIfDB("CampaignAudiences API (Pearl §5.1 piece 1 of 4 — integration)",
     expect(res.status).toBe(403);
   });
 
+  // ── Pearl §5.1 piece 2a (2026-05-21) — compiler + /compile endpoint ───
+
+  it("POST /:id/compile returns count + sample + persists estimatedSize (piece 2a)", async () => {
+    // Seed 3 female + 2 male patients on tenant A then compile a
+    // gender-eq-FEMALE audience.
+    const prisma = await getPrisma();
+    const passwordHash = await bcrypt.hash("MedCoreT3st-2026", 4);
+    const ts2 = Date.now();
+    async function seedPatient(gender: "MALE" | "FEMALE", idx: number) {
+      const user = await prisma.user.create({
+        data: {
+          email: `aud-comp-${gender.toLowerCase()}-${idx}-${ts2}@test.local`,
+          name: `AC ${gender} ${idx}`,
+          phone: `95${String(ts2).slice(-7)}${idx}`,
+          passwordHash,
+          role: "PATIENT",
+          tenantId: tenantAId,
+        },
+      });
+      return prisma.patient.create({
+        data: {
+          userId: user.id,
+          mrNumber: `MR-AC-${ts2}-${idx}`,
+          gender,
+          tenantId: tenantAId,
+        },
+      });
+    }
+    await seedPatient("FEMALE", 1);
+    await seedPatient("FEMALE", 2);
+    await seedPatient("FEMALE", 3);
+    await seedPatient("MALE", 4);
+    await seedPatient("MALE", 5);
+
+    const create = await request(app)
+      .post("/api/v1/campaign-audiences")
+      .set("Authorization", `Bearer ${adminAToken}`)
+      .send({
+        name: "Compile test — females ALL",
+        rules: {
+          filters: [{ field: "gender", op: "eq", value: "FEMALE" }],
+          matchMode: "ALL",
+        },
+      });
+    expect(create.status).toBe(201);
+    const audId = create.body.data.id;
+
+    const compile = await request(app)
+      .post(`/api/v1/campaign-audiences/${audId}/compile`)
+      .set("Authorization", `Bearer ${adminAToken}`);
+    expect(compile.status).toBe(200);
+    expect(compile.body.data.count).toBe(3);
+    expect(Array.isArray(compile.body.data.sampleIds)).toBe(true);
+    expect(compile.body.data.sample.length).toBe(3);
+    expect(compile.body.data.lastComputedAt).toBeTruthy();
+
+    const refreshed = await prisma.campaignAudience.findUnique({ where: { id: audId } });
+    expect(refreshed?.estimatedSize).toBe(3);
+    expect(refreshed?.lastComputedAt).toBeTruthy();
+  });
+
+  it("POST /:id/compile with matchMode=ANY exercises the OR branch (piece 2a)", async () => {
+    // Seed two more patients we can hit via OR of (gender=OTHER) OR
+    // (abhaLinked=true). One patient gets OTHER, one gets abhaId set.
+    const prisma = await getPrisma();
+    const passwordHash = await bcrypt.hash("MedCoreT3st-2026", 4);
+    const ts3 = Date.now() + 1;
+
+    const userOther = await prisma.user.create({
+      data: {
+        email: `aud-or-other-${ts3}@test.local`,
+        name: "AC OR Other",
+        phone: `9610${String(ts3).slice(-6)}`,
+        passwordHash,
+        role: "PATIENT",
+        tenantId: tenantAId,
+      },
+    });
+    await prisma.patient.create({
+      data: {
+        userId: userOther.id,
+        mrNumber: `MR-AC-OR-OTH-${ts3}`,
+        gender: "OTHER",
+        tenantId: tenantAId,
+      },
+    });
+    const userAbha = await prisma.user.create({
+      data: {
+        email: `aud-or-abha-${ts3}@test.local`,
+        name: "AC OR ABHA",
+        phone: `9620${String(ts3).slice(-6)}`,
+        passwordHash,
+        role: "PATIENT",
+        tenantId: tenantAId,
+      },
+    });
+    await prisma.patient.create({
+      data: {
+        userId: userAbha.id,
+        mrNumber: `MR-AC-OR-ABHA-${ts3}`,
+        gender: "MALE",
+        abhaId: `14-${ts3}-0000-0001`,
+        tenantId: tenantAId,
+      },
+    });
+
+    const create = await request(app)
+      .post("/api/v1/campaign-audiences")
+      .set("Authorization", `Bearer ${adminAToken}`)
+      .send({
+        name: "Compile test — OR branch",
+        rules: {
+          filters: [
+            { field: "gender", op: "eq", value: "OTHER" },
+            { field: "abhaLinked", op: "eq", value: true },
+          ],
+          matchMode: "ANY",
+        },
+      });
+    expect(create.status).toBe(201);
+    const audId = create.body.data.id;
+
+    const compile = await request(app)
+      .post(`/api/v1/campaign-audiences/${audId}/compile`)
+      .set("Authorization", `Bearer ${adminAToken}`);
+    expect(compile.status).toBe(200);
+    // At least 2: the OTHER + the abhaLinked patient. (More tolerant
+    // assertion since prior tests may have seeded patients matching one
+    // of the disjuncts on tenant A.)
+    expect(compile.body.data.count).toBeGreaterThanOrEqual(2);
+  });
+
+  it("POST audience with unknown TOP-LEVEL key in rules → 400 from Zod .strict()", async () => {
+    // The compiler tolerates unknown FILTER fields (forward-compat), but
+    // an unknown TOP-LEVEL key in `rules` is structurally malformed.
+    const res = await request(app)
+      .post("/api/v1/campaign-audiences")
+      .set("Authorization", `Bearer ${adminAToken}`)
+      .send({
+        name: "Malformed rules",
+        rules: { fizzbuzz: 1, filters: [] },
+      });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST audience with non-array filters → 400 from Zod", async () => {
+    const res = await request(app)
+      .post("/api/v1/campaign-audiences")
+      .set("Authorization", `Bearer ${adminAToken}`)
+      .send({
+        name: "Malformed filters",
+        rules: { filters: "not-an-array" },
+      });
+    expect(res.status).toBe(400);
+  });
+
+  it("RBAC: RECEPTION cannot POST /:id/compile (403)", async () => {
+    // Use the first audience seeded by the suite's POST happy path.
+    const list = await request(app)
+      .get("/api/v1/campaign-audiences")
+      .set("Authorization", `Bearer ${adminAToken}`);
+    const a = list.body.data[0];
+
+    const res = await request(app)
+      .post(`/api/v1/campaign-audiences/${a.id}/compile`)
+      .set("Authorization", `Bearer ${receptionAToken}`);
+    expect(res.status).toBe(403);
+  });
+
   it("Multi-tenant: tenant A's audiences are not in tenant B's list", async () => {
     const post = await request(app)
       .post("/api/v1/campaign-audiences")

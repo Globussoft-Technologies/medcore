@@ -86,9 +86,41 @@ describeIfDB("Branch scoping (Pearl §7.2 piece 2a — integration)", () => {
     app = mod.app;
   });
 
-  it("auto-stamps branchId on POST /appointments/book when X-Branch-Id is set", async () => {
+  // 2026-05-22: piece 2b (commit a9b1e7a) expanded BRANCH_SCOPED_MODELS
+  // from `[Appointment]` to also include `Doctor` and `Patient`. Once those
+  // models are branch-scoped, the route's `prisma.doctor.findUnique` /
+  // `prisma.patient.findUnique` (used by the booking handler for
+  // appointmentMode + noShowCount) start filtering by `branchId` when an
+  // `X-Branch-Id` header is set. Bare fixtures without `branchId` therefore
+  // become invisible to a branch-scoped POST and the route 404s on the
+  // doctor lookup. Each test now provisions its Doctor + Patient with
+  // matching `branchId` so the branch-scoped read can resolve them.
+  async function seedPatientForBranch(branchId: string | null) {
+    const prisma = await getPrisma();
     const patient = await createPatientFixture();
+    if (branchId) {
+      await prisma.patient.update({
+        where: { id: patient.id },
+        data: { branchId },
+      });
+    }
+    return patient;
+  }
+  async function seedDoctorForBranch(branchId: string | null) {
+    const prisma = await getPrisma();
     const doctor = await createDoctorFixture();
+    if (branchId) {
+      await prisma.doctor.update({
+        where: { id: doctor.id },
+        data: { branchId },
+      });
+    }
+    return doctor;
+  }
+
+  it("auto-stamps branchId on POST /appointments/book when X-Branch-Id is set", async () => {
+    const patient = await seedPatientForBranch(branchAId);
+    const doctor = await seedDoctorForBranch(branchAId);
     // PR #521 + tests/appointments.test.ts convention: book tomorrow with
     // a HH:MM slotId so the past-time guard doesn't fire mid-day in CI.
     const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
@@ -122,8 +154,8 @@ describeIfDB("Branch scoping (Pearl §7.2 piece 2a — integration)", () => {
     // Book one appointment in Branch Beta so the GET filter has something
     // to exclude when we query Branch Alpha (the Alpha booking from the
     // previous test still exists under tenantId).
-    const patient = await createPatientFixture();
-    const doctor = await createDoctorFixture();
+    const patient = await seedPatientForBranch(branchBId);
+    const doctor = await seedDoctorForBranch(branchBId);
     const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
 
     const betaRes = await request(app)
@@ -161,8 +193,11 @@ describeIfDB("Branch scoping (Pearl §7.2 piece 2a — integration)", () => {
   });
 
   it("preserves legacy behaviour when no X-Branch-Id is supplied (no stamp, no filter)", async () => {
-    const patient = await createPatientFixture();
-    const doctor = await createDoctorFixture();
+    // No-branch booking → use bare fixtures (branchId=null). The booking
+    // route's Doctor/Patient lookups run WITHOUT a branch ALS frame, so
+    // the extension is a no-op and the bare rows resolve.
+    const patient = await seedPatientForBranch(null);
+    const doctor = await seedDoctorForBranch(null);
     const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
 
     // POST without the header — branchId should land as NULL.

@@ -64,34 +64,47 @@ export default function PediatricPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold">Pediatric Patients</h1>
-        <p className="text-sm text-gray-500">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+          Pediatric Patients
+        </h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Growth monitoring and developmental tracking for children under 18
         </p>
       </div>
 
-      <div className="mb-4 flex items-center gap-2 rounded-xl bg-white p-3 shadow-sm">
-        <Search size={16} className="text-gray-400" />
+      <div className="mb-4 flex items-center gap-2 rounded-xl bg-white p-3 shadow-sm dark:bg-gray-800 dark:shadow-none dark:ring-1 dark:ring-white/10">
+        <Search size={16} className="text-gray-400 dark:text-gray-500" />
         <input
           type="text"
           placeholder="Search by name or MR number"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="flex-1 border-0 px-2 py-1 text-sm outline-none"
+          className="flex-1 border-0 bg-transparent px-2 py-1 text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-500"
         />
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800 dark:shadow-none dark:ring-1 dark:ring-white/10">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+            Loading...
+          </div>
         ) : patients.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
-            No pediatric patients found.
+          <div className="flex flex-col items-center justify-center gap-3 p-12 text-center">
+            <div className="rounded-full bg-primary/10 p-3 text-primary dark:bg-primary/20">
+              <Baby size={28} />
+            </div>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
+              No pediatric patients found.
+            </p>
+            <p className="max-w-sm text-xs text-gray-500 dark:text-gray-400">
+              Patients under 18 will appear here once registered. Try adjusting
+              your search.
+            </p>
           </div>
         ) : (
           <table className="w-full">
             <thead>
-              <tr className="border-b text-left text-sm text-gray-500">
+              <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-white/10 dark:text-gray-400">
                 <th className="px-4 py-3">MR Number</th>
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Age</th>
@@ -104,8 +117,13 @@ export default function PediatricPage() {
               {patients.map((p) => {
                 const age = computeAgeYears(p);
                 return (
-                  <tr key={p.id} className="border-b last:border-0">
-                    <td className="px-4 py-3 font-medium">{p.mrNumber}</td>
+                  <tr
+                    key={p.id}
+                    className="border-b border-gray-200 last:border-0 dark:border-white/10"
+                  >
+                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">
+                      {p.mrNumber}
+                    </td>
                     <td className="px-4 py-3">
                       <Link
                         href={`/dashboard/pediatric/${p.id}`}
@@ -114,11 +132,15 @@ export default function PediatricPage() {
                         {p.user.name}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-sm">
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
                       {age !== null ? `${age}y` : "—"}
                     </td>
-                    <td className="px-4 py-3 text-sm">{p.gender}</td>
-                    <td className="px-4 py-3 text-sm">{p.user.phone || "—"}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                      {p.gender}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                      {p.user.phone || "—"}
+                    </td>
                     <td className="px-4 py-3">
                       <Link
                         href={`/dashboard/pediatric/${p.id}`}

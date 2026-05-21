@@ -1,6 +1,6 @@
 # MedCore vs Pearl ERP Stage 1 — Gap Analysis
 
-**Source PRD:** [`Hardik's Req_pearl woman.txt`](../Hardik%27s%20Req_pearl%20woman.txt) — Pearl ERP Stage 1 SoW v1.0, dated 2 May 2026 (632 lines, 7 modules + architecture + integrations + compliance).
+**Source PRD:** [`PEARL-ERP-STAGE-1-SOW.md`](./PEARL-ERP-STAGE-1-SOW.md) — Pearl ERP Stage 1 SoW v1.0, dated 2 May 2026 (21 sections — 7 modules + architecture + integrations + compliance + rollout + team + commercials + risks + out-of-scope). In-repo since 2026-05-22; replaces the original untracked `Hardik's Req_pearl woman.txt` reference.
 **MedCore state surveyed against:** `HEAD = f23865c` on `main`, schema `packages/db/prisma/schema.prisma` (5,092 lines, ~150 models), API surface `apps/api/src/routes/` (~140 route files), web surface `apps/web/src/app/dashboard/` (~100 dashboard routes).
 **Purpose:** Per-module coverage map for delivering a *Pearl ERP Stage 1* tenant on top of the existing MedCore codebase. Calls out true gaps, partials, surplus surface, and architectural divergence (most importantly: Prisma vs raw SQL, no Branch model, no Lead/Campaign engine, no separate super-admin host, RN app vs PWA).
 **Author:** Senior-architect audit, no marketing varnish.

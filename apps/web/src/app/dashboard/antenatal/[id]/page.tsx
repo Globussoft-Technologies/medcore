@@ -220,7 +220,7 @@ export default function AncCaseDetailPage() {
   }
 
   if (loading || !caseData) {
-    return <div className="p-8 text-center text-gray-500">Loading...</div>;
+    return <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>;
   }
 
   const weeksGestation = Math.round(
@@ -241,27 +241,27 @@ export default function AncCaseDetailPage() {
     <div>
       <Link
         href="/dashboard/antenatal"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-primary"
+        className="mb-4 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-primary dark:text-gray-400 dark:hover:text-primary"
       >
         <ArrowLeft size={14} /> Back to ANC
       </Link>
 
       <div className="mb-6 flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
             {caseData.caseNumber}
             {caseData.isHighRisk && (
-              <span className="ml-3 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+              <span className="ml-3 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/40 dark:text-red-200">
                 High Risk
               </span>
             )}
             {caseData.deliveredAt && (
-              <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+              <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">
                 Delivered
               </span>
             )}
           </h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             {caseData.patient.user.name} · {caseData.patient.mrNumber}
           </p>
         </div>
@@ -270,7 +270,7 @@ export default function AncCaseDetailPage() {
             onClick={() =>
               openPrintEndpoint(`/antenatal/cases/${caseData.id}/birth-certificate`)
             }
-            className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-800 hover:bg-blue-100"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-800 hover:bg-blue-100 dark:border-blue-700/50 dark:bg-blue-900/30 dark:text-blue-200 dark:hover:bg-blue-900/50"
           >
             Print Birth Certificate
           </button>
@@ -279,50 +279,50 @@ export default function AncCaseDetailPage() {
 
       {/* Summary Cards */}
       <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <h3 className="mb-3 text-sm font-semibold text-gray-500">Patient Info</h3>
-          <p className="text-lg font-semibold">{caseData.patient.user.name}</p>
-          <p className="text-sm text-gray-500">MR: {caseData.patient.mrNumber}</p>
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+          <h3 className="mb-3 text-sm font-semibold text-gray-500 dark:text-gray-400">Patient Info</h3>
+          <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{caseData.patient.user.name}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">MR: {caseData.patient.mrNumber}</p>
           {caseData.patient.user.phone && (
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
               Phone: {caseData.patient.user.phone}
             </p>
           )}
-          <p className="mt-2 text-sm">
-            Doctor: <strong>{formatDoctorName(caseData.doctor.user.name)}</strong>
+          <p className="mt-2 text-sm text-gray-700 dark:text-gray-200">
+            Doctor: <strong className="text-gray-900 dark:text-gray-100">{formatDoctorName(caseData.doctor.user.name)}</strong>
           </p>
         </div>
 
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <h3 className="mb-3 text-sm font-semibold text-gray-500">ANC Summary</h3>
-          <div className="grid grid-cols-2 gap-y-2 text-sm">
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+          <h3 className="mb-3 text-sm font-semibold text-gray-500 dark:text-gray-400">ANC Summary</h3>
+          <div className="grid grid-cols-2 gap-y-2 text-sm text-gray-700 dark:text-gray-200">
             <div>
-              <span className="text-gray-500">LMP:</span>{" "}
-              <strong>{new Date(caseData.lmpDate).toLocaleDateString()}</strong>
+              <span className="text-gray-500 dark:text-gray-400">LMP:</span>{" "}
+              <strong className="text-gray-900 dark:text-gray-100">{new Date(caseData.lmpDate).toLocaleDateString()}</strong>
             </div>
             <div>
-              <span className="text-gray-500">EDD:</span>{" "}
-              <strong>{new Date(caseData.eddDate).toLocaleDateString()}</strong>
+              <span className="text-gray-500 dark:text-gray-400">EDD:</span>{" "}
+              <strong className="text-gray-900 dark:text-gray-100">{new Date(caseData.eddDate).toLocaleDateString()}</strong>
             </div>
             <div>
-              <span className="text-gray-500">Gravida/Parity:</span>{" "}
-              <strong>
+              <span className="text-gray-500 dark:text-gray-400">Gravida/Parity:</span>{" "}
+              <strong className="text-gray-900 dark:text-gray-100">
                 G{caseData.gravida} P{caseData.parity}
               </strong>
             </div>
             <div>
-              <span className="text-gray-500">Blood Group:</span>{" "}
-              <strong>{caseData.bloodGroup || "—"}</strong>
+              <span className="text-gray-500 dark:text-gray-400">Blood Group:</span>{" "}
+              <strong className="text-gray-900 dark:text-gray-100">{caseData.bloodGroup || "—"}</strong>
             </div>
             {!caseData.deliveredAt && (
               <>
                 <div>
-                  <span className="text-gray-500">Gestation:</span>{" "}
-                  <strong>{weeksGestation}w</strong>
+                  <span className="text-gray-500 dark:text-gray-400">Gestation:</span>{" "}
+                  <strong className="text-gray-900 dark:text-gray-100">{weeksGestation}w</strong>
                 </div>
                 <div>
-                  <span className="text-gray-500">Days to EDD:</span>{" "}
-                  <strong className={daysToEdd < 0 ? "text-red-600" : ""}>
+                  <span className="text-gray-500 dark:text-gray-400">Days to EDD:</span>{" "}
+                  <strong className={daysToEdd < 0 ? "text-red-600 dark:text-red-400" : "text-gray-900 dark:text-gray-100"}>
                     {daysToEdd < 0 ? `${Math.abs(daysToEdd)}d overdue` : `${daysToEdd}d`}
                   </strong>
                 </div>
@@ -330,21 +330,21 @@ export default function AncCaseDetailPage() {
             )}
           </div>
           {caseData.isHighRisk && caseData.riskFactors && (
-            <div className="mt-3 rounded-lg bg-red-50 p-2 text-xs">
-              <strong className="text-red-700 flex items-center gap-1">
+            <div className="mt-3 rounded-lg bg-red-50 p-2 text-xs dark:bg-red-900/30">
+              <strong className="text-red-700 flex items-center gap-1 dark:text-red-200">
                 <AlertTriangle size={14} /> Risk Factors:
               </strong>
-              <p className="text-red-700">{caseData.riskFactors}</p>
+              <p className="text-red-700 dark:text-red-200">{caseData.riskFactors}</p>
             </div>
           )}
         </div>
       </div>
 
       {/* Timeline */}
-      <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
-        <h3 className="mb-3 text-sm font-semibold text-gray-500">Timeline</h3>
+      <div className="mb-6 rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+        <h3 className="mb-3 text-sm font-semibold text-gray-500 dark:text-gray-400">Timeline</h3>
         <div className="relative">
-          <div className="h-2 rounded-full bg-gray-200">
+          <div className="h-2 rounded-full bg-gray-200 dark:bg-gray-700">
             <div
               className="h-2 rounded-full bg-primary"
               style={{
@@ -358,7 +358,7 @@ export default function AncCaseDetailPage() {
               }}
             />
           </div>
-          <div className="mt-2 flex justify-between text-xs text-gray-500">
+          <div className="mt-2 flex justify-between text-xs text-gray-500 dark:text-gray-400">
             <span>LMP {lmpDate.toLocaleDateString()}</span>
             <span>Today · {weeksGestation}w</span>
             <span>EDD {eddDate.toLocaleDateString()}</span>
@@ -367,7 +367,7 @@ export default function AncCaseDetailPage() {
             {caseData.visits.map((v) => (
               <span
                 key={v.id}
-                className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
+                className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700 dark:bg-blue-900/40 dark:text-blue-200"
               >
                 <Activity size={12} />
                 {v.weeksOfGestation != null ? `${v.weeksOfGestation}w ` : ""}
@@ -384,7 +384,7 @@ export default function AncCaseDetailPage() {
           className={`px-4 py-2 text-sm font-medium rounded-lg transition ${
             tab === "visits"
               ? "bg-primary text-white"
-              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
           }`}
         >
           Visits ({caseData.visits.length})
@@ -394,7 +394,7 @@ export default function AncCaseDetailPage() {
           className={`px-4 py-2 text-sm font-medium rounded-lg transition ${
             tab === "delivery"
               ? "bg-primary text-white"
-              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
           }`}
         >
           Delivery
@@ -404,7 +404,7 @@ export default function AncCaseDetailPage() {
           className={`px-4 py-2 text-sm font-medium rounded-lg transition ${
             tab === "partograph"
               ? "bg-primary text-white"
-              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
           }`}
         >
           Partograph
@@ -414,7 +414,7 @@ export default function AncCaseDetailPage() {
           className={`px-4 py-2 text-sm font-medium rounded-lg transition ${
             tab === "risk"
               ? "bg-primary text-white"
-              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
           }`}
         >
           ACOG Risk
@@ -425,7 +425,7 @@ export default function AncCaseDetailPage() {
             className={`px-4 py-2 text-sm font-medium rounded-lg transition ${
               tab === "postnatal"
                 ? "bg-primary text-white"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
             }`}
           >
             Postnatal Visits
@@ -442,9 +442,9 @@ export default function AncCaseDetailPage() {
       )}
 
       {tab === "visits" && (
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="font-semibold">Antenatal Visits</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100">Antenatal Visits</h3>
             {canEdit && !caseData.deliveredAt && (
               <button
                 onClick={() => setShowVisitForm(!showVisitForm)}
@@ -459,16 +459,16 @@ export default function AncCaseDetailPage() {
             <form
               onSubmit={submitVisit}
               noValidate
-              className="mb-4 rounded-lg border bg-gray-50 p-4"
+              className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-white/10 dark:bg-gray-900/40"
             >
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label htmlFor="anc-visit-type" className="mb-1 block text-xs font-medium">Type</label>
+                  <label htmlFor="anc-visit-type" className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">Type</label>
                   <select
                     id="anc-visit-type"
                     value={visitForm.type}
                     onChange={(e) => setVisitForm({ ...visitForm, type: e.target.value })}
-                    className="w-full rounded border px-2 py-1.5 text-sm"
+                    className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                   >
                     {VISIT_TYPES.map((t) => (
                       <option key={t.value} value={t.value}>
@@ -478,7 +478,7 @@ export default function AncCaseDetailPage() {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="anc-visit-weeks-gestation" className="mb-1 block text-xs font-medium">Weeks Gestation</label>
+                  <label htmlFor="anc-visit-weeks-gestation" className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">Weeks Gestation</label>
                   <input
                     id="anc-visit-weeks-gestation"
                     type="number"
@@ -486,22 +486,22 @@ export default function AncCaseDetailPage() {
                     onChange={(e) =>
                       setVisitForm({ ...visitForm, weeksOfGestation: e.target.value })
                     }
-                    className="w-full rounded border px-2 py-1.5 text-sm"
+                    className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                   />
                 </div>
                 <div>
-                  <label htmlFor="anc-visit-weight" className="mb-1 block text-xs font-medium">Weight (kg)</label>
+                  <label htmlFor="anc-visit-weight" className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">Weight (kg)</label>
                   <input
                     id="anc-visit-weight"
                     type="number"
                     step="0.1"
                     value={visitForm.weight}
                     onChange={(e) => setVisitForm({ ...visitForm, weight: e.target.value })}
-                    className="w-full rounded border px-2 py-1.5 text-sm"
+                    className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                   />
                 </div>
                 <div>
-                  <label htmlFor="anc-visit-blood-pressure" className="mb-1 block text-xs font-medium">Blood Pressure</label>
+                  <label htmlFor="anc-visit-blood-pressure" className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">Blood Pressure</label>
                   <input
                     id="anc-visit-blood-pressure"
                     placeholder="e.g. 120/80"
@@ -509,22 +509,22 @@ export default function AncCaseDetailPage() {
                     onChange={(e) =>
                       setVisitForm({ ...visitForm, bloodPressure: e.target.value })
                     }
-                    className="w-full rounded border px-2 py-1.5 text-sm"
+                    className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                   />
                 </div>
                 <div>
-                  <label htmlFor="anc-visit-fundal-height" className="mb-1 block text-xs font-medium">Fundal Height (cm)</label>
+                  <label htmlFor="anc-visit-fundal-height" className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">Fundal Height (cm)</label>
                   <input
                     id="anc-visit-fundal-height"
                     value={visitForm.fundalHeight}
                     onChange={(e) =>
                       setVisitForm({ ...visitForm, fundalHeight: e.target.value })
                     }
-                    className="w-full rounded border px-2 py-1.5 text-sm"
+                    className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                   />
                 </div>
                 <div>
-                  <label htmlFor="anc-visit-fhr" className="mb-1 block text-xs font-medium">FHR (bpm)</label>
+                  <label htmlFor="anc-visit-fhr" className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">FHR (bpm)</label>
                   <input
                     id="anc-visit-fhr"
                     type="number"
@@ -532,11 +532,11 @@ export default function AncCaseDetailPage() {
                     onChange={(e) =>
                       setVisitForm({ ...visitForm, fetalHeartRate: e.target.value })
                     }
-                    className="w-full rounded border px-2 py-1.5 text-sm"
+                    className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                   />
                 </div>
                 <div>
-                  <label htmlFor="anc-visit-presentation" className="mb-1 block text-xs font-medium">Presentation</label>
+                  <label htmlFor="anc-visit-presentation" className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">Presentation</label>
                   <input
                     id="anc-visit-presentation"
                     placeholder="e.g. Cephalic"
@@ -544,11 +544,11 @@ export default function AncCaseDetailPage() {
                     onChange={(e) =>
                       setVisitForm({ ...visitForm, presentation: e.target.value })
                     }
-                    className="w-full rounded border px-2 py-1.5 text-sm"
+                    className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                   />
                 </div>
                 <div>
-                  <label htmlFor="anc-visit-hemoglobin" className="mb-1 block text-xs font-medium">Hb (g/dl)</label>
+                  <label htmlFor="anc-visit-hemoglobin" className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">Hb (g/dl)</label>
                   <input
                     id="anc-visit-hemoglobin"
                     type="number"
@@ -557,11 +557,11 @@ export default function AncCaseDetailPage() {
                     onChange={(e) =>
                       setVisitForm({ ...visitForm, hemoglobin: e.target.value })
                     }
-                    className="w-full rounded border px-2 py-1.5 text-sm"
+                    className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                   />
                 </div>
                 <div>
-                  <label htmlFor="anc-visit-urine-protein" className="mb-1 block text-xs font-medium">Urine Protein</label>
+                  <label htmlFor="anc-visit-urine-protein" className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">Urine Protein</label>
                   <input
                     id="anc-visit-urine-protein"
                     placeholder="nil/+/++/+++"
@@ -569,11 +569,11 @@ export default function AncCaseDetailPage() {
                     onChange={(e) =>
                       setVisitForm({ ...visitForm, urineProtein: e.target.value })
                     }
-                    className="w-full rounded border px-2 py-1.5 text-sm"
+                    className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                   />
                 </div>
                 <div>
-                  <label htmlFor="anc-visit-urine-sugar" className="mb-1 block text-xs font-medium">Urine Sugar</label>
+                  <label htmlFor="anc-visit-urine-sugar" className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">Urine Sugar</label>
                   <input
                     id="anc-visit-urine-sugar"
                     placeholder="nil/+/++/+++"
@@ -581,11 +581,11 @@ export default function AncCaseDetailPage() {
                     onChange={(e) =>
                       setVisitForm({ ...visitForm, urineSugar: e.target.value })
                     }
-                    className="w-full rounded border px-2 py-1.5 text-sm"
+                    className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                   />
                 </div>
                 <div>
-                  <label htmlFor="anc-visit-next-date" className="mb-1 block text-xs font-medium">Next Visit</label>
+                  <label htmlFor="anc-visit-next-date" className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">Next Visit</label>
                   <input
                     id="anc-visit-next-date"
                     type="date"
@@ -593,12 +593,12 @@ export default function AncCaseDetailPage() {
                     onChange={(e) =>
                       setVisitForm({ ...visitForm, nextVisitDate: e.target.value })
                     }
-                    className="w-full rounded border px-2 py-1.5 text-sm"
+                    className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                   />
                 </div>
               </div>
               <div className="mt-3">
-                <label htmlFor="anc-visit-prescribed-meds" className="mb-1 block text-xs font-medium">Prescribed Meds</label>
+                <label htmlFor="anc-visit-prescribed-meds" className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">Prescribed Meds</label>
                 <input
                   id="anc-visit-prescribed-meds"
                   value={visitForm.prescribedMeds}
@@ -606,24 +606,24 @@ export default function AncCaseDetailPage() {
                     setVisitForm({ ...visitForm, prescribedMeds: e.target.value })
                   }
                   placeholder="e.g. Folic acid, Iron, Calcium"
-                  className="w-full rounded border px-2 py-1.5 text-sm"
+                  className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                 />
               </div>
               <div className="mt-3">
-                <label htmlFor="anc-visit-notes" className="mb-1 block text-xs font-medium">Notes</label>
+                <label htmlFor="anc-visit-notes" className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">Notes</label>
                 <textarea
                   id="anc-visit-notes"
                   rows={2}
                   value={visitForm.notes}
                   onChange={(e) => setVisitForm({ ...visitForm, notes: e.target.value })}
-                  className="w-full rounded border px-2 py-1.5 text-sm"
+                  className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                 />
               </div>
               <div className="mt-3 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowVisitForm(false)}
-                  className="rounded border px-3 py-1.5 text-sm"
+                  className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 dark:border-white/15 dark:text-gray-200 dark:hover:bg-white/5"
                 >
                   Cancel
                 </button>
@@ -638,7 +638,7 @@ export default function AncCaseDetailPage() {
           )}
 
           {caseData.visits.length === 0 ? (
-            <p className="py-8 text-center text-sm text-gray-500">
+            <p className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
               No visits recorded yet.
             </p>
           ) : (
@@ -648,11 +648,11 @@ export default function AncCaseDetailPage() {
                 return (
                   <div
                     key={v.id}
-                    className="rounded-lg border bg-white"
+                    className="rounded-lg border border-gray-200 bg-white dark:border-white/10 dark:bg-gray-800"
                   >
                     <button
                       onClick={() => toggleVisit(v.id)}
-                      className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-50"
+                      className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-white/5"
                     >
                       <div className="flex items-center gap-3">
                         {isOpen ? (
@@ -661,11 +661,11 @@ export default function AncCaseDetailPage() {
                           <ChevronRight size={16} className="text-gray-400" />
                         )}
                         <div>
-                          <p className="text-sm font-medium">
+                          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                             {v.type.replace(/_/g, " ")} ·{" "}
                             {new Date(v.visitDate).toLocaleDateString()}
                           </p>
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
                             {v.weeksOfGestation != null &&
                               `${v.weeksOfGestation}w · `}
                             {v.bloodPressure && `BP ${v.bloodPressure} · `}
@@ -674,58 +674,58 @@ export default function AncCaseDetailPage() {
                         </div>
                       </div>
                       {v.nextVisitDate && (
-                        <span className="text-xs text-gray-500">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
                           Next: {new Date(v.nextVisitDate).toLocaleDateString()}
                         </span>
                       )}
                     </button>
                     {isOpen && (
-                      <div className="grid grid-cols-2 gap-3 border-t bg-gray-50 px-4 py-3 text-xs md:grid-cols-3">
+                      <div className="grid grid-cols-2 gap-3 border-t bg-gray-50 px-4 py-3 text-xs text-gray-700 dark:border-white/10 dark:bg-gray-900/40 dark:text-gray-200 md:grid-cols-3">
                         {v.fundalHeight && (
                           <div>
-                            <span className="text-gray-500">Fundal:</span>{" "}
+                            <span className="text-gray-500 dark:text-gray-400">Fundal:</span>{" "}
                             <strong>{v.fundalHeight}</strong>
                           </div>
                         )}
                         {v.fetalHeartRate && (
                           <div>
-                            <span className="text-gray-500">FHR:</span>{" "}
+                            <span className="text-gray-500 dark:text-gray-400">FHR:</span>{" "}
                             <strong>{v.fetalHeartRate} bpm</strong>
                           </div>
                         )}
                         {v.presentation && (
                           <div>
-                            <span className="text-gray-500">Presentation:</span>{" "}
+                            <span className="text-gray-500 dark:text-gray-400">Presentation:</span>{" "}
                             <strong>{v.presentation}</strong>
                           </div>
                         )}
                         {v.hemoglobin && (
                           <div>
-                            <span className="text-gray-500">Hb:</span>{" "}
+                            <span className="text-gray-500 dark:text-gray-400">Hb:</span>{" "}
                             <strong>{v.hemoglobin} g/dl</strong>
                           </div>
                         )}
                         {v.urineProtein && (
                           <div>
-                            <span className="text-gray-500">Urine protein:</span>{" "}
+                            <span className="text-gray-500 dark:text-gray-400">Urine protein:</span>{" "}
                             <strong>{v.urineProtein}</strong>
                           </div>
                         )}
                         {v.urineSugar && (
                           <div>
-                            <span className="text-gray-500">Urine sugar:</span>{" "}
+                            <span className="text-gray-500 dark:text-gray-400">Urine sugar:</span>{" "}
                             <strong>{v.urineSugar}</strong>
                           </div>
                         )}
                         {v.prescribedMeds && (
                           <div className="col-span-full">
-                            <span className="text-gray-500">Prescribed:</span>{" "}
+                            <span className="text-gray-500 dark:text-gray-400">Prescribed:</span>{" "}
                             <strong>{v.prescribedMeds}</strong>
                           </div>
                         )}
                         {v.notes && (
                           <div className="col-span-full">
-                            <span className="text-gray-500">Notes:</span>{" "}
+                            <span className="text-gray-500 dark:text-gray-400">Notes:</span>{" "}
                             {v.notes}
                           </div>
                         )}
@@ -740,38 +740,38 @@ export default function AncCaseDetailPage() {
       )}
 
       {tab === "delivery" && (
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
           {caseData.deliveredAt ? (
             <div>
-              <h3 className="mb-3 flex items-center gap-2 font-semibold">
+              <h3 className="mb-3 flex items-center gap-2 font-semibold text-gray-900 dark:text-gray-100">
                 <Baby size={18} /> Delivery Details
               </h3>
-              <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="grid grid-cols-2 gap-3 text-sm text-gray-700 dark:text-gray-200">
                 <div>
-                  <span className="text-gray-500">Delivered At:</span>{" "}
-                  <strong>
+                  <span className="text-gray-500 dark:text-gray-400">Delivered At:</span>{" "}
+                  <strong className="text-gray-900 dark:text-gray-100">
                     {new Date(caseData.deliveredAt).toLocaleString()}
                   </strong>
                 </div>
                 <div>
-                  <span className="text-gray-500">Type:</span>{" "}
-                  <strong>{caseData.deliveryType?.replace(/_/g, " ")}</strong>
+                  <span className="text-gray-500 dark:text-gray-400">Type:</span>{" "}
+                  <strong className="text-gray-900 dark:text-gray-100">{caseData.deliveryType?.replace(/_/g, " ")}</strong>
                 </div>
                 <div>
-                  <span className="text-gray-500">Baby Gender:</span>{" "}
-                  <strong>{caseData.babyGender || "—"}</strong>
+                  <span className="text-gray-500 dark:text-gray-400">Baby Gender:</span>{" "}
+                  <strong className="text-gray-900 dark:text-gray-100">{caseData.babyGender || "—"}</strong>
                 </div>
                 <div>
-                  <span className="text-gray-500">Baby Weight:</span>{" "}
-                  <strong>
+                  <span className="text-gray-500 dark:text-gray-400">Baby Weight:</span>{" "}
+                  <strong className="text-gray-900 dark:text-gray-100">
                     {caseData.babyWeight ? `${caseData.babyWeight} kg` : "—"}
                   </strong>
                 </div>
               </div>
               {caseData.outcomeNotes && (
                 <div className="mt-4">
-                  <p className="text-xs text-gray-500">Outcome Notes</p>
-                  <p className="mt-1 text-sm">{caseData.outcomeNotes}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Outcome Notes</p>
+                  <p className="mt-1 text-sm text-gray-800 dark:text-gray-200">{caseData.outcomeNotes}</p>
                 </div>
               )}
             </div>
@@ -781,7 +781,7 @@ export default function AncCaseDetailPage() {
                 <h3 className="mb-3 font-semibold">Record Delivery</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="anc-delivery-type" className="mb-1 block text-sm font-medium">
+                    <label htmlFor="anc-delivery-type" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">
                       Delivery Type
                     </label>
                     <select
@@ -793,7 +793,7 @@ export default function AncCaseDetailPage() {
                           deliveryType: e.target.value,
                         })
                       }
-                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                     >
                       <option value="NORMAL">Normal</option>
                       <option value="C_SECTION">C-Section</option>
@@ -801,7 +801,7 @@ export default function AncCaseDetailPage() {
                     </select>
                   </div>
                   <div>
-                    <label htmlFor="anc-delivery-baby-gender" className="mb-1 block text-sm font-medium">
+                    <label htmlFor="anc-delivery-baby-gender" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">
                       Baby Gender
                     </label>
                     <select
@@ -813,7 +813,7 @@ export default function AncCaseDetailPage() {
                           babyGender: e.target.value,
                         })
                       }
-                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                     >
                       <option value="">—</option>
                       <option value="MALE">Male</option>
@@ -822,7 +822,7 @@ export default function AncCaseDetailPage() {
                     </select>
                   </div>
                   <div>
-                    <label htmlFor="anc-delivery-baby-weight" className="mb-1 block text-sm font-medium">
+                    <label htmlFor="anc-delivery-baby-weight" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">
                       Baby Weight (kg)
                     </label>
                     <input
@@ -836,12 +836,12 @@ export default function AncCaseDetailPage() {
                           babyWeight: e.target.value,
                         })
                       }
-                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                     />
                   </div>
                 </div>
                 <div className="mt-4">
-                  <label htmlFor="anc-delivery-outcome-notes" className="mb-1 block text-sm font-medium">
+                  <label htmlFor="anc-delivery-outcome-notes" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">
                     Outcome Notes
                   </label>
                   <textarea
@@ -854,7 +854,7 @@ export default function AncCaseDetailPage() {
                         outcomeNotes: e.target.value,
                       })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                   />
                 </div>
                 <div className="mt-4 flex justify-end gap-2">
@@ -1028,7 +1028,7 @@ function PartographTab({ caseId, canEdit }: { caseId: string; canEdit: boolean }
       </div>
 
       {loading ? (
-        <p className="text-sm text-gray-500">Loading...</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
       ) : !active ? (
         <p className="text-sm text-gray-500">No partograph started.</p>
       ) : (
@@ -1637,7 +1637,7 @@ function PostnatalTab({ caseId, canEdit }: { caseId: string; canEdit: boolean })
       )}
 
       {loading ? (
-        <p className="text-sm text-gray-500">Loading...</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
       ) : rows.length === 0 ? (
         <p className="text-sm text-gray-500">No postnatal visits recorded.</p>
       ) : (

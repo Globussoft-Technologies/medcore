@@ -831,7 +831,7 @@ export default function PatientDetailPage() {
       </div>
 
       {/* Tabs */}
-      <div className="no-print mb-6 flex gap-1 overflow-x-auto border-b">
+      <div className="no-print mb-6 flex gap-1 overflow-x-auto border-b border-gray-200 dark:border-white/10">
         {tabs.map((t) => (
           <button
             key={t.key}
@@ -839,7 +839,7 @@ export default function PatientDetailPage() {
             className={`flex items-center gap-1.5 whitespace-nowrap px-4 py-2 text-sm font-medium transition ${
               tab === t.key
                 ? "border-b-2 border-primary text-primary"
-                : "text-gray-500 hover:text-gray-800"
+                : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
             }`}
           >
             {t.icon}
@@ -1137,17 +1137,23 @@ function Modal({
   const maxW = size === "lg" ? "max-w-2xl" : "max-w-md";
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-      <div className={`w-full ${maxW} rounded-xl bg-white shadow-xl`}>
-        <div className="flex items-center justify-between border-b px-5 py-3">
-          <h3 className="font-semibold">{title}</h3>
+      <div
+        className={`w-full ${maxW} rounded-xl bg-white shadow-xl dark:bg-gray-800 dark:ring-1 dark:ring-white/10`}
+      >
+        <div className="flex items-center justify-between border-b border-gray-200 px-5 py-3 dark:border-white/10">
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+            {title}
+          </h3>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-700"
+            className="text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200"
           >
             <X size={18} />
           </button>
         </div>
-        <div className="max-h-[80vh] overflow-y-auto p-5">{children}</div>
+        <div className="max-h-[80vh] overflow-y-auto p-5 text-gray-900 dark:text-gray-100">
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -1737,7 +1743,7 @@ function BillingTab({ patientId }: { patientId: string }) {
     })();
   }, [patientId]);
 
-  if (loading) return <div className="p-6 text-gray-500">Loading billing...</div>;
+  if (loading) return <div className="p-6 text-gray-500 dark:text-gray-400">Loading billing...</div>;
 
   const outstanding = invoices.reduce((sum, inv) => {
     if (inv.paymentStatus === "PAID") return sum;
@@ -1758,8 +1764,8 @@ function BillingTab({ patientId }: { patientId: string }) {
 
   if (invoices.length === 0) {
     return (
-      <div className="rounded-xl bg-white p-8 text-center shadow-sm">
-        <p className="text-gray-400">No invoices yet</p>
+      <div className="rounded-xl bg-white p-8 text-center shadow-sm dark:bg-gray-800">
+        <p className="text-gray-400 dark:text-gray-500">No invoices yet</p>
       </div>
     );
   }
@@ -1768,28 +1774,28 @@ function BillingTab({ patientId }: { patientId: string }) {
     <div className="space-y-4">
       {/* Summary */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <div className="rounded-xl bg-white p-4 shadow-sm">
-          <p className="text-xs text-gray-500">Total Invoices</p>
-          <p className="text-2xl font-bold">{invoices.length}</p>
+        <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Total Invoices</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{invoices.length}</p>
         </div>
-        <div className="rounded-xl bg-green-50 p-4 shadow-sm">
-          <p className="text-xs text-green-700">Total Paid</p>
-          <p className="text-2xl font-bold text-green-700">
+        <div className="rounded-xl bg-green-50 p-4 shadow-sm dark:bg-green-900/30">
+          <p className="text-xs text-green-700 dark:text-green-200">Total Paid</p>
+          <p className="text-2xl font-bold text-green-700 dark:text-green-200">
             Rs. {totalPaid.toFixed(2)}
           </p>
         </div>
         <div
           className={`rounded-xl p-4 shadow-sm ${
-            outstanding > 0 ? "bg-red-50" : "bg-gray-50"
+            outstanding > 0 ? "bg-red-50 dark:bg-red-900/30" : "bg-gray-50 dark:bg-gray-800"
           }`}
         >
           <p
-            className={`text-xs ${outstanding > 0 ? "text-red-700" : "text-gray-600"}`}
+            className={`text-xs ${outstanding > 0 ? "text-red-700 dark:text-red-200" : "text-gray-600 dark:text-gray-300"}`}
           >
             Outstanding Balance
           </p>
           <p
-            className={`text-2xl font-bold ${outstanding > 0 ? "text-red-700" : "text-gray-700"}`}
+            className={`text-2xl font-bold ${outstanding > 0 ? "text-red-700 dark:text-red-200" : "text-gray-700 dark:text-gray-200"}`}
           >
             Rs. {outstanding.toFixed(2)}
           </p>
@@ -1797,12 +1803,12 @@ function BillingTab({ patientId }: { patientId: string }) {
       </div>
 
       {/* Recent invoices */}
-      <div className="rounded-xl bg-white p-5 shadow-sm">
-        <h3 className="mb-3 text-sm font-semibold">
+      <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+        <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">
           Recent Invoices (last 90 days)
         </h3>
         {recent.length === 0 ? (
-          <p className="text-sm text-gray-400">No recent invoices</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500">No recent invoices</p>
         ) : (
           <InvoiceList invoices={recent} />
         )}
@@ -1810,10 +1816,10 @@ function BillingTab({ patientId }: { patientId: string }) {
 
       {/* Older collapsible */}
       {older.length > 0 && (
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
           <button
             onClick={() => setShowOlder((v) => !v)}
-            className="flex w-full items-center justify-between text-sm font-semibold hover:text-primary"
+            className="flex w-full items-center justify-between text-sm font-semibold text-gray-900 hover:text-primary dark:text-gray-100"
           >
             <span>Older Invoices ({older.length})</span>
             {showOlder ? (
@@ -1837,8 +1843,8 @@ function InvoiceList({ invoices }: { invoices: InvoiceLine[] }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
-        <thead className="text-xs text-gray-500">
-          <tr className="border-b">
+        <thead className="text-xs text-gray-500 dark:text-gray-400">
+          <tr className="border-b border-gray-200 dark:border-white/10">
             <th className="py-2 text-left">Invoice</th>
             <th className="py-2 text-left">Date</th>
             <th className="py-2 text-left">Doctor</th>
@@ -1852,34 +1858,34 @@ function InvoiceList({ invoices }: { invoices: InvoiceLine[] }) {
             const paid = inv.payments.reduce((s, p) => s + p.amount, 0);
             const statusClass =
               inv.paymentStatus === "PAID"
-                ? "bg-green-100 text-green-700"
+                ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200"
                 : inv.paymentStatus === "PARTIAL"
-                  ? "bg-amber-100 text-amber-700"
-                  : "bg-red-100 text-red-700";
+                  ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200"
+                  : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200";
             return (
               <tr
                 key={inv.id}
-                className="border-b border-gray-50 hover:bg-gray-50"
+                className="border-b border-gray-50 hover:bg-gray-50 dark:border-white/5 dark:hover:bg-white/5"
               >
-                <td className="py-2 font-mono text-xs">
+                <td className="py-2 font-mono text-xs text-gray-900 dark:text-gray-100">
                   {inv.invoiceNumber}
                 </td>
-                <td className="py-2 text-gray-600">
+                <td className="py-2 text-gray-600 dark:text-gray-300">
                   {new Date(inv.createdAt).toLocaleDateString("en-IN", {
                     day: "2-digit",
                     month: "short",
                     year: "numeric",
                   })}
                 </td>
-                <td className="py-2 text-gray-600">
+                <td className="py-2 text-gray-600 dark:text-gray-300">
                   {inv.appointment?.doctor?.user?.name
                     ? formatDoctorName(inv.appointment.doctor.user.name)
                     : "—"}
                 </td>
-                <td className="py-2 text-right font-medium">
+                <td className="py-2 text-right font-medium text-gray-900 dark:text-gray-100">
                   Rs. {inv.totalAmount.toFixed(2)}
                 </td>
-                <td className="py-2 text-right text-gray-600">
+                <td className="py-2 text-right text-gray-600 dark:text-gray-300">
                   Rs. {paid.toFixed(2)}
                 </td>
                 <td className="py-2 text-center">
@@ -2059,12 +2065,12 @@ function LabResultsTab({ patientId }: { patientId: string }) {
     })();
   }, [patientId]);
 
-  if (loading) return <div className="p-6 text-gray-500">Loading labs...</div>;
+  if (loading) return <div className="p-6 text-gray-500 dark:text-gray-400">Loading labs...</div>;
 
   if (orders.length === 0) {
     return (
-      <div className="rounded-xl bg-white p-8 text-center shadow-sm">
-        <p className="text-gray-400">No lab orders yet</p>
+      <div className="rounded-xl bg-white p-8 text-center shadow-sm dark:bg-gray-800">
+        <p className="text-gray-400 dark:text-gray-500">No lab orders yet</p>
       </div>
     );
   }
@@ -2090,10 +2096,10 @@ function LabResultsTab({ patientId }: { patientId: string }) {
           0
         );
         return (
-          <div key={o.id} className="rounded-xl bg-white shadow-sm">
+          <div key={o.id} className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
             <button
               onClick={() => toggle(o.id)}
-              className="flex w-full items-center gap-3 px-5 py-4 text-left hover:bg-gray-50"
+              className="flex w-full items-center gap-3 px-5 py-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700/40"
             >
               {isOpen ? (
                 <ChevronDown size={16} className="text-gray-400" />
@@ -2102,14 +2108,14 @@ function LabResultsTab({ patientId }: { patientId: string }) {
               )}
               <div className="flex-1">
                 <div className="flex items-center gap-3">
-                  <p className="font-medium">{o.orderNumber}</p>
+                  <p className="font-medium text-gray-900 dark:text-gray-100">{o.orderNumber}</p>
                   <span
                     className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
                       o.status === "COMPLETED"
-                        ? "bg-green-100 text-green-700"
+                        ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200"
                         : o.status === "IN_PROGRESS"
-                          ? "bg-blue-100 text-blue-700"
-                          : "bg-gray-100 text-gray-600"
+                          ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200"
+                          : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
                     }`}
                   >
                     {o.status.replace(/_/g, " ")}
@@ -2120,12 +2126,12 @@ function LabResultsTab({ patientId }: { patientId: string }) {
                     </span>
                   )}
                   {abnormal > 0 && critical === 0 && (
-                    <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800">
+                    <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800 dark:bg-orange-900/40 dark:text-orange-200">
                       {abnormal} abnormal
                     </span>
                   )}
                 </div>
-                <p className="mt-0.5 text-sm text-gray-500">
+                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
                   Ordered {new Date(o.orderedAt).toLocaleDateString()}
                   {o.doctor?.user?.name
                     ? ` · ${formatDoctorName(o.doctor.user.name)}`
@@ -2137,30 +2143,30 @@ function LabResultsTab({ patientId }: { patientId: string }) {
               </div>
             </button>
             {isOpen && (
-              <div className="border-t px-5 py-4">
+              <div className="border-t border-gray-200 px-5 py-4 dark:border-white/10">
                 {o.items.map((item) => (
                   <div key={item.id} className="mb-4 last:mb-0">
                     <div className="mb-2 flex items-center gap-2">
-                      <FlaskConical size={14} className="text-amber-600" />
-                      <p className="font-medium">{item.test.name}</p>
-                      <span className="font-mono text-xs text-gray-500">
+                      <FlaskConical size={14} className="text-amber-600 dark:text-amber-400" />
+                      <p className="font-medium text-gray-900 dark:text-gray-100">{item.test.name}</p>
+                      <span className="font-mono text-xs text-gray-500 dark:text-gray-400">
                         {item.test.code}
                       </span>
                       {item.test.category && (
-                        <span className="text-xs text-gray-400">
+                        <span className="text-xs text-gray-400 dark:text-gray-500">
                           · {item.test.category}
                         </span>
                       )}
                     </div>
                     {item.results.length === 0 ? (
-                      <p className="pl-6 text-sm italic text-gray-400">
+                      <p className="pl-6 text-sm italic text-gray-400 dark:text-gray-500">
                         Awaiting results
                       </p>
                     ) : (
                       <div className="overflow-x-auto pl-6">
                         <table className="w-full text-sm">
-                          <thead className="text-xs text-gray-500">
-                            <tr className="border-b">
+                          <thead className="text-xs text-gray-500 dark:text-gray-400">
+                            <tr className="border-b border-gray-200 dark:border-white/10">
                               <th className="py-1.5 text-left">Parameter</th>
                               <th className="py-1.5 text-left">Value</th>
                               <th className="py-1.5 text-left">Unit</th>
@@ -2173,28 +2179,28 @@ function LabResultsTab({ patientId }: { patientId: string }) {
                             {item.results.map((r) => (
                               <tr
                                 key={r.id}
-                                className="border-b border-gray-50"
+                                className="border-b border-gray-50 dark:border-white/5"
                               >
-                                <td className="py-1.5 font-medium">
+                                <td className="py-1.5 font-medium text-gray-900 dark:text-gray-100">
                                   {r.parameter}
                                 </td>
                                 <td
                                   className={`py-1.5 font-semibold ${
                                     r.flag === "CRITICAL"
-                                      ? "text-red-700"
+                                      ? "text-red-700 dark:text-red-300"
                                       : r.flag === "HIGH"
-                                        ? "text-orange-700"
+                                        ? "text-orange-700 dark:text-orange-300"
                                         : r.flag === "LOW"
-                                          ? "text-blue-700"
-                                          : "text-gray-800"
+                                          ? "text-blue-700 dark:text-blue-300"
+                                          : "text-gray-800 dark:text-gray-200"
                                   }`}
                                 >
                                   {r.value}
                                 </td>
-                                <td className="py-1.5 text-gray-500">
+                                <td className="py-1.5 text-gray-500 dark:text-gray-400">
                                   {r.unit || "—"}
                                 </td>
-                                <td className="py-1.5 text-xs text-gray-500">
+                                <td className="py-1.5 text-xs text-gray-500 dark:text-gray-400">
                                   {r.normalRange || "—"}
                                 </td>
                                 <td className="py-1.5 text-center">
@@ -2303,104 +2309,104 @@ function QuickVitalsModal({
     <Modal title="Record Vitals" onClose={onClose} size="lg">
       <form onSubmit={submit} className="space-y-3" noValidate>
         {error && (
-          <div className="rounded-md bg-red-50 p-2 text-sm text-red-700">
+          <div className="rounded-md bg-red-50 p-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-200">
             {error}
           </div>
         )}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label htmlFor="vitals-sys" className="text-xs text-gray-600">BP Systolic</label>
+            <label htmlFor="vitals-sys" className="text-xs text-gray-600 dark:text-gray-300">BP Systolic</label>
             <input
               id="vitals-sys"
               type="number"
-              className="w-full rounded-md border px-3 py-2 text-sm"
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
               value={sys}
               onChange={(e) => setSys(e.target.value)}
               placeholder="120"
             />
           </div>
           <div>
-            <label htmlFor="vitals-dia" className="text-xs text-gray-600">BP Diastolic</label>
+            <label htmlFor="vitals-dia" className="text-xs text-gray-600 dark:text-gray-300">BP Diastolic</label>
             <input
               id="vitals-dia"
               type="number"
-              className="w-full rounded-md border px-3 py-2 text-sm"
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
               value={dia}
               onChange={(e) => setDia(e.target.value)}
               placeholder="80"
             />
           </div>
           <div>
-            <label htmlFor="vitals-temp" className="text-xs text-gray-600">Temperature (°F)</label>
+            <label htmlFor="vitals-temp" className="text-xs text-gray-600 dark:text-gray-300">Temperature (°F)</label>
             <input
               id="vitals-temp"
               type="number"
               step="0.1"
-              className="w-full rounded-md border px-3 py-2 text-sm"
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
               value={temp}
               onChange={(e) => setTemp(e.target.value)}
               placeholder="98.6"
             />
           </div>
           <div>
-            <label htmlFor="vitals-pulse" className="text-xs text-gray-600">Pulse (bpm)</label>
+            <label htmlFor="vitals-pulse" className="text-xs text-gray-600 dark:text-gray-300">Pulse (bpm)</label>
             <input
               id="vitals-pulse"
               type="number"
-              className="w-full rounded-md border px-3 py-2 text-sm"
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
               value={pulse}
               onChange={(e) => setPulse(e.target.value)}
               placeholder="72"
             />
           </div>
           <div>
-            <label htmlFor="vitals-spo2" className="text-xs text-gray-600">SpO2 (%)</label>
+            <label htmlFor="vitals-spo2" className="text-xs text-gray-600 dark:text-gray-300">SpO2 (%)</label>
             <input
               id="vitals-spo2"
               type="number"
-              className="w-full rounded-md border px-3 py-2 text-sm"
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
               value={spo2}
               onChange={(e) => setSpo2(e.target.value)}
               placeholder="98"
             />
           </div>
           <div>
-            <label htmlFor="vitals-weight" className="text-xs text-gray-600">Weight (kg)</label>
+            <label htmlFor="vitals-weight" className="text-xs text-gray-600 dark:text-gray-300">Weight (kg)</label>
             <input
               id="vitals-weight"
               type="number"
               step="0.1"
-              className="w-full rounded-md border px-3 py-2 text-sm"
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
               value={weight}
               onChange={(e) => setWeight(e.target.value)}
             />
           </div>
           <div>
-            <label htmlFor="vitals-height" className="text-xs text-gray-600">Height (cm)</label>
+            <label htmlFor="vitals-height" className="text-xs text-gray-600 dark:text-gray-300">Height (cm)</label>
             <input
               id="vitals-height"
               type="number"
               step="0.1"
-              className="w-full rounded-md border px-3 py-2 text-sm"
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
               value={height}
               onChange={(e) => setHeight(e.target.value)}
             />
           </div>
           <div>
-            <label className="text-xs text-gray-600">BMI</label>
-            <div className="rounded-md bg-gray-50 px-3 py-2 text-sm">
+            <label className="text-xs text-gray-600 dark:text-gray-300">BMI</label>
+            <div className="rounded-md bg-gray-50 px-3 py-2 text-sm dark:bg-gray-900/60">
               {bmi ? (
                 <>
                   <span className="font-semibold">{bmi.toFixed(1)}</span>{" "}
                   <span
                     className={`text-xs ${
                       bmi < 18.5
-                        ? "text-blue-600"
+                        ? "text-blue-600 dark:text-blue-400"
                         : bmi < 25
-                          ? "text-green-600"
+                          ? "text-green-600 dark:text-green-400"
                           : bmi < 30
-                            ? "text-orange-600"
-                            : "text-red-600"
+                            ? "text-orange-600 dark:text-orange-400"
+                            : "text-red-600 dark:text-red-400"
                     }`}
                   >
                     (
@@ -2415,17 +2421,17 @@ function QuickVitalsModal({
                   </span>
                 </>
               ) : (
-                <span className="text-gray-400">—</span>
+                <span className="text-gray-400 dark:text-gray-500">—</span>
               )}
             </div>
           </div>
         </div>
         <div>
-          <label htmlFor="vitals-notes" className="text-xs text-gray-600">Notes</label>
+          <label htmlFor="vitals-notes" className="text-xs text-gray-600 dark:text-gray-300">Notes</label>
           <textarea
             id="vitals-notes"
             rows={2}
-            className="w-full rounded-md border px-3 py-2 text-sm"
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
           />
@@ -2434,7 +2440,7 @@ function QuickVitalsModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border px-3 py-1.5 text-sm"
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 dark:border-white/15 dark:text-gray-200 dark:hover:bg-white/5"
           >
             Cancel
           </button>
@@ -2555,16 +2561,16 @@ function QuickBookModal({
     <Modal title="Book Appointment" onClose={onClose} size="lg">
       <div className="space-y-3">
         {error && (
-          <div className="rounded-md bg-red-50 p-2 text-sm text-red-700">
+          <div className="rounded-md bg-red-50 p-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-200">
             {error}
           </div>
         )}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label htmlFor="book-doctor" className="text-xs text-gray-600">Doctor</label>
+            <label htmlFor="book-doctor" className="text-xs text-gray-600 dark:text-gray-300">Doctor</label>
             <select
               id="book-doctor"
-              className="w-full rounded-md border px-3 py-2 text-sm"
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100"
               value={doctorId}
               onChange={(e) => setDoctorId(e.target.value)}
             >
@@ -2577,11 +2583,11 @@ function QuickBookModal({
             </select>
           </div>
           <div>
-            <label htmlFor="book-date" className="text-xs text-gray-600">Date</label>
+            <label htmlFor="book-date" className="text-xs text-gray-600 dark:text-gray-300">Date</label>
             <input
               id="book-date"
               type="date"
-              className="w-full rounded-md border px-3 py-2 text-sm"
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:[color-scheme:dark]"
               value={date}
               min={new Date().toISOString().split("T")[0]}
               onChange={(e) => setDate(e.target.value)}
@@ -2589,11 +2595,11 @@ function QuickBookModal({
           </div>
         </div>
         <div>
-          <p className="mb-2 text-xs font-semibold text-gray-600">
+          <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-300">
             Available Slots
           </p>
           {slots.length === 0 ? (
-            <p className="text-sm text-gray-400">No slots available</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500">No slots available</p>
           ) : (
             <div className="grid grid-cols-4 gap-2">
               {slots.map((s) => (
@@ -2605,7 +2611,7 @@ function QuickBookModal({
                   className={`rounded-md px-2 py-2 text-xs ${
                     s.isAvailable
                       ? "border border-primary text-primary hover:bg-primary hover:text-white"
-                      : "cursor-not-allowed bg-gray-100 text-gray-400"
+                      : "cursor-not-allowed bg-gray-100 text-gray-400 dark:bg-gray-900/60 dark:text-gray-600"
                   }`}
                 >
                   {s.startTime}
@@ -2680,7 +2686,7 @@ function MedicalRecordsTab({
   }
 
   if (loading) {
-    return <div className="p-6 text-gray-500">Loading...</div>;
+    return <div className="p-6 text-gray-500 dark:text-gray-400">Loading...</div>;
   }
 
   return (
@@ -3797,15 +3803,15 @@ function ProblemListCard({ patientId }: { patientId: string }) {
 
   const top = items.slice(0, 5);
   return (
-    <div className="rounded-xl bg-white p-4 shadow-sm border-l-4 border-red-500">
+    <div className="rounded-xl bg-white p-4 shadow-sm border-l-4 border-red-500 dark:bg-gray-800">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-          <ClipboardList className="h-4 w-4 text-red-600" />
+        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2 dark:text-gray-100">
+          <ClipboardList className="h-4 w-4 text-red-600 dark:text-red-400" />
           Problem List ({items.length})
         </h3>
         <Link
           href={`/dashboard/patients/${patientId}/problem-list`}
-          className="text-xs text-blue-600 hover:underline"
+          className="text-xs text-blue-600 hover:underline dark:text-blue-400"
         >
           View all
         </Link>
@@ -3826,16 +3832,16 @@ function ProblemListCard({ patientId }: { patientId: string }) {
               }`}
             />
             <div className="flex-1 min-w-0">
-              <span className="font-medium text-gray-900">{p.title}</span>
-              <span className="ml-2 text-xs text-gray-500">{p.source}</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">{p.title}</span>
+              <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">{p.source}</span>
             </div>
             <span
               className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${
                 p.severity === "LIFE_THREATENING"
-                  ? "bg-red-100 text-red-700"
+                  ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200"
                   : p.severity === "SEVERE"
-                    ? "bg-orange-100 text-orange-700"
-                    : "bg-amber-100 text-amber-700"
+                    ? "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-200"
+                    : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200"
               }`}
             >
               {p.severity}
@@ -4051,7 +4057,7 @@ function Patient360Tab({
     .map((v) => v.weight)
     .filter((x): x is number => x != null);
 
-  if (loading) return <div className="p-6 text-gray-500">Loading 360° view...</div>;
+  if (loading) return <div className="p-6 text-gray-500 dark:text-gray-400">Loading 360° view...</div>;
 
   return (
     <div className="space-y-4">
@@ -4101,8 +4107,8 @@ function Patient360Tab({
         {/* Left column */}
         <div className="space-y-4 lg:col-span-2">
           {/* Quick actions strip */}
-          <div className="no-print rounded-xl bg-white p-4 shadow-sm">
-            <h3 className="mb-3 text-sm font-semibold text-gray-700">Quick Actions</h3>
+          <div className="no-print rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+            <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">Quick Actions</h3>
             <div className="flex flex-wrap gap-2">
               <QuickBtn
                 label="Book Appointment"
@@ -4146,13 +4152,13 @@ function Patient360Tab({
           </div>
 
           {/* Recent activity feed */}
-          <div className="rounded-xl bg-white p-4 shadow-sm">
+          <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-700">Recent Activity</h3>
-              <span className="text-xs text-gray-400">Last 10 events</span>
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Recent Activity</h3>
+              <span className="text-xs text-gray-400 dark:text-gray-500">Last 10 events</span>
             </div>
             {timeline.length === 0 ? (
-              <p className="py-6 text-center text-xs text-gray-400">No events yet</p>
+              <p className="py-6 text-center text-xs text-gray-400 dark:text-gray-500">No events yet</p>
             ) : (
               <div className="space-y-2">
                 {timeline.map((e) => {
@@ -4166,10 +4172,10 @@ function Patient360Tab({
                       <Icon size={16} className={colors.icon} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-3">
-                          <p className="truncate text-sm font-medium text-gray-800">
+                          <p className="truncate text-sm font-medium text-gray-800 dark:text-gray-100">
                             {e.title}
                           </p>
-                          <p className="shrink-0 text-[11px] text-gray-500">
+                          <p className="shrink-0 text-[11px] text-gray-500 dark:text-gray-400">
                             {new Date(e.timestamp).toLocaleDateString("en-IN", {
                               day: "2-digit",
                               month: "short",
@@ -4177,7 +4183,7 @@ function Patient360Tab({
                           </p>
                         </div>
                         {e.description && (
-                          <p className="mt-0.5 truncate text-xs text-gray-600">
+                          <p className="mt-0.5 truncate text-xs text-gray-600 dark:text-gray-300">
                             {e.description}
                           </p>
                         )}
@@ -4190,9 +4196,9 @@ function Patient360Tab({
           </div>
 
           {/* Recent prescriptions */}
-          <div className="rounded-xl bg-white p-4 shadow-sm">
+          <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-700">Recent Prescriptions</h3>
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Recent Prescriptions</h3>
               <Link
                 href="/dashboard/prescriptions"
                 className="text-xs text-primary hover:underline"
@@ -4201,28 +4207,28 @@ function Patient360Tab({
               </Link>
             </div>
             {prescriptions.length === 0 ? (
-              <p className="py-4 text-center text-xs text-gray-400">No prescriptions</p>
+              <p className="py-4 text-center text-xs text-gray-400 dark:text-gray-500">No prescriptions</p>
             ) : (
               <div className="space-y-2">
                 {prescriptions.map((rx) => (
-                  <details key={rx.id} className="rounded-lg bg-green-50 p-3">
+                  <details key={rx.id} className="rounded-lg bg-green-50 p-3 dark:bg-green-900/30">
                     <summary className="flex cursor-pointer items-center justify-between">
                       <div>
-                        <p className="text-sm font-medium text-gray-800">
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
                           {rx.diagnosis}
                         </p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-gray-500 dark:text-gray-300">
                           {rx.doctor?.user?.name ? formatDoctorName(rx.doctor.user.name) : "—"} ·{" "}
                           {new Date(rx.createdAt).toLocaleDateString()}
                         </p>
                       </div>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-500 dark:text-gray-300">
                         {rx.items.length} item{rx.items.length === 1 ? "" : "s"}
                       </span>
                     </summary>
-                    <div className="mt-2 space-y-1 border-t border-green-200 pt-2">
+                    <div className="mt-2 space-y-1 border-t border-green-200 pt-2 dark:border-green-700/40">
                       {rx.items.map((it, i) => (
-                        <p key={i} className="text-xs text-gray-700">
+                        <p key={i} className="text-xs text-gray-700 dark:text-gray-200">
                           <span className="font-medium">{it.medicineName}</span>{" "}
                           — {it.dosage} · {it.frequency} · {it.duration}
                         </p>
@@ -4238,7 +4244,7 @@ function Patient360Tab({
         {/* Right column */}
         <div className="space-y-4">
           {/* Hero */}
-          <div className="rounded-xl bg-white p-4 shadow-sm">
+          <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
             <div className="flex items-center gap-3">
               {patient.photoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -4248,21 +4254,21 @@ function Patient360Tab({
                   className="h-14 w-14 rounded-full object-cover"
                 />
               ) : (
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 dark:bg-primary/20">
                   <User size={24} className="text-primary" />
                 </div>
               )}
               <div className="min-w-0">
-                <p className="truncate font-semibold text-gray-800">
+                <p className="truncate font-semibold text-gray-800 dark:text-gray-100">
                   {patient.user.name}
                 </p>
-                <p className="truncate text-xs text-gray-500">
+                <p className="truncate text-xs text-gray-500 dark:text-gray-400">
                   {patient.mrNumber} ·{" "}
                   {patient.age != null ? `${patient.age} y` : ""} ·{" "}
                   {patient.gender}
                 </p>
                 {patient.bloodGroup && (
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
                     Blood: {patient.bloodGroup}
                   </p>
                 )}
@@ -4271,8 +4277,8 @@ function Patient360Tab({
           </div>
 
           {/* Key metrics */}
-          <div className="rounded-xl bg-white p-4 shadow-sm">
-            <h3 className="mb-3 text-sm font-semibold text-gray-700">
+          <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+            <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">
               Last 90 Days
             </h3>
             <div className="grid grid-cols-2 gap-2">
@@ -4290,8 +4296,8 @@ function Patient360Tab({
           </div>
 
           {/* Vital sparklines */}
-          <div className="rounded-xl bg-white p-4 shadow-sm">
-            <h3 className="mb-3 text-sm font-semibold text-gray-700">
+          <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+            <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">
               Vital Trends (30d)
             </h3>
             <div className="space-y-3">
@@ -4302,12 +4308,12 @@ function Patient360Tab({
           </div>
 
           {/* Diagnoses */}
-          <div className="rounded-xl bg-white p-4 shadow-sm">
-            <h3 className="mb-3 text-sm font-semibold text-gray-700">
+          <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+            <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">
               Active Diagnoses
             </h3>
             {conditions.length === 0 ? (
-              <p className="py-3 text-center text-xs text-gray-400">
+              <p className="py-3 text-center text-xs text-gray-400 dark:text-gray-500">
                 No active conditions
               </p>
             ) : (
@@ -4315,11 +4321,11 @@ function Patient360Tab({
                 {conditions.slice(0, 6).map((c) => (
                   <div key={c.id} className="flex items-center justify-between">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm text-gray-800">
+                      <p className="truncate text-sm text-gray-800 dark:text-gray-100">
                         {c.condition}
                       </p>
                       {c.icd10Code && (
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
                           ICD-10: {c.icd10Code}
                         </p>
                       )}
@@ -4358,12 +4364,12 @@ function ActiveTile({
   Icon: React.ElementType;
 }) {
   const toneMap: Record<string, string> = {
-    purple: "bg-purple-50 border-purple-200 text-purple-700",
-    amber: "bg-amber-50 border-amber-200 text-amber-700",
-    blue: "bg-blue-50 border-blue-200 text-blue-700",
-    orange: "bg-orange-50 border-orange-200 text-orange-700",
-    red: "bg-red-50 border-red-200 text-red-700",
-    gray: "bg-gray-50 border-gray-200 text-gray-600",
+    purple: "bg-purple-50 border-purple-200 text-purple-700 dark:bg-purple-900/30 dark:border-purple-700/50 dark:text-purple-200",
+    amber: "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700/50 dark:text-amber-200",
+    blue: "bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700/50 dark:text-blue-200",
+    orange: "bg-orange-50 border-orange-200 text-orange-700 dark:bg-orange-900/30 dark:border-orange-700/50 dark:text-orange-200",
+    red: "bg-red-50 border-red-200 text-red-700 dark:bg-red-900/30 dark:border-red-700/50 dark:text-red-200",
+    gray: "bg-gray-50 border-gray-200 text-gray-600 dark:bg-gray-800 dark:border-white/10 dark:text-gray-300",
   };
   const body = (
     <div className={`rounded-xl border p-3 ${toneMap[tone]}`}>
@@ -4424,9 +4430,9 @@ function QuickLink({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg bg-gray-50 p-2">
-      <p className="text-[11px] text-gray-500">{label}</p>
-      <p className="text-sm font-bold text-gray-800">{value}</p>
+    <div className="rounded-lg bg-gray-50 p-2 dark:bg-gray-900/40">
+      <p className="text-[11px] text-gray-500 dark:text-gray-400">{label}</p>
+      <p className="text-sm font-bold text-gray-800 dark:text-gray-100">{value}</p>
     </div>
   );
 }
@@ -4445,10 +4451,10 @@ function Sparkline({
   if (values.length === 0) {
     return (
       <div>
-        <p className="mb-1 text-xs text-gray-500">
-          {label} <span className="text-gray-400">— no data</span>
+        <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">
+          {label} <span className="text-gray-400 dark:text-gray-500">— no data</span>
         </p>
-        <div className="h-8 rounded bg-gray-50" />
+        <div className="h-8 rounded bg-gray-50 dark:bg-gray-900/40" />
       </div>
     );
   }
@@ -4469,10 +4475,10 @@ function Sparkline({
   return (
     <div>
       <div className="flex items-center justify-between">
-        <p className="text-xs text-gray-600">{label}</p>
-        <p className="text-xs font-semibold text-gray-800">
+        <p className="text-xs text-gray-600 dark:text-gray-300">{label}</p>
+        <p className="text-xs font-semibold text-gray-800 dark:text-gray-100">
           {latest}
-          <span className="ml-0.5 text-gray-400">{unit}</span>
+          <span className="ml-0.5 text-gray-400 dark:text-gray-500">{unit}</span>
         </p>
       </div>
       <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
@@ -4825,10 +4831,10 @@ function FamilyLinksSection({
       data.familyLinks.length > 0);
 
   return (
-    <section className="rounded-xl bg-white p-6 shadow-sm">
+    <section className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
       <div className="mb-4 flex items-center justify-between">
-        <h3 className="flex items-center gap-2 text-lg font-semibold">
-          <Users size={18} className="text-indigo-500" /> Family
+        <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
+          <Users size={18} className="text-indigo-500 dark:text-indigo-400" /> Family
         </h3>
         {canEdit && (
           <button
@@ -4840,43 +4846,43 @@ function FamilyLinksSection({
         )}
       </div>
       {!hasAny ? (
-        <p className="text-sm text-gray-400">No linked family members.</p>
+        <p className="text-sm text-gray-400 dark:text-gray-500">No linked family members.</p>
       ) : (
         <div className="space-y-3">
           {data?.guardian && (
-            <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3">
-              <div className="mb-1 text-xs font-semibold text-indigo-700">
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 dark:border-indigo-700/40 dark:bg-indigo-900/30">
+              <div className="mb-1 text-xs font-semibold text-indigo-700 dark:text-indigo-200">
                 GUARDIAN
               </div>
               <Link
                 href={`/dashboard/patients/${data.guardian.id}`}
-                className="text-sm font-medium hover:underline"
+                className="text-sm font-medium text-gray-900 hover:underline dark:text-gray-100"
               >
                 {data.guardian.user.name}
               </Link>
-              <div className="text-xs text-gray-600">
+              <div className="text-xs text-gray-600 dark:text-gray-300">
                 {data.guardian.mrNumber} · {data.guardian.user.phone}
               </div>
             </div>
           )}
           {data && data.dependents.length > 0 && (
             <div>
-              <div className="mb-1 text-xs font-semibold text-gray-500">
+              <div className="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
                 DEPENDENTS
               </div>
               <ul className="space-y-1">
                 {data.dependents.map((d) => (
                   <li
                     key={d.id}
-                    className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2 text-sm"
+                    className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2 text-sm dark:border-white/10"
                   >
                     <Link
                       href={`/dashboard/patients/${d.id}`}
-                      className="font-medium hover:underline"
+                      className="font-medium text-gray-900 hover:underline dark:text-gray-100"
                     >
                       {d.user.name}
                     </Link>
-                    <span className="text-xs text-gray-500">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
                       {d.mrNumber}
                     </span>
                   </li>
@@ -4886,37 +4892,37 @@ function FamilyLinksSection({
           )}
           {data && data.familyLinks.length > 0 && (
             <div>
-              <div className="mb-1 text-xs font-semibold text-gray-500">
+              <div className="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
                 FAMILY MEMBERS
               </div>
               <ul className="space-y-1">
                 {data.familyLinks.map((l) => (
                   <li
                     key={l.id}
-                    className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2 text-sm"
+                    className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2 text-sm dark:border-white/10"
                   >
                     <div className="flex items-center gap-2">
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                          relColors[l.relationship] || "bg-gray-100 text-gray-700"
+                          relColors[l.relationship] || "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"
                         }`}
                       >
                         {l.relationship}
                       </span>
                       <Link
                         href={`/dashboard/patients/${l.relatedPatient.id}`}
-                        className="font-medium hover:underline"
+                        className="font-medium text-gray-900 hover:underline dark:text-gray-100"
                       >
                         {l.relatedPatient.user.name}
                       </Link>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
                         {l.relatedPatient.mrNumber}
                       </span>
                     </div>
                     {canEdit && (
                       <button
                         onClick={() => unlink(l.relatedPatientId)}
-                        className="text-gray-400 hover:text-red-600"
+                        className="text-gray-400 hover:text-red-600 dark:text-gray-500 dark:hover:text-red-400"
                       >
                         <Trash2 size={14} />
                       </button>
@@ -5137,10 +5143,10 @@ function AdvanceDirectivesSection({
   }
 
   return (
-    <section className="rounded-xl bg-white p-6 shadow-sm">
+    <section className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
       <div className="mb-4 flex items-center justify-between">
-        <h3 className="flex items-center gap-2 text-lg font-semibold">
-          <AlertTriangle size={18} className="text-amber-600" /> Advance Directives
+        <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
+          <AlertTriangle size={18} className="text-amber-600 dark:text-amber-400" /> Advance Directives
         </h3>
         {canEdit && (
           <button
@@ -5152,7 +5158,7 @@ function AdvanceDirectivesSection({
         )}
       </div>
       {directives.length === 0 ? (
-        <p className="text-sm text-gray-400">No advance directives recorded.</p>
+        <p className="text-sm text-gray-400 dark:text-gray-500">No advance directives recorded.</p>
       ) : (
         <ul className="space-y-2">
           {directives.map((d) => (
@@ -5160,8 +5166,8 @@ function AdvanceDirectivesSection({
               key={d.id}
               className={`rounded-lg border p-3 ${
                 d.active
-                  ? "border-gray-200"
-                  : "border-gray-100 bg-gray-50 opacity-70"
+                  ? "border-gray-200 dark:border-white/10"
+                  : "border-gray-100 bg-gray-50 opacity-70 dark:border-white/5 dark:bg-gray-900/40"
               }`}
             >
               <div className="flex items-start justify-between gap-2">
@@ -5169,29 +5175,29 @@ function AdvanceDirectivesSection({
                   <div className="flex items-center gap-2">
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        directiveColors[d.type] || "bg-gray-100 text-gray-700"
+                        directiveColors[d.type] || "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"
                       }`}
                     >
                       {d.type.replace("_", " ")}
                     </span>
                     {!d.active && (
-                      <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs text-gray-600">
+                      <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300">
                         INACTIVE
                       </span>
                     )}
                   </div>
-                  <div className="mt-1 text-xs text-gray-500">
+                  <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Effective: {d.effectiveDate.slice(0, 10)}
                     {d.expiryDate ? ` · Expires: ${d.expiryDate.slice(0, 10)}` : ""}
                   </div>
                   {d.notes && (
-                    <div className="mt-1 text-sm text-gray-700">{d.notes}</div>
+                    <div className="mt-1 text-sm text-gray-700 dark:text-gray-200">{d.notes}</div>
                   )}
                 </div>
                 {canEdit && d.active && (
                   <button
                     onClick={() => softDelete(d.id)}
-                    className="text-gray-400 hover:text-red-600"
+                    className="text-gray-400 hover:text-red-600 dark:text-gray-500 dark:hover:text-red-400"
                     title="Mark inactive"
                   >
                     <Trash2 size={14} />

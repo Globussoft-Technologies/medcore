@@ -71,22 +71,22 @@ interface LabOrder {
 }
 
 const FLAG_COLORS: Record<string, string> = {
-  NORMAL: "bg-green-100 text-green-700",
-  LOW: "bg-blue-100 text-blue-700",
-  HIGH: "bg-orange-100 text-orange-700",
-  CRITICAL: "bg-red-100 text-red-700",
+  NORMAL: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200",
+  LOW: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200",
+  HIGH: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-200",
+  CRITICAL: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200",
 };
 
 // Issue #624: keys must match the LabTestStatus DB enum
 // (ORDERED / SAMPLE_COLLECTED / IN_PROGRESS / COMPLETED / CANCELLED /
 // SAMPLE_REJECTED). The legacy "PENDING" key was a no-op.
 const STATUS_COLORS: Record<string, string> = {
-  ORDERED: "bg-yellow-100 text-yellow-700",
-  SAMPLE_COLLECTED: "bg-blue-100 text-blue-700",
-  IN_PROGRESS: "bg-indigo-100 text-indigo-700",
-  COMPLETED: "bg-green-100 text-green-700",
-  CANCELLED: "bg-red-100 text-red-700",
-  SAMPLE_REJECTED: "bg-red-100 text-red-700",
+  ORDERED: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-200",
+  SAMPLE_COLLECTED: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200",
+  IN_PROGRESS: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-200",
+  COMPLETED: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200",
+  CANCELLED: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200",
+  SAMPLE_REJECTED: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200",
 };
 
 export default function LabOrderPage({
@@ -164,7 +164,7 @@ export default function LabOrderPage({
   }
 
   if (loading)
-    return <div className="p-8 text-center text-gray-500">Loading...</div>;
+    return <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>;
   if (!order)
     // Issue #627: previously rendered a single muted line with no escape
     // route. Add an explicit Back link and contact pointer so a stray
@@ -204,7 +204,7 @@ export default function LabOrderPage({
       <div className="no-print">
         <Link
           href="/dashboard/lab"
-          className="mb-4 inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-800"
+          className="mb-4 inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100"
         >
           <ArrowLeft size={14} /> Back to Lab Orders
         </Link>
@@ -214,14 +214,14 @@ export default function LabOrderPage({
           bg-white so dark-mode text needs to remain dark — the previous `font-bold`
           alone inherited near-white from the parent body's color in dark theme,
           producing white-on-white. */}
-      <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
+      <div className="mb-6 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="flex items-center gap-2 text-2xl font-bold text-gray-900">
+            <h1 className="flex items-center gap-2 text-2xl font-bold text-gray-900 dark:text-gray-100">
               <FlaskConical className="text-primary" /> Order{" "}
               {order.orderNumber || order.id.slice(0, 8)}
             </h1>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               {/* Issue #643: previously rendered via toLocaleString() which
                   emitted US-style `4/14/2026, 12:59:07 AM` while the orders
                   list uses `14 Apr 2026`. Use the canonical formatDateTime so
@@ -233,7 +233,7 @@ export default function LabOrderPage({
             <button
               onClick={() => openPrintEndpoint(`/lab/orders/${order.id}/pdf`)}
               aria-label="Print lab report"
-              className="no-print inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+              className="no-print inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 dark:border-white/15 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600"
             >
               <Printer size={14} aria-hidden="true" /> Print Report
             </button>
@@ -247,23 +247,23 @@ export default function LabOrderPage({
 
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <p className="text-xs text-gray-500">Patient</p>
-            <p className="font-medium text-gray-900">{order.patient.user.name}</p>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Patient</p>
+            <p className="font-medium text-gray-900 dark:text-gray-100">{order.patient.user.name}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               MR: {order.patient.mrNumber} · {order.patient.gender} ·{" "}
               {order.patient.age ?? "—"} yrs
             </p>
           </div>
           {order.doctor && (
             <div>
-              <p className="text-xs text-gray-500">Ordering Doctor</p>
-              <p className="font-medium text-gray-900">{formatDoctorName(order.doctor.user.name)}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Ordering Doctor</p>
+              <p className="font-medium text-gray-900 dark:text-gray-100">{formatDoctorName(order.doctor.user.name)}</p>
             </div>
           )}
           {order.notes && (
             <div className="sm:col-span-2">
-              <p className="text-xs text-gray-500">Notes</p>
-              <p className="text-sm text-gray-900">{order.notes}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Notes</p>
+              <p className="text-sm text-gray-900 dark:text-gray-100">{order.notes}</p>
             </div>
           )}
         </div>
@@ -276,12 +276,12 @@ export default function LabOrderPage({
         (user?.role === "LAB_TECH" ||
           user?.role === "NURSE" ||
           user?.role === "ADMIN") && (
-          <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-700/50 dark:bg-blue-900/30">
             <div>
-              <p className="text-sm font-semibold text-blue-900">
+              <p className="text-sm font-semibold text-blue-900 dark:text-blue-100">
                 Sample not collected yet
               </p>
-              <p className="text-xs text-blue-700">
+              <p className="text-xs text-blue-700 dark:text-blue-200">
                 Mark the sample as collected to start the analytical phase.
               </p>
             </div>
@@ -433,18 +433,18 @@ function RadiologyAttachmentsPanel({
 
   return (
     <div
-      className="mb-6 rounded-xl border border-indigo-100 bg-white p-5 shadow-sm"
+      className="mb-6 rounded-xl border border-indigo-100 bg-white p-5 shadow-sm dark:border-indigo-700/40 dark:bg-gray-800"
       data-testid="lab-radiology-panel"
     >
-      <div className="mb-3 flex items-center gap-2 border-b pb-2">
-        <FileImage className="text-indigo-600" size={18} aria-hidden="true" />
-        <h3 className="font-semibold text-gray-900">
+      <div className="mb-3 flex items-center gap-2 border-b pb-2 dark:border-white/10">
+        <FileImage className="text-indigo-600 dark:text-indigo-400" size={18} aria-hidden="true" />
+        <h3 className="font-semibold text-gray-900 dark:text-gray-100">
           Imaging report &amp; attachments
         </h3>
       </div>
 
       {attachments.length === 0 ? (
-        <p className="mb-3 text-xs text-gray-500">
+        <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
           No imaging artefacts uploaded yet.
         </p>
       ) : (
@@ -453,11 +453,11 @@ function RadiologyAttachmentsPanel({
             <li
               key={a.id}
               data-testid="lab-attachment-row"
-              className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm"
+              className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-white/10"
             >
               <div className="min-w-0">
-                <p className="truncate font-medium text-gray-900">{a.title}</p>
-                <p className="text-xs text-gray-500">
+                <p className="truncate font-medium text-gray-900 dark:text-gray-100">{a.title}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   {a.mimeType || "file"}
                   {a.fileSize
                     ? ` · ${(a.fileSize / 1024).toFixed(1)} KB`
@@ -470,7 +470,7 @@ function RadiologyAttachmentsPanel({
                 href={`/api/v1/uploads/document/${a.id}`}
                 target="_blank"
                 rel="noopener"
-                className="ml-3 shrink-0 rounded-lg border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                className="ml-3 shrink-0 rounded-lg border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-white/15 dark:text-gray-200 dark:hover:bg-white/5"
               >
                 Open
               </Link>
@@ -483,9 +483,9 @@ function RadiologyAttachmentsPanel({
         <form
           onSubmit={submit}
           data-testid="lab-attachment-upload-form"
-          className="space-y-2 rounded-lg bg-gray-50 p-3"
+          className="space-y-2 rounded-lg bg-gray-50 p-3 dark:bg-gray-900/40"
         >
-          <p className="text-xs font-semibold text-gray-600">
+          <p className="text-xs font-semibold text-gray-600 dark:text-gray-300">
             Upload imaging report (PDF / JPEG / PNG / DICOM, max 10 MB)
           </p>
           <input
@@ -494,14 +494,14 @@ function RadiologyAttachmentsPanel({
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             data-testid="lab-attachment-title"
-            className="w-full rounded-lg border px-3 py-1.5 text-sm"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
           <input
             type="text"
             placeholder="Notes / impressions (optional)"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            className="w-full rounded-lg border px-3 py-1.5 text-sm"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -509,7 +509,7 @@ function RadiologyAttachmentsPanel({
               accept={LAB_ATTACHMENT_ACCEPT}
               onChange={(e) => setFile(e.target.files?.[0] || null)}
               data-testid="lab-attachment-file"
-              className="text-sm"
+              className="text-sm text-gray-700 file:mr-2 file:rounded file:border-0 file:bg-gray-200 file:px-2 file:py-1 file:text-xs file:font-medium file:text-gray-700 dark:text-gray-300 dark:file:bg-white/10 dark:file:text-gray-200"
             />
             <button
               type="submit"
@@ -687,13 +687,13 @@ function OrderItemCard({
   }
 
   return (
-    <div className="rounded-xl bg-white p-5 shadow-sm">
-      <div className="mb-3 flex items-center justify-between border-b pb-3">
+    <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+      <div className="mb-3 flex items-center justify-between border-b pb-3 dark:border-white/10">
         <div>
           {/* Issue #626: explicit dark text on white card. */}
-          <h3 className="font-semibold text-gray-900">{item.test.name}</h3>
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100">{item.test.name}</h3>
           {item.test.normalRange && (
-            <p className="text-xs text-gray-500" data-testid="lab-range-hint">
+            <p className="text-xs text-gray-500 dark:text-gray-400" data-testid="lab-range-hint">
               {/*
                * Issue #147: the unit was being rendered twice — most lab
                * `normalRange` strings already include the unit (e.g.
@@ -720,12 +720,12 @@ function OrderItemCard({
 
       {item.results && item.results.length > 0 && (
         <div className="mb-4">
-          <p className="mb-2 text-xs font-semibold text-gray-600">
+          <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-300">
             Recorded Results
           </p>
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b text-left text-xs text-gray-500">
+              <tr className="border-b text-left text-xs text-gray-500 dark:border-white/10 dark:text-gray-400">
                 <th className="py-1">Parameter</th>
                 <th className="py-1">Value</th>
                 <th className="py-1">Unit</th>
@@ -736,11 +736,11 @@ function OrderItemCard({
             </thead>
             <tbody>
               {item.results.map((r) => (
-                <tr key={r.id} className="border-b last:border-0">
-                  <td className="py-1.5 font-medium text-gray-900">{r.parameter}</td>
-                  <td className="py-1.5 text-gray-900">{r.value}</td>
-                  <td className="py-1.5 text-gray-600">{r.unit || "—"}</td>
-                  <td className="py-1.5 text-xs text-gray-600">
+                <tr key={r.id} className="border-b last:border-0 dark:border-white/5">
+                  <td className="py-1.5 font-medium text-gray-900 dark:text-gray-100">{r.parameter}</td>
+                  <td className="py-1.5 text-gray-900 dark:text-gray-100">{r.value}</td>
+                  <td className="py-1.5 text-gray-600 dark:text-gray-300">{r.unit || "—"}</td>
+                  <td className="py-1.5 text-xs text-gray-600 dark:text-gray-300">
                     {r.normalRange || "—"}
                   </td>
                   <td className="py-1.5">
@@ -752,7 +752,7 @@ function OrderItemCard({
                       </span>
                     )}
                   </td>
-                  <td className="py-1.5 text-xs text-gray-600">
+                  <td className="py-1.5 text-xs text-gray-600 dark:text-gray-300">
                     {r.notes || "—"}
                   </td>
                 </tr>
@@ -767,7 +767,7 @@ function OrderItemCard({
       {isOrderFinalised && (userRole === "ADMIN" || userRole === "LAB_TECH") ? (
         <div
           data-testid="lab-result-finalised-notice"
-          className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"
+          className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-700/50 dark:bg-amber-900/30 dark:text-amber-200"
         >
           This order is finalised — new results cannot be added. Use the
           amendment workflow if a correction is required.
@@ -776,14 +776,14 @@ function OrderItemCard({
 
       {/* Issue #255: hide Add Result form from PATIENT role. */}
       {canAddResults ? (
-      <form onSubmit={submit} noValidate className="rounded-lg bg-gray-50 p-3" data-testid="lab-add-result-form">
-        <p className="mb-2 text-xs font-semibold text-gray-600">Add Result</p>
+      <form onSubmit={submit} noValidate className="rounded-lg bg-gray-50 p-3 dark:bg-gray-900/40" data-testid="lab-add-result-form">
+        <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-300">Add Result</p>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
           <input
             placeholder="Parameter"
             value={form.parameter}
             onChange={(e) => setForm({ ...form, parameter: e.target.value })}
-            className="rounded-lg border px-2 py-1.5 text-sm"
+            className="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
           <div>
             {isQualitativeTest ? (
@@ -801,8 +801,8 @@ function OrderItemCard({
                 data-testid="lab-result-value"
                 aria-invalid={valueError ? "true" : undefined}
                 className={
-                  "w-full rounded-lg border px-2 py-1.5 text-sm bg-white dark:bg-gray-700 " +
-                  (valueError ? "border-red-500 bg-red-50" : "")
+                  "w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 " +
+                  (valueError ? "border-red-500 bg-red-50 dark:bg-red-900/20" : "")
                 }
               >
                 <option value="">Select result…</option>
@@ -838,15 +838,15 @@ function OrderItemCard({
                 data-testid="lab-result-value"
                 aria-invalid={valueError ? "true" : undefined}
                 className={
-                  "w-full rounded-lg border px-2 py-1.5 text-sm " +
-                  (valueError ? "border-red-500 bg-red-50" : "")
+                  "w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 " +
+                  (valueError ? "border-red-500 bg-red-50 dark:bg-red-900/20" : "")
                 }
               />
             )}
             {isNumericTest &&
               (typeof item.test.panicLow === "number" ||
                 typeof item.test.panicHigh === "number") && (
-                <p className="mt-0.5 text-[10px] text-gray-500">
+                <p className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
                   Panic range: {item.test.panicLow ?? "—"} to{" "}
                   {item.test.panicHigh ?? "—"} {item.test.unit ?? ""}
                 </p>
@@ -854,7 +854,7 @@ function OrderItemCard({
             {valueError && (
               <p
                 data-testid="error-lab-result-value"
-                className="mt-1 text-xs text-red-600"
+                className="mt-1 text-xs text-red-600 dark:text-red-400"
               >
                 {valueError}
               </p>
@@ -864,18 +864,18 @@ function OrderItemCard({
             placeholder="Unit"
             value={form.unit}
             onChange={(e) => setForm({ ...form, unit: e.target.value })}
-            className="rounded-lg border px-2 py-1.5 text-sm"
+            className="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
           <input
             placeholder="Normal Range"
             value={form.normalRange}
             onChange={(e) => setForm({ ...form, normalRange: e.target.value })}
-            className="rounded-lg border px-2 py-1.5 text-sm"
+            className="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
           <select
             value={form.flag}
             onChange={(e) => setForm({ ...form, flag: e.target.value })}
-            className="rounded-lg border px-2 py-1.5 text-sm"
+            className="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100"
           >
             <option value="NORMAL">Normal</option>
             <option value="LOW">Low</option>
@@ -888,7 +888,7 @@ function OrderItemCard({
             placeholder="Notes (optional)"
             value={form.notes}
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
-            className="flex-1 rounded-lg border px-2 py-1.5 text-sm"
+            className="flex-1 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
           <button
             type="submit"

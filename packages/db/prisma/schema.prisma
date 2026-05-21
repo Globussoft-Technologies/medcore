@@ -486,16 +486,16 @@ model Tenant {
   // razorpayKeySecret is stored AS-IS for now (encryption-at-rest is a
   // separate ops follow-up; the column is already FK-cascade-protected
   // and the DB is encrypted at the filesystem layer on prod).
-  razorpayKeyId      String?
-  razorpayKeySecret  String?
-  razorpayMode       String? // "live" | "test"
+  razorpayKeyId     String?
+  razorpayKeySecret String?
+  razorpayMode      String? // "live" | "test"
 
   // Pearl ERP Stage 1 gap item #10b — mandatory TOTP for tenant ADMIN.
   // When true, ADMIN users on this tenant who haven't enrolled TOTP are
   // blocked at the login step with a 412 + "TOTP enrolment required"
   // message. Pearl-branded tenants set this to true; non-Pearl tenants
   // leave it false (current default — opt-in TOTP only).
-  requireAdminTOTP  Boolean   @default(false)
+  requireAdminTOTP Boolean @default(false)
 
   // Pearl ERP Stage 1 §6 + §18 (gap item #9) — per-tenant feature flags.
   // JSON shape:
@@ -725,8 +725,12 @@ model Branch {
 
   // Pearl ERP Stage 1 §7.2 — piece 2a (branchScopedPrisma POC, 2026-05-21).
   // First transactional table wired into the branch-scoped Prisma extension.
-  // Remaining tables (Invoice, Doctor, Patient, ...) ship in piece 2b.
+  // Piece 2b (2026-05-21 follow-up) extended scoping to Invoice + Doctor +
+  // Patient via the back-relations below.
   appointments Appointment[]
+  invoices     Invoice[]     @relation("InvoiceBranch")
+  doctors      Doctor[]      @relation("DoctorBranch")
+  patients     Patient[]     @relation("PatientBranch")
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -816,36 +820,36 @@ enum LeadActivityType {
 }
 
 model Lead {
-  id              String     @id @default(uuid())
-  name            String
-  phone           String?
-  email           String?
-  source          LeadSource @default(WEB)
-  status          LeadStatus @default(NEW)
+  id                 String     @id @default(uuid())
+  name               String
+  phone              String?
+  email              String?
+  source             LeadSource @default(WEB)
+  status             LeadStatus @default(NEW)
   // Optional links — let lead "want a derm consult" or "from Dr. X's
   // referral" carry the soft preference into the conversion flow.
-  preferredDoctorId String?
-  assignedToUserId  String?
+  preferredDoctorId  String?
+  assignedToUserId   String?
   // Free-text scratchpad — chief complaint, notes from the intake call.
-  notes           String?
+  notes              String?
   // Lifecycle attribution. convertedPatientId is set by the CONVERT
   // endpoint and is the link that distinguishes a CONVERTED lead from
   // a LOST one (some hospitals re-engage LOST leads later).
-  convertedAt     DateTime?
+  convertedAt        DateTime?
   convertedPatientId String?
   // Optional promotion path — a MarketingEnquiry row can be promoted
   // into a Lead; we keep the back-ref so duplicate-promotion is easy
   // to detect (findFirst on this column).
-  marketingEnquiryId String? @unique
+  marketingEnquiryId String?    @unique
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  preferredDoctor   Doctor?           @relation("LeadPreferredDoctor", fields: [preferredDoctorId], references: [id], onDelete: SetNull)
-  assignedToUser    User?             @relation("LeadAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
-  convertedPatient  Patient?          @relation("LeadConvertedPatient", fields: [convertedPatientId], references: [id], onDelete: SetNull)
-  marketingEnquiry  MarketingEnquiry? @relation(fields: [marketingEnquiryId], references: [id], onDelete: SetNull)
-  activities        LeadActivity[]
+  preferredDoctor  Doctor?           @relation("LeadPreferredDoctor", fields: [preferredDoctorId], references: [id], onDelete: SetNull)
+  assignedToUser   User?             @relation("LeadAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  convertedPatient Patient?          @relation("LeadConvertedPatient", fields: [convertedPatientId], references: [id], onDelete: SetNull)
+  marketingEnquiry MarketingEnquiry? @relation(fields: [marketingEnquiryId], references: [id], onDelete: SetNull)
+  activities       LeadActivity[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -962,8 +966,8 @@ model User {
   appointmentRemarks AppointmentRemark[] @relation("AppointmentRemarkAuthor")
 
   // Pearl §3.3 (gap item #3) — leads this user owns + activities they've logged.
-  leadsAssigned    Lead[]         @relation("LeadAssignedTo")
-  leadActivities   LeadActivity[] @relation("LeadActivityAuthor")
+  leadsAssigned  Lead[]         @relation("LeadAssignedTo")
+  leadActivities LeadActivity[] @relation("LeadActivityAuthor")
 
   // Pearl §5.1 (gap item #4 — piece 1 of 4) — campaigns this user created.
   // Named relation so later pieces (A/B variant assignment, etc.) can add
@@ -1083,6 +1087,13 @@ model Doctor {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  // Pearl §7.2 piece 2b — branch ownership. Nullable so existing
+  // doctors stay valid; backfilled to tenant.isDefault branch by
+  // migration 20260521000002. ON DELETE SetNull preserves doctor
+  // history when a branch is hard-deleted on tenant teardown.
+  branchId String?
+  branch   Branch? @relation("DoctorBranch", fields: [branchId], references: [id], onDelete: SetNull)
+
   user                 User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   schedules            DoctorSchedule[]
   scheduleOverrides    ScheduleOverride[]
@@ -1106,6 +1117,7 @@ model Doctor {
   leadsPreferred Lead[] @relation("LeadPreferredDoctor")
 
   @@index([tenantId])
+  @@index([branchId])
   @@map("doctors")
 }
 
@@ -1184,6 +1196,12 @@ model Patient {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  // Pearl §7.2 piece 2b — branch ownership. Nullable so existing
+  // patients stay valid; backfilled to tenant.isDefault branch by
+  // migration 20260521000002.
+  branchId String?
+  branch   Branch? @relation("PatientBranch", fields: [branchId], references: [id], onDelete: SetNull)
+
   user                 User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   guardian             Patient?                   @relation("PatientGuardian", fields: [guardianPatientId], references: [id])
   dependents           Patient[]                  @relation("PatientGuardian")
@@ -1252,6 +1270,7 @@ model Patient {
 
   @@index([mrNumber])
   @@index([tenantId])
+  @@index([branchId])
   @@map("patients")
 }
 
@@ -1364,24 +1383,24 @@ enum AppointmentRemarkVisibility {
 }
 
 model AppointmentRemark {
-  id              String                       @id @default(uuid())
-  appointmentId   String
-  authorUserId    String
-  parentRemarkId  String?
-  body            String
-  visibility      AppointmentRemarkVisibility @default(ALL_STAFF)
-  isPinned        Boolean                      @default(false)
-  createdAt       DateTime                     @default(now())
-  updatedAt       DateTime                     @updatedAt
-  editedAt        DateTime?
+  id             String                      @id @default(uuid())
+  appointmentId  String
+  authorUserId   String
+  parentRemarkId String?
+  body           String
+  visibility     AppointmentRemarkVisibility @default(ALL_STAFF)
+  isPinned       Boolean                     @default(false)
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+  editedAt       DateTime?
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  appointment   Appointment        @relation("AppointmentRemarks", fields: [appointmentId], references: [id], onDelete: Cascade)
-  author        User               @relation("AppointmentRemarkAuthor", fields: [authorUserId], references: [id])
-  parent        AppointmentRemark? @relation("AppointmentRemarkThread", fields: [parentRemarkId], references: [id], onDelete: SetNull)
-  replies       AppointmentRemark[] @relation("AppointmentRemarkThread")
+  appointment Appointment         @relation("AppointmentRemarks", fields: [appointmentId], references: [id], onDelete: Cascade)
+  author      User                @relation("AppointmentRemarkAuthor", fields: [authorUserId], references: [id])
+  parent      AppointmentRemark?  @relation("AppointmentRemarkThread", fields: [parentRemarkId], references: [id], onDelete: SetNull)
+  replies     AppointmentRemark[] @relation("AppointmentRemarkThread")
 
   @@index([appointmentId])
   @@index([authorUserId])
@@ -1629,6 +1648,12 @@ model Invoice {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  // Pearl §7.2 piece 2b — branch ownership. Nullable so existing
+  // invoices stay valid; backfilled to tenant.isDefault branch by
+  // migration 20260521000002.
+  branchId String?
+  branch   Branch? @relation("InvoiceBranch", fields: [branchId], references: [id], onDelete: SetNull)
+
   appointment       Appointment        @relation(fields: [appointmentId], references: [id])
   patient           Patient            @relation(fields: [patientId], references: [id])
   items             InvoiceItem[]
@@ -1645,6 +1670,7 @@ model Invoice {
   @@index([patientId])
   @@index([invoiceNumber])
   @@index([tenantId])
+  @@index([branchId])
   @@map("invoices")
 }
 
@@ -5567,11 +5593,11 @@ model Campaign {
   // DRAFT → SCHEDULED; startedAt + completedAt are written by the
   // piece-2 dispatcher; cancelledAt + cancelReason are set when an
   // operator cancels in-flight or before launch.
-  scheduledAt   DateTime?
-  startedAt     DateTime?
-  completedAt   DateTime?
-  cancelledAt   DateTime?
-  cancelReason  String?
+  scheduledAt  DateTime?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  cancelledAt  DateTime?
+  cancelReason String?
 
   // Send-window clamp (Pearl §5.1 — IST quiet-hour respect). Integer
   // minute-of-day, 0..1439. Both must be set together (API-validated).
@@ -5582,6 +5608,13 @@ model Campaign {
   // A/B variants — persisted config; resolution + weighting ships in piece 3.
   // Shape: [{ id, weight, subjectOverride?, bodyOverride? }].
   abVariants Json?
+
+  // Pearl §5.1 piece 3c — destination URL the click endpoint 302s to
+  // after recording clickedAt. Per-campaign so the marketer can land
+  // each campaign on its own page (booking deep-link / landing page /
+  // form). When null the click endpoint records clickedAt and returns
+  // a plain-text 200 acknowledgement.
+  linkTargetUrl String?
 
   // Operator who created the campaign (audit trail; nullable in case the
   // creator user is later deleted — onDelete: SetNull preserves the row).
@@ -5614,8 +5647,8 @@ model CampaignAudience {
 
   // Last computed audience size (written by the piece-2 compiler when
   // POST /api/v1/campaigns/:id/sends/preview is called).
-  estimatedSize   Int?
-  lastComputedAt  DateTime?
+  estimatedSize  Int?
+  lastComputedAt DateTime?
 
   // Soft-active flag — audiences referenced by historical Campaigns
   // must not be hard-deleted; the PATCH-active=false flow is the only
@@ -5658,6 +5691,24 @@ model CampaignSend {
   failedAt      DateTime?
   failureReason String?
 
+  // Pearl §5.1 piece 3c — click + conversion attribution.
+  //   clickedAt        set by GET /api/v1/campaigns/click/:sendId
+  //                    when the recipient taps the trackable URL the
+  //                    dispatcher minted into the message body.
+  //   convertedAt      set by recordCampaignConversion() when a
+  //                    downstream event (appointment booked / invoice
+  //                    generated within the attribution window — default
+  //                    7 days) is credited to this send.
+  //   convertedRefId   id of the appointment/invoice that earned the
+  //                    credit (drill-down from the stats endpoint).
+  //   convertedType    "APPOINTMENT" | "INVOICE" | future. Kept as
+  //                    free text so the catalog can grow without a
+  //                    chained schema migration.
+  clickedAt      DateTime?
+  convertedAt    DateTime?
+  convertedRefId String?
+  convertedType  String?
+
   // FK to the Notification row created via the existing per-channel
   // adapter (piece 2). Optional because some channels (e.g. raw SMS via
   // a non-Notification path) may not have a 1:1 Notification row.
@@ -5675,5 +5726,10 @@ model CampaignSend {
   @@index([tenantId])
   @@index([campaignId, status])
   @@index([patientId])
+  // Pearl §5.1 piece 3c — attribution lookup: "find the patient's
+  // most recent clicked-but-not-converted CampaignSend within the
+  // attribution window". `convertedAt IS NULL` filter prunes the
+  // small tail in-memory.
+  @@index([patientId, clickedAt])
   @@map("campaign_sends")
 }

@@ -47,6 +47,11 @@ import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { compileAudience } from "../services/audience-compiler";
+import {
+  dispatchCampaign,
+  isWithinSendWindow,
+  nextSendWindowStart,
+} from "../services/campaign-dispatcher";
 
 const router = Router();
 router.use(authenticate);
@@ -482,4 +487,325 @@ router.post(
   },
 );
 
+// ── POST /:id/dispatch — Pearl §5.1 piece 2b sync dispatcher (ADMIN) ──
+//
+// Drives a Campaign from DRAFT/SCHEDULED → RUNNING → COMPLETED in one
+// request. Audience must already be attached + the send-window (if any)
+// must be open NOW; otherwise 400/409 with a clarifying body. Body is
+// empty — all state lives on the Campaign + its CampaignAudience.
+//
+// The actual fan-out (audience compile → per-(patient,channel) channel
+// adapter call → CampaignSend row write) lives in services/campaign-
+// dispatcher.ts so it can later be lifted into a background worker
+// (piece 3) without re-shaping the endpoint contract. Sync today gives
+// the operator immediate feedback on a 1k-patient pilot.
+router.post(
+  "/:id/dispatch",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = await resolveTenantId(req);
+      if (!tenantId) {
+        res.status(404).json({ success: false, data: null, error: "Campaign not found" });
+        return;
+      }
+      const campaign = await prisma.campaign.findFirst({
+        where: { id: req.params.id, tenantId },
+      });
+      if (!campaign) {
+        res.status(404).json({ success: false, data: null, error: "Campaign not found" });
+        return;
+      }
+
+      // State-machine guard. RUNNING means a prior dispatch is in flight
+      // (or paused mid-flight); COMPLETED/CANCELLED are terminal.
+      if (campaign.status === "RUNNING") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: "Campaign is already RUNNING; wait for it to complete or PAUSE it first",
+        });
+        return;
+      }
+      if (campaign.status === "COMPLETED" || campaign.status === "CANCELLED") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `Campaign is in terminal state ${campaign.status} and cannot be re-dispatched`,
+        });
+        return;
+      }
+
+      if (!campaign.audienceId) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Cannot dispatch a campaign with no audience attached",
+        });
+        return;
+      }
+      if (!campaign.channels || campaign.channels.length === 0) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Cannot dispatch a campaign with no channels enabled",
+        });
+        return;
+      }
+
+      // Pearl §5.1 send-window clamp. Reject (not queue) — keeps the
+      // sync contract simple; piece 3's background worker is the right
+      // place to auto-queue an out-of-window dispatch.
+      if (!isWithinSendWindow(campaign.sendWindowStart, campaign.sendWindowEnd)) {
+        const nextStart = nextSendWindowStart(campaign.sendWindowStart as number);
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: "Outside the campaign's configured send window (IST quiet-hour clamp)",
+          nextWindowStart: nextStart.toISOString(),
+        });
+        return;
+      }
+
+      // Flip status BEFORE running the sync fan-out so a parallel
+      // dispatch request hits the RUNNING guard above.
+      const startedAt = new Date();
+      await prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { status: "RUNNING", startedAt },
+      });
+
+      let summary;
+      try {
+        summary = await dispatchCampaign(prisma, {
+          campaignId: campaign.id,
+          tenantId,
+        });
+      } catch (err) {
+        // Roll the campaign back to PAUSED so the operator can resume
+        // after investigating; preserve the partial CampaignSend rows
+        // already written by the dispatcher.
+        await prisma.campaign.update({
+          where: { id: campaign.id },
+          data: { status: "PAUSED" },
+        });
+        throw err;
+      }
+
+      const completedAt = new Date();
+      await prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { status: "COMPLETED", completedAt },
+      });
+
+      auditLog(req, "CAMPAIGN_DISPATCH", "campaign", campaign.id, {
+        startedAt: startedAt.toISOString(),
+        completedAt: completedAt.toISOString(),
+        summary,
+      }).catch(console.error);
+
+      res.json({
+        success: true,
+        data: {
+          campaignId: campaign.id,
+          startedAt: startedAt.toISOString(),
+          completedAt: completedAt.toISOString(),
+          summary,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── GET /:id/stats — Pearl §5.1 piece 3 tracking aggregates (ADMIN) ──
+//
+// Returns a rollup of CampaignSend rows for one Campaign: overall
+// totals + per-status counts + per-channel matrix + per-variant counts
+// (when A/B variants are configured). Reads only; no side effects. The
+// per-variant block is empty when the campaign has no abVariants — the
+// operator can still see channel-level performance without an A/B.
+router.get(
+  "/:id/stats",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = await resolveTenantId(req);
+      if (!tenantId) {
+        res.status(404).json({ success: false, data: null, error: "Campaign not found" });
+        return;
+      }
+      const campaign = await prisma.campaign.findFirst({
+        where: { id: req.params.id, tenantId },
+        select: { id: true, name: true, status: true, channels: true },
+      });
+      if (!campaign) {
+        res.status(404).json({ success: false, data: null, error: "Campaign not found" });
+        return;
+      }
+
+      // Pearl §5.1 piece 3c — add click + conversion counts to the
+      // rollup. Both are simple where-filtered counts on the same
+      // CampaignSend table; the byVariant matrix is augmented with
+      // per-variant clicks + conversions so the operator can compare
+      // variant performance end-to-end (impressions → clicks → conv).
+      const [byStatus, byChannelStatus, byVariant, clicked, converted, clickedByVariant, convertedByVariant] = await Promise.all([
+        prisma.campaignSend.groupBy({
+          by: ["status"],
+          where: { campaignId: campaign.id, tenantId },
+          _count: { _all: true },
+        }),
+        prisma.campaignSend.groupBy({
+          by: ["channel", "status"],
+          where: { campaignId: campaign.id, tenantId },
+          _count: { _all: true },
+        }),
+        prisma.campaignSend.groupBy({
+          by: ["variantId", "status"],
+          where: { campaignId: campaign.id, tenantId, variantId: { not: null } },
+          _count: { _all: true },
+        }),
+        prisma.campaignSend.count({
+          where: { campaignId: campaign.id, tenantId, clickedAt: { not: null } },
+        }),
+        prisma.campaignSend.count({
+          where: { campaignId: campaign.id, tenantId, convertedAt: { not: null } },
+        }),
+        prisma.campaignSend.groupBy({
+          by: ["variantId"],
+          where: { campaignId: campaign.id, tenantId, variantId: { not: null }, clickedAt: { not: null } },
+          _count: { _all: true },
+        }),
+        prisma.campaignSend.groupBy({
+          by: ["variantId"],
+          where: { campaignId: campaign.id, tenantId, variantId: { not: null }, convertedAt: { not: null } },
+          _count: { _all: true },
+        }),
+      ]);
+
+      const statusTotals: Record<string, number> = {
+        QUEUED: 0, SENT: 0, DELIVERED: 0, READ: 0,
+        BOUNCED: 0, FAILED: 0, SUPPRESSED: 0,
+      };
+      let total = 0;
+      for (const row of byStatus) {
+        statusTotals[row.status] = row._count._all;
+        total += row._count._all;
+      }
+
+      // Pivot per-channel × status into { channel: { status: count } }
+      // so the UI can render a matrix without further reshaping.
+      const channelMatrix: Record<string, Record<string, number>> = {};
+      for (const row of byChannelStatus) {
+        if (!channelMatrix[row.channel]) {
+          channelMatrix[row.channel] = {
+            QUEUED: 0, SENT: 0, DELIVERED: 0, READ: 0,
+            BOUNCED: 0, FAILED: 0, SUPPRESSED: 0, total: 0,
+          };
+        }
+        channelMatrix[row.channel][row.status] = row._count._all;
+        channelMatrix[row.channel].total += row._count._all;
+      }
+
+      const variantMatrix: Record<string, Record<string, number>> = {};
+      for (const row of byVariant) {
+        if (!row.variantId) continue;
+        if (!variantMatrix[row.variantId]) {
+          variantMatrix[row.variantId] = {
+            QUEUED: 0, SENT: 0, DELIVERED: 0, READ: 0,
+            BOUNCED: 0, FAILED: 0, SUPPRESSED: 0, total: 0,
+            clicked: 0, converted: 0,
+          };
+        }
+        variantMatrix[row.variantId][row.status] = row._count._all;
+        variantMatrix[row.variantId].total += row._count._all;
+      }
+      for (const row of clickedByVariant) {
+        if (row.variantId && variantMatrix[row.variantId]) {
+          variantMatrix[row.variantId].clicked = row._count._all;
+        }
+      }
+      for (const row of convertedByVariant) {
+        if (row.variantId && variantMatrix[row.variantId]) {
+          variantMatrix[row.variantId].converted = row._count._all;
+        }
+      }
+
+      res.json({
+        success: true,
+        data: {
+          campaignId: campaign.id,
+          campaignName: campaign.name,
+          status: campaign.status,
+          total,
+          byStatus: statusTotals,
+          byChannel: channelMatrix,
+          byVariant: variantMatrix,
+          clicked,
+          converted,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 export { router as campaignsRouter };
+
+// ── publicCampaignsRouter — Pearl §5.1 piece 3c click tracker ────────
+//
+// Mounted UNAUTHENTICATED at /api/v1/public/campaigns alongside the
+// existing Rx-QR verify router (services/pdf-generator.ts pattern).
+// Recipients tap a link inside a WhatsApp/SMS/email message that the
+// dispatcher minted at send time — there is no auth context, the
+// signature is the obscurity of the `sendId` cuid plus the audit row
+// (an attacker guessing a sendId reveals only that *somebody*
+// received that send; no PII leaks via this endpoint).
+import { prisma as rawPrisma } from "@medcore/db";
+
+const publicRouter = Router();
+
+publicRouter.get(
+  "/campaigns/click/:sendId",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const send = await rawPrisma.campaignSend.findUnique({
+        where: { id: req.params.sendId },
+        select: {
+          id: true,
+          clickedAt: true,
+          campaign: { select: { id: true, linkTargetUrl: true } },
+        },
+      });
+      if (!send) {
+        res.status(404).type("text/plain").send("Not found");
+        return;
+      }
+
+      // Record clickedAt only on the FIRST tap (so a refresh / re-share
+      // doesn't move the attribution-window anchor forward). Subsequent
+      // taps still redirect — they just don't update the timestamp.
+      if (!send.clickedAt) {
+        await rawPrisma.campaignSend.update({
+          where: { id: send.id },
+          data: { clickedAt: new Date() },
+        });
+      }
+
+      const target = send.campaign?.linkTargetUrl;
+      if (target) {
+        res.redirect(302, target);
+        return;
+      }
+      res.status(200).type("text/plain").send("Click recorded. Thank you.");
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+export { publicRouter as publicCampaignsRouter };

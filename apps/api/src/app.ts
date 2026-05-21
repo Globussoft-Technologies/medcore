@@ -126,7 +126,7 @@ import { aiDocQaRouter } from "./routes/ai-doc-qa";
 import { aiSentimentRouter } from "./routes/ai-sentiment";
 import { tenantsRouter } from "./routes/tenants";
 import { branchesRouter } from "./routes/branches";
-import { campaignsRouter } from "./routes/campaigns";
+import { campaignsRouter, publicCampaignsRouter } from "./routes/campaigns";
 import { campaignAudiencesRouter } from "./routes/campaign-audiences";
 import { settingsRouter } from "./routes/settings";
 import { agentConsoleRouter } from "./routes/agent-console";
@@ -261,6 +261,7 @@ export function buildApp() {
   app.use("/api/v1/public", publicLabRouter);
   app.use("/api/v1/public", publicPrescriptionRouter);
   app.use("/api/v1/public", publicPatientRouter);
+  app.use("/api/v1/public", publicCampaignsRouter);
 
   // Routes
   const authLimiter =

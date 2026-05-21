@@ -59,6 +59,19 @@ export const createCampaignSchema = z
     sendWindowStart: minuteOfDay.optional().nullable(),
     sendWindowEnd: minuteOfDay.optional().nullable(),
     abVariants: z.array(abVariantSchema).max(10).optional().nullable(),
+    // Pearl §5.1 piece 3c — landing URL the click endpoint 302s to.
+    // Must be http(s) so a phishing-style scheme (javascript:/data:)
+    // can't be slipped in.
+    linkTargetUrl: z
+      .string()
+      .trim()
+      .max(2048)
+      .url()
+      .refine((u) => u.startsWith("http://") || u.startsWith("https://"), {
+        message: "linkTargetUrl must use http(s) scheme",
+      })
+      .optional()
+      .nullable(),
   })
   .refine(
     (v) => {
@@ -103,6 +116,18 @@ export const updateCampaignSchema = z
     sendWindowStart: minuteOfDay.nullable().optional(),
     sendWindowEnd: minuteOfDay.nullable().optional(),
     abVariants: z.array(abVariantSchema).max(10).nullable().optional(),
+    // Pearl §5.1 piece 3c — landing URL for click endpoint. Same
+    // refinements as createCampaignSchema.
+    linkTargetUrl: z
+      .string()
+      .trim()
+      .max(2048)
+      .url()
+      .refine((u) => u.startsWith("http://") || u.startsWith("https://"), {
+        message: "linkTargetUrl must use http(s) scheme",
+      })
+      .nullable()
+      .optional(),
   })
   .refine(
     (v) => {

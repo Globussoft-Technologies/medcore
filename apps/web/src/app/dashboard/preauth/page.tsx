@@ -49,6 +49,13 @@ function fmtMoney(n: number) {
   })}`;
 }
 
+// Shared styling for the pre-auth modal form controls. The modals render on the
+// dark dashboard layout, so without explicit colors the inputs inherit the
+// layout's light text (dark:text-gray-100) and wash out; the dark variants give
+// them a legible dark surface.
+const MODAL_FIELD =
+  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
+
 export default function PreAuthPage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
@@ -92,7 +99,7 @@ export default function PreAuthPage() {
     `px-4 py-2 text-sm font-medium rounded-lg transition ${
       tab === t
         ? "bg-primary text-white"
-        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+        : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
     }`;
 
   return (
@@ -102,7 +109,7 @@ export default function PreAuthPage() {
           <h1 className="flex items-center gap-2 text-2xl font-bold">
             <FileCheck className="text-primary" /> Pre-Authorization
           </h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Insurance procedure pre-approval requests
           </p>
         </div>
@@ -135,18 +142,18 @@ export default function PreAuthPage() {
         </button>
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : rows.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No requests in this category.
           </div>
         ) : (
           <div className="overflow-x-auto">
           <table className="w-full min-w-[760px]">
             <thead>
-              <tr className="border-b text-left text-sm text-gray-500">
+              <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Request #</th>
                 <th className="px-4 py-3">Patient</th>
                 <th className="px-4 py-3">Procedure</th>
@@ -159,13 +166,13 @@ export default function PreAuthPage() {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="border-b last:border-0">
+                <tr key={r.id} className="border-b last:border-0 dark:border-gray-700">
                   <td className="px-4 py-3 font-mono text-sm">
                     {r.requestNumber}
                   </td>
                   <td className="px-4 py-3">
                     <p className="font-medium">{r.patient.user.name}</p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                       {r.patient.mrNumber}
                     </p>
                   </td>
@@ -173,14 +180,14 @@ export default function PreAuthPage() {
                   <td className="px-4 py-3 text-sm">
                     {r.insuranceProvider}
                     <br />
-                    <span className="text-xs text-gray-500">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
                       {r.policyNumber}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-sm">
                     {fmtMoney(r.estimatedCost)}
                     {r.approvedAmount != null && (
-                      <span className="ml-2 text-xs text-green-700">
+                      <span className="ml-2 text-xs text-green-700 dark:text-green-400">
                         (approved {fmtMoney(r.approvedAmount)})
                       </span>
                     )}
@@ -329,14 +336,14 @@ function NewRequestModal({
       <form
         onSubmit={submit}
         noValidate
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-xl"
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">New Pre-Auth Request</h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full p-1 hover:bg-gray-100"
+            className="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-gray-700"
           >
             <X size={18} />
           </button>
@@ -344,9 +351,9 @@ function NewRequestModal({
 
         <div className="space-y-3 text-sm">
           <div>
-            <label className="mb-1 block text-xs text-gray-500">Patient</label>
+            <label className="mb-1 block text-xs text-gray-500 dark:text-gray-400">Patient</label>
             {patient ? (
-              <div className="flex items-center justify-between rounded border bg-gray-50 p-2">
+              <div className="flex items-center justify-between rounded border bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-900/40">
                 <span>
                   {patient.user.name} ({patient.mrNumber})
                 </span>
@@ -364,10 +371,10 @@ function NewRequestModal({
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search patient..."
-                  className="w-full rounded border px-3 py-2"
+                  className={MODAL_FIELD}
                 />
                 {results.length > 0 && (
-                  <div className="mt-1 max-h-40 overflow-y-auto rounded border bg-white shadow">
+                  <div className="mt-1 max-h-40 overflow-y-auto rounded border bg-white shadow dark:border-gray-700 dark:bg-gray-800">
                     {results.map((p) => (
                       <button
                         key={p.id}
@@ -377,7 +384,7 @@ function NewRequestModal({
                           setResults([]);
                           setSearch("");
                         }}
-                        className="block w-full px-3 py-2 text-left hover:bg-gray-50"
+                        className="block w-full px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700"
                       >
                         {p.user.name} ({p.mrNumber})
                       </button>
@@ -391,7 +398,7 @@ function NewRequestModal({
           <div>
             <label
               htmlFor="preauth-insurance-provider"
-              className="mb-1 block text-xs font-medium text-slate-700"
+              className="mb-1 block text-xs font-medium text-slate-700 dark:text-gray-200"
               data-testid="label-preauth-insurance-provider"
             >
               Insurance Provider
@@ -403,13 +410,13 @@ function NewRequestModal({
               onChange={(e) =>
                 setForm({ ...form, insuranceProvider: e.target.value })
               }
-              className="w-full rounded border px-3 py-2"
+              className={MODAL_FIELD}
             />
           </div>
           <div>
             <label
               htmlFor="preauth-policy-number"
-              className="mb-1 block text-xs font-medium text-slate-700"
+              className="mb-1 block text-xs font-medium text-slate-700 dark:text-gray-200"
               data-testid="label-preauth-policy-number"
             >
               Policy Number
@@ -421,13 +428,13 @@ function NewRequestModal({
               onChange={(e) =>
                 setForm({ ...form, policyNumber: e.target.value })
               }
-              className="w-full rounded border px-3 py-2"
+              className={MODAL_FIELD}
             />
           </div>
           <div>
             <label
               htmlFor="preauth-procedure-name"
-              className="mb-1 block text-xs font-medium text-slate-700"
+              className="mb-1 block text-xs font-medium text-slate-700 dark:text-gray-200"
               data-testid="label-preauth-procedure-name"
             >
               Procedure Name
@@ -439,13 +446,13 @@ function NewRequestModal({
               onChange={(e) =>
                 setForm({ ...form, procedureName: e.target.value })
               }
-              className="w-full rounded border px-3 py-2"
+              className={MODAL_FIELD}
             />
           </div>
           <div>
             <label
               htmlFor="preauth-estimated-cost"
-              className="mb-1 block text-xs font-medium text-slate-700"
+              className="mb-1 block text-xs font-medium text-slate-700 dark:text-gray-200"
               data-testid="label-preauth-estimated-cost"
             >
               Estimated Cost (₹)
@@ -459,13 +466,13 @@ function NewRequestModal({
               onChange={(e) =>
                 setForm({ ...form, estimatedCost: e.target.value })
               }
-              className="w-full rounded border px-3 py-2"
+              className={MODAL_FIELD}
             />
           </div>
           <div>
             <label
               htmlFor="preauth-diagnosis"
-              className="mb-1 block text-xs font-medium text-slate-700"
+              className="mb-1 block text-xs font-medium text-slate-700 dark:text-gray-200"
               data-testid="label-preauth-diagnosis"
             >
               Diagnosis
@@ -475,14 +482,14 @@ function NewRequestModal({
               placeholder="Diagnosis"
               value={form.diagnosis}
               onChange={(e) => setForm({ ...form, diagnosis: e.target.value })}
-              className="w-full rounded border px-3 py-2"
+              className={MODAL_FIELD}
               rows={2}
             />
           </div>
           <div>
             <label
               htmlFor="preauth-notes"
-              className="mb-1 block text-xs font-medium text-slate-700"
+              className="mb-1 block text-xs font-medium text-slate-700 dark:text-gray-200"
               data-testid="label-preauth-notes"
             >
               Notes
@@ -492,7 +499,7 @@ function NewRequestModal({
               placeholder="Notes"
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              className="w-full rounded border px-3 py-2"
+              className={MODAL_FIELD}
               rows={2}
             />
           </div>
@@ -502,7 +509,7 @@ function NewRequestModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded border px-4 py-2 text-sm"
+            className="rounded border px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
           >
             Cancel
           </button>
@@ -575,14 +582,14 @@ function UpdateStatusModal({
       <form
         onSubmit={submit}
         noValidate
-        className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-xl"
+        className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Update {row.requestNumber}</h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full p-1 hover:bg-gray-100"
+            className="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-gray-700"
           >
             <X size={18} />
           </button>
@@ -593,7 +600,7 @@ function UpdateStatusModal({
             onChange={(e) =>
               setStatus(e.target.value as "APPROVED" | "REJECTED" | "PARTIAL")
             }
-            className="w-full rounded border px-3 py-2"
+            className={MODAL_FIELD}
           >
             <option value="APPROVED">Approve</option>
             <option value="PARTIAL">Partial Approval</option>
@@ -605,7 +612,7 @@ function UpdateStatusModal({
               step="0.01"
               value={approvedAmount}
               onChange={(e) => setApprovedAmount(e.target.value)}
-              className="w-full rounded border px-3 py-2"
+              className={MODAL_FIELD}
               placeholder="Approved amount"
             />
           )}
@@ -614,7 +621,7 @@ function UpdateStatusModal({
               placeholder="Rejection reason"
               value={rejectionReason}
               onChange={(e) => setRejectionReason(e.target.value)}
-              className="w-full rounded border px-3 py-2"
+              className={MODAL_FIELD}
               rows={2}
             />
           )}
@@ -627,14 +634,14 @@ function UpdateStatusModal({
             placeholder="Claim Reference # (optional)"
             value={claimRef}
             onChange={(e) => setClaimRef(e.target.value)}
-            className="w-full rounded border px-3 py-2"
+            className={MODAL_FIELD}
           />
         </div>
         <div className="mt-4 flex justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="rounded border px-4 py-2 text-sm"
+            className="rounded border px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
           >
             Cancel
           </button>

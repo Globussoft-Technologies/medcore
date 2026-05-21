@@ -256,24 +256,28 @@ export default function PharmacyPage() {
   }
 
   function qtyColor(item: InventoryItem): string {
-    if (item.quantity === 0) return "text-red-600 font-semibold";
+    if (item.quantity === 0) return "text-red-600 dark:text-red-400 font-semibold";
     if (item.reorderLevel && item.quantity <= item.reorderLevel)
-      return "text-orange-600 font-semibold";
-    return "text-green-700";
+      return "text-orange-600 dark:text-orange-400 font-semibold";
+    return "text-green-700 dark:text-green-400";
   }
 
   function expiryColor(exp: string): string {
     const days = (new Date(exp).getTime() - Date.now()) / (86400 * 1000);
-    if (days < 0) return "text-red-700 font-semibold";
-    if (days < 30) return "text-orange-600 font-semibold";
-    return "text-gray-700";
+    // Preserve the near-expiry / expired warning colours (red / orange).
+    // Only the neutral "healthy" branch needs a dark variant — without it the
+    // expiry date rendered as faint text-gray-700 on the dark row, almost
+    // unreadable. Pair it with a clearly-legible dark:text-gray-300.
+    if (days < 0) return "text-red-700 dark:text-red-400 font-semibold";
+    if (days < 30) return "text-orange-600 dark:text-orange-400 font-semibold";
+    return "text-gray-700 dark:text-gray-300";
   }
 
   const tabClass = (t: Tab) =>
     `px-4 py-2 text-sm font-medium rounded-lg transition ${
       tab === t
         ? "bg-primary text-white"
-        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+        : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
     }`;
 
   return (

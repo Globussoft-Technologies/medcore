@@ -117,7 +117,7 @@ export default function DiscountApprovalsPage() {
     `px-4 py-2 text-sm font-medium rounded-lg transition ${
       tab === t
         ? "bg-primary text-white"
-        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+        : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
     }`;
 
   return (
@@ -126,7 +126,7 @@ export default function DiscountApprovalsPage() {
         <h1 className="flex items-center gap-2 text-2xl font-bold">
           <Percent className="text-primary" /> Discount Approvals
         </h1>
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           Approve or reject pending discount requests
         </p>
       </div>
@@ -149,18 +149,18 @@ export default function DiscountApprovalsPage() {
         </button>
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : rows.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No {tab.toLowerCase()} approvals.
           </div>
         ) : (
           <div className="overflow-x-auto">
           <table className="w-full min-w-[760px]">
             <thead>
-              <tr className="border-b text-left text-sm text-gray-500">
+              <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Requested</th>
                 <th className="px-4 py-3">Invoice</th>
                 <th className="px-4 py-3">Patient</th>
@@ -173,7 +173,7 @@ export default function DiscountApprovalsPage() {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="border-b last:border-0">
+                <tr key={r.id} className="border-b last:border-0 dark:border-gray-700">
                   <td className="px-4 py-3 text-sm">
                     {new Date(r.createdAt).toLocaleString("en-IN")}
                   </td>
@@ -184,7 +184,7 @@ export default function DiscountApprovalsPage() {
                     >
                       {r.invoice.invoiceNumber}
                     </Link>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                       {fmtMoney(r.invoice.totalAmount)}
                     </p>
                   </td>
@@ -192,17 +192,17 @@ export default function DiscountApprovalsPage() {
                     <p className="font-medium">
                       {r.invoice.patient.user.name}
                     </p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                       {r.invoice.patient.mrNumber}
                     </p>
                   </td>
-                  <td className="px-4 py-3 text-sm font-semibold text-orange-700">
+                  <td className="px-4 py-3 text-sm font-semibold text-orange-700 dark:text-orange-400">
                     {fmtMoney(r.amount)}
                   </td>
                   <td className="px-4 py-3 text-sm">
                     {r.percentage != null ? `${r.percentage}%` : "—"}
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
+                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
                     {r.reason}
                   </td>
                   <td className="px-4 py-3">
@@ -218,7 +218,7 @@ export default function DiscountApprovalsPage() {
                       {r.status}
                     </span>
                     {r.rejectionReason && (
-                      <p className="mt-1 text-xs text-gray-500">
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                         {r.rejectionReason}
                       </p>
                     )}

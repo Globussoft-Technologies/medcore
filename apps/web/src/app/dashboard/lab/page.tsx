@@ -72,19 +72,19 @@ type Tab = "orders" | "catalog";
 // created with status=ORDERED), so lab orders silently skipped the
 // SAMPLE_COLLECTED state.
 const STATUS_COLORS: Record<string, string> = {
-  ORDERED: "bg-yellow-100 text-yellow-700",
-  SAMPLE_COLLECTED: "bg-blue-100 text-blue-700",
-  IN_PROGRESS: "bg-indigo-100 text-indigo-700",
-  COMPLETED: "bg-green-100 text-green-700",
-  CANCELLED: "bg-red-100 text-red-700",
-  SAMPLE_REJECTED: "bg-red-100 text-red-700",
+  ORDERED: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300",
+  SAMPLE_COLLECTED: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  IN_PROGRESS: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300",
+  COMPLETED: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+  CANCELLED: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+  SAMPLE_REJECTED: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
 };
 
 const FLAG_COLORS: Record<string, string> = {
-  NORMAL: "bg-green-100 text-green-700",
-  LOW: "bg-blue-100 text-blue-700",
-  HIGH: "bg-orange-100 text-orange-700",
-  CRITICAL: "bg-red-100 text-red-700",
+  NORMAL: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+  LOW: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  HIGH: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
+  CRITICAL: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
 };
 
 export default function LabPage() {
@@ -199,7 +199,7 @@ export default function LabPage() {
     `px-4 py-2 text-sm font-medium rounded-lg transition ${
       tab === t
         ? "bg-primary text-white"
-        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+        : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
     }`;
 
   const testsByCategory = tests.reduce(
@@ -483,7 +483,7 @@ export default function LabPage() {
                               e.preventDefault();
                               router.push(`/dashboard/lab/${o.id}`);
                             }}
-                            className="rounded border px-2 py-1 text-xs hover:bg-gray-50"
+                            className="rounded border px-2 py-1 text-xs hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700"
                           >
                             View
                           </Link>
@@ -492,7 +492,7 @@ export default function LabPage() {
                     </tr>
                     {expanded === o.id && (
                       <tr>
-                        <td colSpan={7} className="bg-gray-50 px-4 py-3">
+                        <td colSpan={7} className="bg-gray-50 px-4 py-3 dark:bg-gray-900/40">
                           <div className="space-y-2">
                             {o.items.map((item) => (
                               <div
@@ -538,7 +538,7 @@ export default function LabPage() {
                                               <button
                                                 data-testid="lab-ai-insights-btn"
                                                 onClick={() => fetchAIInsights(r.id)}
-                                                className="text-xs text-indigo-600 hover:underline ml-2"
+                                                className="text-xs text-indigo-600 hover:underline ml-2 dark:text-indigo-400"
                                               >
                                                 AI Insights
                                               </button>
@@ -550,7 +550,7 @@ export default function LabPage() {
                                             )}
                                           </div>
                                           {insight?.data && (
-                                            <div className="mt-1 bg-indigo-50 border border-indigo-100 rounded p-2 text-xs space-y-1">
+                                            <div className="mt-1 bg-indigo-50 border border-indigo-100 rounded p-2 text-xs space-y-1 dark:bg-indigo-900/30 dark:border-indigo-800 dark:text-indigo-100">
                                               <p>
                                                 <strong>Interpretation:</strong>{" "}
                                                 {insight.data.interpretation}
@@ -576,7 +576,7 @@ export default function LabPage() {
                                             </div>
                                           )}
                                           {insight?.error && (
-                                            <p className="text-xs text-red-600 mt-1">
+                                            <p className="text-xs text-red-600 mt-1 dark:text-red-400">
                                               {insight.error}
                                             </p>
                                           )}

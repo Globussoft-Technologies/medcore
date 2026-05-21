@@ -47,6 +47,13 @@ const CATEGORIES = [
   "Other",
 ];
 
+// Shared styling for the package modal form controls. The modals render on the
+// dark dashboard layout, so without explicit colors the inputs inherit the
+// layout's light text (dark:text-gray-100) and wash out; the dark variants give
+// them a legible dark surface.
+const MODAL_FIELD =
+  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
+
 export default function PackagesPage() {
   const { user } = useAuthStore();
   const [tab, setTab] = useState<"packages" | "purchases">("packages");
@@ -103,7 +110,7 @@ export default function PackagesPage() {
           <h1 className="flex items-center gap-2 text-2xl font-bold">
             <Gift className="text-primary" size={28} /> Health Packages
           </h1>
-          <p className="text-sm text-gray-500">Sell curated health checkup bundles</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Sell curated health checkup bundles</p>
         </div>
         <div className="flex gap-2">
           {canSell && (
@@ -125,7 +132,7 @@ export default function PackagesPage() {
         </div>
       </div>
 
-      <div className="mb-4 flex gap-2 border-b">
+      <div className="mb-4 flex gap-2 border-b dark:border-gray-700">
         {(["packages", "purchases"] as const).map((t) => (
           <button
             key={t}
@@ -133,7 +140,7 @@ export default function PackagesPage() {
             className={`px-4 py-2 text-sm font-medium ${
               tab === t
                 ? "border-b-2 border-primary text-primary"
-                : "text-gray-500 hover:text-gray-700"
+                : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
             }`}
           >
             {t === "packages" ? "Active Packages" : "Purchases"}
@@ -147,7 +154,7 @@ export default function PackagesPage() {
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="rounded-lg border px-3 py-2 text-sm"
+              className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             >
               <option value="">All Categories</option>
               {CATEGORIES.map((c) => (
@@ -159,9 +166,9 @@ export default function PackagesPage() {
           </div>
 
           {loading ? (
-            <div className="py-16 text-center text-gray-500">Loading...</div>
+            <div className="py-16 text-center text-gray-500 dark:text-gray-400">Loading...</div>
           ) : packages.length === 0 ? (
-            <div className="rounded-xl bg-white p-16 text-center text-gray-500 shadow-sm">
+            <div className="rounded-xl bg-white p-16 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
               No packages found
             </div>
           ) : (
@@ -169,7 +176,7 @@ export default function PackagesPage() {
               {packages.map((p) => (
                 <div
                   key={p.id}
-                  className="rounded-xl bg-white p-5 shadow-sm transition hover:shadow-md"
+                  className="rounded-xl bg-white p-5 shadow-sm transition hover:shadow-md dark:bg-gray-800"
                 >
                   <div className="mb-3 flex items-start justify-between">
                     <div>
@@ -183,10 +190,10 @@ export default function PackagesPage() {
                     <div className="text-right">
                       {p.discountPrice ? (
                         <>
-                          <span className="text-xs text-gray-400 line-through">
+                          <span className="text-xs text-gray-400 line-through dark:text-gray-500">
                             Rs. {p.price.toFixed(0)}
                           </span>
-                          <p className="text-lg font-bold text-green-600">
+                          <p className="text-lg font-bold text-green-600 dark:text-green-400">
                             Rs. {p.discountPrice.toFixed(0)}
                           </p>
                         </>
@@ -198,24 +205,24 @@ export default function PackagesPage() {
                     </div>
                   </div>
                   {p.description && (
-                    <p className="mb-3 text-sm text-gray-600">{p.description}</p>
+                    <p className="mb-3 text-sm text-gray-600 dark:text-gray-300">{p.description}</p>
                   )}
                   <div className="mb-3">
-                    <p className="mb-1 text-xs font-medium text-gray-500">Services Included</p>
+                    <p className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">Services Included</p>
                     <div className="flex flex-wrap gap-1">
                       {(typeof p.services === "string" ? p.services : "")
                         .split(",")
                         .map((s, i) => (
                           <span
                             key={i}
-                            className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700"
+                            className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 dark:bg-gray-700 dark:text-gray-200"
                           >
                             {s.trim()}
                           </span>
                         ))}
                     </div>
                   </div>
-                  <div className="flex items-center justify-between border-t pt-3 text-xs text-gray-500">
+                  <div className="flex items-center justify-between border-t pt-3 text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
                     <span className="flex items-center gap-1">
                       <Clock size={12} /> {p.validityDays} days validity
                     </span>
@@ -240,7 +247,7 @@ export default function PackagesPage() {
                 className={`rounded-lg px-3 py-1.5 text-sm ${
                   activeFilter === f
                     ? "bg-primary text-white"
-                    : "bg-white text-gray-600 hover:bg-gray-100"
+                    : "bg-white text-gray-600 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
                 }`}
               >
                 {f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1)}
@@ -248,15 +255,15 @@ export default function PackagesPage() {
             ))}
           </div>
 
-          <div className="rounded-xl bg-white shadow-sm">
+          <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
             {loading ? (
-              <div className="p-8 text-center text-gray-500">Loading...</div>
+              <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
             ) : purchases.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">No purchases found</div>
+              <div className="p-8 text-center text-gray-500 dark:text-gray-400">No purchases found</div>
             ) : (
               <table className="w-full">
                 <thead>
-                  <tr className="border-b text-left text-sm text-gray-500">
+                  <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300">
                     <th className="px-4 py-3">Purchase #</th>
                     <th className="px-4 py-3">Patient</th>
                     <th className="px-4 py-3">Package</th>
@@ -271,19 +278,19 @@ export default function PackagesPage() {
                     const expired = new Date(p.expiresAt) < new Date();
                     const status = p.isFullyUsed ? "used" : expired ? "expired" : "active";
                     return (
-                      <tr key={p.id} className="border-b last:border-0">
+                      <tr key={p.id} className="border-b last:border-0 dark:border-gray-700">
                         <td className="px-4 py-3 font-mono text-sm">
                           {p.purchaseNumber}
                         </td>
                         <td className="px-4 py-3">
                           <p className="font-medium">{p.patient.user.name}</p>
-                          <p className="text-xs text-gray-500">{p.patient.user.phone}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{p.patient.user.phone}</p>
                         </td>
                         <td className="px-4 py-3 text-sm">{p.package.name}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
                           {new Date(p.purchasedAt).toLocaleDateString("en-IN")}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
                           {new Date(p.expiresAt).toLocaleDateString("en-IN")}
                         </td>
                         <td className="px-4 py-3 font-medium">
@@ -401,10 +408,10 @@ function AddPackageModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-2xl">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 text-gray-900 shadow-2xl dark:bg-gray-800 dark:text-gray-100">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Add Health Package</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">
             <X size={20} />
           </button>
         </div>
@@ -415,7 +422,7 @@ function AddPackageModal({
               id="add-package-name"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className={MODAL_FIELD}
             />
           </div>
           <div>
@@ -424,7 +431,7 @@ function AddPackageModal({
               id="add-package-category"
               value={form.category}
               onChange={(e) => setForm({ ...form, category: e.target.value })}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className={MODAL_FIELD}
             >
               <option value="">Select category</option>
               {CATEGORIES.map((c) => (
@@ -441,7 +448,7 @@ function AddPackageModal({
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               rows={2}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className={MODAL_FIELD}
             />
           </div>
           <div>
@@ -452,7 +459,7 @@ function AddPackageModal({
               onChange={(e) => setForm({ ...form, services: e.target.value })}
               rows={3}
               placeholder="CBC, LFT, KFT, Consultation..."
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className={MODAL_FIELD}
             />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -464,7 +471,7 @@ function AddPackageModal({
                 step="0.01"
                 value={form.price}
                 onChange={(e) => setForm({ ...form, price: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={MODAL_FIELD}
               />
             </div>
             <div>
@@ -475,7 +482,7 @@ function AddPackageModal({
                 step="0.01"
                 value={form.discountPrice}
                 onChange={(e) => setForm({ ...form, discountPrice: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={MODAL_FIELD}
               />
             </div>
           </div>
@@ -486,7 +493,7 @@ function AddPackageModal({
               type="number"
               value={form.validityDays}
               onChange={(e) => setForm({ ...form, validityDays: e.target.value })}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className={MODAL_FIELD}
             />
           </div>
           {error && (
@@ -498,7 +505,7 @@ function AddPackageModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+              className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
             >
               Cancel
             </button>
@@ -592,10 +599,10 @@ function SellPackageModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-xl bg-white p-6 shadow-2xl">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-xl bg-white p-6 text-gray-900 shadow-2xl dark:bg-gray-800 dark:text-gray-100">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Sell Package</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">
             <X size={20} />
           </button>
         </div>
@@ -606,7 +613,7 @@ function SellPackageModal({
               id="sell-package-package"
               value={packageId}
               onChange={(e) => setPackageId(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className={MODAL_FIELD}
             >
               <option value="">Select a package</option>
               {packages.map((p) => (
@@ -620,10 +627,10 @@ function SellPackageModal({
           <div>
             <label className="mb-1 block text-sm font-medium">Patient *</label>
             {selectedPatient ? (
-              <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
+              <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-900/40">
                 <div>
                   <p className="text-sm font-medium">{selectedPatient.user.name}</p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
                     {selectedPatient.mrNumber} • {selectedPatient.user.phone}
                   </p>
                 </div>
@@ -641,10 +648,10 @@ function SellPackageModal({
                   value={patientSearch}
                   onChange={(e) => setPatientSearch(e.target.value)}
                   placeholder="Search by name, phone, or MR #"
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                 />
                 {patients.length > 0 && (
-                  <ul className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white shadow">
+                  <ul className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white shadow dark:border-gray-700 dark:bg-gray-800">
                     {patients.map((pt) => (
                       <li
                         key={pt.id}
@@ -652,10 +659,10 @@ function SellPackageModal({
                           setSelectedPatient(pt);
                           setPatientSearch("");
                         }}
-                        className="cursor-pointer px-3 py-2 text-sm hover:bg-gray-100"
+                        className="cursor-pointer px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
                       >
                         <p className="font-medium">{pt.user.name}</p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
                           {pt.mrNumber} • {pt.user.phone}
                         </p>
                       </li>
@@ -674,10 +681,10 @@ function SellPackageModal({
               step="0.01"
               value={amountPaid}
               onChange={(e) => setAmountPaid(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className={MODAL_FIELD}
             />
             {selectedPkg && (
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 Valid for {selectedPkg.validityDays} days from today
               </p>
             )}
@@ -693,7 +700,7 @@ function SellPackageModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+              className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
             >
               Cancel
             </button>

@@ -1,7 +1,12 @@
 // Integration tests for the queue router.
+// Pearl ERP Stage 1 §2.1.5 mode-aware display-board assertions live at the
+// bottom of the file (TOKEN nextToken / CALLING currentArrivalSeq / SLOT
+// upcomingSlots + first-name-last-initial redaction). They use direct Prisma
+// writes to set `Doctor.appointmentMode` since the shared fixture defaults
+// every doctor to TOKEN.
 import { it, expect, beforeAll } from "vitest";
 import request from "supertest";
-import { describeIfDB, resetDB, getAuthToken } from "../setup";
+import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
 import {
   createPatientFixture,
   createDoctorFixture,
@@ -167,5 +172,90 @@ describeIfDB("Queue API (integration)", () => {
       .post("/api/v1/queue/broadcast-positions")
       .set("Authorization", `Bearer ${adminToken}`);
     expect([200, 201]).toContain(res.status);
+  });
+
+  // Pearl ERP Stage 1 §2.1.5 — display-board feed must tag each doctor's
+  // appointmentMode and include per-mode payload (nextToken for TOKEN,
+  // currentArrivalSeq for CALLING, upcomingSlots for SLOT) so the
+  // /display/page.tsx DoctorCard can branch its layout.
+  it("display board tags TOKEN doctor with nextToken from waiting tokens", async () => {
+    const prisma = await getPrisma();
+    const doctor = await createDoctorFixture();
+    await prisma.doctor.update({
+      where: { id: doctor.id },
+      data: { appointmentMode: "TOKEN", tokenPrefix: "T" },
+    });
+    const patient = await createPatientFixture();
+    await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      overrides: { tokenNumber: 7, status: "BOOKED" },
+    });
+    const res = await request(app)
+      .get("/api/v1/queue")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    const row = res.body.data.find((d: any) => d.doctorId === doctor.id);
+    expect(row).toBeDefined();
+    expect(row.appointmentMode).toBe("TOKEN");
+    expect(row.nextToken).toBe(7);
+  });
+
+  it("display board tags CALLING doctor and exposes currentArrivalSeq", async () => {
+    const prisma = await getPrisma();
+    const doctor = await createDoctorFixture();
+    await prisma.doctor.update({
+      where: { id: doctor.id },
+      data: { appointmentMode: "CALLING" },
+    });
+    const patient = await createPatientFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      overrides: { status: "IN_CONSULTATION" },
+    });
+    await prisma.appointment.update({
+      where: { id: appt.id },
+      data: { arrivalSeq: 3 },
+    });
+    const res = await request(app)
+      .get("/api/v1/queue")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    const row = res.body.data.find((d: any) => d.doctorId === doctor.id);
+    expect(row).toBeDefined();
+    expect(row.appointmentMode).toBe("CALLING");
+    expect(row.currentArrivalSeq).toBe(3);
+  });
+
+  it("display board tags SLOT doctor and redacts upcoming patient names", async () => {
+    const prisma = await getPrisma();
+    const doctor = await createDoctorFixture();
+    await prisma.doctor.update({
+      where: { id: doctor.id },
+      data: { appointmentMode: "SLOT" },
+    });
+    const patient = await createPatientFixture({
+      name: "Priya Sharma",
+    });
+    await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      overrides: { slotStart: "10:30", status: "BOOKED" },
+    });
+    const res = await request(app)
+      .get("/api/v1/queue")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    const row = res.body.data.find((d: any) => d.doctorId === doctor.id);
+    expect(row).toBeDefined();
+    expect(row.appointmentMode).toBe("SLOT");
+    expect(Array.isArray(row.upcomingSlots)).toBe(true);
+    expect(row.upcomingSlots.length).toBeGreaterThan(0);
+    const slot = row.upcomingSlots[0];
+    expect(slot.slotStart).toBe("10:30");
+    // First name + last initial — never the full surname on a public board.
+    expect(slot.patientLabel).toBe("Priya S.");
+    expect(slot.patientLabel).not.toContain("Sharma");
   });
 });

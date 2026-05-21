@@ -32,6 +32,15 @@ interface User {
   twoFactorEnabled?: boolean;
   preferredLanguage?: string | null;
   defaultLandingPage?: string | null;
+  // Pearl gap #6 piece 1 of 4 — surfaced from /auth/me so the
+  // /super-admin route group can client-side-gate on the
+  // "globally-tenant-less" super-admin pattern (Role.ADMIN AND
+  // tenantId == null), matching apps/api/src/routes/tenants.ts
+  // requireSuperAdmin. Nullable: regular tenant ADMINs have a
+  // tenantId, super-admins have null. Optional on the type because
+  // older /auth/me cached responses pre-dating the surface won't
+  // include it.
+  tenantId?: string | null;
 }
 
 interface LoginResult {

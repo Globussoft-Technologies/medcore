@@ -1,44 +1,99 @@
-// Smoke tests for the patient PWA scaffold (gap #5 piece 1 of 4).
-// Asserts the landing page renders, the Sign-in CTA points at /patient/login,
-// no dashboard sidebar is mounted on the patient surface, and the segment-scoped
-// manifest exposes the Pearl-required `start_url`/`scope` of `/patient`.
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+// Smoke tests for the patient PWA landing surface (gap #5 piece 1 + piece 3a).
+// Piece 1 contract: the unauthed welcome page renders with the right CTAs +
+// the patient route group doesn't mount the staff dashboard sidebar +
+// manifest is segment-scoped to /patient.
+// Piece 3a contract: when the /auth/me probe returns a PATIENT, the landing
+// page redirects to /patient/dashboard instead of rendering the welcome.
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+
+const { replaceMock, apiGetMock } = vi.hoisted(() => ({
+  replaceMock: vi.fn(),
+  apiGetMock: vi.fn(),
+}));
 
 vi.mock("@/components/PatientServiceWorkerRegistration", () => ({
   PatientServiceWorkerRegistration: () => null,
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: replaceMock, push: vi.fn() }),
+}));
+
+vi.mock("@/lib/api", () => ({
+  api: { get: apiGetMock, post: vi.fn(), patch: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }));
 
 import PatientLandingPage from "../page";
 import PatientLayout from "../layout";
 import patientManifest from "../manifest";
 
-describe("Patient PWA scaffold — gap #5 piece 1 of 4", () => {
-  it("renders the welcome landing page with a Sign-in link to /patient/login", () => {
+describe("Patient PWA scaffold — gap #5 piece 1 + 3a", () => {
+  beforeEach(() => {
+    replaceMock.mockReset();
+    apiGetMock.mockReset();
+  });
+
+  it("renders the welcome landing page with a Sign-in link when unauthed", async () => {
+    apiGetMock.mockRejectedValueOnce(
+      Object.assign(new Error("Unauthorized"), { status: 401 }),
+    );
     render(<PatientLandingPage />);
-    expect(
-      screen.getByRole("heading", { name: /welcome to your patient portal/i })
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: /welcome to your patient portal/i }),
+      ).toBeInTheDocument();
+    });
     const signIn = screen.getByTestId("patient-landing-signin");
     expect(signIn).toBeInTheDocument();
     expect(signIn).toHaveAttribute("href", "/patient/login");
+    expect(replaceMock).not.toHaveBeenCalled();
   });
 
-  it("renders the disabled Book-an-appointment CTA with the post-sign-in tooltip", () => {
+  it("renders the disabled Book-an-appointment CTA with the post-sign-in tooltip", async () => {
+    apiGetMock.mockRejectedValueOnce(
+      Object.assign(new Error("Unauthorized"), { status: 401 }),
+    );
     render(<PatientLandingPage />);
-    const book = screen.getByTestId("patient-landing-book");
+    const book = await screen.findByTestId("patient-landing-book");
     expect(book).toBeInTheDocument();
-    // Native <button disabled> — semantic + no event handler needed (Next.js
-    // server components reject onClick props).
     expect(book).toBeDisabled();
     expect(book).toHaveAttribute("title", "Available after sign in");
   });
 
-  it("does NOT mount the dashboard sidebar inside the patient route group", () => {
+  it("redirects to /patient/dashboard when /auth/me returns a PATIENT", async () => {
+    apiGetMock.mockResolvedValueOnce({
+      success: true,
+      data: { user: { id: "u1", role: "PATIENT" } },
+    });
+    render(<PatientLandingPage />);
+    await waitFor(() => {
+      expect(replaceMock).toHaveBeenCalledWith("/patient/dashboard");
+    });
+  });
+
+  it("does NOT redirect to dashboard when /auth/me returns a non-PATIENT role", async () => {
+    apiGetMock.mockResolvedValueOnce({
+      success: true,
+      data: { user: { id: "u2", role: "DOCTOR" } },
+    });
+    render(<PatientLandingPage />);
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: /welcome to your patient portal/i }),
+      ).toBeInTheDocument();
+    });
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("does NOT mount the dashboard sidebar inside the patient route group", async () => {
+    apiGetMock.mockRejectedValueOnce(
+      Object.assign(new Error("Unauthorized"), { status: 401 }),
+    );
     render(
       <PatientLayout>
         <PatientLandingPage />
-      </PatientLayout>
+      </PatientLayout>,
     );
     // The dashboard layout's sidebar carries data-testid="dashboard-sidebar".
     // The patient surface must have its own bare chrome.
@@ -46,7 +101,7 @@ describe("Patient PWA scaffold — gap #5 piece 1 of 4", () => {
     expect(screen.getByTestId("patient-shell")).toBeInTheDocument();
     expect(screen.getByTestId("patient-shell-login-link")).toHaveAttribute(
       "href",
-      "/patient/login"
+      "/patient/login",
     );
   });
 
@@ -56,12 +111,11 @@ describe("Patient PWA scaffold — gap #5 piece 1 of 4", () => {
     expect(m.scope).toBe("/patient");
     expect(m.display).toBe("standalone");
     expect(m.short_name).toBe("Patient Portal");
-    // Must reuse the existing root-manifest icons — piece 1 ships no new icon files.
     expect(m.icons).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ src: "/icon-192.png" }),
         expect.objectContaining({ src: "/icon-512.png" }),
-      ])
+      ]),
     );
   });
 });

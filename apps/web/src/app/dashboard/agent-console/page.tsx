@@ -390,10 +390,10 @@ export default function AgentConsolePage() {
     <div className="flex h-[calc(100vh-6rem)] flex-col gap-3">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
             {t("agentConsole.title", "Agent Console")}
           </h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             {t(
               "agentConsole.subtitle",
               "Pick up AI-Triage handoffs with full transcript and co-pilot suggestions.",
@@ -404,7 +404,7 @@ export default function AgentConsolePage() {
           <div className="flex gap-2">
             <button
               onClick={escalate}
-              className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100"
+              className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-700/50 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-900/50"
             >
               {t("agentConsole.escalate", "Escalate to doctor")}
             </button>
@@ -421,20 +421,20 @@ export default function AgentConsolePage() {
       <div className="flex flex-1 gap-3 overflow-hidden">
         {/* LEFT: handoff list */}
         <aside
-          className="flex w-72 flex-col overflow-hidden rounded-xl border bg-white"
+          className="flex w-72 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-white/10 dark:bg-gray-800"
           aria-label={t("agentConsole.list", "Active handoffs")}
         >
-          <div className="border-b p-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <div className="border-b border-gray-200 p-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-white/10 dark:text-gray-400">
             {t("agentConsole.activeHandoffs", "Active handoffs")} (
             {handoffs.length})
           </div>
           <div className="flex-1 overflow-y-auto">
             {!loaded ? (
-              <p className="p-4 text-sm text-gray-400">
+              <p className="p-4 text-sm text-gray-400 dark:text-gray-500">
                 {t("common.loading", "Loading...")}
               </p>
             ) : handoffs.length === 0 ? (
-              <p className="p-4 text-sm text-gray-400">
+              <p className="p-4 text-sm text-gray-400 dark:text-gray-500">
                 {t(
                   "agentConsole.noHandoffs",
                   "No active handoffs right now.",
@@ -447,10 +447,10 @@ export default function AgentConsolePage() {
                   <button
                     key={h.chatRoomId}
                     onClick={() => setSelectedRoomId(h.chatRoomId)}
-                    className={`flex w-full flex-col gap-1 border-b p-3 text-left transition hover:bg-gray-50 ${isActive ? "bg-blue-50" : ""}`}
+                    className={`flex w-full flex-col gap-1 border-b border-gray-200 p-3 text-left transition hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5 ${isActive ? "bg-blue-50 dark:bg-primary/15" : ""}`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="truncate text-sm font-semibold">
+                      <span className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
                         {h.patient?.name ??
                           t("agentConsole.unknownPatient", "Unknown patient")}
                       </span>
@@ -460,11 +460,11 @@ export default function AgentConsolePage() {
                         </span>
                       )}
                     </div>
-                    <p className="truncate text-xs text-gray-600">
+                    <p className="truncate text-xs text-gray-600 dark:text-gray-300">
                       {h.presentingComplaint}
                     </p>
-                    <div className="flex items-center gap-2 text-[11px] text-gray-400">
-                      <span className="rounded border px-1.5 py-0.5 uppercase">
+                    <div className="flex items-center gap-2 text-[11px] text-gray-400 dark:text-gray-500">
+                      <span className="rounded border border-gray-300 px-1.5 py-0.5 uppercase dark:border-white/15">
                         {h.language}
                       </span>
                       <span>{timeSince(h.handoffAt, t)}</span>
@@ -478,11 +478,11 @@ export default function AgentConsolePage() {
 
         {/* MIDDLE: chat thread */}
         <section
-          className="flex flex-1 flex-col overflow-hidden rounded-xl border bg-white"
+          className="flex flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-white/10 dark:bg-gray-800"
           aria-label={t("agentConsole.thread", "Chat thread")}
         >
           {!selectedRoomId ? (
-            <div className="flex flex-1 items-center justify-center text-sm text-gray-400">
+            <div className="flex flex-1 items-center justify-center text-sm text-gray-400 dark:text-gray-500">
               {t(
                 "agentConsole.selectPrompt",
                 "Pick a handoff on the left to start.",
@@ -490,21 +490,21 @@ export default function AgentConsolePage() {
             </div>
           ) : (
             <>
-              <div className="border-b p-3 text-sm font-medium">
+              <div className="border-b border-gray-200 p-3 text-sm font-medium text-gray-900 dark:border-white/10 dark:text-gray-100">
                 {context?.patient?.name ??
                   t("agentConsole.handoff", "Handoff")}
                 {context?.patient?.mrNumber && (
-                  <span className="ml-2 text-xs text-gray-400">
+                  <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">
                     MRN {context.patient.mrNumber}
                   </span>
                 )}
               </div>
               <div
                 ref={scrollRef}
-                className="flex flex-1 flex-col-reverse gap-2 overflow-y-auto bg-gray-50 p-3"
+                className="flex flex-1 flex-col-reverse gap-2 overflow-y-auto bg-gray-50 p-3 dark:bg-gray-900/40"
               >
                 {orderedMessages.length === 0 ? (
-                  <p className="text-center text-xs text-gray-400">
+                  <p className="text-center text-xs text-gray-400 dark:text-gray-500">
                     {t(
                       "agentConsole.noMessages",
                       "No messages yet.",
@@ -519,7 +519,7 @@ export default function AgentConsolePage() {
                         className={`flex ${mine ? "justify-end" : "justify-start"}`}
                       >
                         <div
-                          className={`max-w-lg rounded-2xl px-3 py-2 text-sm ${mine ? "bg-primary text-white" : "bg-white text-gray-800 shadow-sm"}`}
+                          className={`max-w-lg rounded-2xl px-3 py-2 text-sm ${mine ? "bg-primary text-white" : "bg-white text-gray-800 shadow-sm dark:bg-gray-700 dark:text-gray-100"}`}
                         >
                           {!mine && (
                             <p className="mb-0.5 text-[11px] font-semibold">
@@ -528,7 +528,7 @@ export default function AgentConsolePage() {
                           )}
                           <p className="whitespace-pre-wrap">{m.content}</p>
                           <p
-                            className={`mt-1 text-[10px] ${mine ? "text-white/70" : "text-gray-400"}`}
+                            className={`mt-1 text-[10px] ${mine ? "text-white/70" : "text-gray-400 dark:text-gray-400"}`}
                           >
                             {new Date(m.createdAt).toLocaleTimeString([], {
                               hour: "2-digit",
@@ -541,7 +541,7 @@ export default function AgentConsolePage() {
                   })
                 )}
               </div>
-              <div className="flex gap-2 border-t p-3">
+              <div className="flex gap-2 border-t border-gray-200 p-3 dark:border-white/10">
                 <textarea
                   aria-label={t(
                     "agentConsole.composerLabel",
@@ -562,7 +562,7 @@ export default function AgentConsolePage() {
                       "Type a message or use AI co-pilot...",
                     ) as string
                   }
-                  className="flex-1 resize-none rounded-lg border px-3 py-2 text-sm"
+                  className="flex-1 resize-none rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-white/15 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                   rows={2}
                 />
                 <button
@@ -579,15 +579,15 @@ export default function AgentConsolePage() {
 
         {/* RIGHT: AI co-pilot pane */}
         <aside
-          className="flex w-96 flex-col overflow-hidden rounded-xl border bg-white"
+          className="flex w-96 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-white/10 dark:bg-gray-800"
           aria-label={t("agentConsole.copilot", "AI Triage co-pilot")}
         >
-          <div className="border-b p-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <div className="border-b border-gray-200 p-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-white/10 dark:text-gray-400">
             {t("agentConsole.copilot", "AI Triage co-pilot")}
           </div>
-          <div className="flex-1 overflow-y-auto p-3">
+          <div className="flex-1 overflow-y-auto p-3 text-gray-800 dark:text-gray-200">
             {!context ? (
-              <p className="text-sm text-gray-400">
+              <p className="text-sm text-gray-400 dark:text-gray-500">
                 {t(
                   "agentConsole.selectPrompt",
                   "Pick a handoff on the left to start.",
@@ -596,12 +596,12 @@ export default function AgentConsolePage() {
             ) : (
               <div className="space-y-4">
                 <section data-testid="agent-console-transcript">
-                  <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                     {t("agentConsole.transcript", "Triage transcript")}
                   </h3>
-                  <div className="space-y-1.5 rounded-lg border bg-gray-50 p-2 text-xs">
+                  <div className="space-y-1.5 rounded-lg border border-gray-200 bg-gray-50 p-2 text-xs dark:border-white/10 dark:bg-gray-900/40">
                     {context.transcript.length === 0 ? (
-                      <p className="text-gray-400">
+                      <p className="text-gray-400 dark:text-gray-500">
                         {t(
                           "agentConsole.noTranscript",
                           "No transcript available.",
@@ -613,7 +613,7 @@ export default function AgentConsolePage() {
                           key={idx}
                           className={
                             turn.role === "user"
-                              ? "text-gray-800"
+                              ? "text-gray-800 dark:text-gray-200"
                               : "text-primary"
                           }
                         >
@@ -628,10 +628,10 @@ export default function AgentConsolePage() {
                 </section>
 
                 <section>
-                  <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                     {t("agentConsole.soap", "SOAP extract")}
                   </h3>
-                  <div className="rounded-lg border bg-gray-50 p-2 text-xs">
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-2 text-xs dark:border-white/10 dark:bg-gray-900/40">
                     <p>
                       <strong>
                         {t(
@@ -676,7 +676,7 @@ export default function AgentConsolePage() {
                         </p>
                       )}
                     {context.redFlagDetected && (
-                      <p className="mt-1 rounded bg-red-100 px-2 py-1 text-red-900">
+                      <p className="mt-1 rounded bg-red-100 px-2 py-1 text-red-900 dark:bg-red-900/40 dark:text-red-200">
                         {t("agentConsole.redFlag", "Red flag")}:{" "}
                         {context.redFlagReason}
                       </p>
@@ -685,11 +685,11 @@ export default function AgentConsolePage() {
                 </section>
 
                 <section>
-                  <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                     {t("agentConsole.topDoctors", "Top 3 doctor suggestions")}
                   </h3>
                   {context.topDoctors.length === 0 ? (
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-gray-400 dark:text-gray-500">
                       {t(
                         "agentConsole.noDoctors",
                         "No doctor suggestions yet.",
@@ -700,15 +700,15 @@ export default function AgentConsolePage() {
                       {context.topDoctors.map((d) => (
                         <div
                           key={d.doctorId}
-                          className="rounded-lg border p-2 text-xs"
+                          className="rounded-lg border border-gray-200 p-2 text-xs dark:border-white/10"
                         >
-                          <p className="font-semibold">{formatDoctorName(d.name)}</p>
-                          <p className="text-gray-500">
+                          <p className="font-semibold text-gray-900 dark:text-gray-100">{formatDoctorName(d.name)}</p>
+                          <p className="text-gray-500 dark:text-gray-400">
                             {d.specialty}
                             {d.subSpecialty ? ` · ${d.subSpecialty}` : ""}
                           </p>
                           {d.reasoning && (
-                            <p className="mt-1 text-gray-600">{d.reasoning}</p>
+                            <p className="mt-1 text-gray-600 dark:text-gray-300">{d.reasoning}</p>
                           )}
                           <button
                             onClick={() => suggestDoctor(d)}

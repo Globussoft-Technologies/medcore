@@ -46,6 +46,13 @@ declare global {
        * request. `undefined` on unauthenticated or cross-tenant endpoints.
        */
       tenantId?: string;
+      /**
+       * Pearl §7.2 — set by `branchContextMiddleware` (from `@medcore/db`)
+       * to the branch id resolved from the `X-Branch-Id` header (piece 2a).
+       * `undefined` on requests without the header, in which case the
+       * branch-scoped Prisma extension is a no-op.
+       */
+      branchId?: string;
     }
   }
 }

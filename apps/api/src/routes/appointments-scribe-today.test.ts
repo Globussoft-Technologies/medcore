@@ -35,7 +35,16 @@ const { prismaMock } = vi.hoisted(() => {
 vi.mock("@medcore/db", () => ({
   getTenantId: () => undefined,
   runWithTenant: (_t: string, fn: () => unknown) => fn(),
-  requireTenantId: () => { throw new Error("tenant ctx required"); }, prisma: prismaMock }));
+  requireTenantId: () => { throw new Error("tenant ctx required"); },
+  prisma: prismaMock,
+  // Pearl §7.2 piece 2a (2026-05-21): appointments.ts now imports
+  // `branchScopedPrisma` from @medcore/db. Mock it to the same prisma
+  // shape so this route-handler unit test keeps working without a
+  // real Prisma extension layered on top.
+  branchScopedPrisma: prismaMock,
+  getBranchId: () => undefined,
+  runWithBranch: (_b: string, fn: () => unknown) => fn(),
+}));
 vi.mock("../services/tenant-prisma", () => ({
   tenantScopedPrisma: prismaMock,
 }));

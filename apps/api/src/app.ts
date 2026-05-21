@@ -140,6 +140,12 @@ import { tenantContextMiddleware } from "./middleware/tenant";
 // `medcore_csrf` cookie against the X-CSRF-Token header on mutations).
 import { csrfProtection } from "./middleware/csrf";
 import { withTenantContext } from "./services/tenant-context";
+// Pearl ERP Stage 1 gap item #2 — piece 2a (2026-05-21). Branch context
+// is resolved from `X-Branch-Id` (header-only for piece 2a; JWT-claim
+// + session fallback land in piece 2b alongside the picker UI). The
+// pair must be mounted AFTER the tenant middleware so the branch ALS
+// scope opens INSIDE the tenant ALS scope.
+import { branchContextMiddleware, withBranchContext } from "@medcore/db";
 import { startRetentionScheduler } from "./services/retention-scheduler";
 import { startClaimsScheduler } from "./services/insurance-claims-scheduler";
 
@@ -239,6 +245,14 @@ export function buildApp() {
   // middleware decodes the JWT itself, so it is safe to mount before auth.
   app.use(tenantContextMiddleware);
   app.use(withTenantContext);
+
+  // Pearl §7.2 — branch context. Resolved from `X-Branch-Id` header
+  // (piece 2a, 2026-05-21). No-op when the header is absent so every
+  // existing request shape continues to work unchanged. Mounted AFTER
+  // the tenant ALS scope so the branch scope nests inside it; the
+  // branchScopedPrisma extension reads both scopes per call.
+  app.use(branchContextMiddleware as any);
+  app.use(withBranchContext as any);
 
   // Public routes (no auth) — must be mounted BEFORE routers that require auth
   app.use("/api/v1/public", publicLabRouter);

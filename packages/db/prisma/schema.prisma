@@ -681,12 +681,15 @@ model Tenant {
   @@map("tenants")
 }
 
-// Pearl ERP Stage 1 §7.2 + §8.1 (gap item #2 — piece 1 of 3) — branch model.
+// Pearl ERP Stage 1 §7.2 + §8.1 (gap item #2 — pieces 1 + 2a of 3) — branch model.
 //
 // A tenant (hospital) can run from multiple branches. Pearl explicitly
 // requires branch-aware scoping on every transactional table; this
-// model is the foundation. Pieces 2 (branchScopedPrisma + branchId on
-// ~20 tables) and 3 (branch picker UI + report filters) ship later.
+// model is the foundation. Piece 2a (2026-05-21) wired the first
+// transactional `branchId` (Appointment) into a `branchScopedPrisma`
+// extension (packages/db/src/branch-prisma.ts). Piece 2b (Invoice /
+// Doctor / Patient + backfill) and piece 3 (branch picker UI + report
+// filters) ship later.
 //
 // Invariant: exactly one Branch per tenant must have isDefault=true.
 // Postgres has no first-class partial unique index for "one row per
@@ -713,6 +716,11 @@ model Branch {
   updatedAt DateTime @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Pearl ERP Stage 1 §7.2 — piece 2a (branchScopedPrisma POC, 2026-05-21).
+  // First transactional table wired into the branch-scoped Prisma extension.
+  // Remaining tables (Invoice, Doctor, Patient, ...) ship in piece 2b.
+  appointments Appointment[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -1200,6 +1208,15 @@ model Appointment {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  // Pearl ERP Stage 1 §7.2 — piece 2a (branchScopedPrisma POC, 2026-05-21).
+  // Optional + nullable on purpose so legacy rows and requests without a
+  // branch context keep working unchanged. The branchScopedPrisma extension
+  // (packages/db/src/branch-prisma.ts) auto-stamps this column on create
+  // when `runWithBranch(branchId, ...)` is in scope and auto-filters reads
+  // when no explicit `where.branchId` is supplied.
+  branchId String?
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
   patient          Patient           @relation(fields: [patientId], references: [id])
   doctor           Doctor            @relation(fields: [doctorId], references: [id])
   vitals           Vitals?
@@ -1230,6 +1247,7 @@ model Appointment {
   @@index([groupId])
   @@index([coordinatedVisitId])
   @@index([tenantId])
+  @@index([branchId])
   @@map("appointments")
 }
 

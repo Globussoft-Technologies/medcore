@@ -31,3 +31,23 @@ export {
   tenantScopedPrisma,
 } from "./tenant-prisma";
 export type { TenantContext, TenantScopedPrisma } from "./tenant-prisma";
+
+// Pearl ERP Stage 1 gap item #2 — piece 2a (2026-05-21). Branch-scoped
+// Prisma client + AsyncLocalStorage primitives, layered on top of the
+// tenant-scoped client so callers get BOTH stamping/filtering for free.
+// See ./branch-prisma.ts for the architectural rationale; piece 2b
+// expands BRANCH_SCOPED_MODELS beyond `Appointment` once the picker UI
+// ships.
+export {
+  BRANCH_SCOPED_MODELS,
+  applyBranchScope,
+  branchAsyncStorage,
+  branchContextMiddleware,
+  branchScopedPrisma,
+  getBranchId,
+  requireBranchId,
+  runWithBranch,
+  shouldScopeBranch,
+  withBranchContext,
+} from "./branch-prisma";
+export type { BranchContext, BranchScopedPrisma } from "./branch-prisma";

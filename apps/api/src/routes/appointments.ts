@@ -1,9 +1,14 @@
 import { Router, Request, Response, NextFunction } from "express";
-// Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
-// auto-injects tenantId on create and auto-filters on read for the 20
-// tenant-scoped models (see services/tenant-prisma.ts). We alias it to
-// `prisma` so every existing call site keeps working without edits.
-import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
+// Multi-tenant + multi-branch wiring (Pearl §7.2). `branchScopedPrisma`
+// is a Prisma `$extends` wrapper layered on top of `tenantScopedPrisma`,
+// so every call site below gets BOTH:
+//   - tenantId auto-injected on create / auto-filtered on read (for all
+//     tenant-scoped models — see packages/db/src/tenant-prisma.ts), AND
+//   - branchId auto-injected / auto-filtered when an `X-Branch-Id` header
+//     opened a branch context on this request (Appointment only in piece
+//     2a, 2026-05-21 — see packages/db/src/branch-prisma.ts).
+// We alias it to `prisma` so every existing call site keeps working.
+import { branchScopedPrisma as prisma } from "@medcore/db";
 import {
   Role,
   bookAppointmentSchema,

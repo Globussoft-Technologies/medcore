@@ -1020,6 +1020,37 @@ model TwoFactorTempToken {
   @@map("two_factor_temp_tokens")
 }
 
+// ─── PATIENT PHONE-OTP LOGIN (Pearl §5.3 / §6.1 — gap #5 piece 2 of 4) ────
+// One row per OTP challenge issued via POST /api/v1/patient-auth/otp-request.
+// The plaintext code is NEVER stored — only its bcrypt hash. Records persist
+// past `expiresAt` for short-term auditability; the cleanup job (future) can
+// prune by `expiresAt < now() - INTERVAL '1 day'`.
+//
+// `consumed` flips true on the first successful verify so the same challenge
+// cannot be replayed. `attempts` counts verify failures; the route returns
+// 429 once it crosses 5 (lockout-per-challenge, NOT per-phone — the per-phone
+// throttle is handled by the request-side rate limiter).
+//
+// `tenantId` is nullable: the lookup of User by phone occurs without a
+// tenant scope (the caller hasn't authenticated yet), so we cannot pre-pin
+// the challenge to a tenant. Verify mints the JWT with the resolved
+// `user.tenantId` on success.
+model PatientOtpChallenge {
+  id        String   @id @default(cuid())
+  phone     String
+  otpHash   String
+  expiresAt DateTime
+  consumed  Boolean  @default(false)
+  attempts  Int      @default(0)
+  tenantId  String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([phone])
+  @@index([expiresAt])
+  @@map("patient_otp_challenges")
+}
+
 // ─── DOCTOR ─────────────────────────────────────────────
 
 model Doctor {

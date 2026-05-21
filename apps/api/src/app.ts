@@ -25,6 +25,7 @@ import path from "path";
 import { createServer } from "http";
 import { Server as SocketServer } from "socket.io";
 import { authRouter } from "./routes/auth";
+import { patientAuthRouter } from "./routes/patient-auth";
 import { featureFlagsRouter } from "./routes/feature-flags";
 import { leadRouter } from "./routes/leads";
 import { patientRouter } from "./routes/patients";
@@ -265,6 +266,10 @@ export function buildApp() {
   const authLimiter =
     process.env.NODE_ENV === "test" ? (_: any, __: any, n: any) => n() : rateLimit(30, 60_000);
   app.use("/api/v1/auth", authLimiter, authRouter);
+  // Pearl §5.3 / §6.1 — patient phone-OTP login (gap #5 piece 2 of 4).
+  // No global authLimiter here: the router does per-phone rate limiting
+  // internally so a shared-NAT mobile network isn't punished collectively.
+  app.use("/api/v1/patient-auth", patientAuthRouter);
   app.use("/api/v1/feature-flags", featureFlagsRouter);
   app.use("/api/v1/leads", leadRouter);
   app.use("/api/v1/patients", patientRouter);

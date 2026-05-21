@@ -109,44 +109,44 @@ export default function AIDifferentialPage() {
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
       <header className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center">
+        <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center">
           <Stethoscope className="w-6 h-6 text-indigo-600" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold">AI Differential Diagnosis</h1>
-          <p className="text-sm text-gray-500">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">AI Differential Diagnosis</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Clinical decision support — always verify suggestions before acting.
           </p>
         </div>
       </header>
 
-      <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
+      <section className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 space-y-4">
         {/* Patient picker */}
         <div>
-          <label htmlFor="differential-patient-input" className="text-sm font-medium text-gray-700">Patient</label>
+          <label htmlFor="differential-patient-input" className="text-sm font-medium text-gray-700 dark:text-gray-200">Patient</label>
           <div className="mt-1 flex gap-2">
             <input
               id="differential-patient-input"
               data-testid="differential-patient-input"
-              className="flex-1 border rounded-lg px-3 py-2 text-sm"
+              className="flex-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm"
               placeholder="Search by name or MR number..."
               value={patientSearch}
               onChange={(e) => setPatientSearch(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && searchPatients()}
             />
             <button
-              className="px-3 py-2 rounded-lg border text-sm hover:bg-gray-50"
+              className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/60"
               onClick={searchPatients}
             >
               <Search className="w-4 h-4" />
             </button>
           </div>
           {patientResults.length > 0 && (
-            <ul className="mt-2 border rounded-lg divide-y">
+            <ul className="mt-2 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 rounded-lg divide-y divide-gray-100 dark:divide-gray-700">
               {patientResults.map((p) => (
                 <li
                   key={p.id}
-                  className={`px-3 py-2 text-sm cursor-pointer hover:bg-indigo-50 ${patientId === p.id ? "bg-indigo-50" : ""}`}
+                  className={`px-3 py-2 text-sm cursor-pointer text-gray-800 dark:text-gray-100 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 ${patientId === p.id ? "bg-indigo-50 dark:bg-indigo-900/20" : ""}`}
                   onClick={() => {
                     setPatientId(p.id);
                     setPatientResults([]);
@@ -154,22 +154,22 @@ export default function AIDifferentialPage() {
                   }}
                 >
                   <strong>{p.user.name}</strong>{" "}
-                  <span className="text-gray-500">({p.mrNumber})</span>
+                  <span className="text-gray-500 dark:text-gray-400">({p.mrNumber})</span>
                 </li>
               ))}
             </ul>
           )}
           {patientId && (
-            <p className="text-xs text-gray-500 mt-1">Selected patientId: {patientId}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Selected patientId: {patientId}</p>
           )}
         </div>
 
         {/* Chief complaint */}
         <div>
-          <label htmlFor="differential-chief-complaint" className="text-sm font-medium text-gray-700">Chief Complaint</label>
+          <label htmlFor="differential-chief-complaint" className="text-sm font-medium text-gray-700 dark:text-gray-200">Chief Complaint</label>
           <textarea
             id="differential-chief-complaint"
-            className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+            className="mt-1 w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm"
             rows={3}
             placeholder="e.g. Productive cough and fever for 3 days"
             value={chiefComplaint}
@@ -180,25 +180,25 @@ export default function AIDifferentialPage() {
         {/* Vitals (optional) */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <input
-            className="border rounded-lg px-3 py-2 text-sm"
+            className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm"
             placeholder="BP (e.g. 130/85)"
             value={vitalsBp}
             onChange={(e) => setVitalsBp(e.target.value)}
           />
           <input
-            className="border rounded-lg px-3 py-2 text-sm"
+            className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm"
             placeholder="Pulse"
             value={vitalsPulse}
             onChange={(e) => setVitalsPulse(e.target.value)}
           />
           <input
-            className="border rounded-lg px-3 py-2 text-sm"
+            className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm"
             placeholder="Temp (C)"
             value={vitalsTemp}
             onChange={(e) => setVitalsTemp(e.target.value)}
           />
           <input
-            className="border rounded-lg px-3 py-2 text-sm"
+            className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm"
             placeholder="SpO2 (%)"
             value={vitalsSpo2}
             onChange={(e) => setVitalsSpo2(e.target.value)}
@@ -206,10 +206,10 @@ export default function AIDifferentialPage() {
         </div>
 
         <div>
-          <label htmlFor="differential-relevant-history" className="text-sm font-medium text-gray-700">Relevant History (optional)</label>
+          <label htmlFor="differential-relevant-history" className="text-sm font-medium text-gray-700 dark:text-gray-200">Relevant History (optional)</label>
           <textarea
             id="differential-relevant-history"
-            className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+            className="mt-1 w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm"
             rows={2}
             placeholder="Smoker, diabetic, recent travel..."
             value={relevantHistory}
@@ -230,37 +230,37 @@ export default function AIDifferentialPage() {
 
       {result && (
         <section className="space-y-4">
-          <h2 className="text-lg font-semibold">Suggested Differentials</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Suggested Differentials</h2>
           {result.differentials.length === 0 && (
-            <div className="text-sm text-gray-500">No differentials returned.</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">No differentials returned.</div>
           )}
           <div className="space-y-3">
             {result.differentials.map((d, i) => (
               <article
                 key={i}
-                className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5"
+                className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h3 className="font-semibold text-gray-900">
+                    <h3 className="font-semibold text-gray-900 dark:text-gray-100">
                       {d.diagnosis}
                       {d.icd10 && (
-                        <span className="ml-2 text-xs text-gray-500 font-normal">
+                        <span className="ml-2 text-xs text-gray-500 dark:text-gray-400 font-normal">
                           [{d.icd10}]
                         </span>
                       )}
                     </h3>
-                    <p className="text-sm text-gray-600 mt-1">{d.reasoning}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{d.reasoning}</p>
                   </div>
                   <ProbabilityBadge p={d.probability} />
                 </div>
 
                 {d.recommendedTests.length > 0 && (
                   <div className="mt-3">
-                    <div className="flex items-center gap-1 text-xs font-medium text-gray-600">
+                    <div className="flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-300">
                       <FlaskConical className="w-3.5 h-3.5" /> Recommended Tests
                     </div>
-                    <ul className="text-sm text-gray-800 list-disc list-inside mt-1">
+                    <ul className="text-sm text-gray-800 dark:text-gray-200 list-disc list-inside mt-1">
                       {d.recommendedTests.map((t, j) => (
                         <li key={j}>{t}</li>
                       ))}
@@ -285,11 +285,11 @@ export default function AIDifferentialPage() {
           </div>
 
           {result.guidelineReferences.length > 0 && (
-            <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <div className="flex items-center gap-1 text-sm font-semibold text-gray-700">
+            <section className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5">
+              <div className="flex items-center gap-1 text-sm font-semibold text-gray-700 dark:text-gray-200">
                 <BookOpen className="w-4 h-4" /> Guideline References
               </div>
-              <ul className="text-sm text-gray-700 list-disc list-inside mt-2">
+              <ul className="text-sm text-gray-700 dark:text-gray-300 list-disc list-inside mt-2">
                 {result.guidelineReferences.map((g, i) => (
                   <li key={i}>{g}</li>
                 ))}

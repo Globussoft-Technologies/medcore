@@ -76,11 +76,11 @@ interface StatCardProps {
 
 function StatCard({ label, value, icon, accent = "text-indigo-500" }: StatCardProps) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-start gap-3 shadow-sm">
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-start gap-3 shadow-sm">
       <div className={`mt-0.5 ${accent}`}>{icon}</div>
       <div className="min-w-0">
-        <p className="text-xs text-gray-500 font-medium truncate">{label}</p>
-        <p className="text-xl font-bold text-gray-800 mt-0.5">{value}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 font-medium truncate">{label}</p>
+        <p className="text-xl font-bold text-gray-800 dark:text-gray-100 mt-0.5">{value}</p>
       </div>
     </div>
   );
@@ -144,26 +144,26 @@ function TriageTab({ data }: { data: TriageData }) {
       {/* Tables */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Top Chief Complaints */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
-            <ClipboardList className="w-4 h-4 text-gray-500" />
-            <h3 className="text-sm font-semibold text-gray-700">Top Chief Complaints</h3>
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
+            <ClipboardList className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Top Chief Complaints</h3>
           </div>
           {data.topChiefComplaints.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-6">No data</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-6">No data</p>
           ) : (
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-gray-50 text-xs text-gray-500 uppercase">
+                <tr className="bg-gray-50 dark:bg-gray-900/40 text-xs text-gray-500 dark:text-gray-400 uppercase">
                   <th className="px-4 py-2 text-left font-medium">Complaint</th>
                   <th className="px-4 py-2 text-right font-medium">Count</th>
                 </tr>
               </thead>
               <tbody>
                 {data.topChiefComplaints.map((row, i) => (
-                  <tr key={i} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-2 text-gray-700 capitalize">{row.complaint}</td>
-                    <td className="px-4 py-2 text-right font-medium text-gray-800">
+                  <tr key={i} className="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-900/30 transition-colors">
+                    <td className="px-4 py-2 text-gray-700 dark:text-gray-200 capitalize">{row.complaint}</td>
+                    <td className="px-4 py-2 text-right font-medium text-gray-800 dark:text-gray-100">
                       {row.count.toLocaleString()}
                     </td>
                   </tr>
@@ -174,26 +174,26 @@ function TriageTab({ data }: { data: TriageData }) {
         </div>
 
         {/* Specialty Distribution */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
-            <Stethoscope className="w-4 h-4 text-gray-500" />
-            <h3 className="text-sm font-semibold text-gray-700">Specialty Distribution</h3>
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
+            <Stethoscope className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Specialty Distribution</h3>
           </div>
           {data.specialtyDistribution.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-6">No data</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-6">No data</p>
           ) : (
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-gray-50 text-xs text-gray-500 uppercase">
+                <tr className="bg-gray-50 dark:bg-gray-900/40 text-xs text-gray-500 dark:text-gray-400 uppercase">
                   <th className="px-4 py-2 text-left font-medium">Specialty</th>
                   <th className="px-4 py-2 text-right font-medium">Count</th>
                 </tr>
               </thead>
               <tbody>
                 {data.specialtyDistribution.map((row, i) => (
-                  <tr key={i} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-2 text-gray-700">{row.specialty}</td>
-                    <td className="px-4 py-2 text-right font-medium text-gray-800">
+                  <tr key={i} className="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-900/30 transition-colors">
+                    <td className="px-4 py-2 text-gray-700 dark:text-gray-200">{row.specialty}</td>
+                    <td className="px-4 py-2 text-right font-medium text-gray-800 dark:text-gray-100">
                       {row.count.toLocaleString()}
                     </td>
                   </tr>
@@ -206,10 +206,10 @@ function TriageTab({ data }: { data: TriageData }) {
 
       {/* Language breakdown pills */}
       {data.languageBreakdown.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-4">
           <div className="flex items-center gap-2 mb-3">
-            <Languages className="w-4 h-4 text-gray-500" />
-            <h3 className="text-sm font-semibold text-gray-700">Language Breakdown</h3>
+            <Languages className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Language Breakdown</h3>
           </div>
           <div className="flex flex-wrap gap-2">
             {data.languageBreakdown.map((row, i) => (
@@ -275,25 +275,25 @@ function ScribeTab({ data }: { data: ScribeData }) {
       </div>
 
       {/* Status breakdown */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100">
-          <h3 className="text-sm font-semibold text-gray-700">Status Breakdown</h3>
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Status Breakdown</h3>
         </div>
         {data.statusBreakdown.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-6">No data</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-6">No data</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-50 text-xs text-gray-500 uppercase">
+              <tr className="bg-gray-50 dark:bg-gray-900/40 text-xs text-gray-500 dark:text-gray-400 uppercase">
                 <th className="px-4 py-2 text-left font-medium">Status</th>
                 <th className="px-4 py-2 text-right font-medium">Count</th>
               </tr>
             </thead>
             <tbody>
               {data.statusBreakdown.map((row, i) => (
-                <tr key={i} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-2 text-gray-700">{row.status}</td>
-                  <td className="px-4 py-2 text-right font-medium text-gray-800">
+                <tr key={i} className="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-900/30 transition-colors">
+                  <td className="px-4 py-2 text-gray-700 dark:text-gray-200">{row.status}</td>
+                  <td className="px-4 py-2 text-right font-medium text-gray-800 dark:text-gray-100">
                     {row.count.toLocaleString()}
                   </td>
                 </tr>
@@ -371,35 +371,35 @@ export default function AIAnalyticsPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
 
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Brain className="w-7 h-7 text-indigo-600" />
-            <h1 className="text-2xl font-bold text-gray-900">AI Analytics</h1>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">AI Analytics</h1>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
-              <label htmlFor="ai-analytics-from" className="text-xs font-medium text-gray-500 whitespace-nowrap">From</label>
+              <label htmlFor="ai-analytics-from" className="text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">From</label>
               <input
                 id="ai-analytics-from"
                 type="date"
                 value={from}
                 onChange={(e) => setFrom(e.target.value)}
-                className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                className="text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400"
               />
             </div>
             <div className="flex items-center gap-2">
-              <label htmlFor="ai-analytics-to" className="text-xs font-medium text-gray-500 whitespace-nowrap">To</label>
+              <label htmlFor="ai-analytics-to" className="text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">To</label>
               <input
                 id="ai-analytics-to"
                 type="date"
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
-                className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                className="text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400"
               />
             </div>
             <button
@@ -413,7 +413,7 @@ export default function AIAnalyticsPage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 p-1 bg-white border border-gray-200 rounded-xl w-fit shadow-sm">
+        <div className="flex gap-1 p-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl w-fit shadow-sm">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -421,7 +421,7 @@ export default function AIAnalyticsPage() {
               className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
                 activeTab === tab.id
                   ? "bg-indigo-600 text-white shadow"
-                  : "text-gray-600 hover:text-gray-800 hover:bg-gray-100"
+                  : "text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700/60"
               }`}
             >
               {tab.label}
@@ -434,7 +434,7 @@ export default function AIAnalyticsPage() {
           <>
             {triageLoading && <Spinner />}
             {!triageLoading && triageError && (
-              <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3">
                 {triageError}
               </div>
             )}
@@ -448,7 +448,7 @@ export default function AIAnalyticsPage() {
           <>
             {scribeLoading && <Spinner />}
             {!scribeLoading && scribeError && (
-              <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3">
                 {scribeError}
               </div>
             )}

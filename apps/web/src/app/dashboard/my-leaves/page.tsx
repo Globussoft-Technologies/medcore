@@ -34,6 +34,13 @@ const STATUS_COLORS: Record<string, string> = {
   CANCELLED: "bg-gray-100 text-gray-600",
 };
 
+// Shared styling for the Request-Leave modal form controls. The modal renders
+// on the dark dashboard layout, so without explicit colors the inputs inherit
+// the layout's light text (dark:text-gray-100) and wash out; the dark variants
+// give them a legible dark surface. Error states append `border-red-500`.
+const MODAL_FIELD =
+  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
+
 export default function MyLeavesPage() {
   const confirm = useConfirm();
   const [leaves, setLeaves] = useState<Leave[]>([]);
@@ -149,7 +156,7 @@ export default function MyLeavesPage() {
           <h1 className="flex items-center gap-2 text-2xl font-bold">
             <PlaneTakeoff /> My Leaves
           </h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             View and manage your leave requests
           </p>
         </div>
@@ -164,35 +171,35 @@ export default function MyLeavesPage() {
       {/* Summary */}
       {summary && (
         <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-          <div className="rounded-xl bg-white p-5 shadow-sm">
-            <p className="text-sm text-gray-500">Pending</p>
-            <p className="text-3xl font-bold text-yellow-700">
+          <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Pending</p>
+            <p className="text-3xl font-bold text-yellow-700 dark:text-yellow-400">
               {summary.pending}
             </p>
           </div>
-          <div className="rounded-xl bg-white p-5 shadow-sm">
-            <p className="text-sm text-gray-500">Approved (YTD)</p>
-            <p className="text-3xl font-bold text-green-700">
+          <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Approved (YTD)</p>
+            <p className="text-3xl font-bold text-green-700 dark:text-green-400">
               {summary.approved}
             </p>
           </div>
-          <div className="rounded-xl bg-white p-5 shadow-sm">
-            <p className="text-sm text-gray-500">Days Used (YTD)</p>
-            <p className="text-3xl font-bold text-blue-700">{totalUsed}</p>
+          <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Days Used (YTD)</p>
+            <p className="text-3xl font-bold text-blue-700 dark:text-blue-400">{totalUsed}</p>
           </div>
-          <div className="rounded-xl bg-white p-5 shadow-sm">
-            <p className="mb-1 text-sm text-gray-500">By Type</p>
+          <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+            <p className="mb-1 text-sm text-gray-500 dark:text-gray-400">By Type</p>
             <div className="space-y-0.5 text-xs">
               {Object.entries(summary.used)
                 .filter(([, v]) => v > 0)
                 .map(([k, v]) => (
                   <div key={k} className="flex justify-between">
-                    <span className="text-gray-600">{k}</span>
+                    <span className="text-gray-600 dark:text-gray-300">{k}</span>
                     <span className="font-semibold">{v}d</span>
                   </div>
                 ))}
               {Object.values(summary.used).every((v) => v === 0) && (
-                <p className="text-gray-400">No leaves taken yet</p>
+                <p className="text-gray-400 dark:text-gray-500">No leaves taken yet</p>
               )}
             </div>
           </div>
@@ -200,17 +207,17 @@ export default function MyLeavesPage() {
       )}
 
       {/* List */}
-      <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : leaves.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No leave requests yet. Click &quot;Request Leave&quot; to create one.
           </div>
         ) : (
           <table className="w-full min-w-[720px]">
             <thead>
-              <tr className="border-b bg-gray-50 text-left text-sm text-gray-600">
+              <tr className="border-b bg-gray-50 text-left text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300">
                 <th className="px-4 py-3">Type</th>
                 <th className="px-4 py-3">Dates</th>
                 <th className="px-4 py-3">Days</th>
@@ -222,7 +229,7 @@ export default function MyLeavesPage() {
             </thead>
             <tbody>
               {leaves.map((l) => (
-                <tr key={l.id} className="border-b last:border-0">
+                <tr key={l.id} className="border-b last:border-0 dark:border-gray-700">
                   <td className="px-4 py-3 text-sm font-medium">{l.type}</td>
                   <td className="px-4 py-3 text-sm">
                     {formatDate(l.fromDate)} – {formatDate(l.toDate)}
@@ -235,7 +242,7 @@ export default function MyLeavesPage() {
                       {l.reason}
                     </p>
                     {l.rejectionReason && (
-                      <p className="text-xs text-red-600">
+                      <p className="text-xs text-red-600 dark:text-red-400">
                         Rejected: {l.rejectionReason}
                       </p>
                     )}
@@ -247,7 +254,7 @@ export default function MyLeavesPage() {
                       {l.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-xs text-gray-500">
+                  <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
                     {/* Issue #119: prefer the central formatDate helper so a
                         null/invalid createdAt renders as "—". */}
                     {formatDate(l.createdAt)}
@@ -256,12 +263,12 @@ export default function MyLeavesPage() {
                     {l.status === "PENDING" ? (
                       <button
                         onClick={() => cancelLeave(l.id)}
-                        className="flex items-center gap-1 rounded bg-gray-100 px-2 py-1 text-xs text-gray-700 hover:bg-gray-200"
+                        className="flex items-center gap-1 rounded bg-gray-100 px-2 py-1 text-xs text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
                       >
                         <XCircle size={12} /> Cancel
                       </button>
                     ) : (
-                      <span className="text-xs text-gray-400">—</span>
+                      <span className="text-xs text-gray-400 dark:text-gray-500">—</span>
                     )}
                   </td>
                 </tr>
@@ -276,7 +283,7 @@ export default function MyLeavesPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <form
             onSubmit={submitLeave}
-            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
             noValidate
           >
             <h2 className="mb-4 text-lg font-semibold">Request Leave</h2>
@@ -289,7 +296,7 @@ export default function MyLeavesPage() {
                   id="my-leaves-type"
                   value={form.type}
                   onChange={(e) => setForm({ ...form, type: e.target.value })}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                 >
                   <option value="CASUAL">Casual</option>
                   <option value="SICK">Sick</option>
@@ -321,8 +328,8 @@ export default function MyLeavesPage() {
                     }}
                     aria-invalid={fieldErrors.fromDate ? true : undefined}
                     aria-describedby={fieldErrors.fromDate ? "fromDate-error" : undefined}
-                    className={`w-full rounded-lg border px-3 py-2 text-sm ${
-                      fieldErrors.fromDate ? "border-red-500" : ""
+                    className={`${MODAL_FIELD} ${
+                      fieldErrors.fromDate ? "border-red-500 dark:border-red-500" : ""
                     }`}
                   />
                   {fieldErrors.fromDate && (
@@ -358,8 +365,8 @@ export default function MyLeavesPage() {
                     }}
                     aria-invalid={toDateError ? true : undefined}
                     aria-describedby={toDateError ? "toDate-error" : undefined}
-                    className={`w-full rounded-lg border px-3 py-2 text-sm ${
-                      toDateError ? "border-red-500" : ""
+                    className={`${MODAL_FIELD} ${
+                      toDateError ? "border-red-500 dark:border-red-500" : ""
                     }`}
                   />
                   {toDateError && (
@@ -394,8 +401,8 @@ export default function MyLeavesPage() {
                   }}
                   aria-invalid={fieldErrors.reason ? true : undefined}
                   aria-describedby={fieldErrors.reason ? "reason-error" : undefined}
-                  className={`w-full rounded-lg border px-3 py-2 text-sm ${
-                    fieldErrors.reason ? "border-red-500" : ""
+                  className={`${MODAL_FIELD} ${
+                    fieldErrors.reason ? "border-red-500 dark:border-red-500" : ""
                   }`}
                 />
                 {fieldErrors.reason && (
@@ -413,7 +420,7 @@ export default function MyLeavesPage() {
               <button
                 type="button"
                 onClick={() => setShowModal(false)}
-                className="rounded-lg border px-4 py-2 text-sm"
+                className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>

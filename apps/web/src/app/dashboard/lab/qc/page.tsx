@@ -36,6 +36,13 @@ interface SummaryRow {
   passRate: number;
 }
 
+// Shared styling for the New-QC-Entry form controls. The form card renders on
+// the dark dashboard layout, so without explicit colors these inputs inherit
+// the layout's light text (dark:text-gray-100) and wash out against the white
+// card; the dark variants give them a legible dark surface.
+const MODAL_FIELD =
+  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
+
 export default function LabQCPage() {
   const { user } = useAuthStore();
   const [summary, setSummary] = useState<SummaryRow[]>([]);
@@ -191,7 +198,7 @@ export default function LabQCPage() {
           <Activity className="text-primary" size={28} />
           <div>
             <h1 className="text-2xl font-bold">Lab Quality Control</h1>
-            <p className="text-sm text-gray-500">Daily QC tracking & Levey-Jennings</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Daily QC tracking & Levey-Jennings</p>
           </div>
         </div>
         <button
@@ -203,11 +210,11 @@ export default function LabQCPage() {
       </div>
 
       {showForm && (
-        <div className="mb-6 rounded-lg border bg-white p-4">
+        <div className="mb-6 rounded-lg border bg-white p-4 text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
           <h2 className="mb-3 font-semibold">New QC Entry</h2>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
             <select
-              className="rounded border px-3 py-1.5 text-sm"
+              className={MODAL_FIELD}
               value={form.testId}
               onChange={(e) => setForm({ ...form, testId: e.target.value })}
             >
@@ -219,7 +226,7 @@ export default function LabQCPage() {
               ))}
             </select>
             <select
-              className="rounded border px-3 py-1.5 text-sm"
+              className={MODAL_FIELD}
               value={form.qcLevel}
               onChange={(e) => setForm({ ...form, qcLevel: e.target.value })}
             >
@@ -229,13 +236,13 @@ export default function LabQCPage() {
               <option value="INTERNAL">INTERNAL</option>
             </select>
             <input
-              className="rounded border px-3 py-1.5 text-sm"
+              className={MODAL_FIELD}
               placeholder="Instrument"
               value={form.instrument}
               onChange={(e) => setForm({ ...form, instrument: e.target.value })}
             />
             <input
-              className="rounded border px-3 py-1.5 text-sm"
+              className={MODAL_FIELD}
               placeholder="Mean value"
               type="number"
               step="any"
@@ -245,7 +252,7 @@ export default function LabQCPage() {
               onChange={(e) => setForm({ ...form, meanValue: e.target.value })}
             />
             <input
-              className="rounded border px-3 py-1.5 text-sm"
+              className={MODAL_FIELD}
               placeholder="Recorded value"
               type="number"
               step="any"
@@ -255,7 +262,7 @@ export default function LabQCPage() {
               onChange={(e) => setForm({ ...form, recordedValue: e.target.value })}
             />
             <input
-              className="rounded border px-3 py-1.5 text-sm"
+              className={MODAL_FIELD}
               placeholder="CV %"
               type="number"
               step="any"
@@ -265,7 +272,7 @@ export default function LabQCPage() {
               onChange={(e) => setForm({ ...form, cv: e.target.value })}
             />
             <input
-              className="col-span-2 rounded border px-3 py-1.5 text-sm md:col-span-3"
+              className={`col-span-2 md:col-span-3 ${MODAL_FIELD}`}
               placeholder="Notes"
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
@@ -281,7 +288,7 @@ export default function LabQCPage() {
             </button>
             <button
               onClick={() => setShowForm(false)}
-              className="rounded border px-4 py-1.5 text-sm"
+              className="rounded border px-4 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
             >
               Cancel
             </button>
@@ -293,13 +300,13 @@ export default function LabQCPage() {
       <div className="mb-6">
         <h2 className="mb-2 font-semibold">Pass rate (last 30 days)</h2>
         {loading ? (
-          <p className="text-gray-500">Loading...</p>
+          <p className="text-gray-500 dark:text-gray-400">Loading...</p>
         ) : summary.length === 0 ? (
-          <p className="text-gray-500">No QC data yet.</p>
+          <p className="text-gray-500 dark:text-gray-400">No QC data yet.</p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border bg-white">
+          <div className="overflow-x-auto rounded-lg border bg-white dark:border-gray-700 dark:bg-gray-800">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
+              <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500 dark:bg-gray-900/40 dark:text-gray-300">
                 <tr>
                   <th className="p-2">Test</th>
                   <th className="p-2">Runs</th>
@@ -312,7 +319,7 @@ export default function LabQCPage() {
                 {summary.map((r) => (
                   <tr
                     key={r.testId}
-                    className={`border-t ${r.passRate < 90 ? "bg-red-50" : ""}`}
+                    className={`border-t dark:border-gray-700 ${r.passRate < 90 ? "bg-red-50" : ""}`}
                   >
                     <td className="p-2">
                       <span className="font-mono text-xs">{r.code}</span> {r.name}
@@ -321,7 +328,7 @@ export default function LabQCPage() {
                     <td className="p-2">{r.pass}</td>
                     <td
                       className={`p-2 font-semibold ${
-                        r.passRate < 90 ? "text-red-700" : "text-green-700"
+                        r.passRate < 90 ? "text-red-700 dark:text-red-400" : "text-green-700 dark:text-green-400"
                       }`}
                     >
                       {r.passRate}%
@@ -344,7 +351,7 @@ export default function LabQCPage() {
 
       {/* Levey-Jennings chart for selected test */}
       {selectedTest && chartPoints && (
-        <div className="mb-6 rounded-lg border bg-white p-4">
+        <div className="mb-6 rounded-lg border bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
           <h2 className="mb-2 font-semibold">
             Levey-Jennings — {tests.find((t) => t.id === selectedTest)?.name}
           </h2>
@@ -399,9 +406,9 @@ export default function LabQCPage() {
       {/* Recent entries */}
       <div>
         <h2 className="mb-2 font-semibold">Recent entries</h2>
-        <div className="overflow-x-auto rounded-lg border bg-white">
+        <div className="overflow-x-auto rounded-lg border bg-white dark:border-gray-700 dark:bg-gray-800">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
+            <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500 dark:bg-gray-900/40 dark:text-gray-300">
               <tr>
                 <th className="p-2">Date</th>
                 <th className="p-2">Test</th>
@@ -415,7 +422,7 @@ export default function LabQCPage() {
             </thead>
             <tbody>
               {entries.map((e) => (
-                <tr key={e.id} className="border-t">
+                <tr key={e.id} className="border-t dark:border-gray-700">
                   <td className="p-2">{new Date(e.runDate).toLocaleString()}</td>
                   <td className="p-2">
                     <span className="font-mono text-xs">{e.test.code}</span> {e.test.name}
@@ -426,11 +433,11 @@ export default function LabQCPage() {
                   <td className="p-2">{e.cv ?? "—"}</td>
                   <td className="p-2">
                     {e.withinRange ? (
-                      <span className="inline-flex items-center gap-1 text-green-700">
+                      <span className="inline-flex items-center gap-1 text-green-700 dark:text-green-400">
                         <CheckCircle size={14} /> Pass
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 text-red-700">
+                      <span className="inline-flex items-center gap-1 text-red-700 dark:text-red-400">
                         <XCircle size={14} /> Fail
                       </span>
                     )}

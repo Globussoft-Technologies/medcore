@@ -27,6 +27,13 @@ const DAY_LABELS: Record<string, string> = {
   SUNDAY: "Sun",
 };
 
+// Shared styling for the Add-Slot / Override form controls. These forms render
+// on the dark dashboard layout, so without explicit colors the inputs inherit
+// the layout's light text (dark:text-gray-100) and wash out on the white card;
+// the dark variants give them a legible dark surface.
+const MODAL_FIELD =
+  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
+
 interface ScheduleSlot {
   id: string;
   dayOfWeek: string;
@@ -234,12 +241,12 @@ export default function SchedulePage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Schedule Management</h1>
-          <p className="text-sm text-gray-500">Manage doctor availability</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Manage doctor availability</p>
         </div>
         <div className="flex gap-2">
           <button
             onClick={() => setShowOverrideForm(!showOverrideForm)}
-            className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50"
+            className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
           >
             <CalendarOff size={16} /> Add Override
           </button>
@@ -255,14 +262,14 @@ export default function SchedulePage() {
       {/* Doctor selector (Admin only) */}
       {isAdmin && doctors.length > 0 && (
         <div className="mb-6">
-          <label htmlFor="schedule-doctor-select" className="mb-1 block text-sm font-medium text-gray-700">
+          <label htmlFor="schedule-doctor-select" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">
             Select Doctor
           </label>
           <select
             id="schedule-doctor-select"
             value={selectedDoctorId}
             onChange={(e) => setSelectedDoctorId(e.target.value)}
-            className="rounded-lg border px-4 py-2 text-sm"
+            className="rounded-lg border bg-white px-4 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
           >
             {doctors.map((d) => (
               <option key={d.id} value={d.id}>
@@ -277,7 +284,7 @@ export default function SchedulePage() {
       {showScheduleForm && (
         <form
           onSubmit={handleAddSchedule}
-          className="mb-6 rounded-xl bg-white p-6 shadow-sm"
+          className="mb-6 rounded-xl bg-white p-6 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100"
           noValidate
         >
           <div className="mb-4 flex items-center justify-between">
@@ -288,7 +295,7 @@ export default function SchedulePage() {
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
             <div>
-              <label htmlFor="schedule-day-of-week" className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="schedule-day-of-week" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                 Day of Week
               </label>
               <select
@@ -297,7 +304,7 @@ export default function SchedulePage() {
                 onChange={(e) =>
                   setScheduleForm({ ...scheduleForm, dayOfWeek: e.target.value })
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={MODAL_FIELD}
               >
                 {DAYS.map((d) => (
                   <option key={d} value={d}>
@@ -307,7 +314,7 @@ export default function SchedulePage() {
               </select>
             </div>
             <div>
-              <label htmlFor="schedule-start-time" className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="schedule-start-time" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                 Start Time
               </label>
               <input
@@ -318,11 +325,11 @@ export default function SchedulePage() {
                 onChange={(e) =>
                   setScheduleForm({ ...scheduleForm, startTime: e.target.value })
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={MODAL_FIELD}
               />
             </div>
             <div>
-              <label htmlFor="schedule-end-time" className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="schedule-end-time" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                 End Time
               </label>
               <input
@@ -333,11 +340,11 @@ export default function SchedulePage() {
                 onChange={(e) =>
                   setScheduleForm({ ...scheduleForm, endTime: e.target.value })
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={MODAL_FIELD}
               />
             </div>
             <div>
-              <label htmlFor="schedule-slot-duration" className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="schedule-slot-duration" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                 Slot Duration (min)
               </label>
               <select
@@ -349,7 +356,7 @@ export default function SchedulePage() {
                     slotDuration: parseInt(e.target.value),
                   })
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={MODAL_FIELD}
               >
                 <option value={10}>10 min</option>
                 <option value={15}>15 min</option>
@@ -360,7 +367,7 @@ export default function SchedulePage() {
               </select>
             </div>
             <div>
-              <label htmlFor="schedule-buffer" className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="schedule-buffer" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                 Buffer Between Slots (min)
               </label>
               <input
@@ -378,10 +385,10 @@ export default function SchedulePage() {
                     ),
                   })
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={MODAL_FIELD}
                 placeholder="0"
               />
-              <p className="mt-1 text-[10px] text-gray-500">
+              <p className="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
                 Gap added after each slot (e.g. 5 min for room cleaning)
               </p>
             </div>
@@ -396,7 +403,7 @@ export default function SchedulePage() {
             <button
               type="button"
               onClick={() => setShowScheduleForm(false)}
-              className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+              className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
             >
               Cancel
             </button>
@@ -408,7 +415,7 @@ export default function SchedulePage() {
       {showOverrideForm && (
         <form
           onSubmit={handleAddOverride}
-          className="mb-6 rounded-xl bg-white p-6 shadow-sm"
+          className="mb-6 rounded-xl bg-white p-6 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100"
           noValidate
         >
           <div className="mb-4 flex items-center justify-between">
@@ -419,7 +426,7 @@ export default function SchedulePage() {
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
-              <label htmlFor="schedule-override-date" className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="schedule-override-date" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                 Date
               </label>
               <input
@@ -430,11 +437,11 @@ export default function SchedulePage() {
                 onChange={(e) =>
                   setOverrideForm({ ...overrideForm, date: e.target.value })
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={MODAL_FIELD}
               />
             </div>
             <div>
-              <label htmlFor="schedule-override-type" className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="schedule-override-type" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                 Type
               </label>
               <select
@@ -446,14 +453,14 @@ export default function SchedulePage() {
                     isBlocked: e.target.value === "block",
                   })
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={MODAL_FIELD}
               >
                 <option value="block">Block Entire Day</option>
                 <option value="modify">Modify Hours</option>
               </select>
             </div>
             <div>
-              <label htmlFor="schedule-override-reason" className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="schedule-override-reason" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                 Reason (optional)
               </label>
               <input
@@ -464,13 +471,13 @@ export default function SchedulePage() {
                   setOverrideForm({ ...overrideForm, reason: e.target.value })
                 }
                 placeholder="e.g., Leave, Conference"
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={MODAL_FIELD}
               />
             </div>
             {!overrideForm.isBlocked && (
               <>
                 <div>
-                  <label htmlFor="schedule-override-start-time" className="mb-1 block text-xs font-medium text-gray-600">
+                  <label htmlFor="schedule-override-start-time" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                     Start Time
                   </label>
                   <input
@@ -483,11 +490,11 @@ export default function SchedulePage() {
                         startTime: e.target.value,
                       })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className={MODAL_FIELD}
                   />
                 </div>
                 <div>
-                  <label htmlFor="schedule-override-end-time" className="mb-1 block text-xs font-medium text-gray-600">
+                  <label htmlFor="schedule-override-end-time" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                     End Time
                   </label>
                   <input
@@ -500,7 +507,7 @@ export default function SchedulePage() {
                         endTime: e.target.value,
                       })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className={MODAL_FIELD}
                   />
                 </div>
               </>
@@ -516,7 +523,7 @@ export default function SchedulePage() {
             <button
               type="button"
               onClick={() => setShowOverrideForm(false)}
-              className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+              className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
             >
               Cancel
             </button>
@@ -526,7 +533,7 @@ export default function SchedulePage() {
 
       {/* Weekly Schedule Grid */}
       {loading ? (
-        <div className="p-8 text-center text-gray-500">Loading...</div>
+        <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
       ) : (
         <div className="mb-8 grid grid-cols-7 gap-3">
           {DAYS.map((day) => {
@@ -534,24 +541,24 @@ export default function SchedulePage() {
             return (
               <div
                 key={day}
-                className="rounded-xl bg-white p-4 shadow-sm"
+                className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800"
               >
-                <h3 className="mb-3 text-center text-sm font-semibold text-gray-700">
+                <h3 className="mb-3 text-center text-sm font-semibold text-gray-700 dark:text-gray-200">
                   {DAY_LABELS[day]}
                 </h3>
                 {slots.length === 0 ? (
-                  <p className="text-center text-xs text-gray-400">No slots</p>
+                  <p className="text-center text-xs text-gray-400 dark:text-gray-500">No slots</p>
                 ) : (
                   <div className="space-y-2">
                     {slots.map((slot) => (
                       <div
                         key={slot.id}
-                        className="rounded-lg bg-blue-50 p-2 text-center"
+                        className="rounded-lg bg-blue-50 p-2 text-center dark:bg-indigo-900/30"
                       >
-                        <p className="text-xs font-medium text-primary">
+                        <p className="text-xs font-medium text-primary dark:text-indigo-200">
                           {slot.startTime} - {slot.endTime}
                         </p>
-                        <p className="mt-0.5 flex items-center justify-center gap-1 text-xs text-gray-500">
+                        <p className="mt-0.5 flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                           <Clock size={10} />
                           {slot.slotDuration} min slots
                         </p>
@@ -569,10 +576,10 @@ export default function SchedulePage() {
       {overrides.length > 0 && (
         <div>
           <h2 className="mb-3 text-lg font-semibold">Schedule Overrides</h2>
-          <div className="rounded-xl bg-white shadow-sm">
+          <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
             <table className="w-full">
               <thead>
-                <tr className="border-b text-left text-sm text-gray-500">
+                <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300">
                   <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3">Type</th>
                   <th className="px-4 py-3">Hours</th>
@@ -581,7 +588,7 @@ export default function SchedulePage() {
               </thead>
               <tbody>
                 {overrides.map((o) => (
-                  <tr key={o.id} className="border-b last:border-0">
+                  <tr key={o.id} className="border-b last:border-0 dark:border-gray-700">
                     <td className="px-4 py-3 text-sm font-medium">
                       {new Date(o.date).toLocaleDateString("en-IN", {
                         weekday: "short",
@@ -606,7 +613,7 @@ export default function SchedulePage() {
                         ? "---"
                         : `${o.startTime || ""} - ${o.endTime || ""}`}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-500">
+                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                       {o.reason || "---"}
                     </td>
                   </tr>

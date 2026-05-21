@@ -8,6 +8,13 @@ import { toast } from "@/lib/toast";
 import { ShieldAlert, Download, FileWarning, ListTree } from "lucide-react";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 
+// Shared styling for the filter-bar form controls. The page renders on the dark
+// dashboard layout, so without explicit colors these inputs inherit the layout's
+// light text (dark:text-gray-100) and wash out against the white filter card; the
+// dark variants give them a legible dark surface.
+const MODAL_FIELD =
+  "rounded border bg-white px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
+
 interface CsEntry {
   id: string;
   entryNumber: string;
@@ -202,12 +209,12 @@ export default function ControlledSubstancesPage() {
         <ShieldAlert className="text-red-600" size={28} />
         <div>
           <h1 className="text-2xl font-bold">Controlled Substance Register</h1>
-          <p className="text-sm text-gray-500">Schedule H / H1 / X narcotic and controlled drug tracking.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Schedule H / H1 / X narcotic and controlled drug tracking.</p>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="mb-4 flex gap-2 border-b">
+      <div className="mb-4 flex gap-2 border-b dark:border-gray-700">
         {([
           { k: "entries", label: "All Entries", icon: ListTree },
           { k: "register", label: "Register by Medicine", icon: ShieldAlert },
@@ -219,7 +226,7 @@ export default function ControlledSubstancesPage() {
             className={`flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium ${
               tab === k
                 ? "border-primary text-primary"
-                : "border-transparent text-gray-500 hover:text-gray-700"
+                : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
             }`}
           >
             <Icon size={16} />
@@ -229,12 +236,12 @@ export default function ControlledSubstancesPage() {
       </div>
 
       {/* Filters */}
-      <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border bg-white p-4">
+      <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
         <div>
-          <label htmlFor="cs-filter-medicine" className="mb-1 block text-xs font-medium text-gray-600">Medicine</label>
+          <label htmlFor="cs-filter-medicine" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Medicine</label>
           <select
             id="cs-filter-medicine"
-            className="rounded border px-3 py-1.5 text-sm"
+            className={MODAL_FIELD}
             value={medicineFilter}
             onChange={(e) => setMedicineFilter(e.target.value)}
           >
@@ -249,21 +256,21 @@ export default function ControlledSubstancesPage() {
         {tab !== "register" && (
           <>
             <div>
-              <label htmlFor="cs-filter-from" className="mb-1 block text-xs font-medium text-gray-600">From</label>
+              <label htmlFor="cs-filter-from" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">From</label>
               <input
                 id="cs-filter-from"
                 type="date"
-                className="rounded border px-3 py-1.5 text-sm"
+                className={MODAL_FIELD}
                 value={from}
                 onChange={(e) => setFrom(e.target.value)}
               />
             </div>
             <div>
-              <label htmlFor="cs-filter-to" className="mb-1 block text-xs font-medium text-gray-600">To</label>
+              <label htmlFor="cs-filter-to" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">To</label>
               <input
                 id="cs-filter-to"
                 type="date"
-                className="rounded border px-3 py-1.5 text-sm"
+                className={MODAL_FIELD}
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
               />
@@ -282,14 +289,14 @@ export default function ControlledSubstancesPage() {
 
       {/* Content */}
       {loading ? (
-        <p className="text-gray-500">Loading...</p>
+        <p className="text-gray-500 dark:text-gray-400">Loading...</p>
       ) : tab === "entries" ? (
         <EntryTable entries={entries} />
       ) : tab === "register" ? (
         !medicineFilter ? (
-          <p className="text-gray-500">Choose a medicine above to view its register.</p>
+          <p className="text-gray-500 dark:text-gray-400">Choose a medicine above to view its register.</p>
         ) : !registerData ? (
-          <p className="text-gray-500">No data</p>
+          <p className="text-gray-500 dark:text-gray-400">No data</p>
         ) : (
           <div>
             <div className="mb-3 rounded border bg-blue-50 p-3 text-sm">
@@ -311,11 +318,11 @@ export default function ControlledSubstancesPage() {
 
 function EntryTable({ entries }: { entries: CsEntry[] }) {
   if (entries.length === 0)
-    return <p className="text-gray-500">No entries match the filter.</p>;
+    return <p className="text-gray-500 dark:text-gray-400">No entries match the filter.</p>;
   return (
-    <div className="overflow-x-auto rounded-lg border bg-white">
+    <div className="overflow-x-auto rounded-lg border bg-white dark:border-gray-700 dark:bg-gray-800">
       <table className="w-full text-sm">
-        <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
+        <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500 dark:bg-gray-900/40 dark:text-gray-300">
           <tr>
             <th className="p-2">Entry #</th>
             <th className="p-2">Date</th>
@@ -329,7 +336,7 @@ function EntryTable({ entries }: { entries: CsEntry[] }) {
         </thead>
         <tbody>
           {entries.map((e) => (
-            <tr key={e.id} className="border-t hover:bg-gray-50">
+            <tr key={e.id} className="border-t hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
               <td className="p-2 font-mono text-xs">{e.entryNumber}</td>
               <td className="p-2">{new Date(e.dispensedAt).toLocaleString()}</td>
               <td className="p-2">
@@ -347,7 +354,7 @@ function EntryTable({ entries }: { entries: CsEntry[] }) {
                 {e.patient ? (
                   <>
                     {e.patient.user.name}
-                    <div className="text-xs text-gray-500">{e.patient.mrNumber}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">{e.patient.mrNumber}</div>
                   </>
                 ) : (
                   "—"
@@ -365,11 +372,11 @@ function EntryTable({ entries }: { entries: CsEntry[] }) {
 
 function AuditTable({ rows }: { rows: AuditRow[] }) {
   if (rows.length === 0)
-    return <p className="text-gray-500">No register activity in the selected window.</p>;
+    return <p className="text-gray-500 dark:text-gray-400">No register activity in the selected window.</p>;
   return (
-    <div className="overflow-x-auto rounded-lg border bg-white">
+    <div className="overflow-x-auto rounded-lg border bg-white dark:border-gray-700 dark:bg-gray-800">
       <table className="w-full text-sm">
-        <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
+        <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500 dark:bg-gray-900/40 dark:text-gray-300">
           <tr>
             <th className="p-2">Medicine</th>
             <th className="p-2">Schedule</th>
@@ -384,8 +391,8 @@ function AuditTable({ rows }: { rows: AuditRow[] }) {
           {rows.map((r) => (
             <tr
               key={r.medicineId}
-              className={`border-t ${
-                r.discrepancy !== null && r.discrepancy !== 0 ? "bg-red-50" : ""
+              className={`border-t dark:border-gray-700 ${
+                r.discrepancy !== null && r.discrepancy !== 0 ? "bg-red-50 dark:bg-red-900/20" : ""
               }`}
             >
               <td className="p-2 font-medium">{r.medicineName ?? r.medicineId}</td>
@@ -399,8 +406,8 @@ function AuditTable({ rows }: { rows: AuditRow[] }) {
                   r.discrepancy === null
                     ? ""
                     : r.discrepancy === 0
-                      ? "text-green-700"
-                      : "text-red-700"
+                      ? "text-green-700 dark:text-green-400"
+                      : "text-red-700 dark:text-red-400"
                 }`}
               >
                 {r.discrepancy ?? "—"}

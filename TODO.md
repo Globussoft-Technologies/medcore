@@ -6,6 +6,37 @@ is independently shippable. Full per-session history lives under
 
 ---
 
+## 🏠 OFFICE PICKUP — handoff from 2026-05-21 morning: Pearl ERP Stage 1 — **7 of top 10 fully closed + all 4 Tier-3 chains started**
+
+**State at handoff** (HEAD on `main` = `f6bb3de` — `feat(api,web,db,shared): #5 piece 2/4 — patient phone-OTP login backend + login page`):
+
+This was an **overnight autonomous cron** session — cron `7572d655` ran ~15 ticks against the Pearl gap doc, plus user-prompted boundary ticks. Net: 14 commits on `main` (excluding 4 Sourav UI-fix merges that interleaved).
+
+### ✅ Closed this session
+- **#1 Doctor.appointmentMode** — all 3 pieces (`af48756` enforcement + `458b200` UI-already-shipped docs + `97542ec` display-feed tests).
+- **#2 Branch model + branchScopedPrisma + picker** — all 3 cron-slice pieces (`e0f8fa9` schema + 5 CRUD + 15 tests; `f37570c` extension + Appointment.branchId + 3 tests; `1b21df4` topbar picker + `X-Branch-Id` interceptor + 19 tests). **Deferred follow-up: piece 2b** — `branchId` nullable on Invoice/Doctor/Patient + backfill + JWT/session claim resolution (~1 wk single-piece).
+
+### 🚧 Chains started — pick up here in priority order
+1. **#6 piece 2 of 4** — onboarding wizard at `/super-admin/onboard`. Builds on `7593058` (route-group + client gate). Step-by-step: tenant + first branch + super-admin user + HFR/HPR/WhatsApp/Razorpay config.
+2. **#5 piece 3 of 4** — PWA shell content (dashboard tiles, my-appointments, my-Rx, my-bills). Builds on `f6bb3de` (phone-OTP JWT) + `9456178` (route group).
+3. **#4 piece 2b of 4** — Campaign dispatcher. Builds on `f701b52` (audience compiler). Sync fan-out per channel → CampaignSend rows via existing `services/channels/*` + send-window-clamp + `{{patient.firstName}}` substitution.
+4. **#2 piece 2b** — Branch backend tightening (~1 wk follow-up, see above).
+5. **#5 piece 4** — offline-tolerant SW cache strategy.
+6. **#4 piece 3 (A/B + tracking) + piece 4 (UI)**.
+7. **#6 piece 3 (PearlSubscription/PearlInvoice) + piece 4 (cross-tenant metrics + DPDP workbench)**.
+
+### Known issues
+- **Deploy job intermittent SSH failures** — one Test workflow run failed only on "Deploy to dev server" (`Connection closed`). Infra-only; code-gates green; subsequent pushes auto-recover.
+- **Stale TodoWrite reminder** in harness — original todo list from prior session was never cleaned up; the cron tracks naturally via gap doc + commit log. Safe to ignore or clear at session start.
+- **Mandatory pre-flight grep** — agents must run `git log` + `grep` on the files they'll touch before scaffolding. Caught 3 "already shipped" cases after one tick burned a `PatientAllergy`-block parallel-impl regression (reverted as `5814fb8`; gap-doc correctly attributes Pearl #7 to Sumit's earlier `954b141`).
+
+### Cron mechanics
+Cron `7572d655` (every 30 min, session-only — harness drops `durable: true`). Auto-expires in ~7 days. Re-arm at session start by re-firing the same Pearl gap-close prompt to resume autonomous closure. Self-terminates (`CronDelete`) when the gap doc has zero ❌/🟡 rows.
+
+**Read first:** [`docs/archive/SESSION_SNAPSHOT_2026-05-21-morning.md`](docs/archive/SESSION_SNAPSHOT_2026-05-21-morning.md) — full session handoff with per-commit detail.
+
+---
+
 ## 🏠 HOME PICKUP — handoff from 2026-05-21 overnight: Pearl ERP Stage 1 — **7 of top 10 closed** (autonomous cron + manual ship)
 
 **State at handoff** (HEAD on `main` = `928018f` — `feat(db,api,web): Pearl gap #3 — CRM lead pipeline (M2 §3.3)`):
@@ -18,10 +49,10 @@ is independently shippable. Full per-session history lives under
 
 The 3 remaining items are all multi-week (need scope-cut into single-session pieces); the autonomous cron (`7572d655`, every 30 min, session-only) will pick these up if the editor stays open overnight. Otherwise next-session pickup:
 
-1. **Gap #2 — Branch model + branchScopedPrisma + branch picker** (~3-4 wk). Scope-cut chain: schema-only migration first → branchScopedPrisma wrapper → branch picker UI → migrate ~20 tenant-scoped tables to branch-scoped.
-2. **Gap #4 — Campaign engine** (~2.5 wk). Scope-cut chain: Campaign + CampaignSend schema → audience builder API → A/B + send-window scheduling → /dashboard/campaigns UI.
-3. **Gap #5 — Patient PWA + phone-OTP** (~3 wk). Scope-cut chain: phone-OTP login backend → /patient route group → service worker + offline cache → PWA install prompt.
-4. **Gap #6 — Super-admin host + Pearl-billing** (~2.5 wk). Scope-cut chain: route group on separate vhost → onboarding wizard → Pearl-billing surface (PearlSubscription, PearlInvoice).
+1. **Gap #2 — Branch model + branchScopedPrisma + branch picker** (~3-4 wk). Scope-cut chain: schema-only migration first → branchScopedPrisma wrapper → branch picker UI → migrate ~20 tenant-scoped tables to branch-scoped. ✅ **Closed 2026-05-21 morning** (per top banner) except piece 2b backend tightening.
+2. **Gap #4 — Campaign engine** (~2.5 wk). Scope-cut chain: Campaign + CampaignSend schema → audience builder API → A/B + send-window scheduling → /dashboard/campaigns UI. **🚧 2 of 4 closed** (per top banner).
+3. **Gap #5 — Patient PWA + phone-OTP** (~3 wk). Scope-cut chain: phone-OTP login backend → /patient route group → service worker + offline cache → PWA install prompt. **🚧 2 of 4 closed** (per top banner).
+4. **Gap #6 — Super-admin host + Pearl-billing** (~2.5 wk). Scope-cut chain: route group on separate vhost → onboarding wizard → Pearl-billing surface (PearlSubscription, PearlInvoice). **🚧 1 of 4 closed** (per top banner).
 
 Also still on the board: detail-page for `/dashboard/leads/[id]` (activity timeline + inline convert modal) — scope-cut from #3, deferred because the list page + API surface the PRD requirement.
 

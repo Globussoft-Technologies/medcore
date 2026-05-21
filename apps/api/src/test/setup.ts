@@ -108,8 +108,12 @@ export async function getAuthToken(role: TestRole = "ADMIN"): Promise<string> {
       });
     }
   }
+  // Pearl #9: include tenantId so the global tenant middleware can resolve
+  // req.tenantId from the JWT. Without it, every authed integration test
+  // runs without tenant context — feature-flags routing, per-tenant
+  // razorpay creds, etc. all fall through to defaults.
   return jwt.sign(
-    { userId: user.id, email: user.email, role: user.role },
+    { userId: user.id, email: user.email, role: user.role, tenantId: user.tenantId ?? undefined },
     process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
     { expiresIn: "1h" }
   );

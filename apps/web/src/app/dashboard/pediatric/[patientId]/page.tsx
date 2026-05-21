@@ -31,6 +31,13 @@ interface Patient {
   user: { name: string; phone?: string };
 }
 
+// Shared styling for the growth-measurement + feeding-log form controls. The
+// page renders on the dark dashboard layout, so without explicit colors these
+// inputs inherit the layout's light text (dark:text-gray-100) and wash out on
+// their white surface; the dark variants give them a legible dark surface.
+const MODAL_FIELD =
+  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
+
 const MILESTONE_MARKERS: Array<{ ageMonths: number; label: string }> = [
   { ageMonths: 2, label: "Smile" },
   { ageMonths: 4, label: "Head Control" },
@@ -314,7 +321,7 @@ export default function PediatricDetailPage() {
   }
 
   if (loading || !patient) {
-    return <div className="p-8 text-center text-gray-500">Loading...</div>;
+    return <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>;
   }
 
   const weightData = records.map((r) => ({
@@ -339,17 +346,17 @@ export default function PediatricDetailPage() {
     <div>
       <Link
         href="/dashboard/pediatric"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-primary"
+        className="mb-4 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-primary dark:text-gray-400"
       >
         <ArrowLeft size={14} /> Back to Pediatric
       </Link>
 
       {/* Patient Info */}
-      <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
+      <div className="mb-6 rounded-xl bg-white p-5 shadow-sm text-gray-900 dark:bg-gray-800 dark:text-gray-100">
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-2xl font-bold">{patient.user.name}</h1>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
               MR: {patient.mrNumber} · {patient.gender}
               {patient.dateOfBirth &&
                 ` · DOB ${new Date(patient.dateOfBirth).toLocaleDateString()}`}
@@ -375,7 +382,7 @@ export default function PediatricDetailPage() {
         <form
           onSubmit={submit}
           noValidate
-          className="mb-6 rounded-xl bg-white p-5 shadow-sm"
+          className="mb-6 rounded-xl bg-white p-5 shadow-sm text-gray-900 dark:bg-gray-800 dark:text-gray-100"
         >
           <h3 className="mb-3 font-semibold">Record Growth Measurement</h3>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -388,7 +395,7 @@ export default function PediatricDetailPage() {
                 onChange={(e) =>
                   setForm({ ...form, measurementDate: e.target.value })
                 }
-                className="w-full rounded border px-2 py-1.5 text-sm"
+                className={MODAL_FIELD}
               />
             </div>
             <div>
@@ -401,7 +408,7 @@ export default function PediatricDetailPage() {
                 data-testid="growth-age-months"
                 value={form.ageMonths}
                 onChange={(e) => setForm({ ...form, ageMonths: e.target.value })}
-                className="w-full rounded border px-2 py-1.5 text-sm"
+                className={MODAL_FIELD}
               />
             </div>
             <div>
@@ -413,7 +420,7 @@ export default function PediatricDetailPage() {
                 data-testid="growth-weight-kg"
                 value={form.weightKg}
                 onChange={(e) => setForm({ ...form, weightKg: e.target.value })}
-                className="w-full rounded border px-2 py-1.5 text-sm"
+                className={MODAL_FIELD}
               />
             </div>
             <div>
@@ -425,7 +432,7 @@ export default function PediatricDetailPage() {
                 data-testid="growth-height-cm"
                 value={form.heightCm}
                 onChange={(e) => setForm({ ...form, heightCm: e.target.value })}
-                className="w-full rounded border px-2 py-1.5 text-sm"
+                className={MODAL_FIELD}
               />
             </div>
             <div>
@@ -441,7 +448,7 @@ export default function PediatricDetailPage() {
                 onChange={(e) =>
                   setForm({ ...form, headCircumference: e.target.value })
                 }
-                className="w-full rounded border px-2 py-1.5 text-sm"
+                className={MODAL_FIELD}
               />
             </div>
           </div>
@@ -456,7 +463,7 @@ export default function PediatricDetailPage() {
                 setForm({ ...form, milestoneNotes: e.target.value })
               }
               placeholder="e.g. Started walking, saying 3 words"
-              className="w-full rounded border px-2 py-1.5 text-sm"
+              className={MODAL_FIELD}
             />
           </div>
           <div className="mt-3">
@@ -470,14 +477,14 @@ export default function PediatricDetailPage() {
               onChange={(e) =>
                 setForm({ ...form, developmentalNotes: e.target.value })
               }
-              className="w-full rounded border px-2 py-1.5 text-sm"
+              className={MODAL_FIELD}
             />
           </div>
           <div className="mt-4 flex justify-end gap-2">
             <button
               type="button"
               onClick={() => setShowForm(false)}
-              className="rounded border px-3 py-1.5 text-sm"
+              className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
             >
               Cancel
             </button>
@@ -493,33 +500,33 @@ export default function PediatricDetailPage() {
 
       {/* Charts */}
       <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="rounded-xl bg-white p-4 shadow-sm">
+        <div className="rounded-xl bg-white p-4 shadow-sm text-gray-900 dark:bg-gray-800 dark:text-gray-100">
           <h3 className="mb-2 text-sm font-semibold">Weight vs Age</h3>
           {buildChart(weightData, "#3b82f6", maxWeight, "Weight (kg)")}
         </div>
-        <div className="rounded-xl bg-white p-4 shadow-sm">
+        <div className="rounded-xl bg-white p-4 shadow-sm text-gray-900 dark:bg-gray-800 dark:text-gray-100">
           <h3 className="mb-2 text-sm font-semibold">Height vs Age</h3>
           {buildChart(heightData, "#10b981", maxHeight, "Height (cm)")}
         </div>
-        <div className="rounded-xl bg-white p-4 shadow-sm">
+        <div className="rounded-xl bg-white p-4 shadow-sm text-gray-900 dark:bg-gray-800 dark:text-gray-100">
           <h3 className="mb-2 text-sm font-semibold">Head Circumference</h3>
           {buildChart(hcData, "#f59e0b", maxHC, "HC (cm)")}
         </div>
       </div>
 
       {/* Records Table */}
-      <div className="rounded-xl bg-white p-5 shadow-sm">
+      <div className="rounded-xl bg-white p-5 shadow-sm text-gray-900 dark:bg-gray-800 dark:text-gray-100">
         <h3 className="mb-4 flex items-center gap-2 font-semibold">
           <Baby size={16} /> Growth Records
         </h3>
         {records.length === 0 ? (
-          <p className="py-8 text-center text-sm text-gray-500">
+          <p className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
             No measurements recorded yet.
           </p>
         ) : (
           <table className="w-full">
             <thead>
-              <tr className="border-b text-left text-xs text-gray-500">
+              <tr className="border-b text-left text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-3 py-2">Date</th>
                 <th className="px-3 py-2">Age (mo)</th>
                 <th className="px-3 py-2">Weight</th>
@@ -533,7 +540,7 @@ export default function PediatricDetailPage() {
             </thead>
             <tbody>
               {records.map((r) => (
-                <tr key={r.id} className="border-b text-sm last:border-0">
+                <tr key={r.id} className="border-b text-sm last:border-0 dark:border-gray-700">
                   <td className="px-3 py-2">
                     {new Date(r.measurementDate).toLocaleDateString()}
                   </td>
@@ -683,17 +690,17 @@ function MilestonesPanel({
   }
 
   return (
-    <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
+    <div className="mb-6 rounded-xl bg-white p-5 shadow-sm text-gray-900 dark:bg-gray-800 dark:text-gray-100">
       <h3 className="mb-3 font-semibold">Developmental Milestones</h3>
       {loading ? (
-        <p className="text-sm text-gray-500">Loading...</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
       ) : items.length === 0 ? (
-        <p className="text-sm text-gray-500">No data.</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">No data.</p>
       ) : (
         <div className="space-y-4">
           {Array.from(byDomain.entries()).map(([domain, list]) => (
             <div key={domain}>
-              <p className="mb-2 text-xs font-semibold uppercase text-gray-600">
+              <p className="mb-2 text-xs font-semibold uppercase text-gray-600 dark:text-gray-300">
                 {domain.replace("_", " ")}
               </p>
               <div className="grid grid-cols-1 gap-1 md:grid-cols-2">
@@ -703,7 +710,7 @@ function MilestonesPanel({
                       ? "border-green-300 bg-green-50"
                       : it.status === "EXPECTED_NOT_ACHIEVED"
                         ? "border-red-300 bg-red-50"
-                        : "border-gray-200 bg-white";
+                        : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900/40";
                   return (
                     <label
                       key={i}
@@ -715,7 +722,7 @@ function MilestonesPanel({
                         disabled={!canEdit}
                         onChange={(e) => toggle(it, e.target.checked)}
                       />
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
                         {it.ageMonths}m
                       </span>
                       <span className="flex-1">{it.milestone}</span>
@@ -816,15 +823,15 @@ function FeedingLogPanel({
   }
 
   return (
-    <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
+    <div className="mb-6 rounded-xl bg-white p-5 shadow-sm text-gray-900 dark:bg-gray-800 dark:text-gray-100">
       <h3 className="mb-3 font-semibold">Feeding Log</h3>
       {canEdit && (
-        <div className="mb-4 rounded-lg border bg-gray-50 p-3">
+        <div className="mb-4 rounded-lg border bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900/40">
           <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
             <select
               value={form.feedType}
               onChange={(e) => setForm({ ...form, feedType: e.target.value })}
-              className="rounded-lg border px-3 py-2 text-sm"
+              className={MODAL_FIELD}
             >
               <option value="BREAST_LEFT">Breast (L)</option>
               <option value="BREAST_RIGHT">Breast (R)</option>
@@ -837,20 +844,20 @@ function FeedingLogPanel({
               placeholder="Duration (min)"
               value={form.durationMin}
               onChange={(e) => setForm({ ...form, durationMin: e.target.value })}
-              className="rounded-lg border px-3 py-2 text-sm"
+              className={MODAL_FIELD}
             />
             <input
               type="number"
               placeholder="Volume (ml)"
               value={form.volumeMl}
               onChange={(e) => setForm({ ...form, volumeMl: e.target.value })}
-              className="rounded-lg border px-3 py-2 text-sm"
+              className={MODAL_FIELD}
             />
             <input
               placeholder="Food item (if solid)"
               value={form.foodItem}
               onChange={(e) => setForm({ ...form, foodItem: e.target.value })}
-              className="rounded-lg border px-3 py-2 text-sm"
+              className={MODAL_FIELD}
             />
             <button
               onClick={add}
@@ -863,19 +870,19 @@ function FeedingLogPanel({
       )}
 
       {loading ? (
-        <p className="text-sm text-gray-500">Loading...</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
       ) : (
         <>
           {daily.length > 0 && (
             <div className="mb-3">
-              <p className="mb-2 text-xs font-semibold text-gray-600">
+              <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-300">
                 Daily Summary (last {daily.length} days)
               </p>
               <div className="flex flex-wrap gap-2 text-xs">
                 {daily.slice(-7).map((d) => (
                   <div
                     key={d.date}
-                    className="rounded border bg-gray-50 px-2 py-1"
+                    className="rounded border bg-gray-50 px-2 py-1 dark:border-gray-700 dark:bg-gray-900/40"
                   >
                     <div className="font-semibold">{d.date}</div>
                     <div>{d.feeds} feeds · {d.totalVolumeMl}ml</div>
@@ -886,11 +893,11 @@ function FeedingLogPanel({
           )}
 
           {logs.length === 0 ? (
-            <p className="text-sm text-gray-500">No feeds logged yet.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">No feeds logged yet.</p>
           ) : (
             <div className="max-h-80 overflow-y-auto">
               <table className="min-w-full text-xs">
-                <thead className="sticky top-0 bg-gray-50 text-gray-600">
+                <thead className="sticky top-0 bg-gray-50 text-gray-600 dark:bg-gray-900/40 dark:text-gray-300">
                   <tr>
                     <th className="px-2 py-1 text-left">Time</th>
                     <th className="px-2 py-1 text-left">Type</th>
@@ -901,7 +908,7 @@ function FeedingLogPanel({
                 </thead>
                 <tbody>
                   {logs.map((l) => (
-                    <tr key={l.id} className="border-t">
+                    <tr key={l.id} className="border-t dark:border-gray-700">
                       <td className="px-2 py-1">
                         {new Date(l.loggedAt).toLocaleString()}
                       </td>

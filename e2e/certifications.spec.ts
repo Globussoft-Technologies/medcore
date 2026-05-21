@@ -9,7 +9,7 @@
  * Surfaces touched:
  *   - ADMIN happy path: lands on the page, sees the heading + Award icon
  *     + Add-Certification CTA + the 3-button filter cluster (All /
- *     Expiring (<=30d) / Expired). Locks the chrome contract used by
+ *     Expiring Soon / Expired). Locks the chrome contract used by
  *     the staff-license expiry-tracking surface.
  *   - ADMIN modal structural pin: opens the Add-Certification modal,
  *     sees the EntityPicker (`cert-user-picker`) + 6 labelled fields
@@ -18,7 +18,7 @@
  *     submit is short-circuited by `if (!form.userId || !form.title)
  *     return;` (page.tsx:87) — no POST is fired, so we pin that
  *     client-side gate.
- *   - ADMIN filter pin: clicking "Expiring (<=30d)" toggles the active
+ *   - ADMIN filter pin: clicking "Expiring Soon" toggles the active
  *     filter chip (visual-state contract). Server filter is purely
  *     client-side over the loaded list (page.tsx:79-84), so we don't
  *     need a network round-trip — just confirm the chip-active state
@@ -80,7 +80,7 @@ test.describe("Staff Certifications — /dashboard/certifications (ADMIN cert-tr
       page.getByRole("button", { name: /^all$/i })
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /expiring \(<=30d\)/i })
+      page.getByRole("button", { name: /^expiring soon$/i })
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: /^expired$/i })

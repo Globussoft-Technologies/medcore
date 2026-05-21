@@ -27,10 +27,10 @@ interface Leave {
 type Tab = "PENDING" | "APPROVED" | "REJECTED" | "ALL";
 
 const STATUS_COLORS: Record<string, string> = {
-  PENDING: "bg-yellow-100 text-yellow-800",
-  APPROVED: "bg-green-100 text-green-700",
-  REJECTED: "bg-red-100 text-red-700",
-  CANCELLED: "bg-gray-100 text-gray-600",
+  PENDING: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300",
+  APPROVED: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+  REJECTED: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+  CANCELLED: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300",
 };
 
 const LEAVE_TYPES = ["CASUAL", "SICK", "EARNED", "MATERNITY", "PATERNITY", "UNPAID"];
@@ -66,7 +66,7 @@ export default function LeaveManagementPage() {
 
   if (user?.role !== "ADMIN") {
     return (
-      <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+      <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
         Access restricted to administrators.
       </div>
     );
@@ -112,7 +112,7 @@ export default function LeaveManagementPage() {
     `px-4 py-2 text-sm font-medium rounded-lg transition ${
       tab === t
         ? "bg-primary text-white"
-        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+        : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
     }`;
 
   return (
@@ -121,7 +121,7 @@ export default function LeaveManagementPage() {
         <h1 className="flex items-center gap-2 text-2xl font-bold">
           <PlaneTakeoff /> Leave Management
         </h1>
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           Review and approve staff leave requests
         </p>
       </div>
@@ -141,14 +141,14 @@ export default function LeaveManagementPage() {
         </button>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-white p-3 shadow-sm">
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-white p-3 shadow-sm dark:bg-gray-800">
         <div className="flex items-center gap-2">
           <label htmlFor="leave-mgmt-type" className="text-sm font-medium">Type:</label>
           <select
             id="leave-mgmt-type"
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            className="rounded-lg border px-3 py-1.5 text-sm"
+            className="rounded-lg border px-3 py-1.5 text-sm bg-white text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
           >
             <option value="ALL">All</option>
             {LEAVE_TYPES.map((t) => (
@@ -165,7 +165,7 @@ export default function LeaveManagementPage() {
             type="date"
             value={fromDate}
             onChange={(e) => setFromDate(e.target.value)}
-            className="rounded-lg border px-3 py-1.5 text-sm"
+            className="rounded-lg border px-3 py-1.5 text-sm bg-white text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
           />
         </div>
         <div className="flex items-center gap-2">
@@ -175,7 +175,7 @@ export default function LeaveManagementPage() {
             type="date"
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}
-            className="rounded-lg border px-3 py-1.5 text-sm"
+            className="rounded-lg border px-3 py-1.5 text-sm bg-white text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
           />
         </div>
         {(fromDate || toDate || typeFilter !== "ALL") && (
@@ -192,17 +192,17 @@ export default function LeaveManagementPage() {
         )}
       </div>
 
-      <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : filtered.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No leave requests found.
           </div>
         ) : (
           <table className="w-full min-w-[800px]">
             <thead>
-              <tr className="border-b bg-gray-50 text-left text-sm text-gray-600">
+              <tr className="border-b bg-gray-50 text-left text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300">
                 <th className="px-4 py-3">Staff</th>
                 <th className="px-4 py-3">Type</th>
                 <th className="px-4 py-3">Dates</th>
@@ -214,10 +214,10 @@ export default function LeaveManagementPage() {
             </thead>
             <tbody>
               {filtered.map((l) => (
-                <tr key={l.id} className="border-b last:border-0">
+                <tr key={l.id} className="border-b last:border-0 dark:border-gray-700">
                   <td className="px-4 py-3">
                     <p className="font-medium">{l.user?.name}</p>
-                    <p className="text-xs text-gray-500">{l.user?.role}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{l.user?.role}</p>
                   </td>
                   <td className="px-4 py-3 text-sm">{l.type}</td>
                   <td className="px-4 py-3 text-sm">
@@ -231,7 +231,7 @@ export default function LeaveManagementPage() {
                       {l.reason}
                     </p>
                     {l.rejectionReason && (
-                      <p className="text-xs text-red-600">
+                      <p className="text-xs text-red-600 dark:text-red-400">
                         Rejected: {l.rejectionReason}
                       </p>
                     )}
@@ -265,7 +265,7 @@ export default function LeaveManagementPage() {
                     ) : (
                       <button
                         onClick={() => openPrintEndpoint(`/leaves/${l.id}/letter`)}
-                        className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                        className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-700"
                         title="Print leave letter"
                       >
                         <Printer size={12} /> Letter
@@ -285,7 +285,7 @@ export default function LeaveManagementPage() {
           <form
             onSubmit={handleRejectSubmit}
             noValidate
-            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
           >
             <h2 className="mb-4 text-lg font-semibold">Reject Leave Request</h2>
             <div>
@@ -297,7 +297,7 @@ export default function LeaveManagementPage() {
                 rows={3}
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 placeholder="Explain why this leave is being rejected..."
               />
             </div>
@@ -305,7 +305,7 @@ export default function LeaveManagementPage() {
               <button
                 type="button"
                 onClick={() => setRejectId(null)}
-                className="rounded-lg border px-4 py-2 text-sm"
+                className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>

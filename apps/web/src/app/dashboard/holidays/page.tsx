@@ -26,6 +26,13 @@ const TYPE_COLORS: Record<string, string> = {
   RESTRICTED: "bg-yellow-100 text-yellow-800",
 };
 
+// Shared styling for the Add/Edit-Holiday modal form controls. The modal
+// renders on the dark dashboard layout, so without explicit colors the inputs
+// inherit the layout's light text (dark:text-gray-100) and wash out; the dark
+// variants give them a legible dark surface.
+const MODAL_FIELD =
+  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
+
 // Common Indian holiday templates (Issue #72 — corrected 2026 calendar:
 // Holi 4-Mar, Eid al-Fitr 21-Mar, Diwali 8-Nov, plus the missing festivals).
 const HOLIDAY_TEMPLATE: Array<{
@@ -225,7 +232,7 @@ export default function HolidaysPage() {
           <select
             value={year}
             onChange={(e) => setYear(parseInt(e.target.value, 10))}
-            className="rounded-lg border bg-white px-3 py-2 text-sm"
+            className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
           >
             {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
               <option key={y} value={y}>
@@ -235,7 +242,7 @@ export default function HolidaysPage() {
           </select>
           <button
             onClick={importTemplate}
-            className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm hover:bg-gray-50"
+            className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             <Upload size={14} /> Import Template
           </button>
@@ -248,18 +255,18 @@ export default function HolidaysPage() {
         </div>
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : holidays.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No holidays configured for {year}. Click &ldquo;Import Template&rdquo; to start.
           </div>
         ) : (
           <div className="overflow-x-auto">
           <table className="w-full min-w-[720px]">
             <thead>
-              <tr className="border-b text-left text-xs text-gray-500">
+              <tr className="border-b text-left text-xs text-gray-500 dark:border-gray-700 dark:text-gray-300">
                 <th className="px-4 py-3">Date</th>
                 <th className="px-4 py-3">Day</th>
                 <th className="px-4 py-3">Name</th>
@@ -272,7 +279,7 @@ export default function HolidaysPage() {
               {holidays.map((h) => {
                 const d = new Date(h.date);
                 return (
-                  <tr key={h.id} className="border-b last:border-0 text-sm">
+                  <tr key={h.id} className="border-b last:border-0 text-sm dark:border-gray-700">
                     <td className="px-4 py-3 font-mono text-xs">
                       {d.toLocaleDateString("en-IN", {
                         day: "2-digit",
@@ -280,7 +287,7 @@ export default function HolidaysPage() {
                         year: "numeric",
                       })}
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-500">
+                    <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
                       {d.toLocaleDateString("en-IN", { weekday: "long" })}
                     </td>
                     <td className="px-4 py-3 font-medium">{h.name}</td>
@@ -293,7 +300,7 @@ export default function HolidaysPage() {
                         {h.type}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-600">
+                    <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-300">
                       {h.description || "—"}
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -303,7 +310,7 @@ export default function HolidaysPage() {
                           data-testid={`holiday-edit-${h.id}`}
                           aria-label={`Edit ${h.name}`}
                           title={`Edit ${h.name}`}
-                          className="rounded p-1 text-gray-600 hover:bg-gray-100"
+                          className="rounded p-1 text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
                         >
                           <Edit2 size={14} />
                         </button>
@@ -312,7 +319,7 @@ export default function HolidaysPage() {
                           data-testid={`holiday-delete-${h.id}`}
                           aria-label={`Delete ${h.name}`}
                           title={`Delete ${h.name}`}
-                          className="rounded p-1 text-red-500 hover:bg-red-50"
+                          className="rounded p-1 text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -330,7 +337,7 @@ export default function HolidaysPage() {
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div
-            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
             data-testid="holiday-form-modal"
           >
             <h3 className="mb-4 text-lg font-semibold">
@@ -338,7 +345,7 @@ export default function HolidaysPage() {
             </h3>
             <div className="space-y-3">
               <div>
-                <label htmlFor="add-holiday-date" className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="add-holiday-date" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                   Date
                 </label>
                 <input
@@ -350,7 +357,7 @@ export default function HolidaysPage() {
                     if (holidayFieldErrors.date)
                       setHolidayFieldErrors((p) => ({ ...p, date: undefined }));
                   }}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                   data-testid="holiday-date"
                 />
                 {holidayFieldErrors.date && (
@@ -363,7 +370,7 @@ export default function HolidaysPage() {
                 )}
               </div>
               <div>
-                <label htmlFor="add-holiday-name" className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="add-holiday-name" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                   Name
                 </label>
                 <input
@@ -374,7 +381,7 @@ export default function HolidaysPage() {
                     if (holidayFieldErrors.name)
                       setHolidayFieldErrors((p) => ({ ...p, name: undefined }));
                   }}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                   data-testid="holiday-name"
                 />
                 {holidayFieldErrors.name && (
@@ -387,14 +394,14 @@ export default function HolidaysPage() {
                 )}
               </div>
               <div>
-                <label htmlFor="add-holiday-type" className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="add-holiday-type" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                   Type
                 </label>
                 <select
                   id="add-holiday-type"
                   value={form.type}
                   onChange={(e) => setForm({ ...form, type: e.target.value })}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                 >
                   {TYPES.map((t) => (
                     <option key={t} value={t}>
@@ -404,7 +411,7 @@ export default function HolidaysPage() {
                 </select>
               </div>
               <div>
-                <label htmlFor="add-holiday-description" className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="add-holiday-description" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                   Description
                 </label>
                 <textarea
@@ -414,7 +421,7 @@ export default function HolidaysPage() {
                     setForm({ ...form, description: e.target.value })
                   }
                   rows={2}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                 />
               </div>
             </div>
@@ -425,7 +432,7 @@ export default function HolidaysPage() {
                   setEditingHoliday(null);
                   setForm({ date: "", name: "", type: "PUBLIC", description: "" });
                 }}
-                className="rounded-lg border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
+                className="rounded-lg border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>

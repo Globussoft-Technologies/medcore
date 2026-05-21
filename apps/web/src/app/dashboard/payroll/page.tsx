@@ -207,13 +207,13 @@ export default function PayrollPage() {
 
   return (
     <div>
-      <div className="mb-4 flex gap-2 border-b border-slate-200">
+      <div className="mb-4 flex gap-2 border-b border-slate-200 dark:border-gray-700">
         <button
           onClick={() => setActiveTab("payroll")}
           className={`px-3 py-2 text-sm border-b-2 -mb-0.5 ${
             activeTab === "payroll"
               ? "border-primary text-primary font-semibold"
-              : "border-transparent text-slate-600"
+              : "border-transparent text-slate-600 dark:text-gray-400 dark:hover:text-gray-200"
           }`}
         >
           Payroll
@@ -223,7 +223,7 @@ export default function PayrollPage() {
           className={`px-3 py-2 text-sm border-b-2 -mb-0.5 ${
             activeTab === "overtime"
               ? "border-primary text-primary font-semibold"
-              : "border-transparent text-slate-600"
+              : "border-transparent text-slate-600 dark:text-gray-400 dark:hover:text-gray-200"
           }`}
         >
           Overtime
@@ -241,7 +241,7 @@ export default function PayrollPage() {
             type="month"
             value={month}
             onChange={(e) => setMonth(e.target.value)}
-            className="rounded-lg border bg-white px-3 py-2 text-sm"
+            className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
           />
           <button
             onClick={generateAll}
@@ -257,23 +257,23 @@ export default function PayrollPage() {
           </button>
           <button
             onClick={exportCSV}
-            className="flex items-center gap-2 rounded-lg border bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="flex items-center gap-2 rounded-lg border bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             <Download size={16} /> Export CSV
           </button>
         </div>
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading staff...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading staff...</div>
         ) : staff.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">No staff found</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">No staff found</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b text-left text-xs text-gray-500">
+                <tr className="border-b text-left text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300">
                   <th className="px-3 py-3">Name</th>
                   <th className="px-3 py-3">Role</th>
                   <th className="px-3 py-3">Basic</th>
@@ -293,9 +293,9 @@ export default function PayrollPage() {
                   const r = results[s.id];
                   const isEditing = editingId === s.id;
                   return (
-                    <tr key={s.id} className="border-b last:border-0 text-sm">
+                    <tr key={s.id} className="border-b last:border-0 text-sm dark:border-gray-700">
                       <td className="px-3 py-3 font-medium">{s.name}</td>
-                      <td className="px-3 py-3 text-xs text-gray-600">
+                      <td className="px-3 py-3 text-xs text-gray-600 dark:text-gray-300">
                         {s.role}
                       </td>
                       <td className="px-3 py-3">
@@ -305,7 +305,7 @@ export default function PayrollPage() {
                             onChange={(e) =>
                               updateSetting(s.id, "basicSalary", e.target.value)
                             }
-                            className="w-24 rounded border px-2 py-1 text-xs"
+                            className="w-24 rounded border bg-white px-2 py-1 text-xs text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                           />
                         ) : (
                           fmtMoney(parseFloat(cfg?.basicSalary || "0"))
@@ -318,7 +318,7 @@ export default function PayrollPage() {
                             onChange={(e) =>
                               updateSetting(s.id, "allowances", e.target.value)
                             }
-                            className="w-20 rounded border px-2 py-1 text-xs"
+                            className="w-20 rounded border bg-white px-2 py-1 text-xs text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                           />
                         ) : (
                           fmtMoney(parseFloat(cfg?.allowances || "0"))
@@ -331,7 +331,7 @@ export default function PayrollPage() {
                             onChange={(e) =>
                               updateSetting(s.id, "overtimeRate", e.target.value)
                             }
-                            className="w-20 rounded border px-2 py-1 text-xs"
+                            className="w-20 rounded border bg-white px-2 py-1 text-xs text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                           />
                         ) : (
                           `Rs. ${cfg?.overtimeRate || 0}/h`
@@ -344,7 +344,7 @@ export default function PayrollPage() {
                             onChange={(e) =>
                               updateSetting(s.id, "deductions", e.target.value)
                             }
-                            className="w-20 rounded border px-2 py-1 text-xs"
+                            className="w-20 rounded border bg-white px-2 py-1 text-xs text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                           />
                         ) : (
                           fmtMoney(parseFloat(cfg?.deductions || "0"))
@@ -380,7 +380,7 @@ export default function PayrollPage() {
                             onClick={() =>
                               setEditingId(isEditing ? null : s.id)
                             }
-                            className="rounded border px-2 py-1 text-xs hover:bg-gray-50"
+                            className="rounded border px-2 py-1 text-xs hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
                           >
                             {isEditing ? "Done" : "Edit"}
                           </button>
@@ -409,7 +409,7 @@ export default function PayrollPage() {
                                 `/hr-ops/payroll/${s.id}/slip?${params.toString()}`
                               );
                             }}
-                            className="flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-gray-50"
+                            className="flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
                             title="Print pay slip"
                             data-testid={`slip-${s.id}`}
                           >
@@ -510,7 +510,7 @@ function OvertimePanel({
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Overtime</h1>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-slate-500 dark:text-gray-400">
             {rows.length} records - pending Rs. {totalPending.toFixed(2)} - approved Rs. {totalApproved.toFixed(2)}
           </p>
         </div>
@@ -519,7 +519,7 @@ function OvertimePanel({
             type="month"
             value={month}
             onChange={(e) => onMonthChange(e.target.value)}
-            className="rounded-lg border bg-white px-3 py-2 text-sm"
+            className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
           />
           <button
             onClick={autoCalc}
@@ -531,16 +531,16 @@ function OvertimePanel({
         </div>
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-slate-500">Loading...</div>
+          <div className="p-8 text-center text-slate-500 dark:text-gray-400">Loading...</div>
         ) : rows.length === 0 ? (
-          <div className="p-8 text-center text-slate-500">No overtime records.</div>
+          <div className="p-8 text-center text-slate-500 dark:text-gray-400">No overtime records.</div>
         ) : (
           <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[760px]">
             <thead>
-              <tr className="border-b text-left text-xs text-slate-500">
+              <tr className="border-b text-left text-xs text-slate-500 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300">
                 <th className="px-3 py-2">Staff</th>
                 <th className="px-3 py-2">Date</th>
                 <th className="px-3 py-2 text-right">Reg Hrs</th>
@@ -553,7 +553,7 @@ function OvertimePanel({
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="border-t border-slate-100">
+                <tr key={r.id} className="border-t border-slate-100 dark:border-gray-700">
                   <td className="px-3 py-2">{r.user?.name || r.userId.slice(0, 8)}</td>
                   <td className="px-3 py-2">{r.date.slice(0, 10)}</td>
                   <td className="px-3 py-2 text-right">{r.regularHours.toFixed(1)}</td>

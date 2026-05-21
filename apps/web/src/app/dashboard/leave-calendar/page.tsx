@@ -140,7 +140,7 @@ export default function LeaveCalendarPage() {
         <div className="flex items-center gap-3">
           <button
             onClick={prevMonth}
-            className="rounded-lg border bg-white p-2 hover:bg-gray-50"
+            className="rounded-lg border bg-white p-2 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             <ChevronLeft size={16} />
           </button>
@@ -152,13 +152,13 @@ export default function LeaveCalendarPage() {
           </p>
           <button
             onClick={nextMonth}
-            className="rounded-lg border bg-white p-2 hover:bg-gray-50"
+            className="rounded-lg border bg-white p-2 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             <ChevronRight size={16} />
           </button>
           <button
             onClick={() => setAnchor(startOfMonth(new Date()))}
-            className="rounded-lg border bg-white px-3 py-2 text-sm hover:bg-gray-50"
+            className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             Today
           </button>
@@ -166,26 +166,26 @@ export default function LeaveCalendarPage() {
       </div>
 
       {/* Legend */}
-      <div className="mb-4 flex flex-wrap gap-3 rounded-xl bg-white p-3 shadow-sm">
+      <div className="mb-4 flex flex-wrap gap-3 rounded-xl bg-white p-3 shadow-sm dark:bg-gray-800">
         {Object.entries(TYPE_COLORS).map(([k, v]) => (
           <div key={k} className="flex items-center gap-2 text-xs">
             <span className={`h-3 w-3 rounded ${v}`} />
-            <span className="text-gray-700">{k}</span>
+            <span className="text-gray-700 dark:text-gray-200">{k}</span>
           </div>
         ))}
         {/* Issue #69 — pending swatch */}
         <div className="flex items-center gap-2 text-xs">
           <span className="h-3 w-3 rounded border border-dashed border-gray-500 bg-gray-300 opacity-60" />
-          <span className="text-gray-700">PENDING (awaiting approval)</span>
+          <span className="text-gray-700 dark:text-gray-200">PENDING (awaiting approval)</span>
         </div>
       </div>
 
-      <div className="rounded-xl bg-white p-4 shadow-sm">
+      <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : (
           <>
-            <div className="mb-1 grid grid-cols-7 text-center text-xs font-semibold text-gray-500">
+            <div className="mb-1 grid grid-cols-7 text-center text-xs font-semibold text-gray-500 dark:text-gray-400">
               {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
                 <div key={d} className="py-2">
                   {d}
@@ -195,7 +195,7 @@ export default function LeaveCalendarPage() {
             <div className="grid grid-cols-7 gap-1">
               {cells.map((c, i) => {
                 if (!c.date)
-                  return <div key={i} className="h-28 rounded bg-gray-50" />;
+                  return <div key={i} className="h-28 rounded bg-gray-50 dark:bg-gray-900/40" />;
                 const dayLeaves = leavesOnDate(c.date);
                 const isToday = sameDay(c.date, new Date());
                 return (
@@ -204,18 +204,18 @@ export default function LeaveCalendarPage() {
                     onClick={() => setSelectedDate(c.date)}
                     className={`h-28 overflow-hidden rounded border text-left transition hover:border-primary ${
                       isToday
-                        ? "border-primary bg-primary/5"
-                        : "border-gray-200 bg-white"
+                        ? "border-primary bg-primary/5 dark:bg-primary/20"
+                        : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800"
                     }`}
                   >
                     <div className="flex items-center justify-between px-2 pt-1">
                       <span
-                        className={`text-xs font-semibold ${isToday ? "text-primary" : "text-gray-700"}`}
+                        className={`text-xs font-semibold ${isToday ? "text-primary" : "text-gray-700 dark:text-gray-200"}`}
                       >
                         {c.date.getDate()}
                       </span>
                       {dayLeaves.length > 0 && (
-                        <span className="rounded-full bg-gray-200 px-1.5 text-xs text-gray-700">
+                        <span className="rounded-full bg-gray-200 px-1.5 text-xs text-gray-700 dark:bg-gray-700 dark:text-gray-200">
                           {dayLeaves.length}
                         </span>
                       )}
@@ -247,7 +247,7 @@ export default function LeaveCalendarPage() {
                         );
                       })}
                       {dayLeaves.length > 3 && (
-                        <div className="px-1 text-[10px] text-gray-500">
+                        <div className="px-1 text-[10px] text-gray-500 dark:text-gray-400">
                           +{dayLeaves.length - 3} more
                         </div>
                       )}
@@ -266,7 +266,7 @@ export default function LeaveCalendarPage() {
           onClick={() => setSelectedDate(null)}
         >
           <div
-            className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
@@ -280,13 +280,13 @@ export default function LeaveCalendarPage() {
               </h3>
               <button
                 onClick={() => setSelectedDate(null)}
-                className="rounded p-1 hover:bg-gray-100"
+                className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-700"
               >
                 ×
               </button>
             </div>
             {selectedLeaves.length === 0 ? (
-              <p className="py-6 text-center text-sm text-gray-500">
+              <p className="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
                 No one is on leave this day.
               </p>
             ) : (
@@ -294,7 +294,7 @@ export default function LeaveCalendarPage() {
                 {selectedLeaves.map((l) => (
                   <div
                     key={l.id}
-                    className="flex items-start gap-3 rounded-lg border p-3"
+                    className="flex items-start gap-3 rounded-lg border p-3 dark:border-gray-700"
                   >
                     <span
                       className={`mt-1 h-3 w-3 flex-shrink-0 rounded-full ${
@@ -306,16 +306,16 @@ export default function LeaveCalendarPage() {
                         <p className="font-medium">
                           {l.user?.name || "Unknown"}
                         </p>
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300">
                           {l.user?.role}
                         </span>
                       </div>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
                         {l.type} · {new Date(l.fromDate).toLocaleDateString()} →{" "}
                         {new Date(l.toDate).toLocaleDateString()} ({l.totalDays}d)
                       </p>
                       {l.reason && (
-                        <p className="mt-1 text-xs text-gray-600">
+                        <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">
                           &ldquo;{l.reason}&rdquo;
                         </p>
                       )}

@@ -39,6 +39,13 @@ const CATEGORIES = [
   "OTHER",
 ];
 
+// Shared styling for the Set-Budget / Edit-Budget modal form controls. The
+// modal renders on the dark dashboard layout, so without explicit colors the
+// inputs inherit the layout's light text (dark:text-gray-100) and wash out on
+// the white card; the dark variants give them a legible dark surface.
+const MODAL_FIELD =
+  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
+
 function fmtMoney(n: number) {
   return `Rs. ${n.toLocaleString("en-IN", {
     minimumFractionDigits: 0,
@@ -168,7 +175,7 @@ export default function BudgetsPage() {
             type="month"
             value={month}
             onChange={(e) => setMonth(e.target.value)}
-            className="rounded-lg border bg-white px-3 py-2 text-sm"
+            className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
           />
           <button
             onClick={() => setShowForm(true)}
@@ -181,14 +188,14 @@ export default function BudgetsPage() {
 
       {/* Summary */}
       <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <p className="text-xs text-gray-500">Total Budget</p>
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Total Budget</p>
           <p className="text-2xl font-bold">{fmtMoney(totalBudget)}</p>
         </div>
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <p className="text-xs text-gray-500">Total Spent</p>
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Total Spent</p>
           <p
-            className="text-2xl font-bold text-blue-600"
+            className="text-2xl font-bold text-blue-600 dark:text-blue-400"
             data-testid="kpi-total-spent"
           >
             {fmtMoney(totalActual)}
@@ -196,17 +203,17 @@ export default function BudgetsPage() {
           {/* Issue #76: surface uncategorised spend in the KPI subtitle so
               users know why Total Spent ≠ sum(budgeted actual). */}
           {uncategorisedTotal > 0 && (
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               Includes {fmtMoney(uncategorisedTotal)} in categories without a
               budget set
             </p>
           )}
         </div>
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <p className="text-xs text-gray-500">Variance</p>
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Variance</p>
           <p
             className={`flex items-center gap-2 text-2xl font-bold ${
-              totalVariance > 0 ? "text-red-600" : "text-green-600"
+              totalVariance > 0 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"
             }`}
             data-testid="kpi-variance"
           >
@@ -219,19 +226,19 @@ export default function BudgetsPage() {
           </p>
           {/* Issue #76: clarify that Variance compares against budgeted-only
               spend — Total Spent above is the full picture. */}
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Variance vs budgeted only — see Total Spent for full picture.
           </p>
         </div>
       </div>
 
       {/* Chart */}
-      <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
+      <div className="mb-6 rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
         <h3 className="mb-4 font-semibold">Budget vs Actual by Category</h3>
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : rows.length === 0 ? (
-          <p className="py-6 text-center text-sm text-gray-500">
+          <p className="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
             No budgets set for this month. Click &ldquo;Set Budget&rdquo; to start.
           </p>
         ) : (
@@ -254,16 +261,16 @@ export default function BudgetsPage() {
                   data-testid={`budget-row-${r.category}`}
                 >
                   <div className="mb-1 flex items-center justify-between text-sm">
-                    <span className="font-medium">{r.category}</span>
+                    <span className="font-medium text-gray-900 dark:text-gray-100">{r.category}</span>
                     <div className="flex items-center gap-2 text-xs">
-                      <span className="text-gray-500">
+                      <span className="text-gray-500 dark:text-gray-400">
                         {fmtMoney(r.actual)} / {fmtMoney(r.budget)}
                       </span>
                       <span
                         className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
                           overBudget
-                            ? "bg-red-100 text-red-700"
-                            : "bg-green-100 text-green-700"
+                            ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                            : "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
                         }`}
                       >
                         {overBudget ? (
@@ -278,7 +285,7 @@ export default function BudgetsPage() {
                         onClick={() => openEdit(r)}
                         data-testid={`budget-edit-${r.category}`}
                         title="Edit budget"
-                        className="flex items-center gap-1 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 hover:bg-gray-200"
+                        className="flex items-center gap-1 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
                       >
                         <Edit2 size={11} /> Edit
                       </button>
@@ -286,7 +293,7 @@ export default function BudgetsPage() {
                         onClick={() => setViewingRow(r)}
                         data-testid={`budget-view-${r.category}`}
                         title="View details"
-                        className="flex items-center gap-1 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 hover:bg-gray-200"
+                        className="flex items-center gap-1 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
                       >
                         <Eye size={11} /> View
                       </button>
@@ -312,7 +319,7 @@ export default function BudgetsPage() {
                       }
                     />
                   </svg>
-                  <div className="flex gap-4 text-xs text-gray-500">
+                  <div className="flex gap-4 text-xs text-gray-500 dark:text-gray-400">
                     <span className="flex items-center gap-1">
                       <span className="h-2 w-2 bg-blue-300" /> Budget
                     </span>
@@ -338,15 +345,15 @@ export default function BudgetsPage() {
 
       {/* Uncategorized */}
       {data && data.uncategorizedActual.length > 0 && (
-        <div className="mb-6 rounded-xl bg-yellow-50 p-4 text-sm shadow-sm">
-          <p className="mb-2 font-semibold text-yellow-800">
+        <div className="mb-6 rounded-xl bg-yellow-50 p-4 text-sm shadow-sm dark:bg-yellow-900/20 dark:ring-1 dark:ring-yellow-800/40">
+          <p className="mb-2 font-semibold text-yellow-800 dark:text-yellow-300">
             Spending without budgets set
           </p>
           <div className="space-y-1">
             {data.uncategorizedActual.map((u) => (
               <div
                 key={u.category}
-                className="flex justify-between text-xs text-yellow-900"
+                className="flex justify-between text-xs text-yellow-900 dark:text-yellow-200"
               >
                 <span>{u.category}</span>
                 <span className="font-semibold">{fmtMoney(u.actual)}</span>
@@ -358,13 +365,13 @@ export default function BudgetsPage() {
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl">
+          <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100">
             <h3 className="mb-4 text-lg font-semibold">
               {editingRow ? `Edit Budget — ${editingRow.category}` : "Set Monthly Budget"}
             </h3>
             <div className="space-y-3">
               <div>
-                <label htmlFor="add-budget-category" className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="add-budget-category" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                   Category
                 </label>
                 <select
@@ -375,7 +382,7 @@ export default function BudgetsPage() {
                   // is the upsert key — locking it prevents accidentally
                   // creating a new row instead of updating.
                   disabled={!!editingRow}
-                  className="w-full rounded-lg border px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-500"
+                  className={`${MODAL_FIELD} disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-400`}
                 >
                   {CATEGORIES.map((c) => (
                     <option key={c} value={c}>
@@ -385,7 +392,7 @@ export default function BudgetsPage() {
                 </select>
               </div>
               <div>
-                <label htmlFor="add-budget-amount" className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="add-budget-amount" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                   Amount (Rs.)
                 </label>
                 <input
@@ -395,11 +402,11 @@ export default function BudgetsPage() {
                   step="0.01"
                   value={formAmount}
                   onChange={(e) => setFormAmount(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                 />
               </div>
               <div>
-                <label htmlFor="add-budget-notes" className="mb-1 block text-xs font-medium text-gray-600">
+                <label htmlFor="add-budget-notes" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                   Notes
                 </label>
                 <textarea
@@ -407,7 +414,7 @@ export default function BudgetsPage() {
                   value={formNotes}
                   onChange={(e) => setFormNotes(e.target.value)}
                   rows={2}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                 />
               </div>
             </div>
@@ -417,7 +424,7 @@ export default function BudgetsPage() {
                   setShowForm(false);
                   setEditingRow(null);
                 }}
-                className="rounded-lg border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
+                className="rounded-lg border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>
@@ -437,31 +444,31 @@ export default function BudgetsPage() {
       {viewingRow && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div
-            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
             data-testid="budget-view-modal"
           >
             <h3 className="mb-1 text-lg font-semibold">
               {viewingRow.category} — {month}
             </h3>
-            <p className="mb-4 text-xs text-gray-500">
+            <p className="mb-4 text-xs text-gray-500 dark:text-gray-400">
               Read-only snapshot of this row&apos;s allocation and spend.
             </p>
             <dl className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <dt className="text-gray-500">Allocated Budget</dt>
+                <dt className="text-gray-500 dark:text-gray-400">Allocated Budget</dt>
                 <dd className="font-semibold">{fmtMoney(viewingRow.budget)}</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-gray-500">Actual Spend</dt>
+                <dt className="text-gray-500 dark:text-gray-400">Actual Spend</dt>
                 <dd className="font-semibold">{fmtMoney(viewingRow.actual)}</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-gray-500">Variance</dt>
+                <dt className="text-gray-500 dark:text-gray-400">Variance</dt>
                 <dd
                   className={`font-semibold ${
                     viewingRow.variance > 0
-                      ? "text-red-600"
-                      : "text-green-600"
+                      ? "text-red-600 dark:text-red-400"
+                      : "text-green-600 dark:text-green-400"
                   }`}
                 >
                   {viewingRow.variance > 0 ? "+" : ""}
@@ -469,7 +476,7 @@ export default function BudgetsPage() {
                 </dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-gray-500">Utilisation</dt>
+                <dt className="text-gray-500 dark:text-gray-400">Utilisation</dt>
                 {/* Issue #699: read the server-computed canonical
                     utilisation field so the modal always agrees with
                     the row pill and chart label above. */}
@@ -479,7 +486,7 @@ export default function BudgetsPage() {
             <div className="mt-5 flex justify-end gap-2">
               <button
                 onClick={() => setViewingRow(null)}
-                className="rounded-lg border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
+                className="rounded-lg border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 Close
               </button>

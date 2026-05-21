@@ -56,6 +56,13 @@ const STATUS_DOT: Record<string, string> = {
   LEAVE: "bg-blue-500",
 };
 
+// Shared styling for the Assign-Shift and Bulk-Schedule modal form controls.
+// The modals render on the dark dashboard layout, so without explicit colors
+// the inputs inherit the layout's light text (dark:text-gray-100) and wash out;
+// the dark variants give them a legible dark surface.
+const MODAL_FIELD =
+  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
+
 function todayKey(): string {
   const d = new Date();
   return d.toISOString().slice(0, 10);
@@ -285,7 +292,7 @@ export default function DutyRosterPage() {
           <h1 className="flex items-center gap-2 text-2xl font-bold">
             <Users2 /> Duty Roster
           </h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Shift assignments for all staff on a given date
           </p>
         </div>
@@ -315,7 +322,7 @@ export default function DutyRosterPage() {
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="rounded-lg border px-3 py-1.5 text-sm"
+            className="rounded-lg border px-3 py-1.5 text-sm bg-white text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
           />
         </div>
         <div className="flex items-center gap-2">
@@ -324,7 +331,7 @@ export default function DutyRosterPage() {
             id="roster-role-filter"
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value)}
-            className="rounded-lg border px-3 py-1.5 text-sm"
+            className="rounded-lg border px-3 py-1.5 text-sm bg-white text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
           >
             <option value="ALL">All</option>
             <option value="DOCTOR">Doctor</option>
@@ -337,13 +344,13 @@ export default function DutyRosterPage() {
 
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : filteredStaff.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">No staff found.</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">No staff found.</div>
         ) : (
           <table className="w-full min-w-[720px]">
             <thead>
-              <tr className="border-b bg-gray-50 text-left text-sm text-gray-600">
+              <tr className="border-b bg-gray-50 text-left text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300">
                 <th className="px-4 py-3">Staff</th>
                 {SHIFT_TYPES.map((t) => (
                   <th key={t} className="px-4 py-3">
@@ -354,10 +361,10 @@ export default function DutyRosterPage() {
             </thead>
             <tbody>
               {filteredStaff.map((u) => (
-                <tr key={u.id} className="border-b last:border-0">
+                <tr key={u.id} className="border-b last:border-0 dark:border-gray-700">
                   <td className="px-4 py-3">
-                    <p className="font-medium text-gray-900">{u.name}</p>
-                    <p className="text-xs text-gray-600">{u.role}</p>
+                    <p className="font-medium text-gray-900 dark:text-gray-100">{u.name}</p>
+                    <p className="text-xs text-gray-600 dark:text-gray-300">{u.role}</p>
                   </td>
                   {SHIFT_TYPES.map((t) => {
                     const cs = cellShifts(u.id, t);
@@ -371,7 +378,7 @@ export default function DutyRosterPage() {
                             type="button"
                             data-testid={`assign-cell-${u.id}-${t}`}
                             onClick={() => openAssignForCell(u.id, t)}
-                            className="flex w-full items-center justify-center rounded-lg border border-dashed border-transparent px-2 py-1 text-xs text-gray-300 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-500"
+                            className="flex w-full items-center justify-center rounded-lg border border-dashed border-transparent px-2 py-1 text-xs text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:text-gray-300 dark:hover:border-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-100"
                             title={`Assign ${t} shift to ${u.name}`}
                           >
                             <Plus size={12} className="mr-1" />
@@ -382,7 +389,7 @@ export default function DutyRosterPage() {
                             {cs.map((s) => (
                               <div
                                 key={s.id}
-                                className="flex items-center justify-between gap-2 rounded-lg border bg-gray-50 px-2 py-1"
+                                className="flex items-center justify-between gap-2 rounded-lg border bg-gray-50 px-2 py-1 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
                               >
                                 <div className="flex items-center gap-2">
                                   <span
@@ -394,7 +401,7 @@ export default function DutyRosterPage() {
                                 </div>
                                 <button
                                   onClick={() => deleteShift(s.id)}
-                                  className="text-gray-400 hover:text-red-600"
+                                  className="text-gray-400 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400"
                                   title="Delete"
                                 >
                                   <Trash2 size={12} />
@@ -413,7 +420,7 @@ export default function DutyRosterPage() {
         )}
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-4 text-xs text-gray-600">
+      <div className="mt-4 flex flex-wrap gap-4 text-xs text-gray-600 dark:text-gray-300">
         <span className="flex items-center gap-1">
           <span className="h-2 w-2 rounded-full bg-gray-400" /> Scheduled
         </span>
@@ -438,7 +445,7 @@ export default function DutyRosterPage() {
             data-testid="add-shift-modal"
             onSubmit={submitAdd}
             noValidate
-            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
           >
             <h2 className="mb-4 text-lg font-semibold">Assign Shift</h2>
             <div className="space-y-3">
@@ -450,7 +457,7 @@ export default function DutyRosterPage() {
                   onChange={(e) =>
                     setAddForm({ ...addForm, userId: e.target.value })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                 >
                   <option value="">Select staff</option>
                   {filteredStaff.map((u) => (
@@ -469,7 +476,7 @@ export default function DutyRosterPage() {
                   onChange={(e) =>
                     setAddForm({ ...addForm, date: e.target.value })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                 />
               </div>
               <div>
@@ -482,7 +489,7 @@ export default function DutyRosterPage() {
                   onChange={(e) =>
                     handleShiftTypeChange(e.target.value as Shift["type"], "add")
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                 >
                   {SHIFT_TYPES.map((t) => (
                     <option key={t} value={t}>
@@ -503,7 +510,7 @@ export default function DutyRosterPage() {
                     onChange={(e) =>
                       setAddForm({ ...addForm, startTime: e.target.value })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className={MODAL_FIELD}
                   />
                 </div>
                 <div>
@@ -517,7 +524,7 @@ export default function DutyRosterPage() {
                     onChange={(e) =>
                       setAddForm({ ...addForm, endTime: e.target.value })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className={MODAL_FIELD}
                   />
                 </div>
               </div>
@@ -531,7 +538,7 @@ export default function DutyRosterPage() {
                   onChange={(e) =>
                     setAddForm({ ...addForm, notes: e.target.value })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                 />
               </div>
             </div>
@@ -539,7 +546,7 @@ export default function DutyRosterPage() {
               <button
                 type="button"
                 onClick={() => setShowAdd(false)}
-                className="rounded-lg border px-4 py-2 text-sm"
+                className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>
@@ -560,7 +567,7 @@ export default function DutyRosterPage() {
           <form
             onSubmit={submitBulk}
             noValidate
-            className="w-full max-h-[90vh] overflow-y-auto max-w-xl rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-xl rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
           >
             <h2 className="mb-4 text-lg font-semibold">Bulk Schedule</h2>
             <div className="space-y-3">
@@ -568,11 +575,11 @@ export default function DutyRosterPage() {
                 <label className="mb-1 block text-sm font-medium">
                   Select Staff ({bulkForm.userIds.length} selected)
                 </label>
-                <div className="max-h-40 overflow-y-auto rounded-lg border p-2">
+                <div className="max-h-40 overflow-y-auto rounded-lg border p-2 dark:border-gray-700">
                   {filteredStaff.map((u) => (
                     <label
                       key={u.id}
-                      className="flex cursor-pointer items-center gap-2 px-2 py-1 text-sm hover:bg-gray-50"
+                      className="flex cursor-pointer items-center gap-2 px-2 py-1 text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
                     >
                       <input
                         type="checkbox"
@@ -586,7 +593,7 @@ export default function DutyRosterPage() {
                           }));
                         }}
                       />
-                      {u.name} <span className="text-xs text-gray-500">({u.role})</span>
+                      {u.name} <span className="text-xs text-gray-500 dark:text-gray-400">({u.role})</span>
                     </label>
                   ))}
                 </div>
@@ -601,7 +608,7 @@ export default function DutyRosterPage() {
                     onChange={(e) =>
                       setBulkForm({ ...bulkForm, fromDate: e.target.value })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className={MODAL_FIELD}
                   />
                 </div>
                 <div>
@@ -613,7 +620,7 @@ export default function DutyRosterPage() {
                     onChange={(e) =>
                       setBulkForm({ ...bulkForm, toDate: e.target.value })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className={MODAL_FIELD}
                   />
                 </div>
               </div>
@@ -627,7 +634,7 @@ export default function DutyRosterPage() {
                   onChange={(e) =>
                     handleShiftTypeChange(e.target.value as Shift["type"], "bulk")
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                 >
                   {SHIFT_TYPES.map((t) => (
                     <option key={t} value={t}>
@@ -648,7 +655,7 @@ export default function DutyRosterPage() {
                     onChange={(e) =>
                       setBulkForm({ ...bulkForm, startTime: e.target.value })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className={MODAL_FIELD}
                   />
                 </div>
                 <div>
@@ -662,7 +669,7 @@ export default function DutyRosterPage() {
                     onChange={(e) =>
                       setBulkForm({ ...bulkForm, endTime: e.target.value })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className={MODAL_FIELD}
                   />
                 </div>
               </div>
@@ -671,7 +678,7 @@ export default function DutyRosterPage() {
               <button
                 type="button"
                 onClick={() => setShowBulk(false)}
-                className="rounded-lg border px-4 py-2 text-sm"
+                className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>

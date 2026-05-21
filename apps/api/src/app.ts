@@ -125,6 +125,7 @@ import { aiFraudRouter } from "./routes/ai-fraud";
 import { aiDocQaRouter } from "./routes/ai-doc-qa";
 import { aiSentimentRouter } from "./routes/ai-sentiment";
 import { tenantsRouter } from "./routes/tenants";
+import { tenantOnboardingRouter } from "./routes/tenant-onboarding";
 import { branchesRouter } from "./routes/branches";
 import { campaignsRouter, publicCampaignsRouter } from "./routes/campaigns";
 import { campaignAudiencesRouter } from "./routes/campaign-audiences";
@@ -365,6 +366,11 @@ export function buildApp() {
   app.use("/api/v1/ai/doc-qa", aiDocQaRouter);
   app.use("/api/v1/ai/sentiment", aiSentimentRouter);
   app.use("/api/v1/tenants", tenantsRouter);
+  // Pearl §8.1 gap #6 piece 2 of 4 — super-admin onboarding wizard
+  // (3-step MVP creates tenant + first branch + super-admin user
+  // atomically). HFR/HPR/WhatsApp/Razorpay config steps deferred to
+  // piece 2b. See apps/web/src/app/super-admin/onboard/.
+  app.use("/api/v1/tenant-onboarding", tenantOnboardingRouter);
   app.use("/api/v1/branches", branchesRouter);
   app.use("/api/v1/campaigns", campaignsRouter);
   app.use("/api/v1/campaign-audiences", campaignAudiencesRouter);

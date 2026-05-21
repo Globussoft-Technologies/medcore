@@ -2,14 +2,32 @@ name: Release validation
 
 # Heavy-suite validation gate run BEFORE a release is declared.
 #
-# Trigger model: scheduled hourly + manual (`workflow_dispatch`).
-# The cron auto-runs the full suite every hour so a regression on `main`
+# Trigger model: scheduled every 4 hours + manual (`workflow_dispatch`).
+# The cron auto-runs the full suite every 4h so a regression on `main`
 # is caught even when nobody triggers a release; the manual "Run workflow"
 # button stays as the on-demand / backup path a release captain uses
 # before declaring a release. Either way all validation jobs run on Linux
 # against a fresh DB. If any fail, fix the failure on `main`, then
 # re-trigger. A clean run on `main` HEAD is the green light to declare
 # the release.
+#
+# Circuit-breaker (added 2026-05-20):
+#   When ANY job fails, the workflow sets a repo variable
+#   `RELEASE_VALIDATION_PAUSED=true`. Three trigger behaviors then apply:
+#     - `schedule`         → SKIPS while paused (no compute spent).
+#     - `workflow_dispatch`→ always proceeds (manual override).
+#     - `push` to main     → only fires WHILE paused, to auto-verify a
+#                            fix. When not paused, push doesn't trigger
+#                            this workflow at all (test.yml handles the
+#                            per-push gate; this stays a heavy backup).
+#   Once a release.yml run goes fully green (any trigger), the flag
+#   auto-clears and the scheduled cadence resumes on the next slot.
+#   The flag lives in Settings → Variables → Actions →
+#   RELEASE_VALIDATION_PAUSED; you can also clear it manually if needed.
+#   The flag-management jobs need a PAT with `variables: write` scope —
+#   reuses `AUTO_MERGE_TOKEN`. Without that PAT, the flag operations
+#   no-op (with a warning) and the workflow keeps the pre-circuit-breaker
+#   behavior: every scheduled slot runs regardless of past failures.
 #
 # Why separate from the per-push `test` workflow:
 #   - Per-push runs the FAST gate (unit + contract + smoke + integration +
@@ -55,24 +73,37 @@ on:
   # "Run workflow" before declaring a release, or to re-run as a backup.
   workflow_dispatch:
 
-  # Scheduled auto-run, hourly. GitHub cron is UTC and recurring-only
-  # (there is no one-off calendar-date trigger). `30 * * * *` fires at :30
-  # past every hour (00:30, 01:30, 02:30 … UTC) — 24 runs/day. The :30
-  # minute offset avoids GitHub's top-of-hour scheduler load spike (which
-  # can delay jobs cronned at :00).
-  # COST NOTE: this is the heavy full-validation suite (~24 parallel jobs
-  # incl. the Chromium + WebKit Playwright matrix). Hourly = ~24 runs/day —
-  # keep an eye on the Actions-minutes spend; drop to every 2h
-  # ("30 */2 * * *"), twice-daily ("30 20,8 * * *"), or daily
-  # ("30 20 * * *") if it gets expensive.
+  # Push to main — fires the auto-verify path of the circuit-breaker.
+  # The job-level `if:` blocks the heavy jobs UNLESS we're currently
+  # paused; this trigger only does work when there's a paused state to
+  # resolve. concurrency:cancel-in-progress de-dups rapid-fire pushes.
+  push:
+    branches: [main]
+
+  # Scheduled auto-run, every 4 hours. GitHub cron is UTC and recurring-only
+  # (there is no one-off calendar-date trigger). `30 */4 * * *` fires at :30
+  # past every 4th hour (00:30, 04:30, 08:30, 12:30, 16:30, 20:30 UTC) —
+  # 6 runs/day. The :30 minute offset avoids GitHub's top-of-hour
+  # scheduler load spike (which can delay jobs cronned at :00).
+  # CADENCE NOTE (2026-05-20): dropped from hourly → every 4h after
+  # observing GitHub dropping/delaying frequent crons (3-5h gaps between
+  # actual fires) due to cron-slot congestion. Less-frequent slots are
+  # delivered more reliably; per-push `test.yml` already catches main
+  # regressions within minutes, so this is a backup gate, not the
+  # primary one. Combined with the circuit-breaker (see top comment),
+  # this is now a "fire 6× a day, but only when main isn't already
+  # known-broken" gate.
   # Change the cadence here:
+  #   every hour                      → "30 * * * *"
   #   every 2 hours                   → "30 */2 * * *"
+  #   every 3 hours                   → "30 */3 * * *"
+  #   every 6 hours                   → "30 */6 * * *"
   #   twice daily (02:00 + 14:00 IST) → "30 20,8 * * *"
   #   once daily, 02:00 IST           → "30 20 * * *"
   # NB: scheduled runs only fire from this file on the default branch (main),
   # and GitHub auto-disables the schedule after 60 days of repo inactivity.
   schedule:
-    - cron: "30 * * * *"
+    - cron: "30 */4 * * *"
 
 # Default token: read-only repo access. No release-validation step needs
 # to mutate the repo or write to packages.
@@ -89,6 +120,12 @@ concurrency:
 jobs:
   typecheck:
     name: Type check (api + web)
+    # Circuit-breaker: scheduled runs skip when RELEASE_VALIDATION_PAUSED=true;
+    # workflow_dispatch always proceeds (so a release captain can verify a fix).
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'schedule' && vars.RELEASE_VALIDATION_PAUSED != 'true')
+      || (github.event_name == 'push' && vars.RELEASE_VALIDATION_PAUSED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -112,6 +149,10 @@ jobs:
     # bootstraps the app once. Fast — ~3-5 min wall-clock — so kept as a
     # single job to avoid the boot-overhead-per-shard tax.
     name: API tests (unit + contract + smoke)
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'schedule' && vars.RELEASE_VALIDATION_PAUSED != 'true')
+      || (github.event_name == 'push' && vars.RELEASE_VALIDATION_PAUSED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -163,6 +204,10 @@ jobs:
     # is per-process; different shards are different processes with their
     # own DB instances.
     name: API integration (shard ${{ matrix.shard }}/4)
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'schedule' && vars.RELEASE_VALIDATION_PAUSED != 'true')
+      || (github.event_name == 'push' && vars.RELEASE_VALIDATION_PAUSED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -208,6 +253,10 @@ jobs:
 
   web-tests-full:
     name: Web component tests
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'schedule' && vars.RELEASE_VALIDATION_PAUSED != 'true')
+      || (github.event_name == 'push' && vars.RELEASE_VALIDATION_PAUSED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -247,6 +296,10 @@ jobs:
     # land as blob artifacts; the merge-reports job below stitches them
     # into a single HTML report for triage.
     name: E2E Chromium (shard ${{ matrix.shard }}/12)
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'schedule' && vars.RELEASE_VALIDATION_PAUSED != 'true')
+      || (github.event_name == 'push' && vars.RELEASE_VALIDATION_PAUSED == 'true')
     runs-on: ubuntu-latest
     # 25 min — symmetric with the WebKit budget below.
     timeout-minutes: 25
@@ -372,6 +425,10 @@ jobs:
     # same `--shard=N/3` partition. WebKit historically runs slower than
     # Chromium, so the speedup matters more here.
     name: E2E WebKit (shard ${{ matrix.shard }}/12)
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'schedule' && vars.RELEASE_VALIDATION_PAUSED != 'true')
+      || (github.event_name == 'push' && vars.RELEASE_VALIDATION_PAUSED == 'true')
     runs-on: ubuntu-latest
     # 25 min — bumped from 20 after run 21 had WebKit shard 4 hit the
     # ceiling on 12-shard split (20m24s total). Slow shards combined with
@@ -486,7 +543,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [e2e-full, e2e-webkit]
-    if: always()
+    # always() so the report is built even when shards fail; the second clause
+    # makes scheduled runs still skip this when paused.
+    if: >-
+      always() && (
+        github.event_name == 'workflow_dispatch'
+        || (github.event_name == 'schedule' && vars.RELEASE_VALIDATION_PAUSED != 'true')
+        || (github.event_name == 'push' && vars.RELEASE_VALIDATION_PAUSED == 'true')
+      )
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -524,7 +588,14 @@ jobs:
     # depends on the 5 logical gates — the matrix expansion is invisible
     # at the dependency-graph level.
     needs: [typecheck, api-tests-fast, api-tests-integration, web-tests-full, e2e-full, e2e-webkit, merge-reports]
-    if: always()
+    # always() so the summary prints even on partial failure; the second clause
+    # makes scheduled runs still skip this when paused.
+    if: >-
+      always() && (
+        github.event_name == 'workflow_dispatch'
+        || (github.event_name == 'schedule' && vars.RELEASE_VALIDATION_PAUSED != 'true')
+        || (github.event_name == 'push' && vars.RELEASE_VALIDATION_PAUSED == 'true')
+      )
     steps:
       - name: Report
         run: |
@@ -548,4 +619,63 @@ jobs:
             echo "One or more gates failed — fix on main, then retrigger this workflow."
             echo "Per-shard server logs land as separate artifacts; download from the run page."
             exit 1
+          fi
+
+  # ── Circuit-breaker flag management ────────────────────────────────────
+  # These two jobs maintain the `RELEASE_VALIDATION_PAUSED` repo variable:
+  #   - On failure → set to "true"  → next scheduled run skips in ~5 seconds.
+  #   - On success → set to "false" → next scheduled run proceeds normally.
+  # Both require AUTO_MERGE_TOKEN to have `variables: write` scope. Without
+  # it the API calls fail with a warning; the workflow itself stays green
+  # and behaves like the pre-circuit-breaker version (every scheduled slot
+  # runs regardless of past failures).
+
+  set-paused-on-failure:
+    name: Pause schedule on failure
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [release-summary]
+    if: needs.release-summary.result == 'failure'
+    steps:
+      - name: Set RELEASE_VALIDATION_PAUSED=true
+        env:
+          GH_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN || secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          NAME="RELEASE_VALIDATION_PAUSED"
+          # PATCH if it exists; POST to create otherwise.
+          if gh api -X PATCH "repos/${REPO}/actions/variables/${NAME}" \
+               -f name="${NAME}" -f value="true" >/dev/null 2>&1; then
+            echo "✅ ${NAME}=true (updated)."
+          elif gh api -X POST "repos/${REPO}/actions/variables" \
+               -f name="${NAME}" -f value="true" >/dev/null 2>&1; then
+            echo "✅ ${NAME}=true (created)."
+          else
+            echo "::warning::Could not update ${NAME}. Does AUTO_MERGE_TOKEN have 'variables: write' scope? The workflow stays green; scheduled runs will continue firing until the scope is granted or the failure is fixed."
+            exit 0
+          fi
+          echo "::warning::Release validation failed. Scheduled runs are now paused. Push a fix to main and release.yml will auto-verify on that push; the next green run clears the pause and resumes the schedule. (Manual 'Run workflow' also works if you want to re-verify without pushing.)"
+
+  clear-paused-on-success:
+    name: Resume schedule on success
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [release-summary]
+    if: needs.release-summary.result == 'success'
+    steps:
+      - name: Clear RELEASE_VALIDATION_PAUSED
+        env:
+          GH_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN || secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          NAME="RELEASE_VALIDATION_PAUSED"
+          # Idempotent: PATCH to "false" if the variable exists; do nothing
+          # if it doesn't (never been paused).
+          if gh api -X PATCH "repos/${REPO}/actions/variables/${NAME}" \
+               -f name="${NAME}" -f value="false" >/dev/null 2>&1; then
+            echo "✅ ${NAME}=false (scheduled cadence resumed)."
+          else
+            echo "ℹ️  ${NAME} doesn't exist — already in unpaused state. Nothing to do."
           fi

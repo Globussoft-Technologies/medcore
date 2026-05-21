@@ -38,10 +38,15 @@ import {
   updateCampaignSchema,
   OPERATOR_STATUS_TRANSITIONS,
 } from "@medcore/shared";
-import type { CreateCampaignInput, UpdateCampaignInput } from "@medcore/shared";
+import type {
+  AudienceRules,
+  CreateCampaignInput,
+  UpdateCampaignInput,
+} from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { compileAudience } from "../services/audience-compiler";
 
 const router = Router();
 router.use(authenticate);
@@ -391,10 +396,12 @@ router.delete(
 );
 
 // ── POST /:id/sends/preview — estimate recipients (ADMIN) ─────────────
-// Piece 1 stub: returns 0 + a forward-looking note. Piece 2 will compile
-// the linked CampaignAudience.rules into a Prisma `where` over Patient
-// and return the real count (plus update audience.estimatedSize +
-// lastComputedAt as a side effect).
+// Pearl §5.1 piece 2a (2026-05-21). If the campaign has an audience
+// attached, compile its rules → Patient `where`, run a count + 5-row
+// sample, and persist (estimatedSize, lastComputedAt) on the audience
+// as a side effect (so a subsequent compile-from-the-audience route
+// short-circuits this work). If no audience is attached, return 0 with
+// a clarifying note — operators see "you haven't picked a target yet".
 router.post(
   "/:id/sends/preview",
   authorize(Role.ADMIN),
@@ -413,11 +420,59 @@ router.post(
         res.status(404).json({ success: false, data: null, error: "Campaign not found" });
         return;
       }
+      if (!campaign.audienceId) {
+        res.json({
+          success: true,
+          data: {
+            estimatedRecipients: 0,
+            note: "No audience attached to this campaign.",
+          },
+          error: null,
+        });
+        return;
+      }
+
+      const audience = await prisma.campaignAudience.findFirst({
+        where: { id: campaign.audienceId, tenantId },
+      });
+      if (!audience) {
+        // Audience deleted after campaign linked, or cross-tenant id smuggled.
+        res.json({
+          success: true,
+          data: {
+            estimatedRecipients: 0,
+            note: "Audience referenced by this campaign no longer exists.",
+          },
+          error: null,
+        });
+        return;
+      }
+
+      const compiledWhere = compileAudience((audience.rules ?? {}) as AudienceRules);
+      const whereWithTenant = { tenantId, AND: [compiledWhere] };
+
+      const [count, sampleRows] = await Promise.all([
+        prisma.patient.count({ where: whereWithTenant }),
+        prisma.patient.findMany({
+          where: whereWithTenant,
+          take: 5,
+          select: { id: true },
+        }),
+      ]);
+
+      const computedAt = new Date();
+      await prisma.campaignAudience.update({
+        where: { id: audience.id },
+        data: { estimatedSize: count, lastComputedAt: computedAt },
+      });
+
       res.json({
         success: true,
         data: {
-          estimatedRecipients: 0,
-          note: "audience compiler ships in piece 2 of gap item #4",
+          estimatedRecipients: count,
+          audienceName: audience.name,
+          audienceComputedAt: computedAt.toISOString(),
+          sampleIds: sampleRows.map((p) => p.id),
         },
         error: null,
       });

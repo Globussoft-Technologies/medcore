@@ -6,6 +6,46 @@ is independently shippable. Full per-session history lives under
 
 ---
 
+## 🏠 OFFICE PICKUP — handoff from 2026-05-22 afternoon: Pearl gap-close burn-down — **80 → ~47 open rows after PRD rebuild + 28 closures**
+
+**Read first:** [`docs/archive/SESSION_SNAPSHOT_2026-05-22-afternoon.md`](docs/archive/SESSION_SNAPSHOT_2026-05-22-afternoon.md) — full handoff with per-commit detail.
+
+**State at handoff** (HEAD on `main` = `162644e` — `test(web): mock /leads/by-patient/:id 404 in patients.detail.page tests`):
+
+This session: autonomous Pearl-gap-close cron at 15-min cadence with up-to-3-parallel-agents-per-tick. Net: **28-30 gap-doc rows closed** + Stage-1 SoW now in-repo at `docs/PEARL-ERP-STAGE-1-SOW.md` (replaces the missing `Hardik's Req_pearl woman.txt` reference) + comprehensive gap-doc rebuild (`26cf219`) added §6 acceptance-criteria + §7 NFR + §8 compliance + §9 pilot-success sections.
+
+### ✅ Top-10 status: 7 fully closed + 3 in flight (mostly closed)
+
+| # | Status |
+|---|---|
+| 1 / 2 / 3 / 7 / 8 / 9 / 10 | ✅ CLOSED (prior sessions) |
+| 4 Campaign engine | 🚧 6 of 7 pieces — only piece 4 UI remaining |
+| 5 Patient PWA + phone-OTP | 🚧 11 of 13 pieces — only Book Appointment + WhatsApp Inbox + photo upload + ABHA-link-on-first-login remaining |
+| 6 Super-admin host + Pearl-billing | 🚧 2 of 4 pieces — piece 2b wizard remaining 5 steps + piece 3 Pearl-billing + piece 4 metrics/DPDP remaining |
+
+### 🔥 Top priority for next session (smallest first)
+
+1. **§5.2 ChronicCare DSL bits** (rows 142-145) — auto-enrol cron + sequence stepper. Quick wins clustered.
+2. **§3.5 DPDP cross-tenant workbench** — backend + super-admin UI.
+3. **§6.2 row 168 PWA install prompt** — `beforeinstallprompt` capture + Install button.
+4. **§6.2 row 172 44px touch-target audit** — codebase sweep.
+5. **§7.2 row 190 skeleton loaders universal** — codebase sweep.
+6. **#5 piece 3i Book Appointment patient PWA** — multi-step.
+7. **#5 piece 3j WhatsApp Inbox** — needs inbound WhatsApp routing.
+8. **#6 piece 2b 5 wizard steps** — each step = its own tick.
+9. **#6 piece 3 Pearl-billing schema + UI** — multi-tick chain.
+10. **#6 piece 4 cross-tenant metrics + Pearl-operator inbox + compliance dashboard**.
+11. **#4 piece 4 Campaigns UI** — multi-tick chain.
+
+### Cron mechanics
+Cron `72a8d011` was stopped at session end. To resume: re-fire the same fan-out cron prompt at `7,22,37,52 * * * *` cadence with up-to-3-agents-per-tick. Self-terminates when gap doc shows zero ❌/🟡 in §2/§3/§4/§6/§7/§8/§11. CI on `162644e` was pending at session close.
+
+### Known issues
+- Test workflow paths-filter skips Sourav's UI-only commits — harmless, but worth knowing.
+- Mandatory pre-flight grep in every agent brief caught 5 already-shipped misclassifications this session — non-negotiable rule.
+
+---
+
 ## 🏠 HOME PICKUP — handoff from 2026-05-21 evening: Pearl gap #4 5/6 sub-pieces done + #2 piece 2b deferred follow-up closed
 
 **Read first:** [`docs/archive/SESSION_SNAPSHOT_2026-05-21-evening.md`](docs/archive/SESSION_SNAPSHOT_2026-05-21-evening.md) — full handoff.

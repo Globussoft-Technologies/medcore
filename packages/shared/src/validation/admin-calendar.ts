@@ -4,6 +4,7 @@
 // the Express handler reject the same shapes with the same error copy
 // (no drift).
 import { z } from "zod";
+import { containsHtmlOrScript } from "./security";
 
 // ─── #718 — admin calendar events ──────────────────────────────────────
 // The calendar already plots six other event archetypes (appointments,
@@ -23,13 +24,25 @@ export const CALENDAR_EVENT_CATEGORIES = [
   "OTHER",
 ] as const;
 
+// Issue #944 (2026-05-22): title + description were being silently
+// laundered by the global `sanitize` middleware — pasting `<script>...
+// </script>` into the title stripped the tags and saved the residue
+// (`alert('XSS')`) with no user feedback. We adopt the same
+// reject-not-strip contract as `/auth/register` and `/lab/results`:
+// schemas refuse raw HTML/script payloads here, and the path is added
+// to `SCHEMA_REJECT_PATHS` in `apps/api/src/middleware/sanitize.ts` so
+// the global stripper bypasses this route and the refines actually fire.
 export const createCalendarEventSchema = z
   .object({
     title: z
       .string()
       .trim()
       .min(2, "Title must be at least 2 characters")
-      .max(200, "Title is too long"),
+      .max(200, "Title is too long")
+      .refine(
+        (v) => !containsHtmlOrScript(v),
+        "Title contains disallowed characters or HTML"
+      ),
     category: z.enum(CALENDAR_EVENT_CATEGORIES).default("OTHER"),
     startAt: z
       .string()
@@ -50,7 +63,11 @@ export const createCalendarEventSchema = z
       .max(2000, "Description is too long")
       .optional()
       .or(z.literal(""))
-      .transform((v) => (v === "" ? undefined : v)),
+      .transform((v) => (v === "" ? undefined : v))
+      .refine(
+        (v) => v === undefined || !containsHtmlOrScript(v),
+        "Description contains disallowed characters or HTML"
+      ),
   })
   .superRefine((val, ctx) => {
     const start = Date.parse(val.startAt);
@@ -66,12 +83,30 @@ export const createCalendarEventSchema = z
 
 export const updateCalendarEventSchema = z
   .object({
-    title: z.string().trim().min(2).max(200).optional(),
+    title: z
+      .string()
+      .trim()
+      .min(2)
+      .max(200)
+      .refine(
+        (v) => !containsHtmlOrScript(v),
+        "Title contains disallowed characters or HTML"
+      )
+      .optional(),
     category: z.enum(CALENDAR_EVENT_CATEGORIES).optional(),
     startAt: z.string().datetime({ offset: true }).optional(),
     endAt: z.string().datetime({ offset: true }).optional(),
     color: z.string().trim().max(40).optional().nullable(),
-    description: z.string().trim().max(2000).optional().nullable(),
+    description: z
+      .string()
+      .trim()
+      .max(2000)
+      .refine(
+        (v) => !containsHtmlOrScript(v),
+        "Description contains disallowed characters or HTML"
+      )
+      .optional()
+      .nullable(),
   })
   .superRefine((val, ctx) => {
     if (val.startAt && val.endAt) {

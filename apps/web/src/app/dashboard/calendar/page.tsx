@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { displayStatusForAppointment } from "@/lib/appointments";
+import { containsHtmlOrScript } from "@medcore/shared";
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -1078,6 +1079,15 @@ function NewEventDialog({
     const errs: Record<string, string> = {};
     const trimmed = title.trim();
     if (trimmed.length < 2) errs.title = "Title must be at least 2 characters";
+    // Issue #944: surface the reject-not-strip contract in the UI so a
+    // `<script>...</script>` paste shows an inline error instead of being
+    // silently laundered into the saved title. Mirrors the server-side
+    // refine in `createCalendarEventSchema` so the user can't bypass it.
+    else if (containsHtmlOrScript(trimmed))
+      errs.title = "Title contains disallowed characters or HTML";
+    const trimmedDesc = description.trim();
+    if (trimmedDesc && containsHtmlOrScript(trimmedDesc))
+      errs.description = "Description contains disallowed characters or HTML";
     if (!date) errs.date = "Date is required";
     if (!startTime) errs.startTime = "Start time is required";
     if (!endTime) errs.endTime = "End time is required";
@@ -1259,8 +1269,15 @@ function NewEventDialog({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
-              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+              className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm dark:bg-gray-900 dark:text-gray-100 ${
+                errors.description
+                  ? "border-red-500"
+                  : "border-gray-200 dark:border-gray-700"
+              }`}
             />
+            {errors.description && (
+              <p className="mt-1 text-xs text-red-600">{errors.description}</p>
+            )}
           </div>
           {errors._ && (
             <p className="text-xs text-red-600">{errors._}</p>

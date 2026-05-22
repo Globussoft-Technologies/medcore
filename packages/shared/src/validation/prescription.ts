@@ -83,6 +83,23 @@ const signatureDataUrlSchema = z
   .max(524288, "Signature image is too large (>512KB)")
   .optional();
 
+// Issue #953 (2026-05-22): a follow-up by definition refers to a future
+// visit — accepting past dates corrupts the clinical workflow (the row
+// would already be auto-suppressed by `isFollowUpPast` on the read side,
+// so it was being saved as data that never surfaces again). Refuse it
+// at the validation layer instead. Compares against local midnight so
+// "today" is still accepted as the earliest valid follow-up.
+function isFollowUpInPast(value: string): boolean {
+  // YYYY-MM-DD anchored to local midnight (avoids the UTC off-by-one
+  // that bit the calendar work in #93).
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return false;
+  const picked = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return picked.getTime() < today.getTime();
+}
+
 // Pearl ERP Stage 1 §2.1.4 — drug-allergy block must be overrideable with
 // a reason. `overrideAllergies=true` requires a non-empty `allergyOverrideReason`
 // so the audit trail captures WHY the prescriber went ahead.
@@ -96,6 +113,10 @@ export const createPrescriptionSchema = z
     followUpDate: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
+      .refine(
+        (v) => !isFollowUpInPast(v),
+        "Follow-up date must be today or in the future"
+      )
       .optional(),
     overrideWarnings: z.boolean().optional(),
     overrideAllergies: z.boolean().optional(),
@@ -123,6 +144,10 @@ export const updatePrescriptionSchema = z.object({
   followUpDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
+    .refine(
+      (v) => !isFollowUpInPast(v),
+      "Follow-up date must be today or in the future"
+    )
     .optional(),
   overrideWarnings: z.boolean().optional(),
   signatureDataUrl: signatureDataUrlSchema,

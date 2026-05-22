@@ -28,11 +28,17 @@ import { Request, Response, NextFunction } from "express";
 // bypass the global stripper turned `<script>alert(1)</script>` into
 // `alert(1)` BEFORE the schema saw it, so the refine never fired and the
 // laundered residue ended up in the DB.
+// Issue #944 (May 2026): /api/v1/calendar-events has the same shape — the
+// "New Event" Title field silently stripped `<script>...</script>` and
+// saved `alert('XSS')` with zero user feedback. createCalendarEventSchema
+// now refines title/description with containsHtmlOrScript and needs the
+// bypass to actually fire.
 const SCHEMA_REJECT_PATHS: readonly string[] = [
   "/api/v1/auth/register",
   "/api/v1/auth/forgot-password",
   "/api/v1/lab/results",
   "/api/v1/complaints",
+  "/api/v1/calendar-events",
 ];
 
 function stripHtmlTags(value: unknown): unknown {

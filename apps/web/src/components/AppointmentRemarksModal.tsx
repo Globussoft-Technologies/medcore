@@ -83,6 +83,11 @@ export function AppointmentRemarksModal({ appointmentId, patientName, onClose }:
   const [replyingTo, setReplyingTo] = useState<Remark | null>(null);
   const [editing, setEditing] = useState<Remark | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Issue #948: clicking Post with an empty body used to silently bail
+  // (early-return + disabled button + no error). Track an explicit error
+  // string so the empty-body case surfaces inline + a toast, matching the
+  // user expectation of "tell me what went wrong".
+  const [bodyError, setBodyError] = useState<string | null>(null);
 
   const isStaff = !!user?.role && user.role !== "PATIENT";
   const isDoctorOrAdmin =
@@ -107,7 +112,16 @@ export function AppointmentRemarksModal({ appointmentId, patientName, onClose }:
   }, [load]);
 
   const handleSubmit = async () => {
-    if (!body.trim() || submitting) return;
+    if (submitting) return;
+    // Issue #948: empty submissions used to silently no-op. Surface an
+    // inline error AND a toast so the user knows the action was rejected
+    // (and why) rather than wondering whether their click registered.
+    if (!body.trim()) {
+      setBodyError("Remark is required");
+      toast.error("Remark is required");
+      return;
+    }
+    setBodyError(null);
     setSubmitting(true);
     try {
       if (editing) {
@@ -164,18 +178,21 @@ export function AppointmentRemarksModal({ appointmentId, patientName, onClose }:
     setEditing(remark);
     setReplyingTo(null);
     setBody(remark.body);
+    setBodyError(null);
   };
 
   const handleReply = (remark: Remark) => {
     setReplyingTo(remark);
     setEditing(null);
     setBody("");
+    setBodyError(null);
   };
 
   const cancelCompose = () => {
     setReplyingTo(null);
     setEditing(null);
     setBody("");
+    setBodyError(null);
   };
 
   // Group replies under their parent for indented rendering.
@@ -267,12 +284,33 @@ export function AppointmentRemarksModal({ appointmentId, patientName, onClose }:
             )}
             <textarea
               value={body}
-              onChange={(e) => setBody(e.target.value)}
+              onChange={(e) => {
+                setBody(e.target.value);
+                // Issue #948: clear the empty-body error as soon as the
+                // user starts typing — they've addressed the problem.
+                if (bodyError) setBodyError(null);
+              }}
               placeholder="Add a remark…"
               rows={3}
-              className="w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+              aria-invalid={bodyError ? true : undefined}
+              aria-describedby={bodyError ? "remark-body-error" : undefined}
+              data-testid="remark-body"
+              className={`w-full rounded border px-3 py-2 text-sm dark:bg-gray-800 dark:text-gray-100 ${
+                bodyError
+                  ? "border-red-500"
+                  : "border-gray-300 dark:border-gray-600"
+              }`}
               maxLength={5000}
             />
+            {bodyError && (
+              <p
+                id="remark-body-error"
+                data-testid="remark-body-error"
+                className="mt-1 text-xs text-red-600"
+              >
+                {bodyError}
+              </p>
+            )}
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
               {!replyingTo && !editing ? (
                 <select
@@ -299,7 +337,13 @@ export function AppointmentRemarksModal({ appointmentId, patientName, onClose }:
                 </button>
                 <button
                   onClick={handleSubmit}
-                  disabled={!body.trim() || submitting}
+                  // Issue #948: only disable on in-flight requests, not
+                  // on empty body. Leaving the button enabled lets the
+                  // click reach `handleSubmit`, which now surfaces an
+                  // inline error + toast instead of the click being
+                  // silently swallowed by a disabled attribute.
+                  disabled={submitting}
+                  data-testid="remark-post"
                   className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {editing ? "Save" : replyingTo ? "Post reply" : "Post"}

@@ -1237,13 +1237,43 @@ export default function PrescriptionsPage() {
             />
             <div>
               <label htmlFor="rx-followup-date" className="mb-1 block text-sm">Follow-up Date</label>
+              {/* Issue #953: a follow-up by definition is a future visit.
+                  Apply `min=<today>` so the native date picker can't pick
+                  a past date in the first place, and pair it with the
+                  shared Zod refine in createPrescriptionSchema so a typed
+                  YYYY-MM-DD still gets rejected at the form-validation
+                  layer. The red-border + inline error follow the same
+                  pattern as the diagnosis / medicines fields above. */}
               <input
                 id="rx-followup-date"
                 type="date"
+                min={(() => {
+                  const t = new Date();
+                  const y = t.getFullYear();
+                  const m = String(t.getMonth() + 1).padStart(2, "0");
+                  const d = String(t.getDate()).padStart(2, "0");
+                  return `${y}-${m}-${d}`;
+                })()}
                 value={form.followUpDate}
                 onChange={(e) => setForm({ ...form, followUpDate: e.target.value })}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                aria-invalid={formErrors.followUpDate ? true : undefined}
+                aria-describedby={
+                  formErrors.followUpDate ? "rx-followup-date-error" : undefined
+                }
+                className={`w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 ${
+                  formErrors.followUpDate
+                    ? "border-red-500"
+                    : "border-gray-300 dark:border-gray-700"
+                }`}
               />
+              {formErrors.followUpDate && (
+                <p
+                  id="rx-followup-date-error"
+                  className="mt-1 text-xs text-red-600"
+                >
+                  {formErrors.followUpDate}
+                </p>
+              )}
             </div>
           </div>
 

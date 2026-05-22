@@ -136,6 +136,47 @@ router.get("/", authorize(...LEAD_ROLES), async (req: Request, res: Response, ne
   }
 });
 
+// ─── GET /leads/by-patient/:patientId — Pearl §7.1 (gap row 183)
+// Doctor's patient-detail view ("CRM activity on a patient") needs the
+// originating Lead + its activity timeline when a patient was converted
+// from a lead. Returns 404 when no Lead links to the patient — the UI
+// renders an empty-state in that case (most walk-in patients have none).
+//
+// IMPORTANT: registered BEFORE /:id so Express's static-before-dynamic
+// matching doesn't swallow "by-patient" as a lead id (would 404 with the
+// wrong error shape). See CLAUDE.md §14 (post-fix verification grep).
+router.get(
+  "/by-patient/:patientId",
+  authorize(...LEAD_ROLES),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const lead = await prisma.lead.findFirst({
+        where: { convertedPatientId: req.params.patientId },
+        include: {
+          assignedToUser: { select: { id: true, name: true, role: true } },
+          preferredDoctor: { include: { user: { select: { name: true } } } },
+          activities: {
+            orderBy: { createdAt: "desc" },
+            take: 10,
+            include: { authorUser: { select: { id: true, name: true, role: true } } },
+          },
+        },
+      });
+      if (!lead) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "No lead links to this patient",
+        });
+        return;
+      }
+      res.json({ success: true, data: lead, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // ─── GET /leads/:id — detail
 router.get(
   "/:id",

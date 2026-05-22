@@ -1,0 +1,104 @@
+name: Lighthouse mobile budget
+
+# Closes Pearl SOW §6.2 NFR: Lighthouse mobile Performance >= 85 and
+# Accessibility >= 95 on the 4 anchor patient PWA routes. Fails the
+# build (and therefore blocks merge to main on PRs that touch
+# apps/web/**) if either budget regresses. Budgets live in
+# `.lighthouserc.json` at the repo root; this workflow only orchestrates
+# the build + serve + measure dance.
+#
+# Cost shape: ~10-12 min on ubuntu-latest. Scoped to PRs that touch
+# apps/web/** plus the LHCI config or this workflow itself, so most
+# pushes do not pay the cost.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - ".lighthouserc.json"
+      - ".github/workflows/lighthouse.yml"
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - ".lighthouserc.json"
+      - ".github/workflows/lighthouse.yml"
+
+permissions:
+  contents: read
+
+# One run per ref — supersede in-flight runs when a new commit lands so
+# we don't queue stale measurements behind the latest source.
+concurrency:
+  group: lighthouse-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lhci:
+    name: Lighthouse mobile Perf >=85 / A11y >=95
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Generate Prisma client
+        # next build imports shared types whose generation triggers
+        # prisma generate; without this `npm --prefix apps/web run build`
+        # errors on missing `@prisma/client` types. Mirrors the web-bundle
+        # job in test.yml.
+        run: npm run db:generate
+
+      - name: Build web (production)
+        env:
+          # Next.js 16's worker pool needs more heap than the default
+          # 2 GB on ubuntu-latest. Inherited from the web-bundle job in
+          # test.yml — keep the two in lockstep when one changes.
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: npm --prefix apps/web run build
+
+      - name: Start web server (background)
+        # Boot `next start` in the background and poll /patient (the
+        # PWA shell entry, present in apps/web/src/app/patient/page.tsx)
+        # until it accepts connections or 30 seconds elapse. On timeout
+        # dump web.log so the run output explains the failure.
+        run: |
+          npm --prefix apps/web run start > web.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/patient > /dev/null; then
+              echo "web server ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::web server failed to start within 30s"
+          cat web.log
+          exit 1
+
+      - name: Run Lighthouse CI
+        # `npx -y @lhci/cli@latest autorun` reads .lighthouserc.json,
+        # collects 1 run per URL, asserts the configured budgets, and
+        # uploads the HTML report to temporary public storage (URL
+        # printed in the step log). On any assertion failure the CLI
+        # exits non-zero and this step — and therefore the workflow —
+        # turns red.
+        run: npx -y @lhci/cli@latest autorun --config=.lighthouserc.json
+
+      - name: Upload Lighthouse report artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lighthouse-report
+          path: |
+            .lighthouseci/
+            web.log
+          retention-days: 14
+          if-no-files-found: ignore

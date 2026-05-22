@@ -66,6 +66,23 @@ const prescriptionItemSchema = z.object({
   refills: z.number().int().min(0).max(12).optional(),
 });
 
+// Per-prescription doctor signature. Captured by the SignaturePad component
+// on the web form (or the Sign-before-share modal). Stored on
+// Prescription.signatureUrl. The share endpoint (POST /:id/share) refuses
+// to ship an unsigned prescription, so this field is what unblocks the
+// share flow when the doctor doesn't have a pre-saved signatureUrl on
+// their Doctor row. Cap at ~512KB encoded (~370KB binary) so a stylus-heavy
+// capture can't bloat the row beyond what a postgres TEXT column wants to
+// hold.
+const signatureDataUrlSchema = z
+  .string()
+  .regex(
+    /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/,
+    "signatureDataUrl must be a base64 PNG or JPEG data URL",
+  )
+  .max(524288, "Signature image is too large (>512KB)")
+  .optional();
+
 // Pearl ERP Stage 1 §2.1.4 — drug-allergy block must be overrideable with
 // a reason. `overrideAllergies=true` requires a non-empty `allergyOverrideReason`
 // so the audit trail captures WHY the prescriber went ahead.
@@ -83,6 +100,7 @@ export const createPrescriptionSchema = z
     overrideWarnings: z.boolean().optional(),
     overrideAllergies: z.boolean().optional(),
     allergyOverrideReason: z.string().min(3).max(500).optional(),
+    signatureDataUrl: signatureDataUrlSchema,
   })
   .refine(
     (val) => !val.overrideAllergies || (val.allergyOverrideReason?.trim().length ?? 0) >= 3,
@@ -107,6 +125,7 @@ export const updatePrescriptionSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
     .optional(),
   overrideWarnings: z.boolean().optional(),
+  signatureDataUrl: signatureDataUrlSchema,
 });
 
 export const copyPrescriptionSchema = z.object({

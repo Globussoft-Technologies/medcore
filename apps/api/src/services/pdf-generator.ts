@@ -335,7 +335,44 @@ export async function generatePrescriptionPDFBuffer(
   // Signature + QR side-by-side at bottom of content
   doc.moveDown(2);
   let qrY = doc.y;
-  // Signature block (right)
+
+  // Decode the stored signature (base64 PNG/JPEG data URL captured by the
+  // web SignaturePad → persisted on Prescription.signatureUrl). PDFKit's
+  // doc.image() takes either a path or a Buffer, NOT a data URL string, so
+  // we strip the `data:image/...;base64,` prefix and decode. We only treat
+  // values that match the data-URL shape; legacy `/uploads/sig.png` style
+  // paths (and `null`) just skip the image render and fall back to the
+  // empty signature line below — same as the pre-feature behaviour.
+  let sigBuffer: Buffer | null = null;
+  const rawSig = prescription.signatureUrl;
+  if (rawSig && /^data:image\/(png|jpeg);base64,/.test(rawSig)) {
+    try {
+      const b64 = rawSig.replace(/^data:image\/(png|jpeg);base64,/, "");
+      sigBuffer = Buffer.from(b64, "base64");
+    } catch {
+      // Defensive: malformed base64 just falls back to the empty signline.
+      sigBuffer = null;
+    }
+  }
+
+  // Signature block (right). Layout (relative to qrY):
+  //   - signature IMAGE drawn from sigBuffer at y=18..62 (44pt tall, ~60px),
+  //     same vertical region the original signline occupied,
+  //   - thin underline at y=65 (kept even when signed — gives the
+  //     signature a "line to sit on" cue),
+  //   - "Dr. <name>" at y=70, qualification y=84, NMC y=96.
+  if (sigBuffer) {
+    try {
+      doc.image(sigBuffer, 395, qrY + 18, {
+        fit: [145, 44],
+        align: "center",
+        valign: "bottom",
+      });
+    } catch {
+      // If pdfkit rejects the buffer (corrupt PNG / unsupported variant),
+      // silently skip the image — the signline + name still render.
+    }
+  }
   doc.font("Helvetica-Bold").fontSize(10).fillColor("#1e293b")
     .text(`Dr. ${doctor.user.name}`, 380, qrY + 70, { width: 175, align: "center" });
   if (doctor.qualification) {

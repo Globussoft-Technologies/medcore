@@ -1,24 +1,31 @@
-// Super-admin onboarding wizard — Pearl ERP Stage 1 §8.1 (gap #6 piece 2 of 4).
+// Super-admin onboarding wizard — Pearl ERP Stage 1 §8.1 (gap #6).
 //
-// 3-step MVP wizard that posts a single atomic payload to
-// /api/v1/tenant-onboarding (which creates Tenant + first Branch + super-admin
-// User in one transaction). Steps:
+// 4-step wizard. Steps:
 //   1. Tenant basics (name, subdomain, plan)
 //   2. First branch (name, code, address, city, state, pincode, phone)
 //   3. Super-admin user (name, email, phone, password)
+//      → submits the atomic POST /api/v1/tenant-onboarding which
+//      provisions Tenant + Branch + Admin in one $transaction.
+//   4. WhatsApp Business API (Gupshup) — piece 2b. Optional, deferred.
+//      The super-admin caller's session has tenantId=null, so it
+//      cannot write to PUT /api/v1/wa/config (which requires
+//      req.user.tenantId). Scope-cut: collect the Gupshup fields in
+//      sessionStorage as a hint for the new tenant's first ADMIN
+//      login, plus a clear CTA linking to /dashboard/settings/whatsapp
+//      for the just-created tenant.
 //
-// The full PRD calls for 8 steps including HFR / HPR / WhatsApp /
-// Razorpay config. Those are deferred to piece 2b — each needs an
-// external integration the wizard would validate against, which is
-// meaningfully more work than this MVP.
+// The full PRD calls for 8 steps including HFR / HPR / Razorpay.
+// Those remain deferred to subsequent piece 2b ticks — each needs an
+// external integration the wizard would validate against.
 //
 // Auth: relies on the super-admin layout's client-side gate. No
 // additional check needed here.
 //
-// Test ids: onboarding-step-{1,2,3}, onboarding-back, onboarding-next,
-// onboarding-submit, onboarding-error-banner, plus per-field
+// Test ids: onboarding-step-{1,2,3,4}, onboarding-back, onboarding-next,
+// onboarding-submit, onboarding-error-banner, onboarding-wa-skip,
+// onboarding-wa-save, onboarding-wa-cta, plus per-field
 // onboarding-tenant-name / onboarding-branch-name / onboarding-admin-*
-// for the smoke component test.
+// / onboarding-wa-* for the smoke component test.
 
 "use client";
 
@@ -27,7 +34,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 
 type Plan = "BASIC" | "PRO" | "ENTERPRISE";
-type Step = 1 | 2 | 3;
+type Step = 1 | 2 | 3 | 4;
 
 interface TenantStepState {
   name: string;
@@ -48,6 +55,13 @@ interface AdminStepState {
   email: string;
   phone: string;
   password: string;
+}
+interface WhatsAppStepState {
+  apiKey: string;
+  appName: string;
+  sourcePhone: string;
+  defaultProductId: string;
+  autoReply: boolean;
 }
 
 // Mirror the server-side regex (kept in sync with
@@ -78,6 +92,7 @@ const BRANCH_CODE_REGEX = /^[A-Z0-9_-]{1,10}$/;
 const PINCODE_REGEX = /^\d{6}$/;
 const PHONE_REGEX = /^\+?\d{7,15}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const E164_REGEX = /^\+\d{7,15}$/;
 
 function validateTenantStep(s: TenantStepState): string | null {
   if (s.name.trim().length < 2) return "Hospital name must be at least 2 characters";
@@ -107,6 +122,17 @@ function validateAdminStep(s: AdminStepState): string | null {
   return null;
 }
 
+// Validate WhatsApp step only if the operator opted to save (not skip).
+// All three Gupshup fields are required together — the server-side
+// discriminated union in whatsapp-config.ts insists on it.
+function validateWhatsAppStep(s: WhatsAppStepState): string | null {
+  if (s.apiKey.trim().length < 1) return "Gupshup API key is required";
+  if (s.appName.trim().length < 1) return "Gupshup app name is required";
+  if (!E164_REGEX.test(s.sourcePhone.trim()))
+    return "Source phone must be E.164 (e.g. +919876543210)";
+  return null;
+}
+
 export default function OnboardingWizardPage() {
   const router = useRouter();
 
@@ -119,6 +145,15 @@ export default function OnboardingWizardPage() {
   const [serverFieldError, setServerFieldError] = useState<
     { field: string; message: string } | null
   >(null);
+
+  // Captures the newly-created tenant after step-3 submit so step 4
+  // (WhatsApp) and the success card can link into it.
+  const [createdTenant, setCreatedTenant] = useState<{
+    id: string;
+    name: string;
+    subdomain: string;
+  } | null>(null);
+  const [waSaved, setWaSaved] = useState(false);
 
   const [tenantStep, setTenantStep] = useState<TenantStepState>({
     name: "",
@@ -140,6 +175,13 @@ export default function OnboardingWizardPage() {
     phone: "",
     password: "",
   });
+  const [waStep, setWaStep] = useState<WhatsAppStepState>({
+    apiKey: "",
+    appName: "",
+    sourcePhone: "",
+    defaultProductId: "",
+    autoReply: true,
+  });
 
   const tenantError = useMemo(
     () => (step === 1 && (tenantStep.name || tenantStep.subdomain) ? validateTenantStep(tenantStep) : null),
@@ -160,7 +202,10 @@ export default function OnboardingWizardPage() {
   function goBack() {
     setErrorBanner(null);
     setServerFieldError(null);
-    if (step > 1) setStep((step - 1) as Step);
+    // Don't allow stepping back from 4 → 3 since the tenant has
+    // already been created at that point. The operator can dismiss
+    // step 4 via "Skip for now" or "Save".
+    if (step > 1 && step < 4) setStep((step - 1) as Step);
   }
 
   function goNext() {
@@ -241,7 +286,9 @@ export default function OnboardingWizardPage() {
 
       const json: {
         success: boolean;
-        data: { tenant: { id: string } } | null;
+        data: {
+          tenant: { id: string; name: string; subdomain: string };
+        } | null;
         error: string | null;
         field?: string;
       } = await res.json().catch(() => ({
@@ -267,20 +314,81 @@ export default function OnboardingWizardPage() {
         return;
       }
 
-      setSuccess(true);
-      // Short delay so the success card is visible before the bounce.
-      setTimeout(() => {
-        // /super-admin/tenants/[id] doesn't exist yet (piece 3+);
-        // fall back to the landing page. Operator can verify the new
-        // tenant from there.
-        router.push("/super-admin");
-      }, 1200);
+      // Tenant is created. Advance to step 4 (WhatsApp config) so the
+      // operator can either skip or stash the Gupshup creds for the
+      // new tenant's first login.
+      if (json.data?.tenant) {
+        setCreatedTenant({
+          id: json.data.tenant.id,
+          name: json.data.tenant.name,
+          subdomain: json.data.tenant.subdomain,
+        });
+      }
+      setStep(4);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setErrorBanner(`Network error: ${msg}`);
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // Step 4 — WhatsApp. The super-admin caller cannot write to
+  // /api/v1/wa/config directly (the route requires req.user.tenantId,
+  // which is null for the tenant-less super-admin). Scope-cut for
+  // piece 2b first wizard step: stash the Gupshup fields in
+  // sessionStorage keyed by tenant id, mark the wizard step "saved",
+  // and surface a deferred-config CTA so the new tenant's first ADMIN
+  // can paste the creds into /dashboard/settings/whatsapp on first
+  // login. A future piece 2b tick will swap this for a direct PUT
+  // once the wizard has a way to mint a session as the new admin
+  // (mint-and-redirect, or token-issued-by-tenant-onboarding response).
+  function saveWhatsApp() {
+    setErrorBanner(null);
+    const e = validateWhatsAppStep(waStep);
+    if (e) {
+      setErrorBanner(e);
+      return;
+    }
+    if (!createdTenant) {
+      setErrorBanner("Tenant context missing — please retry from step 1");
+      return;
+    }
+    try {
+      const draft = {
+        credentials: {
+          provider: "GUPSHUP" as const,
+          apiKey: waStep.apiKey.trim(),
+          appName: waStep.appName.trim(),
+          sourcePhone: waStep.sourcePhone.trim(),
+        },
+        defaultProductId: waStep.defaultProductId.trim() || null,
+        autoReply: waStep.autoReply,
+      };
+      sessionStorage.setItem(
+        `medcore_wa_draft:${createdTenant.id}`,
+        JSON.stringify(draft),
+      );
+    } catch {
+      // SessionStorage can throw in some private-browse modes.
+      // Continue anyway — the CTA still points the operator at the
+      // settings page; the draft hint is best-effort.
+    }
+    setWaSaved(true);
+  }
+
+  function skipWhatsApp() {
+    setSuccess(true);
+    setTimeout(() => {
+      router.push("/super-admin");
+    }, 1200);
+  }
+
+  function finishAfterWaSave() {
+    setSuccess(true);
+    setTimeout(() => {
+      router.push("/super-admin");
+    }, 1200);
   }
 
   if (success) {
@@ -313,9 +421,9 @@ export default function OnboardingWizardPage() {
           Onboard new tenant
         </h1>
         <p className="text-sm text-slate-600">
-          3-step MVP wizard. Creates the tenant, its first branch, and the
-          super-admin user atomically. HFR / HPR / WhatsApp / Razorpay
-          steps land in piece 2b.
+          4-step wizard. Steps 1-3 create the tenant, its first branch, and
+          the super-admin user atomically. Step 4 (WhatsApp) is optional —
+          HFR / HPR / Razorpay steps land in subsequent piece 2b ticks.
         </p>
       </header>
 
@@ -325,7 +433,7 @@ export default function OnboardingWizardPage() {
         data-testid="onboarding-step-indicator"
         aria-label="Onboarding progress"
       >
-        {([1, 2, 3] as const).map((n) => (
+        {([1, 2, 3, 4] as const).map((n) => (
           <li
             key={n}
             data-testid={`onboarding-step-indicator-${n}`}
@@ -340,7 +448,13 @@ export default function OnboardingWizardPage() {
           >
             <span className="font-semibold">{n}.</span>
             <span>
-              {n === 1 ? "Tenant" : n === 2 ? "First branch" : "Super-admin"}
+              {n === 1
+                ? "Tenant"
+                : n === 2
+                  ? "First branch"
+                  : n === 3
+                    ? "Super-admin"
+                    : "WhatsApp"}
             </span>
           </li>
         ))}
@@ -625,33 +739,158 @@ export default function OnboardingWizardPage() {
         </fieldset>
       )}
 
+      {step === 4 && (
+        <fieldset
+          data-testid="onboarding-step-4"
+          className="space-y-4 rounded-lg border border-slate-200 bg-white p-6"
+        >
+          <legend className="sr-only">WhatsApp Business API</legend>
+          <h2 className="text-lg font-semibold">
+            WhatsApp Business API (Gupshup)
+          </h2>
+          <p className="text-xs text-slate-500">
+            Optional — can be configured later from Settings → WhatsApp.
+            The new tenant&apos;s ADMIN can finish this step from
+            /dashboard/settings/whatsapp on first login.
+          </p>
+
+          {waSaved && createdTenant ? (
+            <div
+              data-testid="onboarding-wa-saved-banner"
+              className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+              role="status"
+            >
+              <p className="font-medium">
+                WhatsApp draft saved for {createdTenant.name}
+                {waStep.sourcePhone
+                  ? ` (Gupshup, ${waStep.sourcePhone.trim()})`
+                  : ""}
+                .
+              </p>
+              <p className="mt-1 text-xs">
+                The new tenant&apos;s ADMIN will be prompted to finalize the
+                configuration on first login at{" "}
+                <a
+                  data-testid="onboarding-wa-cta"
+                  href="/dashboard/settings/whatsapp"
+                  className="font-medium underline"
+                >
+                  /dashboard/settings/whatsapp
+                </a>
+                .
+              </p>
+            </div>
+          ) : (
+            <>
+              <Field
+                label="Gupshup API key"
+                hint="From the Gupshup partner dashboard."
+              >
+                <input
+                  data-testid="onboarding-wa-apikey"
+                  type="password"
+                  value={waStep.apiKey}
+                  onChange={(e) =>
+                    setWaStep({ ...waStep, apiKey: e.target.value })
+                  }
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="off"
+                />
+              </Field>
+
+              <Field
+                label="Gupshup app name"
+                hint="The named app inside your Gupshup account."
+              >
+                <input
+                  data-testid="onboarding-wa-appname"
+                  value={waStep.appName}
+                  onChange={(e) =>
+                    setWaStep({ ...waStep, appName: e.target.value })
+                  }
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                />
+              </Field>
+
+              <Field
+                label="Source phone (E.164)"
+                hint="The WhatsApp number messages send from — e.g. +919876543210."
+              >
+                <input
+                  data-testid="onboarding-wa-sourcephone"
+                  value={waStep.sourcePhone}
+                  onChange={(e) =>
+                    setWaStep({ ...waStep, sourcePhone: e.target.value })
+                  }
+                  inputMode="tel"
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="off"
+                />
+              </Field>
+
+              <Field
+                label="Default product id (optional)"
+                hint="Used to scope outbound campaign routing — leave blank if unsure."
+              >
+                <input
+                  data-testid="onboarding-wa-productid"
+                  value={waStep.defaultProductId}
+                  onChange={(e) =>
+                    setWaStep({ ...waStep, defaultProductId: e.target.value })
+                  }
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="off"
+                />
+              </Field>
+
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  data-testid="onboarding-wa-autoreply"
+                  type="checkbox"
+                  checked={waStep.autoReply}
+                  onChange={(e) =>
+                    setWaStep({ ...waStep, autoReply: e.target.checked })
+                  }
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+                <span>Enable auto-reply for inbound messages</span>
+              </label>
+            </>
+          )}
+        </fieldset>
+      )}
+
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
           data-testid="onboarding-back"
           onClick={goBack}
-          disabled={step === 1 || submitting}
+          disabled={step === 1 || step === 4 || submitting}
           className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          style={{ minHeight: 44 }}
         >
           <ArrowLeft size={14} aria-hidden="true" /> Back
         </button>
-        {step < 3 ? (
+        {step < 3 && (
           <button
             type="button"
             data-testid="onboarding-next"
             onClick={goNext}
             disabled={submitting}
             className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ minHeight: 44 }}
           >
             Next <ArrowRight size={14} aria-hidden="true" />
           </button>
-        ) : (
+        )}
+        {step === 3 && (
           <button
             type="button"
             data-testid="onboarding-submit"
             onClick={submit}
             disabled={submitting}
             className="inline-flex items-center gap-2 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ minHeight: 44 }}
           >
             {submitting ? (
               <>
@@ -661,6 +900,39 @@ export default function OnboardingWizardPage() {
             ) : (
               <>Create tenant</>
             )}
+          </button>
+        )}
+        {step === 4 && !waSaved && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="onboarding-wa-skip"
+              onClick={skipWhatsApp}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              style={{ minHeight: 44 }}
+            >
+              Skip for now
+            </button>
+            <button
+              type="button"
+              data-testid="onboarding-wa-save"
+              onClick={saveWhatsApp}
+              className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+              style={{ minHeight: 44 }}
+            >
+              Configure WhatsApp
+            </button>
+          </div>
+        )}
+        {step === 4 && waSaved && (
+          <button
+            type="button"
+            data-testid="onboarding-wa-finish"
+            onClick={finishAfterWaSave}
+            className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+            style={{ minHeight: 44 }}
+          >
+            Finish
           </button>
         )}
       </div>

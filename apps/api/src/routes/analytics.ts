@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "@medcore/db";
-import { Role } from "@medcore/shared";
+import { Role, LEAD_STATUS_VALUES, LEAD_SOURCE_VALUES } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
 // Issue #139 (2026-04-26) — canonical revenue/outstanding/refund helpers so
@@ -2539,6 +2539,244 @@ router.get(
             doctorCount: byDoctor.length,
           },
           byDoctor,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── GET /analytics/lead-funnel-report — Lead → Patient conversion funnel ──
+//
+// Closes Pearl §4.4 row 115 ("Lead-to-patient conversion funnel"). The
+// CRM data (`Lead` + `LeadActivity` + `CONVERSION` activity row) was
+// shipped in Pearl gap #3 (`928018f`); this endpoint adds the
+// funnel-aggregation report the marketing team needs to track drop-off
+// across the six lifecycle stages (NEW → QUALIFIED → ENGAGED → BOOKED
+// → CONVERTED → LOST).
+//
+// Query params (all optional):
+//   from        ISO date — defaults to first day of current month
+//   to          ISO date — defaults to now
+//   source      LeadSource filter (WEB / WALK_IN / PHONE / WHATSAPP / REFERRAL / OTHER)
+//   branchId    NO-OP today — the Lead model has no branchId column
+//               (verified in packages/db/prisma/schema.prisma:838-879).
+//               Accepted for API parity with the other §4.4 reports
+//               (TDS, no-show, referral-ledger row 120). Echoed back in
+//               `filters.branchId` so callers can confirm receipt; does
+//               not narrow the result set. When/if a branch link is
+//               added to Lead, wire this through.
+//   format      "json" (default) | "csv"
+//
+// Aggregation:
+//   - totalLeads: count of Lead.createdAt in [from, to]
+//   - byStage: per-status bucket with count + % of total (all 6 statuses
+//     are always emitted — zero rows still show for CSV column alignment)
+//   - bySource: per-source bucket with total, converted count, conversion rate
+//   - totals.convertedLeads / lostLeads / openLeads (NEW+QUALIFIED+ENGAGED+BOOKED)
+//   - conversionRate = converted / total * 100 (0 if total=0, no NaN)
+//
+// RBAC: ADMIN-only (mirrors TDS/no-show/commission-ledger §4.4 reports).
+//
+// Tenant scope: explicit `where: { tenantId: req.user?.tenantId }` per
+// the 2026-05-21 `0ef60f7` lesson — tenantScopedPrisma short-circuits
+// when tenantId is null (super-admin view), but for typical authed
+// callers we need an explicit clause so the report stays scoped. When
+// tenantId is null/undefined the `where` clause omits the column, which
+// matches the super-admin-sees-all posture.
+//
+// Audit: LEAD_FUNNEL_REPORT_EXPORTED fires only on format=csv (read-only
+// JSON browsing is unaudited per the analytics convention).
+router.get(
+  "/lead-funnel-report",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const {
+        from: fromQ,
+        to: toQ,
+        source,
+        branchId,
+        format = "json",
+      } = req.query as Record<string, string | undefined>;
+
+      // Defaults: from = first day of current month; to = now.
+      const now = new Date();
+      const from = fromQ
+        ? new Date(fromQ)
+        : new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      const to = toQ ? new Date(toQ) : now;
+      if (isNaN(from.getTime())) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Invalid `from` date",
+        });
+        return;
+      }
+      if (isNaN(to.getTime())) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Invalid `to` date",
+        });
+        return;
+      }
+
+      // Validate source enum if supplied (mirrors leads.ts list-handler).
+      if (source && !(LEAD_SOURCE_VALUES as readonly string[]).includes(source)) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Invalid source filter",
+        });
+        return;
+      }
+
+      const tenantId = req.user?.tenantId;
+      const where: Record<string, unknown> = {
+        createdAt: { gte: from, lte: to },
+      };
+      if (source) where.source = source;
+      if (tenantId) (where as { tenantId?: string }).tenantId = tenantId;
+
+      const leads = await prisma.lead.findMany({
+        where,
+        select: {
+          id: true,
+          status: true,
+          source: true,
+        },
+      });
+
+      // ── Aggregate per-stage + per-source ──────────────────────────
+      const round2 = (n: number): number =>
+        Math.round((n + Number.EPSILON) * 100) / 100;
+
+      const totalLeads = leads.length;
+
+      // Stage bucket (all 6 emitted, zero-filled).
+      const stageOrder: readonly string[] = LEAD_STATUS_VALUES;
+      const stageCounts = new Map<string, number>();
+      for (const s of stageOrder) stageCounts.set(s, 0);
+      for (const l of leads) stageCounts.set(l.status, (stageCounts.get(l.status) ?? 0) + 1);
+
+      const byStage = stageOrder.map((stage) => {
+        const count = stageCounts.get(stage) ?? 0;
+        return {
+          stage,
+          count,
+          percentOfTotal: totalLeads > 0 ? round2((count / totalLeads) * 100) : 0,
+        };
+      });
+
+      // Source bucket (only sources actually present in the result set).
+      type SourceBucket = { source: string; count: number; converted: number; rate: number };
+      const sourceMap = new Map<string, SourceBucket>();
+      for (const l of leads) {
+        let b = sourceMap.get(l.source);
+        if (!b) {
+          b = { source: l.source, count: 0, converted: 0, rate: 0 };
+          sourceMap.set(l.source, b);
+        }
+        b.count++;
+        if (l.status === "CONVERTED") b.converted++;
+      }
+      const bySource = Array.from(sourceMap.values())
+        .map((b) => {
+          b.rate = b.count > 0 ? round2((b.converted / b.count) * 100) : 0;
+          return b;
+        })
+        .sort((a, b) => b.count - a.count);
+
+      const convertedLeads = stageCounts.get("CONVERTED") ?? 0;
+      const lostLeads = stageCounts.get("LOST") ?? 0;
+      const openLeads =
+        (stageCounts.get("NEW") ?? 0) +
+        (stageCounts.get("QUALIFIED") ?? 0) +
+        (stageCounts.get("ENGAGED") ?? 0) +
+        (stageCounts.get("BOOKED") ?? 0);
+      const conversionRate = totalLeads > 0 ? round2((convertedLeads / totalLeads) * 100) : 0;
+
+      // ── CSV export ──────────────────────────────────────────
+      if (format === "csv") {
+        const fromIso = from.toISOString().split("T")[0];
+        const toIso = to.toISOString().split("T")[0];
+
+        // Wide-format single sheet: top summary row, blank, stage rows,
+        // blank, source rows. Matches the readable shape ops uses for the
+        // other §4.4 reports.
+        const lines: string[] = [];
+        lines.push(`Report,Lead Funnel`);
+        lines.push(`From,${fromIso}`);
+        lines.push(`To,${toIso}`);
+        lines.push(`Source Filter,${source ?? "(all)"}`);
+        lines.push(`Branch Filter,${branchId ?? "(all)"}`);
+        lines.push(`Total Leads,${totalLeads}`);
+        lines.push(`Converted,${convertedLeads}`);
+        lines.push(`Lost,${lostLeads}`);
+        lines.push(`Open,${openLeads}`);
+        lines.push(`Conversion Rate %,${conversionRate}`);
+        lines.push("");
+
+        const stageRows = byStage.map((s) => ({
+          Stage: s.stage,
+          Count: s.count,
+          "Percent Of Total %": s.percentOfTotal,
+        }));
+        lines.push(toCsv(stageRows, ["Stage", "Count", "Percent Of Total %"]));
+        lines.push("");
+
+        const sourceRows = bySource.map((b) => ({
+          Source: b.source,
+          Count: b.count,
+          Converted: b.converted,
+          "Conversion Rate %": b.rate,
+        }));
+        lines.push(
+          toCsv(sourceRows, ["Source", "Count", "Converted", "Conversion Rate %"]),
+        );
+
+        const csv = lines.join("\r\n");
+
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="lead-funnel-${fromIso}-${toIso}.csv"`,
+        );
+
+        auditLog(req, "LEAD_FUNNEL_REPORT_EXPORTED", "lead", undefined, {
+          from: from.toISOString(),
+          to: to.toISOString(),
+          source: source ?? null,
+          branchId: branchId ?? null,
+          format: "csv",
+        }).catch(console.error);
+
+        res.send(csv);
+        return;
+      }
+
+      // ── JSON response ───────────────────────────────────────
+      res.json({
+        success: true,
+        data: {
+          dateRange: { from: from.toISOString(), to: to.toISOString() },
+          filters: {
+            source: source ?? null,
+            branchId: branchId ?? null,
+          },
+          totals: {
+            totalLeads,
+            convertedLeads,
+            conversionRate,
+            lostLeads,
+            openLeads,
+          },
+          byStage,
+          bySource,
         },
         error: null,
       });

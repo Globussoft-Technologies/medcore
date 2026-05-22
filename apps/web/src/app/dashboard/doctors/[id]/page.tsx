@@ -25,6 +25,16 @@ import { ArrowLeft, Stethoscope, Edit as EditIcon, Calendar, Settings } from "lu
 
 type AppointmentMode = "CALLING" | "TOKEN" | "SLOT";
 type LastHourPolicy = "ACCEPT_ALL" | "BLOCK_NEW" | "WALK_IN_ONLY";
+// Pearl §3.2 (gap row 77 final 2 knobs, 2026-05-22) — per-doctor
+// booking-channel allow-list. Empty array = "all channels permitted".
+type AppointmentChannel = "CALLING" | "SLOT" | "TOKEN" | "WALKIN";
+const ALL_CHANNELS: AppointmentChannel[] = ["CALLING", "SLOT", "TOKEN", "WALKIN"];
+const CHANNEL_LABEL: Record<AppointmentChannel, string> = {
+  CALLING: "Calling",
+  SLOT: "Slot",
+  TOKEN: "Token",
+  WALKIN: "Walk-in",
+};
 
 interface DoctorRecord {
   id: string;
@@ -41,6 +51,9 @@ interface DoctorRecord {
   dailyAppointmentLimit?: number | null;
   nearTurnAlertThreshold?: number | null;
   lastHourPolicy?: LastHourPolicy | null;
+  // Pearl ERP Stage 1 §3.2 (gap row 77 final 2 knobs, 2026-05-22).
+  enabledChannels?: AppointmentChannel[];
+  bufferMinutes?: number;
   // Pearl ERP Stage 1 §2.1.4 — NMC registration number printed on every
   // signed Rx PDF.
   nmcRegNumber?: string | null;
@@ -321,6 +334,21 @@ function AppointmentModeCard({
   );
   const [policy, setPolicy] = useState<LastHourPolicy | "">(doctor.lastHourPolicy ?? "");
   const [nmcReg, setNmcReg] = useState<string>(doctor.nmcRegNumber ?? "");
+  // Pearl §3.2 (gap row 77 final 2 knobs, 2026-05-22) — channels +
+  // buffer minutes. Empty `channels` array submits as `[]` which the
+  // API treats as "all channels permitted" (back-compat default).
+  const [channels, setChannels] = useState<AppointmentChannel[]>(
+    doctor.enabledChannels ?? [],
+  );
+  const [bufferMinutes, setBufferMinutes] = useState<string>(
+    doctor.bufferMinutes != null ? String(doctor.bufferMinutes) : "0",
+  );
+
+  const toggleChannel = (ch: AppointmentChannel) => {
+    setChannels((prev) =>
+      prev.includes(ch) ? prev.filter((c) => c !== ch) : [...prev, ch],
+    );
+  };
 
   const onSave = async () => {
     setSaving(true);
@@ -333,6 +361,13 @@ function AppointmentModeCard({
       body.nearTurnAlertThreshold = nearTurn.trim() === "" ? null : Number(nearTurn);
       body.lastHourPolicy = policy === "" ? null : policy;
       body.nmcRegNumber = nmcReg.trim() === "" ? null : nmcReg.trim();
+      // Pearl §3.2 final 2 knobs — channels submit verbatim ([] is the
+      // valid back-compat sentinel meaning "all permitted"); buffer
+      // defaults to 0 on blank or non-numeric input (matches column
+      // default — the column is NOT NULL so we never POST null).
+      body.enabledChannels = channels;
+      const parsedBuffer = Number(bufferMinutes);
+      body.bufferMinutes = Number.isFinite(parsedBuffer) && parsedBuffer >= 0 ? parsedBuffer : 0;
 
       const res = await api.patch<{ data: DoctorRecord }>(
         `/doctors/${doctor.id}/appointment-mode`,
@@ -417,6 +452,26 @@ function AppointmentModeCard({
             <dt className="text-xs font-medium uppercase text-gray-500">Last-hour policy</dt>
             <dd className="text-sm text-gray-900 dark:text-gray-100">
               {doctor.lastHourPolicy ? POLICY_LABEL[doctor.lastHourPolicy] : "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase text-gray-500">Enabled channels</dt>
+            <dd
+              className="text-sm text-gray-900 dark:text-gray-100"
+              data-testid="appointment-mode-channels-summary"
+            >
+              {doctor.enabledChannels && doctor.enabledChannels.length > 0
+                ? doctor.enabledChannels.map((c) => CHANNEL_LABEL[c]).join(", ")
+                : "All (default)"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase text-gray-500">Buffer (min)</dt>
+            <dd
+              className="text-sm text-gray-900 dark:text-gray-100"
+              data-testid="appointment-mode-buffer-summary"
+            >
+              {doctor.bufferMinutes != null ? `${doctor.bufferMinutes} min` : "0 min"}
             </dd>
           </div>
           <div className="sm:col-span-2">
@@ -534,6 +589,61 @@ function AppointmentModeCard({
           </div>
           <div className="sm:col-span-2">
             <label className="mb-1 block text-xs font-medium uppercase text-gray-500">
+              Enabled channels
+            </label>
+            <div
+              className="flex flex-wrap gap-2"
+              data-testid="appointment-mode-channels"
+              role="group"
+              aria-label="Enabled appointment channels"
+            >
+              {ALL_CHANNELS.map((ch) => {
+                const active = channels.includes(ch);
+                return (
+                  <button
+                    key={ch}
+                    type="button"
+                    role="checkbox"
+                    aria-checked={active}
+                    aria-label={CHANNEL_LABEL[ch]}
+                    data-testid={`appointment-mode-channel-${ch.toLowerCase()}`}
+                    data-active={active ? "true" : "false"}
+                    onClick={() => toggleChannel(ch)}
+                    className={
+                      "inline-flex min-h-[44px] items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-medium transition " +
+                      (active
+                        ? "border-primary bg-primary text-white"
+                        : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200")
+                    }
+                  >
+                    {CHANNEL_LABEL[ch]}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1 text-xs text-gray-500">
+              If empty, all channels matching the appointment mode are accepted.
+            </p>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase text-gray-500">
+              Buffer minutes
+            </label>
+            <input
+              type="number"
+              min={0}
+              max={120}
+              value={bufferMinutes}
+              onChange={(e) => setBufferMinutes(e.target.value)}
+              data-testid="appointment-mode-buffer"
+              className="min-h-[44px] w-full rounded-md border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Minutes between consecutive slots/tokens for this doctor.
+            </p>
+          </div>
+          <div className="sm:col-span-2">
+            <label className="mb-1 block text-xs font-medium uppercase text-gray-500">
               NMC Reg # (printed on every Rx)
             </label>
             <input
@@ -578,6 +688,10 @@ function AppointmentModeCard({
                 );
                 setPolicy(doctor.lastHourPolicy ?? "");
                 setNmcReg(doctor.nmcRegNumber ?? "");
+                setChannels(doctor.enabledChannels ?? []);
+                setBufferMinutes(
+                  doctor.bufferMinutes != null ? String(doctor.bufferMinutes) : "0",
+                );
               }}
               className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >

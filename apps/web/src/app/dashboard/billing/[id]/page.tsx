@@ -29,6 +29,7 @@ import {
   Globe,
 } from "lucide-react";
 import { fetchRazorpayConfig, openRazorpayCheckout } from "@/lib/razorpay";
+import NHCXStepper from "@/components/NHCXStepper";
 
 interface HospitalProfile {
   name: string;
@@ -90,6 +91,17 @@ interface InvoiceDetail {
     paidAt: string;
     transactionId: string | null;
   }>;
+  // Pearl §4.2 — InsuranceClaim rows returned by GET /billing/invoices/:id
+  // (apps/api/src/routes/billing.ts:744). Legacy ClaimStatus enum shape
+  // (SUBMITTED / APPROVED / REJECTED / SETTLED); NHCXStepper tolerates
+  // the richer NormalisedClaimStatus too.
+  insuranceClaims?: Array<{
+    id: string;
+    status: string;
+    insuranceProvider?: string | null;
+    claimAmount?: number | null;
+    approvedAmount?: number | null;
+  }> | null;
 }
 
 const REFUND_PREFIX = "REFUND:";
@@ -972,6 +984,35 @@ export default function InvoiceDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* Pearl §4.2 — NHCX cashless stub stepper.
+            Renders when this invoice has an InsuranceClaim row attached.
+            ADMIN gets a Move-to-next-stage button (test-only per PRD);
+            the underlying PATCH /billing/claims/:id endpoint
+            (apps/api/src/routes/billing.ts:861) already exists and
+            accepts ADMIN+RECEPTION — we scope the UI to ADMIN-only
+            per the spec's "admin button for testing" wording. */}
+        {invoice.insuranceClaims && invoice.insuranceClaims[0] ? (
+          <NHCXStepper
+            claim={invoice.insuranceClaims[0]}
+            userRole={user?.role}
+            onAdvance={async (nextStatus) => {
+              const claimId = invoice.insuranceClaims![0].id;
+              try {
+                await api.patch(`/billing/claims/${claimId}`, {
+                  status: nextStatus,
+                });
+                toast.success(`Claim advanced to ${nextStatus}`);
+                await loadInvoice();
+              } catch (err) {
+                const msg =
+                  err instanceof Error ? err.message : "Failed to advance claim";
+                toast.error(msg);
+                throw err;
+              }
+            }}
+          />
+        ) : null}
 
         {/* Refunds section */}
         {refunds.length > 0 && (

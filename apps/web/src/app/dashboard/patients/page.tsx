@@ -8,7 +8,7 @@ import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { formatPatientAge } from "@/lib/format";
-import { Search, Plus, Users, MessageCircle, Phone, Mail, UserPlus } from "lucide-react";
+import { Search, Plus, Users, MessageCircle, Phone, Mail, UserPlus, KeyRound } from "lucide-react";
 import { DataTable, Column } from "@/components/DataTable";
 import { extractFieldErrors } from "@/lib/field-errors";
 
@@ -153,6 +153,94 @@ export default function PatientsPage() {
     mrNumber: string;
     name: string | null;
   } | null>(null);
+
+  // Pearl §5.3 / gap row 149 — reception-mediated forgot-phone recovery
+  // modal state. Visible to RECEPTION + ADMIN only (matches the API's
+  // RBAC). The patient comes to reception in person, reception verifies
+  // a govt ID, then submits the new phone + identity-method + note. The
+  // server invalidates outstanding OTP challenges + revokes refresh
+  // tokens for the User. See apps/api/src/routes/patients.ts
+  // POST /:id/recover-phone.
+  const [recoverPhoneFor, setRecoverPhoneFor] = useState<PatientRecord | null>(
+    null,
+  );
+  const [recoverForm, setRecoverForm] = useState({
+    newPhone: "",
+    method: "AADHAAR" as
+      | "AADHAAR"
+      | "PAN"
+      | "VOTER_ID"
+      | "DRIVING_LICENSE"
+      | "PHOTO_MATCH",
+    note: "",
+  });
+  const [recoverErrors, setRecoverErrors] = useState<Record<string, string>>(
+    {},
+  );
+  const [recoverSubmitting, setRecoverSubmitting] = useState(false);
+
+  function openRecoverModal(p: PatientRecord) {
+    setRecoverPhoneFor(p);
+    setRecoverForm({ newPhone: "", method: "AADHAAR", note: "" });
+    setRecoverErrors({});
+  }
+  function closeRecoverModal() {
+    setRecoverPhoneFor(null);
+    setRecoverForm({ newPhone: "", method: "AADHAAR", note: "" });
+    setRecoverErrors({});
+    setRecoverSubmitting(false);
+  }
+
+  async function handleRecoverPhone(e: React.FormEvent) {
+    e.preventDefault();
+    if (!recoverPhoneFor) return;
+    const errs: Record<string, string> = {};
+    const trimmedPhone = recoverForm.newPhone.trim();
+    if (!trimmedPhone) errs.newPhone = "New phone number is required";
+    else if (!PATIENT_PHONE_REGEX.test(trimmedPhone))
+      errs.newPhone = "Phone must be 10–15 digits, optional leading +";
+    const trimmedNote = recoverForm.note.trim();
+    if (trimmedNote.length < 10)
+      errs.note = "Identity verification note must be at least 10 characters";
+    else if (trimmedNote.length > 500)
+      errs.note = "Identity verification note must be at most 500 characters";
+    setRecoverErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+
+    setRecoverSubmitting(true);
+    try {
+      await api.post(`/patients/${recoverPhoneFor.id}/recover-phone`, {
+        newPhone: trimmedPhone,
+        identityVerification: {
+          method: recoverForm.method,
+          note: trimmedNote,
+        },
+      });
+      toast.success(
+        `Phone recovered for ${recoverPhoneFor.user?.name ?? "patient"}.`,
+      );
+      closeRecoverModal();
+      loadPatients();
+    } catch (err) {
+      // Surface API-side 409 (phone-in-use) + 400 (Zod) inline.
+      const status =
+        err && typeof err === "object" && "status" in err
+          ? (err as { status?: number }).status
+          : undefined;
+      const message =
+        err instanceof Error ? err.message : "Failed to recover phone";
+      if (status === 409) {
+        setRecoverErrors((p) => ({ ...p, newPhone: message }));
+      } else if (status === 400) {
+        const fields = extractFieldErrors(err);
+        if (fields) setRecoverErrors((p) => ({ ...p, ...fields }));
+        else setRecoverErrors((p) => ({ ...p, _: message }));
+      } else {
+        setRecoverErrors((p) => ({ ...p, _: message }));
+      }
+      setRecoverSubmitting(false);
+    }
+  }
 
   async function handleCreatePatient(e: React.FormEvent) {
     e.preventDefault();
@@ -371,6 +459,18 @@ export default function PatientsPage() {
             >
               <Mail size={16} aria-hidden="true" />
             </a>
+          )}
+          {(user?.role === "RECEPTION" || user?.role === "ADMIN") && (
+            <button
+              type="button"
+              onClick={() => openRecoverModal(p)}
+              aria-label={`Recover phone for ${p.user?.name ?? "patient"}`}
+              title="Recover Phone"
+              data-testid={`quickaction-recover-phone-${p.id}`}
+              className="rounded p-1.5 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30"
+            >
+              <KeyRound size={16} aria-hidden="true" />
+            </button>
           )}
           <button
             type="button"
@@ -678,6 +778,164 @@ export default function PatientsPage() {
               : undefined,
         }}
       />
+
+      {/* Pearl §5.3 / gap row 149 — Recover Phone modal. Open only when
+          recoverPhoneFor is set (i.e. a row's Recover-Phone CTA was
+          clicked) AND the caller is RECEPTION/ADMIN (the trigger button
+          is itself role-gated; the modal markup guards in depth). */}
+      {recoverPhoneFor &&
+        (user?.role === "RECEPTION" || user?.role === "ADMIN") && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="recover-phone-title"
+            data-testid="recover-phone-modal"
+          >
+            <form
+              onSubmit={handleRecoverPhone}
+              className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800"
+              noValidate
+            >
+              <h2
+                id="recover-phone-title"
+                className="mb-1 text-lg font-semibold text-gray-900 dark:text-gray-100"
+              >
+                Recover Phone
+              </h2>
+              <p className="mb-4 text-xs text-gray-600 dark:text-gray-400">
+                For{" "}
+                <span className="font-medium">
+                  {recoverPhoneFor.user?.name ?? "patient"}
+                </span>{" "}
+                ({recoverPhoneFor.mrNumber}). Verify the patient&apos;s identity
+                in person, then enter the new phone number.
+              </p>
+
+              <div className="mb-3">
+                <label
+                  htmlFor="recover-new-phone"
+                  className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200"
+                >
+                  New phone number
+                </label>
+                <input
+                  id="recover-new-phone"
+                  data-testid="recover-phone-new-phone"
+                  value={recoverForm.newPhone}
+                  onChange={(e) =>
+                    setRecoverForm({ ...recoverForm, newPhone: e.target.value })
+                  }
+                  placeholder="10-digit phone (e.g. 9876543210)"
+                  className={
+                    "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
+                    (recoverErrors.newPhone
+                      ? "border-red-500"
+                      : "border-gray-200 dark:border-gray-600")
+                  }
+                />
+                {recoverErrors.newPhone && (
+                  <p
+                    data-testid="recover-phone-error-newPhone"
+                    className="mt-1 text-xs text-red-600"
+                  >
+                    {recoverErrors.newPhone}
+                  </p>
+                )}
+              </div>
+
+              <div className="mb-3">
+                <label
+                  htmlFor="recover-method"
+                  className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200"
+                >
+                  Identity verification method
+                </label>
+                <select
+                  id="recover-method"
+                  data-testid="recover-phone-method"
+                  value={recoverForm.method}
+                  onChange={(e) =>
+                    setRecoverForm({
+                      ...recoverForm,
+                      method: e.target.value as typeof recoverForm.method,
+                    })
+                  }
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                >
+                  <option value="AADHAAR">Aadhaar</option>
+                  <option value="PAN">PAN</option>
+                  <option value="VOTER_ID">Voter ID</option>
+                  <option value="DRIVING_LICENSE">Driving Licence</option>
+                  <option value="PHOTO_MATCH">
+                    Photo match (chart photo)
+                  </option>
+                </select>
+              </div>
+
+              <div className="mb-4">
+                <label
+                  htmlFor="recover-note"
+                  className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200"
+                >
+                  Verification note (10–500 chars)
+                </label>
+                <textarea
+                  id="recover-note"
+                  data-testid="recover-phone-note"
+                  value={recoverForm.note}
+                  onChange={(e) =>
+                    setRecoverForm({ ...recoverForm, note: e.target.value })
+                  }
+                  rows={3}
+                  placeholder='e.g. "Aadhaar last 4: 1234, DOB matches chart, photo verified"'
+                  className={
+                    "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
+                    (recoverErrors.note
+                      ? "border-red-500"
+                      : "border-gray-200 dark:border-gray-600")
+                  }
+                />
+                {recoverErrors.note && (
+                  <p
+                    data-testid="recover-phone-error-note"
+                    className="mt-1 text-xs text-red-600"
+                  >
+                    {recoverErrors.note}
+                  </p>
+                )}
+              </div>
+
+              {recoverErrors._ && (
+                <p
+                  data-testid="recover-phone-error-general"
+                  className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-900/30 dark:text-red-200"
+                >
+                  {recoverErrors._}
+                </p>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  data-testid="recover-phone-submit"
+                  disabled={recoverSubmitting}
+                  className="min-h-[44px] flex-1 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+                >
+                  {recoverSubmitting ? "Saving…" : "Confirm recovery"}
+                </button>
+                <button
+                  type="button"
+                  data-testid="recover-phone-cancel"
+                  onClick={closeRecoverModal}
+                  className="min-h-[44px] rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-700"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
     </div>
   );
 }

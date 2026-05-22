@@ -9,6 +9,8 @@ import {
   updatePatientSchema,
   recordVitalsSchema,
   mergePatientSchema,
+  recoverPhoneSchema,
+  canonicalisePhone,
   Role,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
@@ -569,6 +571,151 @@ router.patch(
       next(err);
     }
   }
+);
+
+// POST /api/v1/patients/:id/recover-phone — Pearl §5.3 / gap row 149.
+//
+// Reception-mediated forgot-phone recovery for a patient who has lost
+// access to their registered phone (lost SIM, switched carrier, etc.)
+// and therefore CANNOT use the self-service OTP login at
+// /patient-auth/otp-request. Reception verifies the patient's identity
+// in-person against a govt ID (or matches the chart photoUrl) and the
+// new phone is attached to the patient's User row.
+//
+// RBAC: RECEPTION + ADMIN only. PATIENT cannot self-trigger (that would
+// defeat the purpose — anyone with the lost number's chart could
+// hijack the account).
+//
+// MUST be declared BEFORE `PATCH /:id` so the Express first-match
+// router doesn't shadow `/:id/recover-phone` with the `:id` param
+// (CLAUDE.md gotcha §14 — static-before-dynamic route ordering, codified
+// in /medcore-bola-sweep). The existing /:id/vitals, /:id/merge etc.
+// already live above /:id for the same reason; we follow suit.
+//
+// On success we (a) update User.phone, (b) invalidate every outstanding
+// PatientOtpChallenge for the OLD phone (mark consumed:true) so a
+// previously-minted code can't be replayed by whoever has the old SIM,
+// (c) revoke all active RefreshToken rows for the User so any session
+// the lost device still has is hard-killed (patient must re-OTP from
+// the new phone), and (d) AuditLog with PHONE-SUFFIX-ONLY payload —
+// full phones never hit the audit log per HIPAA/DPDP minimisation.
+router.post(
+  "/:id/recover-phone",
+  authorize(Role.RECEPTION, Role.ADMIN),
+  validate(recoverPhoneSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { newPhone: rawNewPhone, identityVerification } = req.body as {
+        newPhone: string;
+        identityVerification: { method: string; note: string };
+      };
+      const newPhone = canonicalisePhone(rawNewPhone);
+
+      // Load the patient + linked User. The tenant-scoped Prisma wrapper
+      // returns 404 for cross-tenant rows (the underlying findUnique
+      // filter is rewritten to include the caller's tenantId), so the
+      // null-check below collapses BOTH not-found and cross-tenant into
+      // a single 404 — same posture as every other /:id handler in this
+      // file.
+      const patient = await prisma.patient.findUnique({
+        where: { id: req.params.id },
+        select: {
+          id: true,
+          userId: true,
+          user: { select: { id: true, phone: true } },
+        },
+      });
+      if (!patient || !patient.user) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Patient not found",
+        });
+        return;
+      }
+
+      const oldPhone = patient.user.phone;
+
+      // Reject if the new phone already belongs to a DIFFERENT User. We
+      // skip this check when newPhone === oldPhone (no-op recovery) so
+      // reception can re-confirm identity on a phone the patient still
+      // has — the audit row is still written, which is the useful part.
+      if (newPhone !== oldPhone) {
+        const conflicting = await prisma.user.findFirst({
+          where: { phone: newPhone, id: { not: patient.userId } },
+          select: { id: true },
+        });
+        if (conflicting) {
+          res.status(409).json({
+            success: false,
+            data: null,
+            error: "Phone already registered to another patient",
+          });
+          return;
+        }
+      }
+
+      // Transaction: phone swap + OTP-challenge invalidation + refresh-
+      // token revocation. All three must succeed or none — otherwise we
+      // could end up with the new phone attached but the old phone's
+      // session still alive.
+      await prisma.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: patient.userId },
+          data: { phone: newPhone },
+        });
+        // Burn any outstanding OTP challenge for the OLD phone so a
+        // previously-minted code can't be replayed by whoever has the
+        // lost SIM. updateMany is idempotent — 0 affected rows is fine.
+        if (oldPhone) {
+          await tx.patientOtpChallenge.updateMany({
+            where: { phone: oldPhone, consumed: false },
+            data: { consumed: true },
+          });
+        }
+        // Revoke active sessions. Any access token the lost device
+        // already holds is still valid until its TTL (no per-token
+        // blocklist for access tokens), but the refresh path is broken,
+        // so the longest the lost device can stay signed in is the
+        // 24h access-token TTL. Acceptable for a manual-recovery flow.
+        await tx.refreshToken.deleteMany({
+          where: { userId: patient.userId },
+        });
+      });
+
+      // AuditLog with phone SUFFIX only (last 4) — full phones are PII
+      // and the audit log is queryable by analytics roles. Matches the
+      // posture used by patient-auth.ts for OTP_REQUEST/VERIFY.
+      await auditLog(
+        req,
+        "PATIENT_PHONE_RECOVERY",
+        "patient",
+        patient.id,
+        {
+          patientId: patient.id,
+          oldPhoneSuffix: oldPhone ? oldPhone.slice(-4) : null,
+          newPhoneSuffix: newPhone.slice(-4),
+          identityMethod: identityVerification.method,
+          // Note text persisted on the audit row so a later compliance
+          // review can see WHAT was verified, not just THAT something was.
+          identityNote: identityVerification.note,
+          byReceptionistUserId: req.user!.userId,
+        },
+      );
+
+      res.json({
+        success: true,
+        data: {
+          patientId: patient.id,
+          newPhoneSuffix: newPhone.slice(-4),
+          recoveredAt: new Date().toISOString(),
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
 );
 
 // PATCH /api/v1/patients/:id — update demographics. Open to most staff so

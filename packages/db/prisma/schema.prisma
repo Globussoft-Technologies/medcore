@@ -707,6 +707,17 @@ model Tenant {
   chronicCareCohorts    ChronicCareCohort[]
   cohortSequenceSteps   CohortSequenceStep[]
 
+  // Pearl §6.1 (gap row 167 — piece 3j-i of 4) — WhatsApp inbox.
+  // One WhatsAppConfig per tenant (per-tenant Gupshup / WATI / AiSensei /
+  // Interakt / Meta-Cloud-API creds + auto-reply toggle). Conversations
+  // + messages are inbound/outbound rows that the inbox UI (piece 3j-iii)
+  // and the webhook (piece 3j-ii) read/write. The legacy outbound adapter
+  // (services/channels/whatsapp.ts) keeps using WHATSAPP_API_URL / KEY
+  // env vars until piece 3j-iv flips it to read these creds instead.
+  whatsappConfig         WhatsAppConfig?
+  whatsappConversations  WhatsAppConversation[]
+  whatsappMessages       WhatsAppMessage[]
+
   @@map("tenants")
 }
 
@@ -1335,6 +1346,11 @@ model Patient {
   // ── PRD closure (2026-04-24) ─────────────────────────────
   dataExports         PatientDataExport[]
   medicationIncidents MedicationIncident[]
+
+  // Pearl §6.1 (gap row 167 — piece 3j-i) — WhatsApp inbox.
+  // Back-relation; the conversation is opened the first time an inbound
+  // message arrives and is matched to this patient by phone number.
+  whatsappConversations WhatsAppConversation[]
 
   // ── Pearl §8.6 (2026-05-23 — gap row 224 closure) ───────
   // Cross-tenant DPDP erasure-request workbench: every right-to-be-
@@ -1991,6 +2007,141 @@ model AuditLog {
   // 20260504000002_audit_log_tenant_id.
   @@index([tenantId, createdAt(sort: Desc)])
   @@map("audit_logs")
+}
+
+// ─── PEARL §6.1 (gap row 167 — piece 3j-i of 4) — WhatsApp inbox ────────
+// Per-tenant WhatsApp provider configuration + bi-directional conversation
+// + message log. Pieces 3j-ii / 3j-iii / 3j-iv add the inbound webhook,
+// reception inbox UI, and reply endpoint respectively. The legacy outbound
+// adapter (services/channels/whatsapp.ts) keeps reading env vars until
+// piece 3j-iv. Credentials are stored as a single JSON blob encrypted at
+// rest (AES-256-GCM via apps/api/src/services/whatsapp-crypto.ts) so that
+// (a) the schema doesn't have to change per-provider as new providers ship
+// and (b) the SystemConfig key/value table doesn't have to fan out.
+
+enum WhatsAppProvider {
+  GUPSHUP
+  WATI
+  AISENSEI
+  INTERAKT
+  META
+}
+
+enum WhatsAppConversationStatus {
+  OPEN
+  SNOOZED
+  CLOSED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+// Generic enough to be reused if a future channel (e.g. RCS, Telegram) needs
+// the same lifecycle. Mirrors NotificationDeliveryStatus shape but kept
+// distinct because the WhatsApp adapter receives finer-grained webhook
+// callbacks (delivered/read/failed) than the broader Notification table.
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+model WhatsAppConfig {
+  id String @id @default(cuid())
+
+  tenantId String           @unique
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  provider WhatsAppProvider @default(GUPSHUP)
+
+  // AES-256-GCM ciphertext (base64) — see whatsapp-crypto.ts. In dev/stub
+  // mode (WHATSAPP_CREDS_KEY unset) the value is a JSON blob with a
+  // `__plaintext: true` marker so the route layer can warn loudly without
+  // crashing local dev. Per-provider field shape lives in the Zod schema
+  // at packages/shared/src/validation/whatsapp-config.ts.
+  credentialsEncrypted String?
+
+  // Optional outbound routing knob used by piece 3j-iv to scope which
+  // pre-approved template / product the auto-replies / drips go through.
+  defaultProductId String?
+
+  // Whether the (future Stage-2) AI agent auto-replies to inbound messages.
+  // Today this is just a persistence column — Stage-1 ships the inbox only.
+  autoReply Boolean @default(true)
+  active    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("whatsapp_config")
+}
+
+model WhatsAppConversation {
+  id String @id @default(cuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Nullable until the inbound webhook matches the phone number to a
+  // Patient row. Receptionists in piece 3j-iii can also manually link a
+  // conversation to a patient.
+  patientId String?
+  patient   Patient? @relation(fields: [patientId], references: [id], onDelete: SetNull)
+
+  // Canonical E.164 (e.g. "+919876543210"). Together with tenantId, this
+  // uniquely identifies the conversation.
+  phone String
+
+  lastMessageAt DateTime?
+  lastInboundAt DateTime?
+  unreadCount   Int       @default(0)
+
+  status WhatsAppConversationStatus @default(OPEN)
+
+  // Receptionist who claimed the conversation. Null = unassigned.
+  assignedToUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages WhatsAppMessage[]
+
+  @@unique([tenantId, phone])
+  @@index([tenantId, lastMessageAt])
+  @@map("whatsapp_conversations")
+}
+
+model WhatsAppMessage {
+  id String @id @default(cuid())
+
+  conversationId String
+  conversation   WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  // Denormalised tenantId so the cross-tenant tenant-scoped Prisma
+  // extension can filter without a join. Maintained by the route layer.
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  direction MessageDirection
+  body      String           @db.Text
+  mediaUrl  String?
+
+  providerMessageId String?
+
+  status      MessageStatus @default(QUEUED)
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  readAt      DateTime?
+  failedAt    DateTime?
+  failureReason String?
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@map("whatsapp_messages")
 }
 
 // ─── SYSTEM ─────────────────────────────────────────────

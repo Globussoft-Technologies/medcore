@@ -141,6 +141,11 @@ import { branchesRouter } from "./routes/branches";
 import { campaignsRouter, publicCampaignsRouter } from "./routes/campaigns";
 import { campaignAudiencesRouter } from "./routes/campaign-audiences";
 import { settingsRouter } from "./routes/settings";
+// Pearl §6.1 gap row 167 piece 3j-i of 4 — per-tenant WhatsApp inbox
+// provider config (GUPSHUP / WATI / AISENSEI / INTERAKT / META). The
+// outbound adapter at services/channels/whatsapp.ts stays unchanged
+// (still env-driven) until piece 3j-iv flips it to per-tenant creds.
+import { whatsappConfigRouter } from "./routes/whatsapp-config";
 import { agentConsoleRouter } from "./routes/agent-console";
 import { aiKpisRouter } from "./routes/ai-kpis";
 import { healthRouter } from "./routes/health";
@@ -402,6 +407,9 @@ export function buildApp() {
   app.use("/api/v1/campaigns", campaignsRouter);
   app.use("/api/v1/campaign-audiences", campaignAudiencesRouter);
   app.use("/api/v1/settings", settingsRouter);
+  // Pearl §6.1 gap row 167 piece 3j-i — per-tenant WhatsApp inbox
+  // provider config. ADMIN-only; sibling to /settings/integrations.
+  app.use("/api/v1/wa/config", whatsappConfigRouter);
   app.use("/api/v1/agent-console", agentConsoleRouter);
   app.use("/api/v1/ai/kpis", aiKpisRouter);
   app.use("/api/v1/patient-data-export", patientDataExportRouter);

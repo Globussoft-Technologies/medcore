@@ -39,3 +39,4 @@ export * from "./validation/campaign";
 export * from "./validation/patient-auth";
 export * from "./validation/tenant-onboarding";
 export * from "./validation/doctor-favourite-medicine";
+export * from "./validation/referral-commission";

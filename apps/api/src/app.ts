@@ -55,6 +55,10 @@ import { ehrRouter } from "./routes/ehr";
 import { icd10Router } from "./routes/icd10";
 import { uploadsRouter } from "./routes/uploads";
 import { referralRouter } from "./routes/referrals";
+// Pearl ERP Stage 1 §4.1 (gap row 101) — referring-doctor commission
+// ledger persistence surface. Auto-rows are created by the billing
+// route; this router is just CRUD on the snapshot table.
+import { referralCommissionsRouter } from "./routes/referral-commissions";
 import { surgeryRouter } from "./routes/surgery";
 import { shiftRouter } from "./routes/shifts";
 import { leaveRouter } from "./routes/leaves";
@@ -305,6 +309,9 @@ export function buildApp() {
   app.use("/api/v1/icd10", icd10Router);
   app.use("/api/v1/uploads", uploadsRouter);
   app.use("/api/v1/referrals", referralRouter);
+  // Pearl §4.1 — must mount this BEFORE any /:id-shaped handler on the
+  // referrals router (it isn't on referralRouter today but staying defensive).
+  app.use("/api/v1/referral-commissions", referralCommissionsRouter);
   app.use("/api/v1/surgery", surgeryRouter);
   app.use("/api/v1/shifts", shiftRouter);
   app.use("/api/v1/leaves", leaveRouter);

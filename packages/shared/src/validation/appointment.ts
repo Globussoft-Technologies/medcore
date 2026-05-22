@@ -247,6 +247,12 @@ export const doctorAppointmentModeSchema = z
     // Pearl ERP Stage 1 §2.1.4 — NMC registration number on the Doctor
     // profile; rendered on every signed Rx PDF.
     nmcRegNumber: z.string().max(32).nullable().optional(),
+    // Pearl ERP Stage 1 §4.1 (gap row 101) — default commission % paid
+    // to this doctor when they're set as the referringDoctor on an
+    // invoice. Null clears the default (no auto-commission rows created
+    // for invoices this doctor referred); 0–100 sets the % used as the
+    // fall-back when Referral.commissionPercent is null.
+    commissionPercent: z.number().min(0).max(100).nullable().optional(),
   })
   .refine((val) => Object.values(val).some((v) => v !== undefined), {
     message: "At least one field is required",

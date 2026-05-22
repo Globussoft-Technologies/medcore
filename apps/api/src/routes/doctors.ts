@@ -360,6 +360,10 @@ router.patch(
       if (req.body.nearTurnAlertThreshold !== undefined) data.nearTurnAlertThreshold = req.body.nearTurnAlertThreshold;
       if (req.body.lastHourPolicy !== undefined) data.lastHourPolicy = req.body.lastHourPolicy;
       if (req.body.nmcRegNumber !== undefined) data.nmcRegNumber = req.body.nmcRegNumber;
+      // Pearl §4.1 (gap row 101) — default commission % for invoices
+      // this doctor referred. PATCH semantics: undefined leaves unchanged,
+      // null explicitly clears (no commission rows auto-created).
+      if (req.body.commissionPercent !== undefined) data.commissionPercent = req.body.commissionPercent;
 
       const updated = await prisma.doctor.update({
         where: { id: req.params.id },
@@ -373,6 +377,7 @@ router.patch(
           nearTurnAlertThreshold: true,
           lastHourPolicy: true,
           nmcRegNumber: true,
+          commissionPercent: true,
         },
       });
 

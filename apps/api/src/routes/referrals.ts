@@ -49,6 +49,7 @@ router.post(
         specialty,
         reason,
         notes,
+        commissionPercent,
       } = req.body;
 
       const referralNumber = await nextReferralNumber();
@@ -65,6 +66,10 @@ router.post(
           reason,
           notes,
           status: "PENDING",
+          // Pearl §4.1 (gap row 101) — optional per-referral override of
+          // Doctor.commissionPercent. Read by the invoice creation hook
+          // to snapshot the % into ReferralCommission.
+          commissionPercent,
         },
         include: {
           patient: {
@@ -261,7 +266,7 @@ router.patch(
   validate(updateReferralStatusSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { status, notes } = req.body;
+      const { status, notes, commissionPercent } = req.body;
 
       const existing = await prisma.referral.findUnique({
         where: { id: req.params.id },
@@ -277,6 +282,10 @@ router.patch(
 
       const data: Record<string, unknown> = { status };
       if (notes !== undefined) data.notes = notes;
+      // Pearl §4.1 — allow updating the per-referral commission %
+      // override post-create (e.g. negotiated rate change). Null clears
+      // the override so future invoices fall back to the Doctor default.
+      if (commissionPercent !== undefined) data.commissionPercent = commissionPercent;
 
       // If leaving PENDING and respondedAt not set, set it
       if (

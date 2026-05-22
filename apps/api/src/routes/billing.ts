@@ -153,6 +153,13 @@ router.post(
         applyAdvance,
         dueDate,
         notes,
+        // Pearl §4.1 (gap row 101) — referring-doctor commission split.
+        // referralId takes precedence: when set, the handler reads the
+        // Referral row's fromDoctorId + commissionPercent (override).
+        // referringDoctorId is the walk-in shorthand for an invoice
+        // that names a referring doctor without a formal Referral.
+        referringDoctorId: bodyReferringDoctorId,
+        referralId,
       } = req.body;
 
       // Issue #890: never raise an invoice against a NO_SHOW or CANCELLED
@@ -286,6 +293,60 @@ router.post(
       // into taxableAmount above, so don't double-count.
       const totalAmount = taxableAmount + taxAmount - advanceApplied;
 
+      // ── Pearl §4.1 (gap row 101) — pre-resolve referring-doctor +
+      // commission % before opening the invoice transaction. We do the
+      // lookups outside the tx so the hot-path stays short.
+      //
+      // Resolution order:
+      //   1. If referralId is set, load that Referral. The fromDoctorId
+      //      becomes the referring doctor; Referral.commissionPercent
+      //      (if non-null) wins as the override.
+      //   2. Else if referringDoctorId is set, use it directly with no
+      //      Referral context.
+      //   3. Fall back to Doctor.commissionPercent when neither the
+      //      referral nor the body carried a %.
+      // If everything resolves to null at the end, no commission row is
+      // created (the transaction block below short-circuits).
+      let resolvedReferringDoctorId: string | null = null;
+      let resolvedReferralId: string | null = null;
+      let resolvedCommissionPercent: number | null = null;
+      let resolvedDoctorTenantId: string | null = null;
+      if (referralId) {
+        const refRow = await prisma.referral.findUnique({
+          where: { id: referralId },
+          select: { id: true, fromDoctorId: true, commissionPercent: true },
+        });
+        if (refRow) {
+          resolvedReferralId = refRow.id;
+          resolvedReferringDoctorId = refRow.fromDoctorId;
+          if (refRow.commissionPercent !== null && refRow.commissionPercent !== undefined) {
+            resolvedCommissionPercent = Number(refRow.commissionPercent);
+          }
+        }
+      } else if (bodyReferringDoctorId) {
+        resolvedReferringDoctorId = bodyReferringDoctorId;
+      }
+      if (resolvedReferringDoctorId) {
+        const docRow = await prisma.doctor.findUnique({
+          where: { id: resolvedReferringDoctorId },
+          select: { tenantId: true, commissionPercent: true },
+        });
+        if (docRow) {
+          resolvedDoctorTenantId = docRow.tenantId ?? null;
+          if (
+            resolvedCommissionPercent === null &&
+            docRow.commissionPercent !== null &&
+            docRow.commissionPercent !== undefined
+          ) {
+            resolvedCommissionPercent = Number(docRow.commissionPercent);
+          }
+        } else {
+          // Doctor row vanished between body validation and lookup —
+          // don't try to compute a commission against a non-existent FK.
+          resolvedReferringDoctorId = null;
+        }
+      }
+
       const invoice = await prisma.$transaction(async (tx) => {
         const inv = await tx.invoice.create({
           data: {
@@ -301,6 +362,11 @@ router.post(
             packageDiscount,
             advanceApplied,
             totalAmount: Math.max(0, +totalAmount.toFixed(2)),
+            // Pearl §4.1 — persist the (resolved) referring doctor +
+            // originating referral pointers so the §4.4 ledger report
+            // can join back without re-derivation.
+            referringDoctorId: resolvedReferringDoctorId,
+            referralId: resolvedReferralId,
             // #902: default dueDate to createdAt + 14 days (configurable
             // via `invoice_default_due_days` SystemConfig) when the
             // client didn't pass one. Previously left null on ~50% of
@@ -407,12 +473,57 @@ router.post(
           });
         }
 
+        // ── Pearl §4.1 (gap row 101) — auto-create the commission
+        // snapshot in the same transaction as the invoice. If anything
+        // in the invoice path rolls back, this row rolls back too.
+        // Both `resolvedReferringDoctorId` and `resolvedCommissionPercent`
+        // must be set for a row to materialize — a referring doctor with
+        // a null commission % is a legitimate "no commission owed"
+        // configuration that the report must NOT count.
+        if (resolvedReferringDoctorId && resolvedCommissionPercent !== null) {
+          const commissionAmount = +(
+            (subtotal * resolvedCommissionPercent) / 100
+          ).toFixed(2);
+          await tx.referralCommission.create({
+            data: {
+              invoiceId: inv.id,
+              referringDoctorId: resolvedReferringDoctorId,
+              referralId: resolvedReferralId,
+              commissionPercent: resolvedCommissionPercent,
+              commissionAmount,
+              // Denormalize tenantId so the report query doesn't need to
+              // join through Invoice → Doctor. Falls back to "" for the
+              // single-tenant deploy (matches DoctorFavouriteMedicine
+              // convention).
+              tenantId: resolvedDoctorTenantId ?? "",
+              status: "PENDING",
+            },
+          });
+        }
+
         return inv;
       });
 
       // Fire-and-forget notification
       onBillGenerated(invoice).catch(console.error);
       auditLog(req, "INVOICE_CREATE", "invoice", invoice.id, { invoiceNumber, patientId, totalAmount }).catch(console.error);
+      // Pearl §4.1 — separate audit row for the commission snapshot so
+      // accounts can grep the trail without pattern-matching invoice
+      // metadata. Fire-and-forget per the safe-audit convention.
+      if (resolvedReferringDoctorId && resolvedCommissionPercent !== null) {
+        auditLog(
+          req,
+          "REFERRAL_COMMISSION_AUTO_CREATED",
+          "referral_commission",
+          invoice.id,
+          {
+            invoiceId: invoice.id,
+            referringDoctorId: resolvedReferringDoctorId,
+            referralId: resolvedReferralId,
+            commissionPercent: resolvedCommissionPercent,
+          },
+        ).catch(console.error);
+      }
 
       res.status(201).json({ success: true, data: invoice, error: null });
     } catch (err) {
@@ -2244,6 +2355,31 @@ router.post(
         invoiceId,
         amount,
       }).catch(console.error);
+
+      // ── Pearl §4.1 (gap row 101) — void-cascade. When the cumulative
+      // credit-note total covers the full invoice (effectively a void),
+      // mark the linked ReferralCommission as VOIDED so the §4.4 ledger
+      // doesn't accrue commission on revenue that was reversed. We use
+      // an updateMany with a status guard so a previously-PAID commission
+      // (already settled in accounts) is NOT clawed back automatically —
+      // accounts must do that manually with a PATCH if needed.
+      const cumulativeCredits = alreadyCredited + Number(amount);
+      const invoiceTotalNum = Number(invoice.totalAmount);
+      if (cumulativeCredits >= invoiceTotalNum && invoiceTotalNum > 0) {
+        const cascade = await prisma.referralCommission.updateMany({
+          where: { invoiceId, status: "PENDING" },
+          data: { status: "VOIDED" },
+        });
+        if (cascade.count > 0) {
+          auditLog(
+            req,
+            "REFERRAL_COMMISSION_VOIDED_BY_CREDIT_NOTE",
+            "referral_commission",
+            invoiceId,
+            { noteNumber, cumulativeCredits, invoiceTotal: invoiceTotalNum },
+          ).catch(console.error);
+        }
+      }
 
       res.status(201).json({ success: true, data: note, error: null });
     } catch (err) {

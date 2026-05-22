@@ -10,6 +10,12 @@ export const createReferralSchema = z
     specialty: z.string().optional(),
     reason: z.string().min(1, "Reason is required"),
     notes: z.string().optional(),
+    // Pearl ERP Stage 1 §4.1 (gap row 101) — per-referral override of
+    // the referring doctor's default `Doctor.commissionPercent`. Null /
+    // omitted = fall back to the Doctor row's default. 0–100 sets an
+    // explicit % for this referral only. Snapshots into
+    // `ReferralCommission.commissionPercent` when an invoice posts.
+    commissionPercent: z.number().min(0).max(100).optional(),
   })
   .refine(
     (data) => !!data.toDoctorId || !!data.externalProvider,
@@ -22,6 +28,10 @@ export const createReferralSchema = z
 export const updateReferralStatusSchema = z.object({
   status: z.enum(["PENDING", "ACCEPTED", "COMPLETED", "DECLINED", "EXPIRED"]),
   notes: z.string().optional(),
+  // Pearl §4.1 — allow the PATCH path to update the per-referral commission
+  // override too (e.g. negotiated rate). Null clears the override and the
+  // next invoice falls back to the Doctor-level default.
+  commissionPercent: z.number().min(0).max(100).nullable().optional(),
 });
 
 export const createOTSchema = z.object({

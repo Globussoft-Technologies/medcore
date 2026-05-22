@@ -22,6 +22,16 @@ export const createInvoiceSchema = z.object({
   applyAdvance: z.boolean().default(false), // auto-apply patient's advance
   dueDate: z.string().optional(),
   notes: z.string().optional(),
+  // Pearl ERP Stage 1 §4.1 (gap row 101) — referring-doctor commission
+  // split. If `referringDoctorId` is set OR `referralId` resolves to a
+  // Referral with a fromDoctor, the POST handler auto-computes the
+  // commission and snapshots it into ReferralCommission inside the same
+  // transaction as the Invoice. Both fields are optional — walk-in
+  // invoices with no referring doctor pass nothing and no commission row
+  // is created. `referralId` takes precedence: if set, the handler reads
+  // the Referral's commissionPercent (override) and fromDoctorId.
+  referringDoctorId: z.string().uuid().optional(),
+  referralId: z.string().uuid().optional(),
 });
 
 // Consolidated IPD invoice on discharge — auto-computes all services

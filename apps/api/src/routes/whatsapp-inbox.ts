@@ -90,8 +90,16 @@ router.get(
       const { status, limit, cursor } = parsed.data;
       const take = limit ?? 30;
 
+      // Default behaviour: when the caller omits `status`, the inbox should
+      // surface only OPEN conversations — that's the reception triage queue.
+      // SNOOZED / CLOSED rows still need to be reachable explicitly, hence
+      // the `ALL` escape hatch. The integration test at
+      // apps/api/src/test/integration/whatsapp-inbox.test.ts pins this
+      // contract ("GET /conversations defaults to OPEN status and lists
+      // tenant A's 2 open convos").
       const where: Record<string, unknown> = { tenantId };
-      if (status && status !== "ALL") where.status = status;
+      const effectiveStatus = status ?? "OPEN";
+      if (effectiveStatus !== "ALL") where.status = effectiveStatus;
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const rows = await (prisma as any).whatsAppConversation.findMany({

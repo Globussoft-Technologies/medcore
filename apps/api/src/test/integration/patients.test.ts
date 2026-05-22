@@ -216,4 +216,80 @@ describeIfDB("Patients API (integration)", () => {
     });
     expect(after).toBeGreaterThan(before);
   });
+
+  // ─────────────────────────────────────────────────────────
+  // Pearl §2.1.1 — Patient source tagging (gap-analysis row 42).
+  // The `source` field on Patient captures registration attribution
+  // (WEB / PWA / WALK_IN / REFERRAL / WHATSAPP / PHONE / OTHER) for
+  // marketing + CRM analytics. Schema DEFAULT is WALK_IN; the staff
+  // POST /patients route layer defaults to WEB when the body omits a
+  // value (because that endpoint IS the staff web-panel surface).
+  // ─────────────────────────────────────────────────────────
+
+  it("POST: persists explicit source value (Pearl §2.1.1)", async () => {
+    const res = await request(app)
+      .post("/api/v1/patients")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "Source Referral Patient",
+        gender: "MALE",
+        phone: "9100000051",
+        source: "REFERRAL",
+      });
+    expect(res.status).toBeLessThan(400);
+    const prisma = await getPrisma();
+    const created = await prisma.patient.findUnique({
+      where: { id: res.body.data.id },
+      select: { source: true },
+    });
+    expect(created?.source).toBe("REFERRAL");
+  });
+
+  it("POST: defaults source to WEB when body omits it (staff dashboard surface)", async () => {
+    const res = await request(app)
+      .post("/api/v1/patients")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "Source Defaulted Patient",
+        gender: "FEMALE",
+        phone: "9100000052",
+      });
+    expect(res.status).toBeLessThan(400);
+    const prisma = await getPrisma();
+    const created = await prisma.patient.findUnique({
+      where: { id: res.body.data.id },
+      select: { source: true },
+    });
+    // Route layer pins WEB when omitted — the schema DEFAULT (WALK_IN)
+    // only kicks in for non-route callers (seeders, fixtures).
+    expect(created?.source).toBe("WEB");
+  });
+
+  it("POST: rejects an invalid source value (Zod 400)", async () => {
+    const res = await request(app)
+      .post("/api/v1/patients")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "Bad Source Patient",
+        gender: "MALE",
+        phone: "9100000053",
+        source: "INSTAGRAM",
+      });
+    expect(res.status).toBe(400);
+  });
+
+  it("Patient rows created outside the route layer (e.g. fixtures / seeders) get the schema DEFAULT of WALK_IN", async () => {
+    // createPatientFixture() goes through prisma.patient.create() without
+    // an explicit `source`, so the Prisma-level @default(WALK_IN) must
+    // populate the column. This pins the "PWA self-registration via a
+    // future code path that uses prisma directly will default to WALK_IN
+    // unless it explicitly passes PWA" invariant.
+    const patient = await createPatientFixture();
+    const prisma = await getPrisma();
+    const row = await prisma.patient.findUnique({
+      where: { id: patient.id },
+      select: { source: true },
+    });
+    expect(row?.source).toBe("WALK_IN");
+  });
 });

@@ -11,15 +11,16 @@ name: Release validation
 # re-trigger. A clean run on `main` HEAD is the green light to declare
 # the release.
 #
-# Circuit-breaker (added 2026-05-20):
+# Circuit-breaker (added 2026-05-20, push-always policy from 2026-05-22):
 #   When ANY job fails, the workflow sets a repo variable
 #   `RELEASE_VALIDATION_PAUSED=true`. Three trigger behaviors then apply:
 #     - `schedule`         → SKIPS while paused (no compute spent).
 #     - `workflow_dispatch`→ always proceeds (manual override).
-#     - `push` to main     → only fires WHILE paused, to auto-verify a
-#                            fix. When not paused, push doesn't trigger
-#                            this workflow at all (test.yml handles the
-#                            per-push gate; this stays a heavy backup).
+#     - `push` to main     → ALWAYS fires regardless of pause state.
+#                            Every check-in to main runs the full heavy
+#                            suite — release validation is now a per-push
+#                            gate alongside test.yml, not just a 4h backup.
+#                            (Previous policy: push only ran while paused.)
 #   Once a release.yml run goes fully green (any trigger), the flag
 #   auto-clears and the scheduled cadence resumes on the next slot.
 #   The flag lives in Settings → Variables → Actions →
@@ -29,8 +30,8 @@ name: Release validation
 #   no-op (with a warning) and the workflow keeps the pre-circuit-breaker
 #   behavior: every scheduled slot runs regardless of past failures.
 #
-# Why separate from the per-push `test` workflow:
-#   - Per-push runs the FAST gate (unit + contract + smoke + integration +
+# Why it runs alongside the per-push `test` workflow:
+#   - `test.yml` is the FAST gate (unit + contract + smoke + integration +
 #     web vitest + typecheck + RBAC matrix only). That keeps auto-deploys
 #     to dev quick.
 #   - This workflow runs the FULL Playwright suite (132+ specs across
@@ -73,10 +74,10 @@ on:
   # "Run workflow" before declaring a release, or to re-run as a backup.
   workflow_dispatch:
 
-  # Push to main — fires the auto-verify path of the circuit-breaker.
-  # The job-level `if:` blocks the heavy jobs UNLESS we're currently
-  # paused; this trigger only does work when there's a paused state to
-  # resolve. concurrency:cancel-in-progress de-dups rapid-fire pushes.
+  # Push to main — fires the heavy suite on every check-in (changed
+  # 2026-05-22; previously this only ran while the circuit-breaker was
+  # paused). concurrency:cancel-in-progress de-dups rapid-fire pushes so
+  # a chain of merges collapses to one run on the final SHA.
   push:
     branches: [main]
 
@@ -125,7 +126,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event_name == 'schedule' && vars.RELEASE_VALIDATION_PAUSED != 'true')
-      || (github.event_name == 'push' && vars.RELEASE_VALIDATION_PAUSED == 'true')
+      || github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -152,7 +153,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event_name == 'schedule' && vars.RELEASE_VALIDATION_PAUSED != 'true')
-      || (github.event_name == 'push' && vars.RELEASE_VALIDATION_PAUSED == 'true')
+      || github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -207,7 +208,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event_name == 'schedule' && vars.RELEASE_VALIDATION_PAUSED != 'true')
-      || (github.event_name == 'push' && vars.RELEASE_VALIDATION_PAUSED == 'true')
+      || github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -256,7 +257,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event_name == 'schedule' && vars.RELEASE_VALIDATION_PAUSED != 'true')
-      || (github.event_name == 'push' && vars.RELEASE_VALIDATION_PAUSED == 'true')
+      || github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -299,7 +300,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event_name == 'schedule' && vars.RELEASE_VALIDATION_PAUSED != 'true')
-      || (github.event_name == 'push' && vars.RELEASE_VALIDATION_PAUSED == 'true')
+      || github.event_name == 'push'
     runs-on: ubuntu-latest
     # 25 min — symmetric with the WebKit budget below.
     timeout-minutes: 25
@@ -428,7 +429,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event_name == 'schedule' && vars.RELEASE_VALIDATION_PAUSED != 'true')
-      || (github.event_name == 'push' && vars.RELEASE_VALIDATION_PAUSED == 'true')
+      || github.event_name == 'push'
     runs-on: ubuntu-latest
     # 25 min — bumped from 20 after run 21 had WebKit shard 4 hit the
     # ceiling on 12-shard split (20m24s total). Slow shards combined with
@@ -549,7 +550,7 @@ jobs:
       always() && (
         github.event_name == 'workflow_dispatch'
         || (github.event_name == 'schedule' && vars.RELEASE_VALIDATION_PAUSED != 'true')
-        || (github.event_name == 'push' && vars.RELEASE_VALIDATION_PAUSED == 'true')
+        || github.event_name == 'push'
       )
     steps:
       - uses: actions/checkout@v6
@@ -594,7 +595,7 @@ jobs:
       always() && (
         github.event_name == 'workflow_dispatch'
         || (github.event_name == 'schedule' && vars.RELEASE_VALIDATION_PAUSED != 'true')
-        || (github.event_name == 'push' && vars.RELEASE_VALIDATION_PAUSED == 'true')
+        || github.event_name == 'push'
       )
     steps:
       - name: Report

@@ -31,6 +31,11 @@ import { leadRouter } from "./routes/leads";
 import { patientRouter } from "./routes/patients";
 import { appointmentRouter } from "./routes/appointments";
 import { doctorRouter } from "./routes/doctors";
+// Pearl ERP Stage 1 §2.1.4 (gap item #50) — per-doctor favourite-medicine
+// quick-add list. Mounted BEFORE doctorRouter so Express picks it up
+// before any /:id-shaped handler on the doctors router (CLAUDE.md gotcha
+// §14 — static-before-dynamic).
+import { doctorFavouritesRouter } from "./routes/doctor-favourites";
 import { billingRouter, razorpayWebhookRouter } from "./routes/billing";
 import { prescriptionRouter, publicPrescriptionRouter } from "./routes/prescriptions";
 import { publicPatientRouter } from "./routes/public-patient";
@@ -50,6 +55,10 @@ import { ehrRouter } from "./routes/ehr";
 import { icd10Router } from "./routes/icd10";
 import { uploadsRouter } from "./routes/uploads";
 import { referralRouter } from "./routes/referrals";
+// Pearl ERP Stage 1 §4.1 (gap row 101) — referring-doctor commission
+// ledger persistence surface. Auto-rows are created by the billing
+// route; this router is just CRUD on the snapshot table.
+import { referralCommissionsRouter } from "./routes/referral-commissions";
 import { surgeryRouter } from "./routes/surgery";
 import { shiftRouter } from "./routes/shifts";
 import { leaveRouter } from "./routes/leaves";
@@ -125,6 +134,7 @@ import { aiFraudRouter } from "./routes/ai-fraud";
 import { aiDocQaRouter } from "./routes/ai-doc-qa";
 import { aiSentimentRouter } from "./routes/ai-sentiment";
 import { tenantsRouter } from "./routes/tenants";
+import { tenantOnboardingRouter } from "./routes/tenant-onboarding";
 import { branchesRouter } from "./routes/branches";
 import { campaignsRouter, publicCampaignsRouter } from "./routes/campaigns";
 import { campaignAudiencesRouter } from "./routes/campaign-audiences";
@@ -275,6 +285,10 @@ export function buildApp() {
   app.use("/api/v1/leads", leadRouter);
   app.use("/api/v1/patients", patientRouter);
   app.use("/api/v1/appointments", appointmentRouter);
+  // Pearl §2.1.4 gap #50 — favourite-medicine quick-add. Mounted BEFORE
+  // the generic doctorRouter so Express matches /doctors/me/favourites
+  // first (static path > dynamic /:id).
+  app.use("/api/v1/doctors/me/favourites", doctorFavouritesRouter);
   app.use("/api/v1/doctors", doctorRouter);
   app.use("/api/v1/billing", billingRouter);
   app.use("/api/v1/prescriptions", prescriptionRouter);
@@ -295,6 +309,9 @@ export function buildApp() {
   app.use("/api/v1/icd10", icd10Router);
   app.use("/api/v1/uploads", uploadsRouter);
   app.use("/api/v1/referrals", referralRouter);
+  // Pearl §4.1 — must mount this BEFORE any /:id-shaped handler on the
+  // referrals router (it isn't on referralRouter today but staying defensive).
+  app.use("/api/v1/referral-commissions", referralCommissionsRouter);
   app.use("/api/v1/surgery", surgeryRouter);
   app.use("/api/v1/shifts", shiftRouter);
   app.use("/api/v1/leaves", leaveRouter);
@@ -365,6 +382,11 @@ export function buildApp() {
   app.use("/api/v1/ai/doc-qa", aiDocQaRouter);
   app.use("/api/v1/ai/sentiment", aiSentimentRouter);
   app.use("/api/v1/tenants", tenantsRouter);
+  // Pearl §8.1 gap #6 piece 2 of 4 — super-admin onboarding wizard
+  // (3-step MVP creates tenant + first branch + super-admin user
+  // atomically). HFR/HPR/WhatsApp/Razorpay config steps deferred to
+  // piece 2b. See apps/web/src/app/super-admin/onboard/.
+  app.use("/api/v1/tenant-onboarding", tenantOnboardingRouter);
   app.use("/api/v1/branches", branchesRouter);
   app.use("/api/v1/campaigns", campaignsRouter);
   app.use("/api/v1/campaign-audiences", campaignAudiencesRouter);

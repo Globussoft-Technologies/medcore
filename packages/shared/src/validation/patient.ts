@@ -13,6 +13,21 @@ export const PATIENT_NAME_REGEX = /^[A-Za-zऀ-ॿ\s.\-']{1,100}$/;
 // Issue #103 / #138 share this E.164-ish 10–15 digit format.
 export const PHONE_REGEX = /^\+?\d{10,15}$/;
 
+// Pearl ERP Stage 1 §2.1.1 — patient-registration source attribution.
+// Mirrors the `PatientSource` Prisma enum. Exported for reuse in the
+// staff Add-Patient form dropdown, the PWA self-registration default,
+// and any future marketing-analytics filter UI.
+export const PATIENT_SOURCES = [
+  "WEB",
+  "PWA",
+  "WALK_IN",
+  "REFERRAL",
+  "WHATSAPP",
+  "PHONE",
+  "OTHER",
+] as const;
+export type PatientSourceValue = (typeof PATIENT_SOURCES)[number];
+
 // Issue #167 (Apr 2026): the base shape stays as a ZodObject so existing
 // `createPatientSchema.partial()` (used by updatePatientSchema) keeps
 // working — only the create path layers on the adult-vs-newborn refine.
@@ -59,6 +74,13 @@ const patientBaseSchema = z.object({
   pricingTier: z
     .enum(["STANDARD", "EMPLOYEE", "SENIOR_CITIZEN", "BPL", "VIP"])
     .optional(),
+  // Pearl §2.1.1: optional on the wire — the route layer defaults
+  // omitted bodies to "WEB" for the staff dashboard surface; the schema
+  // DEFAULT is WALK_IN for any other code path (seeders, fixtures,
+  // future PWA self-registration). Update path accepts it too so a
+  // legacy row can be backfilled in the editor without a separate
+  // admin tool.
+  source: z.enum(PATIENT_SOURCES).optional(),
 });
 
 // Issue #896: when BOTH `age` and `dateOfBirth` are supplied they must be

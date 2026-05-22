@@ -1,0 +1,379 @@
+"use client";
+
+// Patient PWA — My Prescriptions (Pearl §6.1 — gap #5 piece 3c of 4).
+//
+// Lists the authed PATIENT's signed prescriptions newest-first with three
+// per-row CTAs per the PRD:
+//   • Download PDF        — opens `GET /api/v1/prescriptions/:id/pdf?format=pdf`
+//                           in a new tab. Cookies travel automatically
+//                           (credentials: "include" is the dashboard default
+//                           on same-origin requests; PWA + API share origin
+//                           in production via the reverse proxy). The route
+//                           is RBAC-gated AND BOLA-gated via
+//                           `assertPatientOwnsResource` (prescriptions.ts:766).
+//   • Share via WhatsApp  — `https://wa.me/?text=<encoded>` with the verify
+//                           URL the existing `/verify/rx/[id]` page accepts.
+//                           Server-side share endpoint (`POST /:id/share`)
+//                           refuses unsigned / cancelled Rx — we mirror that
+//                           by hiding both Share CTAs when the row is
+//                           DRAFT / CANCELLED / REJECTED.
+//   • Verify QR           — opens `/verify/rx/<id>` in a new tab so the
+//                           patient can see what a QR scanner would render
+//                           (the public verification view).
+//
+// Backed by:
+//   • GET /api/v1/prescriptions?limit=20&page=N — auto-scopes to the authed
+//     PATIENT via the route's existing `req.user.role === "PATIENT"` branch
+//     (prescriptions.ts:655-660). The endpoint also supports `?status=` so
+//     a future "Hide cancelled" toggle is one query-param away.
+//
+// Page-shape conventions mirror `apps/web/src/app/patient/appointments/page.tsx`
+// (piece 3b) — same loading / unauth / error / ready state machine; same
+// 44px touch-target floor (Pearl §6.2); same testid prefix shape.
+//
+// "Load more" pagination: the prescriptions list endpoint exposes
+// `page`/`limit` with a hard cap of 100 per page (prescriptions.ts:597). We
+// default to 20 per page and append the next page when the patient taps
+// the load-more CTA, until `meta.total` is reached.
+
+import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
+import { api } from "@/lib/api";
+
+interface PrescriptionItem {
+  id: string;
+  medicineName: string;
+  dosage?: string | null;
+  frequency?: string | null;
+}
+
+interface PrescriptionRow {
+  id: string;
+  createdAt: string;
+  diagnosis?: string | null;
+  status?: string | null;
+  signatureUrl?: string | null;
+  doctor?: {
+    user?: { name?: string | null } | null;
+    specialty?: string | null;
+  } | null;
+  items?: PrescriptionItem[] | null;
+}
+
+interface ApiList<T> {
+  success: boolean;
+  data: T[];
+  error?: string | null;
+  meta?: { page: number; limit: number; total: number };
+}
+
+type LoadState = "loading" | "ready" | "unauth" | "error";
+
+const PAGE_SIZE = 20;
+
+// Mirror the share-rx server policy at routes/prescriptions.ts:871-887 —
+// a CANCELLED / REJECTED prescription is not a valid medical document and
+// must not be shared. We also hide the share CTA for rows with no
+// signatureUrl (still a draft) so the patient never sends an unverifiable
+// artefact to a third party.
+const NON_SHAREABLE_STATUSES = new Set(["CANCELLED", "REJECTED", "DRAFT"]);
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function statusPillClass(status: string | null | undefined): string {
+  if (!status) return "bg-slate-100 text-slate-700";
+  if (status === "ACTIVE" || status === "ISSUED" || status === "SIGNED")
+    return "bg-emerald-100 text-emerald-900";
+  if (status === "DRAFT") return "bg-amber-100 text-amber-900";
+  if (status === "CANCELLED" || status === "REJECTED")
+    return "bg-slate-200 text-slate-700";
+  return "bg-slate-100 text-slate-700";
+}
+
+// Build the verify URL the public `/verify/rx/[id]` page accepts. On the
+// client we can use `window.location.origin` so the verify URL points at
+// whatever host the patient is on (dev/staging/prod). On SSR we leave it
+// blank and re-resolve on first effect tick.
+function buildVerifyUrl(id: string): string {
+  const origin =
+    typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : "";
+  return `${origin}/verify/rx/${id}`;
+}
+
+// API_BASE — same env shape `lib/api.ts` uses. For the PDF link we want a
+// real anchor `href` (so right-click "Save as" / long-press "Download" both
+// work) rather than a fetch + blob; the cookie auth travels along the same
+// origin in production. In local dev the API lives at :4000 and the web
+// app at :3000, so we point at the absolute URL.
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+
+function buildPdfUrl(id: string): string {
+  return `${API_BASE.replace(/\/$/, "")}/prescriptions/${id}/pdf?format=pdf`;
+}
+
+export default function PatientPrescriptionsPage() {
+  const [state, setState] = useState<LoadState>("loading");
+  const [prescriptions, setPrescriptions] = useState<PrescriptionRow[]>([]);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const fetchPage = useCallback(
+    async (
+      pageNum: number,
+      mode: "replace" | "append",
+    ): Promise<void> => {
+      if (mode === "replace") setState("loading");
+      else setLoadingMore(true);
+      try {
+        const res = await api.get<ApiList<PrescriptionRow>>(
+          `/prescriptions?page=${pageNum}&limit=${PAGE_SIZE}`,
+          { skip401Redirect: true },
+        );
+        if (!res.success) {
+          setState("error");
+          return;
+        }
+        const incoming = res.data ?? [];
+        setPrescriptions((prev) =>
+          mode === "append" ? [...prev, ...incoming] : incoming,
+        );
+        if (res.meta?.total != null) setTotal(res.meta.total);
+        setPage(pageNum);
+        setState("ready");
+      } catch (err) {
+        const status = (err as { status?: number })?.status;
+        if (status === 401) {
+          setState("unauth");
+          return;
+        }
+        setState("error");
+      } finally {
+        setLoadingMore(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    void fetchPage(1, "replace");
+  }, [fetchPage]);
+
+  if (state === "loading") {
+    return (
+      <section
+        data-testid="patient-prescriptions-loading"
+        className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500"
+      >
+        Loading your prescriptions…
+      </section>
+    );
+  }
+
+  if (state === "unauth") {
+    return (
+      <section
+        data-testid="patient-prescriptions-unauth"
+        className="space-y-4 py-6"
+      >
+        <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
+        <p className="text-base text-slate-600">
+          Please sign in to view your prescriptions.
+        </p>
+        <Link
+          href="/patient/login"
+          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-slate-900 px-6 text-sm font-medium text-white"
+          data-testid="patient-prescriptions-signin-cta"
+        >
+          Sign in
+        </Link>
+      </section>
+    );
+  }
+
+  if (state === "error") {
+    return (
+      <section
+        data-testid="patient-prescriptions-error"
+        role="alert"
+        className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+      >
+        Something went wrong loading your prescriptions. Please refresh.
+      </section>
+    );
+  }
+
+  const isEmpty = prescriptions.length === 0;
+  const hasMore = prescriptions.length < total;
+
+  return (
+    <section
+      data-testid="patient-prescriptions"
+      className="space-y-6 py-4"
+    >
+      <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">
+            My prescriptions
+          </h1>
+          {total > 0 ? (
+            <span
+              data-testid="patient-prescriptions-count"
+              className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700"
+            >
+              {total}
+            </span>
+          ) : null}
+        </div>
+      </header>
+
+      {isEmpty ? (
+        <div
+          data-testid="patient-prescriptions-empty"
+          className="space-y-3 rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm"
+        >
+          <p className="text-base text-slate-700">
+            No prescriptions yet. Your doctor will prescribe digital scripts
+            here after a consult.
+          </p>
+        </div>
+      ) : (
+        <ul className="space-y-3">
+          {prescriptions.map((rx) => (
+            <PrescriptionCard key={rx.id} prescription={rx} />
+          ))}
+        </ul>
+      )}
+
+      {hasMore ? (
+        <div className="flex justify-center pt-2">
+          <button
+            type="button"
+            disabled={loadingMore}
+            onClick={() => void fetchPage(page + 1, "append")}
+            data-testid="patient-prescriptions-load-more"
+            className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-6 text-sm font-medium text-slate-800 disabled:opacity-60"
+          >
+            {loadingMore ? "Loading…" : "Load more"}
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+interface CardProps {
+  prescription: PrescriptionRow;
+}
+
+function PrescriptionCard({ prescription }: CardProps) {
+  const items = prescription.items ?? [];
+  const first = items[0]?.medicineName ?? "Prescription";
+  const more = Math.max(0, items.length - 1);
+  const doctorName = prescription.doctor?.user?.name ?? null;
+  const specialty = prescription.doctor?.specialty ?? null;
+  const status = prescription.status ?? null;
+
+  // Share gate: don't expose a "Share with verify URL" CTA for a Rx that
+  // would fail server-side verification (no signature / cancelled / draft).
+  const isShareable =
+    !!prescription.signatureUrl &&
+    !(status && NON_SHAREABLE_STATUSES.has(status));
+
+  const verifyUrl = buildVerifyUrl(prescription.id);
+  const pdfUrl = buildPdfUrl(prescription.id);
+  const waText = `My prescription from ${
+    doctorName ? `Dr. ${doctorName}` : "MedCore"
+  }: ${verifyUrl}`;
+  const waHref = `https://wa.me/?text=${encodeURIComponent(waText)}`;
+
+  return (
+    <li
+      data-testid="patient-prescriptions-row"
+      data-prescription-id={prescription.id}
+      className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="space-y-1">
+          <p
+            data-testid="patient-prescriptions-row-date"
+            className="text-xs font-medium uppercase tracking-wide text-slate-500"
+          >
+            {formatDate(prescription.createdAt)}
+          </p>
+          <p className="text-base font-semibold text-slate-900">
+            {doctorName ? `Dr. ${doctorName}` : "Doctor"}
+          </p>
+          {specialty ? (
+            <p className="text-sm text-slate-600">{specialty}</p>
+          ) : null}
+          <p
+            data-testid="patient-prescriptions-row-items"
+            className="text-sm text-slate-700"
+          >
+            {first}
+            {more > 0 ? (
+              <span className="text-slate-500"> · +{more} more</span>
+            ) : null}
+          </p>
+          {prescription.diagnosis ? (
+            <p className="text-xs text-slate-500">
+              Diagnosis: {prescription.diagnosis}
+            </p>
+          ) : null}
+        </div>
+        {status ? (
+          <span
+            data-testid="patient-prescriptions-row-status"
+            className={`rounded-full px-2 py-1 text-xs font-medium ${statusPillClass(
+              status,
+            )}`}
+          >
+            {status}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="flex flex-wrap gap-2 pt-1">
+        <a
+          href={pdfUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="patient-prescriptions-download-btn"
+          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-slate-900 px-4 text-sm font-medium text-white"
+        >
+          Download PDF
+        </a>
+        {isShareable ? (
+          <a
+            href={waHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="patient-prescriptions-share-btn"
+            className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-emerald-300 bg-emerald-50 px-4 text-sm font-medium text-emerald-900"
+          >
+            Share via WhatsApp
+          </a>
+        ) : null}
+        <a
+          href={verifyUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="patient-prescriptions-verify-btn"
+          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-800"
+        >
+          Verify QR
+        </a>
+      </div>
+    </li>
+  );
+}

@@ -4,11 +4,19 @@ import { Router, Request, Response, NextFunction } from "express";
 // tenant-scoped models (see services/tenant-prisma.ts). We alias it to
 // `prisma` so every existing call site keeps working without edits.
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
+// Raw (unscoped) prisma is needed for the bulk-update cross-tenant probe —
+// we want to LOOK at every row matching the requested ids regardless of
+// tenant, then explicitly compare each row's tenantId to the caller's so
+// we can return 403 (instead of silently no-op'ing the cross-tenant rows
+// the way `tenantScopedPrisma` would). See `/bulk-update` handler below.
+import { prisma as rawPrisma } from "@medcore/db";
 import {
   Role,
   doctorScheduleSchema,
   scheduleOverrideSchema,
   doctorAppointmentModeSchema,
+  bulkUpdateDoctorsSchema,
+  BULK_UPDATE_ALLOWED_FIELDS,
   DEFAULT_SLOT_DURATION_MINUTES,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
@@ -48,6 +56,113 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
     next(err);
   }
 });
+
+// POST /api/v1/doctors/bulk-update
+//
+// Pearl ERP Stage 1 §3.1 (gap row 74) — bulk-edit dialog for admins.
+// Applies the same subset of appointment-mode knobs to N doctors at once
+// inside a single $transaction so the batch is all-or-nothing (if any one
+// row fails Prisma rolls the whole thing back; tests assert this).
+//
+// Mounted BEFORE any `/:id`-shaped route per the static-before-dynamic
+// gotcha (CLAUDE.md §14): otherwise Express would route POST /bulk-update
+// to a dynamic `:id` handler whose pattern happens to match.
+//
+// Tenant scoping: the route loads every doctorId via the RAW (unscoped)
+// prisma client and explicitly compares each row's `tenantId` against the
+// caller's. We deliberately do NOT use `tenantScopedPrisma` for this probe
+// because its ALS-driven filter is a no-op when the caller's JWT carries no
+// tenantId (legacy admins, the test admin@test.local seed) — under that
+// regime the auto-filter would let foreign-tenant rows through silently.
+// The unscoped lookup + explicit comparison treats `null === null` and
+// `tenant-A !== tenant-B` correctly in BOTH regimes. Set-difference reveals
+// any cross-tenant or bogus id without leaking which it was → 403 + 0 rows
+// modified. This is the BOLA / IDOR guard for the bulk surface.
+//
+// Allowlist: the Zod schema is `.strict()` so unknown keys 400 before we
+// even reach the handler — mass-assignment of unrelated columns (e.g.
+// `isActive: false` to deactivate a competitor's doctors) is impossible.
+router.post(
+  "/bulk-update",
+  authorize(Role.ADMIN),
+  validate(bulkUpdateDoctorsSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { doctorIds, updates } = req.body as {
+        doctorIds: string[];
+        updates: Record<string, unknown>;
+      };
+
+      // Step 1 — tenant-scope check via explicit per-row comparison on the
+      // unscoped client. `rawPrisma.doctor.findMany` returns every matching
+      // row regardless of tenant, then we keep only the rows whose
+      // `tenantId` equals the caller's (with `null === null` honoured for
+      // legacy un-tenanted admins). Any requested id that's either bogus
+      // (no row) or owned by a different tenant ends up "missing" → 403,
+      // and we never reach the update step, so the cross-tenant rows stay
+      // untouched. We do NOT leak which ids failed which check.
+      const callerTenantId = req.user?.tenantId ?? null;
+      const candidates = await rawPrisma.doctor.findMany({
+        where: { id: { in: doctorIds } },
+        select: { id: true, tenantId: true },
+      });
+      const ownedIds = new Set(
+        candidates
+          .filter((d) => (d.tenantId ?? null) === callerTenantId)
+          .map((d) => d.id),
+      );
+      const missing = doctorIds.filter((id) => !ownedIds.has(id));
+      if (missing.length > 0) {
+        res.status(403).json({
+          success: false,
+          data: null,
+          error: "Some doctorIds are not in your tenant",
+        });
+        return;
+      }
+
+      // Step 2 — build the column payload from the allowlist. Re-using
+      // the shared constant guarantees the route and the schema can never
+      // drift on what's editable. `undefined` is dropped (PATCH-style
+      // partial update); `null` is preserved (explicit clear).
+      const data: Record<string, unknown> = {};
+      for (const field of BULK_UPDATE_ALLOWED_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(updates, field)) {
+          data[field] = updates[field];
+        }
+      }
+
+      // Step 3 — single $transaction so the batch is atomic. If any one
+      // update throws (e.g. concurrent delete), Prisma rolls back all.
+      const updateOps = doctorIds.map((id) =>
+        prisma.doctor.update({ where: { id }, data, select: { id: true } }),
+      );
+      const updated = await prisma.$transaction(updateOps);
+
+      // auditLog is awaited (NOT safeAudit) so the bulk operation's audit
+      // row is durable before the 200 lands — the bulk surface is rare +
+      // high-impact, callers should see the row in the audit log
+      // immediately after the response.
+      await auditLog(req, "DOCTORS_BULK_UPDATE", "doctor", "bulk", {
+        doctorIds,
+        updates: data,
+        updatedCount: updated.length,
+      });
+
+      res.json({
+        success: true,
+        data: {
+          updatedCount: updated.length,
+          updatedDoctorIds: updated.map((u) => u.id),
+          updates: data,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // GET /api/v1/doctors/:id/schedule — list weekly schedule slots
 //
@@ -360,6 +475,10 @@ router.patch(
       if (req.body.nearTurnAlertThreshold !== undefined) data.nearTurnAlertThreshold = req.body.nearTurnAlertThreshold;
       if (req.body.lastHourPolicy !== undefined) data.lastHourPolicy = req.body.lastHourPolicy;
       if (req.body.nmcRegNumber !== undefined) data.nmcRegNumber = req.body.nmcRegNumber;
+      // Pearl §4.1 (gap row 101) — default commission % for invoices
+      // this doctor referred. PATCH semantics: undefined leaves unchanged,
+      // null explicitly clears (no commission rows auto-created).
+      if (req.body.commissionPercent !== undefined) data.commissionPercent = req.body.commissionPercent;
 
       const updated = await prisma.doctor.update({
         where: { id: req.params.id },
@@ -373,6 +492,7 @@ router.patch(
           nearTurnAlertThreshold: true,
           lastHourPolicy: true,
           nmcRegNumber: true,
+          commissionPercent: true,
         },
       });
 

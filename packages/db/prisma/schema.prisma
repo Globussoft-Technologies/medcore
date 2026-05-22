@@ -808,6 +808,22 @@ enum LeadSource {
   OTHER
 }
 
+// Pearl ERP Stage 1 §2.1.1 — attribution tag for new patient registrations.
+// Mirrors LeadSource but adds PWA for the patient-self-registration path
+// (Pearl gap #5 piece 2/4) once that flow creates Patient rows. WALK_IN is
+// the default — legacy rows pre-date the PWA + web-panel registration
+// surfaces, and the staff `POST /api/v1/patients` endpoint defaults to WEB
+// when the request body omits a source.
+enum PatientSource {
+  WEB
+  PWA
+  WALK_IN
+  REFERRAL
+  WHATSAPP
+  PHONE
+  OTHER
+}
+
 enum LeadActivityType {
   STATUS_CHANGE
   NOTE
@@ -1116,6 +1132,22 @@ model Doctor {
   // Pearl §3.3 (gap item #3) — leads soft-assigned to this doctor.
   leadsPreferred Lead[] @relation("LeadPreferredDoctor")
 
+  // Pearl §2.1.4 (gap item #50) — per-doctor favourite-medicine quick-add
+  // list. One-tap insertion of a doctor's frequently-prescribed medicines
+  // into the Rx writer. Coexists with PrescriptionTemplate (whole-Rx
+  // scaffold); this is per-medicine.
+  favouriteMedicines DoctorFavouriteMedicine[]
+
+  // Pearl §4.1 (gap row 101) — default commission % when this doctor is
+  // set as referringDoctor on an invoice; per-referral override lives on
+  // `Referral.commissionPercent`. Nullable: null = no auto-commission row
+  // created for invoices this doctor referred. Max value 100.
+  commissionPercent Decimal? @db.Decimal(5, 2)
+
+  // Pearl §4.1 — commissions accrued for invoices this doctor referred.
+  // Back-relation of ReferralCommission.referringDoctor.
+  referralCommissions ReferralCommission[] @relation("ReferringDoctorCommissions")
+
   @@index([tenantId])
   @@index([branchId])
   @@map("doctors")
@@ -1192,6 +1224,16 @@ model Patient {
   noShowCount                  Int       @default(0)
   // Pricing tier (Apr 2026) — STANDARD, EMPLOYEE, SENIOR_CITIZEN, BPL, VIP
   pricingTier                  String    @default("STANDARD")
+
+  // Pearl ERP Stage 1 §2.1.1 — attribution tag for where this Patient row
+  // came from (web panel / patient PWA / walk-in / referral / WhatsApp /
+  // phone / other). Default WALK_IN so legacy rows that pre-date this
+  // column don't need a per-row backfill — the migration's column DEFAULT
+  // handles it. Staff `POST /api/v1/patients` defaults to WEB at the route
+  // layer when the body omits a source; the patient PWA self-registration
+  // path defaults to PWA when that flow is wired (deferred — see commit
+  // message).
+  source PatientSource @default(WALK_IN)
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1271,6 +1313,7 @@ model Patient {
   @@index([mrNumber])
   @@index([tenantId])
   @@index([branchId])
+  @@index([source])
   @@map("patients")
 }
 
@@ -1534,7 +1577,18 @@ model Prescription {
 }
 
 enum PrescriptionStatus {
+  // Pearl §4.3 (gap row 104, 2026-05-22): DISPENSING + READY split lets the
+  // pharmacy Kanban model the in-flight work that used to be hidden behind
+  // PENDING — "I picked up the script and started filling it" vs "the
+  // medicine is bagged on the counter waiting for the patient to collect".
+  // Enum-value order is the column order in the Kanban board (left → right):
+  // PENDING (New) → DISPENSING → READY → DISPENSED. Terminal: REJECTED,
+  // CANCELLED. Forward-only state machine guarded in
+  // `routes/pharmacy.ts:PATCH /prescriptions/:id/status` (READY→DISPENSING
+  // step-back is allowed for re-mix).
   PENDING
+  DISPENSING
+  READY
   DISPENSED
   REJECTED
   CANCELLED
@@ -1601,6 +1655,36 @@ model PrescriptionTemplate {
   @@map("prescription_templates")
 }
 
+// Pearl ERP Stage 1 §2.1.4 (gap item #50) — per-doctor favourite-medicine
+// quick-add list. Each doctor maintains their own short list of medicines
+// they prescribe often; the Rx writer surfaces them as one-tap chips above
+// the medicine-search results. Optional per-favourite defaults (dosage /
+// frequency / duration) load the "Amoxicillin 500mg TID 5d" preset in
+// one click. Coexists with PrescriptionTemplate (whole-Rx scaffold);
+// favourites are strictly per-medicine.
+model DoctorFavouriteMedicine {
+  id                String   @id @default(cuid())
+  doctorId          String
+  medicineId        String
+  position          Int      @default(0)
+  defaultDosage     String?
+  defaultFrequency  String?
+  defaultDuration   String?
+  // Denormalized for tenant-scoped queries — the per-tenant Prisma extension
+  // auto-filters on this column without joining through Doctor.
+  tenantId          String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  doctor   Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  medicine Medicine @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorId, medicineId])
+  @@index([doctorId])
+  @@index([tenantId])
+  @@map("doctor_favourite_medicines")
+}
+
 // ─── BILLING ────────────────────────────────────────────
 
 model Invoice {
@@ -1654,6 +1738,17 @@ model Invoice {
   branchId String?
   branch   Branch? @relation("InvoiceBranch", fields: [branchId], references: [id], onDelete: SetNull)
 
+  // Pearl §4.1 (gap row 101) — referring-doctor commission split. Both
+  // columns nullable: legacy and walk-in invoices have no referral. When
+  // referringDoctorId is set on invoice create, the POST handler resolves
+  // a commissionPercent (Referral override → Doctor default) and creates
+  // a ReferralCommission snapshot row inside the same transaction.
+  // `referralId` (when present) lets the report join back to the
+  // originating Referral row; `referringDoctorId` covers walk-in
+  // invoices that name a referring doctor without a formal Referral.
+  referringDoctorId String?
+  referralId        String?
+
   appointment       Appointment        @relation(fields: [appointmentId], references: [id])
   patient           Patient            @relation(fields: [patientId], references: [id])
   items             InvoiceItem[]
@@ -1667,10 +1762,15 @@ model Invoice {
   // ── Back-relation merged from .prisma-models-patient-tools.md ────────
   billExplanation BillExplanation?
 
+  // Pearl §4.1 — auto-computed referring-doctor commission snapshot.
+  // One-to-one via @unique invoiceId on ReferralCommission.
+  referralCommission ReferralCommission?
+
   @@index([patientId])
   @@index([invoiceNumber])
   @@index([tenantId])
   @@index([branchId])
+  @@index([referringDoctorId])
   @@map("invoices")
 }
 
@@ -2111,6 +2211,10 @@ model Medicine {
   // Issue #898 — back-relation for the new PrescriptionItem.medicineId FK.
   prescriptionItems PrescriptionItem[]
 
+  // Pearl §2.1.4 (gap item #50) — back-relation for the doctor favourite-
+  // medicine quick-add list.
+  doctorFavourites DoctorFavouriteMedicine[]
+
   @@index([name])
   @@index([category])
   @@map("medicines")
@@ -2439,6 +2543,12 @@ model Referral {
   referredAt       DateTime       @default(now())
   respondedAt      DateTime?
 
+  // Pearl §4.1 (gap row 101) — per-referral override of the referring
+  // doctor's default `Doctor.commissionPercent`. Null = fall back to the
+  // doctor-level default. Max 100; @db.Decimal(5,2) mirrors the Doctor
+  // column so the resolved snapshot serializes identically.
+  commissionPercent Decimal? @db.Decimal(5, 2)
+
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -2451,6 +2561,41 @@ model Referral {
   @@index([status])
   @@index([tenantId])
   @@map("referrals")
+}
+
+// Pearl ERP Stage 1 §4.1 (gap row 101) — auto-computed referring-doctor
+// commission snapshot. Created in the same transaction as the Invoice
+// when invoice.referringDoctorId is set AND a commissionPercent resolves
+// (Referral override → Doctor default). @unique invoiceId enforces one
+// snapshot per invoice (idempotent — the POST /invoices retry can't dup).
+//
+// status field is a free-string instead of an enum so a follow-up can
+// promote it without a destructive migration: PENDING (initial) → PAID
+// (admin marked it settled in the accounts ledger) → VOIDED (parent
+// invoice was cancelled via full-amount credit-note).
+model ReferralCommission {
+  id                String    @id @default(cuid())
+  invoiceId         String    @unique
+  referringDoctorId String
+  referralId        String?
+  commissionPercent Decimal   @db.Decimal(5, 2)
+  commissionAmount  Decimal   @db.Decimal(10, 2)
+  // Denormalized for tenant-scoped reports — the per-tenant Prisma
+  // extension auto-filters on this column without joining through Invoice.
+  tenantId          String
+  status            String    @default("PENDING")
+  paidAt            DateTime?
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  invoice          Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  referringDoctor  Doctor  @relation("ReferringDoctorCommissions", fields: [referringDoctorId], references: [id])
+
+  @@index([referringDoctorId])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("referral_commissions")
 }
 
 // ═══════════════════════════════════════════════════════

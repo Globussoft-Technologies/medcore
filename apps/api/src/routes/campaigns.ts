@@ -144,6 +144,7 @@ router.post(
           sendWindowStart: body.sendWindowStart ?? null,
           sendWindowEnd: body.sendWindowEnd ?? null,
           abVariants: body.abVariants ?? undefined,
+          linkTargetUrl: body.linkTargetUrl ?? null,
           createdById: req.user!.userId,
         },
       });
@@ -305,6 +306,7 @@ router.patch(
             : {}),
           ...(body.sendWindowEnd !== undefined ? { sendWindowEnd: body.sendWindowEnd } : {}),
           ...(body.abVariants !== undefined ? { abVariants: body.abVariants ?? undefined } : {}),
+          ...(body.linkTargetUrl !== undefined ? { linkTargetUrl: body.linkTargetUrl } : {}),
           ...(body.cancelReason !== undefined ? { cancelReason: body.cancelReason } : {}),
           // If the operator is transitioning to CANCELLED via PATCH (rare
           // — the dedicated DELETE is the canonical path), stamp the

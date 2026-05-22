@@ -29,6 +29,7 @@ import { Search, Plus, Stethoscope, X } from "lucide-react";
 import { DataTable, Column } from "@/components/DataTable";
 import { EntityPicker } from "@/components/EntityPicker";
 import { extractFieldErrors } from "@/lib/field-errors";
+import { BulkEditDoctorsModal } from "./BulkEditDoctorsModal";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -94,6 +95,12 @@ export default function DoctorsPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [specFilter, setSpecFilter] = useState("");
   const [showForm, setShowForm] = useState(false);
+  // Pearl §3.1 (gap row 74) — bulk-edit modal state. `bulkIds` holds the
+  // doctor ids captured at the moment the admin clicked "Bulk edit" in
+  // the DataTable selection bar; DataTable clears its own internal
+  // selection right after firing the action, so we snapshot the ids
+  // here so the modal can still POST them.
+  const [bulkIds, setBulkIds] = useState<string[] | null>(null);
 
   // RBAC: redirect non-admins to the chrome-wrapped not-authorized page,
   // matching the PATIENTS_ALLOWED pattern in patients/page.tsx.
@@ -466,6 +473,17 @@ export default function DoctorsPage() {
         defaultSort={{ key: "name", dir: "asc" }}
         urlState
         csvName="doctors"
+        bulkActions={[
+          {
+            // Pearl §3.1 (gap row 74) — only one bulk action today; if we
+            // ever add bulk-deactivate / bulk-archive, register them here
+            // and the DataTable selection bar will surface every action.
+            label: "Bulk edit",
+            onAction: (rows) => {
+              setBulkIds(rows.map((r) => r.id));
+            },
+          },
+        ]}
         empty={{
           icon: <Stethoscope size={28} />,
           title:
@@ -800,6 +818,22 @@ export default function DoctorsPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Pearl §3.1 (gap row 74) — bulk-edit modal. Mounts only when the
+          admin has clicked the "Bulk edit" action with ≥1 row selected. */}
+      {bulkIds && bulkIds.length > 0 && (
+        <BulkEditDoctorsModal
+          doctorIds={bulkIds}
+          onClose={() => setBulkIds(null)}
+          onSuccess={(updatedCount) => {
+            toast.success(
+              `${updatedCount} doctor${updatedCount === 1 ? "" : "s"} updated.`,
+            );
+            setBulkIds(null);
+            loadDoctors();
+          }}
+        />
       )}
     </div>
   );

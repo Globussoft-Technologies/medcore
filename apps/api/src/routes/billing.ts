@@ -153,6 +153,13 @@ router.post(
         applyAdvance,
         dueDate,
         notes,
+        // Pearl §4.1 (gap row 101) — referring-doctor commission split.
+        // referralId takes precedence: when set, the handler reads the
+        // Referral row's fromDoctorId + commissionPercent (override).
+        // referringDoctorId is the walk-in shorthand for an invoice
+        // that names a referring doctor without a formal Referral.
+        referringDoctorId: bodyReferringDoctorId,
+        referralId,
       } = req.body;
 
       // Issue #890: never raise an invoice against a NO_SHOW or CANCELLED
@@ -286,6 +293,60 @@ router.post(
       // into taxableAmount above, so don't double-count.
       const totalAmount = taxableAmount + taxAmount - advanceApplied;
 
+      // ── Pearl §4.1 (gap row 101) — pre-resolve referring-doctor +
+      // commission % before opening the invoice transaction. We do the
+      // lookups outside the tx so the hot-path stays short.
+      //
+      // Resolution order:
+      //   1. If referralId is set, load that Referral. The fromDoctorId
+      //      becomes the referring doctor; Referral.commissionPercent
+      //      (if non-null) wins as the override.
+      //   2. Else if referringDoctorId is set, use it directly with no
+      //      Referral context.
+      //   3. Fall back to Doctor.commissionPercent when neither the
+      //      referral nor the body carried a %.
+      // If everything resolves to null at the end, no commission row is
+      // created (the transaction block below short-circuits).
+      let resolvedReferringDoctorId: string | null = null;
+      let resolvedReferralId: string | null = null;
+      let resolvedCommissionPercent: number | null = null;
+      let resolvedDoctorTenantId: string | null = null;
+      if (referralId) {
+        const refRow = await prisma.referral.findUnique({
+          where: { id: referralId },
+          select: { id: true, fromDoctorId: true, commissionPercent: true },
+        });
+        if (refRow) {
+          resolvedReferralId = refRow.id;
+          resolvedReferringDoctorId = refRow.fromDoctorId;
+          if (refRow.commissionPercent !== null && refRow.commissionPercent !== undefined) {
+            resolvedCommissionPercent = Number(refRow.commissionPercent);
+          }
+        }
+      } else if (bodyReferringDoctorId) {
+        resolvedReferringDoctorId = bodyReferringDoctorId;
+      }
+      if (resolvedReferringDoctorId) {
+        const docRow = await prisma.doctor.findUnique({
+          where: { id: resolvedReferringDoctorId },
+          select: { tenantId: true, commissionPercent: true },
+        });
+        if (docRow) {
+          resolvedDoctorTenantId = docRow.tenantId ?? null;
+          if (
+            resolvedCommissionPercent === null &&
+            docRow.commissionPercent !== null &&
+            docRow.commissionPercent !== undefined
+          ) {
+            resolvedCommissionPercent = Number(docRow.commissionPercent);
+          }
+        } else {
+          // Doctor row vanished between body validation and lookup —
+          // don't try to compute a commission against a non-existent FK.
+          resolvedReferringDoctorId = null;
+        }
+      }
+
       const invoice = await prisma.$transaction(async (tx) => {
         const inv = await tx.invoice.create({
           data: {
@@ -301,6 +362,11 @@ router.post(
             packageDiscount,
             advanceApplied,
             totalAmount: Math.max(0, +totalAmount.toFixed(2)),
+            // Pearl §4.1 — persist the (resolved) referring doctor +
+            // originating referral pointers so the §4.4 ledger report
+            // can join back without re-derivation.
+            referringDoctorId: resolvedReferringDoctorId,
+            referralId: resolvedReferralId,
             // #902: default dueDate to createdAt + 14 days (configurable
             // via `invoice_default_due_days` SystemConfig) when the
             // client didn't pass one. Previously left null on ~50% of
@@ -407,12 +473,57 @@ router.post(
           });
         }
 
+        // ── Pearl §4.1 (gap row 101) — auto-create the commission
+        // snapshot in the same transaction as the invoice. If anything
+        // in the invoice path rolls back, this row rolls back too.
+        // Both `resolvedReferringDoctorId` and `resolvedCommissionPercent`
+        // must be set for a row to materialize — a referring doctor with
+        // a null commission % is a legitimate "no commission owed"
+        // configuration that the report must NOT count.
+        if (resolvedReferringDoctorId && resolvedCommissionPercent !== null) {
+          const commissionAmount = +(
+            (subtotal * resolvedCommissionPercent) / 100
+          ).toFixed(2);
+          await tx.referralCommission.create({
+            data: {
+              invoiceId: inv.id,
+              referringDoctorId: resolvedReferringDoctorId,
+              referralId: resolvedReferralId,
+              commissionPercent: resolvedCommissionPercent,
+              commissionAmount,
+              // Denormalize tenantId so the report query doesn't need to
+              // join through Invoice → Doctor. Falls back to "" for the
+              // single-tenant deploy (matches DoctorFavouriteMedicine
+              // convention).
+              tenantId: resolvedDoctorTenantId ?? "",
+              status: "PENDING",
+            },
+          });
+        }
+
         return inv;
       });
 
       // Fire-and-forget notification
       onBillGenerated(invoice).catch(console.error);
       auditLog(req, "INVOICE_CREATE", "invoice", invoice.id, { invoiceNumber, patientId, totalAmount }).catch(console.error);
+      // Pearl §4.1 — separate audit row for the commission snapshot so
+      // accounts can grep the trail without pattern-matching invoice
+      // metadata. Fire-and-forget per the safe-audit convention.
+      if (resolvedReferringDoctorId && resolvedCommissionPercent !== null) {
+        auditLog(
+          req,
+          "REFERRAL_COMMISSION_AUTO_CREATED",
+          "referral_commission",
+          invoice.id,
+          {
+            invoiceId: invoice.id,
+            referringDoctorId: resolvedReferringDoctorId,
+            referralId: resolvedReferralId,
+            commissionPercent: resolvedCommissionPercent,
+          },
+        ).catch(console.error);
+      }
 
       res.status(201).json({ success: true, data: invoice, error: null });
     } catch (err) {
@@ -2245,6 +2356,31 @@ router.post(
         amount,
       }).catch(console.error);
 
+      // ── Pearl §4.1 (gap row 101) — void-cascade. When the cumulative
+      // credit-note total covers the full invoice (effectively a void),
+      // mark the linked ReferralCommission as VOIDED so the §4.4 ledger
+      // doesn't accrue commission on revenue that was reversed. We use
+      // an updateMany with a status guard so a previously-PAID commission
+      // (already settled in accounts) is NOT clawed back automatically —
+      // accounts must do that manually with a PATCH if needed.
+      const cumulativeCredits = alreadyCredited + Number(amount);
+      const invoiceTotalNum = Number(invoice.totalAmount);
+      if (cumulativeCredits >= invoiceTotalNum && invoiceTotalNum > 0) {
+        const cascade = await prisma.referralCommission.updateMany({
+          where: { invoiceId, status: "PENDING" },
+          data: { status: "VOIDED" },
+        });
+        if (cascade.count > 0) {
+          auditLog(
+            req,
+            "REFERRAL_COMMISSION_VOIDED_BY_CREDIT_NOTE",
+            "referral_commission",
+            invoiceId,
+            { noteNumber, cumulativeCredits, invoiceTotal: invoiceTotalNum },
+          ).catch(console.error);
+        }
+      }
+
       res.status(201).json({ success: true, data: note, error: null });
     } catch (err) {
       next(err);
@@ -2855,6 +2991,301 @@ router.get(
       next(err);
     }
   }
+);
+
+// ── CSV helpers — mirror analytics.ts / referral-commissions.ts toCsv ────
+function tdsCsvEscape(val: unknown): string {
+  if (val === null || val === undefined) return "";
+  const s = String(val);
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+function tdsToCsv(rows: Record<string, unknown>[], columns: string[]): string {
+  const header = columns.map(tdsCsvEscape).join(",");
+  const lines = rows.map((row) =>
+    columns.map((c) => tdsCsvEscape(row[c])).join(","),
+  );
+  return [header, ...lines].join("\r\n");
+}
+
+// ── GET /tds-report — TDS on professional fees (Pearl §4.4 row 119) ──
+//
+// India IT-Act §194J withholds 10% TDS on professional fees paid to
+// medical consultants. Accountants need a per-doctor monthly summary
+// to file returns. This is a REPORT-ONLY endpoint — no automatic
+// withholding from invoices is performed; the value is computed at
+// query time from the paid InvoiceItem consultation rows.
+//
+// Query params (all optional):
+//   from       ISO date — defaults to first day of current month
+//   to         ISO date — defaults to today (now)
+//   doctorId   UUID — single-doctor filter (Appointment.doctorId)
+//   tdsRate    number 0-30 — defaults to 10 (India §194J default %)
+//   format     "json" (default) | "csv"
+//
+// Aggregation:
+//   - Invoices in window where paymentStatus IN ["PAID","PARTIAL"]
+//     (Invoice has no `paidDate` — `updatedAt` is the closest
+//     post-payment timestamp Prisma persists today, so we range on
+//     `createdAt` for consistency with the other billing reports;
+//     the from/to default to a month and the typical billing flow
+//     creates+pays invoices in the same day, so the practical drift
+//     is small. Documented for reviewers.).
+//   - For each invoice, sum its InvoiceItem rows where
+//     category = "CONSULTATION" (factories.ts:178 + the
+//     referral-commission test fixtures + the seed data all use
+//     UPPERCASE — confirmed via grep).
+//   - Group by the doctor on the originating Appointment
+//     (Invoice has no direct doctorId; Invoice.appointmentId →
+//     Appointment.doctorId is the canonical doctor link.).
+//
+// JSON response shape mirrors the §4.4 spec from the gap doc:
+//   { dateRange, tdsRate, totals: {totalGross, totalTds, totalNet,
+//     doctorCount, invoiceCount}, byDoctor: [{ doctorId, doctorName,
+//     totalGrossFees, tdsRate, tdsAmount, netPayable, invoiceCount }] }
+//
+// RBAC: ADMIN only — mirrors the §4.4 referral-commission ledger
+// posture. Spec called for ADMIN + BILLING but the shared `Role` enum
+// (packages/shared/src/types/roles.ts) doesn't yet expose BILLING
+// even though the Prisma enum does. Widening is a one-line follow-up
+// once the shared enum catches up.
+//
+// Tenant scope: tenantScopedPrisma auto-filters on the denormalized
+// `Invoice.tenantId` column for every authed caller with a non-null
+// `req.user.tenantId`. Super-admins (tenantId === null) see the full
+// cross-tenant view by design.
+//
+// Audit: TDS_REPORT_EXPORTED fires only on format=csv (read-only JSON
+// browsing is unaudited per the analytics / billing convention,
+// matching the referral-commission ledger).
+router.get(
+  "/tds-report",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const {
+        from: fromQ,
+        to: toQ,
+        doctorId,
+        tdsRate: tdsRateQ,
+        format = "json",
+      } = req.query as Record<string, string | undefined>;
+
+      // Defaults: from = first day of current month; to = now.
+      const now = new Date();
+      const from = fromQ
+        ? new Date(fromQ)
+        : new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      const to = toQ ? new Date(toQ) : now;
+      if (isNaN(from.getTime())) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Invalid `from` date",
+        });
+        return;
+      }
+      if (isNaN(to.getTime())) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Invalid `to` date",
+        });
+        return;
+      }
+
+      // tdsRate: 0 < rate ≤ 30 (sanity guard — §194J default 10%,
+      // some clinics negotiate 5%, audit edge cases up to 30%).
+      let tdsRate = 10;
+      if (tdsRateQ !== undefined && tdsRateQ !== "") {
+        const parsed = Number(tdsRateQ);
+        if (isNaN(parsed) || parsed < 0 || parsed > 30) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "`tdsRate` must be a number between 0 and 30",
+          });
+          return;
+        }
+        tdsRate = parsed;
+      }
+
+      // Load invoices in window, paid or partially paid, with their
+      // CONSULTATION line items + the appointment (for doctorId) +
+      // the doctor user (for the report's display name).
+      const where: Record<string, unknown> = {
+        createdAt: { gte: from, lte: to },
+        paymentStatus: { in: ["PAID", "PARTIAL"] },
+      };
+      if (doctorId) {
+        // Filter by the originating appointment's doctor.
+        where.appointment = { doctorId };
+      }
+
+      const invoices = await prisma.invoice.findMany({
+        where,
+        include: {
+          items: {
+            where: { category: "CONSULTATION" },
+            select: { amount: true },
+          },
+          appointment: {
+            select: {
+              doctorId: true,
+              doctor: {
+                select: {
+                  id: true,
+                  user: { select: { name: true } },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      // ── Aggregate per-doctor ─────────────────────────────────
+      type DoctorBucket = {
+        doctorId: string;
+        doctorName: string;
+        invoiceCount: number;
+        totalGrossFees: number;
+      };
+      const byDoctorMap = new Map<string, DoctorBucket>();
+
+      for (const inv of invoices) {
+        const lineSum = inv.items.reduce(
+          (acc, it) => acc + dec(it.amount),
+          0,
+        );
+        if (lineSum <= 0) continue; // no consultation line on this invoice
+        const docId = inv.appointment?.doctor?.id;
+        if (!docId) continue; // orphan invoice with no appointment link
+        const docName = inv.appointment?.doctor?.user?.name || "(unknown)";
+
+        let bucket = byDoctorMap.get(docId);
+        if (!bucket) {
+          bucket = {
+            doctorId: docId,
+            doctorName: docName,
+            invoiceCount: 0,
+            totalGrossFees: 0,
+          };
+          byDoctorMap.set(docId, bucket);
+        }
+        bucket.invoiceCount += 1;
+        bucket.totalGrossFees += lineSum;
+      }
+
+      // Round to 2dp, compute per-doctor TDS + net, sort by gross desc.
+      const round2 = (n: number): number =>
+        Math.round((n + Number.EPSILON) * 100) / 100;
+
+      const byDoctor = Array.from(byDoctorMap.values())
+        .map((b) => {
+          const tdsAmount = round2((b.totalGrossFees * tdsRate) / 100);
+          const totalGrossFees = round2(b.totalGrossFees);
+          const netPayable = round2(totalGrossFees - tdsAmount);
+          return {
+            doctorId: b.doctorId,
+            doctorName: b.doctorName,
+            totalGrossFees: totalGrossFees.toFixed(2),
+            tdsRate,
+            tdsAmount: tdsAmount.toFixed(2),
+            netPayable: netPayable.toFixed(2),
+            invoiceCount: b.invoiceCount,
+          };
+        })
+        .sort(
+          (a, b) =>
+            parseFloat(b.totalGrossFees) - parseFloat(a.totalGrossFees),
+        );
+
+      const totalGross = round2(
+        byDoctor.reduce((s, b) => s + parseFloat(b.totalGrossFees), 0),
+      );
+      const totalTds = round2(
+        byDoctor.reduce((s, b) => s + parseFloat(b.tdsAmount), 0),
+      );
+      const totalNet = round2(totalGross - totalTds);
+      const totalInvoiceCount = byDoctor.reduce(
+        (s, b) => s + b.invoiceCount,
+        0,
+      );
+
+      // ── CSV export ──────────────────────────────────────────
+      if (format === "csv") {
+        const fromIso = from.toISOString().split("T")[0];
+        const toIso = to.toISOString().split("T")[0];
+
+        const summary: Record<string, unknown> = {
+          Doctor: `TOTAL (${fromIso} → ${toIso})`,
+          "Invoice Count": totalInvoiceCount,
+          "Gross Fees (Rs)": totalGross.toFixed(2),
+          "TDS Rate (%)": tdsRate,
+          "TDS Amount (Rs)": totalTds.toFixed(2),
+          "Net Payable (Rs)": totalNet.toFixed(2),
+        };
+
+        const dataRows = byDoctor.map((b) => ({
+          Doctor: b.doctorName,
+          "Invoice Count": b.invoiceCount,
+          "Gross Fees (Rs)": b.totalGrossFees,
+          "TDS Rate (%)": b.tdsRate,
+          "TDS Amount (Rs)": b.tdsAmount,
+          "Net Payable (Rs)": b.netPayable,
+        }));
+
+        const csv = tdsToCsv(
+          [summary, ...dataRows],
+          [
+            "Doctor",
+            "Invoice Count",
+            "Gross Fees (Rs)",
+            "TDS Rate (%)",
+            "TDS Amount (Rs)",
+            "Net Payable (Rs)",
+          ],
+        );
+
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="tds-report-${fromIso}-${toIso}.csv"`,
+        );
+
+        auditLog(req, "TDS_REPORT_EXPORTED", "invoice", undefined, {
+          from: from.toISOString(),
+          to: to.toISOString(),
+          tdsRate,
+          doctorCount: byDoctor.length,
+          format: "csv",
+        }).catch(console.error);
+
+        res.send(csv);
+        return;
+      }
+
+      // ── JSON response ───────────────────────────────────────
+      res.json({
+        success: true,
+        data: {
+          dateRange: { from: from.toISOString(), to: to.toISOString() },
+          tdsRate,
+          totals: {
+            totalGross: totalGross.toFixed(2),
+            totalTds: totalTds.toFixed(2),
+            totalNet: totalNet.toFixed(2),
+            doctorCount: byDoctor.length,
+            invoiceCount: totalInvoiceCount,
+          },
+          byDoctor,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
 );
 
 export { router as billingRouter };

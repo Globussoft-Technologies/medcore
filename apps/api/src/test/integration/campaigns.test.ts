@@ -465,14 +465,48 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
   // not need a network mock — `result.ok` is always true and the
   // CampaignSend rows land with status="SENT". Address-missing and
   // opt-out branches are exercised explicitly.
+  //
+  // Isolation note (2026-05-21): dispatch + stats + click + conversion
+  // tests share the suite's beforeAll-seeded tenantA but each previously
+  // seeded their FEMALE patients on it. The audience compiler's only
+  // supported per-test discriminator is the Patient row's tenant, so
+  // each of these tests now mints its OWN tenant + ADMIN token via
+  // `createIsolatedTenant()` below. Without this, prior tests' FEMALE
+  // patients leak into later tests' `gender=FEMALE` audience and inflate
+  // the dispatch / stats counts (4 → 8, 6 → 56 etc).
+  async function createIsolatedTenant(label: string): Promise<{ tenantId: string; adminToken: string }> {
+    const prisma = await getPrisma();
+    const passwordHash = await bcrypt.hash("MedCoreT3st-2026", 4);
+    const t = await prisma.tenant.create({
+      data: {
+        name: `Iso ${label}`,
+        subdomain: `iso-${label}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        plan: "BASIC",
+        active: true,
+      },
+    });
+    const admin = await prisma.user.create({
+      data: {
+        email: `iso-admin-${label}-${Date.now()}-${Math.random().toString(36).slice(2, 5)}@test.local`,
+        name: `Iso Admin ${label}`,
+        phone: `92${Math.floor(Math.random() * 1e8).toString().padStart(8, "0")}`,
+        passwordHash,
+        role: "ADMIN",
+        tenantId: t.id,
+      },
+    });
+    const token = signWith("ADMIN", admin.id, admin.email, t.id);
+    return { tenantId: t.id, adminToken: token };
+  }
 
   it("POST /:id/dispatch fans out to compiled audience × channels (piece 2b)", async () => {
     const prisma = await getPrisma();
+    const { tenantId: isoTenantId, adminToken: isoAdminToken } = await createIsolatedTenant("disp");
 
-    // Audience: female patients on tenant A.
+    // Audience: female patients on the isolated tenant.
     const aud = await prisma.campaignAudience.create({
       data: {
-        tenantId: tenantAId,
+        tenantId: isoTenantId,
         name: "Dispatch test — females",
         rules: { filters: [{ field: "gender", op: "eq", value: "FEMALE" }] },
       },
@@ -489,7 +523,7 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
           phone: `95${String(ts).slice(-7)}${i}`,
           passwordHash,
           role: "PATIENT",
-          tenantId: tenantAId,
+          tenantId: isoTenantId,
         },
       });
       return prisma.patient.create({
@@ -497,7 +531,7 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
           userId: u.id,
           mrNumber: `MR-DISP-${ts}-${i}`,
           gender,
-          tenantId: tenantAId,
+          tenantId: isoTenantId,
         },
       });
     }
@@ -508,7 +542,7 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
     // Campaign on 2 channels with a token-substituting body.
     const created = await request(app)
       .post("/api/v1/campaigns")
-      .set("Authorization", `Bearer ${adminAToken}`)
+      .set("Authorization", `Bearer ${isoAdminToken}`)
       .send({
         name: "Dispatch piece-2b",
         channels: ["WHATSAPP", "SMS"],
@@ -520,7 +554,7 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
 
     const res = await request(app)
       .post(`/api/v1/campaigns/${campId}/dispatch`)
-      .set("Authorization", `Bearer ${adminAToken}`);
+      .set("Authorization", `Bearer ${isoAdminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.data.summary.total).toBe(4); // 2 patients × 2 channels
     expect(res.body.data.summary.sent).toBe(4);
@@ -544,10 +578,11 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
 
   it("POST /:id/dispatch records SUPPRESSED for a patient opted out of the channel", async () => {
     const prisma = await getPrisma();
+    const { tenantId: isoTenantId, adminToken: isoAdminToken } = await createIsolatedTenant("supp");
 
     const aud = await prisma.campaignAudience.create({
       data: {
-        tenantId: tenantAId,
+        tenantId: isoTenantId,
         name: "Dispatch opt-out test",
         rules: { filters: [{ field: "gender", op: "eq", value: "FEMALE" }] },
       },
@@ -562,7 +597,7 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
         phone: `96${String(ts).slice(-7)}0`,
         passwordHash,
         role: "PATIENT",
-        tenantId: tenantAId,
+        tenantId: isoTenantId,
       },
     });
     await prisma.patient.create({
@@ -570,7 +605,7 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
         userId: user.id,
         mrNumber: `MR-OPT-${ts}`,
         gender: "FEMALE",
-        tenantId: tenantAId,
+        tenantId: isoTenantId,
       },
     });
     await prisma.notificationPreference.create({
@@ -579,7 +614,7 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
 
     const camp = await request(app)
       .post("/api/v1/campaigns")
-      .set("Authorization", `Bearer ${adminAToken}`)
+      .set("Authorization", `Bearer ${isoAdminToken}`)
       .send({
         name: "Dispatch opt-out",
         channels: ["SMS"],
@@ -590,7 +625,7 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
 
     const res = await request(app)
       .post(`/api/v1/campaigns/${camp.body.data.id}/dispatch`)
-      .set("Authorization", `Bearer ${adminAToken}`);
+      .set("Authorization", `Bearer ${isoAdminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.data.summary.sent).toBe(0);
     expect(res.body.data.summary.suppressed).toBe(1);
@@ -691,10 +726,11 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
 
   it("dispatch with A/B variants records a variantId on every CampaignSend (piece 3a)", async () => {
     const prisma = await getPrisma();
+    const { tenantId: isoTenantId, adminToken: isoAdminToken } = await createIsolatedTenant("ab");
 
     const aud = await prisma.campaignAudience.create({
       data: {
-        tenantId: tenantAId,
+        tenantId: isoTenantId,
         name: "AB test audience",
         rules: { filters: [{ field: "gender", op: "eq", value: "FEMALE" }] },
       },
@@ -713,7 +749,7 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
           phone: `97${String(ts).slice(-7)}${i % 10}`,
           passwordHash,
           role: "PATIENT",
-          tenantId: tenantAId,
+          tenantId: isoTenantId,
         },
       });
       await prisma.patient.create({
@@ -721,14 +757,14 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
           userId: u.id,
           mrNumber: `MR-AB-${ts}-${i}`,
           gender: "FEMALE",
-          tenantId: tenantAId,
+          tenantId: isoTenantId,
         },
       });
     }
 
     const created = await request(app)
       .post("/api/v1/campaigns")
-      .set("Authorization", `Bearer ${adminAToken}`)
+      .set("Authorization", `Bearer ${isoAdminToken}`)
       .send({
         name: "AB-piece-3a",
         channels: ["SMS"],
@@ -743,7 +779,7 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
 
     const dispatch = await request(app)
       .post(`/api/v1/campaigns/${created.body.data.id}/dispatch`)
-      .set("Authorization", `Bearer ${adminAToken}`);
+      .set("Authorization", `Bearer ${isoAdminToken}`);
     expect(dispatch.status).toBe(200);
     expect(dispatch.body.data.summary.sent).toBe(20);
 
@@ -760,10 +796,11 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
 
   it("GET /:id/stats returns total + byStatus + byChannel + byVariant rollups (piece 3b)", async () => {
     const prisma = await getPrisma();
+    const { tenantId: isoTenantId, adminToken: isoAdminToken } = await createIsolatedTenant("stat");
 
     const aud = await prisma.campaignAudience.create({
       data: {
-        tenantId: tenantAId,
+        tenantId: isoTenantId,
         name: "Stats test audience",
         rules: { filters: [{ field: "gender", op: "eq", value: "FEMALE" }] },
       },
@@ -779,7 +816,7 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
           phone: `98${String(ts).slice(-7)}${i}`,
           passwordHash,
           role: "PATIENT",
-          tenantId: tenantAId,
+          tenantId: isoTenantId,
         },
       });
       await prisma.patient.create({
@@ -787,14 +824,14 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
           userId: u.id,
           mrNumber: `MR-STAT-${ts}-${i}`,
           gender: "FEMALE",
-          tenantId: tenantAId,
+          tenantId: isoTenantId,
         },
       });
     }
 
     const created = await request(app)
       .post("/api/v1/campaigns")
-      .set("Authorization", `Bearer ${adminAToken}`)
+      .set("Authorization", `Bearer ${isoAdminToken}`)
       .send({
         name: "Stats-piece-3b",
         channels: ["WHATSAPP", "SMS"],
@@ -805,12 +842,12 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
 
     await request(app)
       .post(`/api/v1/campaigns/${created.body.data.id}/dispatch`)
-      .set("Authorization", `Bearer ${adminAToken}`)
+      .set("Authorization", `Bearer ${isoAdminToken}`)
       .expect(200);
 
     const stats = await request(app)
       .get(`/api/v1/campaigns/${created.body.data.id}/stats`)
-      .set("Authorization", `Bearer ${adminAToken}`);
+      .set("Authorization", `Bearer ${isoAdminToken}`);
     expect(stats.status).toBe(200);
     expect(stats.body.data.total).toBe(6); // 3 patients × 2 channels
     expect(stats.body.data.byStatus.SENT).toBe(6);
@@ -851,9 +888,11 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
 
   it("GET /public/campaigns/click/:sendId records clickedAt + 302s when linkTargetUrl set", async () => {
     const prisma = await getPrisma();
+    const { tenantId: isoTenantId, adminToken: isoAdminToken } = await createIsolatedTenant("click");
+
     const aud = await prisma.campaignAudience.create({
       data: {
-        tenantId: tenantAId,
+        tenantId: isoTenantId,
         name: "Click test",
         rules: { filters: [{ field: "gender", op: "eq", value: "FEMALE" }] },
       },
@@ -867,7 +906,7 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
         phone: `99${String(ts).slice(-7)}0`,
         passwordHash,
         role: "PATIENT",
-        tenantId: tenantAId,
+        tenantId: isoTenantId,
       },
     });
     await prisma.patient.create({
@@ -875,13 +914,13 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
         userId: user.id,
         mrNumber: `MR-CLICK-${ts}`,
         gender: "FEMALE",
-        tenantId: tenantAId,
+        tenantId: isoTenantId,
       },
     });
 
     const created = await request(app)
       .post("/api/v1/campaigns")
-      .set("Authorization", `Bearer ${adminAToken}`)
+      .set("Authorization", `Bearer ${isoAdminToken}`)
       .send({
         name: "Click-piece-3c",
         channels: ["SMS"],
@@ -893,7 +932,7 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
 
     await request(app)
       .post(`/api/v1/campaigns/${created.body.data.id}/dispatch`)
-      .set("Authorization", `Bearer ${adminAToken}`)
+      .set("Authorization", `Bearer ${isoAdminToken}`)
       .expect(200);
 
     const send = await prisma.campaignSend.findFirst({
@@ -918,11 +957,12 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
 
   it("conversion attribution: appointment booked after a click credits the most-recent send", async () => {
     const prisma = await getPrisma();
+    const { tenantId: isoTenantId, adminToken: isoAdminToken } = await createIsolatedTenant("conv");
 
     // Audience + 1 female patient.
     const aud = await prisma.campaignAudience.create({
       data: {
-        tenantId: tenantAId,
+        tenantId: isoTenantId,
         name: "Conv test",
         rules: { filters: [{ field: "gender", op: "eq", value: "FEMALE" }] },
       },
@@ -936,7 +976,7 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
         phone: `91${String(ts).slice(-7)}0`,
         passwordHash,
         role: "PATIENT",
-        tenantId: tenantAId,
+        tenantId: isoTenantId,
       },
     });
     const patient = await prisma.patient.create({
@@ -944,7 +984,7 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
         userId: user.id,
         mrNumber: `MR-CONV-${ts}`,
         gender: "FEMALE",
-        tenantId: tenantAId,
+        tenantId: isoTenantId,
       },
     });
 
@@ -956,17 +996,17 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
         phone: `92${String(ts).slice(-7)}0`,
         passwordHash,
         role: "DOCTOR",
-        tenantId: tenantAId,
+        tenantId: isoTenantId,
       },
     });
     const doctorRow = await prisma.doctor.create({
-      data: { userId: doc.id, tenantId: tenantAId },
+      data: { userId: doc.id, tenantId: isoTenantId },
     });
-    const patientToken = signWith("PATIENT", user.id, user.email!, tenantAId);
+    const patientToken = signWith("PATIENT", user.id, user.email!, isoTenantId);
 
     const created = await request(app)
       .post("/api/v1/campaigns")
-      .set("Authorization", `Bearer ${adminAToken}`)
+      .set("Authorization", `Bearer ${isoAdminToken}`)
       .send({
         name: "Conv-piece-3c",
         channels: ["SMS"],
@@ -978,7 +1018,7 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
 
     await request(app)
       .post(`/api/v1/campaigns/${created.body.data.id}/dispatch`)
-      .set("Authorization", `Bearer ${adminAToken}`)
+      .set("Authorization", `Bearer ${isoAdminToken}`)
       .expect(200);
 
     const send = await prisma.campaignSend.findFirst({
@@ -1013,7 +1053,7 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
     // Stats endpoint reflects the click + conversion.
     const stats = await request(app)
       .get(`/api/v1/campaigns/${created.body.data.id}/stats`)
-      .set("Authorization", `Bearer ${adminAToken}`)
+      .set("Authorization", `Bearer ${isoAdminToken}`)
       .expect(200);
     expect(stats.body.data.clicked).toBe(1);
     expect(stats.body.data.converted).toBe(1);

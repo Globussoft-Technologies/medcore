@@ -1,0 +1,32 @@
+-- ================================================================
+-- 20260522000004_pearl_pharmacy_kanban_statuses
+--
+-- Pearl ERP Stage 1 §4.3 (gap row 104) — Pharmacy dispensing Kanban
+-- splits the in-flight pharmacy work that today is hidden behind a
+-- single PENDING status into two intermediate stages:
+--
+--   PENDING → DISPENSING → READY → DISPENSED   (forward path)
+--   READY → DISPENSING                          (step-back for re-mix)
+--   * → REJECTED / CANCELLED                    (terminal sinks)
+--
+-- DISPENSING = pharmacist has picked the script up and is filling it.
+-- READY = the medicine is bagged on the counter waiting for the
+-- patient to collect. The existing DISPENSED flip (set by the full-
+-- dispense path in routes/pharmacy.ts) is unchanged.
+--
+-- ENUM EXTENSION ─────────────────────────────────────────────────
+-- Postgres `ALTER TYPE … ADD VALUE` is non-transactional, so we use
+-- raw SQL with `IF NOT EXISTS` + `BEFORE 'DISPENSED'` to (i) keep the
+-- migration idempotent if it re-runs and (ii) place the new values in
+-- the correct lifecycle order in the catalog (cosmetic — Postgres
+-- enum-value order affects ORDER BY column = value but no production
+-- query depends on it; we sort by column-named field in routes).
+--
+-- BACKFILL ───────────────────────────────────────────────────────
+-- None needed. Existing rows remain in PENDING / DISPENSED / REJECTED
+-- / CANCELLED. The two new values are only ever written by the
+-- forthcoming PATCH /prescriptions/:id/status route + Kanban UI.
+-- ================================================================
+
+ALTER TYPE "PrescriptionStatus" ADD VALUE IF NOT EXISTS 'DISPENSING' BEFORE 'DISPENSED';
+ALTER TYPE "PrescriptionStatus" ADD VALUE IF NOT EXISTS 'READY' BEFORE 'DISPENSED';

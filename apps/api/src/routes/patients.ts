@@ -423,6 +423,16 @@ router.post(
             emergencyContactPhone: data.emergencyContactPhone,
             insuranceProvider: data.insuranceProvider,
             insurancePolicyNumber: data.insurancePolicyNumber,
+            // Pearl §2.1.1 source tagging: this endpoint is the staff
+            // dashboard "Add Patient" surface, so an omitted source
+            // defaults to WEB (a staff member keying the row through the
+            // web panel). The dropdown on the form can still send WALK_IN
+            // / PHONE / REFERRAL / WHATSAPP / OTHER when reception is
+            // capturing a different attribution. The schema DEFAULT
+            // (WALK_IN) only kicks in for non-route callers (seeders,
+            // fixtures, future patient-self-registration which will pass
+            // "PWA" explicitly).
+            source: data.source ?? "WEB",
             tenantId: reqTenantId,
           },
         });
@@ -437,6 +447,124 @@ router.post(
       });
 
       res.status(201).json({ success: true, data: result, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/patients/me — patient PWA self-service profile update.
+// Pearl §6.1 "My profile" (gap #5 piece 3e of 4). Narrow allowlist of
+// patient-row fields the PATIENT-PWA form is allowed to write:
+//   • address           (free-text postal address)
+//   • dateOfBirth       (ISO date; updateProfileSchema's DOB-in-the-past
+//                        guard reused by re-parsing through updatePatientSchema)
+//   • abhaId            (Health-ID placeholder — full ABHA link flow is
+//                        deferred; user can paste an existing id today)
+//   • preferredLanguage (also writeable via PATCH /auth/me which mirrors
+//                        the User.preferredLanguage column; we accept it
+//                        here too so the form can ship one round-trip
+//                        per user gesture without forcing the caller to
+//                        decide which surface owns the field)
+//
+// NOT writeable here:
+//   • name / phone / email — those live on `User` and edits to phone or
+//     email need OTP re-verification flows the Pearl spec defers. The web
+//     form surfaces them read-only with a "Contact reception to change"
+//     hint per the SOW.
+//   • gender / bloodGroup — clinical fields, staff-corrected only.
+//   • mrNumber / userId / tenantId / branchId — administrative columns
+//     the patient must never be able to mutate.
+//
+// MUST be declared BEFORE `PATCH /:id` so Express's first-match router
+// doesn't shadow `/me` with the `:id` param (CLAUDE.md "Post-fix
+// verification grep — static-before-dynamic route declaration" gotcha
+// codified in /medcore-bola-sweep).
+router.patch(
+  "/me",
+  authorize(Role.PATIENT),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = req.body as {
+        address?: string | null;
+        dateOfBirth?: string | null;
+        abhaId?: string | null;
+        preferredLanguage?: string | null;
+      };
+
+      // Reuse the existing partial patient schema for the DOB-in-the-past
+      // guard + length / type sanity. Only pass the keys we accept so
+      // mass-assignment of any other field is blocked at the schema layer
+      // (unknown keys are dropped by .partial() without erroring, but
+      // .pick() keeps the surface tight and self-documenting).
+      const parsed = updatePatientSchema.safeParse({
+        ...(body.address !== undefined ? { address: body.address ?? undefined } : {}),
+        ...(body.dateOfBirth !== undefined ? { dateOfBirth: body.dateOfBirth ?? undefined } : {}),
+        ...(body.abhaId !== undefined ? { abhaId: body.abhaId ?? undefined } : {}),
+        ...(body.preferredLanguage !== undefined
+          ? { preferredLanguage: body.preferredLanguage ?? undefined }
+          : {}),
+      });
+      if (!parsed.success) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: parsed.error.issues[0]?.message ?? "Invalid payload",
+          details: parsed.error.issues.map((i) => ({
+            field: i.path.join("."),
+            message: i.message,
+          })),
+        });
+        return;
+      }
+
+      // Locate the caller's Patient row via their User id. PATIENT JWT
+      // carries userId but not patientId, and we deliberately don't trust
+      // any patientId on the body — the route's identity is "caller's own
+      // row" by construction.
+      const me = await prisma.patient.findFirst({
+        where: { userId: req.user!.userId, mergedIntoId: null },
+        select: { id: true },
+      });
+      if (!me) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "No patient profile linked to this account",
+        });
+        return;
+      }
+
+      const data: Record<string, unknown> = {};
+      if (body.address !== undefined) data.address = body.address;
+      if (body.dateOfBirth !== undefined) {
+        data.dateOfBirth = body.dateOfBirth ? new Date(body.dateOfBirth) : null;
+      }
+      if (body.abhaId !== undefined) data.abhaId = body.abhaId;
+      if (body.preferredLanguage !== undefined) data.preferredLanguage = body.preferredLanguage;
+
+      if (Object.keys(data).length === 0) {
+        res.status(400).json({ success: false, data: null, error: "Nothing to update" });
+        return;
+      }
+
+      const updated = await prisma.patient.update({
+        where: { id: me.id },
+        data,
+        select: {
+          id: true,
+          address: true,
+          dateOfBirth: true,
+          abhaId: true,
+          preferredLanguage: true,
+        },
+      });
+
+      auditLog(req, "PATIENT_SELF_UPDATE", "patient", me.id, {
+        fields: Object.keys(data),
+      }).catch(console.error);
+
+      res.json({ success: true, data: updated, error: null });
     } catch (err) {
       next(err);
     }

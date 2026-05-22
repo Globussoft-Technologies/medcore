@@ -1,0 +1,224 @@
+// Smoke tests for the patient PWA dashboard (Pearl §6.1 — gap #5 piece 3a of 4).
+// Asserts: 3 tiles render with mocked data, empty states render when payloads
+// are empty, every clickable element meets the 44px touch-target floor, and
+// the unauthed shape renders + offers a sign-in CTA when the API returns 401s.
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, waitFor, within } from "@testing-library/react";
+
+const { apiGetMock } = vi.hoisted(() => ({ apiGetMock: vi.fn() }));
+
+vi.mock("@/lib/api", () => ({
+  api: { get: apiGetMock, post: vi.fn(), patch: vi.fn(), put: vi.fn(), delete: vi.fn() },
+}));
+
+import PatientDashboardPage from "../page";
+
+const HOUR = 60 * 60 * 1000;
+const FUTURE = new Date(Date.now() + 24 * HOUR).toISOString();
+
+function listOk<T>(data: T[]) {
+  return { success: true, data, error: null, meta: { total: data.length } };
+}
+
+function rejectedWithStatus(status: number) {
+  return Promise.reject(Object.assign(new Error("nope"), { status }));
+}
+
+describe("Patient dashboard — gap #5 piece 3a", () => {
+  beforeEach(() => {
+    apiGetMock.mockReset();
+  });
+
+  it("renders all 3 tiles with mocked appointment / Rx / invoice data", async () => {
+    apiGetMock.mockImplementation((endpoint: string) => {
+      if (endpoint.startsWith("/appointments")) {
+        return Promise.resolve(
+          listOk([
+            {
+              id: "appt-1",
+              date: FUTURE,
+              slotStart: "10:30:00",
+              tokenNumber: 7,
+              status: "BOOKED",
+              doctor: {
+                user: { name: "Sharma" },
+                specialty: "Obstetrics",
+              },
+            },
+          ]),
+        );
+      }
+      if (endpoint.startsWith("/prescriptions")) {
+        return Promise.resolve(
+          listOk([
+            {
+              id: "rx-1",
+              createdAt: FUTURE,
+              diagnosis: "URI",
+              doctor: { user: { name: "Sharma" } },
+              items: [{ medicineName: "Amoxicillin 500mg" }, { medicineName: "Paracetamol" }],
+            },
+          ]),
+        );
+      }
+      if (endpoint.startsWith("/billing/invoices")) {
+        return Promise.resolve(
+          listOk([
+            {
+              id: "inv-1",
+              invoiceNumber: "INV-001",
+              createdAt: FUTURE,
+              totalAmount: "1500",
+              paidAmount: "500",
+              paymentStatus: "PARTIAL",
+            },
+          ]),
+        );
+      }
+      return Promise.resolve(listOk([]));
+    });
+
+    render(<PatientDashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("patient-dashboard")).toBeInTheDocument();
+    });
+
+    // Next appointment tile
+    const apptTile = screen.getByTestId("patient-dashboard-next-appointment");
+    expect(within(apptTile).getByText(/Dr\. Sharma/)).toBeInTheDocument();
+    expect(within(apptTile).getByText(/Obstetrics/)).toBeInTheDocument();
+    expect(
+      within(apptTile).getByTestId("patient-dashboard-next-appointment-view"),
+    ).toHaveAttribute("href", "/patient/appointments/appt-1");
+    expect(
+      within(apptTile).getByTestId("patient-dashboard-next-appointment-arrived"),
+    ).toBeInTheDocument();
+
+    // Prescriptions tile
+    const rxTile = screen.getByTestId("patient-dashboard-prescriptions");
+    expect(within(rxTile).getByText(/Amoxicillin 500mg/)).toBeInTheDocument();
+    expect(within(rxTile).getByText(/\+ 1 more/)).toBeInTheDocument();
+    expect(
+      within(rxTile).getByTestId("patient-dashboard-prescription-download"),
+    ).toHaveAttribute("href", "/api/v1/prescriptions/rx-1/pdf");
+    expect(
+      within(rxTile).getByTestId("patient-dashboard-prescription-share"),
+    ).toHaveAttribute("href", expect.stringContaining("https://wa.me/"));
+
+    // Bills tile — INR 1500 - 500 = 1000 due
+    const billsTile = screen.getByTestId("patient-dashboard-bills");
+    expect(within(billsTile).getByTestId("patient-dashboard-bills-total")).toHaveTextContent(
+      /1,000/,
+    );
+    expect(within(billsTile).getByText(/INV-001/)).toBeInTheDocument();
+    expect(
+      within(billsTile).getByTestId("patient-dashboard-bill-pay"),
+    ).toHaveAttribute("href", "/patient/bills/inv-1/pay");
+  });
+
+  it("renders empty states for each tile when the API returns empty arrays", async () => {
+    apiGetMock.mockResolvedValue(listOk([]));
+    render(<PatientDashboardPage />);
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("patient-dashboard-next-appointment-empty"),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByTestId("patient-dashboard-book-cta"),
+    ).toHaveAttribute("href", "/patient/appointments/book");
+    expect(
+      screen.getByTestId("patient-dashboard-prescriptions-empty"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("patient-dashboard-bills-empty"),
+    ).toBeInTheDocument();
+  });
+
+  it("every interactive element on a populated dashboard satisfies the 44px touch-target floor", async () => {
+    apiGetMock.mockImplementation((endpoint: string) => {
+      if (endpoint.startsWith("/appointments")) {
+        return Promise.resolve(
+          listOk([
+            {
+              id: "appt-1",
+              date: FUTURE,
+              slotStart: "10:30:00",
+              status: "BOOKED",
+              doctor: { user: { name: "Sharma" } },
+            },
+          ]),
+        );
+      }
+      if (endpoint.startsWith("/prescriptions")) {
+        return Promise.resolve(
+          listOk([
+            {
+              id: "rx-1",
+              createdAt: FUTURE,
+              items: [{ medicineName: "Amoxicillin" }],
+            },
+          ]),
+        );
+      }
+      if (endpoint.startsWith("/billing/invoices")) {
+        return Promise.resolve(
+          listOk([
+            {
+              id: "inv-1",
+              invoiceNumber: "INV-001",
+              createdAt: FUTURE,
+              totalAmount: "1500",
+              paidAmount: "0",
+              paymentStatus: "PENDING",
+            },
+          ]),
+        );
+      }
+      return Promise.resolve(listOk([]));
+    });
+    render(<PatientDashboardPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("patient-dashboard")).toBeInTheDocument(),
+    );
+
+    // We assert the class-level invariant rather than computed pixel height
+    // because jsdom doesn't lay out and getBoundingClientRect returns 0.
+    // All CTAs in this surface MUST carry `h-11` (Tailwind = 44px) to honour
+    // Pearl §6.2 touch-target rule. This catches any future regression where
+    // an h-9/h-10 class slips in.
+    const ctaTestIds = [
+      "patient-dashboard-next-appointment-view",
+      "patient-dashboard-next-appointment-arrived",
+      "patient-dashboard-prescription-download",
+      "patient-dashboard-prescription-share",
+      "patient-dashboard-bill-pay",
+    ];
+    for (const testId of ctaTestIds) {
+      const el = screen.getByTestId(testId);
+      expect(
+        el.className,
+        `${testId} must include h-11 (44px touch target)`,
+      ).toMatch(/\bh-11\b/);
+      expect(
+        el.className,
+        `${testId} must include min-w-[44px]`,
+      ).toMatch(/min-w-\[44px\]/);
+    }
+  });
+
+  it("renders the unauthed sign-in surface when /appointments returns 401", async () => {
+    apiGetMock.mockImplementation((endpoint: string) => {
+      if (endpoint.startsWith("/appointments")) return rejectedWithStatus(401);
+      return Promise.resolve(listOk([]));
+    });
+    render(<PatientDashboardPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("patient-dashboard-unauth")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByTestId("patient-dashboard-signin-cta"),
+    ).toHaveAttribute("href", "/patient/login");
+  });
+});

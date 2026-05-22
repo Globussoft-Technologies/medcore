@@ -45,6 +45,10 @@ interface PatientRecord {
   age: number | null;
   dateOfBirth?: string | null;
   bloodGroup: string | null;
+  // Pearl §2.1.1 — attribution tag (WEB / PWA / WALK_IN / REFERRAL /
+  // WHATSAPP / PHONE / OTHER). Optional on the wire for back-compat
+  // with cached responses that pre-date the column.
+  source?: string | null;
   user: { id: string; name: string; email: string; phone: string };
   // Flattened fields for sort/filter/CSV:
   name?: string;
@@ -96,6 +100,12 @@ export default function PatientsPage() {
     gender: "MALE",
     address: "",
     bloodGroup: "",
+    // Pearl §2.1.1 — attribution tag. Default WALK_IN: the staff form is
+    // most often used to capture an in-person walk-in registration. The
+    // API treats an omitted source as "WEB" (staff web-panel keying),
+    // but the form sends an explicit value so the recorded source
+    // matches the receptionist's intent.
+    source: "WALK_IN",
   });
   const [total, setTotal] = useState(0);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -197,6 +207,7 @@ export default function PatientsPage() {
         gender: "MALE",
         address: "",
         bloodGroup: "",
+        source: "WALK_IN",
       });
       loadPatients();
     } catch (err) {
@@ -290,6 +301,27 @@ export default function PatientsPage() {
       filterable: true,
       hideMobile: true,
       render: (p) => p.bloodGroup || "—",
+    },
+    // Pearl §2.1.1 — attribution chip. Hidden on mobile to keep the
+    // dense list usable; visible on desktop / tablet so marketing
+    // analytics can be sanity-checked at a glance.
+    {
+      key: "source",
+      label: "Source",
+      sortable: true,
+      filterable: true,
+      hideMobile: true,
+      render: (p) =>
+        p.source ? (
+          <span
+            data-testid={`patient-source-chip-${p.id}`}
+            className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-200"
+          >
+            {p.source.replace(/_/g, " ").toLowerCase()}
+          </span>
+        ) : (
+          <span className="text-gray-400">—</span>
+        ),
     },
     // Pearl §2.1.8 — per-row Quick-Action buttons (WhatsApp / Email /
     // Call / Add-to-Lead). Pure client-side links (wa.me, mailto:, tel:)
@@ -552,6 +584,27 @@ export default function PatientsPage() {
               <option value="AB-">AB-</option>
               <option value="O+">O+</option>
               <option value="O-">O-</option>
+            </select>
+            <label htmlFor="patient-source" className="sr-only">
+              Source
+            </label>
+            <select
+              id="patient-source"
+              data-testid="patient-source"
+              value={form.source}
+              onChange={(e) => setForm({ ...form, source: e.target.value })}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+              aria-label="Patient registration source"
+            >
+              {/* Pearl §2.1.1 — attribution for marketing / CRM analytics.
+                  Values map 1:1 to the PatientSource Prisma enum. */}
+              <option value="WALK_IN">Source: Walk-in</option>
+              <option value="WEB">Source: Web</option>
+              <option value="PWA">Source: PWA</option>
+              <option value="REFERRAL">Source: Referral</option>
+              <option value="WHATSAPP">Source: WhatsApp</option>
+              <option value="PHONE">Source: Phone</option>
+              <option value="OTHER">Source: Other</option>
             </select>
             <label htmlFor="patient-address" className="sr-only">
               {t("common.address")}

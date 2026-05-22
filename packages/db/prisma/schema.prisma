@@ -808,6 +808,22 @@ enum LeadSource {
   OTHER
 }
 
+// Pearl ERP Stage 1 §2.1.1 — attribution tag for new patient registrations.
+// Mirrors LeadSource but adds PWA for the patient-self-registration path
+// (Pearl gap #5 piece 2/4) once that flow creates Patient rows. WALK_IN is
+// the default — legacy rows pre-date the PWA + web-panel registration
+// surfaces, and the staff `POST /api/v1/patients` endpoint defaults to WEB
+// when the request body omits a source.
+enum PatientSource {
+  WEB
+  PWA
+  WALK_IN
+  REFERRAL
+  WHATSAPP
+  PHONE
+  OTHER
+}
+
 enum LeadActivityType {
   STATUS_CHANGE
   NOTE
@@ -1193,6 +1209,16 @@ model Patient {
   // Pricing tier (Apr 2026) — STANDARD, EMPLOYEE, SENIOR_CITIZEN, BPL, VIP
   pricingTier                  String    @default("STANDARD")
 
+  // Pearl ERP Stage 1 §2.1.1 — attribution tag for where this Patient row
+  // came from (web panel / patient PWA / walk-in / referral / WhatsApp /
+  // phone / other). Default WALK_IN so legacy rows that pre-date this
+  // column don't need a per-row backfill — the migration's column DEFAULT
+  // handles it. Staff `POST /api/v1/patients` defaults to WEB at the route
+  // layer when the body omits a source; the patient PWA self-registration
+  // path defaults to PWA when that flow is wired (deferred — see commit
+  // message).
+  source PatientSource @default(WALK_IN)
+
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -1271,6 +1297,7 @@ model Patient {
   @@index([mrNumber])
   @@index([tenantId])
   @@index([branchId])
+  @@index([source])
   @@map("patients")
 }
 

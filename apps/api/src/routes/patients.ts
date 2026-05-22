@@ -423,6 +423,16 @@ router.post(
             emergencyContactPhone: data.emergencyContactPhone,
             insuranceProvider: data.insuranceProvider,
             insurancePolicyNumber: data.insurancePolicyNumber,
+            // Pearl §2.1.1 source tagging: this endpoint is the staff
+            // dashboard "Add Patient" surface, so an omitted source
+            // defaults to WEB (a staff member keying the row through the
+            // web panel). The dropdown on the form can still send WALK_IN
+            // / PHONE / REFERRAL / WHATSAPP / OTHER when reception is
+            // capturing a different attribution. The schema DEFAULT
+            // (WALK_IN) only kicks in for non-route callers (seeders,
+            // fixtures, future patient-self-registration which will pass
+            // "PWA" explicitly).
+            source: data.source ?? "WEB",
             tenantId: reqTenantId,
           },
         });

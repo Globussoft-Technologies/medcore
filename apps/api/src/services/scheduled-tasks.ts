@@ -8,6 +8,8 @@ import { runDailyDocQAScheduledTask } from "../routes/ai-doc-qa";
 import { runDailyNpsDriverRollup } from "../routes/ai-sentiment";
 import { runAuditLogArchival } from "./audit-archival";
 import { autoNoShowElapsedBookedTask } from "./auto-noshow";
+import { autoEnrolAndRemove } from "./chronic-care-enrolment";
+import { runChronicCareSequenceSends } from "./chronic-care-scheduler";
 
 // ───────────────────────────────────────────────────────
 // Lightweight setInterval-based scheduler.
@@ -1083,6 +1085,46 @@ async function autoCloseStuckTelemedicineSessionsTask(): Promise<void> {
   }
 }
 
+// ─── Chronic-care cohort auto-enrolment (Pearl §5.2 row 143) ───
+//
+// Every hour, re-evaluate every active ChronicCareCohort's `cohortRule`
+// and reconcile per-patient ChronicCarePlan rows: enrol newly-matching
+// patients, deactivate plans whose patients no longer match. Idempotent
+// — a no-op pass logs nothing. ScheduledTaskRun captures the run via
+// `runTaskWithAudit` (Pearl §8.4 row 222).
+async function autoEnrolChronicCareCohortsTask(): Promise<void> {
+  try {
+    const result = await autoEnrolAndRemove();
+    if (result.enrolled > 0 || result.removed > 0 || result.errors > 0) {
+      console.log(
+        `[auto_enrol_chronic_care_cohorts] cohorts=${result.cohortsEvaluated} enrolled=${result.enrolled} removed=${result.removed} errors=${result.errors}`,
+      );
+    }
+  } catch (err) {
+    console.error("[auto_enrol_chronic_care_cohorts]", err);
+  }
+}
+
+// ─── Chronic-care sequence-step sweep (Pearl §5.2 row 144) ─────
+//
+// Every hour, walk every active cohort-linked ChronicCarePlan and send
+// the next pending CohortSequenceStep whose `delayDays` window has
+// elapsed. Companion to the on-visit hook in
+// `services/notification-triggers.ts:onPatientCheckedIn` which handles
+// the skip-and-advance case (row 145).
+async function chronicCareSequenceSweepTask(): Promise<void> {
+  try {
+    const result = await runChronicCareSequenceSends();
+    if (result.sent > 0 || result.errors > 0) {
+      console.log(
+        `[chronic_care_sequence_sweep] sent=${result.sent} errors=${result.errors}`,
+      );
+    }
+  } catch (err) {
+    console.error("[chronic_care_sequence_sweep]", err);
+  }
+}
+
 // ─── Drain queued (deferred) notifications ─────────────
 
 async function notificationDrainQueued(): Promise<void> {
@@ -1245,6 +1287,24 @@ const TASKS: ScheduledTask[] = [
     name: "auto_close_stuck_telemedicine_sessions",
     intervalMinutes: 30,
     run: autoCloseStuckTelemedicineSessionsTask,
+  },
+  // Pearl §5.2 row 143 — hourly auto-enrol / auto-remove. Re-evaluates
+  // every active ChronicCareCohort's `cohortRule` against current patient
+  // rows, creates/activates ChronicCarePlan rows for new matches, and
+  // deactivates plans for patients who no longer match. Idempotent.
+  {
+    name: "auto_enrol_chronic_care_cohorts",
+    intervalMinutes: 60,
+    run: autoEnrolChronicCareCohortsTask,
+  },
+  // Pearl §5.2 row 144 — hourly sweep that advances the per-enrolment
+  // sequence stepper. Sends the next pending CohortSequenceStep whose
+  // delayDays window has elapsed. On-visit fast-path lives in
+  // `services/notification-triggers.ts:onPatientCheckedIn` (row 145).
+  {
+    name: "chronic_care_sequence_sweep",
+    intervalMinutes: 60,
+    run: chronicCareSequenceSweepTask,
   },
 ];
 

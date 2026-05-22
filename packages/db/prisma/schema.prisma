@@ -697,6 +697,12 @@ model Tenant {
   campaignAudiences CampaignAudience[]
   campaignSends     CampaignSend[]
 
+  // Pearl §5.2 (gap rows 142-145) — chronic-care cohort templates with
+  // rule DSL + sequence-of-touchpoints. Per-patient enrolment lives on
+  // ChronicCarePlan; the cohort template is tenant-wide.
+  chronicCareCohorts    ChronicCareCohort[]
+  cohortSequenceSteps   CohortSequenceStep[]
+
   @@map("tenants")
 }
 
@@ -5376,13 +5382,98 @@ model ChronicCarePlan {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  // Pearl §5.2 (gap rows 142-145, 2026-05-23) — when this plan was
+  // auto-created from a ChronicCareCohort template (rule-DSL match),
+  // `cohortId` links back to the template so the sequence stepper can
+  // look up the next CohortSequenceStep. Manual plans (today's default)
+  // leave this null — full back-compat.
+  cohortId String?
+  cohort   ChronicCareCohort? @relation(fields: [cohortId], references: [id], onDelete: SetNull)
+
+  // Pearl §5.2 — last sequence step delivered for this enrolment. Step 0
+  // = nothing sent yet (initial state after enrolment). The scheduler
+  // advances `lastStepSent` after each successful send + records
+  // `lastStepSentAt` so the next step's `delayDays` is measured from
+  // the prior send (not from enrolment time).
+  lastStepSent   Int       @default(0)
+  lastStepSentAt DateTime?
+
   patient  Patient              @relation(fields: [patientId], references: [id], onDelete: Cascade)
   checkIns ChronicCareCheckIn[]
   alerts   ChronicCareAlert[]
 
   @@index([patientId, active])
   @@index([tenantId])
+  @@index([cohortId, active])
   @@map("chronic_care_plans")
+}
+
+// ─── Pearl §5.2 (gap rows 142-145) — chronic-care cohort templates ──────
+//
+// A ChronicCareCohort is the TENANT-LEVEL template ("all diabetics in
+// branch X over age 50") that the auto-enrolment cron uses to materialize
+// per-patient ChronicCarePlan rows. The matching DSL lives in `cohortRule`
+// and reuses the shape that `services/audience-compiler.ts` already
+// understands (shipped via f701b52 for the Campaign domain — Pearl §5.1).
+//
+// Per-cohort `CohortSequenceStep` rows define the sequence of touchpoints
+// (visit-reminder + lab-reminder + education-snippet, etc.) that fan out
+// from each enrolment. The scheduler advances step N → N+1 either by
+// `delayDays` elapsing OR by the on-visit hook in
+// `notification-triggers.ts` (Appointment.status flips to CHECKED_IN
+// triggers `advanceChronicCareSequence(patientId)`).
+model ChronicCareCohort {
+  id           String                @id @default(uuid())
+  name         String
+  description  String?
+  condition    ChronicConditionCode?
+  // Mirror of CampaignAudience.rules: `{ filters: [...], matchMode:
+  // "ALL" | "ANY" }`. Null = manual enrolment only (no cron action).
+  cohortRule   Json?
+  active       Boolean               @default(true)
+  createdBy    String
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  steps CohortSequenceStep[]
+  plans ChronicCarePlan[]
+
+  @@index([tenantId, active])
+  @@index([condition])
+  @@map("chronic_care_cohorts")
+}
+
+model CohortSequenceStep {
+  id                String              @id @default(uuid())
+  chronicCareCohortId String
+  // 1-based step ordering within a cohort. Unique per cohort.
+  stepNumber        Int
+  // Days to wait AFTER the prior step's `lastStepSentAt` (or AFTER
+  // enrolment for step 1). 0 = send immediately.
+  delayDays         Int                 @default(0)
+  // References a NotificationTemplate by stable key (templates are
+  // tenant-scoped — resolution happens at send time). Free-form string
+  // so future template additions don't require a schema change.
+  templateKey       String
+  // Channels to fan out per step. Reuses the existing
+  // `NotificationChannel` enum.
+  channels          NotificationChannel[]
+  active            Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  cohort ChronicCareCohort @relation(fields: [chronicCareCohortId], references: [id], onDelete: Cascade)
+
+  @@unique([chronicCareCohortId, stepNumber])
+  @@index([chronicCareCohortId, active])
+  @@index([tenantId])
+  @@map("cohort_sequence_steps")
 }
 
 model ChronicCareCheckIn {

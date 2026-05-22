@@ -33,6 +33,7 @@ import {
   onAppointmentCancelled,
   onTokenCalled,
   notifyQueuePosition,
+  onPatientCheckedIn,
 } from "../services/notification-triggers";
 import { auditLog } from "../middleware/audit";
 import { notifyNextInWaitlist } from "../services/waitlist";
@@ -722,6 +723,9 @@ router.patch(
       }
       if (req.body.status === "CHECKED_IN" && prev?.status !== "CHECKED_IN") {
         notifyQueuePosition(appointment.id).catch(console.error);
+        // Pearl §5.2 row 145 — advance the patient's chronic-care
+        // sequence on check-in (skip-and-advance pattern).
+        onPatientCheckedIn(appointment.patientId).catch(console.error);
       }
 
       // No-show policy: increment counter + add fee when transitioning to NO_SHOW

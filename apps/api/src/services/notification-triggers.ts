@@ -2,6 +2,31 @@ import { prisma } from "@medcore/db";
 import { NotificationType } from "@medcore/shared";
 import { sendNotification } from "./notification";
 import { formatDoctorName } from "../lib/format-doctor-name";
+import { advanceChronicCareSequence } from "./chronic-care-scheduler";
+
+// ─── Pearl §5.2 row 145 — on-visit auto-schedule next message ──────────
+//
+// When a patient checks in (Appointment.status → CHECKED_IN), advance
+// every active cohort-linked ChronicCarePlan for that patient by one
+// step. This is the "skip-and-advance" pattern from the PRD: an OPD
+// visit is the most engaged touchpoint, so we don't wait for the
+// delayDays window — we just send the next step now.
+//
+// Fire-and-forget (caller .catch()es). Safe to call on every status
+// transition: `sendChronicCareSequenceStep` is a no-op when the plan
+// has no pending steps.
+export async function onPatientCheckedIn(patientId: string): Promise<void> {
+  try {
+    const sent = await advanceChronicCareSequence(patientId);
+    if (sent > 0) {
+      console.log(
+        `[notification-triggers] advanced ${sent} chronic-care plan(s) for patient ${patientId} on check-in`,
+      );
+    }
+  } catch (err) {
+    console.error("[notification-triggers] onPatientCheckedIn", err);
+  }
+}
 
 // ─── Appointment Triggers ──────────────────────────────
 

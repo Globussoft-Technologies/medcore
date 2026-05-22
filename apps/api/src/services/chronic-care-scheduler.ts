@@ -2,6 +2,214 @@ import { prisma } from "@medcore/db";
 import { NotificationType } from "@medcore/shared";
 import { sendNotification } from "./notification";
 
+// ─── Pearl §5.2 (gap rows 144 + 145) — sequence stepper ────────────────
+//
+// A ChronicCarePlan that was auto-enrolled from a ChronicCareCohort can
+// carry a sequence of touchpoints (visit-reminder, lab-reminder,
+// education-snippet, etc.). Step N+1 is scheduled when EITHER
+//   (a) `delayDays` have elapsed since step N's `lastStepSentAt` (or
+//       since enrolment for step 1), OR
+//   (b) `advanceChronicCareSequence(patientId)` is called — wired by
+//       `services/notification-triggers.ts` when the patient's
+//       Appointment.status flips to CHECKED_IN. Per PRD §5.2: "when an
+//       enrolled patient is seen in OPD, the next message in the
+//       sequence schedules automatically."
+//
+// Sends are FIRE-AND-FORGET via `sendNotification`. The plan's
+// `lastStepSent` + `lastStepSentAt` are bumped after each successful
+// send so re-runs are idempotent and the on-visit hook (which advances
+// regardless of delay) doesn't double-fire the same step.
+
+/**
+ * Look up the next pending CohortSequenceStep for a plan, given the
+ * plan's current `lastStepSent`. Returns null when:
+ *   - The plan is not cohort-linked.
+ *   - The plan has already received the final step.
+ *   - The cohort has no remaining active steps.
+ */
+async function getNextStepForPlan(plan: {
+  id: string;
+  cohortId: string | null;
+  lastStepSent: number;
+}): Promise<{
+  id: string;
+  stepNumber: number;
+  delayDays: number;
+  templateKey: string;
+  channels: string[];
+} | null> {
+  if (!plan.cohortId) return null;
+  const step = await prisma.cohortSequenceStep.findFirst({
+    where: {
+      chronicCareCohortId: plan.cohortId,
+      active: true,
+      stepNumber: { gt: plan.lastStepSent },
+    },
+    orderBy: { stepNumber: "asc" },
+    select: {
+      id: true,
+      stepNumber: true,
+      delayDays: true,
+      templateKey: true,
+      channels: true,
+    },
+  });
+  if (!step) return null;
+  return {
+    ...step,
+    channels: step.channels as unknown as string[],
+  };
+}
+
+/**
+ * Send one sequence step for a plan: fan-out a notification + bump the
+ * plan's `lastStepSent` / `lastStepSentAt`. Pure side effects — used by
+ * both the timer-driven loop and the on-visit advance hook.
+ *
+ * Returns true if a step was actually delivered, false otherwise (no
+ * step pending, or send error).
+ */
+export async function sendChronicCareSequenceStep(planId: string): Promise<boolean> {
+  const plan = await prisma.chronicCarePlan.findUnique({
+    where: { id: planId },
+    select: {
+      id: true,
+      patientId: true,
+      condition: true,
+      active: true,
+      cohortId: true,
+      lastStepSent: true,
+    },
+  });
+  if (!plan || !plan.active || !plan.cohortId) return false;
+
+  const step = await getNextStepForPlan(plan);
+  if (!step) return false;
+
+  const patient = await prisma.patient.findUnique({
+    where: { id: plan.patientId },
+    select: { userId: true, user: { select: { name: true } } },
+  });
+  if (!patient?.userId) return false;
+
+  try {
+    await sendNotification({
+      userId: patient.userId,
+      type: NotificationType.APPOINTMENT_REMINDER,
+      title: `Chronic-care touchpoint (${step.templateKey})`,
+      message: `Hi ${patient.user?.name ?? "there"}, this is a scheduled touchpoint for your ${plan.condition.toLowerCase()} care plan.`,
+      data: {
+        chronicCarePlanId: plan.id,
+        cohortStepNumber: step.stepNumber,
+        templateKey: step.templateKey,
+        channels: step.channels,
+      },
+    });
+  } catch (err) {
+    console.error(
+      `[chronic-care-scheduler] sequence-step send failed for plan ${plan.id} step ${step.stepNumber}`,
+      err,
+    );
+    return false;
+  }
+
+  try {
+    await prisma.chronicCarePlan.update({
+      where: { id: plan.id },
+      data: {
+        lastStepSent: step.stepNumber,
+        lastStepSentAt: new Date(),
+      },
+    });
+  } catch (err) {
+    console.error(
+      `[chronic-care-scheduler] failed to bump lastStepSent for plan ${plan.id}`,
+      err,
+    );
+  }
+  return true;
+}
+
+/**
+ * Skip-and-advance entry point for the on-visit hook. Per PRD §5.2 row
+ * 145 — when an enrolled patient is seen in OPD (Appointment.status
+ * flips to CHECKED_IN), schedule the NEXT step in their sequence
+ * immediately, ignoring `delayDays`. Walks every active cohort-linked
+ * plan for the patient and advances each.
+ *
+ * Returns the number of plans that received a step.
+ */
+export async function advanceChronicCareSequence(
+  patientId: string,
+): Promise<number> {
+  const plans = await prisma.chronicCarePlan.findMany({
+    where: {
+      patientId,
+      active: true,
+      NOT: { cohortId: null },
+    },
+    select: { id: true },
+  });
+  let sent = 0;
+  for (const p of plans) {
+    try {
+      const ok = await sendChronicCareSequenceStep(p.id);
+      if (ok) sent++;
+    } catch (err) {
+      console.error(
+        `[chronic-care-scheduler] advance failed for plan ${p.id}`,
+        err,
+      );
+    }
+  }
+  return sent;
+}
+
+/**
+ * Timer-driven sweep — walk every active cohort-linked plan that has a
+ * pending next step whose `delayDays` window has elapsed (measured from
+ * `lastStepSentAt` for steps >=2, or from `createdAt` for step 1). Each
+ * eligible plan gets exactly one send per pass. Idempotent.
+ */
+export async function runChronicCareSequenceSends(
+  now: Date = new Date(),
+): Promise<{ sent: number; errors: number }> {
+  const plans = await prisma.chronicCarePlan.findMany({
+    where: {
+      active: true,
+      NOT: { cohortId: null },
+    },
+    select: {
+      id: true,
+      cohortId: true,
+      lastStepSent: true,
+      lastStepSentAt: true,
+      createdAt: true,
+    },
+  });
+
+  let sent = 0;
+  let errors = 0;
+  for (const plan of plans) {
+    try {
+      const step = await getNextStepForPlan(plan);
+      if (!step) continue;
+      const anchor = plan.lastStepSentAt ?? plan.createdAt;
+      const dueAt = new Date(anchor.getTime() + step.delayDays * 24 * 60 * 60 * 1000);
+      if (dueAt > now) continue;
+      const ok = await sendChronicCareSequenceStep(plan.id);
+      if (ok) sent++;
+    } catch (err) {
+      console.error(
+        `[chronic-care-scheduler] sequence-sweep failed for plan ${plan.id}`,
+        err,
+      );
+      errors++;
+    }
+  }
+  return { sent, errors };
+}
+
 /**
  * Decide whether a patient is due for a check-in today. A check-in is due
  * when (now - lastCheckInAt) >= checkInFrequencyDays, OR when the patient

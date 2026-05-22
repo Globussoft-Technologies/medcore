@@ -34,6 +34,7 @@
 
 import { Router, Request, Response, NextFunction } from "express";
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
+import { prisma as rawPrisma } from "@medcore/db";
 import {
   Role,
   updateReferralCommissionSchema,
@@ -178,6 +179,7 @@ router.get(
         from: fromQ,
         to: toQ,
         referringDoctorId,
+        branchId,
         format = "json",
       } = req.query as Record<string, string | undefined>;
 
@@ -204,10 +206,43 @@ router.get(
         return;
       }
 
+      // Pearl §4.4 row 120 — optional branchId filter. Validate against
+      // the caller's tenant: a Branch from another tenant or a
+      // non-existent id both 400 (no information leak — same error msg).
+      // Lookup goes through rawPrisma so we can pin tenantId in the WHERE
+      // and detect the cross-tenant case rather than just hiding it.
+      let resolvedBranchName: string | null = null;
+      if (branchId) {
+        const callerTenantId = req.user?.tenantId ?? null;
+        const branch = await rawPrisma.branch.findFirst({
+          where: callerTenantId
+            ? { id: branchId, tenantId: callerTenantId }
+            : { id: branchId },
+          select: { id: true, name: true },
+        });
+        if (!branch) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "Branch not found in current tenant",
+          });
+          return;
+        }
+        resolvedBranchName = branch.name;
+      }
+
       const where: Record<string, unknown> = {
         createdAt: { gte: from, lte: to },
       };
       if (referringDoctorId) where.referringDoctorId = referringDoctorId;
+      if (branchId) {
+        // ReferralCommission has no direct branchId; scope via its
+        // 1-1 invoice. Invoice.branchId is the canonical link
+        // (schema.prisma:1738).
+        (where as { invoice?: { branchId?: string } }).invoice = {
+          branchId,
+        };
+      }
 
       const rows = await prisma.referralCommission.findMany({
         where,
@@ -215,7 +250,13 @@ router.get(
           referringDoctor: {
             include: { user: { select: { name: true, email: true } } },
           },
-          invoice: { select: { invoiceNumber: true } },
+          invoice: {
+            select: {
+              invoiceNumber: true,
+              branchId: true,
+              branch: { select: { name: true } },
+            },
+          },
         },
         orderBy: { createdAt: "desc" },
       });
@@ -233,6 +274,8 @@ router.get(
       type DoctorBucket = {
         referringDoctorId: string;
         referringDoctorName: string;
+        branchId: string | null;
+        branchName: string | null;
         count: number;
         totalAmount: number;
         paidAmount: number;
@@ -242,6 +285,8 @@ router.get(
           id: string;
           invoiceId: string;
           invoiceNumber: string;
+          branchId: string | null;
+          branchName: string | null;
           commissionPercent: number;
           commissionAmount: number;
           status: string;
@@ -283,6 +328,11 @@ router.get(
           bucket = {
             referringDoctorId: docId,
             referringDoctorName: docName,
+            // First-seen branch becomes the bucket's label. When the
+            // caller filtered by branchId, every row collapses to the
+            // resolved branch name (rendered at output time).
+            branchId: (r as any).invoice?.branchId ?? null,
+            branchName: (r as any).invoice?.branch?.name ?? null,
             count: 0,
             totalAmount: 0,
             paidAmount: 0,
@@ -302,6 +352,8 @@ router.get(
           id: r.id,
           invoiceId: r.invoiceId,
           invoiceNumber: r.invoice?.invoiceNumber || "",
+          branchId: (r as any).invoice?.branchId ?? null,
+          branchName: (r as any).invoice?.branch?.name ?? null,
           commissionPercent: toNum(r.commissionPercent),
           commissionAmount: amt,
           status: r.status,
@@ -324,9 +376,16 @@ router.get(
         const toIso = to.toISOString().split("T")[0];
 
         // Summary row at the top (Doctor column carries the label so it
-        // reads in any spreadsheet without column re-ordering).
+        // reads in any spreadsheet without column re-ordering). Branch
+        // column is "All branches" when no filter, else the resolved
+        // branch name. Per-row Branch carries the invoice's branch (or
+        // "—" when the invoice has none — pre-Pearl-§7.2 legacy rows).
+        const summaryBranchLabel = branchId
+          ? resolvedBranchName ?? "(branch)"
+          : "All branches";
         const summary: Record<string, unknown> = {
           Doctor: `TOTAL (${fromIso} → ${toIso})`,
+          Branch: summaryBranchLabel,
           "Invoice #": `${totalCount} row(s)`,
           "Commission %": "",
           "Amount (Rs)": fmt(totalAmount),
@@ -337,6 +396,9 @@ router.get(
 
         const dataRows = rows.map((r) => ({
           Doctor: r.referringDoctor?.user?.name || "(unknown)",
+          Branch: branchId
+            ? resolvedBranchName ?? "—"
+            : (r as any).invoice?.branch?.name ?? "—",
           "Invoice #": r.invoice?.invoiceNumber || "",
           "Commission %": toNum(r.commissionPercent).toFixed(2),
           "Amount (Rs)": toNum(r.commissionAmount).toFixed(2),
@@ -349,6 +411,7 @@ router.get(
           [summary, ...dataRows],
           [
             "Doctor",
+            "Branch",
             "Invoice #",
             "Commission %",
             "Amount (Rs)",
@@ -375,6 +438,7 @@ router.get(
             format: "csv",
             rowCount: rows.length,
             referringDoctorId: referringDoctorId ?? null,
+            branchId: branchId ?? null,
           },
         ).catch(console.error);
 
@@ -387,6 +451,8 @@ router.get(
         success: true,
         data: {
           dateRange: { from: from.toISOString(), to: to.toISOString() },
+          branchId: branchId ?? null,
+          branchName: branchId ? resolvedBranchName : null,
           totals: {
             totalCommissions: totalCount,
             totalAmount: fmt(totalAmount),
@@ -400,6 +466,8 @@ router.get(
           byDoctor: byDoctor.map((b) => ({
             referringDoctorId: b.referringDoctorId,
             referringDoctorName: b.referringDoctorName,
+            branchId: branchId ?? b.branchId,
+            branchName: branchId ? resolvedBranchName : b.branchName,
             count: b.count,
             totalAmount: fmt(b.totalAmount),
             paidAmount: fmt(b.paidAmount),

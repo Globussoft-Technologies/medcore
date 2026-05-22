@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "@medcore/db";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { auditLog } from "../middleware/audit";
 // Issue #139 (2026-04-26) — canonical revenue/outstanding/refund helpers so
 // /analytics/overview cannot drift away from /billing reports' definition.
 import {
@@ -2238,6 +2239,313 @@ router.get(
       next(err);
     }
   }
+);
+
+// ── GET /analytics/no-show-report — per-doctor no-show with DOW pivot ──
+//
+// Closes Pearl §4.4 row 116 ("No-show rate by doctor / day-of-week"). The
+// existing `/appointments/no-show-rate` endpoint (line 804) aggregates
+// doctor and DOW *independently* — useful for the dashboard's two side-by-
+// side charts but not for the operations team's monthly review, which
+// needs a **cross-pivot**: for each doctor, which day-of-week is worst?
+// This endpoint produces that cross-pivot plus an ADMIN-only CSV export,
+// mirroring the §4.4 TDS-report shape shipped in `182eb91`.
+//
+// Query params (all optional):
+//   from        ISO date — defaults to first day of current month
+//   to          ISO date — defaults to now
+//   doctorId    UUID — single-doctor filter
+//   format      "json" (default) | "csv"
+//
+// Aggregation:
+//   - Appointments with Appointment.date in [from, to]
+//   - Per-doctor: totalAppointments, noShowCount (status=NO_SHOW),
+//     noShowRate = noShowCount / totalAppointments (4dp Number, 0..1)
+//   - Per-doctor per-DOW: 7 entries fixed (dow 0..6, Sun..Sat) — even DOWs
+//     with no appointments are emitted so the CSV columns stay aligned.
+//
+// RBAC: ADMIN-only (mirrors TDS/commission-ledger §4.4 reports). The
+// shared `Role` enum doesn't yet expose BILLING even though the Prisma
+// enum does; widening to ADMIN + BILLING is a one-line follow-up once
+// `packages/shared/src/types/roles.ts` catches up.
+//
+// Tenant scope: explicit `where: { tenantId: req.user?.tenantId }` per
+// the 2026-05-21 `0ef60f7` lesson — tenantScopedPrisma short-circuits
+// when tenantId is null (super-admin view), but for typical authed
+// callers we need an explicit clause so the report stays scoped. When
+// tenantId is null/undefined the `where` clause omits the column, which
+// matches the super-admin-sees-all posture.
+//
+// Audit: NO_SHOW_REPORT_EXPORTED fires only on format=csv (read-only JSON
+// browsing is unaudited per the analytics convention).
+router.get(
+  "/no-show-report",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const {
+        from: fromQ,
+        to: toQ,
+        doctorId,
+        branchId,
+        format = "json",
+      } = req.query as Record<string, string | undefined>;
+
+      // Defaults: from = first day of current month; to = now.
+      const now = new Date();
+      const from = fromQ
+        ? new Date(fromQ)
+        : new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      const to = toQ ? new Date(toQ) : now;
+      if (isNaN(from.getTime())) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Invalid `from` date",
+        });
+        return;
+      }
+      if (isNaN(to.getTime())) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Invalid `to` date",
+        });
+        return;
+      }
+
+      // Pearl §4.4 row 120 — optional branchId filter. Validate against
+      // the caller's tenant: a Branch from another tenant or a
+      // non-existent id both 400 (no information leak — same error msg).
+      let resolvedBranchName: string | null = null;
+      const tenantId = req.user?.tenantId;
+      if (branchId) {
+        const branch = await prisma.branch.findFirst({
+          where: tenantId
+            ? { id: branchId, tenantId }
+            : { id: branchId },
+          select: { id: true, name: true },
+        });
+        if (!branch) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "Branch not found in current tenant",
+          });
+          return;
+        }
+        resolvedBranchName = branch.name;
+      }
+
+      const where: Record<string, unknown> = {
+        date: { gte: from, lte: to },
+      };
+      if (doctorId) where.doctorId = doctorId;
+      if (branchId) where.branchId = branchId;
+      if (tenantId) (where as { tenantId?: string }).tenantId = tenantId;
+
+      const appts = await prisma.appointment.findMany({
+        where,
+        select: {
+          date: true,
+          status: true,
+          doctorId: true,
+          branchId: true,
+          doctor: { select: { user: { select: { name: true } } } },
+          branch: { select: { name: true } },
+        },
+      });
+
+      // ── Aggregate per-doctor with embedded per-DOW pivot ───────────
+      type DowBucket = {
+        dow: number;
+        totalAppointments: number;
+        noShowCount: number;
+        noShowRate: number;
+      };
+      type DoctorBucket = {
+        doctorId: string;
+        doctorName: string;
+        branchId: string | null;
+        branchName: string | null;
+        totalAppointments: number;
+        noShowCount: number;
+        noShowRate: number;
+        byDow: DowBucket[];
+      };
+
+      const round4 = (n: number): number =>
+        Math.round((n + Number.EPSILON) * 10000) / 10000;
+
+      const newDowArr = (): DowBucket[] =>
+        Array.from({ length: 7 }, (_, i) => ({
+          dow: i,
+          totalAppointments: 0,
+          noShowCount: 0,
+          noShowRate: 0,
+        }));
+
+      const byDoctorMap = new Map<string, DoctorBucket>();
+      let totalAppointments = 0;
+      let totalNoShows = 0;
+
+      for (const a of appts) {
+        totalAppointments++;
+        const isNoShow = a.status === "NO_SHOW";
+        if (isNoShow) totalNoShows++;
+
+        let bucket = byDoctorMap.get(a.doctorId);
+        if (!bucket) {
+          bucket = {
+            doctorId: a.doctorId,
+            doctorName: a.doctor?.user?.name || "(unknown)",
+            // First-seen branch becomes the row's branch label. When a
+            // branchId filter is in effect every row collapses to the
+            // resolved branch name; when not, we display whatever the
+            // first appointment for that doctor was stamped with.
+            branchId: a.branchId ?? null,
+            branchName: a.branch?.name ?? null,
+            totalAppointments: 0,
+            noShowCount: 0,
+            noShowRate: 0,
+            byDow: newDowArr(),
+          };
+          byDoctorMap.set(a.doctorId, bucket);
+        }
+        bucket.totalAppointments++;
+        if (isNoShow) bucket.noShowCount++;
+
+        // DOW is computed on the appointment's UTC day, matching the
+        // existing /no-show-rate endpoint's convention (see line ~850).
+        const dow = new Date(a.date).getUTCDay();
+        bucket.byDow[dow].totalAppointments++;
+        if (isNoShow) bucket.byDow[dow].noShowCount++;
+      }
+
+      // Finalise rates per-doctor and per-DOW.
+      const byDoctor = Array.from(byDoctorMap.values())
+        .map((b) => {
+          b.noShowRate =
+            b.totalAppointments > 0
+              ? round4(b.noShowCount / b.totalAppointments)
+              : 0;
+          b.byDow.forEach((d) => {
+            d.noShowRate =
+              d.totalAppointments > 0
+                ? round4(d.noShowCount / d.totalAppointments)
+                : 0;
+          });
+          return b;
+        })
+        .sort((a, b) => b.noShowRate - a.noShowRate);
+
+      const overallRate =
+        totalAppointments > 0
+          ? round4(totalNoShows / totalAppointments)
+          : 0;
+
+      // ── CSV export ──────────────────────────────────────────
+      if (format === "csv") {
+        const fromIso = from.toISOString().split("T")[0];
+        const toIso = to.toISOString().split("T")[0];
+        const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+        const ratePct = (r: number): string => (r * 100).toFixed(2);
+
+        const columns = ["Doctor", "Branch", "Total", "No-Shows", "Rate %"];
+        for (const d of dayNames) {
+          columns.push(`${d} Total`, `${d} No-Shows`, `${d} Rate %`);
+        }
+
+        const buildDowCols = (
+          byDow: DowBucket[],
+        ): Record<string, unknown> => {
+          const out: Record<string, unknown> = {};
+          for (let i = 0; i < 7; i++) {
+            out[`${dayNames[i]} Total`] = byDow[i].totalAppointments;
+            out[`${dayNames[i]} No-Shows`] = byDow[i].noShowCount;
+            out[`${dayNames[i]} Rate %`] = ratePct(byDow[i].noShowRate);
+          }
+          return out;
+        };
+
+        // Build a synthetic "TOTAL" row across all doctors for the summary.
+        const totalByDow = newDowArr();
+        for (const b of byDoctor) {
+          for (let i = 0; i < 7; i++) {
+            totalByDow[i].totalAppointments += b.byDow[i].totalAppointments;
+            totalByDow[i].noShowCount += b.byDow[i].noShowCount;
+          }
+        }
+        totalByDow.forEach((d) => {
+          d.noShowRate =
+            d.totalAppointments > 0
+              ? round4(d.noShowCount / d.totalAppointments)
+              : 0;
+        });
+
+        const summaryBranchLabel = branchId
+          ? resolvedBranchName ?? "(branch)"
+          : "All branches";
+        const summary: Record<string, unknown> = {
+          Doctor: `TOTAL (${fromIso} → ${toIso})`,
+          Branch: summaryBranchLabel,
+          Total: totalAppointments,
+          "No-Shows": totalNoShows,
+          "Rate %": ratePct(overallRate),
+          ...buildDowCols(totalByDow),
+        };
+
+        const dataRows = byDoctor.map((b) => ({
+          Doctor: b.doctorName,
+          Branch: branchId ? resolvedBranchName ?? "—" : b.branchName ?? "—",
+          Total: b.totalAppointments,
+          "No-Shows": b.noShowCount,
+          "Rate %": ratePct(b.noShowRate),
+          ...buildDowCols(b.byDow),
+        }));
+
+        const csv = toCsv([summary, ...dataRows], columns);
+
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="no-show-report-${fromIso}-${toIso}.csv"`,
+        );
+
+        auditLog(req, "NO_SHOW_REPORT_EXPORTED", "appointment", undefined, {
+          from: from.toISOString(),
+          to: to.toISOString(),
+          doctorCount: byDoctor.length,
+          branchId: branchId ?? null,
+          format: "csv",
+        }).catch(console.error);
+
+        res.send(csv);
+        return;
+      }
+
+      // ── JSON response ───────────────────────────────────────
+      res.json({
+        success: true,
+        data: {
+          dateRange: { from: from.toISOString(), to: to.toISOString() },
+          branchId: branchId ?? null,
+          branchName: branchId ? resolvedBranchName : null,
+          totals: {
+            totalAppointments,
+            totalNoShows,
+            overallRate,
+            doctorCount: byDoctor.length,
+          },
+          byDoctor,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
 );
 
 export { router as analyticsRouter };

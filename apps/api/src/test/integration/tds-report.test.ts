@@ -232,5 +232,138 @@ describeIfDB("TDS-on-professional-fees report (Pearl §4.4 row 119)", () => {
       expect(res.body.success).toBe(false);
       expect(res.body.error).toMatch(/tdsRate/);
     });
+
+    // ─── Pearl §4.4 row 120: branchId filter ───────────────────
+    // The 3 newly-shipped reports added a branchId query param so
+    // multi-branch tenants can narrow the rollup. Validation: the
+    // branchId must resolve to a Branch in the caller's tenant.
+
+    it("CSV header carries the new Branch column", async () => {
+      const a = await seedPaidConsultation({ unitPrice: 1000 });
+      void a;
+      const res = await request(app)
+        .get("/api/v1/billing/tds-report?format=csv")
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      const firstLine = (res.text as string).split(/\r\n|\n/)[0];
+      expect(firstLine).toContain("Branch");
+      // Doctor must still be the first column (preserves spreadsheet
+      // muscle-memory for ops users).
+      expect(firstLine.startsWith("Doctor,Branch,")).toBe(true);
+    });
+
+    it("rejects a non-existent branchId with 400", async () => {
+      const res = await request(app)
+        .get("/api/v1/billing/tds-report?branchId=00000000-0000-0000-0000-000000000000")
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/Branch not found/i);
+    });
+
+    it("narrows results to a single branch when branchId is supplied", async () => {
+      const prisma = await getPrisma();
+      // Two branches in the (null-tenant) admin scope. The seeded admin
+      // user has tenantId=null so the cross-tenant probe in the route
+      // matches on { id: branchId } alone — both branches resolve.
+      const tenant = await prisma.tenant.create({
+        data: {
+          name: "TDS Branch Filter Tenant",
+          subdomain: `tds-branch-${Date.now()}`,
+          plan: "BASIC",
+          active: true,
+        },
+      });
+      const branchA = await prisma.branch.create({
+        data: { tenantId: tenant.id, name: "Branch Alpha (TDS)", isDefault: true, active: true },
+      });
+      const branchB = await prisma.branch.create({
+        data: { tenantId: tenant.id, name: "Branch Beta (TDS)", isDefault: false, active: true },
+      });
+
+      // Two invoices: one stamped Branch A, one Branch B.
+      const a = await seedPaidConsultation({ unitPrice: 1500 });
+      const b = await seedPaidConsultation({ unitPrice: 2500 });
+      await prisma.invoice.update({
+        where: { id: a.invoice.id },
+        data: { branchId: branchA.id },
+      });
+      await prisma.invoice.update({
+        where: { id: b.invoice.id },
+        data: { branchId: branchB.id },
+      });
+
+      const res = await request(app)
+        .get(`/api/v1/billing/tds-report?branchId=${branchA.id}`)
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.branchId).toBe(branchA.id);
+      expect(res.body.data.branchName).toBe("Branch Alpha (TDS)");
+
+      // Only doctor A's invoice should be aggregated.
+      const buckets = res.body.data.byDoctor as Array<{
+        doctorId: string;
+      }>;
+      const aShows = buckets.find((d) => d.doctorId === a.doctor.id);
+      const bShows = buckets.find((d) => d.doctorId === b.doctor.id);
+      expect(aShows).toBeTruthy();
+      expect(bShows).toBeUndefined();
+    });
+
+    it("rejects a cross-tenant branchId with 400 when caller has a tenant", async () => {
+      // Provision a fresh tenant + branch + a fresh admin user pinned
+      // to that tenant — then mint a JWT that carries the tenant claim
+      // and probe with another tenant's branchId.
+      const prisma = await getPrisma();
+      const jwt = await import("jsonwebtoken");
+      const bcrypt = await import("bcryptjs");
+
+      const tenantX = await prisma.tenant.create({
+        data: {
+          name: "TDS XTenant X",
+          subdomain: `tds-xt-x-${Date.now()}`,
+          plan: "BASIC",
+          active: true,
+        },
+      });
+      const tenantY = await prisma.tenant.create({
+        data: {
+          name: "TDS XTenant Y",
+          subdomain: `tds-xt-y-${Date.now()}`,
+          plan: "BASIC",
+          active: true,
+        },
+      });
+      const branchInY = await prisma.branch.create({
+        data: { tenantId: tenantY.id, name: "Branch Y", isDefault: true, active: true },
+      });
+
+      // Admin pinned to tenant X — request branchInY (which belongs to Y).
+      const xAdmin = await prisma.user.create({
+        data: {
+          email: `tds-xadmin-${Date.now()}@test.local`,
+          name: "TDS XAdmin",
+          phone: "9000000001",
+          passwordHash: await bcrypt.default.hash("MedCoreT3st-2026", 4),
+          role: "ADMIN",
+          tenantId: tenantX.id,
+        },
+      });
+      const xToken = jwt.default.sign(
+        {
+          userId: xAdmin.id,
+          email: xAdmin.email,
+          role: xAdmin.role,
+          tenantId: tenantX.id,
+        },
+        process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
+        { expiresIn: "1h" },
+      );
+
+      const res = await request(app)
+        .get(`/api/v1/billing/tds-report?branchId=${branchInY.id}`)
+        .set("Authorization", `Bearer ${xToken}`);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/Branch not found/i);
+    });
   });
 });

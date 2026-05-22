@@ -570,6 +570,111 @@ describeIfDB("Referring-doctor commission auto-split (Pearl §4.1)", () => {
       expect(res.status).toBe(403);
     });
 
+    // ─── Pearl §4.4 row 120: branchId filter on /ledger ─────────────
+    // The 3 newly-shipped reports added a branchId query param so multi-
+    // branch tenants can narrow the rollup. ReferralCommission has no
+    // direct branchId — the route scopes via its 1-1 invoice.branchId.
+
+    it("GET /ledger?branchId=X narrows to commissions whose invoice is in that branch", async () => {
+      const prisma = await getPrisma();
+      const tenant = await prisma.tenant.create({
+        data: {
+          name: "Commission Branch Filter Tenant",
+          subdomain: `rc-branch-${Date.now()}`,
+          plan: "BASIC",
+          active: true,
+        },
+      });
+      const branchA = await prisma.branch.create({
+        data: { tenantId: tenant.id, name: "Branch Alpha (RC)", isDefault: true, active: true },
+      });
+      const branchB = await prisma.branch.create({
+        data: { tenantId: tenant.id, name: "Branch Beta (RC)", isDefault: false, active: true },
+      });
+
+      // Two scenarios — one invoice gets stamped to Branch A, the other B.
+      const a = await seedReferralScenario({
+        createReferralRow: true,
+        referralCommissionPercent: 7,
+      });
+      const aInv = await postInvoice({
+        appointmentId: a.appt.id,
+        patientId: a.patient.id,
+        items: [{ description: "Consultation", category: "CONSULTATION", quantity: 1, unitPrice: 1000 }],
+        taxPercentage: 0,
+        referralId: a.referralId,
+      });
+      expect([200, 201]).toContain(aInv.status);
+      await prisma.invoice.update({
+        where: { id: aInv.body.data.id },
+        data: { branchId: branchA.id },
+      });
+
+      const b = await seedReferralScenario({
+        createReferralRow: true,
+        referralCommissionPercent: 7,
+      });
+      const bInv = await postInvoice({
+        appointmentId: b.appt.id,
+        patientId: b.patient.id,
+        items: [{ description: "Consultation", category: "CONSULTATION", quantity: 1, unitPrice: 1000 }],
+        taxPercentage: 0,
+        referralId: b.referralId,
+      });
+      expect([200, 201]).toContain(bInv.status);
+      await prisma.invoice.update({
+        where: { id: bInv.body.data.id },
+        data: { branchId: branchB.id },
+      });
+
+      const res = await request(app)
+        .get(`/api/v1/referral-commissions/ledger?branchId=${branchA.id}`)
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.branchId).toBe(branchA.id);
+      expect(res.body.data.branchName).toBe("Branch Alpha (RC)");
+      // Only doctor A should appear; doctor B's bucket must not.
+      const buckets = res.body.data.byDoctor as Array<{
+        referringDoctorId: string;
+      }>;
+      const aShows = buckets.find((d) => d.referringDoctorId === a.referringDoctor.id);
+      const bShows = buckets.find((d) => d.referringDoctorId === b.referringDoctor.id);
+      expect(aShows).toBeTruthy();
+      expect(bShows).toBeUndefined();
+    });
+
+    it("GET /ledger?branchId=<non-existent> returns 400", async () => {
+      const res = await request(app)
+        .get("/api/v1/referral-commissions/ledger?branchId=00000000-0000-0000-0000-000000000000")
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/Branch not found/i);
+    });
+
+    it("GET /ledger?format=csv carries Branch column in the header", async () => {
+      const a = await seedReferralScenario({
+        createReferralRow: true,
+        referralCommissionPercent: 9,
+      });
+      const aInv = await postInvoice({
+        appointmentId: a.appt.id,
+        patientId: a.patient.id,
+        items: [{ description: "Consultation", category: "CONSULTATION", quantity: 1, unitPrice: 1000 }],
+        taxPercentage: 0,
+        referralId: a.referralId,
+      });
+      expect([200, 201]).toContain(aInv.status);
+
+      const res = await request(app)
+        .get("/api/v1/referral-commissions/ledger?format=csv")
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      const firstLine = (res.text as string).split(/\r\n|\n/)[0];
+      expect(firstLine).toContain("Branch");
+      // Doctor must still be the first column.
+      expect(firstLine.startsWith("Doctor,Branch,")).toBe(true);
+    });
+
     it("rejects PATCH from a non-ADMIN role (403)", async () => {
       const { patient, appt, referralId } = await seedReferralScenario({
         createReferralRow: true,

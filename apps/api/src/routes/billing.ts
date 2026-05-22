@@ -3067,6 +3067,7 @@ router.get(
         from: fromQ,
         to: toQ,
         doctorId,
+        branchId,
         tdsRate: tdsRateQ,
         format = "json",
       } = req.query as Record<string, string | undefined>;
@@ -3110,6 +3111,32 @@ router.get(
         tdsRate = parsed;
       }
 
+      // Pearl §4.4 row 120 — optional branchId filter. Validate against
+      // the caller's tenant: a Branch from another tenant or a
+      // non-existent id both 400 (no information leak — same error msg).
+      // Lookup goes through rawPrisma so we can pin the tenantId in the
+      // WHERE explicitly; tenantScopedPrisma would already hide cross-
+      // tenant rows and we want to detect that case to 400 cleanly.
+      let resolvedBranchName: string | null = null;
+      if (branchId) {
+        const callerTenantId = req.user?.tenantId ?? null;
+        const branch = await rawPrisma.branch.findFirst({
+          where: callerTenantId
+            ? { id: branchId, tenantId: callerTenantId }
+            : { id: branchId },
+          select: { id: true, name: true },
+        });
+        if (!branch) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "Branch not found in current tenant",
+          });
+          return;
+        }
+        resolvedBranchName = branch.name;
+      }
+
       // Load invoices in window, paid or partially paid, with their
       // CONSULTATION line items + the appointment (for doctorId) +
       // the doctor user (for the report's display name).
@@ -3120,6 +3147,12 @@ router.get(
       if (doctorId) {
         // Filter by the originating appointment's doctor.
         where.appointment = { doctorId };
+      }
+      if (branchId) {
+        // Invoice has a direct branchId column (schema.prisma:1738,
+        // Pearl §7.2 piece 2b). Existing/legacy invoices land NULL and
+        // are excluded when a branchId filter is in effect — correct.
+        where.branchId = branchId;
       }
 
       const invoices = await prisma.invoice.findMany({
@@ -3140,15 +3173,22 @@ router.get(
               },
             },
           },
+          branch: { select: { id: true, name: true } },
         },
       });
 
       // ── Aggregate per-doctor ─────────────────────────────────
+      // branchNames carries the doctor → first-seen branch label so the
+      // CSV's per-row Branch column is useful when callers don't supply
+      // a branchId filter. When they do, every row collapses to the
+      // resolved branch name (computed above).
       type DoctorBucket = {
         doctorId: string;
         doctorName: string;
         invoiceCount: number;
         totalGrossFees: number;
+        branchId: string | null;
+        branchName: string | null;
       };
       const byDoctorMap = new Map<string, DoctorBucket>();
 
@@ -3169,6 +3209,8 @@ router.get(
             doctorName: docName,
             invoiceCount: 0,
             totalGrossFees: 0,
+            branchId: inv.branch?.id ?? null,
+            branchName: inv.branch?.name ?? null,
           };
           byDoctorMap.set(docId, bucket);
         }
@@ -3185,9 +3227,19 @@ router.get(
           const tdsAmount = round2((b.totalGrossFees * tdsRate) / 100);
           const totalGrossFees = round2(b.totalGrossFees);
           const netPayable = round2(totalGrossFees - tdsAmount);
+          // When a branchId filter is in effect, every row collapses to
+          // the resolved branch. Otherwise the row carries whatever
+          // branch the first invoice in the bucket was stamped with
+          // (Doctor.branchId is the home branch; an itinerant doctor
+          // could span multiple — out of scope for the rollup display).
+          const branchName = branchId
+            ? resolvedBranchName
+            : b.branchName;
           return {
             doctorId: b.doctorId,
             doctorName: b.doctorName,
+            branchId: branchId ?? b.branchId,
+            branchName,
             totalGrossFees: totalGrossFees.toFixed(2),
             tdsRate,
             tdsAmount: tdsAmount.toFixed(2),
@@ -3217,8 +3269,15 @@ router.get(
         const fromIso = from.toISOString().split("T")[0];
         const toIso = to.toISOString().split("T")[0];
 
+        // When the caller filtered to a single branch, the summary row's
+        // Branch cell carries that branch's name; otherwise it reads as
+        // "All branches" so a spreadsheet review can spot the scope.
+        const summaryBranchLabel = branchId
+          ? resolvedBranchName ?? "(branch)"
+          : "All branches";
         const summary: Record<string, unknown> = {
           Doctor: `TOTAL (${fromIso} → ${toIso})`,
+          Branch: summaryBranchLabel,
           "Invoice Count": totalInvoiceCount,
           "Gross Fees (Rs)": totalGross.toFixed(2),
           "TDS Rate (%)": tdsRate,
@@ -3228,6 +3287,7 @@ router.get(
 
         const dataRows = byDoctor.map((b) => ({
           Doctor: b.doctorName,
+          Branch: b.branchName ?? "—",
           "Invoice Count": b.invoiceCount,
           "Gross Fees (Rs)": b.totalGrossFees,
           "TDS Rate (%)": b.tdsRate,
@@ -3239,6 +3299,7 @@ router.get(
           [summary, ...dataRows],
           [
             "Doctor",
+            "Branch",
             "Invoice Count",
             "Gross Fees (Rs)",
             "TDS Rate (%)",
@@ -3258,6 +3319,7 @@ router.get(
           to: to.toISOString(),
           tdsRate,
           doctorCount: byDoctor.length,
+          branchId: branchId ?? null,
           format: "csv",
         }).catch(console.error);
 
@@ -3270,6 +3332,8 @@ router.get(
         success: true,
         data: {
           dateRange: { from: from.toISOString(), to: to.toISOString() },
+          branchId: branchId ?? null,
+          branchName: branchId ? resolvedBranchName : null,
           tdsRate,
           totals: {
             totalGross: totalGross.toFixed(2),

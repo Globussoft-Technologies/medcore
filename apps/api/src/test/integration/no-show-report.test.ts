@@ -207,9 +207,10 @@ describeIfDB("Analytics no-show report (integration)", () => {
       /filename="no-show-report-\d{4}-\d{2}-\d{2}-\d{4}-\d{2}-\d{2}\.csv"/,
     );
 
-    // CSV header must include the DOW columns.
+    // CSV header must include the DOW columns + the Branch column
+    // (Pearl §4.4 row 120 added Branch as the 2nd column).
     const text = res.text;
-    expect(text).toContain("Doctor,Total,No-Shows,Rate %");
+    expect(text).toContain("Doctor,Branch,Total,No-Shows,Rate %");
     expect(text).toMatch(/Sun Total.*Sat Rate %/);
     // The doctor names from the fixtures should appear as data rows.
     expect(text).toContain("Dr. Alpha Aggregator");
@@ -248,5 +249,65 @@ describeIfDB("Analytics no-show report (integration)", () => {
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
     expect(res.body.error).toMatch(/from/i);
+  });
+
+  // ─── Pearl §4.4 row 120: branchId filter ─────────────────────────────
+  // The 3 newly-shipped reports added a branchId query param so multi-
+  // branch tenants can narrow the rollup. Validation: the branchId must
+  // resolve to a Branch in the caller's tenant (cross-tenant or non-
+  // existent → 400 with `Branch not found in current tenant`).
+
+  it("rejects a non-existent branchId with 400", async () => {
+    const res = await request(app)
+      .get("/api/v1/analytics/no-show-report?branchId=00000000-0000-0000-0000-000000000000")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Branch not found/i);
+  });
+
+  it("narrows results to a single branch when branchId is supplied", async () => {
+    const prisma = await getPrisma();
+    const tenant = await prisma.tenant.create({
+      data: {
+        name: "No-Show Branch Filter Tenant",
+        subdomain: `ns-branch-${Date.now()}`,
+        plan: "BASIC",
+        active: true,
+      },
+    });
+    const branchA = await prisma.branch.create({
+      data: { tenantId: tenant.id, name: "Branch Alpha (NS)", isDefault: true, active: true },
+    });
+    const branchB = await prisma.branch.create({
+      data: { tenantId: tenant.id, name: "Branch Beta (NS)", isDefault: false, active: true },
+    });
+
+    // Stamp doctorA's appointments into Branch A and doctorB's into B.
+    await prisma.appointment.updateMany({
+      where: { doctorId: doctorA.id },
+      data: { branchId: branchA.id },
+    });
+    await prisma.appointment.updateMany({
+      where: { doctorId: doctorB.id },
+      data: { branchId: branchB.id },
+    });
+
+    const res = await request(app)
+      .get(`/api/v1/analytics/no-show-report?branchId=${branchA.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.branchId).toBe(branchA.id);
+    expect(res.body.data.branchName).toBe("Branch Alpha (NS)");
+    // Only doctor A's 4 appointments should appear.
+    expect(res.body.data.totals.totalAppointments).toBe(4);
+    expect(res.body.data.byDoctor).toHaveLength(1);
+    expect(res.body.data.byDoctor[0].doctorId).toBe(doctorA.id);
+
+    // Restore so following tests (none after this in current ordering,
+    // but defensive) don't see Branch-stamped state.
+    await prisma.appointment.updateMany({
+      where: { doctorId: { in: [doctorA.id, doctorB.id] } },
+      data: { branchId: null },
+    });
   });
 });

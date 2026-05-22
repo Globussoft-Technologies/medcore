@@ -2287,6 +2287,7 @@ router.get(
         from: fromQ,
         to: toQ,
         doctorId,
+        branchId,
         format = "json",
       } = req.query as Record<string, string | undefined>;
 
@@ -2313,11 +2314,34 @@ router.get(
         return;
       }
 
+      // Pearl §4.4 row 120 — optional branchId filter. Validate against
+      // the caller's tenant: a Branch from another tenant or a
+      // non-existent id both 400 (no information leak — same error msg).
+      let resolvedBranchName: string | null = null;
+      const tenantId = req.user?.tenantId;
+      if (branchId) {
+        const branch = await prisma.branch.findFirst({
+          where: tenantId
+            ? { id: branchId, tenantId }
+            : { id: branchId },
+          select: { id: true, name: true },
+        });
+        if (!branch) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "Branch not found in current tenant",
+          });
+          return;
+        }
+        resolvedBranchName = branch.name;
+      }
+
       const where: Record<string, unknown> = {
         date: { gte: from, lte: to },
       };
       if (doctorId) where.doctorId = doctorId;
-      const tenantId = req.user?.tenantId;
+      if (branchId) where.branchId = branchId;
       if (tenantId) (where as { tenantId?: string }).tenantId = tenantId;
 
       const appts = await prisma.appointment.findMany({
@@ -2326,7 +2350,9 @@ router.get(
           date: true,
           status: true,
           doctorId: true,
+          branchId: true,
           doctor: { select: { user: { select: { name: true } } } },
+          branch: { select: { name: true } },
         },
       });
 
@@ -2340,6 +2366,8 @@ router.get(
       type DoctorBucket = {
         doctorId: string;
         doctorName: string;
+        branchId: string | null;
+        branchName: string | null;
         totalAppointments: number;
         noShowCount: number;
         noShowRate: number;
@@ -2371,6 +2399,12 @@ router.get(
           bucket = {
             doctorId: a.doctorId,
             doctorName: a.doctor?.user?.name || "(unknown)",
+            // First-seen branch becomes the row's branch label. When a
+            // branchId filter is in effect every row collapses to the
+            // resolved branch name; when not, we display whatever the
+            // first appointment for that doctor was stamped with.
+            branchId: a.branchId ?? null,
+            branchName: a.branch?.name ?? null,
             totalAppointments: 0,
             noShowCount: 0,
             noShowRate: 0,
@@ -2418,7 +2452,7 @@ router.get(
 
         const ratePct = (r: number): string => (r * 100).toFixed(2);
 
-        const columns = ["Doctor", "Total", "No-Shows", "Rate %"];
+        const columns = ["Doctor", "Branch", "Total", "No-Shows", "Rate %"];
         for (const d of dayNames) {
           columns.push(`${d} Total`, `${d} No-Shows`, `${d} Rate %`);
         }
@@ -2450,8 +2484,12 @@ router.get(
               : 0;
         });
 
+        const summaryBranchLabel = branchId
+          ? resolvedBranchName ?? "(branch)"
+          : "All branches";
         const summary: Record<string, unknown> = {
           Doctor: `TOTAL (${fromIso} → ${toIso})`,
+          Branch: summaryBranchLabel,
           Total: totalAppointments,
           "No-Shows": totalNoShows,
           "Rate %": ratePct(overallRate),
@@ -2460,6 +2498,7 @@ router.get(
 
         const dataRows = byDoctor.map((b) => ({
           Doctor: b.doctorName,
+          Branch: branchId ? resolvedBranchName ?? "—" : b.branchName ?? "—",
           Total: b.totalAppointments,
           "No-Shows": b.noShowCount,
           "Rate %": ratePct(b.noShowRate),
@@ -2478,6 +2517,7 @@ router.get(
           from: from.toISOString(),
           to: to.toISOString(),
           doctorCount: byDoctor.length,
+          branchId: branchId ?? null,
           format: "csv",
         }).catch(console.error);
 
@@ -2490,6 +2530,8 @@ router.get(
         success: true,
         data: {
           dateRange: { from: from.toISOString(), to: to.toISOString() },
+          branchId: branchId ?? null,
+          branchName: branchId ? resolvedBranchName : null,
           totals: {
             totalAppointments,
             totalNoShows,

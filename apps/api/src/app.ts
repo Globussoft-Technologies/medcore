@@ -151,6 +151,11 @@ import { whatsappConfigRouter } from "./routes/whatsapp-config";
 // signature verification. Mounted before express.json() because the
 // router uses express.raw() for HMAC over the un-parsed bytes.
 import { whatsappWebhookRouter } from "./routes/whatsapp-webhook";
+// Pearl §6.1 gap row 167 piece 3j-iii — reception inbox read endpoints.
+// ADMIN/RECEPTION/DOCTOR/NURSE read conversations + messages persisted
+// by the inbound webhook (piece 3j-ii). PATIENT role denied. Reply +
+// outbound send is piece 3j-iv.
+import { whatsappInboxRouter } from "./routes/whatsapp-inbox";
 import { agentConsoleRouter } from "./routes/agent-console";
 import { aiKpisRouter } from "./routes/ai-kpis";
 import { healthRouter } from "./routes/health";
@@ -421,6 +426,10 @@ export function buildApp() {
   // Pearl §6.1 gap row 167 piece 3j-i — per-tenant WhatsApp inbox
   // provider config. ADMIN-only; sibling to /settings/integrations.
   app.use("/api/v1/wa/config", whatsappConfigRouter);
+  // Pearl §6.1 gap row 167 piece 3j-iii — reception inbox read endpoints.
+  // ADMIN/RECEPTION/DOCTOR/NURSE — PATIENT denied. Backs
+  // /dashboard/whatsapp (list) + /dashboard/whatsapp/[id] (thread view).
+  app.use("/api/v1/wa/inbox", whatsappInboxRouter);
   app.use("/api/v1/agent-console", agentConsoleRouter);
   app.use("/api/v1/ai/kpis", aiKpisRouter);
   app.use("/api/v1/patient-data-export", patientDataExportRouter);

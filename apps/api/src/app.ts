@@ -146,6 +146,11 @@ import { settingsRouter } from "./routes/settings";
 // outbound adapter at services/channels/whatsapp.ts stays unchanged
 // (still env-driven) until piece 3j-iv flips it to per-tenant creds.
 import { whatsappConfigRouter } from "./routes/whatsapp-config";
+// Pearl §6.1 gap row 167 piece 3j-ii — inbound WhatsApp webhook receiver
+// (5 providers). Unauthenticated by JWT — gated by per-provider
+// signature verification. Mounted before express.json() because the
+// router uses express.raw() for HMAC over the un-parsed bytes.
+import { whatsappWebhookRouter } from "./routes/whatsapp-webhook";
 import { agentConsoleRouter } from "./routes/agent-console";
 import { aiKpisRouter } from "./routes/ai-kpis";
 import { healthRouter } from "./routes/health";
@@ -231,6 +236,12 @@ export function buildApp() {
   // requires the exact bytes Razorpay signed). Auth is performed via HMAC
   // signature, NOT JWT, so it is intentionally mounted before authenticate.
   app.use("/api/v1/billing", razorpayWebhookRouter);
+
+  // Pearl §6.1 gap row 167 piece 3j-ii — inbound WhatsApp webhook. Same
+  // pre-JSON-parser placement reason as the Razorpay webhook above:
+  // per-provider HMAC verification (Meta / Gupshup) needs the raw bytes.
+  // Unauth on purpose — gated by signature verification inside.
+  app.use("/api/v1/wa/webhook", whatsappWebhookRouter);
 
   // Audio transcription sends base64-encoded audio chunks (~200 KB per 8 s flush).
   // Mount a higher limit for that route before the default 100 KB global parser.

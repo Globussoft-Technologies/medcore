@@ -43,3 +43,4 @@ export * from "./validation/doctor-favourite-medicine";
 export * from "./validation/referral-commission";
 export * from "./validation/doctor-bulk-update";
 export * from "./validation/whatsapp-config";
+export * from "./validation/whatsapp-webhook";

@@ -952,7 +952,7 @@ export default function DashboardLayout({
               <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">
                 {user.name}
               </span>
-              <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-px text-[8px] font-medium uppercase tracking-wider text-primary dark:bg-primary/20">
+              <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-px text-[8px] font-medium uppercase tracking-wider text-primary dark:bg-primary/20 dark:text-blue-300">
                 {user.role}
               </span>
             </div>

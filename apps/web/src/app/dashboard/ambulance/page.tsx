@@ -93,10 +93,10 @@ interface Patient {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  AVAILABLE: "bg-green-100 text-green-700",
-  ON_TRIP: "bg-blue-100 text-blue-700",
-  MAINTENANCE: "bg-yellow-100 text-yellow-700",
-  OUT_OF_SERVICE: "bg-gray-200 text-gray-700",
+  AVAILABLE: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300",
+  ON_TRIP: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  MAINTENANCE: "bg-yellow-100 text-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-300",
+  OUT_OF_SERVICE: "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200",
 };
 
 const TRIP_STAGES = [

@@ -614,7 +614,7 @@ export default function AgentConsolePage() {
                           className={
                             turn.role === "user"
                               ? "text-gray-800 dark:text-gray-200"
-                              : "text-primary"
+                              : "text-primary dark:text-blue-300"
                           }
                         >
                           <span className="font-semibold">

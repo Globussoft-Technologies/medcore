@@ -143,8 +143,8 @@ export default function PurchaseOrdersPage() {
             onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm font-medium ${
               tab === t
-                ? "border-b-2 border-primary text-primary"
-                : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                ? "border-b-2 border-primary text-primary dark:border-blue-400 dark:text-blue-400"
+                : "text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-white"
             }`}
           >
             {t === "ALL" ? "All" : t.charAt(0) + t.slice(1).toLowerCase()}
@@ -177,7 +177,7 @@ export default function PurchaseOrdersPage() {
                   <td className="px-4 py-3 font-mono text-sm">
                     <Link
                       href={`/dashboard/purchase-orders/${po.id}`}
-                      className="text-primary hover:underline"
+                      className="text-primary hover:underline dark:text-blue-400"
                     >
                       {po.poNumber}
                     </Link>
@@ -443,7 +443,7 @@ function NewPOModal({
               <button
                 type="button"
                 onClick={addRow}
-                className="text-xs font-medium text-primary hover:underline"
+                className="text-xs font-medium text-primary hover:underline dark:text-blue-400"
               >
                 + Add Row
               </button>

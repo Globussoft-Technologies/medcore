@@ -553,12 +553,12 @@ export default function SchedulePage() {
                     {slots.map((slot) => (
                       <div
                         key={slot.id}
-                        className="rounded-lg bg-blue-50 p-2 text-center dark:bg-indigo-900/30"
+                        className="rounded-lg bg-blue-50 p-2 text-center dark:bg-indigo-900/40 dark:ring-1 dark:ring-indigo-700/40"
                       >
                         <p className="text-xs font-medium text-primary dark:text-indigo-200">
                           {slot.startTime} - {slot.endTime}
                         </p>
-                        <p className="mt-0.5 flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                        <p className="mt-0.5 flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-gray-300">
                           <Clock size={10} />
                           {slot.slotDuration} min slots
                         </p>

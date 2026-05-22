@@ -42,14 +42,14 @@ const CATEGORIES = [
 ] as const;
 
 const CATEGORY_COLORS: Record<string, string> = {
-  SALARY: "bg-purple-100 text-purple-700",
-  UTILITIES: "bg-blue-100 text-blue-700",
-  EQUIPMENT: "bg-indigo-100 text-indigo-700",
-  MAINTENANCE: "bg-orange-100 text-orange-700",
-  CONSUMABLES: "bg-pink-100 text-pink-700",
-  RENT: "bg-green-100 text-green-700",
-  MARKETING: "bg-yellow-100 text-yellow-700",
-  OTHER: "bg-gray-100 text-gray-700",
+  SALARY: "bg-purple-100 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300",
+  UTILITIES: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  EQUIPMENT: "bg-indigo-100 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300",
+  MAINTENANCE: "bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300",
+  CONSUMABLES: "bg-pink-100 text-pink-700 dark:bg-pink-950/50 dark:text-pink-300",
+  RENT: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300",
+  MARKETING: "bg-yellow-100 text-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-300",
+  OTHER: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200",
 };
 
 const BAR_COLORS: Record<string, string> = {

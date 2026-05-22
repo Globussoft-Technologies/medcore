@@ -21,9 +21,9 @@ interface Holiday {
 const TYPES = ["PUBLIC", "OPTIONAL", "RESTRICTED"];
 
 const TYPE_COLORS: Record<string, string> = {
-  PUBLIC: "bg-red-100 text-red-700",
-  OPTIONAL: "bg-blue-100 text-blue-700",
-  RESTRICTED: "bg-yellow-100 text-yellow-800",
+  PUBLIC: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300",
+  OPTIONAL: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  RESTRICTED: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300",
 };
 
 // Shared styling for the Add/Edit-Holiday modal form controls. The modal

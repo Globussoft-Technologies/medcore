@@ -226,13 +226,13 @@ export default function ScheduledReportsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="mb-4 flex gap-2 border-b">
+      <div className="mb-4 flex gap-2 border-b dark:border-gray-700">
         <button
           onClick={() => setTab("schedules")}
           className={`px-4 py-2 text-sm font-medium ${
             tab === "schedules"
-              ? "border-b-2 border-primary text-primary"
-              : "text-gray-500 hover:text-gray-700"
+              ? "border-b-2 border-primary text-primary dark:border-blue-400 dark:text-blue-400"
+              : "text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-white"
           }`}
         >
           Schedules
@@ -241,8 +241,8 @@ export default function ScheduledReportsPage() {
           onClick={() => setTab("runs")}
           className={`px-4 py-2 text-sm font-medium ${
             tab === "runs"
-              ? "border-b-2 border-primary text-primary"
-              : "text-gray-500 hover:text-gray-700"
+              ? "border-b-2 border-primary text-primary dark:border-blue-400 dark:text-blue-400"
+              : "text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-white"
           }`}
         >
           <History size={14} className="mr-1 inline" /> Run History
@@ -254,10 +254,10 @@ export default function ScheduledReportsPage() {
         <form
           onSubmit={handleCreate}
           noValidate
-          className="mb-6 grid grid-cols-1 gap-4 rounded-xl bg-white p-6 shadow-sm md:grid-cols-2"
+          className="mb-6 grid grid-cols-1 gap-4 rounded-xl bg-white p-6 shadow-sm md:grid-cols-2 dark:bg-gray-800 dark:border dark:border-gray-700"
         >
           <div>
-            <label htmlFor="add-sched-report-name" className="mb-1 block text-xs font-medium text-gray-600">
+            <label htmlFor="add-sched-report-name" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
               Name
             </label>
             <input
@@ -266,19 +266,19 @@ export default function ScheduledReportsPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
               placeholder="Weekly Revenue Email"
             />
           </div>
           <div>
-            <label htmlFor="add-sched-report-type" className="mb-1 block text-xs font-medium text-gray-600">
+            <label htmlFor="add-sched-report-type" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
               Report Type
             </label>
             <select
               id="add-sched-report-type"
               value={reportType}
               onChange={(e) => setReportType(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
             >
               {REPORT_TYPES.map((t) => (
                 <option key={t.value} value={t.value}>
@@ -288,14 +288,14 @@ export default function ScheduledReportsPage() {
             </select>
           </div>
           <div>
-            <label htmlFor="add-sched-report-frequency" className="mb-1 block text-xs font-medium text-gray-600">
+            <label htmlFor="add-sched-report-frequency" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
               Frequency
             </label>
             <select
               id="add-sched-report-frequency"
               value={frequency}
               onChange={(e) => setFrequency(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
             >
               {FREQUENCIES.map((f) => (
                 <option key={f} value={f}>
@@ -305,7 +305,7 @@ export default function ScheduledReportsPage() {
             </select>
           </div>
           <div>
-            <label htmlFor="add-sched-report-time" className="mb-1 block text-xs font-medium text-gray-600">
+            <label htmlFor="add-sched-report-time" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
               Time (HH:MM)
             </label>
             <input
@@ -315,19 +315,19 @@ export default function ScheduledReportsPage() {
               value={timeOfDay}
               onChange={(e) => setTimeOfDay(e.target.value)}
               required
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
             />
           </div>
           {frequency === "WEEKLY" && (
             <div>
-              <label htmlFor="add-sched-report-day-of-week" className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="add-sched-report-day-of-week" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                 Day of Week
               </label>
               <select
                 id="add-sched-report-day-of-week"
                 value={dayOfWeek}
                 onChange={(e) => setDayOfWeek(parseInt(e.target.value, 10))}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
               >
                 {DAYS_OF_WEEK.map((d, i) => (
                   <option key={i} value={i}>
@@ -339,7 +339,7 @@ export default function ScheduledReportsPage() {
           )}
           {frequency === "MONTHLY" && (
             <div>
-              <label htmlFor="add-sched-report-day-of-month" className="mb-1 block text-xs font-medium text-gray-600">
+              <label htmlFor="add-sched-report-day-of-month" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                 Day of Month
               </label>
               <input
@@ -349,12 +349,12 @@ export default function ScheduledReportsPage() {
                 max={31}
                 value={dayOfMonth}
                 onChange={(e) => setDayOfMonth(parseInt(e.target.value, 10))}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
               />
             </div>
           )}
           <div className="md:col-span-2">
-            <label htmlFor="add-sched-report-recipients" className="mb-1 block text-xs font-medium text-gray-600">
+            <label htmlFor="add-sched-report-recipients" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
               Recipients (comma or newline separated emails)
             </label>
             <textarea
@@ -363,7 +363,7 @@ export default function ScheduledReportsPage() {
               onChange={(e) => setRecipients(e.target.value)}
               required
               rows={2}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
               placeholder="admin@example.com, director@example.com"
             />
           </div>
@@ -381,7 +381,7 @@ export default function ScheduledReportsPage() {
 
       {/* Tab Content */}
       {tab === "schedules" ? (
-        <div className="rounded-xl bg-white shadow-sm">
+        <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800 dark:border dark:border-gray-700">
           {loading ? (
             <div className="p-8 text-center text-gray-500">Loading...</div>
           ) : reports.length === 0 ? (
@@ -392,7 +392,7 @@ export default function ScheduledReportsPage() {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b text-left text-sm text-gray-500">
+                  <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                     <th className="px-4 py-3">Name</th>
                     <th className="px-4 py-3">Type</th>
                     <th className="px-4 py-3">Frequency</th>
@@ -404,7 +404,7 @@ export default function ScheduledReportsPage() {
                 </thead>
                 <tbody>
                   {reports.map((r) => (
-                    <tr key={r.id} className="border-b last:border-0">
+                    <tr key={r.id} className="border-b last:border-0 dark:border-gray-700">
                       <td className="px-4 py-3 font-medium">{r.name}</td>
                       <td className="px-4 py-3 text-sm">{r.reportType}</td>
                       <td className="px-4 py-3 text-sm">
@@ -420,8 +420,8 @@ export default function ScheduledReportsPage() {
                         <span
                           className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
                             r.active
-                              ? "bg-green-100 text-green-700"
-                              : "bg-gray-100 text-gray-600"
+                              ? "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300"
+                              : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
                           }`}
                         >
                           {r.active ? "Active" : "Paused"}
@@ -432,21 +432,21 @@ export default function ScheduledReportsPage() {
                           <button
                             onClick={() => handleRunNow(r.id)}
                             title="Run now"
-                            className="rounded p-1 text-blue-600 hover:bg-blue-50"
+                            className="rounded p-1 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/50"
                           >
                             <Play size={16} />
                           </button>
                           <button
                             onClick={() => handleToggle(r.id, r.active)}
                             title={r.active ? "Pause" : "Resume"}
-                            className="rounded p-1 text-gray-600 hover:bg-gray-100"
+                            className="rounded p-1 text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
                           >
                             <Power size={16} />
                           </button>
                           <button
                             onClick={() => handleDelete(r.id)}
                             title="Delete"
-                            className="rounded p-1 text-red-600 hover:bg-red-50"
+                            className="rounded p-1 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/50"
                           >
                             <Trash2 size={16} />
                           </button>
@@ -460,7 +460,7 @@ export default function ScheduledReportsPage() {
           )}
         </div>
       ) : (
-        <div className="rounded-xl bg-white shadow-sm">
+        <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800 dark:border dark:border-gray-700">
           {loading ? (
             <div className="p-8 text-center text-gray-500">Loading...</div>
           ) : runs.length === 0 ? (
@@ -471,7 +471,7 @@ export default function ScheduledReportsPage() {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b text-left text-sm text-gray-500">
+                  <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                     <th className="px-4 py-3">Generated</th>
                     <th className="px-4 py-3">Schedule</th>
                     <th className="px-4 py-3">Type</th>
@@ -482,7 +482,7 @@ export default function ScheduledReportsPage() {
                 </thead>
                 <tbody>
                   {runs.map((r) => (
-                    <tr key={r.id} className="border-b last:border-0">
+                    <tr key={r.id} className="border-b last:border-0 dark:border-gray-700">
                       <td className="px-4 py-3 text-sm text-gray-600">
                         {/* Issue #80 — render generated time in IST too */}
                         {new Date(r.generatedAt).toLocaleString("en-IN", {
@@ -503,8 +503,8 @@ export default function ScheduledReportsPage() {
                         <span
                           className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
                             r.status === "SUCCESS"
-                              ? "bg-green-100 text-green-700"
-                              : "bg-red-100 text-red-700"
+                              ? "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300"
+                              : "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300"
                           }`}
                         >
                           {r.status}

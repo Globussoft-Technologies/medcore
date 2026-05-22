@@ -304,7 +304,7 @@ export default function AdmissionsPage() {
         <div>
           <Link
             href={`/dashboard/admissions/${a.id}`}
-            className="font-medium text-primary hover:underline"
+            className="font-medium text-primary hover:underline dark:text-blue-400"
             onClick={(e) => e.stopPropagation()}
           >
             {a.patient.user.name}

@@ -80,12 +80,12 @@ interface ValuationRow {
 }
 
 const MOVEMENT_COLORS: Record<string, string> = {
-  PURCHASE: "bg-green-100 text-green-700",
-  DISPENSED: "bg-blue-100 text-blue-700",
-  EXPIRED: "bg-red-100 text-red-700",
-  ADJUSTMENT: "bg-yellow-100 text-yellow-700",
-  RETURN: "bg-purple-100 text-purple-700",
-  DAMAGED: "bg-gray-100 text-gray-700",
+  PURCHASE: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300",
+  DISPENSED: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  EXPIRED: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300",
+  ADJUSTMENT: "bg-yellow-100 text-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-300",
+  RETURN: "bg-purple-100 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300",
+  DAMAGED: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200",
 };
 
 // Issue #509: page-level gate matching API authorize() in
@@ -521,7 +521,7 @@ export default function PharmacyPage() {
               </select>
               <div className="ml-auto text-sm text-gray-600 dark:text-gray-300">
                 Total Value:{" "}
-                <span className="text-lg font-bold text-primary">
+                <span className="text-lg font-bold text-primary dark:text-blue-400">
                   ₹
                   {valuation?.totalValue?.toLocaleString("en-IN", {
                     minimumFractionDigits: 2,

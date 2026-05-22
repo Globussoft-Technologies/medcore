@@ -127,7 +127,7 @@ export default function PediatricPage() {
                     <td className="px-4 py-3">
                       <Link
                         href={`/dashboard/pediatric/${p.id}`}
-                        className="font-medium text-primary hover:underline"
+                        className="font-medium text-primary hover:underline dark:text-blue-400"
                       >
                         {p.user.name}
                       </Link>

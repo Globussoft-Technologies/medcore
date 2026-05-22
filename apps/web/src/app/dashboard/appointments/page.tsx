@@ -77,12 +77,12 @@ type ViewMode = "list" | "calendar" | "stats";
 // ─── Constants ─────────────────────────────────────
 
 const STATUS_COLORS: Record<string, string> = {
-  BOOKED: "bg-blue-100 text-blue-700",
-  CHECKED_IN: "bg-yellow-100 text-yellow-700",
-  IN_CONSULTATION: "bg-green-100 text-green-700",
-  COMPLETED: "bg-gray-100 text-gray-700",
-  CANCELLED: "bg-red-100 text-red-700",
-  NO_SHOW: "bg-slate-100 text-slate-600",
+  BOOKED: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  CHECKED_IN: "bg-yellow-100 text-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-300",
+  IN_CONSULTATION: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300",
+  COMPLETED: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200",
+  CANCELLED: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300",
+  NO_SHOW: "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200",
 };
 
 const STATUS_BLOCK_COLORS: Record<string, string> = {
@@ -167,8 +167,10 @@ function DonutChart({
   size?: number;
 }) {
   const total = segments.reduce((s, seg) => s + seg.value, 0);
-  const radius = size / 2 - 10;
   const strokeW = 28;
+  // Leave room for half the stroke width (+small margin) so the donut's outer
+  // edge doesn't spill past the viewBox and get clipped flat (lumpy circle).
+  const radius = size / 2 - strokeW / 2 - 2;
   const circumference = 2 * Math.PI * radius;
 
   if (total === 0) {
@@ -216,10 +218,10 @@ function DonutChart({
         {segments.map((seg) => (
           <div key={seg.label} className="flex items-center gap-1.5 text-xs">
             <span
-              className="inline-block h-3 w-3 rounded-sm"
+              className="inline-block h-3 w-3 shrink-0 rounded-sm"
               style={{ backgroundColor: seg.color }}
             />
-            <span className="text-gray-700 dark:text-gray-200">
+            <span className="whitespace-nowrap text-gray-700 dark:text-gray-200">
               {seg.label} ({seg.value})
             </span>
           </div>
@@ -1606,7 +1608,7 @@ export default function AppointmentsPage() {
                 className={`rounded-full px-3 py-1 text-xs font-medium ${
                   statusFilter === "ALL"
                     ? "bg-primary text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
                 }`}
               >
                 All

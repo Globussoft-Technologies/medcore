@@ -982,7 +982,7 @@ function QuickLink({
   return (
     <Link
       href={href}
-      className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-gray-700 hover:border-primary hover:text-primary dark:border-gray-700 dark:bg-gray-700 dark:text-gray-200 dark:hover:border-primary"
+      className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-gray-700 hover:border-primary hover:text-primary dark:border-gray-700 dark:bg-gray-700 dark:text-gray-200 dark:hover:border-blue-400 dark:hover:bg-gray-600 dark:hover:text-blue-400"
     >
       <Icon size={13} /> {label}
     </Link>

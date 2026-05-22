@@ -329,7 +329,7 @@ export default function DoctorsPage() {
         // E2E hook the smoke test uses to assert clickability.
         <Link
           href={`/dashboard/doctors/${d.id}`}
-          className="font-medium text-primary hover:underline"
+          className="font-medium text-primary hover:underline dark:text-blue-400"
           onClick={(e) => e.stopPropagation()}
           data-testid={`doctor-card-${d.id}`}
         >

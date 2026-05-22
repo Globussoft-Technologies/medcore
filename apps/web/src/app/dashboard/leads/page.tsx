@@ -169,7 +169,7 @@ export default function LeadsPage() {
             {s.replace(/_/g, " ")} ({counts[s] ?? 0})
           </button>
         ))}
-        <span className="ml-4 text-xs text-gray-400">·</span>
+        <span className="ml-4 mr-1 h-5 w-px bg-gray-300 dark:bg-gray-600" aria-hidden="true" />
         <select
           value={sourceFilter}
           onChange={(e) => setSourceFilter(e.target.value as any)}

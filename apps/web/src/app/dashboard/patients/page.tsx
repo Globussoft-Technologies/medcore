@@ -262,7 +262,7 @@ export default function PatientsPage() {
       render: (p) => (
         <Link
           href={`/dashboard/patients/${p.id}`}
-          className="font-mono font-medium text-primary hover:underline"
+          className="font-mono font-medium text-primary hover:underline dark:text-blue-400"
           onClick={(e) => e.stopPropagation()}
         >
           {p.mrNumber}
@@ -331,7 +331,7 @@ export default function PatientsPage() {
     // already redirects them away (#382 + PATIENTS_ALLOWED Set).
     {
       key: "quickActions",
-      label: t("dashboard.patients.col.quickActions") || "Actions",
+      label: t("dashboard.patients.col.quickActions", "Actions"),
       sortable: false,
       filterable: false,
       hideMobile: false,

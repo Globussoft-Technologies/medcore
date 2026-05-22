@@ -31,6 +31,11 @@ import { leadRouter } from "./routes/leads";
 import { patientRouter } from "./routes/patients";
 import { appointmentRouter } from "./routes/appointments";
 import { doctorRouter } from "./routes/doctors";
+// Pearl ERP Stage 1 §2.1.4 (gap item #50) — per-doctor favourite-medicine
+// quick-add list. Mounted BEFORE doctorRouter so Express picks it up
+// before any /:id-shaped handler on the doctors router (CLAUDE.md gotcha
+// §14 — static-before-dynamic).
+import { doctorFavouritesRouter } from "./routes/doctor-favourites";
 import { billingRouter, razorpayWebhookRouter } from "./routes/billing";
 import { prescriptionRouter, publicPrescriptionRouter } from "./routes/prescriptions";
 import { publicPatientRouter } from "./routes/public-patient";
@@ -276,6 +281,10 @@ export function buildApp() {
   app.use("/api/v1/leads", leadRouter);
   app.use("/api/v1/patients", patientRouter);
   app.use("/api/v1/appointments", appointmentRouter);
+  // Pearl §2.1.4 gap #50 — favourite-medicine quick-add. Mounted BEFORE
+  // the generic doctorRouter so Express matches /doctors/me/favourites
+  // first (static path > dynamic /:id).
+  app.use("/api/v1/doctors/me/favourites", doctorFavouritesRouter);
   app.use("/api/v1/doctors", doctorRouter);
   app.use("/api/v1/billing", billingRouter);
   app.use("/api/v1/prescriptions", prescriptionRouter);

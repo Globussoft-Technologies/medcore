@@ -1132,6 +1132,12 @@ model Doctor {
   // Pearl §3.3 (gap item #3) — leads soft-assigned to this doctor.
   leadsPreferred Lead[] @relation("LeadPreferredDoctor")
 
+  // Pearl §2.1.4 (gap item #50) — per-doctor favourite-medicine quick-add
+  // list. One-tap insertion of a doctor's frequently-prescribed medicines
+  // into the Rx writer. Coexists with PrescriptionTemplate (whole-Rx
+  // scaffold); this is per-medicine.
+  favouriteMedicines DoctorFavouriteMedicine[]
+
   @@index([tenantId])
   @@index([branchId])
   @@map("doctors")
@@ -1626,6 +1632,36 @@ model PrescriptionTemplate {
 
   @@index([tenantId])
   @@map("prescription_templates")
+}
+
+// Pearl ERP Stage 1 §2.1.4 (gap item #50) — per-doctor favourite-medicine
+// quick-add list. Each doctor maintains their own short list of medicines
+// they prescribe often; the Rx writer surfaces them as one-tap chips above
+// the medicine-search results. Optional per-favourite defaults (dosage /
+// frequency / duration) load the "Amoxicillin 500mg TID 5d" preset in
+// one click. Coexists with PrescriptionTemplate (whole-Rx scaffold);
+// favourites are strictly per-medicine.
+model DoctorFavouriteMedicine {
+  id                String   @id @default(cuid())
+  doctorId          String
+  medicineId        String
+  position          Int      @default(0)
+  defaultDosage     String?
+  defaultFrequency  String?
+  defaultDuration   String?
+  // Denormalized for tenant-scoped queries — the per-tenant Prisma extension
+  // auto-filters on this column without joining through Doctor.
+  tenantId          String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  doctor   Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  medicine Medicine @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorId, medicineId])
+  @@index([doctorId])
+  @@index([tenantId])
+  @@map("doctor_favourite_medicines")
 }
 
 // ─── BILLING ────────────────────────────────────────────
@@ -2137,6 +2173,10 @@ model Medicine {
   controlledEntries ControlledSubstanceEntry[]
   // Issue #898 — back-relation for the new PrescriptionItem.medicineId FK.
   prescriptionItems PrescriptionItem[]
+
+  // Pearl §2.1.4 (gap item #50) — back-relation for the doctor favourite-
+  // medicine quick-add list.
+  doctorFavourites DoctorFavouriteMedicine[]
 
   @@index([name])
   @@index([category])

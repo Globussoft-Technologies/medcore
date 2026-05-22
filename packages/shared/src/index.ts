@@ -38,3 +38,4 @@ export * from "./validation/branch";
 export * from "./validation/campaign";
 export * from "./validation/patient-auth";
 export * from "./validation/tenant-onboarding";
+export * from "./validation/doctor-favourite-medicine";

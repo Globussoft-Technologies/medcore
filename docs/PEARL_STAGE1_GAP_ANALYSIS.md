@@ -219,7 +219,7 @@ Pearl wants this on a **separate URL** (`admin.pearl-erp.in`) with elevated `sup
 | 8.4 | Aggregated cross-tenant metrics | 🟡 Partial | `/dashboard/admin-console/` has tenant-scoped metrics | Not cross-tenant aggregated; current super-admin operates within `default` tenant. |
 | 8.4 | Per-tenant health (error rates / p95 / failed jobs) | 🟡 Partial | Sentry + OTel + `services/metrics.ts` | Cross-tenant rollup not built into UI. |
 | 8.4 | Public status page | ❌ Missing | — | — |
-| 8.4 | Background-job queue view + retry | 🟡 Partial | Cron jobs in `services/scheduled-tasks.ts`; no admin UI | — |
+| 8.4 | Background-job queue view + retry | ✅ | Closed 2026-05-22 — `ScheduledTaskRun` model + `TaskRunStatus` enum (migration `20260522000006`) + `apps/api/src/services/scheduled-tasks.ts` wraps each cron-task invocation persisting run records + `/api/v1/scheduled-jobs` (list/get/retry) routes super-admin-gated + `/super-admin/jobs` page with status filter + retry-FAILED action + audit `SCHEDULED_JOB_RETRIED`. | — |
 | 8.5 | Support inbox (ticket lifecycle) | 🟡 Partial | `Complaint` model exists (patient → hospital) | Not a Pearl-operator ticket inbox. |
 | 8.6 | Cross-tenant DPDP request workbench | 🟡 Partial | `PatientDataExport`, `routes/patient-data-export.ts` | Export yes; cross-tenant purge workbench no. |
 | 8.6 | Compliance dashboard per tenant | ❌ Missing | — | — |

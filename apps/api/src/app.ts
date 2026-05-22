@@ -135,6 +135,7 @@ import { aiDocQaRouter } from "./routes/ai-doc-qa";
 import { aiSentimentRouter } from "./routes/ai-sentiment";
 import { tenantsRouter } from "./routes/tenants";
 import { tenantOnboardingRouter } from "./routes/tenant-onboarding";
+import { scheduledJobsRouter } from "./routes/scheduled-jobs";
 import { branchesRouter } from "./routes/branches";
 import { campaignsRouter, publicCampaignsRouter } from "./routes/campaigns";
 import { campaignAudiencesRouter } from "./routes/campaign-audiences";
@@ -387,6 +388,11 @@ export function buildApp() {
   // atomically). HFR/HPR/WhatsApp/Razorpay config steps deferred to
   // piece 2b. See apps/web/src/app/super-admin/onboard/.
   app.use("/api/v1/tenant-onboarding", tenantOnboardingRouter);
+  // Pearl §8.4 gap row 222 closure (2026-05-22) — background-job queue
+  // view + retry for super-admins. Surfaces ScheduledTaskRun rows
+  // persisted by services/scheduled-tasks.ts; mounts UI at
+  // /super-admin/jobs.
+  app.use("/api/v1/scheduled-jobs", scheduledJobsRouter);
   app.use("/api/v1/branches", branchesRouter);
   app.use("/api/v1/campaigns", campaignsRouter);
   app.use("/api/v1/campaign-audiences", campaignAudiencesRouter);

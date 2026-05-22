@@ -1986,6 +1986,46 @@ model SystemConfig {
   @@map("system_config")
 }
 
+// Pearl ERP Stage 1 §8.4 (gap row 222 closure, 2026-05-22) — observability
+// table for the in-process cron scheduler in apps/api/src/services/
+// scheduled-tasks.ts. Every invocation of a registered task creates a row
+// (status=RUNNING at start, updated to SUCCESS/FAILED on completion) so
+// super-admins can see what ran, how long it took, what errored, and retry
+// a FAILED row from /super-admin/jobs.
+//
+// tenantId is nullable because most scheduled tasks operate globally
+// (cross-tenant), e.g. notification_drain_queued. Per-tenant tasks should
+// populate it for the cross-tenant filter on the admin UI.
+model ScheduledTaskRun {
+  id               String          @id @default(cuid())
+  tenantId         String?
+  taskName         String
+  status           TaskRunStatus
+  startedAt        DateTime
+  completedAt      DateTime?
+  durationMs       Int?
+  error            String?         // stack trace truncated at 5000 chars
+  recordsProcessed Int?
+  // The id of the original run when this row was created by a manual retry
+  // from POST /api/v1/scheduled-jobs/:id/retry. Lets the UI link the new
+  // run back to the failed parent so operators can see the retry chain.
+  retryOfRunId     String?
+  createdAt        DateTime        @default(now())
+
+  @@index([taskName])
+  @@index([startedAt])
+  @@index([status])
+  @@index([tenantId, startedAt])
+  @@map("scheduled_task_runs")
+}
+
+enum TaskRunStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
 // ═══════════════════════════════════════════════════════
 // PHASE 2: IPD / INPATIENT MANAGEMENT
 // ═══════════════════════════════════════════════════════

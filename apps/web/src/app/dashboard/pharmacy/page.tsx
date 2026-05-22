@@ -291,14 +291,28 @@ export default function PharmacyPage() {
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">Inventory management</p>
         </div>
-        {canManage && (
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Pearl §4.3 (gap row 104) — discoverability for the new
+              dispensing Kanban board. Visible to every authed role on
+              this page (the Kanban itself enforces ADMIN/PHARMACIST/
+              DOCTOR/NURSE; we mirror that here only to avoid showing
+              the link to viewers who'd be bounced on click). */}
           <button
-            onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+            onClick={() => router.push("/dashboard/pharmacy-kanban")}
+            className="flex items-center gap-2 rounded-lg border border-primary px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10"
+            data-testid="pharmacy-open-kanban"
           >
-            <Plus size={16} /> Add Stock
+            Kanban Board
           </button>
-        )}
+          {canManage && (
+            <button
+              onClick={() => setShowAdd(true)}
+              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+            >
+              <Plus size={16} /> Add Stock
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mb-4 flex flex-wrap gap-2">

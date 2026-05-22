@@ -90,6 +90,39 @@ const rejectPrescriptionBodySchema = z.object({
     .min(10, "Rejection reason must be at least 10 characters"),
 });
 
+// Pearl §4.3 (gap row 104) — Kanban transition body. The four Kanban
+// states are the only legal targets here; REJECTED still goes through
+// the dedicated /prescriptions/:id/reject endpoint (which carries the
+// mandatory rejection reason) and CANCELLED is a doctor-side action on
+// the prescriptions router. DISPENSED can ALSO be set here as a fast-
+// path, but the canonical full-dispense path is POST /pharmacy/dispense
+// which decrements stock + creates controlled-substance entries —
+// flipping to DISPENSED via this endpoint is allowed for tenants that
+// dispense manually and want to mark a script done.
+const kanbanTransitionBodySchema = z.object({
+  status: z.enum(["PENDING", "DISPENSING", "READY", "DISPENSED"]),
+});
+
+// Legal forward transitions. Keep this in lockstep with the enum value
+// order in packages/db/prisma/schema.prisma:PrescriptionStatus and with
+// the column order in apps/web/src/app/dashboard/pharmacy-kanban.
+//   PENDING → DISPENSING → READY → DISPENSED   (forward path)
+//   READY → DISPENSING                          (step-back; pharmacist
+//                                                needs to re-mix /
+//                                                substitute an item)
+// Terminal sinks (REJECTED / CANCELLED) are NOT reachable via this
+// endpoint; they have their own dedicated handlers. Any other jump
+// (e.g. PENDING → DISPENSED, DISPENSED → DISPENSING, READY → PENDING)
+// is rejected with 409 so the UI can refresh + decide.
+const KANBAN_TRANSITIONS: Record<string, ReadonlyArray<string>> = {
+  PENDING: ["DISPENSING"],
+  DISPENSING: ["READY", "DISPENSED"],
+  READY: ["DISPENSED", "DISPENSING"],
+  DISPENSED: [],
+  REJECTED: [],
+  CANCELLED: [],
+};
+
 const router = Router();
 router.use(authenticate);
 
@@ -740,6 +773,156 @@ router.post(
       auditLog(req, "PRESCRIPTION_REJECTED", "prescription", existing.id, {
         reason,
       }).catch(console.error);
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// PEARL §4.3 KANBAN — prescription dispensing board
+// ───────────────────────────────────────────────────────
+
+// GET /api/v1/pharmacy/kanban?todayOnly=true
+// Lists active prescriptions grouped by Kanban column. Returns one
+// payload with `columns: { PENDING, DISPENSING, READY, DISPENSED,
+// REJECTED, CANCELLED }`. The UI lays out PENDING → DISPENSING →
+// READY → DISPENSED as the 4 active columns; REJECTED + CANCELLED
+// drop into a collapsible "Returned / Cancelled" footer so the
+// pharmacist can still find a script they rejected.
+router.get(
+  "/kanban",
+  authorize(Role.ADMIN, Role.PHARMACIST, Role.DOCTOR, Role.NURSE),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const todayOnly =
+        typeof req.query.todayOnly === "string" &&
+        req.query.todayOnly !== "false";
+
+      const where: Record<string, unknown> = {};
+      if (todayOnly) {
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        where.createdAt = { gte: start };
+      }
+
+      const rows = await prisma.prescription.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: 500,
+        include: {
+          patient: {
+            include: { user: { select: { name: true } } },
+          },
+          doctor: {
+            include: { user: { select: { name: true } } },
+          },
+          items: {
+            select: { id: true, medicineName: true },
+            take: 5,
+          },
+        },
+      });
+
+      // Project to a lean shape: the Kanban only needs patient first
+      // name + last initial (privacy convention), doctor name, top
+      // item + "+N more", a few timing fields, plus the count of
+      // line items so the +N badge renders without a second query.
+      const columns: Record<string, Array<unknown>> = {
+        PENDING: [],
+        DISPENSING: [],
+        READY: [],
+        DISPENSED: [],
+        REJECTED: [],
+        CANCELLED: [],
+      };
+      for (const row of rows) {
+        const fullName = row.patient.user.name || "Patient";
+        const parts = fullName.trim().split(/\s+/);
+        const firstName = parts[0] || fullName;
+        const lastInitial = parts.length > 1 ? `${parts[parts.length - 1][0]}.` : "";
+        const patientLabel = lastInitial ? `${firstName} ${lastInitial}` : firstName;
+        const itemCount = row.items.length;
+        const topItem = row.items[0]?.medicineName || "—";
+
+        const projected = {
+          id: row.id,
+          status: row.status,
+          patientId: row.patientId,
+          patientLabel,
+          doctorName: row.doctor.user.name || "Doctor",
+          topItem,
+          extraItems: Math.max(0, itemCount - 1),
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+        };
+        if (columns[row.status]) columns[row.status].push(projected);
+      }
+
+      res.json({
+        success: true,
+        data: { columns, todayOnly },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/pharmacy/prescriptions/:id/status
+// Kanban transition endpoint — moves a prescription forward through
+// PENDING → DISPENSING → READY → DISPENSED, with READY → DISPENSING
+// allowed as a step-back (pharmacist needs to re-mix). All other
+// transitions are rejected with 409. The actual stock decrement +
+// controlled-substance register writes still happen on POST
+// /pharmacy/dispense; flipping to DISPENSED via this endpoint is the
+// "I already dispensed this manually" override that some tenants use.
+router.patch(
+  "/prescriptions/:id/status",
+  authorize(Role.ADMIN, Role.PHARMACIST),
+  pharmacyIdParams,
+  validate(kanbanTransitionBodySchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { status: target } = req.body as { status: string };
+      const existing = await prisma.prescription.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, status: true, patientId: true },
+      });
+      if (!existing) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Prescription not found",
+        });
+        return;
+      }
+      const allowed = KANBAN_TRANSITIONS[existing.status] ?? [];
+      if (!allowed.includes(target)) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `Invalid transition ${existing.status} → ${target}`,
+        });
+        return;
+      }
+      const updated = await prisma.prescription.update({
+        where: { id: existing.id },
+        data: { status: target as any },
+      });
+      // Use the AWAITED auditLog (not safeAudit) so callers + tests
+      // can read AuditLog immediately after the 200 — every Kanban
+      // move surfaces in the per-row history with the from/to pair
+      // intact, no flake (CLAUDE.md gotcha #1).
+      await auditLog(
+        req,
+        "PRESCRIPTION_KANBAN_TRANSITION",
+        "prescription",
+        existing.id,
+        { from: existing.status, to: target, prescriptionId: existing.id }
+      );
       res.json({ success: true, data: updated, error: null });
     } catch (err) {
       next(err);

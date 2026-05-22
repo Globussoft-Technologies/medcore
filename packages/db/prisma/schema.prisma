@@ -1577,7 +1577,18 @@ model Prescription {
 }
 
 enum PrescriptionStatus {
+  // Pearl §4.3 (gap row 104, 2026-05-22): DISPENSING + READY split lets the
+  // pharmacy Kanban model the in-flight work that used to be hidden behind
+  // PENDING — "I picked up the script and started filling it" vs "the
+  // medicine is bagged on the counter waiting for the patient to collect".
+  // Enum-value order is the column order in the Kanban board (left → right):
+  // PENDING (New) → DISPENSING → READY → DISPENSED. Terminal: REJECTED,
+  // CANCELLED. Forward-only state machine guarded in
+  // `routes/pharmacy.ts:PATCH /prescriptions/:id/status` (READY→DISPENSING
+  // step-back is allowed for re-mix).
   PENDING
+  DISPENSING
+  READY
   DISPENSED
   REJECTED
   CANCELLED

@@ -159,6 +159,11 @@ import { whatsappInboxRouter } from "./routes/whatsapp-inbox";
 import { agentConsoleRouter } from "./routes/agent-console";
 import { aiKpisRouter } from "./routes/ai-kpis";
 import { healthRouter } from "./routes/health";
+// Pearl ERP Stage 1 §8.4 (gap row 221 closure, 2026-05-23) — public
+// status page backend. Mounted BEFORE any auth-bearing router so the
+// /status Next.js page (and external uptime monitors) can probe
+// MedCore without a session.
+import { statusRouter } from "./routes/status";
 import { patientDataExportRouter } from "./routes/patient-data-export";
 import { startChronicCareScheduler } from "./services/chronic-care-scheduler";
 import { errorHandler } from "./middleware/error";
@@ -295,6 +300,11 @@ export function buildApp() {
   app.use("/api/v1/public", publicPrescriptionRouter);
   app.use("/api/v1/public", publicPatientRouter);
   app.use("/api/v1/public", publicCampaignsRouter);
+  // Pearl §8.4 gap row 221 — public status endpoint. UNAUTHENTICATED;
+  // mounted alongside the other /public routes (and BEFORE any router
+  // that calls `router.use(authenticate)`). External uptime monitors
+  // and the /status Next.js page consume it.
+  app.use("/api/v1/status", statusRouter);
 
   // Routes
   const authLimiter =

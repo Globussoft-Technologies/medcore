@@ -1250,6 +1250,92 @@ const TASKS: ScheduledTask[] = [
 
 let intervalHandle: NodeJS.Timeout | null = null;
 
+/**
+ * Pearl §8.4 (gap row 222 closure, 2026-05-22) — observability wrap.
+ *
+ * Runs a single task's `run()` while persisting a ScheduledTaskRun row so
+ * super-admins can see what ran, what errored, and what to retry.
+ * Intentionally narrow: a try/catch around the existing task body, with
+ * status RUNNING → SUCCESS|FAILED. The original error-handling inside each
+ * task (`console.error("[task_name] ...", err)`) still runs because we
+ * re-throw is NOT done — we only swallow it the same way the prior
+ * fire-and-forget code did. If creating the audit row itself fails, we log
+ * and proceed so a DB hiccup never blocks the scheduler.
+ *
+ * `retryOfRunId` is forwarded when this invocation was kicked off manually
+ * from `POST /api/v1/scheduled-jobs/:id/retry`, so the UI can show the
+ * retry chain.
+ */
+export async function runTaskWithAudit(
+  task: ScheduledTask,
+  opts: { retryOfRunId?: string } = {}
+): Promise<{ runId: string | null; status: "SUCCESS" | "FAILED" }> {
+  const startedAt = new Date();
+  let runId: string | null = null;
+  try {
+    const row = await prisma.scheduledTaskRun.create({
+      data: {
+        taskName: task.name,
+        status: "RUNNING",
+        startedAt,
+        ...(opts.retryOfRunId ? { retryOfRunId: opts.retryOfRunId } : {}),
+      },
+      select: { id: true },
+    });
+    runId = row.id;
+  } catch (err) {
+    console.error(`[scheduler] failed to record run start for ${task.name}`, err);
+  }
+
+  try {
+    await task.run();
+    const completedAt = new Date();
+    if (runId) {
+      try {
+        await prisma.scheduledTaskRun.update({
+          where: { id: runId },
+          data: {
+            status: "SUCCESS",
+            completedAt,
+            durationMs: completedAt.getTime() - startedAt.getTime(),
+          },
+        });
+      } catch (err) {
+        console.error(`[scheduler] failed to record SUCCESS for ${task.name}`, err);
+      }
+    }
+    return { runId, status: "SUCCESS" };
+  } catch (err) {
+    const completedAt = new Date();
+    const msg = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    if (runId) {
+      try {
+        await prisma.scheduledTaskRun.update({
+          where: { id: runId },
+          data: {
+            status: "FAILED",
+            completedAt,
+            durationMs: completedAt.getTime() - startedAt.getTime(),
+            error: msg.slice(0, 5000),
+          },
+        });
+      } catch (innerErr) {
+        console.error(`[scheduler] failed to record FAILED for ${task.name}`, innerErr);
+      }
+    }
+    console.error(`[scheduler] ${task.name} failed`, err);
+    return { runId, status: "FAILED" };
+  }
+}
+
+/**
+ * Pearl §8.4 — lookup a registered task by name. Used by the retry route to
+ * locate the original task body when re-invoking a failed run.
+ */
+export function getRegisteredTask(name: string): ScheduledTask | null {
+  return TASKS.find((t) => t.name === name) ?? null;
+}
+
 async function tick(): Promise<void> {
   const now = new Date();
   for (const task of TASKS) {
@@ -1262,10 +1348,12 @@ async function tick(): Promise<void> {
       }
       // Mark as started immediately to avoid double-run on next tick
       await setLastRun(task.name, now);
-      // Fire-and-forget; errors are caught inside each task
-      task
-        .run()
-        .catch((err) => console.error(`[scheduler] ${task.name} failed`, err));
+      // Fire-and-forget; runTaskWithAudit handles SUCCESS/FAILED persistence
+      // and swallows the error the same way the prior `.catch(console.error)`
+      // wrap did.
+      runTaskWithAudit(task).catch((err) =>
+        console.error(`[scheduler] ${task.name} wrap failed`, err)
+      );
     } catch (err) {
       console.error(`[scheduler] tick error for ${task.name}`, err);
     }
@@ -1341,7 +1429,7 @@ export async function _runSchedulerTickForTests(): Promise<void> {
         if (sinceMin < task.intervalMinutes) continue;
       }
       await setLastRun(task.name, now);
-      await task.run();
+      await runTaskWithAudit(task);
     } catch (err) {
       console.error(`[scheduler-test] ${task.name} failed`, err);
     }

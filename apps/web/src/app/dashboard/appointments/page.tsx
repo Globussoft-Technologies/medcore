@@ -20,6 +20,19 @@ import { Calendar, MessageSquare } from "lucide-react";
 
 // ─── Types ─────────────────────────────────────────
 
+// Pearl ERP Stage 1 §3.1 (gap row 71, closed 2026-05-22) — booking channels
+// the receptionist can pick for a given doctor. The set of channels actually
+// surfaced in the picker is derived per doctor by `availableChannelsFor()`
+// below: (mode-semantically-valid channels) ∩ (doctor.enabledChannels ?? all).
+type AppointmentChannel = "CALLING" | "SLOT" | "TOKEN" | "WALKIN";
+
+const CHANNEL_LABEL: Record<AppointmentChannel, string> = {
+  CALLING: "Calling (arrival queue)",
+  SLOT: "Slot (fixed time)",
+  TOKEN: "Token (sequential)",
+  WALKIN: "Walk-in",
+};
+
 interface Doctor {
   id: string;
   user: { name: string };
@@ -27,6 +40,44 @@ interface Doctor {
   // Pearl ERP Stage 1 §2.1.2 — TOKEN is the legacy MedCore behaviour;
   // CALLING / SLOT activate alternate booking flows below.
   appointmentMode?: "CALLING" | "TOKEN" | "SLOT";
+  // Pearl ERP Stage 1 §3.2 (gap row 77, 2026-05-22) — per-doctor channel
+  // allow-list. Empty / undefined = "all mode-valid channels permitted"
+  // (back-compat default). Stored as `Doctor.enabledChannels` enum array.
+  enabledChannels?: AppointmentChannel[];
+}
+
+// Pearl ERP Stage 1 §3.1 (gap row 71) — channels semantically valid for
+// each appointmentMode. Picking a SLOT against a CALLING doctor is
+// nonsensical (the API rejects it too), so we never offer it in the UI.
+// WALKIN is always paired alongside the primary booking channel because
+// every clinic accepts walk-ins regardless of how its scheduling is run.
+const MODE_VALID_CHANNELS: Record<
+  NonNullable<Doctor["appointmentMode"]>,
+  AppointmentChannel[]
+> = {
+  CALLING: ["CALLING", "WALKIN"],
+  TOKEN: ["TOKEN", "WALKIN"],
+  SLOT: ["SLOT", "WALKIN"],
+};
+
+// Derive the channels actually offered for a given doctor: the intersection
+// of (channels valid for the doctor's mode) and (doctor.enabledChannels —
+// when explicitly configured). An empty / undefined enabledChannels list
+// means "all mode-valid channels permitted" (back-compat), so we return the
+// full mode-valid set in that case. If the configured array narrows the set
+// to nothing valid (e.g. enabledChannels=["SLOT"] on a CALLING doctor), we
+// fall back to the mode's primary channel so the receptionist isn't locked
+// out — the API's own enforcement is the authoritative gate.
+function availableChannelsFor(doctor: {
+  appointmentMode?: Doctor["appointmentMode"];
+  enabledChannels?: AppointmentChannel[];
+}): AppointmentChannel[] {
+  const mode = doctor.appointmentMode ?? "TOKEN";
+  const modeValid = MODE_VALID_CHANNELS[mode];
+  const configured = doctor.enabledChannels ?? [];
+  if (configured.length === 0) return modeValid;
+  const intersection = modeValid.filter((c) => configured.includes(c));
+  return intersection.length > 0 ? intersection : [modeValid[0]];
 }
 
 interface Appointment {
@@ -401,6 +452,13 @@ export default function AppointmentsPage() {
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [showCoordModal, setShowCoordModal] = useState(false);
   const [selectedDoctor, setSelectedDoctor] = useState("");
+  // Pearl ERP Stage 1 §3.1 (gap row 71, 2026-05-22) — selected booking
+  // channel for the current doctor. Auto-derived from `availableChannelsFor`
+  // each time the doctor changes (see `onChange` on the DoctorSelect below):
+  // single-channel doctors lock the picker; multi-channel doctors render a
+  // segmented control and require an explicit pick. Empty string until the
+  // first doctor is chosen.
+  const [selectedChannel, setSelectedChannel] = useState<AppointmentChannel | "">("");
   const [selectedDate, setSelectedDate] = useState(toISODate(new Date()));
   const [slots, setSlots] = useState<Slot[]>([]);
   const [filterDate, setFilterDate] = useState(toISODate(new Date()));
@@ -1734,7 +1792,22 @@ export default function AppointmentsPage() {
                     placeholder={t("dashboard.appointments.selectDoctor")}
                     onChange={(id) => {
                       setSelectedDoctor(id);
-                      if (id) loadSlots(id, selectedDate);
+                      // Pearl §3.1 (gap row 71) — re-derive the booking
+                      // channel for the newly-picked doctor. Single-channel
+                      // doctors lock immediately to that channel; multi-
+                      // channel doctors land on the primary mode channel
+                      // (the receptionist can still segmented-control over
+                      // to WALKIN). Clearing the doctor resets the channel.
+                      if (id) {
+                        const d = doctors.find((x) => x.id === id);
+                        if (d) {
+                          const avail = availableChannelsFor(d);
+                          setSelectedChannel(avail[0]);
+                        }
+                        loadSlots(id, selectedDate);
+                      } else {
+                        setSelectedChannel("");
+                      }
                     }}
                   />
                 </div>
@@ -1810,16 +1883,105 @@ export default function AppointmentsPage() {
                   className="mt-4 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
                   data-testid="appt-book-pick-doctor"
                 >
-                  Pick a doctor and date above to load available slots.
+                  Pick a doctor to see booking options.
                 </div>
               )}
-              {/* Pearl ERP Stage 1 §2.1.2 — CALLING-mode doctors don't take
-                  slots; the patient just joins today's arrival-order queue.
-                  We branch the whole "no slots / slots / book" panel off
-                  the selected doctor's appointmentMode (TOKEN is the
-                  legacy default and keeps the slot picker). */}
+
+              {/* Pearl ERP Stage 1 §3.1 (gap row 71, closed 2026-05-22) —
+                  per-doctor channel picker. Only the channels semantically
+                  valid for the doctor's mode AND present in the doctor's
+                  enabledChannels[] allow-list (when configured) are shown.
+                  Single-channel doctors: the picker auto-selects + hides;
+                  multi-channel doctors: a segmented control. */}
               {selectedDoctor &&
-                doctors.find((d) => d.id === selectedDoctor)?.appointmentMode === "CALLING" && (
+                (() => {
+                  const d = doctors.find((x) => x.id === selectedDoctor);
+                  if (!d) return null;
+                  const avail = availableChannelsFor(d);
+                  if (avail.length <= 1) return null;
+                  return (
+                    <div className="mt-4" data-testid="appt-book-channel-picker">
+                      <p className="mb-2 text-sm font-medium">Booking channel</p>
+                      <div
+                        role="radiogroup"
+                        aria-label="Booking channel"
+                        className="inline-flex rounded-lg border border-gray-300 bg-white p-0.5 dark:border-gray-700 dark:bg-gray-900"
+                      >
+                        {avail.map((ch) => (
+                          <button
+                            key={ch}
+                            type="button"
+                            role="radio"
+                            aria-checked={selectedChannel === ch}
+                            data-testid={`appt-book-channel-${ch.toLowerCase()}`}
+                            onClick={() => setSelectedChannel(ch)}
+                            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                              selectedChannel === ch
+                                ? "bg-primary text-white"
+                                : "text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
+                            }`}
+                          >
+                            {CHANNEL_LABEL[ch]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+              {/* Pearl §3.1 (gap row 71) — WALKIN channel: same shape as
+                  CALLING (no slot time), but the API endpoint differs
+                  (/appointments/walk-in mints a token + writes WALK_IN
+                  type). Surfaced for ANY mode that includes WALKIN in
+                  its enabled set. */}
+              {selectedDoctor && selectedChannel === "WALKIN" && (
+                <div
+                  className="mt-4 rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-100"
+                  data-testid="appt-book-walkin-mode"
+                >
+                  <p className="mb-3">
+                    Register the patient as a <strong>walk-in</strong>. A token is
+                    minted for today and the patient joins the in-clinic queue.
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="appt-book-walkin-add"
+                    disabled={bookingInFlight}
+                    onClick={async () => {
+                      if (patientIdInput.trim().length === 0) {
+                        setPatientFieldError(true);
+                        return;
+                      }
+                      setBookingInFlight(true);
+                      try {
+                        await api.post("/appointments/walk-in", {
+                          patientId: patientIdInput.trim(),
+                          doctorId: selectedDoctor,
+                        });
+                        toast.success("Walk-in registered!");
+                        setPatientIdInput("");
+                        setPickedPatientName("");
+                        setPickerResetKey((k) => k + 1);
+                        setPatientFieldError(false);
+                        setShowBooking(false);
+                        loadAppointments();
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : "Walk-in failed");
+                      } finally {
+                        setBookingInFlight(false);
+                      }
+                    }}
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    Add to today&apos;s walk-in queue
+                  </button>
+                </div>
+              )}
+
+              {/* Pearl ERP Stage 1 §2.1.2 — CALLING channel (arrival-order
+                  queue, no slot time). Reachable for CALLING-mode doctors
+                  whose enabledChannels include CALLING. */}
+              {selectedDoctor && selectedChannel === "CALLING" && (
                   <div
                     className="mt-4 rounded-lg border border-blue-300 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-700 dark:bg-blue-900/20 dark:text-blue-100"
                     data-testid="appt-book-calling-mode"
@@ -1841,7 +2003,7 @@ export default function AppointmentsPage() {
                 )}
 
               {selectedDoctor &&
-                doctors.find((d) => d.id === selectedDoctor)?.appointmentMode !== "CALLING" &&
+                (selectedChannel === "SLOT" || selectedChannel === "TOKEN") &&
                 slotsWithPast.length === 0 && (
                 <div
                   className="mt-4 rounded-lg border border-dashed border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200"
@@ -1861,7 +2023,7 @@ export default function AppointmentsPage() {
               )}
 
               {selectedDoctor &&
-                doctors.find((d) => d.id === selectedDoctor)?.appointmentMode !== "CALLING" &&
+                (selectedChannel === "SLOT" || selectedChannel === "TOKEN") &&
                 slotsWithPast.length > 0 && (
                 <div className="mt-4" data-testid="appt-book-slots">
                   <p className="mb-2 text-sm font-medium">

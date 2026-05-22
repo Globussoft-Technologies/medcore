@@ -10,6 +10,7 @@ import { toast } from "@/lib/toast";
 import { useConfirm, usePrompt } from "@/lib/use-dialog";
 import { useTranslation } from "@/lib/i18n";
 import { PatientEditModal } from "@/components/PatientEditModal";
+import { PatientCRMActivity } from "@/components/PatientCRMActivity";
 import {
   ArrowLeft,
   ChevronDown,
@@ -829,6 +830,14 @@ export default function PatientDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Pearl §7.1 (gap row 183) — CRM History.
+          Read-only timeline of the originating Lead + last 5 activities
+          when the patient was converted from a lead. Component is
+          self-gating on role: PATIENT renders null; staff roles render
+          the section (with empty-state when no Lead links to the
+          patient — i.e. walk-in / pre-CRM patients). */}
+      <PatientCRMActivity patientId={id} />
 
       {/* Tabs */}
       <div className="no-print mb-6 flex gap-1 overflow-x-auto border-b border-gray-200 dark:border-white/10">

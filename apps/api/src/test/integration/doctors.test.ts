@@ -357,6 +357,75 @@ describeIfDB("Doctors API (integration)", () => {
     expect(cleared?.nmcRegNumber).toBeNull();
   });
 
+  // ─────────────────────────────────────────────────────────
+  // Pearl §3.2 (gap row 77 final 2 knobs, 2026-05-22) —
+  // enabledChannels + bufferMinutes coverage on the same
+  // PATCH /:id/appointment-mode endpoint.
+  // ─────────────────────────────────────────────────────────
+
+  it("PATCH appointment-mode: persists enabledChannels and bufferMinutes (Pearl §3.2)", async () => {
+    const doctor = await createDoctorFixture();
+    const prisma = await getPrisma();
+
+    const res = await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ enabledChannels: ["CALLING", "SLOT"], bufferMinutes: 15 })
+      .expect(200);
+    expect(res.body.data.enabledChannels).toEqual(["CALLING", "SLOT"]);
+    expect(res.body.data.bufferMinutes).toBe(15);
+
+    const after = await prisma.doctor.findUnique({
+      where: { id: doctor.id },
+      select: { enabledChannels: true, bufferMinutes: true },
+    });
+    expect(after?.enabledChannels).toEqual(["CALLING", "SLOT"]);
+    expect(after?.bufferMinutes).toBe(15);
+  });
+
+  it("PATCH appointment-mode: rejects bufferMinutes > 120 with 400", async () => {
+    const doctor = await createDoctorFixture();
+    const res = await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ bufferMinutes: 999 });
+    expect(res.status).toBe(400);
+  });
+
+  it("PATCH appointment-mode: rejects unknown channel enum value with 400", async () => {
+    const doctor = await createDoctorFixture();
+    const res = await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      // Deliberately wrong shape to exercise the Zod enum rejection.
+      .send({ enabledChannels: ["INVALID"] });
+    expect(res.status).toBe(400);
+  });
+
+  it("PATCH appointment-mode: empty enabledChannels array is valid (back-compat default)", async () => {
+    const doctor = await createDoctorFixture();
+    const prisma = await getPrisma();
+
+    // First set a non-empty channels list so we can confirm [] clears it.
+    await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ enabledChannels: ["TOKEN"] })
+      .expect(200);
+
+    await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ enabledChannels: [] })
+      .expect(200);
+
+    const after = await prisma.doctor.findUnique({
+      where: { id: doctor.id },
+      select: { enabledChannels: true },
+    });
+    expect(after?.enabledChannels).toEqual([]);
+  });
+
   it("PATCH appointment-mode: writes an audit log entry", async () => {
     const doctor = await createDoctorFixture();
     const prisma = await getPrisma();

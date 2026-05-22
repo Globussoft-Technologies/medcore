@@ -48,6 +48,19 @@ enum AppointmentMode {
   SLOT
 }
 
+// Pearl ERP Stage 1 §3.2 — per-doctor enabled booking channels. The
+// `appointmentMode` enum above picks the booking SHAPE; this enum picks
+// the booking CHANNELS the doctor accepts. A doctor may run TOKEN-mode
+// but disable WALKIN; or run SLOT-mode and accept CALLING for triage.
+// Stored as `Doctor.enabledChannels AppointmentChannel[]`; an empty
+// array means "all channels permitted" (back-compat default).
+enum AppointmentChannel {
+  CALLING
+  SLOT
+  TOKEN
+  WALKIN
+}
+
 // Pearl ERP Stage 1 §3.2 — last-hour booking policy per doctor.
 enum LastHourPolicy {
   ACCEPT_ALL
@@ -1096,6 +1109,16 @@ model Doctor {
   nearTurnAlertThreshold Int?
   lastHourPolicy         LastHourPolicy?
 
+  // Pearl ERP Stage 1 §3.2 — final 2 knobs of the per-doctor preference
+  // editor (gap row 77 closure, 2026-05-22). `enabledChannels` is the
+  // explicit allow-list of booking channels this doctor accepts; an
+  // empty array means "all channels permitted" so existing doctors keep
+  // working unchanged. `bufferMinutes` is the Doctor-level DEFAULT
+  // buffer between slots — distinct from `DoctorSchedule.bufferMinutes`,
+  // which can override it per weekday schedule.
+  enabledChannels        AppointmentChannel[] @default([])
+  bufferMinutes          Int                  @default(0)
+
   // Pearl ERP Stage 1 §2.1.4 — NMC (National Medical Commission)
   // registration number. Required to render on every signed Rx PDF.
   nmcRegNumber String?
@@ -1961,6 +1984,46 @@ model SystemConfig {
   value String
 
   @@map("system_config")
+}
+
+// Pearl ERP Stage 1 §8.4 (gap row 222 closure, 2026-05-22) — observability
+// table for the in-process cron scheduler in apps/api/src/services/
+// scheduled-tasks.ts. Every invocation of a registered task creates a row
+// (status=RUNNING at start, updated to SUCCESS/FAILED on completion) so
+// super-admins can see what ran, how long it took, what errored, and retry
+// a FAILED row from /super-admin/jobs.
+//
+// tenantId is nullable because most scheduled tasks operate globally
+// (cross-tenant), e.g. notification_drain_queued. Per-tenant tasks should
+// populate it for the cross-tenant filter on the admin UI.
+model ScheduledTaskRun {
+  id               String          @id @default(cuid())
+  tenantId         String?
+  taskName         String
+  status           TaskRunStatus
+  startedAt        DateTime
+  completedAt      DateTime?
+  durationMs       Int?
+  error            String?         // stack trace truncated at 5000 chars
+  recordsProcessed Int?
+  // The id of the original run when this row was created by a manual retry
+  // from POST /api/v1/scheduled-jobs/:id/retry. Lets the UI link the new
+  // run back to the failed parent so operators can see the retry chain.
+  retryOfRunId     String?
+  createdAt        DateTime        @default(now())
+
+  @@index([taskName])
+  @@index([startedAt])
+  @@index([status])
+  @@index([tenantId, startedAt])
+  @@map("scheduled_task_runs")
+}
+
+enum TaskRunStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
 }
 
 // ═══════════════════════════════════════════════════════

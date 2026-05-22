@@ -344,6 +344,232 @@ describeIfDB("Referring-doctor commission auto-split (Pearl §4.1)", () => {
       expect(auditRow).toBeTruthy();
     });
 
+    it("GET /ledger with default range aggregates totals + byDoctor (Pearl §4.4)", async () => {
+      // Seed two commissions for one doctor (one PAID, one PENDING) and
+      // one for a second doctor (PENDING) so the aggregation has shape to
+      // verify.
+      const a = await seedReferralScenario({
+        createReferralRow: true,
+        referralCommissionPercent: 10,
+      });
+      const aInv1 = await postInvoice({
+        appointmentId: a.appt.id,
+        patientId: a.patient.id,
+        items: [
+          { description: "Consultation", category: "CONSULTATION", quantity: 1, unitPrice: 1000 },
+        ],
+        taxPercentage: 0,
+        referralId: a.referralId,
+      });
+      expect([200, 201]).toContain(aInv1.status);
+
+      const a2 = await seedReferralScenario({
+        createReferralRow: true,
+        referralCommissionPercent: 10,
+      });
+      // Reuse doctor A by overriding the referringDoctor on a fresh referral.
+      const prisma = await getPrisma();
+      await prisma.referral.update({
+        where: { id: a2.referralId! },
+        data: { fromDoctorId: a.referringDoctor.id },
+      });
+      const aInv2 = await postInvoice({
+        appointmentId: a2.appt.id,
+        patientId: a2.patient.id,
+        items: [
+          { description: "Consultation", category: "CONSULTATION", quantity: 1, unitPrice: 2000 },
+        ],
+        taxPercentage: 0,
+        referralId: a2.referralId,
+      });
+      expect([200, 201]).toContain(aInv2.status);
+
+      const b = await seedReferralScenario({
+        createReferralRow: true,
+        referralCommissionPercent: 5,
+      });
+      const bInv = await postInvoice({
+        appointmentId: b.appt.id,
+        patientId: b.patient.id,
+        items: [
+          { description: "Consultation", category: "CONSULTATION", quantity: 1, unitPrice: 4000 },
+        ],
+        taxPercentage: 0,
+        referralId: b.referralId,
+      });
+      expect([200, 201]).toContain(bInv.status);
+
+      // Mark one of doctor A's commissions PAID via the existing PATCH.
+      const aFirst = await prisma.referralCommission.findUnique({
+        where: { invoiceId: aInv1.body.data.id },
+      });
+      const paidRes = await request(app)
+        .patch(`/api/v1/referral-commissions/${aFirst!.id}`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ status: "PAID" });
+      expect(paidRes.status).toBe(200);
+
+      // Hit the ledger with no filters — default range = current month.
+      const res = await request(app)
+        .get("/api/v1/referral-commissions/ledger")
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      const data = res.body.data;
+      expect(data.dateRange.from).toBeTruthy();
+      expect(data.dateRange.to).toBeTruthy();
+
+      // Totals sanity: totalAmount must equal sum of paid+pending+voided.
+      const totals = data.totals;
+      const sum =
+        parseFloat(totals.paidAmount) +
+        parseFloat(totals.pendingAmount) +
+        parseFloat(totals.voidedAmount);
+      expect(sum).toBeCloseTo(parseFloat(totals.totalAmount), 2);
+
+      // byDoctor sums must roll up to top-level totalAmount.
+      const byDoctorSum = (data.byDoctor as Array<{ totalAmount: string }>).reduce(
+        (acc, b) => acc + parseFloat(b.totalAmount),
+        0,
+      );
+      expect(byDoctorSum).toBeCloseTo(parseFloat(totals.totalAmount), 2);
+
+      // Doctor A bucket exists; has 2 rows; totalAmount = 100 (10% of 1000) + 200 (10% of 2000) = 300.
+      const aBucket = (data.byDoctor as Array<{
+        referringDoctorId: string;
+        count: number;
+        totalAmount: string;
+        paidAmount: string;
+        pendingAmount: string;
+      }>).find((d) => d.referringDoctorId === a.referringDoctor.id);
+      expect(aBucket).toBeTruthy();
+      expect(aBucket!.count).toBe(2);
+      expect(parseFloat(aBucket!.totalAmount)).toBeCloseTo(300, 2);
+      expect(parseFloat(aBucket!.paidAmount)).toBeCloseTo(100, 2);
+      expect(parseFloat(aBucket!.pendingAmount)).toBeCloseTo(200, 2);
+    });
+
+    it("GET /ledger?referringDoctorId=X filters to just that doctor", async () => {
+      const a = await seedReferralScenario({
+        createReferralRow: true,
+        referralCommissionPercent: 6,
+      });
+      const aInv = await postInvoice({
+        appointmentId: a.appt.id,
+        patientId: a.patient.id,
+        items: [
+          { description: "Consultation", category: "CONSULTATION", quantity: 1, unitPrice: 1000 },
+        ],
+        taxPercentage: 0,
+        referralId: a.referralId,
+      });
+      expect([200, 201]).toContain(aInv.status);
+
+      const b = await seedReferralScenario({
+        createReferralRow: true,
+        referralCommissionPercent: 6,
+      });
+      const bInv = await postInvoice({
+        appointmentId: b.appt.id,
+        patientId: b.patient.id,
+        items: [
+          { description: "Consultation", category: "CONSULTATION", quantity: 1, unitPrice: 1000 },
+        ],
+        taxPercentage: 0,
+        referralId: b.referralId,
+      });
+      expect([200, 201]).toContain(bInv.status);
+
+      const res = await request(app)
+        .get(`/api/v1/referral-commissions/ledger?referringDoctorId=${a.referringDoctor.id}`)
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      const buckets = res.body.data.byDoctor as Array<{
+        referringDoctorId: string;
+      }>;
+      // Either no buckets (nothing this month) or exactly one bucket = A.
+      for (const b of buckets) {
+        expect(b.referringDoctorId).toBe(a.referringDoctor.id);
+      }
+      // And the b doctor MUST NOT appear.
+      const bShows = buckets.find(
+        (d) => d.referringDoctorId === b.referringDoctor.id,
+      );
+      expect(bShows).toBeUndefined();
+    });
+
+    it("GET /ledger?from=&to= filters out commissions outside the window", async () => {
+      const a = await seedReferralScenario({
+        createReferralRow: true,
+        referralCommissionPercent: 8,
+      });
+      const aInv = await postInvoice({
+        appointmentId: a.appt.id,
+        patientId: a.patient.id,
+        items: [
+          { description: "Consultation", category: "CONSULTATION", quantity: 1, unitPrice: 1000 },
+        ],
+        taxPercentage: 0,
+        referralId: a.referralId,
+      });
+      expect([200, 201]).toContain(aInv.status);
+
+      // Window in the far past — must contain zero commissions.
+      const res = await request(app)
+        .get("/api/v1/referral-commissions/ledger?from=2020-01-01&to=2020-01-31")
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.totals.totalCommissions).toBe(0);
+      expect(parseFloat(res.body.data.totals.totalAmount)).toBe(0);
+      expect(res.body.data.byDoctor.length).toBe(0);
+    });
+
+    it("GET /ledger?format=csv returns text/csv + attachment Content-Disposition", async () => {
+      const a = await seedReferralScenario({
+        createReferralRow: true,
+        referralCommissionPercent: 11,
+      });
+      const aInv = await postInvoice({
+        appointmentId: a.appt.id,
+        patientId: a.patient.id,
+        items: [
+          { description: "Consultation", category: "CONSULTATION", quantity: 1, unitPrice: 1000 },
+        ],
+        taxPercentage: 0,
+        referralId: a.referralId,
+      });
+      expect([200, 201]).toContain(aInv.status);
+
+      const res = await request(app)
+        .get("/api/v1/referral-commissions/ledger?format=csv")
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toMatch(/text\/csv/i);
+      expect(res.headers["content-disposition"]).toMatch(
+        /attachment;\s*filename="referral-commissions-\d{4}-\d{2}-\d{2}-\d{4}-\d{2}-\d{2}\.csv"/,
+      );
+      // Body must include the header row + at least one summary row.
+      const body = res.text as string;
+      expect(body.split(/\r\n|\n/)[0]).toContain("Doctor");
+      expect(body).toContain("TOTAL");
+
+      // Audit row eventually lands (fire-and-forget).
+      const prisma = await getPrisma();
+      const auditRow = await waitForAuditFlush(prisma as any, {
+        action: "REFERRAL_COMMISSION_LEDGER_EXPORTED",
+        entity: "referral_commission",
+      });
+      expect(auditRow).toBeTruthy();
+    });
+
+    it("GET /ledger rejected for non-ADMIN role (403)", async () => {
+      const doctorToken = await getAuthToken("DOCTOR");
+      const res = await request(app)
+        .get("/api/v1/referral-commissions/ledger")
+        .set("Authorization", `Bearer ${doctorToken}`);
+      expect(res.status).toBe(403);
+    });
+
     it("rejects PATCH from a non-ADMIN role (403)", async () => {
       const { patient, appt, referralId } = await seedReferralScenario({
         createReferralRow: true,

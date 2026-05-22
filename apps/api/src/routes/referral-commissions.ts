@@ -1,29 +1,35 @@
 /**
- * Referral commission API — Pearl ERP Stage 1 §4.1 (gap row 101).
+ * Referral commission API — Pearl ERP Stage 1 §4.1 (gap row 101) + §4.4 (row 114).
  *
  * What / which modules / why:
  *   - CRUD surface for the `ReferralCommission` rows auto-created by
  *     the POST /api/v1/billing/invoices handler when the invoice's
  *     `referringDoctorId` resolves to a doctor with a non-null
  *     commissionPercent (Referral override → Doctor default).
- *   - Two endpoints only this tick:
- *       GET  /  — list + filter for the BILLING / ADMIN ledger UI
- *       PATCH /:id — mark PAID (or manually VOIDED) with audit row
- *   - NO ledger-rollup report endpoint — that's the §4.4 row 114 piece.
- *     This file just owns the persistence surface.
+ *   - Three endpoints:
+ *       GET  /        — list + filter for the BILLING / ADMIN ledger UI
+ *       GET  /ledger  — aggregated per-doctor ledger report (§4.4 row 114)
+ *                       with JSON (default) + CSV export modes
+ *       PATCH /:id    — mark PAID (or manually VOIDED) with audit row
  *
  * RBAC:
- *   - Both endpoints: ADMIN only. (RECEPTION can raise invoices but
- *     can't see who got paid what — that's a financial-controls
- *     boundary. ACCOUNTANT / BILLING role exists in the codebase
- *     under different names — we standardise on ADMIN here and let
- *     the §4.4 piece widen the gate when the role model is firmer.)
+ *   - All three endpoints: ADMIN only this tick. The §4.4 spec calls for
+ *     ADMIN + BILLING on the ledger, but the shared `Role` enum
+ *     (`packages/shared/src/types/roles.ts`) doesn't yet expose BILLING
+ *     even though the Prisma enum does. Widening the gate is a one-line
+ *     follow-up once the shared enum catches up — until then we mirror
+ *     the existing §4.1 file's "standardise on ADMIN, widen later"
+ *     posture so this tick stays scoped to the report endpoint itself.
  *
  * Audit:
  *   - REFERRAL_COMMISSION_PAID / REFERRAL_COMMISSION_VOIDED_MANUAL on
  *     entity="referral_commission". Fire-and-forget per the project's
  *     safe-audit convention — tests reading AuditLog immediately after
  *     these actions should use waitForAuditFlush().
+ *   - REFERRAL_COMMISSION_LEDGER_EXPORTED on entity="referral_commission"
+ *     when the ledger endpoint is hit with format=csv. Read-only JSON
+ *     browsing is NOT audited (no project-wide convention to audit
+ *     read-only reports — analytics CSV exports are also unaudited).
  */
 
 import { Router, Request, Response, NextFunction } from "express";
@@ -120,6 +126,289 @@ router.get(
         data: rows,
         error: null,
         meta: { page: parseInt(page), limit: take, total },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── CSV helpers (mirrors apps/api/src/routes/analytics.ts toCsv) ─────
+function csvEscape(val: unknown): string {
+  if (val === null || val === undefined) return "";
+  const s = String(val);
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+function toCsv(rows: Record<string, unknown>[], columns: string[]): string {
+  const header = columns.map(csvEscape).join(",");
+  const lines = rows.map((row) => columns.map((c) => csvEscape(row[c])).join(","));
+  return [header, ...lines].join("\r\n");
+}
+
+// ── GET /ledger — aggregated per-doctor ledger (Pearl §4.4 row 114) ──
+//
+// Query params (all optional):
+//   from               ISO date — defaults to first day of current month
+//   to                 ISO date — defaults to today (now)
+//   referringDoctorId  UUID — single-doctor filter
+//   format             "json" (default) | "csv"
+//
+// JSON response (default):
+//   { dateRange, totals: {total/paid/pending/voided count+amount},
+//     byDoctor: [{ referringDoctorId, referringDoctorName, count,
+//                  totalAmount, paidAmount, pendingAmount, voidedAmount,
+//                  rows: [...] }] }
+//
+// CSV response (format=csv): one row per ReferralCommission, with a
+// summary row at the top. Filename =
+//   referral-commissions-<from>-<to>.csv  (Content-Disposition: attachment).
+//
+// RBAC: ADMIN + BILLING. Tenant-scoped via tenantScopedPrisma (no manual
+// where: { tenantId } needed — the per-tenant Prisma extension auto-filters
+// on the denormalized `ReferralCommission.tenantId` column).
+//
+// Audit: REFERRAL_COMMISSION_LEDGER_EXPORTED fired only on format=csv.
+router.get(
+  "/ledger",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const {
+        from: fromQ,
+        to: toQ,
+        referringDoctorId,
+        format = "json",
+      } = req.query as Record<string, string | undefined>;
+
+      // Defaults: from = first day of current month; to = now.
+      const now = new Date();
+      let from = fromQ
+        ? new Date(fromQ)
+        : new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      let to = toQ ? new Date(toQ) : now;
+      if (isNaN(from.getTime())) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Invalid `from` date",
+        });
+        return;
+      }
+      if (isNaN(to.getTime())) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Invalid `to` date",
+        });
+        return;
+      }
+
+      const where: Record<string, unknown> = {
+        createdAt: { gte: from, lte: to },
+      };
+      if (referringDoctorId) where.referringDoctorId = referringDoctorId;
+
+      const rows = await prisma.referralCommission.findMany({
+        where,
+        include: {
+          referringDoctor: {
+            include: { user: { select: { name: true, email: true } } },
+          },
+          invoice: { select: { invoiceNumber: true } },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      // ── Aggregate per-doctor + top-level totals ────────────────
+      const toNum = (v: unknown): number => {
+        if (v == null) return 0;
+        if (typeof v === "number") return v;
+        const anyV = v as { toNumber?: () => number };
+        return typeof anyV.toNumber === "function"
+          ? anyV.toNumber()
+          : Number(v);
+      };
+
+      type DoctorBucket = {
+        referringDoctorId: string;
+        referringDoctorName: string;
+        count: number;
+        totalAmount: number;
+        paidAmount: number;
+        pendingAmount: number;
+        voidedAmount: number;
+        rows: Array<{
+          id: string;
+          invoiceId: string;
+          invoiceNumber: string;
+          commissionPercent: number;
+          commissionAmount: number;
+          status: string;
+          paidAt: string | null;
+          createdAt: string;
+          updatedAt: string;
+        }>;
+      };
+
+      const byDoctorMap = new Map<string, DoctorBucket>();
+      let totalCount = 0;
+      let totalAmount = 0;
+      let paidAmount = 0;
+      let pendingAmount = 0;
+      let voidedAmount = 0;
+      let paidCount = 0;
+      let pendingCount = 0;
+      let voidedCount = 0;
+
+      for (const r of rows) {
+        const amt = toNum(r.commissionAmount);
+        const docId = r.referringDoctorId;
+        const docName = r.referringDoctor?.user?.name || "(unknown)";
+        totalCount += 1;
+        totalAmount += amt;
+        if (r.status === "PAID") {
+          paidAmount += amt;
+          paidCount += 1;
+        } else if (r.status === "VOIDED") {
+          voidedAmount += amt;
+          voidedCount += 1;
+        } else {
+          pendingAmount += amt;
+          pendingCount += 1;
+        }
+
+        let bucket = byDoctorMap.get(docId);
+        if (!bucket) {
+          bucket = {
+            referringDoctorId: docId,
+            referringDoctorName: docName,
+            count: 0,
+            totalAmount: 0,
+            paidAmount: 0,
+            pendingAmount: 0,
+            voidedAmount: 0,
+            rows: [],
+          };
+          byDoctorMap.set(docId, bucket);
+        }
+        bucket.count += 1;
+        bucket.totalAmount += amt;
+        if (r.status === "PAID") bucket.paidAmount += amt;
+        else if (r.status === "VOIDED") bucket.voidedAmount += amt;
+        else bucket.pendingAmount += amt;
+
+        bucket.rows.push({
+          id: r.id,
+          invoiceId: r.invoiceId,
+          invoiceNumber: r.invoice?.invoiceNumber || "",
+          commissionPercent: toNum(r.commissionPercent),
+          commissionAmount: amt,
+          status: r.status,
+          paidAt: r.paidAt ? new Date(r.paidAt).toISOString() : null,
+          createdAt: new Date(r.createdAt).toISOString(),
+          updatedAt: new Date(r.updatedAt).toISOString(),
+        });
+      }
+
+      // Sort doctor buckets by totalAmount desc (top earners first)
+      const byDoctor = Array.from(byDoctorMap.values()).sort(
+        (a, b) => b.totalAmount - a.totalAmount,
+      );
+
+      const fmt = (n: number) => n.toFixed(2);
+
+      // ── CSV export ─────────────────────────────────────────────
+      if (format === "csv") {
+        const fromIso = from.toISOString().split("T")[0];
+        const toIso = to.toISOString().split("T")[0];
+
+        // Summary row at the top (Doctor column carries the label so it
+        // reads in any spreadsheet without column re-ordering).
+        const summary: Record<string, unknown> = {
+          Doctor: `TOTAL (${fromIso} → ${toIso})`,
+          "Invoice #": `${totalCount} row(s)`,
+          "Commission %": "",
+          "Amount (Rs)": fmt(totalAmount),
+          Status: `PAID:${fmt(paidAmount)} PENDING:${fmt(pendingAmount)} VOIDED:${fmt(voidedAmount)}`,
+          Created: "",
+          "Paid At": "",
+        };
+
+        const dataRows = rows.map((r) => ({
+          Doctor: r.referringDoctor?.user?.name || "(unknown)",
+          "Invoice #": r.invoice?.invoiceNumber || "",
+          "Commission %": toNum(r.commissionPercent).toFixed(2),
+          "Amount (Rs)": toNum(r.commissionAmount).toFixed(2),
+          Status: r.status,
+          Created: new Date(r.createdAt).toISOString(),
+          "Paid At": r.paidAt ? new Date(r.paidAt).toISOString() : "",
+        }));
+
+        const csv = toCsv(
+          [summary, ...dataRows],
+          [
+            "Doctor",
+            "Invoice #",
+            "Commission %",
+            "Amount (Rs)",
+            "Status",
+            "Created",
+            "Paid At",
+          ],
+        );
+
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="referral-commissions-${fromIso}-${toIso}.csv"`,
+        );
+
+        auditLog(
+          req,
+          "REFERRAL_COMMISSION_LEDGER_EXPORTED",
+          "referral_commission",
+          undefined,
+          {
+            from: from.toISOString(),
+            to: to.toISOString(),
+            format: "csv",
+            rowCount: rows.length,
+            referringDoctorId: referringDoctorId ?? null,
+          },
+        ).catch(console.error);
+
+        res.send(csv);
+        return;
+      }
+
+      // ── JSON response ──────────────────────────────────────────
+      res.json({
+        success: true,
+        data: {
+          dateRange: { from: from.toISOString(), to: to.toISOString() },
+          totals: {
+            totalCommissions: totalCount,
+            totalAmount: fmt(totalAmount),
+            paidAmount: fmt(paidAmount),
+            pendingAmount: fmt(pendingAmount),
+            voidedAmount: fmt(voidedAmount),
+            paidCount,
+            pendingCount,
+            voidedCount,
+          },
+          byDoctor: byDoctor.map((b) => ({
+            referringDoctorId: b.referringDoctorId,
+            referringDoctorName: b.referringDoctorName,
+            count: b.count,
+            totalAmount: fmt(b.totalAmount),
+            paidAmount: fmt(b.paidAmount),
+            pendingAmount: fmt(b.pendingAmount),
+            voidedAmount: fmt(b.voidedAmount),
+            rows: b.rows,
+          })),
+        },
+        error: null,
       });
     } catch (err) {
       next(err);

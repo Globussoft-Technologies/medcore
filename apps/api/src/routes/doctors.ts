@@ -4,6 +4,12 @@ import { Router, Request, Response, NextFunction } from "express";
 // tenant-scoped models (see services/tenant-prisma.ts). We alias it to
 // `prisma` so every existing call site keeps working without edits.
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
+// Raw (unscoped) prisma is needed for the bulk-update cross-tenant probe —
+// we want to LOOK at every row matching the requested ids regardless of
+// tenant, then explicitly compare each row's tenantId to the caller's so
+// we can return 403 (instead of silently no-op'ing the cross-tenant rows
+// the way `tenantScopedPrisma` would). See `/bulk-update` handler below.
+import { prisma as rawPrisma } from "@medcore/db";
 import {
   Role,
   doctorScheduleSchema,
@@ -62,11 +68,16 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 // gotcha (CLAUDE.md §14): otherwise Express would route POST /bulk-update
 // to a dynamic `:id` handler whose pattern happens to match.
 //
-// Tenant scoping: the route loads every doctorId via `tenantScopedPrisma`
-// (which auto-filters by req.tenantId). If the returned set is smaller
-// than the requested set we know at least one id is either bogus or
-// belongs to a different tenant — reject the WHOLE batch with 403, never
-// modify anything. This is the BOLA / IDOR guard for the bulk surface.
+// Tenant scoping: the route loads every doctorId via the RAW (unscoped)
+// prisma client and explicitly compares each row's `tenantId` against the
+// caller's. We deliberately do NOT use `tenantScopedPrisma` for this probe
+// because its ALS-driven filter is a no-op when the caller's JWT carries no
+// tenantId (legacy admins, the test admin@test.local seed) — under that
+// regime the auto-filter would let foreign-tenant rows through silently.
+// The unscoped lookup + explicit comparison treats `null === null` and
+// `tenant-A !== tenant-B` correctly in BOTH regimes. Set-difference reveals
+// any cross-tenant or bogus id without leaking which it was → 403 + 0 rows
+// modified. This is the BOLA / IDOR guard for the bulk surface.
 //
 // Allowlist: the Zod schema is `.strict()` so unknown keys 400 before we
 // even reach the handler — mass-assignment of unrelated columns (e.g.
@@ -82,15 +93,24 @@ router.post(
         updates: Record<string, unknown>;
       };
 
-      // Step 1 — tenant-scope check. tenantScopedPrisma auto-filters
-      // findMany() by req.tenantId, so this list comes back ONLY with the
-      // doctorIds the caller's tenant owns. Set-difference reveals any
-      // cross-tenant or bogus id without leaking which it was.
-      const owned = await prisma.doctor.findMany({
+      // Step 1 — tenant-scope check via explicit per-row comparison on the
+      // unscoped client. `rawPrisma.doctor.findMany` returns every matching
+      // row regardless of tenant, then we keep only the rows whose
+      // `tenantId` equals the caller's (with `null === null` honoured for
+      // legacy un-tenanted admins). Any requested id that's either bogus
+      // (no row) or owned by a different tenant ends up "missing" → 403,
+      // and we never reach the update step, so the cross-tenant rows stay
+      // untouched. We do NOT leak which ids failed which check.
+      const callerTenantId = req.user?.tenantId ?? null;
+      const candidates = await rawPrisma.doctor.findMany({
         where: { id: { in: doctorIds } },
-        select: { id: true },
+        select: { id: true, tenantId: true },
       });
-      const ownedIds = new Set(owned.map((d) => d.id));
+      const ownedIds = new Set(
+        candidates
+          .filter((d) => (d.tenantId ?? null) === callerTenantId)
+          .map((d) => d.id),
+      );
       const missing = doctorIds.filter((id) => !ownedIds.has(id));
       if (missing.length > 0) {
         res.status(403).json({

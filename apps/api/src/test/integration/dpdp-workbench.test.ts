@@ -156,7 +156,10 @@ async function seedPatientWithChildren(tenantId: string): Promise<{
       date: new Date(),
       slotStart: "10:00",
       slotEnd: "10:15",
-      type: "CONSULTATION",
+      // AppointmentType enum is { SCHEDULED | WALK_IN } — there is no
+      // CONSULTATION value. Matches the canonical pattern used by every
+      // other integration test (e.g. ai-regressions-2026-04-26.test.ts).
+      type: "SCHEDULED",
       status: "BOOKED",
       tenantId,
     },

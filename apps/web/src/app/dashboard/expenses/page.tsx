@@ -63,6 +63,13 @@ const BAR_COLORS: Record<string, string> = {
   OTHER: "bg-gray-500",
 };
 
+// Shared styling for the Add-Expense modal + filter-bar form controls. The
+// modal renders on the dark dashboard layout, so without explicit colors the
+// inputs inherit the layout's light text (dark:text-gray-100) and wash out;
+// the dark variants give them a legible dark surface.
+const MODAL_FIELD =
+  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
+
 function firstOfMonth() {
   const d = new Date();
   return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split("T")[0];
@@ -162,7 +169,7 @@ export default function ExpensesPage() {
           <h1 className="flex items-center gap-2 text-2xl font-bold">
             <Wallet className="text-primary" size={28} /> Expenses
           </h1>
-          <p className="text-sm text-gray-500">Track operational spending</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Track operational spending</p>
         </div>
         {canAdd && (
           <button
@@ -175,32 +182,32 @@ export default function ExpensesPage() {
       </div>
 
       <div className="mb-6 grid gap-4 md:grid-cols-3">
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <p className="text-sm text-gray-500">Total (selected range)</p>
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Total (selected range)</p>
           <p className="mt-2 text-3xl font-bold">
             Rs. {summary?.grandTotal.toFixed(2) || "0.00"}
           </p>
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             {summary?.transactionCount || 0} transactions
           </p>
         </div>
-        <div className="rounded-xl bg-white p-5 shadow-sm md:col-span-2">
-          <p className="mb-3 text-sm font-semibold text-gray-700">
+        <div className="rounded-xl bg-white p-5 shadow-sm md:col-span-2 dark:bg-gray-800">
+          <p className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">
             Breakdown by Category
           </p>
           {!summary || summary.byCategory.length === 0 ? (
-            <p className="text-sm text-gray-500">No data</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">No data</p>
           ) : (
             <div className="space-y-2">
               {summary.byCategory.map((c) => (
                 <div key={c.category}>
                   <div className="mb-0.5 flex justify-between text-xs">
                     <span className="font-medium">{c.category}</span>
-                    <span className="text-gray-500">
+                    <span className="text-gray-500 dark:text-gray-400">
                       Rs. {c.total.toFixed(2)} ({c.count})
                     </span>
                   </div>
-                  <div className="h-2 rounded-full bg-gray-100">
+                  <div className="h-2 rounded-full bg-gray-100 dark:bg-gray-700">
                     <div
                       className={`h-2 rounded-full ${BAR_COLORS[c.category] || "bg-gray-500"}`}
                       style={{
@@ -217,32 +224,32 @@ export default function ExpensesPage() {
 
       <div className="mb-4 flex flex-wrap gap-3">
         <div>
-          <label htmlFor="expenses-filter-from" className="mb-1 block text-xs text-gray-500">From</label>
+          <label htmlFor="expenses-filter-from" className="mb-1 block text-xs text-gray-500 dark:text-gray-400">From</label>
           <input
             id="expenses-filter-from"
             type="date"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm"
+            className={MODAL_FIELD}
           />
         </div>
         <div>
-          <label htmlFor="expenses-filter-to" className="mb-1 block text-xs text-gray-500">To</label>
+          <label htmlFor="expenses-filter-to" className="mb-1 block text-xs text-gray-500 dark:text-gray-400">To</label>
           <input
             id="expenses-filter-to"
             type="date"
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm"
+            className={MODAL_FIELD}
           />
         </div>
         <div>
-          <label htmlFor="expenses-filter-category" className="mb-1 block text-xs text-gray-500">Category</label>
+          <label htmlFor="expenses-filter-category" className="mb-1 block text-xs text-gray-500 dark:text-gray-400">Category</label>
           <select
             id="expenses-filter-category"
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm"
+            className={MODAL_FIELD}
           >
             <option value="">All</option>
             {CATEGORIES.map((c) => (
@@ -254,16 +261,16 @@ export default function ExpensesPage() {
         </div>
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : expenses.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">No expenses found</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">No expenses found</div>
         ) : (
           <div className="overflow-x-auto">
           <table className="w-full min-w-[760px]">
             <thead>
-              <tr className="border-b text-left text-sm text-gray-500">
+              <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300">
                 <th className="px-4 py-3">Date</th>
                 <th className="px-4 py-3">Category</th>
                 <th className="px-4 py-3">Description</th>
@@ -276,7 +283,7 @@ export default function ExpensesPage() {
             </thead>
             <tbody>
               {expenses.map((e) => (
-                <tr key={e.id} className="border-b last:border-0">
+                <tr key={e.id} className="border-b last:border-0 dark:border-gray-700">
                   <td className="px-4 py-3 text-sm">
                     {new Date(e.date).toLocaleDateString("en-IN")}
                   </td>
@@ -288,23 +295,23 @@ export default function ExpensesPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-sm">{e.description}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
+                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
                     {e.paidTo || "-"}
                   </td>
-                  <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                  <td className="px-4 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">
                     {e.referenceNo || "-"}
                   </td>
                   <td className="px-4 py-3 font-medium">
                     Rs. {e.amount.toFixed(2)}
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
+                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
                     {e.user?.name || "-"}
                   </td>
                   {canDelete && (
                     <td className="px-4 py-3">
                       <button
                         onClick={() => handleDelete(e.id)}
-                        className="text-xs text-red-500 hover:text-red-700"
+                        className="text-xs text-red-500 hover:text-red-700 dark:text-red-400"
                         data-testid={`expense-delete-${e.id}`}
                       >
                         Delete
@@ -399,10 +406,10 @@ function AddExpenseModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-2xl">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-2xl dark:bg-gray-800 dark:text-gray-100">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Add Expense</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">
             <X size={20} />
           </button>
         </div>
@@ -418,7 +425,7 @@ function AddExpenseModal({
                   className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition ${
                     form.category === c
                       ? `${CATEGORY_COLORS[c]} border-current`
-                      : "border-gray-200 text-gray-500 hover:bg-gray-50"
+                      : "border-gray-200 text-gray-500 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
                   }`}
                 >
                   {c}
@@ -437,7 +444,7 @@ function AddExpenseModal({
                 step="0.01"
                 value={form.amount}
                 onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={MODAL_FIELD}
               />
             </div>
             <div>
@@ -449,7 +456,7 @@ function AddExpenseModal({
                 value={form.date}
                 max={today()}
                 onChange={(e) => setForm({ ...form, date: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={MODAL_FIELD}
                 data-testid="expense-date"
               />
             </div>
@@ -461,7 +468,7 @@ function AddExpenseModal({
               required
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className={MODAL_FIELD}
             />
           </div>
           <div>
@@ -470,7 +477,7 @@ function AddExpenseModal({
               id="add-expense-paid-to"
               value={form.paidTo}
               onChange={(e) => setForm({ ...form, paidTo: e.target.value })}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className={MODAL_FIELD}
             />
           </div>
           <div>
@@ -479,7 +486,7 @@ function AddExpenseModal({
               id="add-expense-reference-no"
               value={form.referenceNo}
               onChange={(e) => setForm({ ...form, referenceNo: e.target.value })}
-              className="w-full rounded-lg border px-3 py-2 font-mono text-sm"
+              className={`${MODAL_FIELD} font-mono`}
             />
           </div>
           {error && (
@@ -494,7 +501,7 @@ function AddExpenseModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+              className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
             >
               Cancel
             </button>

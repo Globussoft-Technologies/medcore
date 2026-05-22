@@ -27,6 +27,13 @@ interface ScheduledSurgery {
   ot: { id: string; name: string };
 }
 
+// Shared styling for the OT add/edit modal form controls. The modal renders on
+// the dark dashboard layout, so without explicit colors the inputs inherit the
+// layout's light text (dark:text-gray-100) and wash out (white-on-white); the
+// dark variants give them a legible dark surface.
+const MODAL_FIELD =
+  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
+
 function startOfWeek(d: Date) {
   const r = new Date(d);
   const day = r.getDay();
@@ -206,7 +213,7 @@ export default function OTPage() {
           <h1 className="flex items-center gap-2 text-2xl font-bold">
             <Building size={22} /> Operating Theaters
           </h1>
-          <p className="text-sm text-gray-500">Manage OTs and view weekly schedule</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Manage OTs and view weekly schedule</p>
         </div>
         <button
           onClick={openAdd}
@@ -216,15 +223,15 @@ export default function OTPage() {
         </button>
       </div>
 
-      <div className="mb-6 rounded-xl bg-white shadow-sm">
+      <div className="mb-6 rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : ots.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">No OTs configured.</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">No OTs configured.</div>
         ) : (
           <table className="w-full">
             <thead>
-              <tr className="border-b text-left text-sm text-gray-500">
+              <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300">
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Floor</th>
                 <th className="px-4 py-3">Equipment</th>
@@ -238,7 +245,7 @@ export default function OTPage() {
                 <tr
                   key={ot.id}
                   onClick={() => setSelectedOt(ot)}
-                  className={`cursor-pointer border-b last:border-0 hover:bg-gray-50 ${
+                  className={`cursor-pointer border-b last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700 ${
                     selectedOt?.id === ot.id ? "bg-primary/5" : ""
                   }`}
                 >
@@ -262,7 +269,7 @@ export default function OTPage() {
                     <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => openEdit(ot)}
-                        className="flex items-center gap-1 rounded bg-gray-100 px-2 py-1 text-xs hover:bg-gray-200"
+                        className="flex items-center gap-1 rounded bg-gray-100 px-2 py-1 text-xs text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
                       >
                         <Edit2 size={12} /> Edit
                       </button>
@@ -294,27 +301,27 @@ export default function OTPage() {
 
       {/* Week calendar for selected OT */}
       {selectedOt && (
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-700">
+            <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">
               Weekly Schedule — {selectedOt.name}
             </h2>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setWeekStart(addDays(weekStart, -7))}
-                className="rounded border px-2 py-1 text-xs"
+                className="rounded border px-2 py-1 text-xs hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
               >
                 ← Prev
               </button>
               <button
                 onClick={() => setWeekStart(startOfWeek(new Date()))}
-                className="rounded border px-2 py-1 text-xs"
+                className="rounded border px-2 py-1 text-xs hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
               >
                 This Week
               </button>
               <button
                 onClick={() => setWeekStart(addDays(weekStart, 7))}
-                className="rounded border px-2 py-1 text-xs"
+                className="rounded border px-2 py-1 text-xs hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
               >
                 Next →
               </button>
@@ -328,9 +335,9 @@ export default function OTPage() {
               return (
                 <div
                   key={dayKey}
-                  className="min-h-[160px] rounded-lg border bg-gray-50 p-2"
+                  className="min-h-[160px] rounded-lg border bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-900/40"
                 >
-                  <p className="mb-2 text-xs font-semibold text-gray-600">
+                  <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-300">
                     {d.toLocaleDateString("en", {
                       weekday: "short",
                       day: "numeric",
@@ -339,12 +346,12 @@ export default function OTPage() {
                   </p>
                   <div className="space-y-1">
                     {surgeries.length === 0 ? (
-                      <p className="text-xs text-gray-400">—</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500">—</p>
                     ) : (
                       surgeries.map((s) => (
                         <div
                           key={s.id}
-                          className="rounded bg-white p-2 text-xs shadow-sm"
+                          className="rounded bg-white p-2 text-xs shadow-sm dark:bg-gray-800"
                         >
                           <p className="font-medium">
                             {new Date(s.scheduledAt).toLocaleTimeString("en", {
@@ -352,8 +359,8 @@ export default function OTPage() {
                               minute: "2-digit",
                             })}
                           </p>
-                          <p className="truncate text-gray-700">{s.procedure}</p>
-                          <p className="truncate text-gray-500">
+                          <p className="truncate text-gray-700 dark:text-gray-200">{s.procedure}</p>
+                          <p className="truncate text-gray-500 dark:text-gray-400">
                             {s.patient.user.name}
                           </p>
                         </div>
@@ -373,7 +380,7 @@ export default function OTPage() {
           <form
             onSubmit={submit}
             noValidate
-            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
           >
             <h2 className="mb-4 text-lg font-semibold">
               {editing ? "Edit OT" : "Add Operating Theater"}
@@ -386,7 +393,7 @@ export default function OTPage() {
                 type="text"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={MODAL_FIELD}
               />
             </div>
 
@@ -398,7 +405,7 @@ export default function OTPage() {
                   type="text"
                   value={form.floor}
                   onChange={(e) => setForm((f) => ({ ...f, floor: e.target.value }))}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                 />
               </div>
               <div>
@@ -411,7 +418,7 @@ export default function OTPage() {
                   onChange={(e) =>
                     setForm((f) => ({ ...f, dailyRate: e.target.value }))
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                 />
               </div>
             </div>
@@ -424,7 +431,7 @@ export default function OTPage() {
                 onChange={(e) =>
                   setForm((f) => ({ ...f, equipment: e.target.value }))
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={MODAL_FIELD}
                 rows={2}
                 placeholder="e.g. C-arm, Anaesthesia machine, ventilator"
               />
@@ -437,7 +444,7 @@ export default function OTPage() {
                   setShowAdd(false);
                   setEditing(null);
                 }}
-                className="rounded-lg border px-4 py-2 text-sm"
+                className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>

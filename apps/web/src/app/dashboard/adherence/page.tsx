@@ -280,11 +280,11 @@ export default function AdherencePage() {
 
       {/* Enroll form */}
       {showEnroll && (
-        <div className="mb-6 bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-          <h2 className="text-lg font-medium text-gray-800 mb-4">Enroll a Prescription</h2>
+        <div className="mb-6 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5 shadow-sm">
+          <h2 className="text-lg font-medium text-gray-800 dark:text-gray-100 mb-4">Enroll a Prescription</h2>
           <form onSubmit={handleEnroll} noValidate className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Prescription
               </label>
               {/* Issue #84: replace raw UUID input with the shared
@@ -305,7 +305,7 @@ export default function AdherencePage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Reminder Times (optional — leave blank to auto-derive)
               </label>
               <div className="space-y-2">
@@ -315,7 +315,7 @@ export default function AdherencePage() {
                       type="time"
                       value={t}
                       onChange={(e) => updateReminderTime(i, e.target.value)}
-                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     {enrollReminderTimes.length > 1 && (
                       <button
@@ -353,7 +353,7 @@ export default function AdherencePage() {
               <button
                 type="button"
                 onClick={() => setShowEnroll(false)}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm transition-colors"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition-colors"
               >
                 Cancel
               </button>
@@ -408,14 +408,14 @@ export default function AdherencePage() {
         {schedules.map((schedule) => (
           <div
             key={schedule.id}
-            className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm"
+            className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5 shadow-sm"
           >
             <div className="flex items-start justify-between mb-3">
               <div>
-                <p className="text-xs text-gray-400 mb-1">
+                <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">
                   Prescription ID: <span className="font-mono">{schedule.prescriptionId}</span>
                 </p>
-                <div className="flex items-center gap-4 text-xs text-gray-500">
+                <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
                   <span className="flex items-center gap-1">
                     <Calendar className="w-3.5 h-3.5" />
                     {formatDate(schedule.startDate)} — {formatDate(schedule.endDate)}
@@ -441,15 +441,15 @@ export default function AdherencePage() {
               {(schedule.medications ?? []).map((med, idx) => (
                 <div
                   key={idx}
-                  className="flex items-start justify-between bg-blue-50 rounded-lg px-4 py-3"
+                  className="flex items-start justify-between bg-blue-50 dark:bg-blue-900/30 rounded-lg px-4 py-3"
                 >
                   <div>
-                    <p className="text-sm font-medium text-gray-800">{med.name}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{med.name}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                       {med.dosage} · {med.frequency} · {med.duration}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1 text-xs text-blue-700 mt-0.5">
+                  <div className="flex items-center gap-1 text-xs text-blue-700 dark:text-blue-300 mt-0.5">
                     <Clock className="w-3.5 h-3.5 shrink-0" />
                     <span>{med.reminderTimes?.join(", ") ?? "—"}</span>
                   </div>

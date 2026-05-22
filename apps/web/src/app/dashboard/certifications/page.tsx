@@ -22,6 +22,13 @@ interface Cert {
 
 const CERT_TYPES = ["MEDICAL_LICENSE", "NURSING_CERT", "BLS", "ACLS", "TRAINING", "OTHER"];
 
+// Shared styling for the Add-Certification modal form controls. The modal
+// renders on the dark dashboard layout, so without explicit colors the inputs
+// inherit the layout's light text (dark:text-gray-100) and wash out white-on-
+// white; the dark variants give them a legible dark surface.
+const MODAL_FIELD =
+  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
+
 function daysUntil(dateStr: string | null): number | null {
   if (!dateStr) return null;
   const now = new Date();
@@ -120,7 +127,7 @@ export default function CertificationsPage() {
           <Award className="h-7 w-7 text-blue-600" />
           <div>
             <h1 className="text-2xl font-bold">Staff Certifications</h1>
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-slate-600 dark:text-slate-300">
               Licenses, certifications and training records with expiry tracking.
             </p>
           </div>
@@ -141,24 +148,24 @@ export default function CertificationsPage() {
             className={`px-3 py-1.5 text-sm rounded border ${
               filter === f
                 ? "bg-blue-600 text-white border-blue-600"
-                : "bg-white border-slate-200 text-slate-700"
+                : "bg-white border-slate-200 text-slate-700 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600"
             }`}
           >
-            {f === "all" ? "All" : f === "expiring" ? "Expiring (<=30d)" : "Expired"}
+            {f === "all" ? "All" : f === "expiring" ? "Expiring Soon" : "Expired"}
           </button>
         ))}
       </div>
 
       {loading ? (
-        <div className="p-8 text-center text-slate-500">Loading...</div>
+        <div className="p-8 text-center text-slate-500 dark:text-slate-400">Loading...</div>
       ) : filtered.length === 0 ? (
-        <div className="p-8 text-center text-slate-500 border border-dashed rounded-lg">
+        <div className="p-8 text-center text-slate-500 dark:text-slate-400 border border-dashed rounded-lg dark:border-gray-700">
           No certifications found.
         </div>
       ) : (
-        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+        <div className="bg-white dark:bg-gray-800 border border-slate-200 dark:border-gray-700 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-xs text-slate-600 uppercase">
+            <thead className="bg-slate-50 text-xs text-slate-600 uppercase dark:bg-gray-900/40 dark:text-gray-300">
               <tr>
                 <th className="px-3 py-2 text-left">Staff</th>
                 <th className="px-3 py-2 text-left">Type</th>
@@ -173,16 +180,16 @@ export default function CertificationsPage() {
               {filtered.map((c) => {
                 const d = daysUntil(c.expiryDate);
                 return (
-                  <tr key={c.id} className="border-t border-slate-100">
+                  <tr key={c.id} className="border-t border-slate-100 dark:border-gray-700">
                     <td className="px-3 py-2">{c.user?.name || c.userId.slice(0, 8)}</td>
                     <td className="px-3 py-2">
-                      <span className="text-xs bg-slate-100 px-2 py-0.5 rounded">
+                      <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded dark:bg-gray-700 dark:text-gray-200">
                         {c.type.replace(/_/g, " ")}
                       </span>
                     </td>
                     <td className="px-3 py-2 font-medium">{c.title}</td>
-                    <td className="px-3 py-2 text-slate-600">{c.issuingBody || "—"}</td>
-                    <td className="px-3 py-2 text-slate-600">{c.certNumber || "—"}</td>
+                    <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{c.issuingBody || "—"}</td>
+                    <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{c.certNumber || "—"}</td>
                     <td className="px-3 py-2">
                       {c.expiryDate ? c.expiryDate.slice(0, 10) : "—"}
                     </td>
@@ -212,7 +219,7 @@ export default function CertificationsPage() {
 
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white text-gray-900 rounded-lg w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto dark:bg-gray-800 dark:text-gray-100">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">Add Certification</h2>
               <button onClick={() => setShowModal(false)}>
@@ -243,7 +250,7 @@ export default function CertificationsPage() {
                   id="add-cert-type"
                   value={form.type}
                   onChange={(e) => setForm({ ...form, type: e.target.value })}
-                  className="w-full border rounded px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                 >
                   {CERT_TYPES.map((t) => (
                     <option key={t} value={t}>
@@ -258,7 +265,7 @@ export default function CertificationsPage() {
                   id="add-cert-title"
                   value={form.title}
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
-                  className="w-full border rounded px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                 />
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -268,7 +275,7 @@ export default function CertificationsPage() {
                     id="add-cert-issuing-body"
                     value={form.issuingBody}
                     onChange={(e) => setForm({ ...form, issuingBody: e.target.value })}
-                    className="w-full border rounded px-3 py-2 text-sm"
+                    className={MODAL_FIELD}
                   />
                 </div>
                 <div>
@@ -277,7 +284,7 @@ export default function CertificationsPage() {
                     id="add-cert-number"
                     value={form.certNumber}
                     onChange={(e) => setForm({ ...form, certNumber: e.target.value })}
-                    className="w-full border rounded px-3 py-2 text-sm"
+                    className={MODAL_FIELD}
                   />
                 </div>
                 <div>
@@ -287,7 +294,7 @@ export default function CertificationsPage() {
                     type="date"
                     value={form.issuedDate}
                     onChange={(e) => setForm({ ...form, issuedDate: e.target.value })}
-                    className="w-full border rounded px-3 py-2 text-sm"
+                    className={MODAL_FIELD}
                   />
                 </div>
                 <div>
@@ -297,7 +304,7 @@ export default function CertificationsPage() {
                     type="date"
                     value={form.expiryDate}
                     onChange={(e) => setForm({ ...form, expiryDate: e.target.value })}
-                    className="w-full border rounded px-3 py-2 text-sm"
+                    className={MODAL_FIELD}
                   />
                 </div>
               </div>
@@ -307,7 +314,7 @@ export default function CertificationsPage() {
                   id="add-cert-notes"
                   value={form.notes}
                   onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                  className="w-full border rounded px-3 py-2 text-sm"
+                  className={MODAL_FIELD}
                   rows={2}
                 />
               </div>
@@ -315,7 +322,7 @@ export default function CertificationsPage() {
             <div className="flex justify-end gap-2 mt-4">
               <button
                 onClick={() => setShowModal(false)}
-                className="px-3 py-2 text-sm text-slate-700"
+                className="px-3 py-2 text-sm text-slate-700 rounded border border-slate-300 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>

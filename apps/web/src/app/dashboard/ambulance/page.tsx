@@ -109,6 +109,14 @@ const TRIP_STAGES = [
 
 type Tab = "active" | "all";
 
+// Shared styling for the Add-Ambulance / Dispatch / Complete modal form
+// controls. These modals render over the dark dashboard layout, so without
+// explicit colors the inputs inherit the layout's light text
+// (dark:text-gray-100) and wash out white-on-white; the dark variants give
+// them a legible dark surface.
+const MODAL_FIELD =
+  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
+
 export default function AmbulancePage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
@@ -395,9 +403,9 @@ export default function AmbulancePage() {
           })}
         </div>
       ) : (
-        <div className="rounded-lg bg-white shadow">
+        <div className="rounded-lg bg-white shadow dark:bg-gray-800">
           <table className="w-full text-sm">
-            <thead className="border-b bg-gray-50 text-left text-xs uppercase text-gray-500">
+            <thead className="border-b bg-gray-50 text-left text-xs uppercase text-gray-500 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-400">
               <tr>
                 <th className="p-3">Trip #</th>
                 <th className="p-3">Vehicle</th>
@@ -411,19 +419,19 @@ export default function AmbulancePage() {
             </thead>
             <tbody>
               {displayTrips.map((t) => (
-                <tr key={t.id} className="border-b hover:bg-gray-50">
+                <tr key={t.id} className="border-b hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
                   <td className="p-3 font-mono text-xs">{t.tripNumber}</td>
                   <td className="p-3">{t.ambulance.vehicleNumber}</td>
                   <td className="p-3">
                     {t.patient?.user.name || t.callerName || "—"}
                   </td>
-                  <td className="p-3 text-xs text-gray-600">{t.pickupAddress}</td>
+                  <td className="p-3 text-xs text-gray-600 dark:text-gray-300">{t.pickupAddress}</td>
                   <td className="p-3">
-                    <span className="rounded bg-gray-100 px-2 py-0.5 text-xs">
+                    <span className="rounded bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-700 dark:text-gray-200">
                       {t.status.replace(/_/g, " ")}
                     </span>
                   </td>
-                  <td className="p-3 text-xs text-gray-500">
+                  <td className="p-3 text-xs text-gray-500 dark:text-gray-400">
                     {new Date(t.requestedAt).toLocaleString()}
                   </td>
                   <td className="p-3">{t.distanceKm ? `${t.distanceKm} km` : "—"}</td>
@@ -432,7 +440,7 @@ export default function AmbulancePage() {
               ))}
               {displayTrips.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="p-6 text-center text-gray-400">
+                  <td colSpan={8} className="p-6 text-center text-gray-400 dark:text-gray-500">
                     No trips
                   </td>
                 </tr>
@@ -539,15 +547,15 @@ function AddAmbulanceModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-lg bg-white p-6">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-lg bg-white p-6 text-gray-900 dark:bg-gray-800 dark:text-gray-100">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Add Ambulance</h2>
-          <button onClick={onClose} className="text-gray-400">✕</button>
+          <button onClick={onClose} className="text-gray-400 dark:text-gray-500">✕</button>
         </div>
         <div className="space-y-3">
           <input
             placeholder="Vehicle Number"
-            className="w-full rounded border p-2"
+            className={MODAL_FIELD}
             value={form.vehicleNumber}
             onChange={(e) =>
               setForm({ ...form, vehicleNumber: e.target.value })
@@ -556,19 +564,19 @@ function AddAmbulanceModal({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <input
               placeholder="Make"
-              className="rounded border p-2"
+              className={MODAL_FIELD}
               value={form.make}
               onChange={(e) => setForm({ ...form, make: e.target.value })}
             />
             <input
               placeholder="Model"
-              className="rounded border p-2"
+              className={MODAL_FIELD}
               value={form.model}
               onChange={(e) => setForm({ ...form, model: e.target.value })}
             />
           </div>
           <select
-            className="w-full rounded border p-2"
+            className={MODAL_FIELD}
             value={form.type}
             onChange={(e) => setForm({ ...form, type: e.target.value })}
           >
@@ -579,13 +587,13 @@ function AddAmbulanceModal({
           </select>
           <input
             placeholder="Driver name"
-            className="w-full rounded border p-2"
+            className={MODAL_FIELD}
             value={form.driverName}
             onChange={(e) => setForm({ ...form, driverName: e.target.value })}
           />
           <input
             placeholder="Driver phone"
-            className="w-full rounded border p-2"
+            className={MODAL_FIELD}
             value={form.driverPhone}
             onChange={(e) => setForm({ ...form, driverPhone: e.target.value })}
             data-testid="ambulance-driverPhone"
@@ -608,7 +616,7 @@ function AddAmbulanceModal({
           )}
           <input
             placeholder="Paramedic name"
-            className="w-full rounded border p-2"
+            className={MODAL_FIELD}
             value={form.paramedicName}
             onChange={(e) =>
               setForm({ ...form, paramedicName: e.target.value })
@@ -616,7 +624,7 @@ function AddAmbulanceModal({
           />
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded border px-4 py-2 text-sm">
+          <button onClick={onClose} className="rounded border px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700">
             Cancel
           </button>
           <button
@@ -730,15 +738,15 @@ function DispatchModal({
         data-testid="dispatch-modal"
         role="dialog"
         aria-label="Dispatch Ambulance"
-        className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-lg bg-white p-6"
+        className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-lg bg-white p-6 text-gray-900 dark:bg-gray-800 dark:text-gray-100"
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Dispatch Ambulance</h2>
-          <button onClick={onClose} className="text-gray-400">✕</button>
+          <button onClick={onClose} className="text-gray-400 dark:text-gray-500">✕</button>
         </div>
         <div className="space-y-3">
           <select
-            className="w-full rounded border p-2"
+            className={MODAL_FIELD}
             value={form.ambulanceId}
             onChange={(e) => setForm({ ...form, ambulanceId: e.target.value })}
             data-testid="trip-ambulanceId"
@@ -762,23 +770,23 @@ function DispatchModal({
           )}
 
           <div>
-            <label htmlFor="ambulance-patient-search" className="text-xs text-gray-600">Patient (optional)</label>
+            <label htmlFor="ambulance-patient-search" className="text-xs text-gray-600 dark:text-gray-300">Patient (optional)</label>
             <div className="flex gap-2">
               <input
                 id="ambulance-patient-search"
                 placeholder="Search patient"
-                className="flex-1 rounded border p-2"
+                className={`flex-1 ${MODAL_FIELD}`}
                 value={patientSearch}
                 onChange={(e) => setPatientSearch(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && searchPatients()}
               />
-              <button onClick={searchPatients} className="rounded border px-3 text-sm">
+              <button onClick={searchPatients} className="rounded border px-3 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700">
                 Search
               </button>
             </div>
             {patients.length > 0 && (
               <select
-                className="mt-2 w-full rounded border p-2"
+                className={`mt-2 ${MODAL_FIELD}`}
                 value={form.patientId}
                 onChange={(e) => setForm({ ...form, patientId: e.target.value })}
               >
@@ -795,13 +803,13 @@ function DispatchModal({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <input
               placeholder="Caller name"
-              className="rounded border p-2"
+              className={MODAL_FIELD}
               value={form.callerName}
               onChange={(e) => setForm({ ...form, callerName: e.target.value })}
             />
             <input
               placeholder="Caller phone"
-              className="rounded border p-2"
+              className={MODAL_FIELD}
               value={form.callerPhone}
               onChange={(e) =>
                 setForm({ ...form, callerPhone: e.target.value })
@@ -819,7 +827,7 @@ function DispatchModal({
           )}
           <input
             placeholder="Pickup address"
-            className="w-full rounded border p-2"
+            className={MODAL_FIELD}
             value={form.pickupAddress}
             onChange={(e) =>
               setForm({ ...form, pickupAddress: e.target.value })
@@ -836,7 +844,7 @@ function DispatchModal({
           )}
           <input
             placeholder="Drop address (optional)"
-            className="w-full rounded border p-2"
+            className={MODAL_FIELD}
             value={form.dropAddress}
             onChange={(e) => setForm({ ...form, dropAddress: e.target.value })}
             data-testid="trip-dropAddress"
@@ -859,7 +867,7 @@ function DispatchModal({
           )}
           <textarea
             placeholder="Chief complaint"
-            className="w-full rounded border p-2"
+            className={MODAL_FIELD}
             rows={2}
             value={form.chiefComplaint}
             onChange={(e) =>
@@ -868,7 +876,7 @@ function DispatchModal({
           />
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded border px-4 py-2 text-sm">
+          <button onClick={onClose} className="rounded border px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700">
             Cancel
           </button>
           <button
@@ -970,17 +978,17 @@ function CompleteTripModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-lg bg-white p-6">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-lg bg-white p-6 text-gray-900 dark:bg-gray-800 dark:text-gray-100">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Complete {trip.tripNumber}</h2>
-          <button onClick={onClose} className="text-gray-400">✕</button>
+          <button onClick={onClose} className="text-gray-400 dark:text-gray-500">✕</button>
         </div>
         <div className="space-y-3">
-          <label className="block text-xs text-gray-600">
+          <label className="block text-xs text-gray-600 dark:text-gray-300">
             Actual end time
             <input
               type="datetime-local"
-              className="mt-1 w-full rounded border p-2"
+              className={`mt-1 ${MODAL_FIELD}`}
               value={actualEndTime}
               onChange={(e) => setActualEndTime(e.target.value)}
               data-testid="complete-actualEndTime"
@@ -996,7 +1004,7 @@ function CompleteTripModal({
             min={0}
             step="0.1"
             placeholder="Final distance (km)"
-            className="w-full rounded border p-2"
+            className={MODAL_FIELD}
             value={finalDistance}
             onChange={(e) => setFinalDistance(e.target.value)}
             data-testid="complete-finalDistance"
@@ -1011,7 +1019,7 @@ function CompleteTripModal({
             min={0}
             step="0.01"
             placeholder="Final cost (₹)"
-            className="w-full rounded border p-2"
+            className={MODAL_FIELD}
             value={finalCost}
             onChange={(e) => setFinalCost(e.target.value)}
             data-testid="complete-finalCost"
@@ -1023,7 +1031,7 @@ function CompleteTripModal({
           )}
           <textarea
             placeholder="Notes"
-            className="w-full rounded border p-2"
+            className={MODAL_FIELD}
             rows={2}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -1036,7 +1044,7 @@ function CompleteTripModal({
           )}
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded border px-4 py-2 text-sm">
+          <button onClick={onClose} className="rounded border px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700">
             Cancel
           </button>
           <button

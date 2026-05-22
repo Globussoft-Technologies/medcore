@@ -52,6 +52,13 @@ interface Medicine {
 const TABS = ["DRAFT", "PENDING", "APPROVED", "RECEIVED", "ALL"] as const;
 type Tab = (typeof TABS)[number];
 
+// Shared styling for the New-Purchase-Order modal form controls. The modal
+// renders on the dark dashboard layout, so without explicit colors the inputs
+// inherit the layout's light text (dark:text-gray-100) and wash out; the dark
+// variants give them a legible dark surface.
+const MODAL_FIELD =
+  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
+
 export default function PurchaseOrdersPage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
@@ -117,7 +124,7 @@ export default function PurchaseOrdersPage() {
           <h1 className="flex items-center gap-2 text-2xl font-bold">
             <ShoppingCart className="text-primary" size={28} /> Purchase Orders
           </h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Manage procurement from suppliers
           </p>
         </div>
@@ -129,7 +136,7 @@ export default function PurchaseOrdersPage() {
         </button>
       </div>
 
-      <div className="mb-4 flex gap-2 border-b">
+      <div className="mb-4 flex gap-2 border-b dark:border-gray-700">
         {TABS.map((t) => (
           <button
             key={t}
@@ -137,7 +144,7 @@ export default function PurchaseOrdersPage() {
             className={`px-4 py-2 text-sm font-medium ${
               tab === t
                 ? "border-b-2 border-primary text-primary"
-                : "text-gray-500 hover:text-gray-700"
+                : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
             }`}
           >
             {t === "ALL" ? "All" : t.charAt(0) + t.slice(1).toLowerCase()}
@@ -145,16 +152,16 @@ export default function PurchaseOrdersPage() {
         ))}
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : orders.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">No purchase orders found</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">No purchase orders found</div>
         ) : (
           <div className="overflow-x-auto">
           <table className="w-full min-w-[760px]">
             <thead>
-              <tr className="border-b text-left text-sm text-gray-500">
+              <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">PO #</th>
                 <th className="px-4 py-3">Supplier</th>
                 <th className="px-4 py-3">Items</th>
@@ -166,7 +173,7 @@ export default function PurchaseOrdersPage() {
             </thead>
             <tbody>
               {orders.map((po) => (
-                <tr key={po.id} className="border-b last:border-0 hover:bg-gray-50">
+                <tr key={po.id} className="border-b last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
                   <td className="px-4 py-3 font-mono text-sm">
                     <Link
                       href={`/dashboard/purchase-orders/${po.id}`}
@@ -176,7 +183,7 @@ export default function PurchaseOrdersPage() {
                     </Link>
                   </td>
                   <td className="px-4 py-3">{po.supplier.name}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
+                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
                     {po.items.length}
                   </td>
                   <td className="px-4 py-3 font-medium">
@@ -189,7 +196,7 @@ export default function PurchaseOrdersPage() {
                       {po.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                     {new Date(po.createdAt).toLocaleDateString("en-IN")}
                   </td>
                   <td className="px-4 py-3">
@@ -393,10 +400,10 @@ function NewPOModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white p-6 shadow-2xl">
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white p-6 text-gray-900 shadow-2xl dark:bg-gray-800 dark:text-gray-100">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">New Purchase Order</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">
             <X size={20} />
           </button>
         </div>
@@ -408,7 +415,7 @@ function NewPOModal({
                 id="po-supplier"
                 value={supplierId}
                 onChange={(e) => setSupplierId(e.target.value)}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={MODAL_FIELD}
               >
                 <option value="">Select supplier</option>
                 {suppliers.map((s) => (
@@ -425,7 +432,7 @@ function NewPOModal({
                 type="date"
                 value={expectedAt}
                 onChange={(e) => setExpectedAt(e.target.value)}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={MODAL_FIELD}
               />
             </div>
           </div>
@@ -444,7 +451,7 @@ function NewPOModal({
             <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[720px]">
               <thead>
-                <tr className="border-b text-left text-xs text-gray-500">
+                <tr className="border-b text-left text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
                   <th className="py-1">Medicine (optional)</th>
                   <th className="py-1">Description *</th>
                   <th className="py-1 w-20">Qty</th>
@@ -458,12 +465,12 @@ function NewPOModal({
                   const q = parseFloat(it.quantity) || 0;
                   const p = parseFloat(it.unitPrice) || 0;
                   return (
-                    <tr key={i} className="border-b last:border-0">
+                    <tr key={i} className="border-b last:border-0 dark:border-gray-700">
                       <td className="py-1 pr-2">
                         <select
                           value={it.medicineId || ""}
                           onChange={(e) => updateRow(i, "medicineId", e.target.value)}
-                          className="w-full rounded border px-2 py-1 text-xs"
+                          className="w-full rounded border bg-white px-2 py-1 text-xs text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                         >
                           <option value="">-- custom --</option>
                           {medicines.map((m) => (
@@ -477,7 +484,7 @@ function NewPOModal({
                         <input
                           value={it.description}
                           onChange={(e) => updateRow(i, "description", e.target.value)}
-                          className="w-full rounded border px-2 py-1 text-xs"
+                          className="w-full rounded border bg-white px-2 py-1 text-xs text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                         />
                       </td>
                       <td className="py-1 pr-2">
@@ -485,7 +492,7 @@ function NewPOModal({
                           type="number"
                           value={it.quantity}
                           onChange={(e) => updateRow(i, "quantity", e.target.value)}
-                          className="w-full rounded border px-2 py-1 text-xs"
+                          className="w-full rounded border bg-white px-2 py-1 text-xs text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                         />
                       </td>
                       <td className="py-1 pr-2">
@@ -494,7 +501,7 @@ function NewPOModal({
                           step="0.01"
                           value={it.unitPrice}
                           onChange={(e) => updateRow(i, "unitPrice", e.target.value)}
-                          className="w-full rounded border px-2 py-1 text-xs"
+                          className="w-full rounded border bg-white px-2 py-1 text-xs text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                         />
                       </td>
                       <td className="py-1 pr-2 text-xs">
@@ -528,19 +535,19 @@ function NewPOModal({
                 step="0.01"
                 value={taxPercentage}
                 onChange={(e) => setTaxPercentage(e.target.value)}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={MODAL_FIELD}
               />
             </div>
-            <div className="rounded-lg bg-gray-50 p-3 text-sm">
+            <div className="rounded-lg bg-gray-50 p-3 text-sm dark:bg-gray-900/40 dark:border-gray-700">
               <div className="flex justify-between">
-                <span className="text-gray-500">Subtotal</span>
+                <span className="text-gray-500 dark:text-gray-400">Subtotal</span>
                 <span>Rs. {subtotal.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Tax</span>
+                <span className="text-gray-500 dark:text-gray-400">Tax</span>
                 <span>Rs. {tax.toFixed(2)}</span>
               </div>
-              <div className="mt-1 flex justify-between border-t pt-1 font-semibold">
+              <div className="mt-1 flex justify-between border-t pt-1 font-semibold dark:border-gray-700">
                 <span>Total</span>
                 <span>Rs. {total.toFixed(2)}</span>
               </div>
@@ -554,12 +561,12 @@ function NewPOModal({
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className={MODAL_FIELD}
             />
           </div>
 
           {error && (
-            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-900/30 dark:text-red-400">
               {error}
             </div>
           )}
@@ -567,7 +574,7 @@ function NewPOModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+              className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
             >
               Cancel
             </button>

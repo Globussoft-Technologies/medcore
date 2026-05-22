@@ -316,7 +316,7 @@ function ExportButton({
     <button
       onClick={onClick}
       disabled={disabled || busy}
-      className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 text-left shadow-sm transition hover:border-emerald-400 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:border-emerald-700"
+      className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 text-left shadow-sm transition hover:border-emerald-400 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-gray-200 disabled:hover:shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:hover:border-emerald-700 dark:disabled:hover:border-gray-700"
     >
       {busy ? (
         <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />

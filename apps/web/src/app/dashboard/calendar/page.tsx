@@ -1079,7 +1079,7 @@ function NewEventDialog({
     const errs: Record<string, string> = {};
     const trimmed = title.trim();
     if (trimmed.length < 2) errs.title = "Title must be at least 2 characters";
-    // Issue #944: surface the reject-not-strip contract in the UI so a
+    // Issue #944: surface the reject-not-strip contract in the UI so  a
     // `<script>...</script>` paste shows an inline error instead of being
     // silently laundered into the saved title. Mirrors the server-side
     // refine in `createCalendarEventSchema` so the user can't bypass it.

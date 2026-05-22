@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
@@ -152,6 +152,11 @@ export default function PrescriptionsPage() {
     diagnosis: "",
     advice: "",
     followUpDate: "",
+    // Per-prescription signature captured via SignaturePad. Empty string =
+    // "not signed yet"; otherwise a base64 PNG data URL. Submitted as
+    // `signatureDataUrl` in POST/PATCH; the API persists it onto
+    // Prescription.signatureUrl so the share endpoint stops rejecting.
+    signatureDataUrl: "",
   });
   const [medicines, setMedicines] = useState([
     { medicineName: "", dosage: "", frequency: "", duration: "", instructions: "" },
@@ -171,6 +176,19 @@ export default function PrescriptionsPage() {
   const [interactionWarnings, setInteractionWarnings] = useState<InteractionWarning[]>([]);
   const [showInteractionModal, setShowInteractionModal] = useState(false);
   const [checkingInteractions, setCheckingInteractions] = useState(false);
+
+  // Sign-before-share modal: when the doctor hits "Share via WhatsApp/Email"
+  // on a prescription that has no signatureUrl yet, the API returns 409
+  // "Cannot share an unsigned prescription". We catch that, open this
+  // modal with a SignaturePad, PATCH the captured signature onto the row,
+  // then retry the share. Channel is remembered so the retry hits the
+  // same endpoint the doctor originally chose.
+  const [signShareTarget, setSignShareTarget] = useState<{
+    rx: PrescriptionRecord;
+    channel: "WHATSAPP" | "EMAIL" | "SMS";
+  } | null>(null);
+  const [shareSignature, setShareSignature] = useState("");
+  const [shareSubmitting, setShareSubmitting] = useState(false);
 
   // Generic substitution
   interface GenericAlt {
@@ -344,13 +362,108 @@ export default function PrescriptionsPage() {
     }
   }
 
-  async function shareVia(id: string, channel: "WHATSAPP" | "EMAIL" | "SMS") {
+  async function shareVia(rx: PrescriptionRecord, channel: "WHATSAPP" | "EMAIL" | "SMS") {
     try {
-      await api.post(`/prescriptions/${id}/share`, { channel });
+      await api.post(`/prescriptions/${rx.id}/share`, { channel });
       toast.success(`Prescription shared via ${channel}`);
       loadPrescriptions();
     } catch (err) {
+      // API guard: POST /:id/share returns 409 with a "Cannot share an
+      // unsigned prescription" message when Prescription.signatureUrl is
+      // null. Detect that and open the Sign-before-share modal so the
+      // doctor can sign retroactively, rather than just toasting an error
+      // the doctor can't act on.
+      const anyErr = err as Error & {
+        status?: number;
+        payload?: { error?: string };
+      };
+      const msg = anyErr?.payload?.error ?? (err instanceof Error ? err.message : "");
+      if (anyErr?.status === 409 && /unsigned/i.test(msg)) {
+        setShareSignature("");
+        setSignShareTarget({ rx, channel });
+        return;
+      }
+      toast.error(msg || "Failed to share");
+    }
+  }
+
+  // Sign-and-share: PATCH the captured signature onto the prescription,
+  // then immediately retry the original share call. If the PATCH fails we
+  // MUST surface the real error and abort — the subsequent /share would
+  // 409 again with the confusing "unsigned" message and the doctor would
+  // be stuck re-signing in a loop.
+  //
+  // Legacy-data tolerance: signing is an attestation, NOT an edit. Older
+  // prescriptions in the DB predate the current dosage/duration/frequency
+  // regexes (Issues #9 / #542), so item fields like `duration: "2"` (bare
+  // number, no unit) trip the PATCH validator and the doctor can't sign.
+  // We coerce only-when-invalid: the dosage/frequency/duration shipped in
+  // the PATCH payload always satisfy the shared Zod schema, even when the
+  // stored item doesn't. The em-dash sentinel `—` is the validator's
+  // documented "blank" escape for duration; dosage/frequency normalize to
+  // safe shapes too. The Edit form remains the place to fix the actual
+  // stored value if the doctor wants — this codepath only unblocks share.
+  function sanitizeItemForSign(it: PrescriptionRecord["items"][number]) {
+    // Duration regex (mirrors packages/shared/src/validation/prescription.ts).
+    const DURATION_OK =
+      /^\s*(?:\d+(?:\.\d+)?\s*(?:hour|hours|hr|hrs|h|day|days|d|week|weeks|w|wk|wks|month|months|mo|mos|m)|—|-)\s*$/i;
+    // Dosage regex: number with optional unit.
+    const DOSAGE_OK = /^\s*\d+(?:\.\d+)?\s*[A-Za-z%/µμ]*\s*$/;
+
+    const rawDuration = (it.duration ?? "").trim();
+    const duration = DURATION_OK.test(rawDuration) ? rawDuration : "—";
+
+    const rawDosage = (it.dosage ?? "").trim();
+    // Dosage > 0 is also enforced — "0" or "" must be coerced.
+    const dosageNum = parseFloat(rawDosage);
+    const dosage =
+      DOSAGE_OK.test(rawDosage) && Number.isFinite(dosageNum) && dosageNum > 0
+        ? rawDosage
+        : "1";
+
+    const frequency = (it.frequency ?? "").trim() || "As directed";
+    const medicineName = (it.medicineName ?? "").trim() || "Unspecified";
+
+    return {
+      medicineName,
+      dosage,
+      frequency,
+      duration,
+      instructions: it.instructions ?? undefined,
+    };
+  }
+
+  async function confirmShareWithSignature() {
+    if (!signShareTarget || !shareSignature) return;
+    const { rx, channel } = signShareTarget;
+    setShareSubmitting(true);
+    try {
+      // followUpDate is stored as a full ISO timestamp (Prisma DateTime)
+      // but updatePrescriptionSchema enforces YYYY-MM-DD only. Slice to the
+      // date portion before sending so the legacy ISO shape doesn't trip
+      // the validator. `undefined` for null / unparseable so the field is
+      // omitted entirely (the schema treats it as optional).
+      const isoDate = rx.followUpDate
+        ? rx.followUpDate.slice(0, 10)
+        : undefined;
+      const followUpDate =
+        isoDate && /^\d{4}-\d{2}-\d{2}$/.test(isoDate) ? isoDate : undefined;
+      await api.patch(`/prescriptions/${rx.id}`, {
+        diagnosis: rx.diagnosis,
+        items: rx.items.map(sanitizeItemForSign),
+        advice: rx.advice ?? undefined,
+        followUpDate,
+        signatureDataUrl: shareSignature,
+      });
+      await api.post(`/prescriptions/${rx.id}/share`, { channel });
+      toast.success(`Prescription signed and shared via ${channel}`);
+      setSignShareTarget(null);
+      setShareSignature("");
+      loadPrescriptions();
+    } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to share");
+    } finally {
+      setShareSubmitting(false);
     }
   }
 
@@ -445,7 +558,7 @@ export default function PrescriptionsPage() {
     setShowInteractionModal(false);
     setInteractionWarnings([]);
     setEditingId(null);
-    setForm({ appointmentId: "", patientId: "", diagnosis: "", advice: "", followUpDate: "" });
+    setForm({ appointmentId: "", patientId: "", diagnosis: "", advice: "", followUpDate: "", signatureDataUrl: "" });
     setMedicines([{ medicineName: "", dosage: "", frequency: "", duration: "", instructions: "" }]);
     setFormErrors({});
   }
@@ -464,6 +577,12 @@ export default function PrescriptionsPage() {
       diagnosis: rx.diagnosis,
       advice: rx.advice ?? "",
       followUpDate: rx.followUpDate ? rx.followUpDate.slice(0, 10) : "",
+      // Don't pre-populate the existing signature into the pad — we never
+      // need to re-render an existing signature as a draw, and leaving the
+      // value empty here means a PATCH that doesn't re-capture won't ship
+      // an empty signatureDataUrl and (per the API guard) won't blank out
+      // the stored signature.
+      signatureDataUrl: "",
     });
     setMedicines(
       rx.items.length > 0
@@ -495,6 +614,10 @@ export default function PrescriptionsPage() {
           advice: form.advice || undefined,
           followUpDate: form.followUpDate || undefined,
           overrideWarnings: override,
+          // Only send the signature when the doctor re-signed this session.
+          // An empty string means "no new signature" — the API guard treats
+          // undefined as "leave existing signature alone".
+          signatureDataUrl: form.signatureDataUrl || undefined,
         });
         toast.success("Prescription updated");
       } else {
@@ -506,6 +629,7 @@ export default function PrescriptionsPage() {
           advice: form.advice || undefined,
           followUpDate: form.followUpDate || undefined,
           overrideWarnings: override,
+          signatureDataUrl: form.signatureDataUrl || undefined,
         });
       }
       resetForm();
@@ -1123,6 +1247,27 @@ export default function PrescriptionsPage() {
             </div>
           </div>
 
+          {/* Doctor signature — required for the prescription to be
+              shareable. If left blank the row falls back to the doctor's
+              pre-saved Doctor.signatureUrl, but if that's also empty the
+              share endpoint will 409. The Sign-before-share modal lets
+              the doctor sign retroactively. */}
+          <div className="mb-4">
+            <label className="mb-1 flex items-center text-sm font-medium text-gray-700 dark:text-gray-200">
+              Doctor Signature
+              <InfoIcon tooltip="Sign here to attest the prescription. Required before you can share via WhatsApp / Email." />
+              {editingId ? null : (
+                <span className="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">
+                  (optional — falls back to your saved signature)
+                </span>
+              )}
+            </label>
+            <SignaturePad
+              value={form.signatureDataUrl}
+              onChange={(dataUrl) => setForm({ ...form, signatureDataUrl: dataUrl })}
+            />
+          </div>
+
           <div className="flex gap-2">
             <button
               type="submit"
@@ -1398,14 +1543,14 @@ export default function PrescriptionsPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => shareVia(rx.id, "WHATSAPP")}
+                      onClick={() => shareVia(rx, "WHATSAPP")}
                       className="rounded-lg border px-3 py-1.5 text-xs text-green-700 hover:bg-green-50"
                     >
                       Share via WhatsApp
                     </button>
                     <button
                       type="button"
-                      onClick={() => shareVia(rx.id, "EMAIL")}
+                      onClick={() => shareVia(rx, "EMAIL")}
                       className="rounded-lg border px-3 py-1.5 text-xs text-blue-700 hover:bg-blue-50"
                     >
                       Share via Email
@@ -1661,6 +1806,66 @@ export default function PrescriptionsPage() {
         </div>
       )}
 
+      {/* Sign-before-share modal — opens when the doctor taps Share on a
+          row that has no digital signature yet. Mounts the same
+          SignaturePad used by the New / Edit form so the doctor can
+          attest inline and continue to the share call without leaving
+          the list. */}
+      {signShareTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div
+            className="w-full max-w-lg overflow-hidden rounded-xl bg-white shadow-xl dark:bg-gray-800"
+            data-testid="rx-sign-share-modal"
+          >
+            <div className="border-b border-gray-200 px-6 py-4 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                Sign before sharing
+              </h2>
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                This prescription for{" "}
+                <span className="font-medium">
+                  {signShareTarget.rx.patient.user.name}
+                </span>{" "}
+                has no digital signature on file. Sign below to attest the
+                prescription and share via {signShareTarget.channel}.
+              </p>
+            </div>
+            <div className="p-6">
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">
+                Doctor Signature
+                <span className="ml-1 text-red-500" aria-hidden="true">*</span>
+              </label>
+              <SignaturePad
+                value={shareSignature}
+                onChange={setShareSignature}
+              />
+            </div>
+            <div className="flex items-center justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4 dark:border-gray-700 dark:bg-gray-900/40">
+              <button
+                type="button"
+                onClick={() => {
+                  setSignShareTarget(null);
+                  setShareSignature("");
+                }}
+                disabled={shareSubmitting}
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmShareWithSignature}
+                disabled={!shareSignature || shareSubmitting}
+                data-testid="rx-sign-share-confirm"
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {shareSubmitting ? "Sharing…" : `Sign & Share via ${signShareTarget.channel}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {renalDoseRow !== null && (
         <RenalDoseModal
           medicineName={medicines[renalDoseRow]?.medicineName || ""}
@@ -1892,6 +2097,174 @@ function RenalDoseModal({
             </button>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Signature Pad ─────────────────────────────────────
+//
+// Mouse + touch + stylus drawable canvas. Emits a base64 PNG data URL to
+// the parent on every stroke end. Used by:
+//   - the New / Edit prescription form (sign at write-time), and
+//   - the "Sign before sharing" modal (sign at share-time, when the
+//     prescription is still unsigned and the doctor hits Share).
+// The surface is intentionally always white in both light + dark themes
+// so the dark ink stroke stays legible and matches the printed Rx.
+
+function SignaturePad({
+  value,
+  onChange,
+  hasError,
+}: {
+  value: string;
+  onChange: (dataUrl: string) => void;
+  hasError?: boolean;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawingRef = useRef(false);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+  const hasInkRef = useRef(false);
+
+  // Backing-store at device-pixel resolution so the signature stays crisp
+  // on retina/HiDPI displays. Visible size is set by Tailwind; we only
+  // scale the internal bitmap here. Runs once on mount — re-running on
+  // every `value` change would wipe in-progress strokes mid-draw.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.scale(dpr, dpr);
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#111827";
+    hasInkRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Parent clears the signature (value back to "") — for example after a
+  // successful Sign & Share. Wipe the pixels so the next open starts blank.
+  useEffect(() => {
+    if (value) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    hasInkRef.current = false;
+  }, [value]);
+
+  function pointFromEvent(
+    e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>,
+  ): { x: number; y: number } | null {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    if ("touches" in e) {
+      const t = e.touches[0] ?? e.changedTouches[0];
+      if (!t) return null;
+      return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+    }
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  function startStroke(
+    e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>,
+  ) {
+    e.preventDefault();
+    const pt = pointFromEvent(e);
+    if (!pt) return;
+    drawingRef.current = true;
+    lastPointRef.current = pt;
+  }
+
+  function moveStroke(
+    e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>,
+  ) {
+    if (!drawingRef.current) return;
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    const pt = pointFromEvent(e);
+    if (!canvas || !ctx || !pt || !lastPointRef.current) return;
+    ctx.beginPath();
+    ctx.moveTo(lastPointRef.current.x, lastPointRef.current.y);
+    ctx.lineTo(pt.x, pt.y);
+    ctx.stroke();
+    lastPointRef.current = pt;
+    hasInkRef.current = true;
+  }
+
+  function endStroke() {
+    if (!drawingRef.current) return;
+    drawingRef.current = false;
+    lastPointRef.current = null;
+    const canvas = canvasRef.current;
+    if (!canvas || !hasInkRef.current) return;
+    try {
+      onChange(canvas.toDataURL("image/png"));
+    } catch {
+      // toDataURL can fail on tainted canvases; we never draw foreign
+      // images here, so this is purely defensive.
+    }
+  }
+
+  function clear() {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    hasInkRef.current = false;
+    onChange("");
+  }
+
+  return (
+    <div data-testid="rx-signature-pad">
+      <div
+        className={`relative rounded-lg border bg-white ${
+          hasError
+            ? "border-red-500"
+            : "border-gray-300 dark:border-gray-700"
+        }`}
+      >
+        <canvas
+          ref={canvasRef}
+          data-testid="rx-signature-canvas"
+          onMouseDown={startStroke}
+          onMouseMove={moveStroke}
+          onMouseUp={endStroke}
+          onMouseLeave={endStroke}
+          onTouchStart={startStroke}
+          onTouchMove={moveStroke}
+          onTouchEnd={endStroke}
+          className="block h-32 w-full cursor-crosshair touch-none rounded-lg"
+        />
+        {!value && (
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-gray-400 dark:text-gray-500">
+            Sign here
+          </span>
+        )}
+      </div>
+      <div className="mt-2 flex items-center justify-between">
+        <span
+          className="text-xs text-gray-500 dark:text-gray-400"
+          data-testid="rx-signature-status"
+        >
+          {value ? "Signature captured" : "Not signed yet"}
+        </span>
+        <button
+          type="button"
+          onClick={clear}
+          data-testid="rx-signature-clear"
+          className="text-xs font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100"
+        >
+          Clear
+        </button>
       </div>
     </div>
   );

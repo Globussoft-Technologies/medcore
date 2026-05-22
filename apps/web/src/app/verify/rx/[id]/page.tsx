@@ -262,15 +262,22 @@ export default async function VerifyPrescriptionPage({
           </p>
         </article>
 
-        {/* Print button (hidden when printing) */}
+        {/* Print button (hidden when printing). Opens the FULL prescription
+            PDF — same buffer the doctor downloads from the dashboard — so
+            the patient can take the actual Rx to a pharmacy. The verify
+            URL above still proves authenticity; this link gives them the
+            artefact. The PDF route is public (UUID is the secret); same
+            security stance as the verify endpoint itself. */}
         <div className="verify-no-print mt-6 text-center">
           <a
-            href="javascript:window.print()"
+            href={`${(process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1").replace(/\/$/, "")}/public/verify/rx/${encodeURIComponent(data.prescriptionId)}/pdf`}
+            target="_blank"
+            rel="noopener"
             className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-gray-200 transition hover:bg-gray-50 dark:bg-gray-900 dark:text-gray-200 dark:ring-gray-700 dark:hover:bg-gray-800"
-            aria-label="Print verification"
+            aria-label="Download prescription PDF"
           >
             <Printer className="h-4 w-4" aria-hidden="true" />
-            Print Verification
+            Download Prescription
           </a>
         </div>
 

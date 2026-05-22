@@ -243,6 +243,7 @@ router.post(
         overrideWarnings,
         overrideAllergies,
         allergyOverrideReason,
+        signatureDataUrl,
       } = req.body as {
           appointmentId: string;
           patientId: string;
@@ -253,6 +254,7 @@ router.post(
           overrideWarnings?: boolean;
           overrideAllergies?: boolean;
           allergyOverrideReason?: string;
+          signatureDataUrl?: string;
         };
 
       // ─── Issue #898 ───────────────────────────────────────────────────
@@ -383,7 +385,11 @@ router.post(
           diagnosis,
           advice,
           followUpDate: followUpDate ? new Date(followUpDate) : undefined,
-          signatureUrl: doctor?.signatureUrl,
+          // Per-prescription signature wins over the doctor's pre-saved one.
+          // When the doctor signs the SignaturePad on the form we use that
+          // capture; otherwise fall back to whatever signature is on the
+          // Doctor row so existing flows keep working.
+          signatureUrl: signatureDataUrl || doctor?.signatureUrl,
           items: {
             create: normalizedItems,
           },
@@ -437,8 +443,14 @@ router.patch(
   validate(updatePrescriptionSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { diagnosis, items, advice, followUpDate, overrideWarnings } =
-        req.body as {
+      const {
+        diagnosis,
+        items,
+        advice,
+        followUpDate,
+        overrideWarnings,
+        signatureDataUrl,
+      } = req.body as {
           diagnosis: string;
           items: Array<{
             medicineId?: string;
@@ -452,6 +464,7 @@ router.patch(
           advice?: string;
           followUpDate?: string;
           overrideWarnings?: boolean;
+          signatureDataUrl?: string;
         };
 
       // ─── Issue #898 (PATCH parity with POST) ────────────────────────
@@ -546,6 +559,11 @@ router.patch(
             diagnosis,
             advice,
             followUpDate: followUpDate ? new Date(followUpDate) : null,
+            // Only overwrite signature when the client sent one — a normal
+            // edit that doesn't re-capture the signature must NOT clear the
+            // existing one. The Sign-before-share flow PATCHes with the new
+            // signature to flip an unsigned prescription to signed.
+            ...(signatureDataUrl ? { signatureUrl: signatureDataUrl } : {}),
             items: { create: normalizedItems },
           },
           include: {
@@ -1372,4 +1390,47 @@ publicPrescriptionRouter.get(
       next(err);
     }
   }
+);
+
+// Public PDF endpoint reached from the verify page's "Print Verification"
+// button (and the WhatsApp/Email share link as a follow-up). Returns the
+// SAME full prescription PDF the doctor downloads from the authenticated
+// dashboard — medicines table, doctor signature image, QR code, hospital
+// letterhead — rather than the verification-summary view that's
+// intentionally privacy-masked. Patient gets the actual Rx to take to the
+// pharmacy; the verify URL it links from still proves authenticity.
+//
+// Auth is intentionally absent: the Rx ID is treated as the secret (UUIDs
+// are 122 bits of entropy, the QR + share link both expose it, and the
+// share endpoint already opted into "anyone with the link can see this Rx"
+// by routing to a public-share channel). If we ever need stronger gating,
+// the right move is a signed URL like signed-url.ts already mints for the
+// other public endpoints, not adding session-cookie auth here (the patient
+// has no dashboard session).
+publicPrescriptionRouter.get(
+  "/verify/rx/:id/pdf",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const buf = await generatePrescriptionPDFBuffer(req.params.id);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `inline; filename="prescription-${req.params.id}.pdf"`,
+      );
+      // No caching: the signature can be updated after the QR is printed
+      // (Sign-before-share flow), so the patient must always see the
+      // current canonical PDF.
+      res.setHeader("Cache-Control", "no-store, max-age=0");
+      res.send(buf);
+    } catch (err) {
+      // generatePrescriptionPDFBuffer throws "Prescription not found" for
+      // unknown IDs — surface as 404 so the verify page's print button
+      // doesn't appear to silently hang.
+      if (err instanceof Error && /not found/i.test(err.message)) {
+        res.status(404).json({ ok: false, error: "Prescription not found" });
+        return;
+      }
+      next(err);
+    }
+  },
 );

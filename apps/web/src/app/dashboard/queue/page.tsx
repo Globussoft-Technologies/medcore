@@ -9,6 +9,7 @@ import { getSocket } from "@/lib/socket";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { SkeletonCard } from "@/components/Skeleton";
 
 // Issue #383 (CRITICAL prod RBAC bypass, Apr 29 2026): Live Queue exposes
 // every patient currently waiting/in-consultation across the clinic — names,
@@ -189,11 +190,13 @@ export default function QueuePage() {
       <h1 className="mb-6 text-2xl font-bold text-gray-900 dark:text-gray-100">{t("dashboard.queue.title")}</h1>
 
       {/* Token display board */}
-      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3" data-testid="queue-doctors-grid">
         {loading ? (
-          <div className="col-span-3 text-center text-gray-600 dark:text-gray-300">
-            {t("common.loading")}
-          </div>
+          <>
+            <SkeletonCard className="h-36" />
+            <SkeletonCard className="h-36" />
+            <SkeletonCard className="h-36" />
+          </>
         ) : (
           display.map((doc) => (
             <button

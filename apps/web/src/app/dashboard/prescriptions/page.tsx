@@ -15,6 +15,7 @@ import { InfoIcon } from "@/components/Tooltip";
 import { Autocomplete } from "@/components/Autocomplete";
 import { EntityPicker } from "@/components/EntityPicker";
 import { EmptyState } from "@/components/EmptyState";
+import { SkeletonCard } from "@/components/Skeleton";
 import { FileText, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 
@@ -1401,11 +1402,10 @@ export default function PrescriptionsPage() {
       {/* Prescriptions list */}
       <div className="space-y-3">
         {loading ? (
-          <div
-            className="rounded-xl bg-white p-8 text-center text-gray-500 dark:bg-gray-800 dark:text-gray-400"
-            data-testid="rx-loading"
-          >
-            Loading...
+          <div className="space-y-3" data-testid="rx-loading" aria-busy="true">
+            <SkeletonCard className="h-32" />
+            <SkeletonCard className="h-32" />
+            <SkeletonCard className="h-32" />
           </div>
         ) : loadError ? (
           <div

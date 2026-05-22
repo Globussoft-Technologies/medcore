@@ -144,7 +144,6 @@ async function seedPatientWithChildren(tenantId: string): Promise<{
     data: {
       userId: docUser.id,
       specialization: "General",
-      department: "OPD",
       consultationFee: 500,
       tenantId,
     },

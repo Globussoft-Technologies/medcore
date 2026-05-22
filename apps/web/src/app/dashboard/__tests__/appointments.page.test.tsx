@@ -284,4 +284,151 @@ describe("AppointmentsPage", () => {
       ).toBeInTheDocument();
     });
   });
+
+  /**
+   * Pearl ERP Stage 1 §3.1 (gap row 71, closed 2026-05-22) — booking form
+   * derives the available channels from `(doctor.appointmentMode,
+   * doctor.enabledChannels[])`. Single-channel doctors auto-select and hide
+   * the picker; multi-channel doctors render a segmented control with only
+   * the enabled channels. Doctor switch re-derives the channel set.
+   */
+  describe("per-doctor channel gating (Pearl §3.1 / gap row 71)", () => {
+    async function openBookingPanelWithDoctors(
+      doctors: Array<{
+        id: string;
+        user: { name: string };
+        specialization: string;
+        appointmentMode?: "CALLING" | "TOKEN" | "SLOT";
+        enabledChannels?: Array<"CALLING" | "SLOT" | "TOKEN" | "WALKIN">;
+      }>
+    ) {
+      apiMock.get.mockImplementation((url: string) => {
+        if (url === "/doctors") return Promise.resolve({ data: doctors });
+        if (url.startsWith("/doctors/") && url.includes("/slots"))
+          return Promise.resolve({
+            data: {
+              slots: [
+                { startTime: "10:00", endTime: "10:15", isAvailable: true },
+              ],
+            },
+          });
+        if (url.startsWith("/appointments"))
+          return Promise.resolve({ data: [] });
+        return Promise.resolve({ data: [] });
+      });
+      const user = userEvent.setup();
+      render(<AppointmentsPage />);
+      const bookBtn = await screen.findByRole("button", {
+        name: /book appointment/i,
+      });
+      await user.click(bookBtn);
+      return user;
+    }
+
+    it("CALLING-mode doctor with no enabledChannels shows BOTH calling + walkin", async () => {
+      const user = await openBookingPanelWithDoctors([
+        {
+          id: "d1",
+          user: { name: "Dr. Calling" },
+          specialization: "GP",
+          appointmentMode: "CALLING",
+          enabledChannels: [],
+        },
+      ]);
+      await user.click(await screen.findByTestId("appt-book-doctor"));
+      await user.click(await screen.findByRole("option", { name: /Dr\. Calling/i }));
+      const picker = await screen.findByTestId("appt-book-channel-picker");
+      expect(picker).toBeInTheDocument();
+      expect(screen.getByTestId("appt-book-channel-calling")).toBeInTheDocument();
+      expect(screen.getByTestId("appt-book-channel-walkin")).toBeInTheDocument();
+      expect(screen.queryByTestId("appt-book-channel-slot")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("appt-book-channel-token")).not.toBeInTheDocument();
+      // CALLING auto-selected → calling-mode block is visible by default.
+      expect(screen.getByTestId("appt-book-calling-mode")).toBeInTheDocument();
+    });
+
+    it("TOKEN-mode doctor narrowed to enabledChannels=[TOKEN] hides the picker AND auto-selects TOKEN", async () => {
+      const user = await openBookingPanelWithDoctors([
+        {
+          id: "d2",
+          user: { name: "Dr. Token" },
+          specialization: "Derm",
+          appointmentMode: "TOKEN",
+          enabledChannels: ["TOKEN"],
+        },
+      ]);
+      await user.click(await screen.findByTestId("appt-book-doctor"));
+      await user.click(await screen.findByRole("option", { name: /Dr\. Token/i }));
+      // Wait for slot grid (proves the doctor is selected + TOKEN channel
+      // is active — only SLOT/TOKEN render the slot grid).
+      await waitFor(() =>
+        expect(screen.getByTestId("appt-book-slots")).toBeInTheDocument()
+      );
+      // Only one channel available → picker is hidden (no friction).
+      expect(screen.queryByTestId("appt-book-channel-picker")).not.toBeInTheDocument();
+      // WALKIN block must NOT be present (channel not enabled).
+      expect(screen.queryByTestId("appt-book-walkin-mode")).not.toBeInTheDocument();
+    });
+
+    it("SLOT-mode doctor with enabledChannels=[SLOT, WALKIN] shows both options, defaults to SLOT", async () => {
+      const user = await openBookingPanelWithDoctors([
+        {
+          id: "d3",
+          user: { name: "Dr. Slot" },
+          specialization: "Ortho",
+          appointmentMode: "SLOT",
+          enabledChannels: ["SLOT", "WALKIN"],
+        },
+      ]);
+      await user.click(await screen.findByTestId("appt-book-doctor"));
+      await user.click(await screen.findByRole("option", { name: /Dr\. Slot/i }));
+      await screen.findByTestId("appt-book-channel-picker");
+      expect(screen.getByTestId("appt-book-channel-slot")).toBeInTheDocument();
+      expect(screen.getByTestId("appt-book-channel-walkin")).toBeInTheDocument();
+      expect(screen.queryByTestId("appt-book-channel-calling")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("appt-book-channel-token")).not.toBeInTheDocument();
+      // SLOT auto-selected → slot grid visible.
+      await waitFor(() =>
+        expect(screen.getByTestId("appt-book-slots")).toBeInTheDocument()
+      );
+      // Switch to WALKIN: slot grid disappears, walk-in block appears.
+      await user.click(screen.getByTestId("appt-book-channel-walkin"));
+      expect(screen.queryByTestId("appt-book-slots")).not.toBeInTheDocument();
+      expect(screen.getByTestId("appt-book-walkin-mode")).toBeInTheDocument();
+    });
+
+    it("switching from a CALLING doctor to a TOKEN doctor re-derives the channel set", async () => {
+      const user = await openBookingPanelWithDoctors([
+        {
+          id: "d-c",
+          user: { name: "Dr. Calling" },
+          specialization: "GP",
+          appointmentMode: "CALLING",
+          enabledChannels: [],
+        },
+        {
+          id: "d-t",
+          user: { name: "Dr. Token" },
+          specialization: "Derm",
+          appointmentMode: "TOKEN",
+          enabledChannels: ["TOKEN"],
+        },
+      ]);
+      // Pick the CALLING doctor → both CALLING + WALKIN visible.
+      await user.click(await screen.findByTestId("appt-book-doctor"));
+      await user.click(await screen.findByRole("option", { name: /Dr\. Calling/i }));
+      await screen.findByTestId("appt-book-channel-picker");
+      expect(screen.getByTestId("appt-book-channel-calling")).toBeInTheDocument();
+      // Switch to the TOKEN doctor narrowed to TOKEN-only → picker hides,
+      // slot grid renders. The stale CALLING / WALKIN buttons must be gone.
+      await user.click(screen.getByTestId("appt-book-doctor"));
+      await user.click(screen.getByRole("option", { name: /Dr\. Token/i }));
+      await waitFor(() =>
+        expect(screen.queryByTestId("appt-book-channel-picker")).not.toBeInTheDocument()
+      );
+      expect(screen.queryByTestId("appt-book-channel-calling")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("appt-book-channel-walkin")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("appt-book-calling-mode")).not.toBeInTheDocument();
+    });
+  });
 });

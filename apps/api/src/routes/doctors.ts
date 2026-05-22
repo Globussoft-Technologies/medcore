@@ -479,6 +479,14 @@ router.patch(
       // this doctor referred. PATCH semantics: undefined leaves unchanged,
       // null explicitly clears (no commission rows auto-created).
       if (req.body.commissionPercent !== undefined) data.commissionPercent = req.body.commissionPercent;
+      // Pearl §3.2 final 2 knobs (gap row 77, 2026-05-22). PATCH
+      // semantics preserved — undefined leaves the column untouched.
+      // `enabledChannels` accepts an empty array to mean "all channels
+      // permitted" (the back-compat default); the column itself is
+      // NOT NULL so we never pass null. `bufferMinutes` is NOT NULL
+      // DEFAULT 0; callers clear it by sending 0.
+      if (req.body.enabledChannels !== undefined) data.enabledChannels = req.body.enabledChannels;
+      if (req.body.bufferMinutes !== undefined) data.bufferMinutes = req.body.bufferMinutes;
 
       const updated = await prisma.doctor.update({
         where: { id: req.params.id },
@@ -493,6 +501,8 @@ router.patch(
           lastHourPolicy: true,
           nmcRegNumber: true,
           commissionPercent: true,
+          enabledChannels: true,
+          bufferMinutes: true,
         },
       });
 

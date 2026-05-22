@@ -48,6 +48,19 @@ enum AppointmentMode {
   SLOT
 }
 
+// Pearl ERP Stage 1 §3.2 — per-doctor enabled booking channels. The
+// `appointmentMode` enum above picks the booking SHAPE; this enum picks
+// the booking CHANNELS the doctor accepts. A doctor may run TOKEN-mode
+// but disable WALKIN; or run SLOT-mode and accept CALLING for triage.
+// Stored as `Doctor.enabledChannels AppointmentChannel[]`; an empty
+// array means "all channels permitted" (back-compat default).
+enum AppointmentChannel {
+  CALLING
+  SLOT
+  TOKEN
+  WALKIN
+}
+
 // Pearl ERP Stage 1 §3.2 — last-hour booking policy per doctor.
 enum LastHourPolicy {
   ACCEPT_ALL
@@ -1095,6 +1108,16 @@ model Doctor {
   dailyAppointmentLimit  Int?
   nearTurnAlertThreshold Int?
   lastHourPolicy         LastHourPolicy?
+
+  // Pearl ERP Stage 1 §3.2 — final 2 knobs of the per-doctor preference
+  // editor (gap row 77 closure, 2026-05-22). `enabledChannels` is the
+  // explicit allow-list of booking channels this doctor accepts; an
+  // empty array means "all channels permitted" so existing doctors keep
+  // working unchanged. `bufferMinutes` is the Doctor-level DEFAULT
+  // buffer between slots — distinct from `DoctorSchedule.bufferMinutes`,
+  // which can override it per weekday schedule.
+  enabledChannels        AppointmentChannel[] @default([])
+  bufferMinutes          Int                  @default(0)
 
   // Pearl ERP Stage 1 §2.1.4 — NMC (National Medical Commission)
   // registration number. Required to render on every signed Rx PDF.

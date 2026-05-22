@@ -253,6 +253,23 @@ export const doctorAppointmentModeSchema = z
     // for invoices this doctor referred); 0–100 sets the % used as the
     // fall-back when Referral.commissionPercent is null.
     commissionPercent: z.number().min(0).max(100).nullable().optional(),
+    // Pearl ERP Stage 1 §3.2 (gap row 77 final 2 knobs, 2026-05-22) —
+    // per-doctor enabled booking channels. Empty array means "all
+    // channels permitted" (back-compat). `max(4)` matches the enum
+    // cardinality; duplicates aren't rejected here (the DB array column
+    // tolerates them and the booking-time consumer reads them as a set).
+    enabledChannels: z
+      .array(z.enum(["CALLING", "SLOT", "TOKEN", "WALKIN"]))
+      .max(4)
+      .optional(),
+    // Doctor-level default buffer (minutes) between consecutive slots
+    // / tokens. Distinct from DoctorSchedule.bufferMinutes which can
+    // override per weekday. 0 = no buffer; 120 cap mirrors the per-
+    // schedule cap (60) doubled to leave headroom for long-consult
+    // specialties (e.g. Pearl psychiatry slots end with a 90 min note
+    // window). Null is not accepted — the column is NOT NULL DEFAULT 0;
+    // callers clear by sending 0.
+    bufferMinutes: z.number().int().min(0).max(120).optional(),
   })
   .refine((val) => Object.values(val).some((v) => v !== undefined), {
     message: "At least one field is required",

@@ -55,10 +55,10 @@ const MODE_COLORS: Record<string, string> = {
 };
 
 const MODE_BG_LIGHT: Record<string, string> = {
-  CASH: "bg-green-100 text-green-700",
-  CARD: "bg-blue-100 text-blue-700",
-  UPI: "bg-purple-100 text-purple-700",
-  ONLINE: "bg-amber-100 text-amber-700",
+  CASH: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300",
+  CARD: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  UPI: "bg-purple-100 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300",
+  ONLINE: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
 };
 
 interface ReportRun {
@@ -340,7 +340,7 @@ function ReportsPageBody() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Billing Reports</h1>
-          <p className="text-sm text-gray-500">Daily collection summary and generation history</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Daily collection summary and generation history</p>
         </div>
         {tab === "daily" && (
           <input
@@ -348,19 +348,19 @@ function ReportsPageBody() {
             value={date}
             max={new Date().toISOString().slice(0, 10)}
             onChange={(e) => setDate(e.target.value)}
-            className="rounded-lg border px-4 py-2 text-sm"
+            className="rounded-lg border px-4 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
           />
         )}
       </div>
 
       {/* Tabs */}
-      <div className="mb-4 flex gap-2 border-b">
+      <div className="mb-4 flex gap-2 border-b dark:border-gray-700">
         <button
           onClick={() => setTab("daily")}
           className={`px-4 py-2 text-sm font-medium ${
             tab === "daily"
-              ? "border-b-2 border-primary text-primary"
-              : "text-gray-500 hover:text-gray-700"
+              ? "border-b-2 border-primary text-primary dark:border-blue-400 dark:text-blue-400"
+              : "text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-white"
           }`}
         >
           Daily Collection
@@ -369,8 +369,8 @@ function ReportsPageBody() {
           onClick={() => setTab("history")}
           className={`px-4 py-2 text-sm font-medium ${
             tab === "history"
-              ? "border-b-2 border-primary text-primary"
-              : "text-gray-500 hover:text-gray-700"
+              ? "border-b-2 border-primary text-primary dark:border-blue-400 dark:text-blue-400"
+              : "text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-white"
           }`}
         >
           <History size={14} className="mr-1 inline" /> Report History
@@ -383,7 +383,7 @@ function ReportsPageBody() {
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
-              className="rounded-lg border px-3 py-2 text-sm"
+              className="rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
               data-testid="report-type-filter"
             >
               <option value="">All Types</option>
@@ -405,14 +405,14 @@ function ReportsPageBody() {
                 type="button"
                 onClick={() => setSchedOpen(true)}
                 data-testid="report-schedule-btn"
-                className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-sm font-medium hover:bg-gray-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700"
               >
                 <Calendar size={14} /> Schedule
               </button>
             </div>
           </div>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="col-span-2 rounded-xl bg-white shadow-sm">
+            <div className="col-span-2 rounded-xl bg-white shadow-sm dark:bg-gray-800 dark:border dark:border-gray-700">
               {runsLoading ? (
                 <div className="p-8 text-center text-gray-500">Loading...</div>
               ) : (Array.isArray(runs) ? runs : []).length === 0 ? (
@@ -420,7 +420,7 @@ function ReportsPageBody() {
               ) : (
                 <table className="w-full">
                   <thead>
-                    <tr className="border-b text-left text-sm text-gray-500">
+                    <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                       <th className="px-4 py-3">Generated</th>
                       <th className="px-4 py-3">Schedule</th>
                       <th className="px-4 py-3">Type</th>
@@ -433,8 +433,8 @@ function ReportsPageBody() {
                       <tr
                         key={r.id}
                         onClick={() => setSelectedRun(r)}
-                        className={`cursor-pointer border-b last:border-0 hover:bg-gray-50 ${
-                          selectedRun?.id === r.id ? "bg-blue-50" : ""
+                        className={`cursor-pointer border-b last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/50 ${
+                          selectedRun?.id === r.id ? "bg-blue-50 dark:bg-blue-950/40" : ""
                         }`}
                       >
                         <td className="px-4 py-3 text-sm">
@@ -448,8 +448,8 @@ function ReportsPageBody() {
                           <span
                             className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
                               r.status === "SUCCESS"
-                                ? "bg-green-100 text-green-700"
-                                : "bg-red-100 text-red-700"
+                                ? "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300"
+                                : "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300"
                             }`}
                           >
                             {r.status}
@@ -463,7 +463,7 @@ function ReportsPageBody() {
                               exportRunCsv(r);
                             }}
                             data-testid={`report-export-${r.id}`}
-                            className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium hover:bg-gray-50"
+                            className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700"
                             title="Export CSV"
                           >
                             <Download size={12} /> Export
@@ -475,7 +475,7 @@ function ReportsPageBody() {
                 </table>
               )}
             </div>
-            <div className="rounded-xl bg-white p-5 shadow-sm">
+            <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800 dark:border dark:border-gray-700">
               <h3 className="mb-3 text-sm font-semibold">Run Detail</h3>
               {selectedRun ? (
                 <div className="space-y-2 text-xs">
@@ -502,7 +502,7 @@ function ReportsPageBody() {
                   {selectedRun.parameters ? (
                     <div>
                       <p className="mb-1 font-semibold">Parameters</p>
-                      <pre className="max-h-40 overflow-auto rounded bg-gray-50 p-2">
+                      <pre className="max-h-40 overflow-auto rounded bg-gray-50 p-2 dark:bg-gray-900 dark:text-gray-200">
                         {JSON.stringify(selectedRun.parameters, null, 2)}
                       </pre>
                     </div>
@@ -510,7 +510,7 @@ function ReportsPageBody() {
                   {selectedRun.snapshot ? (
                     <div>
                       <p className="mb-1 font-semibold">Snapshot</p>
-                      <pre className="max-h-60 overflow-auto rounded bg-gray-50 p-2">
+                      <pre className="max-h-60 overflow-auto rounded bg-gray-50 p-2 dark:bg-gray-900 dark:text-gray-200">
                         {JSON.stringify(selectedRun.snapshot, null, 2)}
                       </pre>
                     </div>
@@ -530,11 +530,11 @@ function ReportsPageBody() {
               role="dialog"
               aria-modal="true"
             >
-              <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-xl">
+              <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800 dark:border dark:border-gray-700">
                 <h3 className="mb-4 text-lg font-semibold">Generate Report</h3>
                 <div className="space-y-3">
                   <div>
-                    <label htmlFor="report-generate-type" className="mb-1 block text-xs font-medium text-gray-600">
+                    <label htmlFor="report-generate-type" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                       Report Type
                     </label>
                     <select
@@ -542,7 +542,7 @@ function ReportsPageBody() {
                       value={genType}
                       onChange={(e) => setGenType(e.target.value)}
                       data-testid="report-generate-type"
-                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                      className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                     >
                       {REPORT_TYPES.map((t) => (
                         <option key={t.value} value={t.value}>
@@ -553,7 +553,7 @@ function ReportsPageBody() {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label htmlFor="report-generate-from" className="mb-1 block text-xs font-medium text-gray-600">
+                      <label htmlFor="report-generate-from" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                         From
                       </label>
                       <input
@@ -562,11 +562,11 @@ function ReportsPageBody() {
                         value={genFrom}
                         onChange={(e) => setGenFrom(e.target.value)}
                         data-testid="report-generate-from"
-                        className="w-full rounded-lg border px-3 py-2 text-sm"
+                        className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                       />
                     </div>
                     <div>
-                      <label htmlFor="report-generate-to" className="mb-1 block text-xs font-medium text-gray-600">
+                      <label htmlFor="report-generate-to" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                         To
                       </label>
                       <input
@@ -575,7 +575,7 @@ function ReportsPageBody() {
                         value={genTo}
                         onChange={(e) => setGenTo(e.target.value)}
                         data-testid="report-generate-to"
-                        className="w-full rounded-lg border px-3 py-2 text-sm"
+                        className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                       />
                     </div>
                   </div>
@@ -585,7 +585,7 @@ function ReportsPageBody() {
                     type="button"
                     onClick={() => setGenOpen(false)}
                     data-testid="report-generate-cancel"
-                    className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-gray-50"
+                    className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700"
                   >
                     Cancel
                   </button>
@@ -611,11 +611,11 @@ function ReportsPageBody() {
               role="dialog"
               aria-modal="true"
             >
-              <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-xl">
+              <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800 dark:border dark:border-gray-700">
                 <h3 className="mb-4 text-lg font-semibold">Schedule Report</h3>
                 <div className="space-y-3">
                   <div>
-                    <label htmlFor="report-schedule-name" className="mb-1 block text-xs font-medium text-gray-600">
+                    <label htmlFor="report-schedule-name" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                       Name
                     </label>
                     <input
@@ -625,11 +625,11 @@ function ReportsPageBody() {
                       onChange={(e) => setSchedName(e.target.value)}
                       placeholder="e.g. Weekly Revenue Summary"
                       data-testid="report-schedule-name"
-                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                      className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                     />
                   </div>
                   <div>
-                    <label htmlFor="report-schedule-type" className="mb-1 block text-xs font-medium text-gray-600">
+                    <label htmlFor="report-schedule-type" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                       Report Type
                     </label>
                     <select
@@ -637,7 +637,7 @@ function ReportsPageBody() {
                       value={schedType}
                       onChange={(e) => setSchedType(e.target.value)}
                       data-testid="report-schedule-type"
-                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                      className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                     >
                       {REPORT_TYPES.map((t) => (
                         <option key={t.value} value={t.value}>
@@ -648,7 +648,7 @@ function ReportsPageBody() {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label htmlFor="report-schedule-frequency" className="mb-1 block text-xs font-medium text-gray-600">
+                      <label htmlFor="report-schedule-frequency" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                         Frequency
                       </label>
                       <select
@@ -658,7 +658,7 @@ function ReportsPageBody() {
                           setSchedFreq(e.target.value as "DAILY" | "WEEKLY" | "MONTHLY")
                         }
                         data-testid="report-schedule-frequency"
-                        className="w-full rounded-lg border px-3 py-2 text-sm"
+                        className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                       >
                         <option value="DAILY">Daily</option>
                         <option value="WEEKLY">Weekly</option>
@@ -666,7 +666,7 @@ function ReportsPageBody() {
                       </select>
                     </div>
                     <div>
-                      <label htmlFor="report-schedule-time" className="mb-1 block text-xs font-medium text-gray-600">
+                      <label htmlFor="report-schedule-time" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                         Time
                       </label>
                       <input
@@ -675,12 +675,12 @@ function ReportsPageBody() {
                         value={schedTime}
                         onChange={(e) => setSchedTime(e.target.value)}
                         data-testid="report-schedule-time"
-                        className="w-full rounded-lg border px-3 py-2 text-sm"
+                        className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                       />
                     </div>
                   </div>
                   <div>
-                    <label htmlFor="report-schedule-email" className="mb-1 block text-xs font-medium text-gray-600">
+                    <label htmlFor="report-schedule-email" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                       Recipient Email
                     </label>
                     <input
@@ -690,7 +690,7 @@ function ReportsPageBody() {
                       onChange={(e) => setSchedEmail(e.target.value)}
                       placeholder="ops@example.com"
                       data-testid="report-schedule-email"
-                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                      className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                     />
                   </div>
                 </div>
@@ -699,7 +699,7 @@ function ReportsPageBody() {
                     type="button"
                     onClick={() => setSchedOpen(false)}
                     data-testid="report-schedule-cancel"
-                    className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-gray-50"
+                    className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700"
                   >
                     Cancel
                   </button>
@@ -728,7 +728,7 @@ function ReportsPageBody() {
         <>
           {/* Summary Cards */}
           <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-4">
-            <div className="rounded-xl bg-white p-5 shadow-sm">
+            <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800 dark:border dark:border-gray-700">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-100">
                   <DollarSign size={20} className="text-green-600" />
@@ -742,7 +742,7 @@ function ReportsPageBody() {
               </div>
             </div>
 
-            <div className="rounded-xl bg-white p-5 shadow-sm">
+            <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800 dark:border dark:border-gray-700">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
                   <Receipt size={20} className="text-blue-600" />
@@ -758,7 +758,7 @@ function ReportsPageBody() {
                 a window cue — the dashboard's all-time KPI then disagreed
                 with this today-only count. The window-scoped label
                 ("Pending Invoices Today") makes the difference explicit. */}
-            <div className="rounded-xl bg-white p-5 shadow-sm">
+            <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800 dark:border dark:border-gray-700">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-100">
                   <AlertCircle size={20} className="text-amber-600" />
@@ -775,7 +775,7 @@ function ReportsPageBody() {
               </div>
             </div>
 
-            <div className="rounded-xl bg-white p-5 shadow-sm">
+            <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800 dark:border dark:border-gray-700">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100">
                   <TrendingUp size={20} className="text-purple-600" />
@@ -796,10 +796,10 @@ function ReportsPageBody() {
           </div>
 
           {/* Payment Mode Breakdown */}
-          <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
+          <div className="mb-6 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800 dark:border dark:border-gray-700">
             <h2 className="mb-4 font-semibold">Payment Mode Breakdown</h2>
             {Object.keys(modeBreakdown).length === 0 ? (
-              <p className="text-sm text-gray-400">No payments recorded</p>
+              <p className="text-sm text-gray-400 dark:text-gray-500">No payments recorded</p>
             ) : (
               <div className="space-y-3">
                 {Object.entries(modeBreakdown).map(([mode, amount]) => {
@@ -812,7 +812,7 @@ function ReportsPageBody() {
                           Rs. {amt.toFixed(2)}
                         </span>
                       </div>
-                      <div className="h-3 w-full overflow-hidden rounded-full bg-gray-100">
+                      <div className="h-3 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
                         <div
                           className={`h-full rounded-full transition-all ${MODE_COLORS[mode] || "bg-gray-400"}`}
                           style={{
@@ -828,18 +828,18 @@ function ReportsPageBody() {
           </div>
 
           {/* Recent Payments */}
-          <div className="rounded-xl bg-white shadow-sm">
-            <div className="border-b px-6 py-4">
+          <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800 dark:border dark:border-gray-700">
+            <div className="border-b px-6 py-4 dark:border-gray-700">
               <h2 className="font-semibold">Recent Payments</h2>
             </div>
             {(report.recentPayments ?? []).length === 0 ? (
-              <div className="p-8 text-center text-gray-400">
+              <div className="p-8 text-center text-gray-400 dark:text-gray-500">
                 No payments for this date
               </div>
             ) : (
               <table className="w-full">
                 <thead>
-                  <tr className="border-b text-left text-sm text-gray-500">
+                  <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                     <th className="px-4 py-3">Patient</th>
                     <th className="px-4 py-3">Amount</th>
                     <th className="px-4 py-3">Mode</th>
@@ -848,7 +848,7 @@ function ReportsPageBody() {
                 </thead>
                 <tbody>
                   {(report.recentPayments ?? []).map((p: any) => (
-                    <tr key={p.id} className="border-b last:border-0">
+                    <tr key={p.id} className="border-b last:border-0 dark:border-gray-700">
                       <td className="px-4 py-3 font-medium">
                         {p?.patient?.user?.name ||
                           p?.invoice?.patient?.user?.name ||

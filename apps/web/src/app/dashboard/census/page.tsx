@@ -74,7 +74,7 @@ export default function CensusPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">Census Report</h1>
-          <p className="text-sm text-slate-600">Daily inpatient occupancy & movement</p>
+          <p className="text-sm text-slate-600 dark:text-gray-400">Daily inpatient occupancy & movement</p>
         </div>
         <div className="flex gap-2">
           {(["day", "week", "month"] as const).map((m) => (
@@ -200,22 +200,22 @@ export default function CensusPage() {
             </thead>
             <tbody>
               {data.map((r) => (
-                <tr key={r.date} className="border-t border-slate-100">
-                  <td className="px-3 py-2 text-slate-900">{r.date}</td>
-                  <td className="px-3 py-2 text-right text-slate-900">{r.admittedAtStartOfDay}</td>
-                  <td className="px-3 py-2 text-right text-green-700">{r.newAdmissions}</td>
-                  <td className="px-3 py-2 text-right text-amber-700">{r.discharges}</td>
-                  <td className="px-3 py-2 text-right text-red-700">{r.deaths}</td>
-                  <td className="px-3 py-2 text-right font-semibold text-slate-900">{r.admittedAtEndOfDay}</td>
-                  <td className="px-3 py-2 text-right text-slate-900">{r.totalBeds}</td>
+                <tr key={r.date} className="border-t border-slate-100 dark:border-gray-700">
+                  <td className="px-3 py-2 text-slate-900 dark:text-gray-100">{r.date}</td>
+                  <td className="px-3 py-2 text-right text-slate-900 dark:text-gray-100">{r.admittedAtStartOfDay}</td>
+                  <td className="px-3 py-2 text-right text-green-700 dark:text-green-400">{r.newAdmissions}</td>
+                  <td className="px-3 py-2 text-right text-amber-700 dark:text-amber-400">{r.discharges}</td>
+                  <td className="px-3 py-2 text-right text-red-700 dark:text-red-400">{r.deaths}</td>
+                  <td className="px-3 py-2 text-right font-semibold text-slate-900 dark:text-gray-100">{r.admittedAtEndOfDay}</td>
+                  <td className="px-3 py-2 text-right text-slate-900 dark:text-gray-100">{r.totalBeds}</td>
                   <td className="px-3 py-2 text-right">
                     <span
                       className={`px-2 py-0.5 rounded text-xs ${
                         r.occupancyPercent >= 90
-                          ? "bg-red-100 text-red-700"
+                          ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300"
                           : r.occupancyPercent >= 75
-                            ? "bg-amber-100 text-amber-700"
-                            : "bg-green-100 text-green-700"
+                            ? "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+                            : "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300"
                       }`}
                     >
                       {r.occupancyPercent}%

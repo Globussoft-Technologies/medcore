@@ -225,8 +225,8 @@ export default function ControlledSubstancesPage() {
             onClick={() => setTab(k)}
             className={`flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium ${
               tab === k
-                ? "border-primary text-primary"
-                : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                ? "border-primary text-primary dark:border-blue-400 dark:text-blue-400"
+                : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-white"
             }`}
           >
             <Icon size={16} />

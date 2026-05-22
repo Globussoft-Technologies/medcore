@@ -340,7 +340,7 @@ function LineChart({ data, xKey, yKeys, height = 220, yFormat, onPointClick }: L
         {yKeys.map((yk, i) => (
           <g key={yk.key} transform={`translate(${padL + i * 120}, ${padT - 5})`}>
             <rect width="10" height="10" fill={yk.color} />
-            <text x="14" y="9" fontSize="11" fill="#374151">
+            <text x="14" y="9" fontSize="11" fill="currentColor" className="text-gray-600 dark:text-gray-300">
               {yk.label}
             </text>
           </g>
@@ -429,8 +429,11 @@ function DonutChart({
 }: DonutChartProps) {
   const safeSegments = Array.isArray(segments) ? segments : [];
   const total = safeSegments.reduce((s, seg) => s + seg.value, 0);
-  const radius = size / 2 - 10;
   const strokeW = 28;
+  // Radius must leave room for half the stroke width (the stroke straddles the
+  // radius) plus a small margin, otherwise the donut's outer edge spills past
+  // the viewBox and gets clipped flat — making the circle look lumpy/polygonal.
+  const radius = size / 2 - strokeW / 2 - 2;
   const circumference = 2 * Math.PI * radius;
 
   if (total === 0) {
@@ -487,7 +490,8 @@ function DonutChart({
             textAnchor="middle"
             fontSize="14"
             fontWeight="600"
-            fill="#111827"
+            fill="currentColor"
+            className="text-gray-900 dark:text-gray-100"
           >
             {centerText}
           </text>
@@ -990,6 +994,42 @@ export default function AnalyticsPage() {
         .dark .analytics-page .bg-white {
           background-color: #1f2937 !important;
         }
+        /* Light tint surfaces the global shim doesn't cover. Without these the
+         * page lightens their text (below) but leaves the background pale —
+         * producing light-text-on-light-bg in the Benchmark cards, ER MiniKpi
+         * tiles, Low Stock rows, progress tracks and badges. Darken the
+         * surface so the (now-light) foreground reads. */
+        .dark .analytics-page .bg-gray-50,
+        .dark .analytics-page .bg-gray-100 {
+          background-color: #374151 !important;
+        }
+        .dark .analytics-page .bg-blue-50 {
+          background-color: rgba(30, 58, 138, 0.35) !important;
+        }
+        .dark .analytics-page .bg-emerald-100 {
+          background-color: rgba(6, 95, 70, 0.4) !important;
+        }
+        .dark .analytics-page .bg-green-100 {
+          background-color: rgba(20, 83, 45, 0.4) !important;
+        }
+        .dark .analytics-page .bg-amber-100 {
+          background-color: rgba(120, 53, 15, 0.4) !important;
+        }
+        .dark .analytics-page .bg-red-100 {
+          background-color: rgba(127, 29, 29, 0.4) !important;
+        }
+        .dark .analytics-page .text-blue-900,
+        .dark .analytics-page .text-blue-700 {
+          color: #bfdbfe !important;
+        }
+        .dark .analytics-page .text-blue-600 {
+          color: #93c5fd !important;
+        }
+        .dark .analytics-page .text-emerald-800,
+        .dark .analytics-page .text-emerald-700 {
+          color: #6ee7b7 !important;
+        }
+        .dark .analytics-page .text-gray-900,
         .dark .analytics-page .text-gray-800 {
           color: #f3f4f6 !important;
         }
@@ -1512,7 +1552,7 @@ export default function AnalyticsPage() {
                     return (
                       <tr
                         key={d.doctorId}
-                        className="cursor-pointer border-b last:border-0 hover:bg-gray-50"
+                        className="cursor-pointer border-b last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700"
                         onClick={() =>
                           setDrillDown({
                             title: `Doctor: ${d.doctorName}`,
@@ -2512,7 +2552,7 @@ function BenchmarkAndForecastPanel() {
             {forecast.forecast.map((p) => (
               <div
                 key={p.period}
-                className="rounded-lg border border-dashed border-blue-200 bg-blue-50/40 p-3 text-center"
+                className="rounded-lg border border-dashed border-blue-200 bg-blue-50/40 p-3 text-center dark:border-blue-900 dark:bg-blue-950/30"
               >
                 <p className="text-xs text-gray-500">{p.period.slice(5)}</p>
                 <p className="mt-1 text-sm font-semibold text-blue-900">

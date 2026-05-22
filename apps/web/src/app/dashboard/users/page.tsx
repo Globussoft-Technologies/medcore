@@ -268,13 +268,13 @@ export default function UsersPage() {
   // Issue #190: include the full Role-enum spectrum so PHARMACIST +
   // LAB_TECH staff don't render as "no badge / grey" in the user list.
   const roleColors: Record<string, string> = {
-    ADMIN: "bg-purple-100 text-purple-700",
-    DOCTOR: "bg-blue-100 text-blue-700",
-    RECEPTION: "bg-green-100 text-green-700",
-    NURSE: "bg-amber-100 text-amber-700",
-    PATIENT: "bg-gray-100 text-gray-600",
-    PHARMACIST: "bg-teal-100 text-teal-700",
-    LAB_TECH: "bg-rose-100 text-rose-700",
+    ADMIN: "bg-purple-100 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300",
+    DOCTOR: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+    RECEPTION: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300",
+    NURSE: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
+    PATIENT: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-200",
+    PHARMACIST: "bg-teal-100 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300",
+    LAB_TECH: "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300",
   };
 
   return (
@@ -510,8 +510,8 @@ export default function UsersPage() {
                     <span
                       className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
                         u.isActive !== false
-                          ? "bg-green-100 text-green-700"
-                          : "bg-red-100 text-red-700"
+                          ? "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300"
+                          : "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300"
                       }`}
                     >
                       {u.isActive !== false ? "Active" : "Inactive"}

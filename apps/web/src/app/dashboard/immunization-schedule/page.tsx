@@ -138,7 +138,7 @@ export default function ImmunizationSchedulePage() {
                     <td className="px-5 py-3">
                       <Link
                         href={`/dashboard/patients/${r.patientId}`}
-                        className="font-medium text-primary hover:underline"
+                        className="font-medium text-primary hover:underline dark:text-blue-400"
                       >
                         {r.patient?.user?.name || "-"}
                       </Link>

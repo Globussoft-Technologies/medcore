@@ -525,13 +525,13 @@ function ReviewCard({
               <>
                 <button
                   onClick={handleSave}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700"
+                  className="touch-target flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700"
                 >
                   <Save className="w-3.5 h-3.5" /> Save Edit
                 </button>
                 <button
                   onClick={() => setEditing(false)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg text-xs hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+                  className="touch-target flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg text-xs hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
                 >
                   <X className="w-3.5 h-3.5" /> Cancel
                 </button>
@@ -541,20 +541,20 @@ function ReviewCard({
                 <button
                   onClick={onAccept}
                   disabled={status === "accepted"}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="touch-target flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Check className="w-3.5 h-3.5" /> Accept
                 </button>
                 <button
                   onClick={handleEditClick}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-blue-300 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-50"
+                  className="touch-target flex items-center gap-1.5 px-3 py-1.5 border border-blue-300 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-50"
                 >
                   <Edit3 className="w-3.5 h-3.5" /> Edit
                 </button>
                 <button
                   onClick={onReject}
                   disabled={status === "rejected"}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-red-300 text-red-600 rounded-lg text-xs font-medium hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="touch-target flex items-center gap-1.5 px-3 py-1.5 border border-red-300 text-red-600 rounded-lg text-xs font-medium hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Ban className="w-3.5 h-3.5" /> Reject
                 </button>

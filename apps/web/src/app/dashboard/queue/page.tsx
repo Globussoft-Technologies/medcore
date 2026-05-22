@@ -315,7 +315,7 @@ export default function QueuePage() {
                               })
                             }
                             aria-label={`Transfer ${entry.patientName} to another doctor`}
-                            className="rounded border border-indigo-400 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-800 hover:bg-indigo-100"
+                            className="touch-target rounded border border-indigo-400 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-800 hover:bg-indigo-100"
                           >
                             {t("dashboard.actions.transfer")}
                           </button>
@@ -341,7 +341,7 @@ export default function QueuePage() {
                                 );
                               }
                             }}
-                            className="rounded border border-red-400 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-800 hover:bg-red-100"
+                            className="touch-target rounded border border-red-400 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-800 hover:bg-red-100"
                             aria-label={`Mark ${entry.patientName} as left without being seen`}
                           >
                             {t("dashboard.actions.lwbs")}

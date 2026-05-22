@@ -1097,7 +1097,7 @@ export default function DashboardLayout({
               onClick={() => setShortcutsOpen(true)}
               aria-label={t("common.shortcuts")}
               title={`${t("common.shortcuts")} (?)`}
-              className="rounded-lg p-2 text-slate-700 transition hover:bg-sidebar-hover hover:text-slate-900 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none dark:text-gray-300 dark:hover:text-white"
+              className="touch-target inline-flex items-center justify-center rounded-lg p-2 text-slate-700 transition hover:bg-sidebar-hover hover:text-slate-900 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none dark:text-gray-300 dark:hover:text-white"
             >
               <Keyboard size={18} aria-hidden="true" />
             </button>
@@ -1105,7 +1105,7 @@ export default function DashboardLayout({
               href="/dashboard/settings"
               aria-label={t("common.settings")}
               title={t("common.settings")}
-              className="ml-auto rounded-lg p-2 text-slate-700 transition hover:bg-sidebar-hover hover:text-slate-900 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none dark:text-gray-300 dark:hover:text-white"
+              className="touch-target ml-auto inline-flex items-center justify-center rounded-lg p-2 text-slate-700 transition hover:bg-sidebar-hover hover:text-slate-900 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none dark:text-gray-300 dark:hover:text-white"
             >
               <SettingsIcon size={18} aria-hidden="true" />
             </Link>

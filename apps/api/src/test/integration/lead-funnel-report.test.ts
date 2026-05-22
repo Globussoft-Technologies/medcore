@@ -66,10 +66,12 @@ describeIfDB("Analytics lead-funnel-report (integration)", () => {
     //   LOST        × 1  (1 REFERRAL)
     //
     // Totals: 10 leads, 3 converted (30%), 1 lost, 6 open (NEW+QUALIFIED+ENGAGED+BOOKED)
-    // By source:
-    //   WEB:      4 leads, 1 converted (25%)
-    //   WHATSAPP: 4 leads, 2 converted (50%)
-    //   REFERRAL: 2 leads, 0 converted (0%)
+    // By source (derived from the per-stage rows above — do NOT re-count;
+    // the original "4 WEB / 4 WHATSAPP" comment was a miscount that shipped
+    // wrong assertions and turned main red on `aeb625a`):
+    //   WEB:      3 leads, 1 converted (33.33%)  [NEW + QUALIFIED + CONVERTED]
+    //   WHATSAPP: 5 leads, 2 converted (40%)     [NEW + ENGAGED + BOOKED + 2×CONVERTED]
+    //   REFERRAL: 2 leads, 0 converted (0%)      [QUALIFIED + LOST]
     await seedLead({ status: "NEW",       source: "WEB" });
     await seedLead({ status: "NEW",       source: "WHATSAPP" });
     await seedLead({ status: "QUALIFIED", source: "WEB" });
@@ -118,8 +120,8 @@ describeIfDB("Analytics lead-funnel-report (integration)", () => {
     expect(bySource).toHaveLength(3);
     const srcByName: Record<string, any> = {};
     for (const b of bySource) srcByName[b.source] = b;
-    expect(srcByName.WEB).toEqual({ source: "WEB", count: 4, converted: 1, rate: 25 });
-    expect(srcByName.WHATSAPP).toEqual({ source: "WHATSAPP", count: 4, converted: 2, rate: 50 });
+    expect(srcByName.WEB).toEqual({ source: "WEB", count: 3, converted: 1, rate: 33.33 });
+    expect(srcByName.WHATSAPP).toEqual({ source: "WHATSAPP", count: 5, converted: 2, rate: 40 });
     expect(srcByName.REFERRAL).toEqual({ source: "REFERRAL", count: 2, converted: 0, rate: 0 });
   });
 
@@ -131,12 +133,12 @@ describeIfDB("Analytics lead-funnel-report (integration)", () => {
 
     const { totals, bySource, filters } = res.body.data;
     expect(filters.source).toBe("WHATSAPP");
-    expect(totals.totalLeads).toBe(4);
+    expect(totals.totalLeads).toBe(5);
     expect(totals.convertedLeads).toBe(2);
-    expect(totals.conversionRate).toBe(50);
+    expect(totals.conversionRate).toBe(40);
     expect(bySource).toHaveLength(1);
     expect(bySource[0].source).toBe("WHATSAPP");
-    expect(bySource[0].count).toBe(4);
+    expect(bySource[0].count).toBe(5);
   });
 
   it("rejects an invalid source filter with 400", async () => {
@@ -209,7 +211,7 @@ describeIfDB("Analytics lead-funnel-report (integration)", () => {
     expect(text).toMatch(/CONVERTED,3,30/);
     // Source breakdown header
     expect(text).toContain("Source,Count,Converted,Conversion Rate %");
-    expect(text).toMatch(/WHATSAPP,4,2,50/);
+    expect(text).toMatch(/WHATSAPP,5,2,40/);
 
     // Audit row is written fire-and-forget — poll until it lands.
     const prisma = await getPrisma();

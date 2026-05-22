@@ -116,7 +116,7 @@ This is one of MedCore's strongest modules. Pearl Stage 1 wants invoice list/det
 | 4.4 | No-show rate by doctor / day-of-week | 🟡 Partial | `Patient.noShowCount`, `services/auto-noshow.ts` | Per-patient count exists; the doctor/DOW pivot isn't a built report. |
 | 4.4 | Revenue by service type | ✅ Present | `routes/analytics.ts` + `InvoiceItem.category` group-by | — |
 | 4.4 | GST report (output / input / payable) | ✅ Present | Per-line `cgst`/`sgst` persisted (Issue #901 was specifically about exact-DECIMAL GST math) | GSTR-1 export. |
-| 4.4 | TDS on professional fees | 🟡 Partial | `Doctor.consultationFee` + `InvoiceItem` "consultation" rows | Computable from existing data; no dedicated TDS report endpoint. |
+| 4.4 | TDS on professional fees | ✅ Present | GET `/api/v1/billing/tds-report?from=&to=&doctorId=&tdsRate=&format=json\|csv` ([`routes/billing.ts`](../apps/api/src/routes/billing.ts)) | Closed 2026-05-22 — GET `/api/v1/billing/tds-report?from=&to=&doctorId=&tdsRate=&format=json\|csv` aggregates paid-invoice (paymentStatus IN PAID/PARTIAL) consultation-line fees per doctor (`InvoiceItem.category=CONSULTATION` × `Invoice.appointment.doctorId`); default 10% (India IT-Act §194J); JSON + CSV exports with attachment Content-Disposition; ADMIN RBAC (shared `Role` enum doesn't yet expose BILLING — same posture as the §4.4 referral-commission ledger); tenant-scoped via `tenantScopedPrisma`; 8 integration tests covering default-rate math, custom tdsRate=5, date-window filter, doctorId filter, PENDING-exclusion, CSV content-type + filename + audit, non-ADMIN 403, and out-of-range tdsRate 400. TDS_REPORT_EXPORTED audit row fires on CSV export only (JSON browsing unaudited per the analytics/billing convention). |
 | 4.4 | CSV download + branch filter | 🟡 Partial | Most reports support date-range + CSV; **no branch filter** (no Branch model) | — |
 
 ---
@@ -387,7 +387,7 @@ Pearl §12 mandates 7 compliance posture clauses. These overlap the matrix but d
 | 12.d | IT Act 2000 — digital signature on every Rx (NMC reg + SHA-256 of canonical Rx JSON) | ✅ Present | `Doctor.nmcRegNumber` (closed via `704a5f5`, gap #10a) renders on Rx PDF; signed-PDF QR + signed-URL verify at `/verify/`. |
 | 12.d | Full eSign with Aadhaar ESP | ❌ Stage 2 | Explicitly deferred to Stage 2 in PRD §12. |
 | 12.e | GST — invoices conform to GST format + HSN/SAC per line | ✅ Present | `InvoiceItem.hsnSac` + per-line `cgst`/`sgst` (issue #901 was the DECIMAL-exact rounding fix). |
-| 12.f | TDS on professional fees report | 🟡 Computable, no dedicated endpoint | `Doctor.consultationFee` + invoice "consultation" line items present; dedicated TDS report endpoint not built. |
+| 12.f | TDS on professional fees report | ✅ Present | Closed 2026-05-22 via §4.4 row 119 — GET `/api/v1/billing/tds-report?from=&to=&doctorId=&tdsRate=&format=json\|csv` ([`routes/billing.ts`](../apps/api/src/routes/billing.ts)); default 10% per IT-Act §194J; JSON + CSV exports; ADMIN-only. |
 | 12.g | Audit logging — every clinical + admin action logged with actor / timestamp / IP | ✅ Present | `AuditLog` model + `services/tenant-context.ts` actor logging; route-level `auditLog()`/`safeAudit()` wrappers used widely. |
 
 ---

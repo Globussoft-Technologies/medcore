@@ -135,6 +135,7 @@ import { aiDocQaRouter } from "./routes/ai-doc-qa";
 import { aiSentimentRouter } from "./routes/ai-sentiment";
 import { tenantsRouter } from "./routes/tenants";
 import { tenantOnboardingRouter } from "./routes/tenant-onboarding";
+import { dpdpWorkbenchRouter } from "./routes/dpdp-workbench";
 import { scheduledJobsRouter } from "./routes/scheduled-jobs";
 import { branchesRouter } from "./routes/branches";
 import { campaignsRouter, publicCampaignsRouter } from "./routes/campaigns";
@@ -393,6 +394,10 @@ export function buildApp() {
   // persisted by services/scheduled-tasks.ts; mounts UI at
   // /super-admin/jobs.
   app.use("/api/v1/scheduled-jobs", scheduledJobsRouter);
+  // Pearl §8.6 gap row 224 closure (2026-05-23) — cross-tenant DPDP
+  // erasure-request workbench. Super-admins on /super-admin/dpdp file
+  // / execute / reject right-to-erasure tickets per DPDP Act 2023 §17.
+  app.use("/api/v1/dpdp-workbench", dpdpWorkbenchRouter);
   app.use("/api/v1/branches", branchesRouter);
   app.use("/api/v1/campaigns", campaignsRouter);
   app.use("/api/v1/campaign-audiences", campaignAudiencesRouter);

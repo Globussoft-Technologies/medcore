@@ -675,6 +675,10 @@ model Tenant {
   frontDeskCalls      FrontDeskCall[]
   medicationIncidents MedicationIncident[]
 
+  // ── Pearl §8.6 (2026-05-23 — gap row 224 closure) ──────────────────────
+  // Back-relation for DPDP cross-tenant erasure-request workbench.
+  dpdpErasureRequests DPDPErasureRequest[]
+
   // ── Audit log scoping (Issue #456 — migration
   //    20260504000002_audit_log_tenant_id) ──────────────────────────────────
   auditLogs AuditLog[]
@@ -1331,6 +1335,13 @@ model Patient {
   // ── PRD closure (2026-04-24) ─────────────────────────────
   dataExports         PatientDataExport[]
   medicationIncidents MedicationIncident[]
+
+  // ── Pearl §8.6 (2026-05-23 — gap row 224 closure) ───────
+  // Cross-tenant DPDP erasure-request workbench: every right-to-be-
+  // forgotten ticket filed for this patient gets a row here. The purge
+  // executes against the rest of this Patient's row + child rows; we
+  // keep the request rows themselves as a compliance trail.
+  erasureRequests DPDPErasureRequest[]
 
   // Pearl §3.3 (gap item #3) — backref for the Lead that converted into
   // this patient (if any). Most patients have no source-lead.
@@ -5778,6 +5789,52 @@ model PatientDataExport {
   @@index([status])
   @@index([tenantId])
   @@map("patient_data_exports")
+}
+
+// ─── DPDP CROSS-TENANT ERASURE WORKBENCH (Pearl §8.6 — gap row 224) ─────
+//
+// Right-to-erasure (DPDP Act 2023 §17). Filed by the patient themselves, an
+// external DPO, or a super-admin acting on their behalf. The workbench at
+// /super-admin/dpdp lists rows and lets the super-admin EXECUTE (runs the
+// cross-table purge transaction in services/dpdp-purge.ts) or REJECT.
+//
+// We retain this table — and the AuditLog rows it emits — even after a
+// COMPLETED purge, because the regulator's audit requirement supersedes
+// the patient's right to be forgotten ABOUT the request itself (only the
+// substantive PII is purged). `executionReceipt` captures which tables
+// were purged + counts so a regulator can verify the action.
+enum ErasureStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  REJECTED
+}
+
+model DPDPErasureRequest {
+  id               String        @id @default(uuid())
+  tenantId         String
+  patientId        String
+  // Who initiated. For PATIENT/SUPER_ADMIN this is the User.id; for
+  // DPO_EXTERNAL we store the contact email (no user row exists).
+  requestedBy      String
+  requestedByRole  String // PATIENT | DPO_EXTERNAL | SUPER_ADMIN
+  reason           String?       @db.Text
+  status           ErasureStatus @default(PENDING)
+  requestedAt      DateTime      @default(now())
+  executedAt       DateTime?
+  executedBy       String? // User.id of the super-admin who ran the purge
+  executionReceipt Json? // { purgedTables, purgedRows, anonymizedTables, retainedTables, notes }
+  failureReason    String?       @db.Text
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([requestedAt])
+  @@index([patientId])
+  @@map("dpdp_erasure_requests")
 }
 
 // Curated SNOMED-CT subset (~120 concepts) for Indian OPD presentations.

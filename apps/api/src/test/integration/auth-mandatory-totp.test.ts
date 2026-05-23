@@ -62,11 +62,12 @@ describeIfDB("Mandatory ADMIN TOTP enforcement on login (Pearl §8.2 row 211)", 
     expect(typeof res.body.data?.enrolToken).toBe("string");
     expect(res.body.error).toMatch(/TOTP|2FA|enroll/i);
 
+    // Pre-auth login path doesn't have req.user set, so the audit row's
+    // userId column is null. Only match on action+entity+entityId.
     const auditRow = await waitForAuditFlush(prisma, {
       action: "LOGIN_BLOCKED_TOTP_REQUIRED",
       entity: "user",
       entityId: admin.id,
-      userId: admin.id,
     });
     expect(auditRow).toBeTruthy();
   });
@@ -84,7 +85,8 @@ describeIfDB("Mandatory ADMIN TOTP enforcement on login (Pearl §8.2 row 211)", 
       .send({ email: "admin@test.local", password: "MedCoreT3st-2026" });
 
     expect(res.status).toBe(200);
-    expect(typeof res.body.data?.accessToken).toBe("string");
+    // Login response nests tokens at data.tokens.accessToken (see auth.ts:1001).
+    expect(typeof res.body.data?.tokens?.accessToken).toBe("string");
   });
 
   it("NURSE sign-in succeeds even when tenant.requireAdminTOTP=true (mandatory TOTP is ADMIN-scoped)", async () => {
@@ -109,7 +111,8 @@ describeIfDB("Mandatory ADMIN TOTP enforcement on login (Pearl §8.2 row 211)", 
       .send({ email: "nurse-totp@test.local", password: "MedCoreT3st-2026" });
 
     expect(res.status).toBe(200);
-    expect(typeof res.body.data?.accessToken).toBe("string");
+    // Login response nests tokens at data.tokens.accessToken (see auth.ts:1001).
+    expect(typeof res.body.data?.tokens?.accessToken).toBe("string");
   });
 
   it("ADMIN with twoFactorEnabled=true falls through to the existing 2FA prompt (not blocked)", async () => {

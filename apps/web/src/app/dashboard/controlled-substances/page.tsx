@@ -7,6 +7,7 @@ import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { ShieldAlert, Download, FileWarning, ListTree } from "lucide-react";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { SkeletonTable } from "@/components/Skeleton";
 
 // Shared styling for the filter-bar form controls. The page renders on the dark
 // dashboard layout, so without explicit colors these inputs inherit the layout's
@@ -289,7 +290,13 @@ export default function ControlledSubstancesPage() {
 
       {/* Content */}
       {loading ? (
-        <p className="text-gray-500 dark:text-gray-400">Loading...</p>
+        <div
+          data-testid="controlled-substances-loading"
+          aria-busy="true"
+          className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800"
+        >
+          <SkeletonTable rows={6} columns={6} />
+        </div>
       ) : tab === "entries" ? (
         <EntryTable entries={entries} />
       ) : tab === "register" ? (

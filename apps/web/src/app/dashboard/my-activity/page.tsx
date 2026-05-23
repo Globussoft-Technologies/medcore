@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { api } from "@/lib/api";
 import { Activity } from "lucide-react";
+import { SkeletonCard } from "@/components/Skeleton";
 
 interface ActivityEntry {
   id: string;
@@ -74,7 +75,15 @@ export default function MyActivityPage() {
       </div>
 
       {loading ? (
-        <p>Loading...</p>
+        <div
+          data-testid="my-activity-loading"
+          aria-busy="true"
+          className="space-y-3"
+        >
+          {Array.from({ length: 4 }).map((_, i) => (
+            <SkeletonCard key={i} className="h-20" />
+          ))}
+        </div>
       ) : Object.keys(grouped).length === 0 ? (
         <p className="text-gray-500">No activity yet.</p>
       ) : (

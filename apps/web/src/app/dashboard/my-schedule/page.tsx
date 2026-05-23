@@ -13,6 +13,7 @@ import {
   PlaneTakeoff,
   Plus,
 } from "lucide-react";
+import { SkeletonCard } from "@/components/Skeleton";
 
 interface Shift {
   id: string;
@@ -168,8 +169,14 @@ export default function MySchedulePage() {
       <MyCertificationsPanel userId={user?.id} />
 
       {loading ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
-          Loading...
+        <div
+          data-testid="my-schedule-loading"
+          aria-busy="true"
+          className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-7"
+        >
+          {Array.from({ length: 7 }).map((_, i) => (
+            <SkeletonCard key={i} className="h-32" />
+          ))}
         </div>
       ) : (
         <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-7">

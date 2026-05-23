@@ -27,6 +27,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, RefreshCw, ShieldCheck, Siren
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
+import { SkeletonTable } from "@/components/Skeleton";
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -563,8 +564,12 @@ export default function AiFraudPage() {
 
       <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-            Loading...
+          <div
+            data-testid="ai-fraud-loading"
+            aria-busy="true"
+            className="p-4"
+          >
+            <SkeletonTable rows={6} columns={6} />
           </div>
         ) : visibleAlerts.length === 0 ? (
           <div

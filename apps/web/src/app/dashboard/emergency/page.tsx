@@ -21,6 +21,7 @@ import { getSocket } from "@/lib/socket";
 import { elapsedMinutes, formatElapsed } from "@/lib/time";
 import { InfoIcon } from "@/components/Tooltip";
 import { Plus, Siren, AlertTriangle, UserCheck, X } from "lucide-react";
+import { SkeletonCard } from "@/components/Skeleton";
 
 interface PatientLite {
   id: string;
@@ -544,9 +545,12 @@ export default function EmergencyPage() {
       {loading ? (
         <div
           data-testid="er-loading"
-          className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400"
+          aria-busy="true"
+          className="grid gap-4 lg:grid-cols-4"
         >
-          Loading...
+          {Array.from({ length: 4 }).map((_, i) => (
+            <SkeletonCard key={i} className="h-40" />
+          ))}
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-4">

@@ -18,7 +18,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -32,6 +32,18 @@ interface InviteMetadata {
 }
 
 export default function InviteAcceptPage() {
+  // Next 16 requires useSearchParams() consumers to sit under a Suspense
+  // boundary so the page can statically prerender the shell. Without this
+  // wrapper the page crashes at build time with "should be wrapped in a
+  // suspense boundary" — surfaced in commit f23f2f6 CI.
+  return (
+    <Suspense fallback={null}>
+      <InviteAcceptPageInner />
+    </Suspense>
+  );
+}
+
+function InviteAcceptPageInner() {
   const params = useSearchParams();
   const router = useRouter();
   const token = params?.get("token") ?? "";

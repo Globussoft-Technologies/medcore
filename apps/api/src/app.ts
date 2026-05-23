@@ -29,6 +29,13 @@ import { patientAuthRouter } from "./routes/patient-auth";
 import { featureFlagsRouter } from "./routes/feature-flags";
 import { leadRouter } from "./routes/leads";
 import { patientRouter } from "./routes/patients";
+// Pearl ERP Stage 1 §2.1.1 (gap row 41) — patient duplicate batch-merge
+// endpoint. Mounted on /api/v1/patients BEFORE patientRouter so Express's
+// first-match rule routes POST /:keepId/merge to the new batch handler
+// (accepts {mergeFromIds: string[]} from the duplicates page; back-compat
+// accepts {otherPatientId} from the legacy MergePatientModal). See
+// routes/patients-merge.ts header for the scope-cut log.
+import { patientsMergeRouter } from "./routes/patients-merge";
 import { appointmentRouter } from "./routes/appointments";
 import { doctorRouter } from "./routes/doctors";
 // Pearl ERP Stage 1 §2.1.4 (gap item #50) — per-doctor favourite-medicine
@@ -317,6 +324,10 @@ export function buildApp() {
   app.use("/api/v1/patient-auth", patientAuthRouter);
   app.use("/api/v1/feature-flags", featureFlagsRouter);
   app.use("/api/v1/leads", leadRouter);
+  // Pearl §2.1.1 gap row 41 — merge router MUST mount before patientRouter
+  // so /:keepId/merge resolves to the batch handler (Express matches the
+  // first router that defines the path).
+  app.use("/api/v1/patients", patientsMergeRouter);
   app.use("/api/v1/patients", patientRouter);
   app.use("/api/v1/appointments", appointmentRouter);
   // Pearl §2.1.4 gap #50 — favourite-medicine quick-add. Mounted BEFORE

@@ -22,7 +22,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { extractFieldErrors, topLineError } from "@/lib/field-errors";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { formatDate, formatDateTime, formatTime } from "@/lib/format";
-import { SkeletonCard } from "@/components/Skeleton";
+import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
 
 interface Admission {
   id: string;
@@ -995,7 +995,13 @@ function VitalsTab({
 
       <div className="rounded-xl bg-white dark:bg-gray-800 shadow-sm">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div
+            className="p-4"
+            data-testid="admissions-detail-vitals-loading"
+            aria-busy="true"
+          >
+            <SkeletonTable rows={5} columns={6} />
+          </div>
         ) : (Array.isArray(vitals) ? vitals : []).length === 0 ? (
           <div className="p-8 text-center text-gray-500">
             No vitals recorded yet.
@@ -1374,8 +1380,12 @@ function MedicationsTab({
       )}
 
       {loading ? (
-        <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
-          Loading...
+        <div
+          className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm"
+          data-testid="admissions-detail-medications-loading"
+          aria-busy="true"
+        >
+          <SkeletonTable rows={4} columns={5} />
         </div>
       ) : orders.length === 0 ? (
         <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
@@ -1573,8 +1583,12 @@ function RoundsTab({
       )}
 
       {loading ? (
-        <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
-          Loading...
+        <div
+          className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm"
+          data-testid="admissions-detail-rounds-loading"
+          aria-busy="true"
+        >
+          <SkeletonTable rows={4} columns={4} />
         </div>
       ) : rounds.length === 0 ? (
         <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
@@ -1785,8 +1799,12 @@ function LabsTab({
       )}
 
       {loading ? (
-        <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
-          Loading...
+        <div
+          className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm"
+          data-testid="admissions-detail-lab-orders-loading"
+          aria-busy="true"
+        >
+          <SkeletonTable rows={4} columns={5} />
         </div>
       ) : orders.length === 0 ? (
         <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
@@ -3205,7 +3223,12 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
         <div className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm">
           <h3 className="mb-3 text-sm font-semibold">I/O Events</h3>
           {loading ? (
-            <p className="text-sm text-gray-500">Loading...</p>
+            <div
+              data-testid="admissions-detail-io-events-loading"
+              aria-busy="true"
+            >
+              <SkeletonTable rows={4} columns={4} />
+            </div>
           ) : rows.length === 0 ? (
             <p className="text-sm text-gray-400">No events recorded.</p>
           ) : (

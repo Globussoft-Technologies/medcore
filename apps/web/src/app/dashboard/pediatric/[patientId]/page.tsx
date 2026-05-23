@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { ArrowLeft, Plus, Baby } from "lucide-react";
-import { SkeletonCard } from "@/components/Skeleton";
+import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
 
 interface GrowthRecord {
   id: string;
@@ -704,7 +704,12 @@ function MilestonesPanel({
     <div className="mb-6 rounded-xl bg-white p-5 shadow-sm text-gray-900 dark:bg-gray-800 dark:text-gray-100">
       <h3 className="mb-3 font-semibold">Developmental Milestones</h3>
       {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
+        <div
+          data-testid="pediatric-milestones-loading"
+          aria-busy="true"
+        >
+          <SkeletonTable rows={4} columns={3} />
+        </div>
       ) : items.length === 0 ? (
         <p className="text-sm text-gray-500 dark:text-gray-400">No data.</p>
       ) : (
@@ -881,7 +886,12 @@ function FeedingLogPanel({
       )}
 
       {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
+        <div
+          data-testid="pediatric-daily-loading"
+          aria-busy="true"
+        >
+          <SkeletonTable rows={4} columns={3} />
+        </div>
       ) : (
         <>
           {daily.length > 0 && (

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
+import { SkeletonText, SkeletonCard } from "@/components/Skeleton";
 import {
   Users,
   Calendar,
@@ -2169,7 +2170,15 @@ export default function AnalyticsPage() {
 // ─── Sub-components ────────────────────────────────
 
 function Loader() {
-  return <div className="py-8 text-center text-sm text-gray-400">Loading...</div>;
+  return (
+    <div
+      className="py-4"
+      data-testid="analytics-loader-loading"
+      aria-busy="true"
+    >
+      <SkeletonText lines={3} />
+    </div>
+  );
 }
 
 function EmptyState() {
@@ -2471,7 +2480,18 @@ function BenchmarkAndForecastPanel() {
         </div>
       </div>
 
-      {loading && <p className="text-sm text-gray-400">Loading...</p>}
+      {loading && (
+        <div
+          data-testid="analytics-benchmark-loading"
+          aria-busy="true"
+          className="grid grid-cols-1 gap-4 md:grid-cols-4"
+        >
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
+      )}
 
       {bench && !loading && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">

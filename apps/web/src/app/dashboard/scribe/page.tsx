@@ -10,6 +10,9 @@ import type { SOAPNote } from "@medcore/shared";
 // function so it can be unit-tested independent of the Web Speech API and
 // the page component (see ./voice-commands.ts and __tests__/voice-commands.test.tsx).
 import { parseVoiceCommand, type VoiceAction } from "./voice-commands";
+// Pearl ERP Stage 1 §2.1.3 (gap row 46) — right rail with derived
+// favourites + last 3 visits, click-to-paste into the active SOAP draft.
+import { ConsultRightRail } from "@/components/ConsultRightRail";
 // PRD §3.5.1 Phase 2 — 8-language picker + BCP-47 conversion. The scribe
 // page exposes the selected language as the `language_code` the ASR client
 // forwards to Sarvam, so the doctor can transcribe regional-language
@@ -1499,6 +1502,52 @@ export default function ScribePage() {
     });
   };
 
+  // ── Right-rail paste handlers (Pearl §2.1.3, gap row 46) ──────────────
+  // Click-to-paste from the right rail into the active SOAP draft. We do
+  // NOT clobber the existing chief complaint — if one's already typed we
+  // append with a separator so a quick second click doesn't lose work.
+  const handlePasteDiagnosis = useCallback((value: string) => {
+    setEditedSOAP((prev) => {
+      const next: SOAPNote = prev
+        ? JSON.parse(JSON.stringify(prev))
+        : ({
+            subjective: { chiefComplaint: "" },
+            objective: {},
+            assessment: {},
+            plan: {},
+          } as unknown as SOAPNote);
+      const sub = (next.subjective ?? (next.subjective = {} as any)) as any;
+      const existing = (sub.chiefComplaint ?? "").trim();
+      sub.chiefComplaint = existing ? `${existing}; ${value}` : value;
+      return next;
+    });
+  }, []);
+
+  const handlePasteMedicine = useCallback(
+    (med: { name: string; dose?: string; frequency?: string; duration?: string }) => {
+      setEditedSOAP((prev) => {
+        const next: SOAPNote = prev
+          ? JSON.parse(JSON.stringify(prev))
+          : ({
+              subjective: {},
+              objective: {},
+              assessment: {},
+              plan: { medications: [] },
+            } as unknown as SOAPNote);
+        const plan = (next.plan ?? (next.plan = {} as any)) as any;
+        const meds = Array.isArray(plan.medications) ? plan.medications : (plan.medications = []);
+        meds.push({
+          name: med.name,
+          dose: med.dose ?? "",
+          frequency: med.frequency ?? "",
+          duration: med.duration ?? "",
+        });
+        return next;
+      });
+    },
+    [],
+  );
+
   // ── Enter review mode ─────────────────────────────────
   const handleEnterReview = () => {
     if (!editedSOAP) return;
@@ -2654,6 +2703,20 @@ export default function ScribePage() {
               </p>
             </div>
           )}
+        </div>
+
+        {/* ── Pearl §2.1.3 (gap row 46) Right rail: favourites + last 3 visits.
+              Hidden on small screens (the page already crowds at <lg) and
+              promoted to a third column at lg+. Click-to-paste wired into the
+              active SOAP draft via handlePasteDiagnosis / handlePasteMedicine. */}
+        <div className="hidden lg:flex">
+          <ConsultRightRail
+            doctorId={selectedAppointment?.doctorId ?? null}
+            patientId={selectedAppointment?.patientId ?? null}
+            token={token}
+            onPasteDiagnosis={handlePasteDiagnosis}
+            onPasteMedicine={handlePasteMedicine}
+          />
         </div>
       </div>
     </>

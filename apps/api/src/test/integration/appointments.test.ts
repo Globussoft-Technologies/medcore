@@ -2,12 +2,32 @@
 // Skipped unless DATABASE_URL_TEST is set.
 import { it, expect, beforeAll } from "vitest";
 import request from "supertest";
+import jwt from "jsonwebtoken";
 import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
 import {
   createPatientFixture,
   createDoctorFixture,
   createAppointmentFixture,
 } from "../factories";
+import { waitForAuditFlush } from "../helpers/audit-wait";
+import { istMidnightUtc } from "../../utils/ist-time";
+
+/**
+ * Mint a PATIENT JWT for a Patient row created via `createPatientFixture()`.
+ *
+ * The fixture creates BOTH a User (role=PATIENT) and a Patient row linked
+ * to that user. `getAuthToken("PATIENT")` returns the canonical seeded
+ * patient's token — DIFFERENT User row from the fixture, so cross-patient
+ * tests that need an owner-side token need to mint here. See CLAUDE.md
+ * "Cross-patient test fixture/token identity-mismatch class".
+ */
+function signPatientJwt(userId: string, email: string): string {
+  return jwt.sign(
+    { userId, email, role: "PATIENT" },
+    process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
+    { expiresIn: "1h" }
+  );
+}
 
 let app: any;
 let token: string;
@@ -231,6 +251,150 @@ describeIfDB("Appointments API (integration)", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({ patientId: patient.id, doctorId: doctor.id, date: tomorrow });
     expect(res.status).toBe(400);
+  });
+
+  // ─────────────────────────────────────────────────────────
+  // Pearl PRD §6.3 row 340 — PATIENT self-check-in
+  // (server-side enabler for the "I've arrived" patient PWA
+  // button). Allowed iff: per-row ownership holds, the
+  // appointment.date matches TODAY IST, current status is
+  // BOOKED. Anything else → 403.
+  // ─────────────────────────────────────────────────────────
+
+  it("PATIENT can self-check-in to TODAY's own BOOKED appointment + audit row landed", async () => {
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    const today = istMidnightUtc(0);
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      overrides: { date: today, status: "BOOKED" },
+    });
+    const patientToken = signPatientJwt(patient.userId, patient.user.email);
+
+    const res = await request(app)
+      .patch(`/api/v1/appointments/${appt.id}/status`)
+      .set("Authorization", `Bearer ${patientToken}`)
+      .send({ status: "CHECKED_IN" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data?.status).toBe("CHECKED_IN");
+
+    const prisma = await getPrisma();
+    const refreshed = await prisma.appointment.findUnique({
+      where: { id: appt.id },
+    });
+    expect(refreshed?.status).toBe("CHECKED_IN");
+    expect(refreshed?.checkInAt).toBeTruthy();
+
+    // Audit row should land — safeAudit is fire-and-forget so poll briefly.
+    const auditRow = await waitForAuditFlush(prisma as any, {
+      action: "PATIENT_SELF_CHECKIN",
+      entity: "appointment",
+      entityId: appt.id,
+      userId: patient.userId,
+    });
+    expect(auditRow).toBeTruthy();
+  });
+
+  it("PATIENT cannot self-check-in to YESTERDAY's own appointment → 403", async () => {
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    const yesterday = new Date(istMidnightUtc(0).getTime() - 24 * 60 * 60 * 1000);
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      overrides: { date: yesterday, status: "BOOKED" },
+    });
+    const patientToken = signPatientJwt(patient.userId, patient.user.email);
+
+    const res = await request(app)
+      .patch(`/api/v1/appointments/${appt.id}/status`)
+      .set("Authorization", `Bearer ${patientToken}`)
+      .send({ status: "CHECKED_IN" });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/today/i);
+  });
+
+  it("PATIENT cannot self-check-in to TOMORROW's own appointment → 403", async () => {
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    const tomorrow = istMidnightUtc(1);
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      overrides: { date: tomorrow, status: "BOOKED" },
+    });
+    const patientToken = signPatientJwt(patient.userId, patient.user.email);
+
+    const res = await request(app)
+      .patch(`/api/v1/appointments/${appt.id}/status`)
+      .set("Authorization", `Bearer ${patientToken}`)
+      .send({ status: "CHECKED_IN" });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/today/i);
+  });
+
+  it("PATIENT cannot self-check-in to ANOTHER patient's appointment → 403 (BOLA)", async () => {
+    const owner = await createPatientFixture();
+    const intruder = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    const today = istMidnightUtc(0);
+    const appt = await createAppointmentFixture({
+      patientId: owner.id,
+      doctorId: doctor.id,
+      overrides: { date: today, status: "BOOKED" },
+    });
+    const intruderToken = signPatientJwt(intruder.userId, intruder.user.email);
+
+    const res = await request(app)
+      .patch(`/api/v1/appointments/${appt.id}/status`)
+      .set("Authorization", `Bearer ${intruderToken}`)
+      .send({ status: "CHECKED_IN" });
+
+    // `assertPatientOwnsResource` returns 403 (not 404) for cross-patient access.
+    expect(res.status).toBe(403);
+  });
+
+  it("PATIENT cannot self-flip status=COMPLETED on own today appointment → 403", async () => {
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    const today = istMidnightUtc(0);
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      overrides: { date: today, status: "BOOKED" },
+    });
+    const patientToken = signPatientJwt(patient.userId, patient.user.email);
+
+    const res = await request(app)
+      .patch(`/api/v1/appointments/${appt.id}/status`)
+      .set("Authorization", `Bearer ${patientToken}`)
+      .send({ status: "COMPLETED" });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/cancel|check in/i);
+  });
+
+  it("RECEPTION can still flip status=CHECKED_IN on any date (no regression)", async () => {
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    // Use yesterday to prove the IST-today guard ONLY applies to PATIENT.
+    const yesterday = new Date(istMidnightUtc(0).getTime() - 24 * 60 * 60 * 1000);
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      overrides: { date: yesterday, status: "BOOKED" },
+    });
+    // `token` is the shared RECEPTION token from beforeAll().
+    const res = await request(app)
+      .patch(`/api/v1/appointments/${appt.id}/status`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ status: "CHECKED_IN" });
+    expect([200, 201]).toContain(res.status);
+    expect(res.body.data?.status).toBe("CHECKED_IN");
   });
 
   it("SLOT mode: book at HH:MM mints no tokenNumber and stores slotStart", async () => {

@@ -9,6 +9,7 @@ import { toast } from "@/lib/toast";
 import { extractFieldErrors } from "@/lib/field-errors";
 import { usePrompt } from "@/lib/use-dialog";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { SkeletonCard } from "@/components/Skeleton";
 import {
   ArrowLeft,
   Scissors,
@@ -214,7 +215,17 @@ export default function SurgeryDetailPage() {
   }
 
   if (loading) {
-    return <div className="p-8 text-center text-gray-500">Loading...</div>;
+    return (
+      <div
+        data-testid="surgery-detail-loading"
+        aria-busy="true"
+        className="space-y-4 p-6"
+      >
+        <SkeletonCard />
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    );
   }
 
   if (!surgery) {

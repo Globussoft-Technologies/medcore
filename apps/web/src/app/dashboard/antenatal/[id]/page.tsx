@@ -8,6 +8,7 @@ import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { usePrompt } from "@/lib/use-dialog";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { SkeletonCard } from "@/components/Skeleton";
 import {
   ArrowLeft,
   Plus,
@@ -220,7 +221,17 @@ export default function AncCaseDetailPage() {
   }
 
   if (loading || !caseData) {
-    return <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>;
+    return (
+      <div
+        data-testid="antenatal-detail-loading"
+        aria-busy="true"
+        className="space-y-4 p-6"
+      >
+        <SkeletonCard />
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    );
   }
 
   const weeksGestation = Math.round(

@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { ArrowLeft, Plus, Baby } from "lucide-react";
+import { SkeletonCard } from "@/components/Skeleton";
 
 interface GrowthRecord {
   id: string;
@@ -321,7 +322,17 @@ export default function PediatricDetailPage() {
   }
 
   if (loading || !patient) {
-    return <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>;
+    return (
+      <div
+        data-testid="pediatric-detail-loading"
+        aria-busy="true"
+        className="space-y-4 p-6"
+      >
+        <SkeletonCard />
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    );
   }
 
   const weightData = records.map((r) => ({

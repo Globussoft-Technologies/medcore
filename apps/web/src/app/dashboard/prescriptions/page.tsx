@@ -2149,7 +2149,14 @@ export default function PrescriptionsPage() {
               </button>
             </div>
             {genericLoading ? (
-              <p className="text-gray-500 dark:text-gray-400">Loading...</p>
+              <div
+                data-testid="prescriptions-generic-loading"
+                aria-busy="true"
+                className="space-y-3"
+              >
+                <SkeletonCard />
+                <SkeletonCard />
+              </div>
             ) : !genericData || genericData.alternatives.length === 0 ? (
               <p className="text-gray-500 dark:text-gray-400">No cheaper generics in stock.</p>
             ) : (

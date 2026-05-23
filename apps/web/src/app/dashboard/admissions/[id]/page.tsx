@@ -22,6 +22,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { extractFieldErrors, topLineError } from "@/lib/field-errors";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { formatDate, formatDateTime, formatTime } from "@/lib/format";
+import { SkeletonCard } from "@/components/Skeleton";
 
 interface Admission {
   id: string;
@@ -176,7 +177,17 @@ export default function AdmissionDetailPage({
   }
 
   if (loading)
-    return <div className="p-8 text-center text-gray-500">Loading...</div>;
+    return (
+      <div
+        data-testid="admissions-detail-loading"
+        aria-busy="true"
+        className="space-y-4 p-6"
+      >
+        <SkeletonCard />
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    );
   if (!admission)
     return (
       <div className="p-8 text-center text-gray-500">Admission not found.</div>

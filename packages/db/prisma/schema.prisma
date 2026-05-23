@@ -718,6 +718,11 @@ model Tenant {
   whatsappConversations  WhatsAppConversation[]
   whatsappMessages       WhatsAppMessage[]
 
+  // Pearl §8.5 (gap row 223 closure 2026-05-23) — Pearl-operator support
+  // tickets raised by this tenant's ADMIN against the Pearl operator
+  // (super-admin) team. Distinct from `complaints` (patient → hospital).
+  supportTickets SupportTicket[]
+
   @@map("tenants")
 }
 
@@ -1023,6 +1028,15 @@ model User {
   // Named relation so later pieces (A/B variant assignment, etc.) can add
   // distinct relations to User without colliding.
   campaignsCreated Campaign[] @relation("CampaignCreator")
+
+  // Pearl §8.5 (gap row 223 closure 2026-05-23) — Pearl-operator support
+  // tickets. Three distinct relations:
+  //   - opener  : the tenant-ADMIN (or super-admin) who filed the ticket.
+  //   - assignee: the super-admin currently triaging it.
+  //   - messages: replies authored on either side of the thread.
+  supportTicketsOpened   SupportTicket[]        @relation("SupportTicketOpener")
+  supportTicketsAssigned SupportTicket[]        @relation("SupportTicketAssignee")
+  supportTicketMessages  SupportTicketMessage[]
 
   @@index([email])
   @@index([phone])
@@ -6239,4 +6253,73 @@ model CampaignSend {
   // small tail in-memory.
   @@index([patientId, clickedAt])
   @@map("campaign_sends")
+}
+
+// ============================================================================
+// Pearl ERP Stage 1 §8.5 (gap row 223 closure 2026-05-23) — Pearl-operator
+// support inbox.
+//
+// Tenant-ADMIN → Pearl-operator (super-admin) ticket lifecycle. Distinct from
+// `Complaint` (patient → hospital). Threading via SupportTicketMessage:
+// each reply flips the ticket back and forth between OPEN (tenant just
+// wrote) and AWAITING_TENANT (super-admin just replied), so both sides see
+// a clear "needs my attention" filter.
+//
+// Super-admin (tenantId == null OR seeded "default" tenant) sees all
+// tickets across all tenants; tenant-ADMIN sees only own tenant's rows.
+// Per-row scoping enforced in apps/api/src/routes/support-tickets.ts.
+// ============================================================================
+model SupportTicket {
+  id               String                @id @default(uuid())
+  // Raising tenant. Nullable so a super-admin can file an internal-only
+  // ticket (no tenant context) — same flexibility the DPDP workbench has.
+  tenantId         String?
+  openedByUserId   String
+  subject          String
+  body             String
+  status           SupportTicketStatus   @default(OPEN)
+  priority         SupportTicketPriority @default(NORMAL)
+  assignedToUserId String?
+  resolvedAt       DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  tenant     Tenant?                @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  openedBy   User                   @relation("SupportTicketOpener", fields: [openedByUserId], references: [id])
+  assignedTo User?                  @relation("SupportTicketAssignee", fields: [assignedToUserId], references: [id])
+  messages   SupportTicketMessage[]
+
+  @@index([tenantId, status])
+  @@index([assignedToUserId, status])
+  @@index([status, updatedAt])
+  @@map("support_tickets")
+}
+
+model SupportTicketMessage {
+  id           String   @id @default(uuid())
+  ticketId     String
+  authorUserId String
+  body         String
+  createdAt    DateTime @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author User          @relation(fields: [authorUserId], references: [id])
+
+  @@index([ticketId, createdAt])
+  @@map("support_ticket_messages")
+}
+
+enum SupportTicketStatus {
+  OPEN
+  AWAITING_TENANT
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum SupportTicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
 }

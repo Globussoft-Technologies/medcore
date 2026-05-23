@@ -137,6 +137,7 @@ import { tenantsRouter } from "./routes/tenants";
 import { tenantOnboardingRouter } from "./routes/tenant-onboarding";
 import { dpdpWorkbenchRouter } from "./routes/dpdp-workbench";
 import { scheduledJobsRouter } from "./routes/scheduled-jobs";
+import { supportTicketsRouter } from "./routes/support-tickets";
 import { branchesRouter } from "./routes/branches";
 import { campaignsRouter, publicCampaignsRouter } from "./routes/campaigns";
 import { campaignAudiencesRouter } from "./routes/campaign-audiences";
@@ -429,6 +430,11 @@ export function buildApp() {
   // erasure-request workbench. Super-admins on /super-admin/dpdp file
   // / execute / reject right-to-erasure tickets per DPDP Act 2023 §17.
   app.use("/api/v1/dpdp-workbench", dpdpWorkbenchRouter);
+  // Pearl §8.5 gap row 223 closure (2026-05-23) — Pearl-operator support
+  // inbox. Orthogonal to the patient→hospital Complaint flow; tenant
+  // ADMINs raise tickets against the Pearl operator (super-admin) team
+  // and the operator triages on /super-admin/support.
+  app.use("/api/v1/support-tickets", supportTicketsRouter);
   app.use("/api/v1/branches", branchesRouter);
   app.use("/api/v1/campaigns", campaignsRouter);
   app.use("/api/v1/campaign-audiences", campaignAudiencesRouter);

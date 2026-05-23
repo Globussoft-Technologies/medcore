@@ -5,7 +5,7 @@
 // piece 4 (cross-tenant metrics).
 
 import Link from "next/link";
-import { Building2, CreditCard, ArrowRight, UserPlus, ListChecks, ShieldAlert } from "lucide-react";
+import { Building2, CreditCard, ArrowRight, UserPlus, ListChecks, ShieldAlert, Inbox } from "lucide-react";
 
 export default function SuperAdminLandingPage() {
   return (
@@ -151,6 +151,37 @@ export default function SuperAdminLandingPage() {
           </div>
           <p className="text-xs text-slate-500">
             Pearl §8.6 — DPDP Act 2023 §17 cross-tenant purge audit log.
+          </p>
+        </Link>
+
+        {/* Pearl Support Inbox tile — Pearl §8.5 (gap row 223 closure 2026-05-23).
+            Tenant-ADMIN → Pearl-operator ticket lifecycle. Distinct from
+            patient → hospital complaints. */}
+        <Link
+          href="/super-admin/support"
+          data-testid="super-admin-tile-support"
+          className="group flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2"
+        >
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-amber-600 text-white">
+              <Inbox size={18} aria-hidden="true" />
+            </span>
+            <div className="flex-1">
+              <h2 className="text-base font-semibold text-slate-900">
+                Pearl Support Inbox
+              </h2>
+              <p className="text-xs text-slate-500">
+                Triage support tickets raised by tenant ADMINs.
+              </p>
+            </div>
+            <ArrowRight
+              size={16}
+              className="text-slate-400 transition group-hover:translate-x-0.5"
+              aria-hidden="true"
+            />
+          </div>
+          <p className="text-xs text-slate-500">
+            Pearl §8.5 — operator-facing tenant escalation channel.
           </p>
         </Link>
 

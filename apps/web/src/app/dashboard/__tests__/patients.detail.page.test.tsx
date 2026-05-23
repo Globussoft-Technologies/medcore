@@ -52,9 +52,11 @@ describe("PatientDetailPage", () => {
   it("shows loading state", async () => {
     apiMock.get.mockReturnValue(new Promise(() => {}));
     render(<PatientDetailPage />);
-    await waitFor(() =>
-      expect(screen.getByText(/loading/i)).toBeInTheDocument()
-    );
+    await waitFor(() => {
+      const loader = screen.getByTestId("patients-detail-loading");
+      expect(loader).toBeInTheDocument();
+      expect(loader).toHaveAttribute("aria-busy", "true");
+    });
   });
 
   it("shows patient-not-found on failure", async () => {

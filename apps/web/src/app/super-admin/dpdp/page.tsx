@@ -329,6 +329,10 @@ export default function SuperAdminDpdpPage() {
               const canExecute =
                 row.status === "PENDING" || row.status === "FAILED";
               const canReject = row.status === "PENDING";
+              // Pearl §12 row 382 — auditable receipt only meaningful
+              // once the purge has executed (any non-PENDING, non-IN_PROGRESS
+              // state has an executionReceipt or a final outcome to report).
+              const canDownloadReceipt = row.status === "COMPLETED";
               return (
                 <tr
                   key={row.id}
@@ -398,6 +402,38 @@ export default function SuperAdminDpdpPage() {
                         >
                           Reject
                         </button>
+                      ) : null}
+                      {canDownloadReceipt ? (
+                        <>
+                          <button
+                            type="button"
+                            data-testid={`dpdp-receipt-json-${row.id}`}
+                            onClick={() =>
+                              window.open(
+                                `/api/v1/dpdp-workbench/requests/${row.id}/receipt.json`,
+                                "_blank",
+                                "noopener,noreferrer",
+                              )
+                            }
+                            className="inline-flex h-11 min-w-[44px] items-center justify-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                          >
+                            Receipt (JSON)
+                          </button>
+                          <button
+                            type="button"
+                            data-testid={`dpdp-receipt-pdf-${row.id}`}
+                            onClick={() =>
+                              window.open(
+                                `/api/v1/dpdp-workbench/requests/${row.id}/receipt.pdf`,
+                                "_blank",
+                                "noopener,noreferrer",
+                              )
+                            }
+                            className="inline-flex h-11 min-w-[44px] items-center justify-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                          >
+                            Receipt (PDF)
+                          </button>
+                        </>
                       ) : null}
                     </div>
                   </td>

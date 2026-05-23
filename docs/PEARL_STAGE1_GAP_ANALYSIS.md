@@ -379,7 +379,7 @@ Pearl §12 mandates 7 compliance posture clauses. These overlap the matrix but d
 | PRD § / clause | Pearl ask | Status | Reference / what's left |
 |---|---|---|---|
 | 12.a | DPDP Act 2023 — granular consent at registration + opt-in/out per channel | ✅ Present | `NotificationPreference` + ABDM `ConsentArtefact` + registration capture. |
-| 12.a | DPDP Act 2023 — right to erasure with **full audit** | 🟡 Partial | `PatientDataExport` covers export (`routes/patient-data-export.ts`); per-patient erasure with cross-surface purge + auditable receipt is a Pearl §8.6 workbench gap. |
+| 12.a | DPDP Act 2023 — right to erasure with **full audit** | ✅ Present | `PatientDataExport` covers export (`routes/patient-data-export.ts`); per-patient erasure ships via the §8.6 workbench (`routes/dpdp-workbench.ts` + `services/dpdp-purge.ts`). **Closed 2026-05-23** — `services/dpdp-receipt.ts` + `GET /api/v1/dpdp-workbench/requests/:id/receipt.{json,pdf}` + workbench UI buttons. SHA-256 `receiptHash` over canonical JSON serialization makes the receipt tamper-evident; downloads emit `DPDP_RECEIPT_DOWNLOADED` audit rows. |
 | 12.a | DPDP — AP-South-1 residency | ❌ Infra gap | See §7 NFR row above. |
 | 12.b | ABDM M1 (ABHA create / link / verify) | ✅ Present | `routes/abdm.ts` (668 lines) + `services/abdm/`. |
 | 12.b | ABDM M1 — **HFR + HPR onboarding** for the tenant | 🟡 Wizard step deferred | Super-admin onboarding wizard MVP (`4c9bf16`) covers steps 1-3 of 8; HFR/HPR onboarding is step 5 of the PRD's 8-step wizard, deferred to piece 2b. |

@@ -29,6 +29,11 @@ import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { purgePatient, DPDPPurgeError } from "../services/dpdp-purge";
+import {
+  generateErasureReceipt,
+  renderErasureReceiptPdf,
+  ErasureReceiptNotFoundError,
+} from "../services/dpdp-receipt";
 
 const router = Router();
 
@@ -459,6 +464,88 @@ router.post(
         error: null,
       });
     } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─── GET /api/v1/dpdp-workbench/requests/:id/receipt.json ───────────
+// Pearl §12 row 382 — DPDP §17 right-to-erasure auditable receipt.
+// Returns the structured JSON receipt (derived from the persisted
+// DPDPErasureRequest + AuditLog rows) with a SHA-256 receiptHash so the
+// document is tamper-evident. Super-admin only (mirrors workbench
+// guard); writes a DPDP_RECEIPT_DOWNLOADED audit row.
+router.get(
+  "/requests/:id/receipt.json",
+  authenticate,
+  authorize(Role.ADMIN),
+  requireSuperAdmin,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const receipt = await generateErasureReceipt(req.params.id, prisma);
+      await auditLog(
+        req,
+        "DPDP_RECEIPT_DOWNLOADED",
+        "dpdp_erasure_request",
+        receipt.requestId,
+        { format: "json", receiptHash: receipt.receiptHash },
+      );
+      res.status(200).json({
+        success: true,
+        data: receipt,
+        error: null,
+      });
+    } catch (err) {
+      if (err instanceof ErasureReceiptNotFoundError) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Erasure request not found",
+        });
+        return;
+      }
+      next(err);
+    }
+  },
+);
+
+// ─── GET /api/v1/dpdp-workbench/requests/:id/receipt.pdf ────────────
+// Same surface as /receipt.json but renders a printable PDF
+// (application/pdf) via pdfkit — matches the library used by
+// services/pdf-generator.ts.
+router.get(
+  "/requests/:id/receipt.pdf",
+  authenticate,
+  authorize(Role.ADMIN),
+  requireSuperAdmin,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const receipt = await generateErasureReceipt(req.params.id, prisma);
+      const pdf = await renderErasureReceiptPdf(receipt);
+      await auditLog(
+        req,
+        "DPDP_RECEIPT_DOWNLOADED",
+        "dpdp_erasure_request",
+        receipt.requestId,
+        { format: "pdf", receiptHash: receipt.receiptHash, bytes: pdf.length },
+      );
+      res.status(200);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="dpdp-receipt-${receipt.requestId}.pdf"`,
+      );
+      res.setHeader("Content-Length", String(pdf.length));
+      res.end(pdf);
+    } catch (err) {
+      if (err instanceof ErasureReceiptNotFoundError) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Erasure request not found",
+        });
+        return;
+      }
       next(err);
     }
   },

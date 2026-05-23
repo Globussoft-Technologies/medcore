@@ -21,6 +21,7 @@ import {
   Mic,
 } from "lucide-react";
 import { getSocket } from "@/lib/socket";
+import { SkeletonCard } from "@/components/Skeleton";
 
 interface PatientLite {
   id: string;
@@ -463,8 +464,14 @@ export default function TelemedicinePage() {
       </div>
 
       {loading ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
-          Loading...
+        <div
+          data-testid="telemedicine-loading"
+          aria-busy="true"
+          className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
+        >
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
         </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">

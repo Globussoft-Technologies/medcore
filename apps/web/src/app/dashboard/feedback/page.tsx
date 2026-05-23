@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
+import { SkeletonTable } from "@/components/Skeleton";
 
 // Issue #207 (Apr 2026): Patient Feedback Analytics is staff-only. The
 // previous version routed PATIENT here too, exposing per-doctor NPS and
@@ -421,7 +422,9 @@ export default function FeedbackPage() {
       {/* Table */}
       <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div className="p-4" data-testid="feedback-loading" aria-busy="true">
+            <SkeletonTable rows={5} columns={7} />
+          </div>
         ) : feedbacks.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">No feedback yet</div>
         ) : (

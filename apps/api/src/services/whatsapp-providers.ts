@@ -1,5 +1,5 @@
-// Pearl ERP Stage 1 §6.1 (gap row 167 — piece 3j-ii of 4).
-// Per-provider signature-verification + message-normalization helpers.
+// Pearl ERP Stage 1 §6.1 (gap row 167 — pieces 3j-ii + 3j-iv of 4).
+// Per-provider signature-verification + message-normalization + outbound send.
 //
 // What / which modules / why:
 //   - Backs apps/api/src/routes/whatsapp-webhook.ts. The route delegates
@@ -347,6 +347,276 @@ function parseInterakt(body: any): NormalizedInbound | null {
     providerMessageId: typeof m.id === "string" ? m.id : null,
     sentAt: m.timestamp ? new Date(Number(m.timestamp)) : new Date(),
   };
+}
+
+// ── Outbound send (piece 3j-iv) ───────────────────────────────────────
+
+export interface OutboundSendResult {
+  providerMessageId: string;
+  sentAt: Date;
+}
+
+/**
+ * Sends a single outbound text message via the tenant's configured provider.
+ *
+ * Stub vs strict mode: when running outside production AND the provider
+ * returns a non-2xx OR the call throws, we return a mock
+ * `{providerMessageId:"stub-<rand>", sentAt:now()}` so local dev / CI
+ * doesn't break against placeholder creds. Production (NODE_ENV=production)
+ * always surfaces the real error so the route layer can persist a FAILED
+ * message + 502. Set `WHATSAPP_OUTBOUND_STRICT=true` to force strict mode
+ * in non-prod environments (useful for integration tests against a real
+ * provider).
+ *
+ * Each branch returns the provider's own message id when available; falls
+ * back to a generated id so the persisted `providerMessageId` column is
+ * never null on a successful send.
+ */
+export async function sendOutboundMessage(
+  provider: ProviderName,
+  config: DecryptedProviderConfig,
+  phone: string,
+  body: string,
+): Promise<OutboundSendResult> {
+  const strict =
+    process.env.NODE_ENV === "production" ||
+    process.env.WHATSAPP_OUTBOUND_STRICT === "true";
+  try {
+    switch (provider) {
+      case "GUPSHUP":
+        return await sendGupshup(config, phone, body);
+      case "WATI":
+        return await sendWati(config, phone, body);
+      case "AISENSEI":
+        return await sendAiSensei(config, phone, body);
+      case "INTERAKT":
+        return await sendInterakt(config, phone, body);
+      case "META":
+        return await sendMeta(config, phone, body);
+      default:
+        throw new Error(`Unsupported provider: ${provider}`);
+    }
+  } catch (err) {
+    if (!strict) {
+      // Dev / CI fallback — matches the sms.ts stub pattern (CLAUDE.md
+      // §services). Lets local development write OUTBOUND rows without
+      // a real Gupshup / Meta account.
+      console.warn(
+        `[whatsapp-outbound stub] provider=${provider} phone=${maskPhone(
+          phone,
+        )} fell back to stub after error: ${String(err)}`,
+      );
+      return { providerMessageId: stubId(), sentAt: new Date() };
+    }
+    throw err;
+  }
+}
+
+function stubId(): string {
+  return (
+    "stub-" +
+    Math.random().toString(36).slice(2, 10) +
+    Date.now().toString(36)
+  );
+}
+
+function maskPhone(phone: string): string {
+  return phone.length >= 4 ? "****" + phone.slice(-4) : phone;
+}
+
+async function asJson(res: Response): Promise<Record<string, unknown>> {
+  try {
+    return (await res.json()) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function errorMessage(body: Record<string, unknown>, fallback: string): string {
+  // Best-effort error extraction — every provider names this differently.
+  const candidates = [
+    body.message,
+    body.error,
+    body.errorMessage,
+    (body.error as { message?: string } | undefined)?.message,
+    body.detail,
+    body.reason,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.length > 0) return c;
+  }
+  return fallback;
+}
+
+async function sendGupshup(
+  config: DecryptedProviderConfig,
+  phone: string,
+  body: string,
+): Promise<OutboundSendResult> {
+  if (!config.apiKey || !config.sourcePhone || !config.appName) {
+    throw new Error("Gupshup config missing apiKey/sourcePhone/appName");
+  }
+  const form = new URLSearchParams();
+  form.set("channel", "whatsapp");
+  form.set("source", config.sourcePhone.replace(/^\+/, ""));
+  form.set("destination", phone.replace(/^\+/, ""));
+  form.set("message", JSON.stringify({ type: "text", text: body }));
+  form.set("src.name", config.appName);
+  const res = await fetch("https://api.gupshup.io/sm/api/v1/msg", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      apikey: config.apiKey,
+    },
+    body: form.toString(),
+  });
+  const data = await asJson(res);
+  if (!res.ok) throw new Error(errorMessage(data, `Gupshup HTTP ${res.status}`));
+  const id =
+    (typeof data.messageId === "string" && data.messageId) ||
+    (typeof data.id === "string" && data.id) ||
+    stubId();
+  return { providerMessageId: id, sentAt: new Date() };
+}
+
+async function sendWati(
+  config: DecryptedProviderConfig,
+  phone: string,
+  body: string,
+): Promise<OutboundSendResult> {
+  if (!config.bearerToken || !config.tenantUrl) {
+    throw new Error("WATI config missing bearerToken/tenantUrl");
+  }
+  const baseUrl = config.tenantUrl.replace(/\/+$/, "");
+  const phoneDigits = phone.replace(/^\+/, "");
+  const url = `${baseUrl}/api/v1/sendSessionMessage/${encodeURIComponent(
+    phoneDigits,
+  )}?messageText=${encodeURIComponent(body)}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.bearerToken}`,
+      "Content-Type": "application/json",
+    },
+  });
+  const data = await asJson(res);
+  if (!res.ok) throw new Error(errorMessage(data, `WATI HTTP ${res.status}`));
+  const messageInfo = data.message as { id?: string } | undefined;
+  const id =
+    (typeof data.id === "string" && data.id) ||
+    (typeof messageInfo?.id === "string" && messageInfo.id) ||
+    stubId();
+  return { providerMessageId: id, sentAt: new Date() };
+}
+
+async function sendAiSensei(
+  config: DecryptedProviderConfig,
+  phone: string,
+  body: string,
+): Promise<OutboundSendResult> {
+  if (!config.apiKey || !config.baseUrl) {
+    throw new Error("AiSensei config missing apiKey/baseUrl");
+  }
+  const url = `${config.baseUrl.replace(/\/+$/, "")}/messages`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apiKey: config.apiKey,
+    },
+    body: JSON.stringify({ to: phone, text: body }),
+  });
+  const data = await asJson(res);
+  if (!res.ok)
+    throw new Error(errorMessage(data, `AiSensei HTTP ${res.status}`));
+  const id =
+    (typeof data.message_id === "string" && data.message_id) ||
+    (typeof data.id === "string" && data.id) ||
+    stubId();
+  return { providerMessageId: id, sentAt: new Date() };
+}
+
+async function sendInterakt(
+  config: DecryptedProviderConfig,
+  phone: string,
+  body: string,
+): Promise<OutboundSendResult> {
+  if (!config.apiKey) {
+    throw new Error("Interakt config missing apiKey");
+  }
+  // Interakt's public/message API expects `countryCode` (no "+") + bare
+  // phoneNumber. Default-split a "+CCNNN..." into a 2-digit country code
+  // and the rest. For Indian numbers ("+91NNN...") this is correct.
+  const stripped = phone.replace(/^\+/, "");
+  const countryCode =
+    stripped.length > 10 ? stripped.slice(0, stripped.length - 10) : "91";
+  const phoneNumber =
+    stripped.length > 10 ? stripped.slice(-10) : stripped;
+  const res = await fetch("https://api.interakt.ai/v1/public/message/", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Basic ${Buffer.from(config.apiKey + ":").toString("base64")}`,
+    },
+    body: JSON.stringify({
+      countryCode,
+      phoneNumber,
+      type: "Text",
+      data: { message: body },
+    }),
+  });
+  const data = await asJson(res);
+  if (!res.ok)
+    throw new Error(errorMessage(data, `Interakt HTTP ${res.status}`));
+  const id =
+    (typeof data.id === "string" && data.id) ||
+    (typeof (data.result as { id?: string } | undefined)?.id === "string" &&
+      (data.result as { id?: string }).id!) ||
+    stubId();
+  return { providerMessageId: id, sentAt: new Date() };
+}
+
+async function sendMeta(
+  config: DecryptedProviderConfig,
+  phone: string,
+  body: string,
+): Promise<OutboundSendResult> {
+  if (!config.accessToken || !config.phoneNumberId) {
+    throw new Error("Meta config missing accessToken/phoneNumberId");
+  }
+  const url = `https://graph.facebook.com/v18.0/${encodeURIComponent(
+    config.phoneNumberId,
+  )}/messages`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.accessToken}`,
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to: phone.replace(/^\+/, ""),
+      type: "text",
+      text: { body },
+    }),
+  });
+  const data = await asJson(res);
+  if (!res.ok) {
+    const errObj = data.error as { message?: string } | undefined;
+    throw new Error(
+      typeof errObj?.message === "string"
+        ? errObj.message
+        : `Meta HTTP ${res.status}`,
+    );
+  }
+  const messages = data.messages as Array<{ id?: string }> | undefined;
+  const id =
+    (Array.isArray(messages) &&
+      messages[0] &&
+      typeof messages[0].id === "string" &&
+      messages[0].id) ||
+    stubId();
+  return { providerMessageId: id, sentAt: new Date() };
 }
 
 // ── Destination-phone extractor ───────────────────────────────────────

@@ -1,11 +1,15 @@
-// Pearl ERP Stage 1 §6.1 (gap row 167 — piece 3j-iii of 4).
-// /dashboard/whatsapp/[id] — single conversation thread + actions.
+// Pearl ERP Stage 1 §6.1 (gap row 167 — pieces 3j-iii + 3j-iv of 4).
+// /dashboard/whatsapp/[id] — single conversation thread + actions + reply.
 //
 // What / which modules / why:
 //   - Renders chat bubbles for one WhatsAppConversation: INBOUND on the
-//     left (slate), OUTBOUND on the right (emerald). The reply input is
-//     intentionally absent — piece 3j-iv ships outbound. A banner makes
-//     this explicit so the receptionist knows what's coming.
+//     left (slate), OUTBOUND on the right (emerald).
+//   - Reply composer (piece 3j-iv): textarea + char counter + Send;
+//     Cmd/Ctrl+Enter to send. POST to /wa/inbox/conversations/:id/messages
+//     and optimistically append the new OUTBOUND row on success. Inline
+//     error surface keeps the textarea content on failure so the operator
+//     can retry. 503 surfaces a config-missing banner pointing to
+//     /dashboard/settings/whatsapp.
 //   - Actions: Mark all read (POST /:id/read), Snooze / Reopen / Close
 //     (PATCH /:id status), Assign to me (PATCH /:id assignedToUserId).
 //   - On mount we POST /:id/read exactly once per session per
@@ -20,7 +24,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Check, Pause, RotateCcw, XCircle, UserPlus } from "lucide-react";
+import { ArrowLeft, Check, Pause, RotateCcw, XCircle, UserPlus, Send } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
@@ -100,6 +104,12 @@ export default function WhatsAppThreadPage() {
   const [error, setError] = useState<string | null>(null);
   const [unauth, setUnauth] = useState(false);
   const readMarkedRef = useRef(false);
+
+  // Reply composer state (piece 3j-iv)
+  const [replyBody, setReplyBody] = useState("");
+  const [sending, setSending] = useState(false);
+  const [replyError, setReplyError] = useState<string | null>(null);
+  const REPLY_MAX = 4096;
 
   const fetchThread = useCallback(async () => {
     if (!isAllowed || !id) return;
@@ -232,7 +242,68 @@ export default function WhatsAppThreadPage() {
     }
   }, [convo]);
 
+  const sendReply = useCallback(async () => {
+    if (!convo || sending) return;
+    const trimmed = replyBody.trim();
+    if (trimmed.length === 0 || trimmed.length > REPLY_MAX) return;
+    setSending(true);
+    setReplyError(null);
+    try {
+      interface SendReplyResponse {
+        data: { message: ThreadMessage };
+      }
+      const res = (await api.post<SendReplyResponse>(
+        `/wa/inbox/conversations/${encodeURIComponent(convo.id)}/messages`,
+        { body: trimmed },
+      )) as SendReplyResponse;
+      // Optimistic append: the API echo is authoritative when present.
+      const msg = res?.data?.message;
+      if (msg && msg.id) {
+        setMessages((prev) => [...prev, msg]);
+      } else {
+        // Fallback shape — synthesize a local row so the operator sees the
+        // send happened even if the response shape drifts.
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `local-${Date.now()}`,
+            direction: "OUTBOUND",
+            body: trimmed,
+            mediaUrl: null,
+            sentAt: new Date().toISOString(),
+            deliveredAt: null,
+            readAt: null,
+            status: "SENT",
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      }
+      setReplyBody("");
+      toast.success("Reply sent");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setReplyError(message);
+      toast.error(message || "Reply failed");
+    } finally {
+      setSending(false);
+    }
+  }, [convo, replyBody, sending]);
+
+  const onReplyKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // Cmd/Ctrl+Enter sends — matches Slack / WhatsApp Web muscle memory.
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        void sendReply();
+      }
+    },
+    [sendReply],
+  );
+
   const label = useMemo(() => conversationLabel(convo), [convo]);
+  const replyTrimmedLen = replyBody.trim().length;
+  const replyDisabled =
+    sending || replyTrimmedLen === 0 || replyTrimmedLen > REPLY_MAX;
 
   if (!isAllowed) {
     return (
@@ -380,14 +451,67 @@ export default function WhatsAppThreadPage() {
         </div>
       ) : null}
 
-      <div
-        role="note"
-        data-testid="wa-thread-reply-banner"
-        className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
-      >
-        Reply support coming in the next piece. For now, copy the patient
-        phone above and respond from WhatsApp Web.
-      </div>
+      {convo ? (
+        <form
+          data-testid="wa-thread-reply-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void sendReply();
+          }}
+          className="space-y-2 rounded-md border border-slate-200 bg-white p-3 shadow-sm"
+        >
+          <label htmlFor="wa-thread-reply-input" className="sr-only">
+            Reply to {label}
+          </label>
+          <textarea
+            id="wa-thread-reply-input"
+            data-testid="wa-thread-reply-input"
+            value={replyBody}
+            onChange={(e) => setReplyBody(e.target.value)}
+            onKeyDown={onReplyKeyDown}
+            disabled={sending}
+            rows={2}
+            maxLength={REPLY_MAX}
+            placeholder="Type a reply…"
+            className="block w-full resize-y rounded-md border border-slate-300 bg-white p-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span
+              data-testid="wa-thread-reply-counter"
+              className={`text-xs ${
+                replyTrimmedLen > REPLY_MAX
+                  ? "text-rose-600"
+                  : "text-slate-500"
+              }`}
+            >
+              {replyTrimmedLen} / {REPLY_MAX}
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="hidden text-xs text-slate-400 sm:inline">
+                Cmd/Ctrl+Enter to send
+              </span>
+              <button
+                type="submit"
+                data-testid="wa-thread-reply-send"
+                disabled={replyDisabled}
+                className="inline-flex h-11 min-w-[44px] items-center justify-center gap-1 rounded-md bg-emerald-600 px-4 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Send aria-hidden className="h-4 w-4" />
+                {sending ? "Sending…" : "Send"}
+              </button>
+            </div>
+          </div>
+          {replyError ? (
+            <div
+              role="alert"
+              data-testid="wa-thread-reply-error"
+              className="rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700"
+            >
+              {replyError}
+            </div>
+          ) : null}
+        </form>
+      ) : null}
 
       {loading ? (
         <div

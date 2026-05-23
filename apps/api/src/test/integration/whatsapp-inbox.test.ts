@@ -1,12 +1,15 @@
-// Pearl ERP Stage 1 §6.1 (gap row 167 — piece 3j-iii of 4).
+// Pearl ERP Stage 1 §6.1 (gap row 167 — pieces 3j-iii + 3j-iv of 4).
 //
-// Integration coverage for the reception inbox read endpoints at
+// Integration coverage for the reception inbox endpoints at
 // /api/v1/wa/inbox. Asserts:
 //   - GET /conversations defaults to OPEN status, returns 2 of 3 fixtures.
 //   - GET /conversations?status=ALL returns all 3.
 //   - GET /conversations/:id includes messages + 404s on a foreign id.
 //   - POST /:id/read sets unreadCount=0 + writes WHATSAPP_CONVERSATION_READ.
 //   - PATCH /:id status=CLOSED updates row + writes WHATSAPP_CONVERSATION_UPDATED.
+//   - POST /:id/messages (piece 3j-iv) writes OUTBOUND row + audit
+//     WHATSAPP_OUTBOUND_SENT, 503 when WhatsAppConfig absent, 502 on
+//     provider failure (which still persists a FAILED row).
 //   - PATIENT role gets 403 across the board (mirrors authorize set).
 //   - Cross-tenant isolation: a conversation in tenant B is not visible
 //     in tenant A's list (no IDOR, no row leak across tenants).
@@ -312,6 +315,156 @@ describeIfDB("Pearl §6.1 piece 3j-iii — /api/v1/wa/inbox", () => {
   it("unauthenticated → 401", async () => {
     const res = await request(app).get("/api/v1/wa/inbox/conversations");
     expect(res.status).toBe(401);
+  });
+
+  // ── Piece 3j-iv: reply / outbound send ────────────────────────────
+
+  it("POST /:id/messages returns 503 when WhatsAppConfig is absent for the tenant", async () => {
+    // Reuse convA3Id (CLOSED — but the route doesn't gate on convo status,
+    // only on WhatsAppConfig presence). No config seeded for tenantA at
+    // this point in the suite => 503 expected.
+    const res = await request(app)
+      .post(`/api/v1/wa/inbox/conversations/${convA3Id}/messages`)
+      .set("Authorization", `Bearer ${tenantAAdminToken}`)
+      .send({ body: "Hello back!" });
+    expect(res.status).toBe(503);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toMatch(/not configured/i);
+  });
+
+  it("POST /:id/messages rejects empty body with 400", async () => {
+    const res = await request(app)
+      .post(`/api/v1/wa/inbox/conversations/${convA3Id}/messages`)
+      .set("Authorization", `Bearer ${tenantAAdminToken}`)
+      .send({ body: "   " });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /:id/messages PATIENT role gets 403", async () => {
+    const res = await request(app)
+      .post(`/api/v1/wa/inbox/conversations/${convA3Id}/messages`)
+      .set("Authorization", `Bearer ${patientToken}`)
+      .send({ body: "Hi" });
+    expect(res.status).toBe(403);
+  });
+
+  it("POST /:id/messages writes OUTBOUND row + WHATSAPP_OUTBOUND_SENT audit (with WhatsAppConfig)", async () => {
+    // Seed a per-tenant WhatsAppConfig so the route can dispatch. Stub
+    // mode (no WHATSAPP_CREDS_KEY env) stores plaintext creds; the
+    // provider call falls back to stub-mode in dev (non-prod) so the
+    // happy path completes without a real Gupshup hit.
+    const prisma = await getPrisma();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (prisma as any).whatsAppConfig.upsert({
+      where: { tenantId: tenantAId },
+      update: { active: true },
+      create: {
+        tenantId: tenantAId,
+        provider: "GUPSHUP",
+        active: true,
+        // stub-mode envelope from whatsapp-crypto.ts
+        credentialsEncrypted: JSON.stringify({
+          __plaintext: true,
+          value: {
+            apiKey: "test-key",
+            appName: "TestApp",
+            sourcePhone: "+919000000000",
+          },
+        }),
+      },
+    });
+
+    // Force the provider call to fail so we exercise the stub-fallback
+    // branch deterministically (without a real HTTP). The send wraps any
+    // error in stub mode (non-prod) → returns success with stub message id.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const origFetch = (globalThis as any).fetch;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () =>
+      new Response(JSON.stringify({ error: "stub-network-down" }), {
+        status: 503,
+      });
+
+    try {
+      const res = await request(app)
+        .post(`/api/v1/wa/inbox/conversations/${convA3Id}/messages`)
+        .set("Authorization", `Bearer ${tenantAAdminToken}`)
+        .send({ body: "Thanks for your message." });
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.message.direction).toBe("OUTBOUND");
+      expect(res.body.data.message.body).toBe("Thanks for your message.");
+      expect(res.body.data.message.status).toBe("SENT");
+      expect(res.body.data.message.providerMessageId).toMatch(/^stub-/);
+
+      // Verify the row persisted with the right shape.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const persisted = await (prisma as any).whatsAppMessage.findUnique({
+        where: { id: res.body.data.message.id },
+      });
+      expect(persisted.direction).toBe("OUTBOUND");
+      expect(persisted.status).toBe("SENT");
+      expect(persisted.tenantId).toBe(tenantAId);
+
+      const audit = await waitForAuditFlush(prisma, {
+        action: "WHATSAPP_OUTBOUND_SENT",
+        entity: "whatsapp_message",
+        entityId: res.body.data.message.id,
+        userId: tenantAAdminUserId,
+      });
+      expect(audit).toBeTruthy();
+      // PHI guard: audit row never logs the body or the full phone.
+      const details = (audit.details ?? {}) as Record<string, unknown>;
+      expect(JSON.stringify(details)).not.toContain("Thanks for your message");
+      expect(details.phoneSuffix).toBe("0001");
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (globalThis as any).fetch = origFetch;
+    }
+  });
+
+  it("POST /:id/messages persists FAILED row + 502 in strict mode on provider failure", async () => {
+    const prisma = await getPrisma();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const origFetch = (globalThis as any).fetch;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () =>
+      new Response(
+        JSON.stringify({ message: "Bad provider credentials" }),
+        { status: 401 },
+      );
+    const prev = process.env.WHATSAPP_OUTBOUND_STRICT;
+    process.env.WHATSAPP_OUTBOUND_STRICT = "true";
+    try {
+      const res = await request(app)
+        .post(`/api/v1/wa/inbox/conversations/${convA3Id}/messages`)
+        .set("Authorization", `Bearer ${tenantAAdminToken}`)
+        .send({ body: "Should fail strictly." });
+      expect(res.status).toBe(502);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error).toMatch(/Provider send failed/i);
+      // Even on failure we persist a FAILED row so the operator sees it.
+      expect(res.body.data.message.status).toBe("FAILED");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const row = await (prisma as any).whatsAppMessage.findUnique({
+        where: { id: res.body.data.message.id },
+      });
+      expect(row.status).toBe("FAILED");
+      expect(row.failureReason).toMatch(/Bad provider credentials/i);
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (globalThis as any).fetch = origFetch;
+      if (prev === undefined) delete process.env.WHATSAPP_OUTBOUND_STRICT;
+      else process.env.WHATSAPP_OUTBOUND_STRICT = prev;
+    }
+  });
+
+  it("POST /:id/messages 404s on a foreign-tenant conversation", async () => {
+    const res = await request(app)
+      .post(`/api/v1/wa/inbox/conversations/${convBId}/messages`)
+      .set("Authorization", `Bearer ${tenantAAdminToken}`)
+      .send({ body: "Foreign tenant probe." });
+    expect(res.status).toBe(404);
   });
 
   it("cross-tenant isolation: tenant A cannot see tenant B's conversation in the list", async () => {

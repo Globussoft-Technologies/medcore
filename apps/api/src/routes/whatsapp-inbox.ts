@@ -1,27 +1,33 @@
-// Pearl ERP Stage 1 §6.1 (gap row 167 — piece 3j-iii of 4).
+// Pearl ERP Stage 1 §6.1 (gap row 167 — pieces 3j-iii + 3j-iv of 4).
 //
-// Reception-facing WhatsApp inbox read endpoints.
+// Reception-facing WhatsApp inbox endpoints — read + reply.
 //
 // What / which modules / why:
 //   - List conversations + fetch a single conversation thread + mark-read
-//     + status/assignee mutations. All scoped to the caller's tenant.
+//     + status/assignee mutations + send OUTBOUND reply. All scoped to
+//     the caller's tenant.
 //   - Piece 3j-i shipped the per-tenant provider config; piece 3j-ii shipped
 //     the unauthenticated inbound webhook that lands new
-//     WhatsAppConversation + WhatsAppMessage rows. This piece exposes
-//     those rows to reception / doctors / nurses / admins via the
-//     /api/v1/wa/inbox surface (and the matching UI at /dashboard/whatsapp).
+//     WhatsAppConversation + WhatsAppMessage rows. Piece 3j-iii (the four
+//     read endpoints) exposes those rows to reception / doctors / nurses /
+//     admins via /api/v1/wa/inbox. Piece 3j-iv adds the outbound reply
+//     handler at POST /:id/messages.
 //   - The WhatsApp models are NOT in the auto-scoped TENANT_SCOPED_MODELS
 //     set in @medcore/db (the inbound webhook predated the scope wrapper),
 //     so this router explicitly threads `tenantId: req.user.tenantId`
 //     through every where-clause and update payload. Patient role is
 //     denied — the inbox is staff-only.
 //   - Audit rows:
-//       WHATSAPP_CONVERSATION_READ   (POST /:id/read)
+//       WHATSAPP_CONVERSATION_READ    (POST /:id/read)
 //       WHATSAPP_CONVERSATION_UPDATED (PATCH /:id)
+//       WHATSAPP_OUTBOUND_SENT        (POST /:id/messages — piece 3j-iv)
 //     are fire-and-forget via .catch(console.error) per the standard
 //     pattern; PHI-safe — never the message body, never the full phone.
-//   - Piece 3j-iv (next tick) adds the OUTBOUND reply endpoint and flips
-//     services/channels/whatsapp.ts to per-tenant creds.
+//   - Outbound send dispatches to services/whatsapp-providers.ts which
+//     wraps Gupshup / WATI / AiSensei / Interakt / Meta. The route layer
+//     persists the WhatsAppMessage(direction=OUTBOUND) row on success,
+//     OR a FAILED row + 502 on provider error so the operator sees the
+//     failure inline in the thread.
 
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
@@ -30,6 +36,12 @@ import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { decryptCredentials } from "../services/whatsapp-crypto";
+import {
+  sendOutboundMessage,
+  type DecryptedProviderConfig,
+  type ProviderName,
+} from "../services/whatsapp-providers";
 
 const router = Router();
 router.use(authenticate);
@@ -69,6 +81,20 @@ const patchConvoSchema = z
   .refine((v) => v.status !== undefined || v.assignedToUserId !== undefined, {
     message: "At least one of status or assignedToUserId is required",
   });
+
+// WhatsApp text-message hard cap is 4096 bytes; we keep an even 4096-char
+// allowance for the inbox composer. Empty / whitespace-only replies rejected.
+const sendReplySchema = z.object({
+  body: z
+    .string()
+    .trim()
+    .min(1, "Reply body cannot be empty")
+    .max(4096, "Reply body exceeds 4096-character WhatsApp limit"),
+});
+
+function phoneSuffix(phone: string): string {
+  return phone.length >= 4 ? phone.slice(-4) : phone;
+}
 
 // ── GET /conversations — list for the caller's tenant ───────────────
 router.get(
@@ -343,6 +369,166 @@ router.patch(
         data: { conversation: updated },
         error: null,
       });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── POST /conversations/:id/messages — send an OUTBOUND reply ───────
+// Piece 3j-iv: the reception inbox composer hits this. Persists the
+// WhatsAppMessage(direction=OUTBOUND) row either with status=SENT (on
+// successful provider dispatch) or status=FAILED (on provider error,
+// surfacing the failure inline in the thread so the operator can retry).
+router.post(
+  "/conversations/:id/messages",
+  validate(sendReplySchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = requireTenantId(req, res);
+      if (!tenantId) return;
+
+      const { body } = req.body as { body: string };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const convo = await (prisma as any).whatsAppConversation.findFirst({
+        where: { id: req.params.id, tenantId },
+        select: { id: true, tenantId: true, phone: true },
+      });
+      if (!convo) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Conversation not found",
+        });
+        return;
+      }
+
+      // Load the per-tenant provider config; without it we can't dispatch.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const config = await (prisma as any).whatsAppConfig.findUnique({
+        where: { tenantId },
+        select: {
+          provider: true,
+          credentialsEncrypted: true,
+          active: true,
+        },
+      });
+      if (!config || !config.active || !config.credentialsEncrypted) {
+        res.status(503).json({
+          success: false,
+          data: null,
+          error:
+            "WhatsApp not configured for this tenant. Go to Settings → WhatsApp.",
+        });
+        return;
+      }
+
+      let creds: DecryptedProviderConfig;
+      try {
+        creds = decryptCredentials(
+          config.credentialsEncrypted,
+        ) as DecryptedProviderConfig;
+      } catch (e) {
+        console.error("[wa-inbox reply] decrypt failed", e);
+        res.status(503).json({
+          success: false,
+          data: null,
+          error:
+            "WhatsApp credentials could not be decrypted — re-save the provider config.",
+        });
+        return;
+      }
+
+      const provider = config.provider as ProviderName;
+
+      try {
+        const result = await sendOutboundMessage(
+          provider,
+          creds,
+          convo.phone,
+          body,
+        );
+
+        const now = result.sentAt;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const message = await (prisma as any).whatsAppMessage.create({
+          data: {
+            conversationId: convo.id,
+            tenantId,
+            direction: "OUTBOUND",
+            body,
+            status: "SENT",
+            sentAt: now,
+            providerMessageId: result.providerMessageId,
+          },
+        });
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (prisma as any).whatsAppConversation.update({
+          where: { id: convo.id },
+          data: { lastMessageAt: now },
+        });
+
+        auditLog(
+          req,
+          "WHATSAPP_OUTBOUND_SENT",
+          "whatsapp_message",
+          message.id,
+          {
+            provider,
+            conversationId: convo.id,
+            phoneSuffix: phoneSuffix(convo.phone),
+            byUserId: req.user?.userId ?? null,
+          },
+        ).catch(console.error);
+
+        res.status(201).json({
+          success: true,
+          data: { message },
+          error: null,
+        });
+      } catch (err) {
+        const reason =
+          err instanceof Error ? err.message : String(err);
+        // Persist a FAILED row so the operator sees it in the thread.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const failedMessage = await (prisma as any).whatsAppMessage.create({
+          data: {
+            conversationId: convo.id,
+            tenantId,
+            direction: "OUTBOUND",
+            body,
+            status: "FAILED",
+            failedAt: new Date(),
+            failureReason: reason.slice(0, 500),
+          },
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (prisma as any).whatsAppConversation.update({
+          where: { id: convo.id },
+          data: { lastMessageAt: new Date() },
+        });
+        auditLog(
+          req,
+          "WHATSAPP_OUTBOUND_SENT",
+          "whatsapp_message",
+          failedMessage.id,
+          {
+            provider,
+            conversationId: convo.id,
+            phoneSuffix: phoneSuffix(convo.phone),
+            byUserId: req.user?.userId ?? null,
+            status: "FAILED",
+          },
+        ).catch(console.error);
+
+        res.status(502).json({
+          success: false,
+          data: { message: failedMessage },
+          error: `Provider send failed: ${reason}`,
+        });
+      }
     } catch (err) {
       next(err);
     }

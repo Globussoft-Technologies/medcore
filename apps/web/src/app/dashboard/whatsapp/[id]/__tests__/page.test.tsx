@@ -1,11 +1,11 @@
-// Smoke tests for /dashboard/whatsapp/[id] — Pearl §6.1 gap row 167 piece 3j-iii of 4.
+// Smoke tests for /dashboard/whatsapp/[id] — Pearl §6.1 gap row 167 pieces 3j-iii + 3j-iv of 4.
 //
 // What / which modules / why:
 //   - Asserts the thread page renders chat bubbles with the correct
-//     direction styling, surfaces the reply-coming-next-piece banner,
-//     wires up the Mark all read / Snooze / Close / Assign-me actions
-//     to the correct API endpoints, and observes the 44px touch-target
-//     invariant on every CTA.
+//     direction styling, wires up the Mark all read / Snooze / Close /
+//     Assign-me actions, exercises the reply composer (textarea + char
+//     counter + Send + Cmd+Enter shortcut + error surface), and observes
+//     the 44px touch-target invariant on every CTA.
 //   - Covers apps/web/src/app/dashboard/whatsapp/[id]/page.tsx.
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -94,7 +94,7 @@ function threadFixture(overrides: Partial<any> = {}) {
   };
 }
 
-describe("/dashboard/whatsapp/[id] — Pearl §6.1 piece 3j-iii (thread)", () => {
+describe("/dashboard/whatsapp/[id] — Pearl §6.1 pieces 3j-iii + 3j-iv (thread)", () => {
   beforeEach(() => {
     apiMock.get.mockReset();
     apiMock.post.mockReset();
@@ -125,16 +125,18 @@ describe("/dashboard/whatsapp/[id] — Pearl §6.1 piece 3j-iii (thread)", () =>
     expect(screen.getByText("Yes confirmed for 10am.")).toBeInTheDocument();
   });
 
-  it("renders the patient name in the header + the 'reply coming next piece' banner", async () => {
+  it("renders the patient name in the header + the reply composer (piece 3j-iv)", async () => {
     asRole("RECEPTION");
     render(<WhatsAppThreadPage />);
     await waitFor(() =>
       expect(screen.getByTestId("wa-thread-title")).toBeInTheDocument(),
     );
     expect(screen.getByTestId("wa-thread-title").textContent).toBe("Aarav Sharma");
-    const banner = screen.getByTestId("wa-thread-reply-banner");
-    expect(banner).toBeInTheDocument();
-    expect(banner.textContent).toMatch(/reply support coming/i);
+    expect(screen.getByTestId("wa-thread-reply-form")).toBeInTheDocument();
+    expect(screen.getByTestId("wa-thread-reply-input")).toBeInTheDocument();
+    expect(screen.getByTestId("wa-thread-reply-send")).toBeInTheDocument();
+    // No longer shipping the amber "reply coming" banner.
+    expect(screen.queryByTestId("wa-thread-reply-banner")).not.toBeInTheDocument();
   });
 
   it("Mark all read button POSTs to /wa/inbox/conversations/c1/read", async () => {
@@ -203,5 +205,117 @@ describe("/dashboard/whatsapp/[id] — Pearl §6.1 piece 3j-iii (thread)", () =>
     render(<WhatsAppThreadPage />);
     expect(screen.getByTestId("wa-thread-not-allowed")).toBeInTheDocument();
     expect(screen.queryByTestId("wa-thread-actions")).not.toBeInTheDocument();
+  });
+
+  // ── Piece 3j-iv: reply composer ──────────────────────────────────
+
+  it("Send button is disabled when the reply body is empty", async () => {
+    asRole("RECEPTION");
+    render(<WhatsAppThreadPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("wa-thread-reply-send")).toBeInTheDocument(),
+    );
+    const send = screen.getByTestId("wa-thread-reply-send") as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    const input = screen.getByTestId("wa-thread-reply-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "Hello!" } });
+    expect((screen.getByTestId("wa-thread-reply-send") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("Submitting the form POSTs to /wa/inbox/conversations/c1/messages and appends OUTBOUND row", async () => {
+    asRole("RECEPTION");
+    apiMock.post.mockImplementation(async (url: string) => {
+      if (url === "/wa/inbox/conversations/c1/messages") {
+        return {
+          data: {
+            message: {
+              id: "m-new",
+              direction: "OUTBOUND",
+              body: "Thanks for reaching out",
+              mediaUrl: null,
+              sentAt: new Date().toISOString(),
+              deliveredAt: null,
+              readAt: null,
+              status: "SENT",
+              createdAt: new Date().toISOString(),
+            },
+          },
+        };
+      }
+      return {};
+    });
+    render(<WhatsAppThreadPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("wa-thread-reply-input")).toBeInTheDocument(),
+    );
+    const input = screen.getByTestId("wa-thread-reply-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "Thanks for reaching out" } });
+    fireEvent.click(screen.getByTestId("wa-thread-reply-send"));
+    await waitFor(() =>
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/wa/inbox/conversations/c1/messages",
+        { body: "Thanks for reaching out" },
+      ),
+    );
+    await waitFor(() => {
+      const rendered = screen.getAllByTestId("wa-thread-message");
+      // Original 2 (INBOUND + OUTBOUND fixture) + new optimistic OUTBOUND row.
+      expect(rendered.length).toBe(3);
+    });
+    expect((screen.getByTestId("wa-thread-reply-input") as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("surfaces an inline error + keeps textarea content on send failure", async () => {
+    asRole("RECEPTION");
+    apiMock.post.mockImplementation(async (url: string) => {
+      if (url === "/wa/inbox/conversations/c1/messages") {
+        throw new Error("503 Service Unavailable");
+      }
+      return {};
+    });
+    render(<WhatsAppThreadPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("wa-thread-reply-input")).toBeInTheDocument(),
+    );
+    const input = screen.getByTestId("wa-thread-reply-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "Will fail" } });
+    fireEvent.click(screen.getByTestId("wa-thread-reply-send"));
+    await waitFor(() =>
+      expect(screen.getByTestId("wa-thread-reply-error")).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("wa-thread-reply-error").textContent).toMatch(/503/);
+    // Content preserved so the user can retry.
+    expect((screen.getByTestId("wa-thread-reply-input") as HTMLTextAreaElement).value).toBe("Will fail");
+  });
+
+  it("Cmd/Ctrl+Enter inside the textarea triggers send", async () => {
+    asRole("RECEPTION");
+    apiMock.post.mockResolvedValue({
+      data: { message: { id: "m-x", direction: "OUTBOUND", body: "Ack", mediaUrl: null, sentAt: new Date().toISOString(), deliveredAt: null, readAt: null, status: "SENT", createdAt: new Date().toISOString() } },
+    });
+    render(<WhatsAppThreadPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("wa-thread-reply-input")).toBeInTheDocument(),
+    );
+    const input = screen.getByTestId("wa-thread-reply-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "Ack" } });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+    await waitFor(() =>
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/wa/inbox/conversations/c1/messages",
+        { body: "Ack" },
+      ),
+    );
+  });
+
+  it("Send button carries the 44px touch-target invariant", async () => {
+    asRole("RECEPTION");
+    render(<WhatsAppThreadPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("wa-thread-reply-send")).toBeInTheDocument(),
+    );
+    const send = screen.getByTestId("wa-thread-reply-send");
+    expect(send.className).toMatch(/h-11/);
+    expect(send.className).toMatch(/min-w-\[44px\]/);
   });
 });

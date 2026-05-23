@@ -277,6 +277,113 @@ describe("TenantsAdminPage", () => {
     );
   });
 
+  // ─── Pearl §8.2 row 212 — per-tenant idle session timeout ─────────
+
+  it("PATCHes /tenants/:id with sessionIdleMinutes when the drawer Save button is clicked (Pearl §8.2 row 212)", async () => {
+    routeApiGet();
+    // Detail fetch — the drawer reads `detail.sessionIdleMinutes`
+    // to seed the controlled input.
+    apiMock.get.mockImplementation(async (url: string) => {
+      if (url.startsWith("/super-admin/metrics")) return metricsResponse;
+      if (url === "/tenants/t1") {
+        return {
+          data: {
+            ...tenants[0],
+            sessionIdleMinutes: 30,
+            admins: [],
+            config: {},
+          },
+        };
+      }
+      return { data: tenants };
+    });
+    apiMock.patch.mockResolvedValue({
+      data: { ...tenants[0], sessionIdleMinutes: 60 },
+    });
+
+    render(<TenantsAdminPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("tenant-detail-stjohns")).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByTestId("tenant-detail-stjohns"));
+
+    // Drawer opens, input seeded with persisted value after the
+    // detail fetch resolves.
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("tenants-detail-session-idle-input") as HTMLInputElement)
+          .value,
+      ).toBe("30"),
+    );
+    const input = screen.getByTestId("tenants-detail-session-idle-input");
+
+    // Save button starts disabled (no diff yet).
+    expect(
+      (screen.getByTestId("tenants-detail-session-idle-save") as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    // Type a new value → save unlocks → click → PATCH fires.
+    fireEvent.change(input, { target: { value: "60" } });
+    expect(
+      (screen.getByTestId("tenants-detail-session-idle-save") as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+
+    fireEvent.click(screen.getByTestId("tenants-detail-session-idle-save"));
+    await waitFor(() =>
+      expect(apiMock.patch).toHaveBeenCalledWith("/tenants/t1", {
+        sessionIdleMinutes: 60,
+      }),
+    );
+  });
+
+  it("disables the Save button + shows an error when the idle-timeout value is out of range (Pearl §8.2 row 212)", async () => {
+    apiMock.get.mockImplementation(async (url: string) => {
+      if (url.startsWith("/super-admin/metrics")) return metricsResponse;
+      if (url === "/tenants/t1") {
+        return {
+          data: {
+            ...tenants[0],
+            sessionIdleMinutes: 30,
+            admins: [],
+            config: {},
+          },
+        };
+      }
+      return { data: tenants };
+    });
+
+    render(<TenantsAdminPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("tenant-detail-stjohns")).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByTestId("tenant-detail-stjohns"));
+
+    const input = await screen.findByTestId(
+      "tenants-detail-session-idle-input",
+    );
+    // Below floor (5) → error + Save stays disabled.
+    fireEvent.change(input, { target: { value: "4" } });
+    expect(
+      screen.getByTestId("tenants-detail-session-idle-error"),
+    ).toHaveTextContent("Minimum 5 minutes");
+    expect(
+      (screen.getByTestId("tenants-detail-session-idle-save") as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    // Above ceiling (1440) → error.
+    fireEvent.change(input, { target: { value: "2000" } });
+    expect(
+      screen.getByTestId("tenants-detail-session-idle-error"),
+    ).toHaveTextContent("Maximum 1440 minutes (24 h)");
+    expect(
+      (screen.getByTestId("tenants-detail-session-idle-save") as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
   it("renders the per-row Restore button for a suspended tenant and POSTs /:id/restore on confirm (Pearl §8.1 row 206)", async () => {
     const suspended = [
       { ...tenants[0], active: false },

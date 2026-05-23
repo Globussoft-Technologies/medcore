@@ -510,6 +510,17 @@ model Tenant {
   // leave it false (current default — opt-in TOTP only).
   requireAdminTOTP Boolean @default(false)
 
+  // Pearl ERP Stage 1 §8.2 gap row 212 — per-tenant idle session timeout
+  // (configurable). Captures how many minutes a tenant's users may sit
+  // idle before being considered logged out. The value is rendered in
+  // the super-admin tenant edit drawer; super-admins write through the
+  // existing PATCH /api/v1/tenants/:id handler (range [5, 1440] enforced
+  // by Zod). JWT TTL enforcement (auth.ts) is explicitly DEFERRED to a
+  // separate piece — that touches token-signing code which is high-risk
+  // and out of scope for this row. Default 30 mirrors the legacy
+  // global JWT_TTL_MIN default.
+  sessionIdleMinutes Int @default(30)
+
   // Pearl ERP Stage 1 §6 + §18 (gap item #9) — per-tenant feature flags.
   // JSON shape:
   //   { "<featureKey>": true | false, ... }

@@ -76,6 +76,12 @@ const updateTenantSchema = z.object({
   razorpayKeySecret: z.string().trim().min(8).max(128).nullable().optional(),
   razorpayMode: z.enum(["test", "live"]).nullable().optional(),
   requireAdminTOTP: z.boolean().optional(),
+  // Pearl §8.2 row 212 — per-tenant idle session timeout (minutes).
+  // Range [5, 1440] = 5 min floor (avoids accidental "logged out
+  // every page load" misconfiguration) → 24 h ceiling (avoids
+  // effectively-never-expires). JWT TTL enforcement deferred — this
+  // PATCH only persists the configured value for now.
+  sessionIdleMinutes: z.number().int().min(5).max(1440).optional(),
 });
 
 // ─── Guards ──────────────────────────────────────────────────────────
@@ -352,8 +358,24 @@ router.patch(
           ...(body.razorpayKeySecret !== undefined ? { razorpayKeySecret: body.razorpayKeySecret } : {}),
           ...(body.razorpayMode !== undefined ? { razorpayMode: body.razorpayMode } : {}),
           ...(body.requireAdminTOTP !== undefined ? { requireAdminTOTP: body.requireAdminTOTP } : {}),
+          ...(body.sessionIdleMinutes !== undefined
+            ? { sessionIdleMinutes: body.sessionIdleMinutes }
+            : {}),
         },
       });
+
+      // Pearl §8.2 row 212 — dedicated audit row when the idle-timeout
+      // changes, so super-admin policy changes are independently
+      // discoverable from the generic TENANT_UPDATE stream.
+      if (
+        body.sessionIdleMinutes !== undefined &&
+        body.sessionIdleMinutes !== tenant.sessionIdleMinutes
+      ) {
+        auditLog(req, "TENANT_SESSION_IDLE_UPDATED", "tenant", tenant.id, {
+          previous: tenant.sessionIdleMinutes,
+          next: body.sessionIdleMinutes,
+        }).catch(console.error);
+      }
       // Pearl #10b — bust the Razorpay creds cache so the next payment
       // call uses the new keys immediately (no stale 60s window).
       if (

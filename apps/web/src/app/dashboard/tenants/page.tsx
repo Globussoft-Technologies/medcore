@@ -47,6 +47,9 @@ interface Tenant {
   createdAt: string;
   updatedAt: string;
   stats?: TenantStats;
+  // Pearl §8.2 row 212 — per-tenant idle session timeout (minutes).
+  // PATCH /api/v1/tenants/:id accepts integers in [5, 1440].
+  sessionIdleMinutes?: number;
 }
 
 interface TenantAdmin {
@@ -256,6 +259,31 @@ export default function TenantsAdminPage() {
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
+    }
+  }
+
+  // Pearl §8.2 row 212 — PATCH the per-tenant idle session timeout
+  // (minutes). The drawer input owns the staging value; this just
+  // does the wire call + toast + list refresh + detail refresh.
+  // JWT TTL enforcement (auth.ts) is deferred to a separate piece —
+  // this only persists the configured value.
+  async function updateSessionIdle(id: string, minutes: number) {
+    try {
+      await api.patch(`/tenants/${id}`, { sessionIdleMinutes: minutes });
+      toast.success(
+        t("tenants.sessionIdle.ok", "Idle timeout updated"),
+      );
+      load();
+      if (detailOpen) loadDetail(detailOpen);
+    } catch (err) {
+      const e = err as { status?: number; message?: string };
+      toast.error(
+        e.message ||
+          t(
+            "tenants.sessionIdle.error",
+            "Failed to update idle timeout",
+          ),
+      );
     }
   }
 
@@ -532,6 +560,7 @@ export default function TenantsAdminPage() {
           onClose={() => setDetailOpen(null)}
           onDeactivate={deactivateTenant}
           onReactivate={reactivateTenant}
+          onUpdateSessionIdle={updateSessionIdle}
         />
       )}
     </div>
@@ -901,14 +930,41 @@ function TenantDetailDrawer({
   onClose,
   onDeactivate,
   onReactivate,
+  onUpdateSessionIdle,
 }: {
   tenantId: string;
   detail: TenantDetail | null;
   onClose: () => void;
   onDeactivate: (id: string, name: string) => void;
   onReactivate: (id: string, name?: string) => void;
+  onUpdateSessionIdle: (id: string, minutes: number) => void;
 }) {
   const { t } = useTranslation();
+
+  // Pearl §8.2 row 212 — staging value for the idle-timeout input
+  // (controlled). Resets on detail change so opening a different
+  // tenant shows that tenant's persisted value.
+  const [sessionIdleDraft, setSessionIdleDraft] = useState<string>("");
+  useEffect(() => {
+    if (detail) {
+      setSessionIdleDraft(String(detail.sessionIdleMinutes ?? 30));
+    }
+  }, [detail]);
+
+  const sessionIdleError = (() => {
+    if (sessionIdleDraft.trim() === "") return null;
+    const n = Number(sessionIdleDraft);
+    if (!Number.isFinite(n) || !Number.isInteger(n)) return "Must be an integer";
+    if (n < 5) return "Minimum 5 minutes";
+    if (n > 1440) return "Maximum 1440 minutes (24 h)";
+    return null;
+  })();
+
+  const canSaveSessionIdle =
+    !sessionIdleError &&
+    sessionIdleDraft.trim() !== "" &&
+    detail !== null &&
+    Number(sessionIdleDraft) !== (detail.sessionIdleMinutes ?? 30);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/30" data-testid="tenants-detail">
@@ -973,6 +1029,59 @@ function TenantDetailDrawer({
                   ),
                 )}
               </dl>
+            </div>
+
+            {/* Pearl §8.2 row 212 — per-tenant idle session timeout
+                (configurable). PATCH /api/v1/tenants/:id accepts
+                sessionIdleMinutes in [5, 1440]. JWT TTL enforcement
+                deferred (separate piece touches auth.ts). */}
+            <div>
+              <h4 className="mb-2 text-sm font-semibold">
+                {t(
+                  "tenants.detail.sessionIdle.title",
+                  "Session idle timeout (minutes)",
+                )}
+              </h4>
+              <div className="flex items-start gap-2">
+                <input
+                  data-testid="tenants-detail-session-idle-input"
+                  type="number"
+                  min={5}
+                  max={1440}
+                  step={1}
+                  value={sessionIdleDraft}
+                  onChange={(e) => setSessionIdleDraft(e.target.value)}
+                  className="w-32 rounded-lg border px-3 py-2 text-sm"
+                  aria-label={t(
+                    "tenants.detail.sessionIdle.aria",
+                    "Session idle timeout in minutes",
+                  )}
+                />
+                <button
+                  data-testid="tenants-detail-session-idle-save"
+                  disabled={!canSaveSessionIdle}
+                  onClick={() =>
+                    onUpdateSessionIdle(tenantId, Number(sessionIdleDraft))
+                  }
+                  className="rounded-lg bg-primary px-3 py-2 text-sm text-white hover:bg-primary-dark disabled:opacity-50"
+                >
+                  {t("common.save", "Save")}
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-gray-500">
+                {t(
+                  "tenants.detail.sessionIdle.hint",
+                  "Allowed range: 5–1440. JWT TTL enforcement coming in a separate release; this value is currently persisted only.",
+                )}
+              </p>
+              {sessionIdleError && (
+                <p
+                  data-testid="tenants-detail-session-idle-error"
+                  className="mt-1 text-[11px] text-red-600"
+                >
+                  {sessionIdleError}
+                </p>
+              )}
             </div>
 
             <div>

@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { usePrompt } from "@/lib/use-dialog";
 import { Syringe, RefreshCw } from "lucide-react";
+import { SkeletonCard } from "@/components/Skeleton";
 
 interface DueAdministration {
   id: string;
@@ -149,8 +150,14 @@ export default function MedicationDashboardPage() {
       </div>
 
       {loading ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
-          Loading...
+        <div
+          data-testid="medication-dashboard-loading"
+          aria-busy="true"
+          className="space-y-3"
+        >
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
         </div>
       ) : Object.keys(grouped).length === 0 ? (
         <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">

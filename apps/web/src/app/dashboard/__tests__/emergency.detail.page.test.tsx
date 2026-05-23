@@ -67,11 +67,18 @@ describe("EmergencyCaseDetailPage", () => {
   });
 
   it("shows loading state initially", async () => {
+    // Skeleton sweep wave 8 (2026-05-23): plain "Loading..." text was
+    // replaced with `<SkeletonCard ×3 />` inside a wrapper carrying
+    // `data-testid="emergency-case-detail-loading"` + `aria-busy="true"`.
+    // Assert against the skeleton's testid + a11y attribute instead of
+    // the removed text — both are stable, both are what assistive tech
+    // actually consumes. Mirrors the wave-3 `users-loading` and wave-6
+    // `ot-loading` patterns.
     apiMock.get.mockReturnValue(new Promise(() => {}));
     render(<EmergencyCaseDetailPage />);
-    await waitFor(() =>
-      expect(screen.getByText(/loading/i)).toBeInTheDocument()
-    );
+    const loader = await screen.findByTestId("emergency-case-detail-loading");
+    expect(loader).toBeInTheDocument();
+    expect(loader).toHaveAttribute("aria-busy", "true");
   });
 
   it("shows case-not-found on fetch failure", async () => {

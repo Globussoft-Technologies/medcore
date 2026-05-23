@@ -8,6 +8,7 @@ import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { ArrowLeft, FlaskConical, Printer, Upload, FileImage } from "lucide-react";
+import { SkeletonCard } from "@/components/Skeleton";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { formatDateTime } from "@/lib/format";
 import {
@@ -164,7 +165,17 @@ export default function LabOrderPage({
   }
 
   if (loading)
-    return <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>;
+    return (
+      <div
+        data-testid="lab-order-detail-loading"
+        aria-busy="true"
+        className="space-y-4 p-4"
+      >
+        <SkeletonCard />
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    );
   if (!order)
     // Issue #627: previously rendered a single muted line with no escape
     // route. Add an explicit Back link and contact pointer so a stray

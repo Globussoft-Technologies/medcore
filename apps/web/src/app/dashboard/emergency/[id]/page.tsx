@@ -19,6 +19,7 @@ import {
   FileText,
   CheckCircle2,
 } from "lucide-react";
+import { SkeletonCard } from "@/components/Skeleton";
 
 const TRIAGE_COLORS: Record<string, string> = {
   RESUSCITATION: "bg-red-900 text-white",
@@ -117,7 +118,17 @@ export default function EmergencyCaseDetailPage() {
   }
 
   if (loading) {
-    return <div className="p-8 text-gray-500">Loading...</div>;
+    return (
+      <div
+        data-testid="emergency-case-detail-loading"
+        aria-busy="true"
+        className="space-y-4 p-4"
+      >
+        <SkeletonCard />
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    );
   }
   if (!ecase) {
     return (

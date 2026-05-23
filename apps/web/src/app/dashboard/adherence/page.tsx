@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { EntityPicker } from "@/components/EntityPicker";
+import { SkeletonCard } from "@/components/Skeleton";
 import { Bell, Trash2, Plus, Clock, Calendar, Pill } from "lucide-react";
 
 // Issue #639: Medication Reminders are PHI tied to a patient account.
@@ -362,9 +363,18 @@ export default function AdherencePage() {
         </div>
       )}
 
-      {/* Loading / error states */}
+      {/* Loading / error states — Pearl §7.2 wave 11: skeleton cards instead
+          of plain text so the page footprint stays stable while reminders load. */}
       {loading && (
-        <div className="text-center py-12 text-gray-500 text-sm">Loading reminders...</div>
+        <div
+          className="space-y-3 py-4"
+          data-testid="adherence-loading"
+          aria-busy="true"
+        >
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
       )}
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm mb-4">

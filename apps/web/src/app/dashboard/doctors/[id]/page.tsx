@@ -22,6 +22,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { ArrowLeft, Stethoscope, Edit as EditIcon, Calendar, Settings } from "lucide-react";
+import { SkeletonCard } from "@/components/Skeleton";
 
 type AppointmentMode = "CALLING" | "TOKEN" | "SLOT";
 type LastHourPolicy = "ACCEPT_ALL" | "BLOCK_NEW" | "WALK_IN_ONLY";
@@ -135,9 +136,16 @@ export default function DoctorDetailPage() {
   const isAdmin = user?.role === "ADMIN";
 
   if (loading) {
+    // Pearl §7.2 wave 11: skeleton card matches the eventual doctor profile
+    // header so the layout doesn't jump after fetch.
     return (
-      <div className="p-6">
-        <p className="text-sm text-gray-500">Loading doctor…</p>
+      <div
+        className="space-y-3 p-6"
+        data-testid="doctor-detail-loading"
+        aria-busy="true"
+      >
+        <SkeletonCard />
+        <SkeletonCard />
       </div>
     );
   }

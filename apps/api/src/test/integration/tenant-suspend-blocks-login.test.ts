@@ -160,7 +160,7 @@ describeIfDB("Suspending a tenant blocks login within 60 s (Pearl §6 row 349)",
       .send({ email: tenantAdmin.email, password: tenantAdmin.password });
     expect(preSuspend.status).toBe(200);
     expect(preSuspend.body.success).toBe(true);
-    expect(typeof preSuspend.body.data?.accessToken).toBe("string");
+    expect(typeof preSuspend.body.data?.tokens?.accessToken).toBe("string");
 
     // 2) Mint a super-admin JWT so the suspend call is authorized.
     const superAdmin = await prisma.user.findUnique({
@@ -240,7 +240,7 @@ describeIfDB("Suspending a tenant blocks login within 60 s (Pearl §6 row 349)",
       .send({ email: activeAdmin.email, password: activeAdmin.password });
     expect(activeLogin.status).toBe(200);
     expect(activeLogin.body.success).toBe(true);
-    expect(typeof activeLogin.body.data?.accessToken).toBe("string");
+    expect(typeof activeLogin.body.data?.tokens?.accessToken).toBe("string");
   });
 
   // ── Restore round-trip: relogin works once the tenant is reactivated ──
@@ -283,6 +283,6 @@ describeIfDB("Suspending a tenant blocks login within 60 s (Pearl §6 row 349)",
       .send({ email: tenantAdmin.email, password: tenantAdmin.password });
     expect(relogin.status).toBe(200);
     expect(relogin.body.success).toBe(true);
-    expect(typeof relogin.body.data?.accessToken).toBe("string");
+    expect(typeof relogin.body.data?.tokens?.accessToken).toBe("string");
   });
 });

@@ -1,0 +1,427 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "MedCore API overview — request rate, latency, 5xx, AI pipeline (Sarvam), auth, and Node process health. Sourced from the Prometheus exposition surface at /api/metrics (see apps/api/src/services/metrics.ts + metrics-counters.ts). Cardinality kept low: HTTP path label is the Express route template (e.g. /api/v1/patients/:id), never the raw URL.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "row",
+      "id": 100,
+      "title": "HTTP",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "panels": []
+    },
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Request rate by route (top 10)",
+      "description": "rate(medcore_http_requests_total[5m]) summed by route template. Top 10 hottest paths.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "targets": [
+        {
+          "expr": "topk(10, sum by (path) (rate(medcore_http_requests_total{service=\"$service\",env=\"$env\"}[5m])))",
+          "legendFormat": "{{path}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Latency p50 / p95 / p99 (all routes)",
+      "description": "histogram_quantile() over medcore_http_request_duration_seconds_bucket. Tail visibility up to 10s per the histogram buckets defined in metrics.ts.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(medcore_http_request_duration_seconds_bucket{service=\"$service\",env=\"$env\"}[5m])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(medcore_http_request_duration_seconds_bucket{service=\"$service\",env=\"$env\"}[5m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(medcore_http_request_duration_seconds_bucket{service=\"$service\",env=\"$env\"}[5m])))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 5 }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "5xx error rate (req/s)",
+      "description": "rate(medcore_http_requests_total{status=~\"5..\"}[5m]). Alert candidate: sustained > 0.1 req/s.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 9 },
+      "targets": [
+        {
+          "expr": "sum by (path) (rate(medcore_http_requests_total{service=\"$service\",env=\"$env\",status=~\"5..\"}[5m]))",
+          "legendFormat": "{{path}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "fixed", "fixedColor": "red" },
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 25 }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "5xx ratio (last 5m)",
+      "description": "Errors as fraction of total requests.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 9 },
+      "targets": [
+        {
+          "expr": "sum(rate(medcore_http_requests_total{service=\"$service\",env=\"$env\",status=~\"5..\"}[5m])) / clamp_min(sum(rate(medcore_http_requests_total{service=\"$service\",env=\"$env\"}[5m])), 0.001)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.01 },
+              { "color": "red", "value": 0.05 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Auth — login outcomes (last 5m)",
+      "description": "medcore_auth_login_total split by outcome (success | invalid | rate_limited).",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 9 },
+      "targets": [
+        {
+          "expr": "sum by (outcome) (increase(medcore_auth_login_total{service=\"$service\",env=\"$env\"}[5m]))",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "invalid" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "rate_limited" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+          }
+        ]
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      }
+    },
+    {
+      "type": "row",
+      "id": 101,
+      "title": "AI pipeline (Sarvam + failover)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 },
+      "panels": []
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "AI call latency p50 / p95 by feature",
+      "description": "histogram_quantile() over medcore_ai_call_duration_seconds_bucket. Buckets extend to 60s for long medical reasoning prompts.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (feature, le) (rate(medcore_ai_call_duration_seconds_bucket{service=\"$service\",env=\"$env\"}[5m])))",
+          "legendFormat": "{{feature}} p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (feature, le) (rate(medcore_ai_call_duration_seconds_bucket{service=\"$service\",env=\"$env\"}[5m])))",
+          "legendFormat": "{{feature}} p95",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 5 }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "AI calls by outcome (success / error / failover)",
+      "description": "rate(medcore_ai_calls_total[5m]). The 'failover' outcome means the primary LLM provider failed and a backup answered.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum by (outcome) (rate(medcore_ai_calls_total{service=\"$service\",env=\"$env\"}[5m]))",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 15, "stacking": { "mode": "normal" } }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "error" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "failover" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "success" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }]
+          }
+        ]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "AI spend (INR / hour)",
+      "description": "rate(medcore_ai_cost_inr_total[5m]) * 3600 — hourly INR burn rate per (feature, model). Driven by the INR_PER_1K_TOKENS rate table in services/ai/tracing.ts.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "expr": "sum by (feature, model) (rate(medcore_ai_cost_inr_total{service=\"$service\",env=\"$env\"}[5m])) * 3600",
+          "legendFormat": "{{feature}} / {{model}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } }
+    },
+    {
+      "type": "row",
+      "id": 102,
+      "title": "Process & ops",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Node — event loop lag + heap used",
+      "description": "Defaults from prom-client collectDefaultMetrics({ prefix: 'medcore_' }). Event-loop lag > 100ms or steadily-rising heap signals trouble.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 33 },
+      "targets": [
+        {
+          "expr": "medcore_nodejs_eventloop_lag_p99_seconds{service=\"$service\",env=\"$env\"}",
+          "legendFormat": "event loop p99 lag (s)",
+          "refId": "A"
+        },
+        {
+          "expr": "medcore_nodejs_heap_size_used_bytes{service=\"$service\",env=\"$env\"} / 1024 / 1024",
+          "legendFormat": "heap used (MB)",
+          "refId": "B"
+        },
+        {
+          "expr": "medcore_process_resident_memory_bytes{service=\"$service\",env=\"$env\"} / 1024 / 1024",
+          "legendFormat": "RSS (MB)",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 5 }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Ops health",
+      "description": "rate_limits_enabled MUST stay at 1 outside maintenance windows. prompt_cache_age should stay under the 60s cache TTL.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 33 },
+      "targets": [
+        {
+          "expr": "medcore_rate_limits_enabled{service=\"$service\",env=\"$env\"}",
+          "legendFormat": "rate limits enabled",
+          "refId": "A"
+        },
+        {
+          "expr": "medcore_prompt_cache_age_seconds{service=\"$service\",env=\"$env\"}",
+          "legendFormat": "prompt cache age (s)",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.5 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "prompt cache age (s)" },
+            "properties": [
+              { "id": "unit", "value": "s" },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "green", "value": null },
+                    { "color": "yellow", "value": 60 },
+                    { "color": "red", "value": 120 }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "orientation": "vertical",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["medcore", "api", "observability", "pearl"],
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "label": "Datasource",
+        "hide": 0,
+        "current": {},
+        "refresh": 1
+      },
+      {
+        "name": "service",
+        "type": "query",
+        "label": "service",
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "query": "label_values(medcore_http_requests_total, service)",
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false,
+        "current": { "selected": false, "text": "medcore-api", "value": "medcore-api" },
+        "options": []
+      },
+      {
+        "name": "env",
+        "type": "query",
+        "label": "env",
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "query": "label_values(medcore_http_requests_total{service=\"$service\"}, env)",
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false,
+        "current": { "selected": false, "text": "production", "value": "production" },
+        "options": []
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "MedCore — API overview",
+  "uid": "medcore-api-overview",
+  "version": 1,
+  "weekStart": ""
+}

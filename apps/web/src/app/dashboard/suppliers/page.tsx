@@ -17,6 +17,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { Truck, Plus, X, Mail, Phone, MapPin, FileText, Edit2, Power, Search } from "lucide-react";
+import { SkeletonTable, SkeletonText } from "@/components/Skeleton";
 
 interface SupplierRecord {
   id: string;
@@ -191,7 +192,9 @@ export default function SuppliersPage() {
       <div className="grid gap-6 lg:grid-cols-[1fr,400px]">
         <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
           {loading ? (
-            <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+            <div className="p-4" data-testid="suppliers-loading" aria-busy="true">
+              <SkeletonTable rows={5} columns={5} />
+            </div>
           ) : suppliers.length === 0 ? (
             <div className="p-8 text-center text-gray-500 dark:text-gray-400">No suppliers found</div>
           ) : (
@@ -291,7 +294,9 @@ export default function SuppliersPage() {
         {selectedId && (
           <aside className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
             {!detail ? (
-              <div className="text-sm text-gray-500 dark:text-gray-400">Loading...</div>
+              <div data-testid="supplier-detail-loading" aria-busy="true">
+                <SkeletonText lines={5} />
+              </div>
             ) : (
               <>
                 <div className="mb-4 flex items-start justify-between">

@@ -19,6 +19,7 @@ import { extractFieldErrors, type FieldErrorMap } from "@/lib/field-errors";
 import { Role, sanitizeUserInput } from "@medcore/shared";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
+import { SkeletonTable } from "@/components/Skeleton";
 
 // Issue #190: derive the role list from the shared `Role` enum so adding
 // a new role only happens in one place. PATIENT is excluded — patients
@@ -471,7 +472,9 @@ export default function UsersPage() {
       {/* Users table */}
       <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div className="p-4" data-testid="users-loading" aria-busy="true">
+            <SkeletonTable rows={5} columns={6} />
+          </div>
         ) : users.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">No users found</div>
         ) : (

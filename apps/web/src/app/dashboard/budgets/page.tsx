@@ -6,6 +6,7 @@ import { TrendingUp, TrendingDown, Plus, Edit2, Eye } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
+import { SkeletonTable } from "@/components/Skeleton";
 
 interface BudgetRow {
   category: string;
@@ -236,7 +237,9 @@ export default function BudgetsPage() {
       <div className="mb-6 rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
         <h3 className="mb-4 font-semibold">Budget vs Actual by Category</h3>
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div className="p-4" data-testid="budgets-loading" aria-busy="true">
+            <SkeletonTable rows={5} columns={5} />
+          </div>
         ) : rows.length === 0 ? (
           <p className="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
             No budgets set for this month. Click &ldquo;Set Budget&rdquo; to start.

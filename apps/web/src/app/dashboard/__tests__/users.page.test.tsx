@@ -129,7 +129,9 @@ describe("UsersPage", () => {
         })
     );
     render(<UsersPage />);
-    expect(await screen.findByText(/loading\.\.\./i)).toBeInTheDocument();
+    const loader = await screen.findByTestId("users-loading");
+    expect(loader).toBeInTheDocument();
+    expect(loader).toHaveAttribute("aria-busy", "true");
     resolveFn({ data: [] });
   });
 });

@@ -108,6 +108,11 @@ import { visitorsStatsRouter } from "./routes/visitors-stats";
 import { holidaysRouter } from "./routes/holidays";
 import { patientExtrasRouter } from "./routes/patient-extras";
 import { usersRouter } from "./routes/users";
+// Pearl ERP Stage 1 §8.2 (gap row 213 closure, 2026-05-23) — staff
+// email-invite flow. POST mints the invite (ADMIN-only, awaited
+// auditLog); GET + POST /accept are public surfaces gated by the
+// hashed token. Mounted alongside /users.
+import { userInvitesRouter } from "./routes/user-invites";
 import { aiTriageRouter } from "./routes/ai-triage";
 import { aiScribeRouter } from "./routes/ai-scribe";
 import { aiTranscribeRouter } from "./routes/ai-transcribe";
@@ -464,6 +469,9 @@ export function buildApp() {
   // Must be registered before the catch-all `patientExtrasRouter` mount
   // so Express finds it first.
   app.use("/api/v1/users", usersRouter);
+  // Pearl §8.2 gap row 213 — staff email-invite flow. Mounted AFTER
+  // /users so admin-side endpoints stay grouped on the same surface.
+  app.use("/api/v1/user-invites", userInvitesRouter);
   app.use("/api/v1", patientExtrasRouter);
 
   // Health check — the router provides shallow `/api/health` (public) plus

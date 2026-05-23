@@ -723,6 +723,13 @@ model Tenant {
   // (super-admin) team. Distinct from `complaints` (patient → hospital).
   supportTickets SupportTicket[]
 
+  // Pearl §8.2 (gap row 213 closure 2026-05-23) — staff email-invite flow.
+  // Admin issues an invite scoped to a Role + optional branchIds; the
+  // recipient clicks the magic link and sets their password to materialise
+  // the User row. The token itself is stored as a SHA-256 hash on the
+  // invite row — raw token only leaves the server in the outbound email.
+  userInvites UserInvite[]
+
   @@map("tenants")
 }
 
@@ -1037,6 +1044,13 @@ model User {
   supportTicketsOpened   SupportTicket[]        @relation("SupportTicketOpener")
   supportTicketsAssigned SupportTicket[]        @relation("SupportTicketAssignee")
   supportTicketMessages  SupportTicketMessage[]
+
+  // Pearl §8.2 (gap row 213 closure 2026-05-23) — staff email-invite flow.
+  //   - userInvitesSent     : invites this ADMIN issued.
+  //   - userInvitesAccepted : invites this user materialised by accepting
+  //     (back-pointer to the originating UserInvite row for audit trace).
+  userInvitesSent     UserInvite[] @relation("UserInviteInviter")
+  userInvitesAccepted UserInvite[] @relation("UserInviteAcceptedUser")
 
   @@index([email])
   @@index([phone])
@@ -6322,4 +6336,58 @@ enum SupportTicketPriority {
   NORMAL
   HIGH
   URGENT
+}
+
+// Pearl ERP Stage 1 §8.2 (gap row 213 closure, 2026-05-23) — staff
+// email-invite flow.
+//
+// Today the ADMIN-side "create user" UX requires the admin to type a
+// password and share it out-of-band, which (a) leaks the password in
+// chat / email plaintext, (b) skips email-verification (the new user
+// might not actually own the address), and (c) blocks self-service
+// onboarding of a roster of staff. This model captures the "invite
+// pending acceptance" state between the admin issuing an invite and
+// the recipient materialising their User row by setting a password.
+//
+// Token storage contract:
+//   - `token` holds the SHA-256 hex hash of a 32-byte CSPRNG nonce.
+//   - The raw nonce ONLY ever leaves the server in the outbound email
+//     body; we never persist it. A DB compromise therefore cannot be
+//     used to assume any unaccepted invite — the attacker would need
+//     the email contents too.
+//   - On accept, the User row is created with the role + tenantId
+//     captured at invite-time (NOT what the URL says — prevents a
+//     forged Role on the accept body from privilege-escalating).
+//
+// `branchIds` is a denormalised string[] of Branch.id values that the
+// new user should be assigned to once Pearl §7.2 piece 2b lands the
+// per-user branch ACL. Today the field is stored for the audit trail
+// and surfaced verbatim on the accept GET, but no enforcement reads
+// it — the staff-user model has no branch ACL yet.
+//
+// Lifecycle: an invite is "active" while expiresAt > now() AND
+// acceptedAt IS NULL. Re-inviting the same email collapses any
+// outstanding active invites (the POST handler does a DELETE-then-
+// INSERT) so a victim of an email-typo can re-send without leaving
+// the wrong-address invite valid in the wild.
+model UserInvite {
+  id              String    @id @default(uuid())
+  tenantId        String
+  email           String
+  role            Role
+  branchIds       String[]  @default([])
+  token           String    @unique // sha256 hex of the raw nonce
+  invitedByUserId String
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  acceptedUserId  String?
+  createdAt       DateTime  @default(now())
+
+  tenant       Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invitedBy    User   @relation("UserInviteInviter", fields: [invitedByUserId], references: [id])
+  acceptedUser User?  @relation("UserInviteAcceptedUser", fields: [acceptedUserId], references: [id])
+
+  @@index([tenantId, email])
+  @@index([expiresAt])
+  @@map("user_invites")
 }

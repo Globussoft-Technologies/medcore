@@ -24,22 +24,27 @@
 //      sessionStorage keyed by tenant id; per-doctor HPR linking via
 //      the existing ABDM M1 flow is finalized by the new tenant's
 //      first ADMIN at /dashboard/settings/abdm on first login.
+//   7. Razorpay (Payment Gateway) — piece 2b step 7. Same scope-cut
+//      as steps 4/5/6: collect Razorpay credentials (business name +
+//      key id + key secret + webhook secret + mode TEST/LIVE) in
+//      sessionStorage keyed by tenant id; the new tenant's first
+//      ADMIN finalizes at /dashboard/settings/payments on first login.
 //
-// The full PRD calls for 8 steps; Razorpay / post-creation remain
-// deferred to subsequent piece 2b ticks — each needs an external
-// integration the wizard would validate against.
+// The full PRD calls for 8 steps; the post-creation summary step
+// remains deferred to a subsequent piece 2b tick.
 //
 // Auth: relies on the super-admin layout's client-side gate. No
 // additional check needed here.
 //
-// Test ids: onboarding-step-{1,2,3,4,5,6}, onboarding-back, onboarding-next,
+// Test ids: onboarding-step-{1,2,3,4,5,6,7}, onboarding-back, onboarding-next,
 // onboarding-submit, onboarding-error-banner, onboarding-wa-skip,
 // onboarding-wa-save, onboarding-wa-cta, onboarding-hfr-skip,
 // onboarding-hfr-save, onboarding-hfr-cta, onboarding-hpr-skip,
-// onboarding-hpr-save, onboarding-hpr-cta, plus per-field
+// onboarding-hpr-save, onboarding-hpr-cta, onboarding-rzp-skip,
+// onboarding-rzp-save, onboarding-rzp-cta, plus per-field
 // onboarding-tenant-name / onboarding-branch-name / onboarding-admin-*
-// / onboarding-wa-* / onboarding-hfr-* / onboarding-hpr-* for the smoke
-// component test.
+// / onboarding-wa-* / onboarding-hfr-* / onboarding-hpr-* /
+// onboarding-rzp-* for the smoke component test.
 
 "use client";
 
@@ -48,7 +53,8 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 
 type Plan = "BASIC" | "PRO" | "ENTERPRISE";
-type Step = 1 | 2 | 3 | 4 | 5 | 6;
+type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+type RazorpayMode = "TEST" | "LIVE";
 type FacilityType =
   | "HOSPITAL"
   | "CLINIC"
@@ -147,6 +153,13 @@ interface HPRStepState {
   specialty: Specialty;
   councilRegNo: string;
 }
+interface RazorpayStepState {
+  businessName: string;
+  keyId: string;
+  keySecret: string;
+  webhookSecret: string;
+  mode: RazorpayMode;
+}
 
 // Mirror the server-side regex (kept in sync with
 // packages/shared/src/validation/tenant-onboarding.ts). We duplicate
@@ -186,6 +199,11 @@ const HFR_ID_REGEX = /^\d{8,14}$/;
 // digits. Mirror the HFR rule (8-14 numeric) for the same future-proof
 // reason — upstream registry is the source of truth.
 const HPR_ID_REGEX = /^\d{8,14}$/;
+// Razorpay Key IDs always carry the rzp_test_ or rzp_live_ prefix
+// followed by an alphanumeric token. The upstream dashboard is the
+// source of truth — the wizard just stashes a draft, so accept a
+// permissive 10+ alphanumeric tail.
+const RAZORPAY_KEY_ID_REGEX = /^rzp_(test|live)_[A-Za-z0-9]{10,}$/;
 
 function validateTenantStep(s: TenantStepState): string | null {
   if (s.name.trim().length < 2) return "Hospital name must be at least 2 characters";
@@ -253,6 +271,23 @@ function validateHPRStep(s: HPRStepState): string | null {
   return null;
 }
 
+// Validate Razorpay step only if the operator opted to save (not skip).
+// Business name + key id + key secret + webhook secret are all required
+// together when saving; mode defaults to TEST and is always populated.
+// The wizard only stashes a draft — the new tenant's first ADMIN
+// finalizes at /dashboard/settings/payments on first login.
+function validateRazorpayStep(s: RazorpayStepState): string | null {
+  if (s.businessName.trim().length < 2)
+    return "Business name must be at least 2 characters";
+  if (!RAZORPAY_KEY_ID_REGEX.test(s.keyId.trim()))
+    return "Key ID must look like rzp_live_XXXXXXXXXXXX or rzp_test_XXXXXXXXXXXX";
+  if (s.keySecret.trim().length < 8)
+    return "Key Secret must be at least 8 characters";
+  if (s.webhookSecret.trim().length < 8)
+    return "Webhook Secret must be at least 8 characters";
+  return null;
+}
+
 export default function OnboardingWizardPage() {
   const router = useRouter();
 
@@ -276,6 +311,10 @@ export default function OnboardingWizardPage() {
   const [waSaved, setWaSaved] = useState(false);
   const [hfrSaved, setHfrSaved] = useState(false);
   const [hprSaved, setHprSaved] = useState(false);
+  const [rzpSaved, setRzpSaved] = useState(false);
+  // Toggles for masking the Razorpay secret + webhook secret inputs.
+  const [showRzpKeySecret, setShowRzpKeySecret] = useState(false);
+  const [showRzpWebhookSecret, setShowRzpWebhookSecret] = useState(false);
 
   const [tenantStep, setTenantStep] = useState<TenantStepState>({
     name: "",
@@ -317,6 +356,13 @@ export default function OnboardingWizardPage() {
     specialty: "GENERAL_PRACTICE",
     councilRegNo: "",
   });
+  const [rzpStep, setRzpStep] = useState<RazorpayStepState>({
+    businessName: "",
+    keyId: "",
+    keySecret: "",
+    webhookSecret: "",
+    mode: "TEST",
+  });
 
   const tenantError = useMemo(
     () => (step === 1 && (tenantStep.name || tenantStep.subdomain) ? validateTenantStep(tenantStep) : null),
@@ -337,7 +383,7 @@ export default function OnboardingWizardPage() {
   function goBack() {
     setErrorBanner(null);
     setServerFieldError(null);
-    // Don't allow stepping back from 4 / 5 / 6 since the tenant has
+    // Don't allow stepping back from 4 / 5 / 6 / 7 since the tenant has
     // already been created at that point. The operator dismisses
     // post-create steps via their respective "Skip for now" / "Save"
     // buttons.
@@ -630,13 +676,79 @@ export default function OnboardingWizardPage() {
   }
 
   function skipHPR() {
+    // Advance to step 7 (Razorpay) — wizard now has a further optional
+    // post-create step for payment gateway credentials. The wizard
+    // only completes after the Razorpay step's skip / finish.
+    setErrorBanner(null);
+    prefillRzpBusinessName();
+    setStep(7);
+  }
+
+  function finishAfterHprSave() {
+    setErrorBanner(null);
+    prefillRzpBusinessName();
+    setStep(7);
+  }
+
+  // Prefill the Razorpay step's business-name field from the step-1
+  // tenant name, but only if the user hasn't already typed something.
+  // Called on transition into step 7 from either the HPR skip or HPR
+  // finish path.
+  function prefillRzpBusinessName() {
+    if (!rzpStep.businessName && tenantStep.name.trim().length > 0) {
+      setRzpStep((prev) => ({
+        ...prev,
+        businessName: tenantStep.name.trim(),
+      }));
+    }
+  }
+
+  // Step 7 — Razorpay payment gateway. Mirrors the HPR step's "stash a
+  // draft, ADMIN finalizes on first login" shape because the
+  // super-admin caller has tenantId=null and cannot write to per-tenant
+  // payment config rows. Draft is keyed by tenant id exactly like the
+  // WhatsApp + HFR + HPR drafts (same medcore_<area>_draft:<id>
+  // convention). The new tenant's first ADMIN finalizes Razorpay
+  // credentials at /dashboard/settings/payments on first login.
+  function saveRazorpay() {
+    setErrorBanner(null);
+    const e = validateRazorpayStep(rzpStep);
+    if (e) {
+      setErrorBanner(e);
+      return;
+    }
+    if (!createdTenant) {
+      setErrorBanner("Tenant context missing — please retry from step 1");
+      return;
+    }
+    try {
+      const draft = {
+        businessName: rzpStep.businessName.trim(),
+        keyId: rzpStep.keyId.trim(),
+        keySecret: rzpStep.keySecret.trim(),
+        webhookSecret: rzpStep.webhookSecret.trim(),
+        mode: rzpStep.mode,
+      };
+      sessionStorage.setItem(
+        `medcore_razorpay_draft:${createdTenant.id}`,
+        JSON.stringify(draft),
+      );
+    } catch {
+      // SessionStorage can throw in some private-browse modes.
+      // Continue anyway — the CTA still points the operator at the
+      // settings page; the draft hint is best-effort.
+    }
+    setRzpSaved(true);
+  }
+
+  function skipRazorpay() {
     setSuccess(true);
     setTimeout(() => {
       router.push("/super-admin");
     }, 1200);
   }
 
-  function finishAfterHprSave() {
+  function finishAfterRzpSave() {
     setSuccess(true);
     setTimeout(() => {
       router.push("/super-admin");
@@ -673,10 +785,10 @@ export default function OnboardingWizardPage() {
           Onboard new tenant
         </h1>
         <p className="text-sm text-slate-600">
-          6-step wizard. Steps 1-3 create the tenant, its first branch, and
-          the super-admin user atomically. Steps 4 (WhatsApp), 5 (HFR), and
-          6 (HPR) are optional — Razorpay / post-creation steps land in
-          subsequent piece 2b ticks.
+          7-of-8 step wizard. Steps 1-3 create the tenant, its first
+          branch, and the super-admin user atomically. Steps 4 (WhatsApp),
+          5 (HFR), 6 (HPR), and 7 (Razorpay) are optional — post-creation
+          summary lands in a subsequent piece 2b tick.
         </p>
       </header>
 
@@ -686,7 +798,7 @@ export default function OnboardingWizardPage() {
         data-testid="onboarding-step-indicator"
         aria-label="Onboarding progress"
       >
-        {([1, 2, 3, 4, 5, 6] as const).map((n) => (
+        {([1, 2, 3, 4, 5, 6, 7] as const).map((n) => (
           <li
             key={n}
             data-testid={`onboarding-step-indicator-${n}`}
@@ -711,7 +823,9 @@ export default function OnboardingWizardPage() {
                       ? "WhatsApp"
                       : n === 5
                         ? "HFR"
-                        : "HPR"}
+                        : n === 6
+                          ? "HPR"
+                          : "Razorpay"}
             </span>
           </li>
         ))}
@@ -1371,6 +1485,179 @@ export default function OnboardingWizardPage() {
         </fieldset>
       )}
 
+      {step === 7 && (
+        <fieldset
+          data-testid="onboarding-step-7"
+          className="space-y-4 rounded-lg border border-slate-200 bg-white p-6"
+        >
+          <legend className="sr-only">Razorpay (Payment Gateway)</legend>
+          <h2 className="text-lg font-semibold">
+            Razorpay (Payment Gateway)
+          </h2>
+          <p className="text-xs text-slate-500">
+            Optional — capture the tenant&apos;s Razorpay credentials so
+            invoices can be paid online. Can be configured later from
+            Settings &rarr; Payments. The new tenant&apos;s ADMIN will
+            finalize Razorpay credentials on first login.
+          </p>
+
+          {rzpSaved && createdTenant ? (
+            <div
+              data-testid="onboarding-rzp-saved-banner"
+              className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+              role="status"
+            >
+              <p className="font-medium">
+                Razorpay draft saved for {createdTenant.name}
+                {rzpStep.keyId ? ` (${rzpStep.mode}, ${rzpStep.keyId.trim()})` : ""}
+                .
+              </p>
+              <p className="mt-1 text-xs">
+                After tenant onboarding, the first ADMIN will finalize
+                Razorpay credentials at{" "}
+                <a
+                  data-testid="onboarding-rzp-cta"
+                  href="/dashboard/settings/payments"
+                  className="font-medium underline"
+                >
+                  /dashboard/settings/payments
+                </a>
+                .
+              </p>
+            </div>
+          ) : (
+            <>
+              <Field
+                label="Business Name"
+                hint="Appears on Razorpay invoices. Defaults to the tenant name from step 1."
+              >
+                <input
+                  data-testid="onboarding-rzp-businessname"
+                  value={rzpStep.businessName}
+                  onChange={(e) =>
+                    setRzpStep({ ...rzpStep, businessName: e.target.value })
+                  }
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="organization"
+                />
+              </Field>
+
+              <Field
+                label="Key ID"
+                hint="Format: rzp_live_XXXXXXXXXXXX or rzp_test_XXXXXXXXXXXX."
+              >
+                <input
+                  data-testid="onboarding-rzp-keyid"
+                  value={rzpStep.keyId}
+                  onChange={(e) =>
+                    setRzpStep({ ...rzpStep, keyId: e.target.value })
+                  }
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                />
+              </Field>
+
+              <Field
+                label="Key Secret"
+                hint="From the Razorpay dashboard. Stored only as a draft."
+              >
+                <div className="flex items-center gap-2">
+                  <input
+                    data-testid="onboarding-rzp-keysecret"
+                    type={showRzpKeySecret ? "text" : "password"}
+                    value={rzpStep.keySecret}
+                    onChange={(e) =>
+                      setRzpStep({ ...rzpStep, keySecret: e.target.value })
+                    }
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-base focus:border-slate-500 focus:outline-none"
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    data-testid="onboarding-rzp-keysecret-toggle"
+                    onClick={() => setShowRzpKeySecret((v) => !v)}
+                    className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    aria-label={
+                      showRzpKeySecret ? "Hide key secret" : "Show key secret"
+                    }
+                  >
+                    {showRzpKeySecret ? "Hide" : "Show"}
+                  </button>
+                </div>
+              </Field>
+
+              <Field
+                label="Webhook Secret"
+                hint="Used to verify Razorpay webhook HMAC signatures."
+              >
+                <div className="flex items-center gap-2">
+                  <input
+                    data-testid="onboarding-rzp-webhooksecret"
+                    type={showRzpWebhookSecret ? "text" : "password"}
+                    value={rzpStep.webhookSecret}
+                    onChange={(e) =>
+                      setRzpStep({ ...rzpStep, webhookSecret: e.target.value })
+                    }
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-base focus:border-slate-500 focus:outline-none"
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    data-testid="onboarding-rzp-webhooksecret-toggle"
+                    onClick={() => setShowRzpWebhookSecret((v) => !v)}
+                    className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    aria-label={
+                      showRzpWebhookSecret
+                        ? "Hide webhook secret"
+                        : "Show webhook secret"
+                    }
+                  >
+                    {showRzpWebhookSecret ? "Hide" : "Show"}
+                  </button>
+                </div>
+              </Field>
+
+              <Field
+                label="Mode"
+                hint="TEST drives the rzp_test_ keys; LIVE drives the rzp_live_ keys."
+              >
+                <div
+                  role="radiogroup"
+                  aria-label="Razorpay mode"
+                  className="inline-flex overflow-hidden rounded-md border border-slate-300"
+                  data-testid="onboarding-rzp-mode"
+                >
+                  {(["TEST", "LIVE"] as const).map((m) => {
+                    const active = rzpStep.mode === m;
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        data-testid={`onboarding-rzp-mode-${m.toLowerCase()}`}
+                        onClick={() =>
+                          setRzpStep({ ...rzpStep, mode: m })
+                        }
+                        className={`px-4 py-2 text-sm font-medium ${
+                          active
+                            ? "bg-slate-900 text-white"
+                            : "bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        {m}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Field>
+            </>
+          )}
+        </fieldset>
+      )}
+
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
@@ -1381,6 +1668,7 @@ export default function OnboardingWizardPage() {
             step === 4 ||
             step === 5 ||
             step === 6 ||
+            step === 7 ||
             submitting
           }
           className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
@@ -1512,6 +1800,39 @@ export default function OnboardingWizardPage() {
             type="button"
             data-testid="onboarding-hpr-finish"
             onClick={finishAfterHprSave}
+            className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+            style={{ minHeight: 44 }}
+          >
+            Continue
+          </button>
+        )}
+        {step === 7 && !rzpSaved && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="onboarding-rzp-skip"
+              onClick={skipRazorpay}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              style={{ minHeight: 44 }}
+            >
+              Skip for now
+            </button>
+            <button
+              type="button"
+              data-testid="onboarding-rzp-save"
+              onClick={saveRazorpay}
+              className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+              style={{ minHeight: 44 }}
+            >
+              Configure Razorpay
+            </button>
+          </div>
+        )}
+        {step === 7 && rzpSaved && (
+          <button
+            type="button"
+            data-testid="onboarding-rzp-finish"
+            onClick={finishAfterRzpSave}
             className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
             style={{ minHeight: 44 }}
           >

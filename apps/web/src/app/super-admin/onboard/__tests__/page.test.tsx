@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Smoke tests for the super-admin onboarding wizard (gap #6 piece 2 of 4
 // + piece 2b wizard steps — WhatsApp (step 4), HFR (step 5), HPR
-// (step 6)).
+// (step 6), Razorpay (step 7)).
 //
 // Covers:
 //   - Step 1 renders by default. Filling tenant fields + clicking Next
@@ -26,16 +26,25 @@
 //   - Skip-for-now on step 5 bypasses without persisting + advances to
 //     step 6.
 //   - Step 6 ("HPR") renders the professional-registry fields with
-//     prefilled doctor name, has a "Skip for now" button that
-//     completes the wizard, and a "Configure HPR" save action that
-//     stores a sessionStorage draft + surfaces the
+//     prefilled doctor name, has a "Skip for now" button that advances
+//     to step 7 (Razorpay was appended), and a "Configure HPR" save
+//     action that stores a sessionStorage draft + surfaces the
 //     /dashboard/settings/abdm CTA.
 //   - Step 6 validation rejects malformed HPR IDs inline.
-//   - Skip-for-now on step 6 bypasses without persisting + completes
+//   - Skip-for-now on step 6 bypasses without persisting + advances to
+//     step 7.
+//   - Step 7 ("Razorpay") renders payment-gateway fields with mode
+//     defaulting to TEST and business name prefilled from step-1
+//     tenant name, has a "Skip for now" button that completes the
+//     wizard, and a "Configure Razorpay" save action that stores a
+//     sessionStorage draft + surfaces the /dashboard/settings/payments
+//     CTA.
+//   - Step 7 validation rejects malformed Razorpay key IDs inline.
+//   - Skip-for-now on step 7 bypasses without persisting + completes
 //     the wizard.
-//   - Step indicator renders all 6 steps.
+//   - Step indicator renders all 7 steps.
 //   - 44px touch invariant on the primary wizard buttons (incl. steps
-//     5 + 6).
+//     5, 6 + 7).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -114,7 +123,15 @@ async function walkToStep6() {
   await waitFor(() => screen.getByTestId("onboarding-step-6"));
 }
 
-describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp, HFR & HPR steps)", () => {
+async function walkToStep7() {
+  await walkToStep6();
+  // Same skip-trick — the HPR skip button now advances to step 7
+  // (Razorpay) instead of completing the wizard.
+  fireEvent.click(screen.getByTestId("onboarding-hpr-skip"));
+  await waitFor(() => screen.getByTestId("onboarding-step-7"));
+}
+
+describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp, HFR, HPR & Razorpay steps)", () => {
   beforeEach(() => {
     routerPush.mockReset();
     (global.fetch as any) = vi.fn();
@@ -147,7 +164,7 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp,
     expect(screen.queryByTestId("onboarding-step-1")).not.toBeInTheDocument();
   });
 
-  it("renders a 6-step indicator (WhatsApp is the 4th, HFR is the 5th, HPR is the 6th)", () => {
+  it("renders a 7-step indicator (WhatsApp is the 4th, HFR is the 5th, HPR is the 6th, Razorpay is the 7th)", () => {
     render(<OnboardingWizardPage />);
     expect(
       screen.getByTestId("onboarding-step-indicator-1"),
@@ -176,6 +193,12 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp,
     expect(
       screen.getByTestId("onboarding-step-indicator-6"),
     ).toHaveTextContent(/hpr/i);
+    expect(
+      screen.getByTestId("onboarding-step-indicator-7"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("onboarding-step-indicator-7"),
+    ).toHaveTextContent(/razorpay/i);
   });
 
   it("submits the full payload to /api/v1/tenant-onboarding and advances to step 4", async () => {
@@ -542,7 +565,7 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp,
     ).toBe("Admin User");
   });
 
-  it("step 6 'Skip for now' bypasses without persisting a draft and completes the wizard", async () => {
+  it("step 6 'Skip for now' bypasses without persisting a draft and advances to step 7 (Razorpay)", async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
       status: 201,
@@ -554,9 +577,12 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp,
 
     fireEvent.click(screen.getByTestId("onboarding-hpr-skip"));
 
+    // Step 7 (Razorpay) is the new post-HPR step — the wizard no
+    // longer completes after skipping HPR.
     await waitFor(() => {
-      expect(screen.getByTestId("onboarding-success")).toBeInTheDocument();
+      expect(screen.getByTestId("onboarding-step-7")).toBeInTheDocument();
     });
+    expect(screen.queryByTestId("onboarding-success")).not.toBeInTheDocument();
     // No HPR draft written to sessionStorage when the user skips.
     expect(sessionStorage.getItem("medcore_hpr_draft:new-id")).toBeNull();
   });
@@ -638,6 +664,152 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp,
     expect(sessionStorage.getItem("medcore_hpr_draft:new-id")).toBeNull();
   });
 
+  it("step 7 renders Razorpay fields with mode defaulting to TEST and business name prefilled from tenant", async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => SUCCESS_RESPONSE,
+    });
+
+    render(<OnboardingWizardPage />);
+    await walkToStep7();
+
+    expect(screen.getByTestId("onboarding-step-7")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("onboarding-rzp-businessname"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-rzp-keyid")).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-rzp-keysecret")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("onboarding-rzp-webhooksecret"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-rzp-mode")).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-rzp-skip")).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-rzp-save")).toBeInTheDocument();
+
+    // Business name defaults to the step-1 tenant name ("Sunrise Hospital").
+    expect(
+      (screen.getByTestId("onboarding-rzp-businessname") as HTMLInputElement)
+        .value,
+    ).toBe("Sunrise Hospital");
+    // Mode toggle defaults to TEST.
+    expect(
+      screen.getByTestId("onboarding-rzp-mode-test"),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(
+      screen.getByTestId("onboarding-rzp-mode-live"),
+    ).toHaveAttribute("aria-checked", "false");
+    // Secret inputs default to password type (masked).
+    expect(
+      (screen.getByTestId("onboarding-rzp-keysecret") as HTMLInputElement)
+        .type,
+    ).toBe("password");
+    expect(
+      (screen.getByTestId("onboarding-rzp-webhooksecret") as HTMLInputElement)
+        .type,
+    ).toBe("password");
+  });
+
+  it("step 7 'Skip for now' bypasses without persisting a draft and completes the wizard", async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => SUCCESS_RESPONSE,
+    });
+
+    render(<OnboardingWizardPage />);
+    await walkToStep7();
+
+    fireEvent.click(screen.getByTestId("onboarding-rzp-skip"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("onboarding-success")).toBeInTheDocument();
+    });
+    // No Razorpay draft written to sessionStorage when the user skips.
+    expect(
+      sessionStorage.getItem("medcore_razorpay_draft:new-id"),
+    ).toBeNull();
+  });
+
+  it("step 7 saves a Razorpay draft to sessionStorage + surfaces the deferred-config CTA", async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => SUCCESS_RESPONSE,
+    });
+
+    render(<OnboardingWizardPage />);
+    await walkToStep7();
+
+    fireEvent.change(screen.getByTestId("onboarding-rzp-keyid"), {
+      target: { value: "rzp_test_ABCDEF1234567890" },
+    });
+    fireEvent.change(screen.getByTestId("onboarding-rzp-keysecret"), {
+      target: { value: "shhh-secret-1" },
+    });
+    fireEvent.change(screen.getByTestId("onboarding-rzp-webhooksecret"), {
+      target: { value: "webhook-secret-1" },
+    });
+    // Switch mode to LIVE.
+    fireEvent.click(screen.getByTestId("onboarding-rzp-mode-live"));
+
+    fireEvent.click(screen.getByTestId("onboarding-rzp-save"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("onboarding-rzp-saved-banner"),
+      ).toBeInTheDocument();
+    });
+    const cta = screen.getByTestId("onboarding-rzp-cta");
+    expect(cta).toHaveAttribute("href", "/dashboard/settings/payments");
+
+    const raw = sessionStorage.getItem("medcore_razorpay_draft:new-id");
+    expect(raw).toBeTruthy();
+    const draft = JSON.parse(raw!);
+    expect(draft.businessName).toBe("Sunrise Hospital");
+    expect(draft.keyId).toBe("rzp_test_ABCDEF1234567890");
+    expect(draft.keySecret).toBe("shhh-secret-1");
+    expect(draft.webhookSecret).toBe("webhook-secret-1");
+    expect(draft.mode).toBe("LIVE");
+  });
+
+  it("step 7 rejects a malformed Razorpay key ID inline", async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => SUCCESS_RESPONSE,
+    });
+
+    render(<OnboardingWizardPage />);
+    await walkToStep7();
+
+    fireEvent.change(screen.getByTestId("onboarding-rzp-keyid"), {
+      target: { value: "rzp_mystery_xxx" },
+    });
+    fireEvent.change(screen.getByTestId("onboarding-rzp-keysecret"), {
+      target: { value: "shhh-secret-1" },
+    });
+    fireEvent.change(screen.getByTestId("onboarding-rzp-webhooksecret"), {
+      target: { value: "webhook-secret-1" },
+    });
+
+    fireEvent.click(screen.getByTestId("onboarding-rzp-save"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("onboarding-error-banner")).toHaveTextContent(
+        /rzp_live_xxxxxxxxxxxx or rzp_test_xxxxxxxxxxxx/i,
+      );
+    });
+    // The save-banner did NOT render.
+    expect(
+      screen.queryByTestId("onboarding-rzp-saved-banner"),
+    ).not.toBeInTheDocument();
+    // And no draft written.
+    expect(
+      sessionStorage.getItem("medcore_razorpay_draft:new-id"),
+    ).toBeNull();
+  });
+
   it("primary wizard buttons honour the 44px touch invariant", async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
@@ -715,6 +887,18 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp,
     ).toBe("44px");
     expect(
       (screen.getByTestId("onboarding-hpr-save") as HTMLButtonElement).style
+        .minHeight,
+    ).toBe("44px");
+
+    // Advance to step 7 and check the Razorpay action buttons too.
+    fireEvent.click(screen.getByTestId("onboarding-hpr-skip"));
+    await waitFor(() => screen.getByTestId("onboarding-step-7"));
+    expect(
+      (screen.getByTestId("onboarding-rzp-skip") as HTMLButtonElement).style
+        .minHeight,
+    ).toBe("44px");
+    expect(
+      (screen.getByTestId("onboarding-rzp-save") as HTMLButtonElement).style
         .minHeight,
     ).toBe("44px");
   });

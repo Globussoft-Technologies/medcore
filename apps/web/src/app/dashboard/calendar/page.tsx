@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { displayStatusForAppointment } from "@/lib/appointments";
+import { SkeletonCard } from "@/components/Skeleton";
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -595,8 +596,19 @@ export default function UnifiedCalendarPage() {
       </div>
 
       {loading && (
-        <div className="rounded-xl bg-white p-4 text-center text-xs text-gray-400 shadow-sm dark:bg-gray-800 dark:text-gray-500">
-          Loading events...
+        // Pearl §7.2 skeleton sweep (wave 13, 2026-05-23): replaced the bare
+        // "Loading events..." line with a `SkeletonCard ×3` block under a
+        // stable `calendar-loading` testid + `aria-busy="true"` so the busy
+        // region is announced by screen readers. Same pattern as wave-12
+        // `<slug>-loading` (commit 10dbbc4).
+        <div
+          data-testid="calendar-loading"
+          aria-busy="true"
+          className="space-y-3"
+        >
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
         </div>
       )}
 

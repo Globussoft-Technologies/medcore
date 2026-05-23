@@ -483,7 +483,16 @@ function NewPlanModal({
                 Select a patient first.
               </p>
             ) : loadingInv ? (
-              <p className="text-xs text-gray-500 dark:text-gray-400">Loading invoices...</p>
+              // Pearl §7.2 skeleton sweep (wave 13, 2026-05-23): replaced
+              // the "Loading invoices..." line with a `SkeletonText lines=2`
+              // block under a stable `payment-plans-invoices-loading` testid
+              // + `aria-busy="true"`. Same pattern as wave-12 `<slug>-loading`.
+              <div
+                data-testid="payment-plans-invoices-loading"
+                aria-busy="true"
+              >
+                <SkeletonText lines={2} />
+              </div>
             ) : invoices.length === 0 ? (
               <p
                 data-testid="new-plan-no-invoices"

@@ -12,7 +12,7 @@ import {
   displayStatusForAppointment,
   formatAppointmentTime,
 } from "@/lib/appointments";
-import { SkeletonTable } from "@/components/Skeleton";
+import { SkeletonTable, SkeletonCard } from "@/components/Skeleton";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityPicker } from "@/components/EntityPicker";
 import { AppointmentRemarksModal } from "@/components/AppointmentRemarksModal";
@@ -2408,7 +2408,19 @@ export default function AppointmentsPage() {
 
           <div className="overflow-x-auto rounded-xl bg-white shadow-sm dark:bg-gray-800">
             {calLoading ? (
-              <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading calendar…</div>
+              // Pearl §7.2 skeleton sweep (wave 13, 2026-05-23): replaced the
+              // bare "Loading calendar…" text with a `SkeletonCard ×3` block
+              // under a stable `appointments-calendar-loading` testid +
+              // `aria-busy="true"`. Same pattern as wave-12 `<slug>-loading`.
+              <div
+                data-testid="appointments-calendar-loading"
+                aria-busy="true"
+                className="space-y-3 p-4"
+              >
+                <SkeletonCard />
+                <SkeletonCard />
+                <SkeletonCard />
+              </div>
             ) : (
               <div className="min-w-200">
                 {/* Header row */}

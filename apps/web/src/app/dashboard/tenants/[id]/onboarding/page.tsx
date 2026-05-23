@@ -30,6 +30,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
+import { SkeletonCard } from "@/components/Skeleton";
 
 interface OnboardingResponse {
   data: {
@@ -226,8 +227,18 @@ export default function TenantOnboardingPage() {
       </div>
 
       {loading ? (
-        <div className="p-8 text-center text-gray-500">
-          {t("common.loading", "Loading...")}
+        // Pearl §7.2 skeleton sweep (wave 13, 2026-05-23): replaced the
+        // bare "Loading..." text with a `SkeletonCard ×3` block (matching
+        // the 6-step checklist shape) under a stable
+        // `tenant-onboarding-loading` testid + `aria-busy="true"`.
+        <div
+          data-testid="tenant-onboarding-loading"
+          aria-busy="true"
+          className="space-y-3"
+        >
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
         </div>
       ) : (
         <ol className="space-y-3">

@@ -13,6 +13,7 @@ import { parseVoiceCommand, type VoiceAction } from "./voice-commands";
 // Pearl ERP Stage 1 §2.1.3 (gap row 46) — right rail with derived
 // favourites + last 3 visits, click-to-paste into the active SOAP draft.
 import { ConsultRightRail } from "@/components/ConsultRightRail";
+import { SkeletonText } from "@/components/Skeleton";
 // PRD §3.5.1 Phase 2 — 8-language picker + BCP-47 conversion. The scribe
 // page exposes the selected language as the `language_code` the ASR client
 // forwards to Sarvam, so the doctor can transcribe regional-language
@@ -2022,7 +2023,18 @@ export default function ScribePage() {
                 )}
               </div>
               {previousLoading ? (
-                <div className="p-4 text-xs text-gray-500 dark:text-gray-400">Loading previous consultation…</div>
+                // Pearl §7.2 skeleton sweep (wave 13, 2026-05-23): replaced
+                // the bare "Loading previous consultation…" text with a
+                // `SkeletonText lines=4` block under a stable
+                // `scribe-previous-loading` testid + `aria-busy="true"`.
+                // Same pattern as wave-12 `<slug>-loading`.
+                <div
+                  data-testid="scribe-previous-loading"
+                  aria-busy="true"
+                  className="p-4"
+                >
+                  <SkeletonText lines={4} />
+                </div>
               ) : !previousConsultation ? (
                 <div className="p-4 text-xs text-gray-500 italic dark:text-gray-400">
                   No prior completed consultation found for this patient.

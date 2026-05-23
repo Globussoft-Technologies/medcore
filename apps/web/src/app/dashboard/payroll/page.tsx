@@ -267,7 +267,18 @@ export default function PayrollPage() {
 
       <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading staff...</div>
+          // Pearl §7.2 skeleton sweep (wave 13, 2026-05-23): replaced the
+          // bare "Loading staff..." text with a `SkeletonTable rows=6
+          // columns=11` matching the wide salary grid below, under a stable
+          // `payroll-loading` testid + `aria-busy="true"`. Same pattern as
+          // wave-12 `<slug>-loading`.
+          <div
+            data-testid="payroll-loading"
+            aria-busy="true"
+            className="p-4"
+          >
+            <SkeletonTable rows={6} columns={11} />
+          </div>
         ) : staff.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">No staff found</div>
         ) : (

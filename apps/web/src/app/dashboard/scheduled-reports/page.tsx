@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Clock, Plus, Play, History, Trash2, Power, X } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 interface ScheduledReport {
   id: string;
@@ -383,7 +384,13 @@ export default function ScheduledReportsPage() {
       {tab === "schedules" ? (
         <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800 dark:border dark:border-gray-700">
           {loading ? (
-            <div className="p-8 text-center text-gray-500">Loading...</div>
+            <div
+              data-testid="scheduled-reports-schedules-loading"
+              aria-busy="true"
+              className="p-4"
+            >
+              <SkeletonTable rows={5} columns={6} />
+            </div>
           ) : reports.length === 0 ? (
             <div className="p-8 text-center text-gray-500">
               No scheduled reports yet
@@ -462,7 +469,13 @@ export default function ScheduledReportsPage() {
       ) : (
         <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800 dark:border dark:border-gray-700">
           {loading ? (
-            <div className="p-8 text-center text-gray-500">Loading...</div>
+            <div
+              data-testid="scheduled-reports-runs-loading"
+              aria-busy="true"
+              className="p-4"
+            >
+              <SkeletonTable rows={5} columns={5} />
+            </div>
           ) : runs.length === 0 ? (
             <div className="p-8 text-center text-gray-500">
               No run history yet

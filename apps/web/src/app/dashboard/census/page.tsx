@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Calendar, TrendingUp, BedDouble, Activity } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 interface CensusDay {
   date: string;
@@ -183,7 +184,13 @@ export default function CensusPage() {
       {/* Table */}
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden dark:bg-gray-800 dark:border-gray-700">
         {loading ? (
-          <div className="p-8 text-center text-slate-500 dark:text-gray-400">Loading...</div>
+          <div
+            data-testid="census-loading"
+            aria-busy="true"
+            className="p-4"
+          >
+            <SkeletonTable rows={7} columns={7} />
+          </div>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-700 text-xs uppercase dark:bg-gray-900 dark:text-gray-300">

@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Plus, Users2, CalendarDays, Trash2 } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 // Issue #509: page-level gate. The duty-roster UI is the staff-management
 // write surface — the mutating endpoints in apps/api/src/routes/shifts.ts
@@ -344,7 +345,13 @@ export default function DutyRosterPage() {
 
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div
+            data-testid="duty-roster-loading"
+            aria-busy="true"
+            className="p-4"
+          >
+            <SkeletonTable rows={6} columns={6} />
+          </div>
         ) : filteredStaff.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">No staff found.</div>
         ) : (

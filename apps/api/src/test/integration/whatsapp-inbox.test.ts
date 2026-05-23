@@ -416,7 +416,7 @@ describeIfDB("Pearl §6.1 piece 3j-iii — /api/v1/wa/inbox", () => {
       // PHI guard: audit row never logs the body or the full phone.
       const details = (audit.details ?? {}) as Record<string, unknown>;
       expect(JSON.stringify(details)).not.toContain("Thanks for your message");
-      expect(details.phoneSuffix).toBe("0001");
+      expect(details.phoneSuffix).toBe("0003");
     } finally {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (globalThis as any).fetch = origFetch;

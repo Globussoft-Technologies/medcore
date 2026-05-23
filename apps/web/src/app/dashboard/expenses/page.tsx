@@ -110,6 +110,15 @@ export default function ExpensesPage() {
   }, [from, to, categoryFilter, user]);
 
   async function load() {
+    // Issue #939: refuse to fetch when the user has inverted the date range
+    // (From > To). Previously the API would happily return zero rows and the
+    // UI showed an empty table, hiding the user's mistake. ISO YYYY-MM-DD
+    // strings compare correctly with `>` because the format is calendar-sortable.
+    if (from && to && from > to) {
+      toast.error('"From" date must be on or before "To" date');
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const params = new URLSearchParams();

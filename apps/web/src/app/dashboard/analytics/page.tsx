@@ -798,6 +798,15 @@ export default function AnalyticsPage() {
   }
 
   const loadAll = useCallback(async () => {
+    // Issue #942: defence-in-depth — even if a future code path mutates
+    // `from`/`to` directly (URL params, preset bugs), refuse to fan out 18
+    // analytics requests on an inverted range. UI Apply button handles the
+    // foreground case with a toast; this is the safety net.
+    if (from && to && from > to) {
+      toast.error('"From" date must be on or before "To" date');
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     // Issue #78: previously `from`/`to` were captured in component state at
     // mount (defaultFrom() = today-30d, today() = today), so a tab left open
@@ -1160,6 +1169,15 @@ export default function AnalyticsPage() {
           </div>
           <button
             onClick={() => {
+              // Issue #942: refuse to apply an inverted custom range. The
+              // analytics dashboard previously zeroed Appointments + Revenue
+              // (and 16 other endpoints) without any indication the range
+              // was invalid. ISO YYYY-MM-DD compares lexically, matching
+              // calendar order.
+              if (pendingFrom && pendingTo && pendingFrom > pendingTo) {
+                toast.error('"From" date must be on or before "To" date');
+                return;
+              }
               setFrom(pendingFrom);
               setTo(pendingTo);
             }}

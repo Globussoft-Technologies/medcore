@@ -5,7 +5,7 @@
 // piece 4 (cross-tenant metrics).
 
 import Link from "next/link";
-import { Building2, CreditCard, ArrowRight, UserPlus, ListChecks, ShieldAlert, Inbox, Users, BarChart3 } from "lucide-react";
+import { Building2, CreditCard, ArrowRight, UserPlus, ListChecks, ShieldAlert, Inbox, Users, BarChart3, ShieldCheck } from "lucide-react";
 
 export default function SuperAdminLandingPage() {
   return (
@@ -244,6 +244,37 @@ export default function SuperAdminLandingPage() {
           </div>
           <p className="text-xs text-slate-500">
             Pearl §8.4 — aggregated metrics + per-tenant health rollup.
+          </p>
+        </Link>
+
+        {/* Compliance posture tile — Pearl §8.6 (gap row 225 closure 2026-05-23).
+            Per-tenant ABHA-link adoption, DPDP activity, audit volume,
+            ADMIN TOTP coverage. Red/amber badges flag policy gaps. */}
+        <Link
+          href="/super-admin/compliance"
+          data-testid="super-admin-tile-compliance"
+          className="group flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2"
+        >
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-teal-600 text-white">
+              <ShieldCheck size={18} aria-hidden="true" />
+            </span>
+            <div className="flex-1">
+              <h2 className="text-base font-semibold text-slate-900">
+                Compliance posture
+              </h2>
+              <p className="text-xs text-slate-500">
+                ABHA + DPDP + audit + TOTP coverage per tenant.
+              </p>
+            </div>
+            <ArrowRight
+              size={16}
+              className="text-slate-400 transition group-hover:translate-x-0.5"
+              aria-hidden="true"
+            />
+          </div>
+          <p className="text-xs text-slate-500">
+            Pearl §8.6 — red/amber badges flag policy gaps.
           </p>
         </Link>
 

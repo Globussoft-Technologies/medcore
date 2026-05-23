@@ -43,6 +43,9 @@ import { doctorRouter } from "./routes/doctors";
 // before any /:id-shaped handler on the doctors router (CLAUDE.md gotcha
 // §14 — static-before-dynamic).
 import { doctorFavouritesRouter } from "./routes/doctor-favourites";
+// Pearl ERP Stage 1 §2.1.3 (gap row 46) — consult right-rail data feed
+// (derived favourites + last-3-visits) for the /dashboard/scribe page.
+import { consultRailRouter } from "./routes/consult-rail";
 import { billingRouter, razorpayWebhookRouter } from "./routes/billing";
 import { prescriptionRouter, publicPrescriptionRouter } from "./routes/prescriptions";
 import { publicPatientRouter } from "./routes/public-patient";
@@ -152,6 +155,7 @@ import { scheduledJobsRouter } from "./routes/scheduled-jobs";
 import { supportTicketsRouter } from "./routes/support-tickets";
 import { superAdminUsersRouter } from "./routes/super-admin-users";
 import { superAdminMetricsRouter } from "./routes/super-admin-metrics";
+import { superAdminComplianceRouter } from "./routes/super-admin-compliance";
 import { branchesRouter } from "./routes/branches";
 import { campaignsRouter, publicCampaignsRouter } from "./routes/campaigns";
 import { campaignAudiencesRouter } from "./routes/campaign-audiences";
@@ -341,6 +345,7 @@ export function buildApp() {
   // the generic doctorRouter so Express matches /doctors/me/favourites
   // first (static path > dynamic /:id).
   app.use("/api/v1/doctors/me/favourites", doctorFavouritesRouter);
+  app.use("/api/v1/consult-rail", consultRailRouter);
   app.use("/api/v1/doctors", doctorRouter);
   app.use("/api/v1/billing", billingRouter);
   app.use("/api/v1/prescriptions", prescriptionRouter);
@@ -462,6 +467,11 @@ export function buildApp() {
   // metrics + per-tenant health rollup for the super-admin console.
   // Read-only; mounts UI at /super-admin/metrics.
   app.use("/api/v1/super-admin/metrics", superAdminMetricsRouter);
+  // Pearl §8.6 gap row 225 closure (2026-05-23) — per-tenant compliance
+  // posture dashboard. ABHA-link adoption, DPDP erasure activity, audit
+  // volume, ADMIN-TOTP coverage. Read-only; mounts UI at
+  // /super-admin/compliance.
+  app.use("/api/v1/super-admin/compliance", superAdminComplianceRouter);
   app.use("/api/v1/branches", branchesRouter);
   app.use("/api/v1/campaigns", campaignsRouter);
   app.use("/api/v1/campaign-audiences", campaignAudiencesRouter);

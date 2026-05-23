@@ -922,6 +922,13 @@ router.post(
         });
         if (tenant?.requireAdminTOTP) {
           const enrolToken = await issueTempToken(user.id);
+          // Pearl §8.2 row 211 — audit the blocked sign-in so operators can
+          // see when mandatory-TOTP is biting unenrolled admins (signal for
+          // rollout coordination / forced enrolment campaigns).
+          auditLog(req, "LOGIN_BLOCKED_TOTP_REQUIRED", "user", user.id, {
+            email: user.email,
+            tenantId: user.tenantId,
+          }).catch(console.error);
           res.status(412).json({
             success: false,
             data: { totpEnrolmentRequired: true, enrolToken },

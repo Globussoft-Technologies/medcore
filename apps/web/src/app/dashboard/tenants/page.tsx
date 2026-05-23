@@ -21,7 +21,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Search, Info, Power, X } from "lucide-react";
+import { Plus, Search, Info, Power, X, PowerOff } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
@@ -235,20 +235,23 @@ export default function TenantsAdminPage() {
     else setDetail(null);
   }, [detailOpen, loadDetail]);
 
+  // Pearl §8.1 row 206 — suspend flips Tenant.active=false. The audit row
+  // (TENANT_SUSPENDED) lands server-side. Refresh tokens are wiped so users
+  // are signed out at their next refresh cycle.
   async function deactivateTenant(id: string, name: string) {
     const ok = await confirm({
-      title: t("tenants.deactivate.confirm", `Deactivate tenant "${name}"?`),
+      title: t("tenants.deactivate.confirm", `Suspend tenant "${name}"?`),
       message: t(
         "tenants.deactivate.warning",
-        "All users of this tenant will be signed out at their next refresh. You can reactivate later.",
+        "Users won't be able to sign in. All active sessions will be signed out at their next refresh. You can restore later.",
       ),
-      confirmLabel: t("tenants.deactivate.button", "Deactivate"),
+      confirmLabel: t("tenants.deactivate.button", "Suspend"),
       danger: true,
     });
     if (!ok) return;
     try {
       await api.post(`/tenants/${id}/deactivate`);
-      toast.success(t("tenants.deactivate.ok", "Tenant deactivated"));
+      toast.success(t("tenants.deactivate.ok", "Tenant suspended"));
       setDetailOpen(null);
       load();
     } catch (err) {
@@ -256,10 +259,22 @@ export default function TenantsAdminPage() {
     }
   }
 
-  async function reactivateTenant(id: string) {
+  // Pearl §8.1 row 206 — restore flips Tenant.active=true via the dedicated
+  // POST /:id/restore endpoint (emits TENANT_RESTORED audit row). Mirrors
+  // suspend so audit pairs cleanly per the gap-doc closure annotation.
+  async function reactivateTenant(id: string, name?: string) {
+    const ok = await confirm({
+      title: t("tenants.reactivate.confirm", `Restore tenant${name ? ` "${name}"` : ""}?`),
+      message: t(
+        "tenants.reactivate.warning",
+        "Users of this tenant will be able to sign in again.",
+      ),
+      confirmLabel: t("tenants.reactivate.button", "Restore"),
+    });
+    if (!ok) return;
     try {
-      await api.patch(`/tenants/${id}`, { active: true });
-      toast.success(t("tenants.reactivate.ok", "Tenant reactivated"));
+      await api.post(`/tenants/${id}/restore`);
+      toast.success(t("tenants.reactivate.ok", "Tenant restored"));
       load();
       if (detailOpen) loadDetail(detailOpen);
     } catch (err) {
@@ -373,8 +388,11 @@ export default function TenantsAdminPage() {
               {tenants.map((tt) => (
                 <tr
                   key={tt.id}
-                  className="border-b last:border-0 text-sm"
+                  className={`border-b last:border-0 text-sm ${
+                    tt.active ? "" : "bg-gray-50 text-gray-500 opacity-75"
+                  }`}
                   data-testid={`tenant-row-${tt.subdomain}`}
+                  data-tenant-active={tt.active ? "true" : "false"}
                 >
                   <td className="px-4 py-3 font-medium">{tt.name}</td>
                   <td className="px-4 py-3 font-mono text-xs text-gray-600">
@@ -425,28 +443,69 @@ export default function TenantsAdminPage() {
                         {t("tenants.status.active", "Active")}
                       </span>
                     ) : (
-                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-800">
-                        {t("tenants.status.inactive", "Inactive")}
+                      <span
+                        className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800"
+                        data-testid={`tenant-suspended-badge-${tt.subdomain}`}
+                      >
+                        {t("tenants.status.suspended", "SUSPENDED")}
                       </span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      data-testid={`tenant-detail-${tt.subdomain}`}
-                      onClick={() => setDetailOpen(tt.id)}
-                      className="mr-2 rounded p-1 text-gray-600 hover:bg-gray-100"
-                      title={t("tenants.view.details", "View details")}
-                    >
-                      <Info size={14} />
-                    </button>
-                    <Link
-                      data-testid={`tenant-onboarding-${tt.subdomain}`}
-                      href={`/dashboard/tenants/${tt.id}/onboarding`}
-                      className="rounded p-1 text-primary hover:bg-primary/10"
-                      title={t("tenants.view.onboarding", "Onboarding")}
-                    >
-                      <Plus size={14} />
-                    </Link>
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        data-testid={`tenant-detail-${tt.subdomain}`}
+                        onClick={() => setDetailOpen(tt.id)}
+                        className="inline-flex h-11 w-11 items-center justify-center rounded text-gray-600 hover:bg-gray-100"
+                        title={t("tenants.view.details", "View details")}
+                        aria-label={t("tenants.view.details", "View details")}
+                      >
+                        <Info size={14} />
+                      </button>
+                      <Link
+                        data-testid={`tenant-onboarding-${tt.subdomain}`}
+                        href={`/dashboard/tenants/${tt.id}/onboarding`}
+                        className="inline-flex h-11 w-11 items-center justify-center rounded text-primary hover:bg-primary/10"
+                        title={t("tenants.view.onboarding", "Onboarding")}
+                        aria-label={t("tenants.view.onboarding", "Onboarding")}
+                      >
+                        <Plus size={14} />
+                      </Link>
+                      {/* Pearl §8.1 row 206 — per-row Suspend / Restore
+                          icon buttons. Suspend hidden for the default
+                          tenant (server-side guard blocks it anyway, but
+                          we don't render the button to avoid a confusing
+                          400). 44px touch targets per spec. */}
+                      {tt.active ? (
+                        tt.subdomain === "default" ? null : (
+                          <button
+                            data-testid={`tenant-row-suspend-${tt.subdomain}`}
+                            onClick={() => deactivateTenant(tt.id, tt.name)}
+                            className="inline-flex h-11 w-11 items-center justify-center rounded text-red-600 hover:bg-red-50"
+                            title={t("tenants.deactivate.button", "Suspend")}
+                            aria-label={t(
+                              "tenants.deactivate.aria",
+                              `Suspend ${tt.name}`,
+                            )}
+                          >
+                            <PowerOff size={14} />
+                          </button>
+                        )
+                      ) : (
+                        <button
+                          data-testid={`tenant-row-restore-${tt.subdomain}`}
+                          onClick={() => reactivateTenant(tt.id, tt.name)}
+                          className="inline-flex h-11 w-11 items-center justify-center rounded text-green-600 hover:bg-green-50"
+                          title={t("tenants.reactivate.button", "Restore")}
+                          aria-label={t(
+                            "tenants.reactivate.aria",
+                            `Restore ${tt.name}`,
+                          )}
+                        >
+                          <Power size={14} />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -847,7 +906,7 @@ function TenantDetailDrawer({
   detail: TenantDetail | null;
   onClose: () => void;
   onDeactivate: (id: string, name: string) => void;
-  onReactivate: (id: string) => void;
+  onReactivate: (id: string, name?: string) => void;
 }) {
   const { t } = useTranslation();
 
@@ -960,16 +1019,16 @@ function TenantDetailDrawer({
                   className="ml-auto flex items-center gap-1 rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700"
                 >
                   <Power size={14} />
-                  {t("tenants.deactivate.button", "Deactivate")}
+                  {t("tenants.deactivate.button", "Suspend")}
                 </button>
               ) : (
                 <button
                   data-testid="tenants-detail-reactivate"
-                  onClick={() => onReactivate(detail.id)}
+                  onClick={() => onReactivate(detail.id, detail.name)}
                   className="ml-auto flex items-center gap-1 rounded-lg bg-green-600 px-4 py-2 text-sm text-white hover:bg-green-700"
                 >
                   <Power size={14} />
-                  {t("tenants.reactivate.button", "Reactivate")}
+                  {t("tenants.reactivate.button", "Restore")}
                 </button>
               )}
             </div>

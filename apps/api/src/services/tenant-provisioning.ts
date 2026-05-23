@@ -467,3 +467,23 @@ export async function deactivateTenant(tenantId: string): Promise<void> {
     });
   });
 }
+
+/**
+ * Restore a previously-suspended tenant. Mirror of `deactivateTenant` — flips
+ * `active=true` so the auth resolver lets the tenant's users log in again.
+ * Refresh tokens are NOT re-issued (they were wiped on deactivate); users
+ * must perform a fresh `/auth/login`. Idempotent — restoring an already-
+ * active tenant is a no-op.
+ *
+ * Pearl §8.1 row 206 — suspend/restore symmetry. The S3 archival side
+ * (90-day cold storage on suspend) is a separate piece and remains deferred.
+ */
+export async function activateTenant(tenantId: string): Promise<void> {
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  if (!tenant) throw new Error("Tenant not found");
+  if (tenant.active) return;
+  await prisma.tenant.update({
+    where: { id: tenantId },
+    data: { active: true },
+  });
+}

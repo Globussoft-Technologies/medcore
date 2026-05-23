@@ -11,7 +11,11 @@
  * cross-tenant visibility is the whole point of this module.
  *
  * All mutations emit an AuditLog row (actions TENANT_CREATE / TENANT_UPDATE
- * / TENANT_DEACTIVATE) tagged with the caller's userId.
+ * / TENANT_SUSPENDED / TENANT_RESTORED) tagged with the caller's userId.
+ * Pearl §8.1 row 206 — suspend/restore are symmetric POST endpoints
+ * (`/:id/deactivate` retained as the suspend path for back-compat; the
+ * matching restore is `/:id/restore`). S3 archival of suspended-tenant
+ * data remains a separate piece (deferred).
  */
 
 import { Router, Request, Response, NextFunction } from "express";
@@ -24,6 +28,7 @@ import { auditLog } from "../middleware/audit";
 import {
   createTenant,
   deactivateTenant,
+  activateTenant,
   validateSubdomain,
   tenantConfigKey,
 } from "../services/tenant-provisioning";
@@ -388,7 +393,9 @@ router.patch(
   },
 );
 
-// POST /api/v1/tenants/:id/deactivate — soft deactivate
+// POST /api/v1/tenants/:id/deactivate — soft deactivate / suspend
+// Pearl §8.1 row 206 — emits TENANT_SUSPENDED (replaces the legacy
+// TENANT_DEACTIVATE action so suspend/restore audit pairs cleanly).
 router.post(
   "/:id/deactivate",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -411,13 +418,48 @@ router.post(
 
       await deactivateTenant(tenant.id);
 
-      auditLog(req, "TENANT_DEACTIVATE", "tenant", tenant.id, {
+      auditLog(req, "TENANT_SUSPENDED", "tenant", tenant.id, {
         subdomain: tenant.subdomain,
       }).catch(console.error);
 
       res.json({
         success: true,
         data: { id: tenant.id, active: false },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/tenants/:id/restore — mirror of /deactivate
+// Pearl §8.1 row 206 — flips `Tenant.active=true` and emits
+// TENANT_RESTORED. Idempotent at the service layer (no-op if already
+// active). Super-admin-only via the router-level requireSuperAdmin
+// guard. S3 cold-storage archival on suspend remains a separate
+// piece (explicitly deferred).
+router.post(
+  "/:id/restore",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!tenant) {
+        res.status(404).json({ success: false, data: null, error: "Tenant not found" });
+        return;
+      }
+
+      await activateTenant(tenant.id);
+
+      auditLog(req, "TENANT_RESTORED", "tenant", tenant.id, {
+        subdomain: tenant.subdomain,
+      }).catch(console.error);
+
+      res.json({
+        success: true,
+        data: { id: tenant.id, active: true },
         error: null,
       });
     } catch (err) {

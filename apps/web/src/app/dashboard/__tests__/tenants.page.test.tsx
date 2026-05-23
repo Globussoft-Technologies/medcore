@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const { apiMock, authMock, toastMock, routerPush } = vi.hoisted(() => ({
   apiMock: {
@@ -255,5 +255,56 @@ describe("TenantsAdminPage", () => {
     // The tenants list itself still renders despite the metrics
     // failure — the page degrades gracefully.
     expect(screen.getByText("St. Johns")).toBeInTheDocument();
+  });
+
+  // ─── Pearl §8.1 row 206 — per-row suspend/restore buttons ───────────
+
+  it("renders the per-row Suspend button for an active tenant and POSTs /:id/deactivate on confirm (Pearl §8.1 row 206)", async () => {
+    routeApiGet();
+    apiMock.post.mockResolvedValue({ data: { id: "t1", active: false } });
+    render(<TenantsAdminPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("tenant-row-suspend-stjohns")).toBeInTheDocument(),
+    );
+    // Restore button is NOT rendered while the tenant is active.
+    expect(
+      screen.queryByTestId("tenant-row-restore-stjohns"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("tenant-row-suspend-stjohns"));
+    await waitFor(() =>
+      expect(apiMock.post).toHaveBeenCalledWith("/tenants/t1/deactivate"),
+    );
+  });
+
+  it("renders the per-row Restore button for a suspended tenant and POSTs /:id/restore on confirm (Pearl §8.1 row 206)", async () => {
+    const suspended = [
+      { ...tenants[0], active: false },
+      tenants[1],
+    ];
+    routeApiGet({ data: suspended });
+    apiMock.post.mockResolvedValue({ data: { id: "t1", active: true } });
+    render(<TenantsAdminPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("tenant-row-restore-stjohns")).toBeInTheDocument(),
+    );
+    // Suspend button is NOT rendered for an inactive tenant.
+    expect(
+      screen.queryByTestId("tenant-row-suspend-stjohns"),
+    ).not.toBeInTheDocument();
+    // SUSPENDED badge renders for the inactive row.
+    expect(
+      screen.getByTestId("tenant-suspended-badge-stjohns"),
+    ).toHaveTextContent("SUSPENDED");
+    // The row carries the data-tenant-active="false" hook for the
+    // desaturated row styling.
+    expect(
+      screen.getByTestId("tenant-row-stjohns").getAttribute("data-tenant-active"),
+    ).toBe("false");
+
+    fireEvent.click(screen.getByTestId("tenant-row-restore-stjohns"));
+    await waitFor(() =>
+      expect(apiMock.post).toHaveBeenCalledWith("/tenants/t1/restore"),
+    );
   });
 });

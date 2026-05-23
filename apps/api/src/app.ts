@@ -151,6 +151,7 @@ import { dpdpWorkbenchRouter } from "./routes/dpdp-workbench";
 import { scheduledJobsRouter } from "./routes/scheduled-jobs";
 import { supportTicketsRouter } from "./routes/support-tickets";
 import { superAdminUsersRouter } from "./routes/super-admin-users";
+import { superAdminMetricsRouter } from "./routes/super-admin-metrics";
 import { branchesRouter } from "./routes/branches";
 import { campaignsRouter, publicCampaignsRouter } from "./routes/campaigns";
 import { campaignAudiencesRouter } from "./routes/campaign-audiences";
@@ -457,6 +458,10 @@ export function buildApp() {
   // with last-active count guard. Defence-in-depth alongside the
   // /super-admin/ layout's client-side gate.
   app.use("/api/v1/super-admin/users", superAdminUsersRouter);
+  // Pearl §8.4 gap rows 219 + 220 closure (2026-05-23) — cross-tenant
+  // metrics + per-tenant health rollup for the super-admin console.
+  // Read-only; mounts UI at /super-admin/metrics.
+  app.use("/api/v1/super-admin/metrics", superAdminMetricsRouter);
   app.use("/api/v1/branches", branchesRouter);
   app.use("/api/v1/campaigns", campaignsRouter);
   app.use("/api/v1/campaign-audiences", campaignAudiencesRouter);

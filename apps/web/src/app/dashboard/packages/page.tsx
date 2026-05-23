@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { Gift, Plus, Clock, Tag, ShoppingBag, X } from "lucide-react";
+import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
 
 interface PkgRecord {
   id: string;
@@ -166,7 +167,11 @@ export default function PackagesPage() {
           </div>
 
           {loading ? (
-            <div className="py-16 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+            <div data-testid="packages-loading" aria-busy="true" className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+            </div>
           ) : packages.length === 0 ? (
             <div className="rounded-xl bg-white p-16 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
               No packages found
@@ -257,7 +262,9 @@ export default function PackagesPage() {
 
           <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
             {loading ? (
-              <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+              <div className="p-4" data-testid="package-purchases-loading" aria-busy="true">
+                <SkeletonTable rows={5} columns={5} />
+              </div>
             ) : purchases.length === 0 ? (
               <div className="p-8 text-center text-gray-500 dark:text-gray-400">No purchases found</div>
             ) : (

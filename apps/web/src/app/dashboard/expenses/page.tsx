@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Wallet, Plus, X } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 // Issue #89: DOCTOR must NOT see Expenses (₹9.29 lakh staff-salary leak).
 // Issue #98: RECEPTION must NOT see staff-salary expenses either. Until we
@@ -263,7 +264,9 @@ export default function ExpensesPage() {
 
       <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div className="p-4" data-testid="expenses-loading" aria-busy="true">
+            <SkeletonTable rows={6} columns={6} />
+          </div>
         ) : expenses.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">No expenses found</div>
         ) : (

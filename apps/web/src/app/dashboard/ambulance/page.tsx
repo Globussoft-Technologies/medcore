@@ -18,6 +18,7 @@ import { formatPhone } from "@/lib/format-phone";
 // Issue #89: DOCTOR must NOT manipulate ambulance trips. Restricted to
 // operational/dispatch roles. NURSE included since on-call nurses dispatch.
 const AMBULANCE_ALLOWED = new Set(["ADMIN", "RECEPTION", "NURSE"]);
+import { SkeletonTable } from "@/components/Skeleton";
 import {
   Ambulance as AmbulanceIcon,
   Plus,
@@ -270,7 +271,9 @@ export default function AmbulancePage() {
       </div>
 
       {loading ? (
-        <p className="text-gray-500 dark:text-gray-400">Loading...</p>
+        <div data-testid="ambulance-loading" aria-busy="true" className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+          <SkeletonTable rows={5} columns={5} />
+        </div>
       ) : tab === "active" ? (
         <div className="space-y-4">
           {activeTrips.length === 0 && (

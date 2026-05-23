@@ -9,6 +9,7 @@ import { extractFieldErrors } from "@/lib/field-errors";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { sanitizeUserInput } from "@medcore/shared";
+import { SkeletonTable } from "@/components/Skeleton";
 
 interface Holiday {
   id: string;
@@ -257,7 +258,9 @@ export default function HolidaysPage() {
 
       <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div className="p-4" data-testid="holidays-loading" aria-busy="true">
+            <SkeletonTable rows={6} columns={5} />
+          </div>
         ) : holidays.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No holidays configured for {year}. Click &ldquo;Import Template&rdquo; to start.

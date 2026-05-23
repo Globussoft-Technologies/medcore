@@ -46,6 +46,7 @@ import {
   Wrench,
   ShoppingCart,
 } from "lucide-react";
+import { SkeletonCard } from "@/components/Skeleton";
 
 function safe<T>(p: string, fb: T): Promise<T> {
   return api.get<T>(p).catch(() => fb);
@@ -765,7 +766,15 @@ export default function AdminConsolePage() {
       </div>
 
       {!loaded && (
-        <p className="text-center text-xs text-gray-600 dark:text-gray-400">Loading…</p>
+        <div
+          data-testid="admin-console-loading"
+          aria-busy="true"
+          className="grid grid-cols-1 gap-3 md:grid-cols-3"
+        >
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
       )}
     </div>
   );

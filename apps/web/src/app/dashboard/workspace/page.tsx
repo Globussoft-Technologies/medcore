@@ -20,6 +20,7 @@ import {
   Stethoscope,
   Users,
 } from "lucide-react";
+import { SkeletonCard } from "@/components/Skeleton";
 
 function safe<T>(p: string, fb: T): Promise<T> {
   return api.get<T>(p).catch(() => fb);
@@ -355,7 +356,15 @@ export default function DoctorWorkspacePage() {
       </div>
 
       {!loaded && (
-        <p className="text-center text-xs text-gray-400 dark:text-gray-500">Loading…</p>
+        <div
+          data-testid="workspace-loading"
+          aria-busy="true"
+          className="grid grid-cols-1 gap-3 md:grid-cols-3"
+        >
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
       )}
     </div>
   );

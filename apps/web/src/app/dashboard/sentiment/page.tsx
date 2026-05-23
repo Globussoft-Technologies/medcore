@@ -17,6 +17,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
+import { SkeletonText } from "@/components/Skeleton";
 
 const SENTIMENT_ALLOWED = new Set(["ADMIN", "RECEPTION"]);
 
@@ -484,7 +485,9 @@ export default function SentimentAnalyticsPage() {
           </span>
         </div>
         {loading ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
+          <div data-testid="sentiment-loading" aria-busy="true">
+            <SkeletonText lines={4} />
+          </div>
         ) : flagged.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">
             No negative-sentiment feedback in this range. Nice.

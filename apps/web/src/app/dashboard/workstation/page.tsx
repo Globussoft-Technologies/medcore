@@ -20,6 +20,7 @@ import {
   Syringe,
   Users,
 } from "lucide-react";
+import { SkeletonCard } from "@/components/Skeleton";
 
 function safe<T>(p: string, fb: T): Promise<T> {
   return api.get<T>(p).catch(() => fb);
@@ -432,7 +433,15 @@ export default function NurseWorkstationPage() {
       </div>
 
       {!loaded && (
-        <p className="text-center text-xs text-gray-400">Loading…</p>
+        <div
+          data-testid="workstation-loading"
+          aria-busy="true"
+          className="grid grid-cols-1 gap-3 md:grid-cols-3"
+        >
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
       )}
     </div>
   );

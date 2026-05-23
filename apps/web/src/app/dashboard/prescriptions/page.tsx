@@ -189,6 +189,13 @@ export default function PrescriptionsPage() {
       routeMode: "preset" | "custom"; // controls whether free-text route input is shown
       quantity: string; // auto-calculated unless qtyOverridden
       qtyOverridden: boolean; // user manually edited quantity
+      // Pearl §12.c row 388 — populated when the doctor picks a medicine
+      // from autocomplete AND the resolved Medicine.schedule === "X". Used
+      // to render the inline controlled-substance warning banner under the
+      // row and to gate the window.confirm() at submit. Free-text rows
+      // (no autocomplete pick) stay false; the API enforces the gate as
+      // defence-in-depth.
+      scheduleX: boolean;
     }>
   >([
     {
@@ -202,6 +209,7 @@ export default function PrescriptionsPage() {
       routeMode: "preset",
       quantity: "",
       qtyOverridden: false,
+      scheduleX: false,
     },
   ]);
 
@@ -396,6 +404,12 @@ export default function PrescriptionsPage() {
           qtyOverridden:
             parsed.quantity !== "" &&
             parsed.quantity !== computeAutoQuantity(i.frequency, i.duration),
+          // Pearl §12.c row 388 — templates carry medicine names only, no
+          // resolved Medicine row. Start at false; if the template's name
+          // happens to resolve to a Schedule-X medicine, the API will still
+          // gate the submit (defence-in-depth). The doctor can also tweak
+          // the row via the autocomplete to refresh the flag.
+          scheduleX: false,
         };
       })
     );
@@ -596,6 +610,7 @@ export default function PrescriptionsPage() {
         routeMode: "preset",
         quantity: "",
         qtyOverridden: false,
+        scheduleX: false,
       },
     ]);
     // Issue #541: clear stale "At least one medicine is required" the moment
@@ -713,6 +728,7 @@ export default function PrescriptionsPage() {
         routeMode: "preset",
         quantity: "",
         qtyOverridden: false,
+        scheduleX: false,
       },
     ]);
     setFormErrors({});
@@ -762,6 +778,11 @@ export default function PrescriptionsPage() {
               qtyOverridden:
                 parsed.quantity !== "" &&
                 parsed.quantity !== computeAutoQuantity(it.frequency, it.duration),
+              // Edit mode: PrescriptionItem doesn't carry the schedule flag
+              // (it's a Medicine attribute, not a copy on the item). Start
+              // at false; a fresh autocomplete pick in edit mode will set
+              // it. The API still re-resolves on PATCH so the gate holds.
+              scheduleX: false,
             };
           })
         : [
@@ -776,6 +797,7 @@ export default function PrescriptionsPage() {
               routeMode: "preset" as const,
               quantity: "",
               qtyOverridden: false,
+              scheduleX: false,
             },
           ],
     );
@@ -807,7 +829,10 @@ export default function PrescriptionsPage() {
     };
   }
 
-  async function submitPrescription(override: boolean) {
+  async function submitPrescription(
+    override: boolean,
+    scheduleXAck = false,
+  ) {
     try {
       if (editingId) {
         // Edit mode: PATCH /:id. appointment/patient are immutable on the
@@ -833,6 +858,11 @@ export default function PrescriptionsPage() {
           advice: form.advice || undefined,
           followUpDate: form.followUpDate || undefined,
           overrideWarnings: override,
+          // Pearl §12.c row 388 — only set when the doctor accepted the
+          // window.confirm() warning. Omitted otherwise so the API can't
+          // mis-attribute an Rx as acknowledged just because the flag was
+          // passed through as `false`.
+          ...(scheduleXAck ? { scheduleXOverrideAcknowledged: true } : {}),
           signatureDataUrl: form.signatureDataUrl || undefined,
         });
       }
@@ -982,12 +1012,37 @@ export default function PrescriptionsPage() {
       }
       return;
     }
+    // Pearl §12.c (gap-doc row 388) — Schedule-X controlled-substance
+    // confirm. If ANY medicine row resolved to schedule "X" via the
+    // autocomplete-detail fetch, the doctor must explicitly confirm the
+    // dispense is medically justified before we submit. Declining cancels
+    // the submit entirely. Captured in `scheduleXAck` so we can pass it
+    // through to submitPrescription (which sets the wire field).
+    const hasScheduleX = medicines.some(
+      (m) => m.scheduleX && m.medicineName.trim(),
+    );
+    let scheduleXAck = false;
+    if (hasScheduleX) {
+      if (typeof window === "undefined" || !window.confirm) {
+        toast.error(
+          "Schedule-X confirmation required — please use a browser to submit.",
+        );
+        return;
+      }
+      scheduleXAck = window.confirm(
+        "This prescription includes Schedule-X controlled substances. By proceeding, you confirm you have reviewed the patient's history and the dispensing is medically justified. Continue?",
+      );
+      if (!scheduleXAck) {
+        toast.warning("Submission cancelled.");
+        return;
+      }
+    }
     // Preview interaction check before saving. Only runs in CREATE mode —
     // edit mode has no patientId on the form (it's immutable on the server),
     // and the PATCH handler re-runs the same check anyway, so blocking
     // interactions will still surface as a 400 with warnings on submit.
     if (editingId) {
-      await submitPrescription(false);
+      await submitPrescription(false, scheduleXAck);
       return;
     }
     setCheckingInteractions(true);
@@ -1005,11 +1060,11 @@ export default function PrescriptionsPage() {
         return;
       }
       // Non-blocking: proceed; warnings (if any) will still be returned in response
-      await submitPrescription(false);
+      await submitPrescription(false, scheduleXAck);
     } catch (err) {
       setCheckingInteractions(false);
       // If preview itself fails, fall back to normal POST
-      await submitPrescription(false);
+      await submitPrescription(false, scheduleXAck);
     }
   }
 
@@ -1327,9 +1382,45 @@ export default function PrescriptionsPage() {
                       form?: string | null;
                     }>
                       value={med.medicineName}
-                      onChange={(val, item) =>
-                        updateMedicine(idx, "medicineName", item ? item.name : val)
-                      }
+                      onChange={(val, item) => {
+                        updateMedicine(idx, "medicineName", item ? item.name : val);
+                        // Pearl §12.c row 388 — when the user picks a medicine
+                        // from autocomplete, fetch its detail so we can
+                        // surface the Schedule-X banner. Free-text input
+                        // (no `item`) clears the flag — the API still
+                        // gates the submit as defence-in-depth. The
+                        // autocomplete response itself doesn't include
+                        // `schedule`, so we do a single GET /medicines/:id.
+                        if (item?.id) {
+                          api
+                            .get<{ data: { schedule?: string | null } }>(
+                              `/medicines/${item.id}`,
+                            )
+                            .then((r) => {
+                              const isX = (r.data?.schedule ?? "").toUpperCase() === "X";
+                              setMedicines((prev) => {
+                                const next = [...prev];
+                                if (next[idx]) {
+                                  next[idx] = { ...next[idx], scheduleX: isX };
+                                }
+                                return next;
+                              });
+                            })
+                            .catch(() => {
+                              // Swallow — the API gate still applies. We
+                              // never want a transient /medicines/:id failure
+                              // to block the prescriber from writing.
+                            });
+                        } else {
+                          setMedicines((prev) => {
+                            const next = [...prev];
+                            if (next[idx]) {
+                              next[idx] = { ...next[idx], scheduleX: false };
+                            }
+                            return next;
+                          });
+                        }
+                      }}
                       fetchOptions={async (q) => {
                         const r = await api.get<{
                           data: Array<{
@@ -1367,6 +1458,24 @@ export default function PrescriptionsPage() {
                     Remove
                   </button>
                 </div>
+
+                {/* Pearl §12.c (gap-doc row 388) — Schedule-X controlled
+                    substance warning. Surfaced inline under the medicine
+                    row the moment an autocomplete-picked Medicine resolves
+                    to `schedule === "X"`. On submit, a window.confirm()
+                    additionally gates the POST. */}
+                {med.scheduleX ? (
+                  <div
+                    role="alert"
+                    data-testid={`rx-schedule-x-warning-${idx}`}
+                    className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+                  >
+                    <span aria-hidden>⚠ </span>
+                    Schedule-X controlled substance — extra prescribing
+                    controls apply. You will be asked to confirm the
+                    dispense is medically justified before submitting.
+                  </div>
+                ) : null}
 
                 {/* Pearl §2.1.4 row 49 — Dose chip selector. */}
                 <div>

@@ -135,6 +135,14 @@ export const createPrescriptionSchema = z
         message: "Allergy override reason cannot contain HTML or script tags",
       })
       .optional(),
+    // Pearl §12.c (gap-doc row 388): Schedule-X (controlled substance)
+    // prescriptions require an explicit prescriber acknowledgement before
+    // the API will persist them. The UI raises a window.confirm() warning
+    // the moment a Schedule-X medicine is in the cart on submit; accepting
+    // the confirm sets this flag on the wire. Defence-in-depth: the route
+    // also re-resolves every item against `Medicine.schedule = 'X'` and
+    // rejects with 400 if any X-item appears without the acknowledgement.
+    scheduleXOverrideAcknowledged: z.boolean().optional(),
     signatureDataUrl: signatureDataUrlSchema,
   })
   .refine(

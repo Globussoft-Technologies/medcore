@@ -10,6 +10,7 @@ import { runAuditLogArchival } from "./audit-archival";
 import { autoNoShowElapsedBookedTask } from "./auto-noshow";
 import { autoEnrolAndRemove } from "./chronic-care-enrolment";
 import { runChronicCareSequenceSends } from "./chronic-care-scheduler";
+import { dispatchPendingCampaigns } from "./campaign-dispatcher-sweep";
 
 // ───────────────────────────────────────────────────────
 // Lightweight setInterval-based scheduler.
@@ -1125,6 +1126,33 @@ async function chronicCareSequenceSweepTask(): Promise<void> {
   }
 }
 
+// ─── Campaign dispatcher sweep (Pearl §5.1 piece 2b row 131/132/137/336/338) ───
+//
+// Every 5 min, find Campaign rows in `SCHEDULED` status whose
+// `scheduledAt` is in the past and dispatch them via the existing sync
+// fan-out. Per-tick cap: 10 campaigns (the remainder defer to the next
+// tick). Per-recipient send-window quiet-hour clamp enforced at sweep
+// time — out-of-window campaigns stay SCHEDULED and retry next tick.
+// Implementation: services/campaign-dispatcher-sweep.ts.
+async function campaignDispatchSweepTask(): Promise<void> {
+  try {
+    const result = await dispatchPendingCampaigns(prisma);
+    if (
+      result.dispatched > 0 ||
+      result.errors > 0 ||
+      result.deferredQuietHours > 0 ||
+      result.cancelledNoAudience > 0 ||
+      result.cancelledNoChannels > 0
+    ) {
+      console.log(
+        `[campaign_dispatch_sweep] inspected=${result.inspected} dispatched=${result.dispatched} deferredQuietHours=${result.deferredQuietHours} cancelledNoAudience=${result.cancelledNoAudience} cancelledNoChannels=${result.cancelledNoChannels} skippedInactiveTenant=${result.skippedInactiveTenant} errors=${result.errors}`,
+      );
+    }
+  } catch (err) {
+    console.error("[campaign_dispatch_sweep]", err);
+  }
+}
+
 // ─── Drain queued (deferred) notifications ─────────────
 
 async function notificationDrainQueued(): Promise<void> {
@@ -1305,6 +1333,17 @@ const TASKS: ScheduledTask[] = [
     name: "chronic_care_sequence_sweep",
     intervalMinutes: 60,
     run: chronicCareSequenceSweepTask,
+  },
+  // Pearl §5.1 piece 2b (rows 131, 132, 137, 336, 338) — every 5 min, find
+  // Campaign rows whose `scheduledAt` is in the past and dispatch via the
+  // existing sync fan-out. Per-tick cap: 10 campaigns. Quiet-hour clamp
+  // (Campaign.sendWindowStart/End) defers out-of-window dispatches to the
+  // next tick. Inactive tenants are skipped. Wraps `dispatchCampaign`
+  // (services/campaign-dispatcher.ts) for per-recipient send work.
+  {
+    name: "campaign_dispatch_sweep",
+    intervalMinutes: 5,
+    run: campaignDispatchSweepTask,
   },
 ];
 

@@ -11,6 +11,7 @@ import { autoNoShowElapsedBookedTask } from "./auto-noshow";
 import { autoEnrolAndRemove } from "./chronic-care-enrolment";
 import { runChronicCareSequenceSends } from "./chronic-care-scheduler";
 import { dispatchPendingCampaigns } from "./campaign-dispatcher-sweep";
+import { collectYesterdayUsage } from "./tenant-usage-collector";
 
 // ───────────────────────────────────────────────────────
 // Lightweight setInterval-based scheduler.
@@ -1153,6 +1154,26 @@ async function campaignDispatchSweepTask(): Promise<void> {
   }
 }
 
+// ─── Tenant usage daily collector (Pearl §8.3 row 214) ─
+//
+// Once daily, group the prior UTC day's Notification rows by
+// (tenantId, channel) and upsert one TenantUsageDaily row per tenant
+// for that date. Idempotent (upsert on `@@unique([tenantId, date])`).
+// Powers per-tenant plan-quota vs actual-usage visibility for the
+// super-admin billing surface (UI consumer ships as a separate piece).
+async function tenantUsageDailyCollectorTask(): Promise<void> {
+  try {
+    const result = await collectYesterdayUsage(prisma);
+    if (result.totalRowsWritten > 0) {
+      console.log(
+        `[tenant_usage_daily_collector] date=${result.date} tenantsProcessed=${result.tenantsProcessed} rowsWritten=${result.totalRowsWritten}`,
+      );
+    }
+  } catch (err) {
+    console.error("[tenant_usage_daily_collector]", err);
+  }
+}
+
 // ─── Drain queued (deferred) notifications ─────────────
 
 async function notificationDrainQueued(): Promise<void> {
@@ -1344,6 +1365,19 @@ const TASKS: ScheduledTask[] = [
     name: "campaign_dispatch_sweep",
     intervalMinutes: 5,
     run: campaignDispatchSweepTask,
+  },
+  // Pearl §8.3 row 214 — daily 01:00 UTC (host-time scheduler approximates
+  // via `runAtHour: 1`; prod hosts run IST so this lands ~01:00 IST =
+  // 19:30 UTC prior day. The collector's "yesterday" computation uses UTC
+  // explicitly so the date boundary is stable regardless of host TZ).
+  // Groups the prior UTC day's notifications by (tenantId, channel) and
+  // upserts one TenantUsageDaily row per tenant — idempotent on the
+  // `@@unique([tenantId, date])` constraint.
+  {
+    name: "tenant_usage_daily_collector",
+    intervalMinutes: 24 * 60,
+    runAtHour: 1,
+    run: tenantUsageDailyCollectorTask,
   },
 ];
 

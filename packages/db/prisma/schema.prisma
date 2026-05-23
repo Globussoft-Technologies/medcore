@@ -715,8 +715,8 @@ model Tenant {
   // Pearl §5.2 (gap rows 142-145) — chronic-care cohort templates with
   // rule DSL + sequence-of-touchpoints. Per-patient enrolment lives on
   // ChronicCarePlan; the cohort template is tenant-wide.
-  chronicCareCohorts    ChronicCareCohort[]
-  cohortSequenceSteps   CohortSequenceStep[]
+  chronicCareCohorts  ChronicCareCohort[]
+  cohortSequenceSteps CohortSequenceStep[]
 
   // Pearl §6.1 (gap row 167 — piece 3j-i of 4) — WhatsApp inbox.
   // One WhatsAppConfig per tenant (per-tenant Gupshup / WATI / AiSensei /
@@ -725,9 +725,9 @@ model Tenant {
   // and the webhook (piece 3j-ii) read/write. The legacy outbound adapter
   // (services/channels/whatsapp.ts) keeps using WHATSAPP_API_URL / KEY
   // env vars until piece 3j-iv flips it to read these creds instead.
-  whatsappConfig         WhatsAppConfig?
-  whatsappConversations  WhatsAppConversation[]
-  whatsappMessages       WhatsAppMessage[]
+  whatsappConfig        WhatsAppConfig?
+  whatsappConversations WhatsAppConversation[]
+  whatsappMessages      WhatsAppMessage[]
 
   // Pearl §8.5 (gap row 223 closure 2026-05-23) — Pearl-operator support
   // tickets raised by this tenant's ADMIN against the Pearl operator
@@ -741,7 +741,43 @@ model Tenant {
   // invite row — raw token only leaves the server in the outbound email.
   userInvites UserInvite[]
 
+  // Pearl §8.3 (gap row 214 closure 2026-05-24) — per-tenant daily usage
+  // metering. One row per tenant per day; the daily 01:00 collector
+  // (`services/tenant-usage-collector.ts`) groups Notifications by
+  // channel for the prior UTC day and upserts the counts. Powers
+  // operator billing visibility (plan-quota vs actual usage); the
+  // super-admin UI consumer ships as a separate piece.
+  tenantUsageDaily TenantUsageDaily[]
+
   @@map("tenants")
+}
+
+// Pearl ERP Stage 1 §8.3 (gap row 214 closure 2026-05-24) — per-tenant
+// daily usage counters. The collector cron (apps/api/src/services/
+// tenant-usage-collector.ts) runs once daily at ~01:00 host time, groups
+// the prior UTC day's `notifications` rows by `channel` per `tenantId`
+// (filter: deliveryStatus in SENT/DELIVERED/READ), and upserts one row
+// per (tenantId, date) pair. Super-admins can later read these rows for
+// plan-vs-usage dashboards / billing line items.
+//
+// Idempotent by construction — the `@@unique([tenantId, date])` lets the
+// collector re-run for the same date without duplicating rows.
+model TenantUsageDaily {
+  id            String   @id @default(uuid())
+  tenantId      String
+  date          DateTime @db.Date
+  whatsappCount Int      @default(0)
+  smsCount      Int      @default(0)
+  emailCount    Int      @default(0)
+  pushCount     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date])
+  @@index([tenantId, date])
+  @@map("tenant_usage_daily")
 }
 
 // Pearl ERP Stage 1 §7.2 + §8.1 (gap item #2 — pieces 1 + 2a of 3) — branch model.
@@ -1176,8 +1212,8 @@ model Doctor {
   // working unchanged. `bufferMinutes` is the Doctor-level DEFAULT
   // buffer between slots — distinct from `DoctorSchedule.bufferMinutes`,
   // which can override it per weekday schedule.
-  enabledChannels        AppointmentChannel[] @default([])
-  bufferMinutes          Int                  @default(0)
+  enabledChannels AppointmentChannel[] @default([])
+  bufferMinutes   Int                  @default(0)
 
   // Pearl ERP Stage 1 §2.1.4 — NMC (National Medical Commission)
   // registration number. Required to render on every signed Rx PDF.
@@ -1758,18 +1794,18 @@ model PrescriptionTemplate {
 // one click. Coexists with PrescriptionTemplate (whole-Rx scaffold);
 // favourites are strictly per-medicine.
 model DoctorFavouriteMedicine {
-  id                String   @id @default(cuid())
-  doctorId          String
-  medicineId        String
-  position          Int      @default(0)
-  defaultDosage     String?
-  defaultFrequency  String?
-  defaultDuration   String?
+  id               String   @id @default(cuid())
+  doctorId         String
+  medicineId       String
+  position         Int      @default(0)
+  defaultDosage    String?
+  defaultFrequency String?
+  defaultDuration  String?
   // Denormalized for tenant-scoped queries — the per-tenant Prisma extension
   // auto-filters on this column without joining through Doctor.
-  tenantId          String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  tenantId         String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   doctor   Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
   medicine Medicine @relation(fields: [medicineId], references: [id], onDelete: Cascade)
@@ -2170,11 +2206,11 @@ model WhatsAppMessage {
 
   providerMessageId String?
 
-  status      MessageStatus @default(QUEUED)
-  sentAt      DateTime?
-  deliveredAt DateTime?
-  readAt      DateTime?
-  failedAt    DateTime?
+  status        MessageStatus @default(QUEUED)
+  sentAt        DateTime?
+  deliveredAt   DateTime?
+  readAt        DateTime?
+  failedAt      DateTime?
   failureReason String?
 
   createdAt DateTime @default(now())
@@ -2204,20 +2240,20 @@ model SystemConfig {
 // (cross-tenant), e.g. notification_drain_queued. Per-tenant tasks should
 // populate it for the cross-tenant filter on the admin UI.
 model ScheduledTaskRun {
-  id               String          @id @default(cuid())
+  id               String        @id @default(cuid())
   tenantId         String?
   taskName         String
   status           TaskRunStatus
   startedAt        DateTime
   completedAt      DateTime?
   durationMs       Int?
-  error            String?         // stack trace truncated at 5000 chars
+  error            String? // stack trace truncated at 5000 chars
   recordsProcessed Int?
   // The id of the original run when this row was created by a manual retry
   // from POST /api/v1/scheduled-jobs/:id/retry. Lets the UI link the new
   // run back to the failed parent so operators can see the retry chain.
   retryOfRunId     String?
-  createdAt        DateTime        @default(now())
+  createdAt        DateTime      @default(now())
 
   @@index([taskName])
   @@index([startedAt])
@@ -2859,8 +2895,8 @@ model ReferralCommission {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  invoice          Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  referringDoctor  Doctor  @relation("ReferringDoctorCommissions", fields: [referringDoctorId], references: [id])
+  invoice         Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  referringDoctor Doctor  @relation("ReferringDoctorCommissions", fields: [referringDoctorId], references: [id])
 
   @@index([referringDoctorId])
   @@index([tenantId])
@@ -5624,17 +5660,17 @@ model ChronicCarePlan {
 // `notification-triggers.ts` (Appointment.status flips to CHECKED_IN
 // triggers `advanceChronicCareSequence(patientId)`).
 model ChronicCareCohort {
-  id           String                @id @default(uuid())
-  name         String
-  description  String?
-  condition    ChronicConditionCode?
+  id          String                @id @default(uuid())
+  name        String
+  description String?
+  condition   ChronicConditionCode?
   // Mirror of CampaignAudience.rules: `{ filters: [...], matchMode:
   // "ALL" | "ANY" }`. Null = manual enrolment only (no cron action).
-  cohortRule   Json?
-  active       Boolean               @default(true)
-  createdBy    String
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
+  cohortRule  Json?
+  active      Boolean               @default(true)
+  createdBy   String
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -5648,23 +5684,23 @@ model ChronicCareCohort {
 }
 
 model CohortSequenceStep {
-  id                String              @id @default(uuid())
+  id                  String                @id @default(uuid())
   chronicCareCohortId String
   // 1-based step ordering within a cohort. Unique per cohort.
-  stepNumber        Int
+  stepNumber          Int
   // Days to wait AFTER the prior step's `lastStepSentAt` (or AFTER
   // enrolment for step 1). 0 = send immediately.
-  delayDays         Int                 @default(0)
+  delayDays           Int                   @default(0)
   // References a NotificationTemplate by stable key (templates are
   // tenant-scoped — resolution happens at send time). Free-form string
   // so future template additions don't require a schema change.
-  templateKey       String
+  templateKey         String
   // Channels to fan out per step. Reuses the existing
   // `NotificationChannel` enum.
-  channels          NotificationChannel[]
-  active            Boolean             @default(true)
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  channels            NotificationChannel[]
+  active              Boolean               @default(true)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)

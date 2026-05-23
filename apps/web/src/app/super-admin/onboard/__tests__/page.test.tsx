@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Smoke tests for the super-admin onboarding wizard (gap #6 piece 2 of 4
 // + piece 2b wizard steps — WhatsApp (step 4), HFR (step 5), HPR
-// (step 6), Razorpay (step 7)).
+// (step 6), Razorpay (step 7), Post-creation summary (step 8 — CHAIN
+// CLOSED)).
 //
 // Covers:
 //   - Step 1 renders by default. Filling tenant fields + clicking Next
@@ -35,16 +36,22 @@
 //     step 7.
 //   - Step 7 ("Razorpay") renders payment-gateway fields with mode
 //     defaulting to TEST and business name prefilled from step-1
-//     tenant name, has a "Skip for now" button that completes the
-//     wizard, and a "Configure Razorpay" save action that stores a
-//     sessionStorage draft + surfaces the /dashboard/settings/payments
-//     CTA.
+//     tenant name, has a "Skip for now" button that advances to step 8
+//     (post-creation summary — no longer completes the wizard since
+//     step 8 was appended), and a "Configure Razorpay" save action
+//     that stores a sessionStorage draft + surfaces the
+//     /dashboard/settings/payments CTA.
 //   - Step 7 validation rejects malformed Razorpay key IDs inline.
-//   - Skip-for-now on step 7 bypasses without persisting + completes
-//     the wizard.
-//   - Step indicator renders all 7 steps.
+//   - Skip-for-now on step 7 bypasses without persisting + advances to
+//     step 8.
+//   - Step 8 ("Summary") renders all 7 summary cards with correct
+//     SAVED / SKIPPED status chips reflecting the saved/skipped state
+//     of each post-create draft. The Finish-onboarding button routes
+//     to /super-admin/tenants?onboarded=<tenantId> and does NOT clear
+//     sessionStorage drafts.
+//   - Step indicator renders all 8 steps.
 //   - 44px touch invariant on the primary wizard buttons (incl. steps
-//     5, 6 + 7).
+//     5, 6, 7 + 8).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -131,7 +138,15 @@ async function walkToStep7() {
   await waitFor(() => screen.getByTestId("onboarding-step-7"));
 }
 
-describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp, HFR, HPR & Razorpay steps)", () => {
+async function walkToStep8() {
+  await walkToStep7();
+  // Same skip-trick — the Razorpay skip button now advances to step 8
+  // (Summary) instead of completing the wizard.
+  fireEvent.click(screen.getByTestId("onboarding-rzp-skip"));
+  await waitFor(() => screen.getByTestId("onboarding-step-8"));
+}
+
+describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp, HFR, HPR, Razorpay & Summary steps — chain closed)", () => {
   beforeEach(() => {
     routerPush.mockReset();
     (global.fetch as any) = vi.fn();
@@ -164,7 +179,7 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp,
     expect(screen.queryByTestId("onboarding-step-1")).not.toBeInTheDocument();
   });
 
-  it("renders a 7-step indicator (WhatsApp is the 4th, HFR is the 5th, HPR is the 6th, Razorpay is the 7th)", () => {
+  it("renders an 8-step indicator (WhatsApp 4th, HFR 5th, HPR 6th, Razorpay 7th, Summary 8th)", () => {
     render(<OnboardingWizardPage />);
     expect(
       screen.getByTestId("onboarding-step-indicator-1"),
@@ -199,6 +214,12 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp,
     expect(
       screen.getByTestId("onboarding-step-indicator-7"),
     ).toHaveTextContent(/razorpay/i);
+    expect(
+      screen.getByTestId("onboarding-step-indicator-8"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("onboarding-step-indicator-8"),
+    ).toHaveTextContent(/summary/i);
   });
 
   it("submits the full payload to /api/v1/tenant-onboarding and advances to step 4", async () => {
@@ -710,7 +731,7 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp,
     ).toBe("password");
   });
 
-  it("step 7 'Skip for now' bypasses without persisting a draft and completes the wizard", async () => {
+  it("step 7 'Skip for now' bypasses without persisting a draft and advances to step 8 (summary)", async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
       status: 201,
@@ -722,8 +743,10 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp,
 
     fireEvent.click(screen.getByTestId("onboarding-rzp-skip"));
 
+    // Step 8 (Summary) is the new post-Razorpay step — the wizard no
+    // longer completes after skipping Razorpay.
     await waitFor(() => {
-      expect(screen.getByTestId("onboarding-success")).toBeInTheDocument();
+      expect(screen.getByTestId("onboarding-step-8")).toBeInTheDocument();
     });
     // No Razorpay draft written to sessionStorage when the user skips.
     expect(
@@ -808,6 +831,194 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp,
     expect(
       sessionStorage.getItem("medcore_razorpay_draft:new-id"),
     ).toBeNull();
+  });
+
+  it("step 8 renders all 7 summary cards with skipped-by-default status chips", async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => SUCCESS_RESPONSE,
+    });
+
+    render(<OnboardingWizardPage />);
+    await walkToStep8();
+
+    // All 7 summary cards present.
+    expect(
+      screen.getByTestId("onboarding-summary-tenant"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("onboarding-summary-branch"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("onboarding-summary-admin"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("onboarding-summary-whatsapp"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-summary-hfr")).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-summary-hpr")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("onboarding-summary-razorpay"),
+    ).toBeInTheDocument();
+
+    // Status chips — tenant / branch / admin = CREATED; 4 deferred-
+    // config cards = SKIPPED (walkToStep8 skips all four).
+    expect(
+      screen.getByTestId("onboarding-summary-tenant-status"),
+    ).toHaveTextContent(/created/i);
+    expect(
+      screen.getByTestId("onboarding-summary-branch-status"),
+    ).toHaveTextContent(/created/i);
+    expect(
+      screen.getByTestId("onboarding-summary-admin-status"),
+    ).toHaveTextContent(/created/i);
+    expect(
+      screen.getByTestId("onboarding-summary-whatsapp-status"),
+    ).toHaveTextContent(/skipped/i);
+    expect(
+      screen.getByTestId("onboarding-summary-hfr-status"),
+    ).toHaveTextContent(/skipped/i);
+    expect(
+      screen.getByTestId("onboarding-summary-hpr-status"),
+    ).toHaveTextContent(/skipped/i);
+    expect(
+      screen.getByTestId("onboarding-summary-razorpay-status"),
+    ).toHaveTextContent(/skipped/i);
+
+    // Tenant card recap mentions the typed-in name from step 1.
+    expect(
+      screen.getByTestId("onboarding-summary-tenant"),
+    ).toHaveTextContent(/sunrise hospital/i);
+    expect(
+      screen.getByTestId("onboarding-summary-tenant"),
+    ).toHaveTextContent(/sunrise/i);
+    // Admin card recap mentions the typed-in email from step 3.
+    expect(
+      screen.getByTestId("onboarding-summary-admin"),
+    ).toHaveTextContent(/admin@sunrise\.test/i);
+
+    // Final Finish button is rendered.
+    expect(
+      screen.getByTestId("onboarding-finish-final"),
+    ).toBeInTheDocument();
+  });
+
+  it("step 8 reflects SAVED status for cards whose drafts were saved earlier in the wizard", async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => SUCCESS_RESPONSE,
+    });
+
+    render(<OnboardingWizardPage />);
+    // Walk through the wizard saving WhatsApp + Razorpay, skipping
+    // HFR + HPR — exercises the mixed SAVED/SKIPPED render.
+    await walkToStep4();
+
+    // Save WhatsApp.
+    fireEvent.change(screen.getByTestId("onboarding-wa-apikey"), {
+      target: { value: "gupshup-key-xyz" },
+    });
+    fireEvent.change(screen.getByTestId("onboarding-wa-appname"), {
+      target: { value: "sunrise-prod" },
+    });
+    fireEvent.change(screen.getByTestId("onboarding-wa-sourcephone"), {
+      target: { value: "+919876543210" },
+    });
+    fireEvent.click(screen.getByTestId("onboarding-wa-save"));
+    await waitFor(() => screen.getByTestId("onboarding-wa-saved-banner"));
+    fireEvent.click(screen.getByTestId("onboarding-wa-finish"));
+
+    // Skip HFR.
+    await waitFor(() => screen.getByTestId("onboarding-step-5"));
+    fireEvent.click(screen.getByTestId("onboarding-hfr-skip"));
+
+    // Skip HPR.
+    await waitFor(() => screen.getByTestId("onboarding-step-6"));
+    fireEvent.click(screen.getByTestId("onboarding-hpr-skip"));
+
+    // Save Razorpay.
+    await waitFor(() => screen.getByTestId("onboarding-step-7"));
+    fireEvent.change(screen.getByTestId("onboarding-rzp-keyid"), {
+      target: { value: "rzp_test_ABCDEF1234567890" },
+    });
+    fireEvent.change(screen.getByTestId("onboarding-rzp-keysecret"), {
+      target: { value: "shhh-secret-1" },
+    });
+    fireEvent.change(screen.getByTestId("onboarding-rzp-webhooksecret"), {
+      target: { value: "webhook-secret-1" },
+    });
+    fireEvent.click(screen.getByTestId("onboarding-rzp-save"));
+    await waitFor(() => screen.getByTestId("onboarding-rzp-saved-banner"));
+    fireEvent.click(screen.getByTestId("onboarding-rzp-finish"));
+
+    // Now on step 8 — verify mixed status chips.
+    await waitFor(() => screen.getByTestId("onboarding-step-8"));
+    expect(
+      screen.getByTestId("onboarding-summary-whatsapp-status"),
+    ).toHaveTextContent(/saved/i);
+    expect(
+      screen.getByTestId("onboarding-summary-hfr-status"),
+    ).toHaveTextContent(/skipped/i);
+    expect(
+      screen.getByTestId("onboarding-summary-hpr-status"),
+    ).toHaveTextContent(/skipped/i);
+    expect(
+      screen.getByTestId("onboarding-summary-razorpay-status"),
+    ).toHaveTextContent(/saved/i);
+    // Recap text on saved cards mentions the captured field.
+    expect(
+      screen.getByTestId("onboarding-summary-whatsapp"),
+    ).toHaveTextContent(/sunrise-prod/i);
+    expect(
+      screen.getByTestId("onboarding-summary-razorpay"),
+    ).toHaveTextContent(/rzp_test_ABCDEF1234567890/);
+  });
+
+  it("step 8 Finish button routes to /super-admin/tenants?onboarded=<tenantId> and does not clear drafts", async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => SUCCESS_RESPONSE,
+    });
+
+    render(<OnboardingWizardPage />);
+    await walkToStep4();
+
+    // Save a WhatsApp draft so we can assert it survives Finish.
+    fireEvent.change(screen.getByTestId("onboarding-wa-apikey"), {
+      target: { value: "gupshup-key-xyz" },
+    });
+    fireEvent.change(screen.getByTestId("onboarding-wa-appname"), {
+      target: { value: "sunrise-prod" },
+    });
+    fireEvent.change(screen.getByTestId("onboarding-wa-sourcephone"), {
+      target: { value: "+919876543210" },
+    });
+    fireEvent.click(screen.getByTestId("onboarding-wa-save"));
+    await waitFor(() => screen.getByTestId("onboarding-wa-saved-banner"));
+    fireEvent.click(screen.getByTestId("onboarding-wa-finish"));
+
+    // Skip the rest to land on step 8.
+    await waitFor(() => screen.getByTestId("onboarding-step-5"));
+    fireEvent.click(screen.getByTestId("onboarding-hfr-skip"));
+    await waitFor(() => screen.getByTestId("onboarding-step-6"));
+    fireEvent.click(screen.getByTestId("onboarding-hpr-skip"));
+    await waitFor(() => screen.getByTestId("onboarding-step-7"));
+    fireEvent.click(screen.getByTestId("onboarding-rzp-skip"));
+    await waitFor(() => screen.getByTestId("onboarding-step-8"));
+
+    // Click Finish.
+    fireEvent.click(screen.getByTestId("onboarding-finish-final"));
+
+    expect(routerPush).toHaveBeenCalledWith(
+      "/super-admin/tenants?onboarded=new-id",
+    );
+
+    // The WhatsApp draft survives — the first ADMIN clears it on first
+    // login when they finalize the config, NOT the super-admin wizard.
+    expect(sessionStorage.getItem("medcore_wa_draft:new-id")).not.toBeNull();
   });
 
   it("primary wizard buttons honour the 44px touch invariant", async () => {
@@ -900,6 +1111,14 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp,
     expect(
       (screen.getByTestId("onboarding-rzp-save") as HTMLButtonElement).style
         .minHeight,
+    ).toBe("44px");
+
+    // Advance to step 8 (summary) and check the Finish button too.
+    fireEvent.click(screen.getByTestId("onboarding-rzp-skip"));
+    await waitFor(() => screen.getByTestId("onboarding-step-8"));
+    expect(
+      (screen.getByTestId("onboarding-finish-final") as HTMLButtonElement)
+        .style.minHeight,
     ).toBe("44px");
   });
 });

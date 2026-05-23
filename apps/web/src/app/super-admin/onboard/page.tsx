@@ -1,6 +1,6 @@
 // Super-admin onboarding wizard — Pearl ERP Stage 1 §8.1 (gap #6).
 //
-// 6-step wizard. Steps:
+// 8-step wizard. Steps:
 //   1. Tenant basics (name, subdomain, plan)
 //   2. First branch (name, code, address, city, state, pincode, phone)
 //   3. Super-admin user (name, email, phone, password)
@@ -29,22 +29,30 @@
 //      key id + key secret + webhook secret + mode TEST/LIVE) in
 //      sessionStorage keyed by tenant id; the new tenant's first
 //      ADMIN finalizes at /dashboard/settings/payments on first login.
-//
-// The full PRD calls for 8 steps; the post-creation summary step
-// remains deferred to a subsequent piece 2b tick.
+//   8. Post-creation summary — piece 2b step 8 (CHAIN CLOSED). Recaps
+//      everything the wizard captured (tenant + branch + super-admin
+//      + 4 deferred-config drafts), shows SAVED vs SKIPPED per draft,
+//      surfaces next-steps panel pointing the operator at the new
+//      tenant's first-ADMIN login + relevant /dashboard/settings/*
+//      pages, and provides the final "Finish onboarding" action which
+//      navigates to /super-admin/tenants?onboarded=<tenantId>. Does
+//      NOT clear sessionStorage drafts — the first ADMIN clears them
+//      when they finalize each config.
 //
 // Auth: relies on the super-admin layout's client-side gate. No
 // additional check needed here.
 //
-// Test ids: onboarding-step-{1,2,3,4,5,6,7}, onboarding-back, onboarding-next,
+// Test ids: onboarding-step-{1,2,3,4,5,6,7,8}, onboarding-back, onboarding-next,
 // onboarding-submit, onboarding-error-banner, onboarding-wa-skip,
 // onboarding-wa-save, onboarding-wa-cta, onboarding-hfr-skip,
 // onboarding-hfr-save, onboarding-hfr-cta, onboarding-hpr-skip,
 // onboarding-hpr-save, onboarding-hpr-cta, onboarding-rzp-skip,
-// onboarding-rzp-save, onboarding-rzp-cta, plus per-field
-// onboarding-tenant-name / onboarding-branch-name / onboarding-admin-*
-// / onboarding-wa-* / onboarding-hfr-* / onboarding-hpr-* /
-// onboarding-rzp-* for the smoke component test.
+// onboarding-rzp-save, onboarding-rzp-cta, onboarding-summary-*
+// (-tenant, -branch, -admin, -whatsapp, -hfr, -hpr, -razorpay),
+// onboarding-finish-final, plus per-field onboarding-tenant-name /
+// onboarding-branch-name / onboarding-admin-* / onboarding-wa-* /
+// onboarding-hfr-* / onboarding-hpr-* / onboarding-rzp-* for the
+// smoke component test.
 
 "use client";
 
@@ -53,7 +61,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 
 type Plan = "BASIC" | "PRO" | "ENTERPRISE";
-type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 type RazorpayMode = "TEST" | "LIVE";
 type FacilityType =
   | "HOSPITAL"
@@ -294,7 +302,6 @@ export default function OnboardingWizardPage() {
   const [step, setStep] = useState<Step>(1);
   const [submitting, setSubmitting] = useState(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
   // Per-field error from a server 409, keyed by the `field` returned
   // by the API. Cleared whenever the user navigates back.
   const [serverFieldError, setServerFieldError] = useState<
@@ -383,10 +390,10 @@ export default function OnboardingWizardPage() {
   function goBack() {
     setErrorBanner(null);
     setServerFieldError(null);
-    // Don't allow stepping back from 4 / 5 / 6 / 7 since the tenant has
-    // already been created at that point. The operator dismisses
-    // post-create steps via their respective "Skip for now" / "Save"
-    // buttons.
+    // Don't allow stepping back from 4 / 5 / 6 / 7 / 8 since the tenant
+    // has already been created at that point. The operator dismisses
+    // post-create steps via their respective "Skip for now" / "Save" /
+    // "Continue" / "Finish" buttons.
     if (step > 1 && step < 4) setStep((step - 1) as Step);
   }
 
@@ -742,37 +749,34 @@ export default function OnboardingWizardPage() {
   }
 
   function skipRazorpay() {
-    setSuccess(true);
-    setTimeout(() => {
-      router.push("/super-admin");
-    }, 1200);
+    // Advance to step 8 (post-creation summary) — the wizard no longer
+    // completes after skipping Razorpay. The summary step recaps
+    // everything captured and provides the final Finish action.
+    setErrorBanner(null);
+    setStep(8);
   }
 
   function finishAfterRzpSave() {
-    setSuccess(true);
-    setTimeout(() => {
-      router.push("/super-admin");
-    }, 1200);
+    setErrorBanner(null);
+    setStep(8);
   }
 
-  if (success) {
-    return (
-      <section
-        data-testid="onboarding-success"
-        className="mx-auto max-w-2xl space-y-4 py-12 text-center"
-      >
-        <CheckCircle2
-          className="mx-auto text-emerald-500"
-          size={48}
-          aria-hidden="true"
-        />
-        <h1 className="text-2xl font-semibold">Tenant onboarded</h1>
-        <p className="text-sm text-slate-600">
-          {tenantStep.name} ({tenantStep.subdomain}) is now active.
-          Redirecting to the super-admin console…
-        </p>
-      </section>
-    );
+  // Step 8 — Post-creation summary. Reads the 4 deferred-config drafts
+  // from sessionStorage (if present) so the recap matches the saved /
+  // skipped state per area. Final action navigates to the tenant list
+  // with a query param so the destination page can highlight the
+  // freshly-onboarded row. Drafts are deliberately NOT cleared — the
+  // new tenant's first ADMIN clears each on first-login when they
+  // finalize the respective config at /dashboard/settings/{whatsapp,
+  // abdm, payments}.
+  function finishWizard() {
+    if (createdTenant) {
+      router.push(
+        `/super-admin/tenants?onboarded=${encodeURIComponent(createdTenant.id)}`,
+      );
+    } else {
+      router.push("/super-admin/tenants");
+    }
   }
 
   return (
@@ -785,10 +789,11 @@ export default function OnboardingWizardPage() {
           Onboard new tenant
         </h1>
         <p className="text-sm text-slate-600">
-          7-of-8 step wizard. Steps 1-3 create the tenant, its first
-          branch, and the super-admin user atomically. Steps 4 (WhatsApp),
-          5 (HFR), 6 (HPR), and 7 (Razorpay) are optional — post-creation
-          summary lands in a subsequent piece 2b tick.
+          8-step wizard. Steps 1-3 create the tenant, its first branch,
+          and the super-admin user atomically. Steps 4 (WhatsApp), 5
+          (HFR), 6 (HPR), and 7 (Razorpay) are optional and stash
+          drafts for first-ADMIN finalization. Step 8 recaps everything
+          captured and completes the wizard.
         </p>
       </header>
 
@@ -798,7 +803,7 @@ export default function OnboardingWizardPage() {
         data-testid="onboarding-step-indicator"
         aria-label="Onboarding progress"
       >
-        {([1, 2, 3, 4, 5, 6, 7] as const).map((n) => (
+        {([1, 2, 3, 4, 5, 6, 7, 8] as const).map((n) => (
           <li
             key={n}
             data-testid={`onboarding-step-indicator-${n}`}
@@ -825,7 +830,9 @@ export default function OnboardingWizardPage() {
                         ? "HFR"
                         : n === 6
                           ? "HPR"
-                          : "Razorpay"}
+                          : n === 7
+                            ? "Razorpay"
+                            : "Summary"}
             </span>
           </li>
         ))}
@@ -1658,6 +1665,21 @@ export default function OnboardingWizardPage() {
         </fieldset>
       )}
 
+      {step === 8 && <SummaryStep
+        createdTenant={createdTenant}
+        tenantStep={tenantStep}
+        branchStep={branchStep}
+        adminStep={adminStep}
+        waSaved={waSaved}
+        hfrSaved={hfrSaved}
+        hprSaved={hprSaved}
+        rzpSaved={rzpSaved}
+        waStep={waStep}
+        hfrStep={hfrStep}
+        hprStep={hprStep}
+        rzpStep={rzpStep}
+      />}
+
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
@@ -1669,6 +1691,7 @@ export default function OnboardingWizardPage() {
             step === 5 ||
             step === 6 ||
             step === 7 ||
+            step === 8 ||
             submitting
           }
           className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
@@ -1836,7 +1859,18 @@ export default function OnboardingWizardPage() {
             className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
             style={{ minHeight: 44 }}
           >
-            Finish
+            Continue
+          </button>
+        )}
+        {step === 8 && (
+          <button
+            type="button"
+            data-testid="onboarding-finish-final"
+            onClick={finishWizard}
+            className="inline-flex items-center gap-2 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+            style={{ minHeight: 44 }}
+          >
+            <CheckCircle2 size={14} aria-hidden="true" /> Finish onboarding
           </button>
         )}
       </div>
@@ -1869,5 +1903,243 @@ function Field({
         <span className="block text-[11px] text-slate-500">{hint}</span>
       ) : null}
     </label>
+  );
+}
+
+// ─── Step 8 — Post-creation summary card grid + next-steps panel.
+//
+// Pure presentational; no state of its own. Reads the four deferred-
+// config "saved" flags from the parent wizard state (waSaved, hfrSaved,
+// hprSaved, rzpSaved) — each renders a SAVED chip with a short recap or
+// a SKIPPED chip with a "configure later at …" hint. The whole step is
+// keyed by the createdTenant returned from POST /tenant-onboarding;
+// without it (defensive — shouldn't happen since step 8 is only
+// reachable after step 3 submit), the summary degrades to a generic
+// "Onboarding complete" headline.
+function SummaryStep(props: {
+  createdTenant: { id: string; name: string; subdomain: string } | null;
+  tenantStep: TenantStepState;
+  branchStep: BranchStepState;
+  adminStep: AdminStepState;
+  waSaved: boolean;
+  hfrSaved: boolean;
+  hprSaved: boolean;
+  rzpSaved: boolean;
+  waStep: WhatsAppStepState;
+  hfrStep: HFRStepState;
+  hprStep: HPRStepState;
+  rzpStep: RazorpayStepState;
+}) {
+  const {
+    createdTenant,
+    tenantStep,
+    branchStep,
+    adminStep,
+    waSaved,
+    hfrSaved,
+    hprSaved,
+    rzpSaved,
+    waStep,
+    hfrStep,
+    hprStep,
+    rzpStep,
+  } = props;
+
+  return (
+    <section
+      data-testid="onboarding-step-8"
+      className="space-y-6 rounded-lg border border-emerald-200 bg-emerald-50 p-6"
+    >
+      <header className="space-y-1">
+        <div className="flex items-center gap-2">
+          <CheckCircle2
+            className="text-emerald-600"
+            size={20}
+            aria-hidden="true"
+          />
+          <h2 className="text-lg font-semibold text-emerald-900">
+            Onboarding complete — review &amp; finish
+          </h2>
+        </div>
+        <p className="text-xs text-emerald-800">
+          Tenant created. Review what the wizard captured below, then
+          click <span className="font-medium">Finish onboarding</span> to
+          jump to the tenant list. Deferred-config drafts persist in this
+          browser&apos;s sessionStorage until the new tenant&apos;s first
+          ADMIN signs in and finalizes each at the linked settings page.
+        </p>
+      </header>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <SummaryCard
+          testId="onboarding-summary-tenant"
+          title="Tenant"
+          status="created"
+          rows={[
+            ["Name", tenantStep.name],
+            ["Subdomain", tenantStep.subdomain],
+            ["Plan", tenantStep.plan],
+          ]}
+        />
+        <SummaryCard
+          testId="onboarding-summary-branch"
+          title="First branch"
+          status="created"
+          rows={[
+            ["Name", branchStep.name],
+            [
+              "Address",
+              [
+                branchStep.address,
+                branchStep.city,
+                branchStep.state,
+                branchStep.pincode,
+              ]
+                .filter(Boolean)
+                .join(", ") || "—",
+            ],
+          ]}
+        />
+        <SummaryCard
+          testId="onboarding-summary-admin"
+          title="Super-admin user"
+          status="created"
+          rows={[
+            ["Name", adminStep.name],
+            ["Email", adminStep.email],
+          ]}
+        />
+        <SummaryCard
+          testId="onboarding-summary-whatsapp"
+          title="WhatsApp"
+          status={waSaved ? "saved" : "skipped"}
+          rows={
+            waSaved
+              ? [
+                  ["Provider", "GUPSHUP"],
+                  ["App", waStep.appName.trim() || "—"],
+                ]
+              : [["", "Configure later at /dashboard/settings/whatsapp"]]
+          }
+        />
+        <SummaryCard
+          testId="onboarding-summary-hfr"
+          title="HFR (Healthcare Facility Registry)"
+          status={hfrSaved ? "saved" : "skipped"}
+          rows={
+            hfrSaved
+              ? [
+                  ["Facility", hfrStep.facilityName.trim() || "—"],
+                  ["HFR ID", hfrStep.hfrId.trim() || "—"],
+                ]
+              : [["", "Configure later at /dashboard/settings/abdm"]]
+          }
+        />
+        <SummaryCard
+          testId="onboarding-summary-hpr"
+          title="HPR (Health Professional Registry)"
+          status={hprSaved ? "saved" : "skipped"}
+          rows={
+            hprSaved
+              ? [
+                  ["HPR ID", hprStep.hprId.trim() || "—"],
+                  ["Doctor", hprStep.doctorName.trim() || "—"],
+                ]
+              : [["", "Configure later at /dashboard/settings/abdm"]]
+          }
+        />
+        <SummaryCard
+          testId="onboarding-summary-razorpay"
+          title="Razorpay"
+          status={rzpSaved ? "saved" : "skipped"}
+          rows={
+            rzpSaved
+              ? [
+                  ["Key ID", rzpStep.keyId.trim() || "—"],
+                  ["Mode", rzpStep.mode],
+                ]
+              : [["", "Configure later at /dashboard/settings/payments"]]
+          }
+        />
+      </div>
+
+      <div
+        data-testid="onboarding-summary-next-steps"
+        className="rounded-md border border-emerald-300 bg-white px-4 py-3 text-xs text-slate-700"
+      >
+        <p className="font-semibold text-slate-900">Next steps</p>
+        <ul className="mt-2 list-inside list-disc space-y-1">
+          <li>
+            The new tenant&apos;s first ADMIN (
+            <span className="font-mono">{adminStep.email || "—"}</span>)
+            will finalize the saved drafts at{" "}
+            <span className="font-mono">/dashboard/settings/whatsapp</span>
+            ,{" "}
+            <span className="font-mono">/dashboard/settings/abdm</span>,
+            and{" "}
+            <span className="font-mono">/dashboard/settings/payments</span>.
+          </li>
+          <li>
+            Drafts persist in this browser&apos;s sessionStorage until
+            the first ADMIN signs in and clears them.
+          </li>
+          {createdTenant ? (
+            <li>
+              Tenant ID:{" "}
+              <span className="font-mono">{createdTenant.id}</span>{" "}
+              (subdomain{" "}
+              <span className="font-mono">{createdTenant.subdomain}</span>
+              ).
+            </li>
+          ) : null}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+// ─── Summary card primitive — one row per (label, value) pair. The
+// status chip is purely visual ("created" / "saved" / "skipped").
+function SummaryCard(props: {
+  testId: string;
+  title: string;
+  status: "created" | "saved" | "skipped";
+  rows: Array<[string, string]>;
+}) {
+  const { testId, title, status, rows } = props;
+  const chipClass =
+    status === "skipped"
+      ? "bg-slate-200 text-slate-700"
+      : "bg-emerald-200 text-emerald-900";
+  const chipLabel =
+    status === "skipped" ? "SKIPPED" : status === "saved" ? "SAVED" : "CREATED";
+
+  return (
+    <div
+      data-testid={testId}
+      className="rounded-md border border-slate-200 bg-white px-4 py-3"
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+        <span
+          data-testid={`${testId}-status`}
+          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${chipClass}`}
+        >
+          {chipLabel}
+        </span>
+      </div>
+      <dl className="space-y-1 text-xs">
+        {rows.map(([label, value], i) => (
+          <div key={i} className="flex gap-2">
+            {label ? (
+              <dt className="min-w-[5rem] font-medium text-slate-500">
+                {label}
+              </dt>
+            ) : null}
+            <dd className="text-slate-800">{value || "—"}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }

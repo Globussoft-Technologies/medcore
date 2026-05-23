@@ -1,6 +1,6 @@
 // Super-admin onboarding wizard — Pearl ERP Stage 1 §8.1 (gap #6).
 //
-// 4-step wizard. Steps:
+// 5-step wizard. Steps:
 //   1. Tenant basics (name, subdomain, plan)
 //   2. First branch (name, code, address, city, state, pincode, phone)
 //   3. Super-admin user (name, email, phone, password)
@@ -13,19 +13,25 @@
 //      sessionStorage as a hint for the new tenant's first ADMIN
 //      login, plus a clear CTA linking to /dashboard/settings/whatsapp
 //      for the just-created tenant.
+//   5. HFR (Healthcare Facility Registry — ABDM M2) — piece 2b step 5.
+//      Same shape as step 4: optional, super-admin caller cannot PUT
+//      to /api/v1/abdm/* config (tenantId=null), so collect the HFR
+//      fields in sessionStorage keyed by tenant id; the first ADMIN
+//      finalizes at /dashboard/settings/abdm on first login.
 //
-// The full PRD calls for 8 steps including HFR / HPR / Razorpay.
-// Those remain deferred to subsequent piece 2b ticks — each needs an
+// The full PRD calls for 8 steps; HPR / Razorpay / post-creation
+// remain deferred to subsequent piece 2b ticks — each needs an
 // external integration the wizard would validate against.
 //
 // Auth: relies on the super-admin layout's client-side gate. No
 // additional check needed here.
 //
-// Test ids: onboarding-step-{1,2,3,4}, onboarding-back, onboarding-next,
+// Test ids: onboarding-step-{1,2,3,4,5}, onboarding-back, onboarding-next,
 // onboarding-submit, onboarding-error-banner, onboarding-wa-skip,
-// onboarding-wa-save, onboarding-wa-cta, plus per-field
+// onboarding-wa-save, onboarding-wa-cta, onboarding-hfr-skip,
+// onboarding-hfr-save, onboarding-hfr-cta, plus per-field
 // onboarding-tenant-name / onboarding-branch-name / onboarding-admin-*
-// / onboarding-wa-* for the smoke component test.
+// / onboarding-wa-* / onboarding-hfr-* for the smoke component test.
 
 "use client";
 
@@ -34,7 +40,55 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 
 type Plan = "BASIC" | "PRO" | "ENTERPRISE";
-type Step = 1 | 2 | 3 | 4;
+type Step = 1 | 2 | 3 | 4 | 5;
+type FacilityType =
+  | "HOSPITAL"
+  | "CLINIC"
+  | "DIAGNOSTIC_CENTER"
+  | "PHARMACY"
+  | "OTHER";
+
+// Indian states + UTs (36). Inlined to keep the wizard free of any
+// shared-dep churn — the canonical list is small and stable. If a
+// reusable IndianStates component lands later, swap this for it.
+const INDIAN_STATES = [
+  "Andhra Pradesh",
+  "Arunachal Pradesh",
+  "Assam",
+  "Bihar",
+  "Chhattisgarh",
+  "Goa",
+  "Gujarat",
+  "Haryana",
+  "Himachal Pradesh",
+  "Jharkhand",
+  "Karnataka",
+  "Kerala",
+  "Madhya Pradesh",
+  "Maharashtra",
+  "Manipur",
+  "Meghalaya",
+  "Mizoram",
+  "Nagaland",
+  "Odisha",
+  "Punjab",
+  "Rajasthan",
+  "Sikkim",
+  "Tamil Nadu",
+  "Telangana",
+  "Tripura",
+  "Uttar Pradesh",
+  "Uttarakhand",
+  "West Bengal",
+  "Andaman and Nicobar Islands",
+  "Chandigarh",
+  "Dadra and Nagar Haveli and Daman and Diu",
+  "Delhi",
+  "Jammu and Kashmir",
+  "Ladakh",
+  "Lakshadweep",
+  "Puducherry",
+] as const;
 
 interface TenantStepState {
   name: string;
@@ -62,6 +116,13 @@ interface WhatsAppStepState {
   sourcePhone: string;
   defaultProductId: string;
   autoReply: boolean;
+}
+interface HFRStepState {
+  facilityName: string;
+  hfrId: string;
+  facilityType: FacilityType;
+  state: string;
+  district: string;
 }
 
 // Mirror the server-side regex (kept in sync with
@@ -93,6 +154,11 @@ const PINCODE_REGEX = /^\d{6}$/;
 const PHONE_REGEX = /^\+?\d{7,15}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const E164_REGEX = /^\+\d{7,15}$/;
+// HFR IDs as issued by facility.abdm.gov.in are numeric, typically
+// 10-12 digits. Accept a slightly wider numeric range to avoid
+// rejecting future-format ids; the upstream registry is the source of
+// truth — the wizard just stashes a draft.
+const HFR_ID_REGEX = /^\d{8,14}$/;
 
 function validateTenantStep(s: TenantStepState): string | null {
   if (s.name.trim().length < 2) return "Hospital name must be at least 2 characters";
@@ -133,6 +199,18 @@ function validateWhatsAppStep(s: WhatsAppStepState): string | null {
   return null;
 }
 
+// Validate HFR step only if the operator opted to save (not skip).
+// Facility name + HFR ID + facility type + state are required together;
+// district is encouraged but not load-bearing.
+function validateHFRStep(s: HFRStepState): string | null {
+  if (s.facilityName.trim().length < 2)
+    return "Facility name must be at least 2 characters";
+  if (!HFR_ID_REGEX.test(s.hfrId.trim()))
+    return "HFR ID must be 10-12 digits (from facility.abdm.gov.in)";
+  if (s.state.trim().length < 1) return "State is required";
+  return null;
+}
+
 export default function OnboardingWizardPage() {
   const router = useRouter();
 
@@ -154,6 +232,7 @@ export default function OnboardingWizardPage() {
     subdomain: string;
   } | null>(null);
   const [waSaved, setWaSaved] = useState(false);
+  const [hfrSaved, setHfrSaved] = useState(false);
 
   const [tenantStep, setTenantStep] = useState<TenantStepState>({
     name: "",
@@ -182,6 +261,13 @@ export default function OnboardingWizardPage() {
     defaultProductId: "",
     autoReply: true,
   });
+  const [hfrStep, setHfrStep] = useState<HFRStepState>({
+    facilityName: "",
+    hfrId: "",
+    facilityType: "HOSPITAL",
+    state: "",
+    district: "",
+  });
 
   const tenantError = useMemo(
     () => (step === 1 && (tenantStep.name || tenantStep.subdomain) ? validateTenantStep(tenantStep) : null),
@@ -202,9 +288,10 @@ export default function OnboardingWizardPage() {
   function goBack() {
     setErrorBanner(null);
     setServerFieldError(null);
-    // Don't allow stepping back from 4 → 3 since the tenant has
-    // already been created at that point. The operator can dismiss
-    // step 4 via "Skip for now" or "Save".
+    // Don't allow stepping back from 4 or 5 since the tenant has
+    // already been created at that point. The operator dismisses
+    // post-create steps via their respective "Skip for now" / "Save"
+    // buttons.
     if (step > 1 && step < 4) setStep((step - 1) as Step);
   }
 
@@ -378,13 +465,65 @@ export default function OnboardingWizardPage() {
   }
 
   function skipWhatsApp() {
+    // Advance to step 5 (HFR) — the wizard now has an additional
+    // optional post-create step. Both WhatsApp and HFR write
+    // sessionStorage drafts; the new tenant's first ADMIN finalizes
+    // each at /dashboard/settings/{whatsapp,abdm} on first login.
+    setErrorBanner(null);
+    setStep(5);
+  }
+
+  function finishAfterWaSave() {
+    setErrorBanner(null);
+    setStep(5);
+  }
+
+  // Step 5 — HFR (Healthcare Facility Registry, ABDM M2). Mirrors the
+  // WhatsApp step's "stash a draft, ADMIN finalizes on first login"
+  // shape because the super-admin caller has tenantId=null and cannot
+  // write to per-tenant ABDM config rows. Draft is keyed by tenant id
+  // exactly like the WhatsApp draft (same medcore_<area>_draft:<id>
+  // convention). A future piece 2b tick will swap this for a direct
+  // PUT once the wizard mints a session as the new admin.
+  function saveHFR() {
+    setErrorBanner(null);
+    const e = validateHFRStep(hfrStep);
+    if (e) {
+      setErrorBanner(e);
+      return;
+    }
+    if (!createdTenant) {
+      setErrorBanner("Tenant context missing — please retry from step 1");
+      return;
+    }
+    try {
+      const draft = {
+        facilityName: hfrStep.facilityName.trim(),
+        hfrId: hfrStep.hfrId.trim(),
+        facilityType: hfrStep.facilityType,
+        state: hfrStep.state.trim(),
+        district: hfrStep.district.trim() || null,
+      };
+      sessionStorage.setItem(
+        `medcore_hfr_draft:${createdTenant.id}`,
+        JSON.stringify(draft),
+      );
+    } catch {
+      // SessionStorage can throw in some private-browse modes.
+      // Continue anyway — the CTA still points the operator at the
+      // settings page; the draft hint is best-effort.
+    }
+    setHfrSaved(true);
+  }
+
+  function skipHFR() {
     setSuccess(true);
     setTimeout(() => {
       router.push("/super-admin");
     }, 1200);
   }
 
-  function finishAfterWaSave() {
+  function finishAfterHfrSave() {
     setSuccess(true);
     setTimeout(() => {
       router.push("/super-admin");
@@ -421,9 +560,10 @@ export default function OnboardingWizardPage() {
           Onboard new tenant
         </h1>
         <p className="text-sm text-slate-600">
-          4-step wizard. Steps 1-3 create the tenant, its first branch, and
-          the super-admin user atomically. Step 4 (WhatsApp) is optional —
-          HFR / HPR / Razorpay steps land in subsequent piece 2b ticks.
+          5-step wizard. Steps 1-3 create the tenant, its first branch, and
+          the super-admin user atomically. Steps 4 (WhatsApp) and 5 (HFR)
+          are optional — HPR / Razorpay / post-creation steps land in
+          subsequent piece 2b ticks.
         </p>
       </header>
 
@@ -433,7 +573,7 @@ export default function OnboardingWizardPage() {
         data-testid="onboarding-step-indicator"
         aria-label="Onboarding progress"
       >
-        {([1, 2, 3, 4] as const).map((n) => (
+        {([1, 2, 3, 4, 5] as const).map((n) => (
           <li
             key={n}
             data-testid={`onboarding-step-indicator-${n}`}
@@ -454,7 +594,9 @@ export default function OnboardingWizardPage() {
                   ? "First branch"
                   : n === 3
                     ? "Super-admin"
-                    : "WhatsApp"}
+                    : n === 4
+                      ? "WhatsApp"
+                      : "HFR"}
             </span>
           </li>
         ))}
@@ -860,12 +1002,145 @@ export default function OnboardingWizardPage() {
         </fieldset>
       )}
 
+      {step === 5 && (
+        <fieldset
+          data-testid="onboarding-step-5"
+          className="space-y-4 rounded-lg border border-slate-200 bg-white p-6"
+        >
+          <legend className="sr-only">HFR (Healthcare Facility Registry)</legend>
+          <h2 className="text-lg font-semibold">
+            HFR (Healthcare Facility Registry)
+          </h2>
+          <p className="text-xs text-slate-500">
+            Optional — ABDM M2 facility registration. Can be configured later
+            from Settings &rarr; ABDM. The new tenant&apos;s ADMIN will
+            finalize this step from /dashboard/settings/abdm on first login.
+          </p>
+
+          {hfrSaved && createdTenant ? (
+            <div
+              data-testid="onboarding-hfr-saved-banner"
+              className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+              role="status"
+            >
+              <p className="font-medium">
+                HFR draft saved for {createdTenant.name}
+                {hfrStep.hfrId
+                  ? ` (HFR ID ${hfrStep.hfrId.trim()})`
+                  : ""}
+                .
+              </p>
+              <p className="mt-1 text-xs">
+                After tenant onboarding, the first ADMIN will finalize ABDM
+                HFR registration at{" "}
+                <a
+                  data-testid="onboarding-hfr-cta"
+                  href="/dashboard/settings/abdm"
+                  className="font-medium underline"
+                >
+                  /dashboard/settings/abdm
+                </a>
+                .
+              </p>
+            </div>
+          ) : (
+            <>
+              <Field
+                label="Facility name"
+                hint="The facility name as registered (or to be registered) with ABDM."
+              >
+                <input
+                  data-testid="onboarding-hfr-facilityname"
+                  value={hfrStep.facilityName}
+                  onChange={(e) =>
+                    setHfrStep({ ...hfrStep, facilityName: e.target.value })
+                  }
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="organization"
+                />
+              </Field>
+
+              <Field
+                label="HFR ID"
+                hint="10-12 digit ID from facility.abdm.gov.in."
+              >
+                <input
+                  data-testid="onboarding-hfr-id"
+                  value={hfrStep.hfrId}
+                  onChange={(e) =>
+                    setHfrStep({
+                      ...hfrStep,
+                      hfrId: e.target.value.replace(/[^0-9]/g, ""),
+                    })
+                  }
+                  inputMode="numeric"
+                  maxLength={14}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="off"
+                />
+              </Field>
+
+              <Field label="Facility type">
+                <select
+                  data-testid="onboarding-hfr-facilitytype"
+                  value={hfrStep.facilityType}
+                  onChange={(e) =>
+                    setHfrStep({
+                      ...hfrStep,
+                      facilityType: e.target.value as FacilityType,
+                    })
+                  }
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                >
+                  <option value="HOSPITAL">HOSPITAL</option>
+                  <option value="CLINIC">CLINIC</option>
+                  <option value="DIAGNOSTIC_CENTER">DIAGNOSTIC_CENTER</option>
+                  <option value="PHARMACY">PHARMACY</option>
+                  <option value="OTHER">OTHER</option>
+                </select>
+              </Field>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field label="State">
+                  <select
+                    data-testid="onboarding-hfr-state"
+                    value={hfrStep.state}
+                    onChange={(e) =>
+                      setHfrStep({ ...hfrStep, state: e.target.value })
+                    }
+                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                  >
+                    <option value="">Select state…</option>
+                    {INDIAN_STATES.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="District">
+                  <input
+                    data-testid="onboarding-hfr-district"
+                    value={hfrStep.district}
+                    onChange={(e) =>
+                      setHfrStep({ ...hfrStep, district: e.target.value })
+                    }
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                    autoComplete="off"
+                  />
+                </Field>
+              </div>
+            </>
+          )}
+        </fieldset>
+      )}
+
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
           data-testid="onboarding-back"
           onClick={goBack}
-          disabled={step === 1 || step === 4 || submitting}
+          disabled={step === 1 || step === 4 || step === 5 || submitting}
           className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           style={{ minHeight: 44 }}
         >
@@ -929,6 +1204,39 @@ export default function OnboardingWizardPage() {
             type="button"
             data-testid="onboarding-wa-finish"
             onClick={finishAfterWaSave}
+            className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+            style={{ minHeight: 44 }}
+          >
+            Continue
+          </button>
+        )}
+        {step === 5 && !hfrSaved && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="onboarding-hfr-skip"
+              onClick={skipHFR}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              style={{ minHeight: 44 }}
+            >
+              Skip for now
+            </button>
+            <button
+              type="button"
+              data-testid="onboarding-hfr-save"
+              onClick={saveHFR}
+              className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+              style={{ minHeight: 44 }}
+            >
+              Configure HFR
+            </button>
+          </div>
+        )}
+        {step === 5 && hfrSaved && (
+          <button
+            type="button"
+            data-testid="onboarding-hfr-finish"
+            onClick={finishAfterHfrSave}
             className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
             style={{ minHeight: 44 }}
           >

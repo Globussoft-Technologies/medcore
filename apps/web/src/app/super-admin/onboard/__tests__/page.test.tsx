@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Smoke tests for the super-admin onboarding wizard (gap #6 piece 2 of 4
-// + piece 2b first wizard step — WhatsApp).
+// + piece 2b wizard steps — WhatsApp (step 4) and HFR (step 5)).
 //
 // Covers:
 //   - Step 1 renders by default. Filling tenant fields + clicking Next
@@ -12,10 +12,17 @@
 //   - A server-side 409 with {error, field} renders the
 //     onboarding-error-banner and bounces back to step 1.
 //   - Step 4 ("WhatsApp") renders Gupshup fields, has a "Skip for now"
-//     button, and a "Configure WhatsApp" save action that stores a
-//     sessionStorage draft + surfaces the deferred-config CTA.
+//     button that advances to step 5, and a "Configure WhatsApp" save
+//     action that stores a sessionStorage draft + surfaces the
+//     deferred-config CTA.
 //   - Step 4 validation rejects malformed source phones inline.
-//   - 44px touch invariant on the primary wizard buttons.
+//   - Step 5 ("HFR") renders the facility fields, has a "Skip for now"
+//     button that completes the wizard, and a "Configure HFR" save
+//     action that stores a sessionStorage draft + surfaces the
+//     /dashboard/settings/abdm CTA.
+//   - Step 5 validation rejects malformed HFR IDs inline.
+//   - Skip-for-now on step 5 bypasses without persisting.
+//   - 44px touch invariant on the primary wizard buttons (incl. step 5).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -78,7 +85,15 @@ async function walkToStep4() {
   await waitFor(() => screen.getByTestId("onboarding-step-4"));
 }
 
-describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp step)", () => {
+async function walkToStep5() {
+  await walkToStep4();
+  // The cheapest way to step into 5 is via the Skip button on step 4 —
+  // it bypasses Gupshup field requirements and advances directly.
+  fireEvent.click(screen.getByTestId("onboarding-wa-skip"));
+  await waitFor(() => screen.getByTestId("onboarding-step-5"));
+}
+
+describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp & HFR steps)", () => {
   beforeEach(() => {
     routerPush.mockReset();
     (global.fetch as any) = vi.fn();
@@ -111,7 +126,7 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp 
     expect(screen.queryByTestId("onboarding-step-1")).not.toBeInTheDocument();
   });
 
-  it("renders a 4-step indicator (WhatsApp is the 4th)", () => {
+  it("renders a 5-step indicator (WhatsApp is the 4th, HFR is the 5th)", () => {
     render(<OnboardingWizardPage />);
     expect(
       screen.getByTestId("onboarding-step-indicator-1"),
@@ -128,6 +143,12 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp 
     expect(
       screen.getByTestId("onboarding-step-indicator-4"),
     ).toHaveTextContent(/whatsapp/i);
+    expect(
+      screen.getByTestId("onboarding-step-indicator-5"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("onboarding-step-indicator-5"),
+    ).toHaveTextContent(/hfr/i);
   });
 
   it("submits the full payload to /api/v1/tenant-onboarding and advances to step 4", async () => {
@@ -244,7 +265,7 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp 
     expect(screen.getByTestId("onboarding-step-1")).toBeInTheDocument();
   });
 
-  it("step 4 surfaces a 'Skip for now' button that completes the wizard", async () => {
+  it("step 4 surfaces a 'Skip for now' button that advances to step 5 (HFR)", async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
       status: 201,
@@ -258,9 +279,12 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp 
     expect(skipBtn).toBeInTheDocument();
     fireEvent.click(skipBtn);
 
+    // Step 5 (HFR) is the new post-WhatsApp step — the wizard no longer
+    // completes after skipping WhatsApp.
     await waitFor(() => {
-      expect(screen.getByTestId("onboarding-success")).toBeInTheDocument();
+      expect(screen.getByTestId("onboarding-step-5")).toBeInTheDocument();
     });
+    expect(screen.queryByTestId("onboarding-success")).not.toBeInTheDocument();
   });
 
   it("step 4 saves a Gupshup draft to sessionStorage + surfaces the deferred-config CTA", async () => {
@@ -340,6 +364,128 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp 
     ).not.toBeInTheDocument();
   });
 
+  it("step 5 renders HFR fields and surfaces the Skip-for-now + Configure HFR buttons", async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => SUCCESS_RESPONSE,
+    });
+
+    render(<OnboardingWizardPage />);
+    await walkToStep5();
+
+    expect(screen.getByTestId("onboarding-step-5")).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-hfr-facilityname")).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-hfr-id")).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-hfr-facilitytype")).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-hfr-state")).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-hfr-district")).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-hfr-skip")).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-hfr-save")).toBeInTheDocument();
+  });
+
+  it("step 5 'Skip for now' bypasses without persisting a draft and completes the wizard", async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => SUCCESS_RESPONSE,
+    });
+
+    render(<OnboardingWizardPage />);
+    await walkToStep5();
+
+    fireEvent.click(screen.getByTestId("onboarding-hfr-skip"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("onboarding-success")).toBeInTheDocument();
+    });
+    // No HFR draft written to sessionStorage when the user skips.
+    expect(sessionStorage.getItem("medcore_hfr_draft:new-id")).toBeNull();
+  });
+
+  it("step 5 saves an HFR draft to sessionStorage + surfaces the deferred-config CTA", async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => SUCCESS_RESPONSE,
+    });
+
+    render(<OnboardingWizardPage />);
+    await walkToStep5();
+
+    fireEvent.change(screen.getByTestId("onboarding-hfr-facilityname"), {
+      target: { value: "Sunrise Hospital" },
+    });
+    fireEvent.change(screen.getByTestId("onboarding-hfr-id"), {
+      target: { value: "1234567890" },
+    });
+    fireEvent.change(screen.getByTestId("onboarding-hfr-facilitytype"), {
+      target: { value: "CLINIC" },
+    });
+    fireEvent.change(screen.getByTestId("onboarding-hfr-state"), {
+      target: { value: "Karnataka" },
+    });
+    fireEvent.change(screen.getByTestId("onboarding-hfr-district"), {
+      target: { value: "Bengaluru Urban" },
+    });
+
+    fireEvent.click(screen.getByTestId("onboarding-hfr-save"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("onboarding-hfr-saved-banner"),
+      ).toBeInTheDocument();
+    });
+    const cta = screen.getByTestId("onboarding-hfr-cta");
+    expect(cta).toHaveAttribute("href", "/dashboard/settings/abdm");
+
+    const raw = sessionStorage.getItem("medcore_hfr_draft:new-id");
+    expect(raw).toBeTruthy();
+    const draft = JSON.parse(raw!);
+    expect(draft.facilityName).toBe("Sunrise Hospital");
+    expect(draft.hfrId).toBe("1234567890");
+    expect(draft.facilityType).toBe("CLINIC");
+    expect(draft.state).toBe("Karnataka");
+    expect(draft.district).toBe("Bengaluru Urban");
+  });
+
+  it("step 5 rejects a malformed HFR ID inline", async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => SUCCESS_RESPONSE,
+    });
+
+    render(<OnboardingWizardPage />);
+    await walkToStep5();
+
+    fireEvent.change(screen.getByTestId("onboarding-hfr-facilityname"), {
+      target: { value: "Sunrise Hospital" },
+    });
+    // Numeric-only filter on the input strips letters, so to exercise
+    // the validator we pass a too-short numeric value.
+    fireEvent.change(screen.getByTestId("onboarding-hfr-id"), {
+      target: { value: "12345" },
+    });
+    fireEvent.change(screen.getByTestId("onboarding-hfr-state"), {
+      target: { value: "Karnataka" },
+    });
+
+    fireEvent.click(screen.getByTestId("onboarding-hfr-save"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("onboarding-error-banner")).toHaveTextContent(
+        /hfr id must be 10-12 digits/i,
+      );
+    });
+    // The save-banner did NOT render.
+    expect(
+      screen.queryByTestId("onboarding-hfr-saved-banner"),
+    ).not.toBeInTheDocument();
+    // And no draft written.
+    expect(sessionStorage.getItem("medcore_hfr_draft:new-id")).toBeNull();
+  });
+
   it("primary wizard buttons honour the 44px touch invariant", async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
@@ -393,6 +539,18 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp 
     ).toBe("44px");
     expect(
       (screen.getByTestId("onboarding-wa-save") as HTMLButtonElement).style
+        .minHeight,
+    ).toBe("44px");
+
+    // Advance to step 5 and check the HFR action buttons too.
+    fireEvent.click(screen.getByTestId("onboarding-wa-skip"));
+    await waitFor(() => screen.getByTestId("onboarding-step-5"));
+    expect(
+      (screen.getByTestId("onboarding-hfr-skip") as HTMLButtonElement).style
+        .minHeight,
+    ).toBe("44px");
+    expect(
+      (screen.getByTestId("onboarding-hfr-save") as HTMLButtonElement).style
         .minHeight,
     ).toBe("44px");
   });

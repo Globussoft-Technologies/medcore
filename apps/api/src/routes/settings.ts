@@ -21,7 +21,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { prisma } from "@medcore/db";
-import { Role } from "@medcore/shared";
+import { Role, containsHtmlOrScript } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
@@ -35,12 +35,22 @@ router.use(authorize(Role.ADMIN));
 
 // Issue #717: Hospital Name silently saved blank — reject empty + whitespace
 // + over-long. min(1) refines AFTER trim so " " also fails.
+//
+// Issue #938 (2026-05-23, High/Security): Hospital Name accepted raw HTML/
+// `<script>` payloads that later rendered in PDF headers + notification
+// templates (stored XSS). Logo URL accepted `javascript:` and `data:` schemes
+// that became active links on any branded page. Reject both via the canonical
+// `containsHtmlOrScript` guard, AND require logoUrl to be an http(s) URL when
+// non-empty so a phishing-style scheme can't smuggle in.
 const updateBrandingSchema = z.object({
   hospitalName: z
     .string()
     .trim()
     .min(1, "Hospital Name is required")
-    .max(200, "Hospital Name must be 200 characters or fewer"),
+    .max(200, "Hospital Name must be 200 characters or fewer")
+    .refine((v) => !containsHtmlOrScript(v), {
+      message: "Hospital Name cannot contain HTML or script tags",
+    }),
   primaryColor: z
     .string()
     .trim()
@@ -51,6 +61,15 @@ const updateBrandingSchema = z.object({
     .string()
     .trim()
     .max(500, "Logo URL is too long")
+    .refine((v) => v === "" || !/^\s*javascript:/i.test(v), {
+      message: "Logo URL cannot use the javascript: scheme",
+    })
+    .refine((v) => v === "" || /^https?:\/\//i.test(v), {
+      message: "Logo URL must start with http:// or https://",
+    })
+    .refine((v) => v === "" || !containsHtmlOrScript(v), {
+      message: "Logo URL cannot contain HTML or script tags",
+    })
     .optional()
     .or(z.literal("")),
 });

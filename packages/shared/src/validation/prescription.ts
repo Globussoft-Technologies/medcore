@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { containsHtmlOrScript } from "./security";
 
 /**
  * Dosage must be a positive numeric amount followed by an optional unit
@@ -58,11 +59,28 @@ const prescriptionItemSchema = z.object({
   // the snapshot stays canonical. Will be flipped to required in a follow-up
   // once every writer is converted.
   medicineId: z.string().uuid().optional(),
-  medicineName: z.string().min(1, "Medicine name is required"),
+  // Issue #954 (2026-05-23, Critical): medicineName accepted raw HTML /
+  // `<script>` payloads that were rendered onto the printed Rx PDF and
+  // pharmacy-fulfilment UI (clinical-safety + XSS). Reject explicitly via
+  // the canonical guard — paired with adding /api/v1/prescriptions to
+  // SCHEMA_REJECT_PATHS so the global stripper doesn't launder the tag
+  // into a plain-text drug name before the schema sees it.
+  medicineName: z
+    .string()
+    .min(1, "Medicine name is required")
+    .max(200, "Medicine name must be 200 characters or fewer")
+    .refine((v) => !containsHtmlOrScript(v), {
+      message: "Medicine name cannot contain HTML or script tags",
+    }),
   dosage: dosageStringSchema,
   frequency: z.string().min(1, "Frequency is required"),
   duration: durationStringSchema,
-  instructions: z.string().optional(),
+  instructions: z
+    .string()
+    .optional()
+    .refine((v) => v === undefined || !containsHtmlOrScript(v), {
+      message: "Instructions cannot contain HTML or script tags",
+    }),
   refills: z.number().int().min(0).max(12).optional(),
 });
 
@@ -90,16 +108,33 @@ export const createPrescriptionSchema = z
   .object({
     appointmentId: z.string().uuid(),
     patientId: z.string().uuid(),
-    diagnosis: z.string().min(1, "Diagnosis is required"),
+    diagnosis: z
+      .string()
+      .min(1, "Diagnosis is required")
+      .refine((v) => !containsHtmlOrScript(v), {
+        message: "Diagnosis cannot contain HTML or script tags",
+      }),
     items: z.array(prescriptionItemSchema).min(1, "At least one medicine is required"),
-    advice: z.string().optional(),
+    advice: z
+      .string()
+      .optional()
+      .refine((v) => v === undefined || !containsHtmlOrScript(v), {
+        message: "Advice cannot contain HTML or script tags",
+      }),
     followUpDate: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
       .optional(),
     overrideWarnings: z.boolean().optional(),
     overrideAllergies: z.boolean().optional(),
-    allergyOverrideReason: z.string().min(3).max(500).optional(),
+    allergyOverrideReason: z
+      .string()
+      .min(3)
+      .max(500)
+      .refine((v) => !containsHtmlOrScript(v), {
+        message: "Allergy override reason cannot contain HTML or script tags",
+      })
+      .optional(),
     signatureDataUrl: signatureDataUrlSchema,
   })
   .refine(
@@ -117,9 +152,19 @@ export const createPrescriptionSchema = z
 // required because the wire-replace happens atomically (delete + recreate
 // in a tx) so the caller MUST send the full desired set, not a partial.
 export const updatePrescriptionSchema = z.object({
-  diagnosis: z.string().min(1, "Diagnosis is required"),
+  diagnosis: z
+    .string()
+    .min(1, "Diagnosis is required")
+    .refine((v) => !containsHtmlOrScript(v), {
+      message: "Diagnosis cannot contain HTML or script tags",
+    }),
   items: z.array(prescriptionItemSchema).min(1, "At least one medicine is required"),
-  advice: z.string().optional(),
+  advice: z
+    .string()
+    .optional()
+    .refine((v) => v === undefined || !containsHtmlOrScript(v), {
+      message: "Advice cannot contain HTML or script tags",
+    }),
   followUpDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")

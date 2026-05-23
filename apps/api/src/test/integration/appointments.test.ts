@@ -261,10 +261,21 @@ describeIfDB("Appointments API (integration)", () => {
   // BOOKED. Anything else → 403.
   // ─────────────────────────────────────────────────────────
 
+  // Helper: today's IST date as a UTC-midnight Date. Postgres @db.Date
+  // strips the time component on storage; this construction guarantees
+  // the stored DATE is today-IST regardless of when the test fires
+  // (avoids the late-IST-night drift where `istMidnightUtc(0)` rounds
+  // back to yesterday-UTC date and breaks the handler's string-compare).
+  function istTodayAsUtcMidnight(): Date {
+    const istNow = new Date(Date.now() + 5.5 * 3600 * 1000);
+    const ymd = istNow.toISOString().slice(0, 10);
+    return new Date(`${ymd}T00:00:00.000Z`);
+  }
+
   it("PATIENT can self-check-in to TODAY's own BOOKED appointment + audit row landed", async () => {
     const patient = await createPatientFixture();
     const doctor = await createDoctorFixture();
-    const today = istMidnightUtc(0);
+    const today = istTodayAsUtcMidnight();
     const appt = await createAppointmentFixture({
       patientId: patient.id,
       doctorId: doctor.id,
@@ -300,7 +311,9 @@ describeIfDB("Appointments API (integration)", () => {
   it("PATIENT cannot self-check-in to YESTERDAY's own appointment → 403", async () => {
     const patient = await createPatientFixture();
     const doctor = await createDoctorFixture();
-    const yesterday = new Date(istMidnightUtc(0).getTime() - 24 * 60 * 60 * 1000);
+    const yesterday = new Date(
+      istTodayAsUtcMidnight().getTime() - 24 * 60 * 60 * 1000,
+    );
     const appt = await createAppointmentFixture({
       patientId: patient.id,
       doctorId: doctor.id,
@@ -320,7 +333,9 @@ describeIfDB("Appointments API (integration)", () => {
   it("PATIENT cannot self-check-in to TOMORROW's own appointment → 403", async () => {
     const patient = await createPatientFixture();
     const doctor = await createDoctorFixture();
-    const tomorrow = istMidnightUtc(1);
+    const tomorrow = new Date(
+      istTodayAsUtcMidnight().getTime() + 24 * 60 * 60 * 1000,
+    );
     const appt = await createAppointmentFixture({
       patientId: patient.id,
       doctorId: doctor.id,
@@ -341,7 +356,7 @@ describeIfDB("Appointments API (integration)", () => {
     const owner = await createPatientFixture();
     const intruder = await createPatientFixture();
     const doctor = await createDoctorFixture();
-    const today = istMidnightUtc(0);
+    const today = istTodayAsUtcMidnight();
     const appt = await createAppointmentFixture({
       patientId: owner.id,
       doctorId: doctor.id,
@@ -361,7 +376,7 @@ describeIfDB("Appointments API (integration)", () => {
   it("PATIENT cannot self-flip status=COMPLETED on own today appointment → 403", async () => {
     const patient = await createPatientFixture();
     const doctor = await createDoctorFixture();
-    const today = istMidnightUtc(0);
+    const today = istTodayAsUtcMidnight();
     const appt = await createAppointmentFixture({
       patientId: patient.id,
       doctorId: doctor.id,
@@ -382,7 +397,9 @@ describeIfDB("Appointments API (integration)", () => {
     const patient = await createPatientFixture();
     const doctor = await createDoctorFixture();
     // Use yesterday to prove the IST-today guard ONLY applies to PATIENT.
-    const yesterday = new Date(istMidnightUtc(0).getTime() - 24 * 60 * 60 * 1000);
+    const yesterday = new Date(
+      istTodayAsUtcMidnight().getTime() - 24 * 60 * 60 * 1000,
+    );
     const appt = await createAppointmentFixture({
       patientId: patient.id,
       doctorId: doctor.id,

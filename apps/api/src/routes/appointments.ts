@@ -686,21 +686,28 @@ router.patch(
           // existing allowed transition — falls through to update.
         } else if (nextStatus === "CHECKED_IN") {
           // Self-check-in window: appointment.date must equal "today IST".
-          // `Appointment.date` is `@db.Date` (postgres DATE). We need to
-          // load it (the trimmed select above only pulled status +
-          // patientId) so we can compare against today's IST bounds.
+          // `Appointment.date` is `@db.Date` (postgres DATE), which drops
+          // the time component on round-trip. Comparing on instant bounds
+          // (`istMidnightUtc(0)` vs the loaded Date) drifts by one
+          // calendar day because Postgres returns UTC-midnight regardless
+          // of how the row was inserted. Compare as `YYYY-MM-DD` strings
+          // instead — the Postgres-stored DATE and the IST "today" both
+          // yield clean string identities with no tz drift.
           const dateRow = await prisma.appointment.findUnique({
             where: { id: req.params.id },
             select: { date: true },
           });
-          const todayStart = istMidnightUtc(0);
-          const tomorrowStart = istMidnightUtc(1);
-          const apptTime = dateRow?.date ? new Date(dateRow.date).getTime() : 0;
-          if (
-            !apptTime ||
-            apptTime < todayStart.getTime() ||
-            apptTime >= tomorrowStart.getTime()
-          ) {
+          const apptDateStr =
+            dateRow?.date instanceof Date
+              ? dateRow.date.toISOString().slice(0, 10)
+              : typeof dateRow?.date === "string"
+                ? String(dateRow.date).slice(0, 10)
+                : "";
+          // Today in IST as YYYY-MM-DD: shift UTC now by +5.5h, then
+          // slice the date portion.
+          const istNow = new Date(Date.now() + 5.5 * 3600 * 1000);
+          const istTodayStr = istNow.toISOString().slice(0, 10);
+          if (!apptDateStr || apptDateStr !== istTodayStr) {
             res.status(403).json({
               success: false,
               data: null,

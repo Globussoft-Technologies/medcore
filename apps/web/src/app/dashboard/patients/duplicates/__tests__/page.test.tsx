@@ -69,7 +69,7 @@ describe("PatientsDuplicatesPage", () => {
 
   it("renders the empty state when no patients share a phone number", async () => {
     authMock.mockReturnValue({
-      user: { id: "u2", name: "Rita Reception", role: "RECEPTION" },
+      user: { id: "u3", name: "Admin", role: "ADMIN" },
       isLoading: false,
     });
     apiMock.get.mockResolvedValue({

@@ -18,9 +18,11 @@
  *     receptionist-volume tenants Pearl targets; a server-side
  *     "/duplicates" endpoint with full-tenant sweep is a future scope.
  *
- * RBAC: ADMIN + RECEPTION (matches the API authorize set). Patients are
- * bounced to /dashboard/not-authorized; non-allowlisted staff get a toast
- * + redirect mirroring the pattern in patients/page.tsx (Issue #382/#636).
+ * RBAC: ADMIN only (matches the API authorize set + the permissions-matrix
+ * integration test that asserts RECEPTION → 403 on the merge endpoint).
+ * Patients are bounced to /dashboard/not-authorized; non-allowlisted staff
+ * get a toast + redirect mirroring the pattern in patients/page.tsx
+ * (Issue #382/#636).
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -31,7 +33,7 @@ import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 
 // Mirror the API allow-list (routes/patients-merge.ts authorize() call).
-const VIEW_ALLOWED = new Set(["ADMIN", "RECEPTION"]);
+const VIEW_ALLOWED = new Set(["ADMIN"]);
 
 interface PatientRow {
   id: string;

@@ -81,10 +81,12 @@ const mergeBatchSchema = z
   );
 
 // POST /api/v1/patients/:keepId/merge — batch merge N source patients into the
-// keepId patient. ADMIN + RECEPTION only. Single transaction. Audited.
+// keepId patient. ADMIN only (matches the singular legacy handler at
+// patients.ts:1015 and the permissions-matrix integration test that asserts
+// RECEPTION → 403 on this surface).
 router.post(
   "/:keepId/merge",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN),
   validate(mergeBatchSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {

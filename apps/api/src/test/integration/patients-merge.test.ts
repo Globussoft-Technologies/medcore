@@ -20,12 +20,14 @@ import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
 
 let app: any;
 let receptionToken: string;
+let adminToken: string;
 let patientToken: string;
 
 describeIfDB("Patient duplicate batch-merge (integration, Pearl §2.1.1 row 41)", () => {
   beforeAll(async () => {
     await resetDB();
     receptionToken = await getAuthToken("RECEPTION");
+    adminToken = await getAuthToken("ADMIN");
     patientToken = await getAuthToken("PATIENT");
     const mod = await import("../../app");
     app = mod.app;
@@ -148,7 +150,7 @@ describeIfDB("Patient duplicate batch-merge (integration, Pearl §2.1.1 row 41)"
     // ── Act ────────────────────────────────────────────────────────────
     const res = await request(app)
       .post(`/api/v1/patients/${keepId}/merge`)
-      .set("Authorization", `Bearer ${receptionToken}`)
+      .set("Authorization", `Bearer ${adminToken}`)
       .send({ mergeFromIds: [fromId] });
 
     // ── Contract-of-correctness asserts (per CLAUDE.md gotcha #3) ──────
@@ -217,7 +219,7 @@ describeIfDB("Patient duplicate batch-merge (integration, Pearl §2.1.1 row 41)"
     const id = seed.body.data.id;
     const res = await request(app)
       .post(`/api/v1/patients/${id}/merge`)
-      .set("Authorization", `Bearer ${receptionToken}`)
+      .set("Authorization", `Bearer ${adminToken}`)
       .send({ mergeFromIds: [id] });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/itself/i);
@@ -238,7 +240,7 @@ describeIfDB("Patient duplicate batch-merge (integration, Pearl §2.1.1 row 41)"
 
     const res = await request(app)
       .post(`/api/v1/patients/${keepId}/merge`)
-      .set("Authorization", `Bearer ${receptionToken}`)
+      .set("Authorization", `Bearer ${adminToken}`)
       .send({
         // Random UUID that doesn't exist in any tenant → indistinguishable
         // from a real cross-tenant attempt (tenantScopedPrisma filters
@@ -272,7 +274,7 @@ describeIfDB("Patient duplicate batch-merge (integration, Pearl §2.1.1 row 41)"
 
     const res = await request(app)
       .post(`/api/v1/patients/${keep.body.data.id}/merge`)
-      .set("Authorization", `Bearer ${receptionToken}`)
+      .set("Authorization", `Bearer ${adminToken}`)
       .send({ otherPatientId: from.body.data.id });
     expect(res.status).toBeLessThan(400);
     expect(res.body.data.mergedFromIds).toEqual([from.body.data.id]);

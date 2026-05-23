@@ -1,6 +1,6 @@
 "use client";
 
-// Patient PWA dashboard (Pearl §6.1 — gap #5 piece 3a of 4).
+// Patient PWA dashboard (Pearl §6.1 — gap #5 piece 3a of 4 + Pearl §5.3 row 147).
 //
 // Three tiles, all read-only, stacked on mobile and 3-up from sm: breakpoint.
 // Reads existing patient-scoped endpoints (no new server surface this tick —
@@ -64,6 +64,21 @@ interface ApiList<T> {
   meta?: { total: number };
 }
 
+// Pearl §5.3 row 147: optional ABHA link CTA on first login.
+// The /auth/me probe returns `patient: { abhaId: string | null }` nested under
+// the user row (see apps/api/src/routes/auth.ts ~L1118 — `patient: true`).
+interface MeResponse {
+  success: boolean;
+  data: {
+    id: string;
+    role?: string | null;
+    patient?: { abhaId?: string | null } | null;
+  } | null;
+  error?: string | null;
+}
+
+const ABHA_PROMPT_DISMISS_KEY = "medcore_abha_prompt_dismissed";
+
 type LoadState = "loading" | "ready" | "unauth" | "error";
 
 function formatDateTime(d: Date): string {
@@ -104,13 +119,19 @@ export default function PatientDashboardPage() {
   const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
   const [prescriptions, setPrescriptions] = useState<PrescriptionRow[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
+  // Pearl §5.3 row 147 — ABHA-link prompt visibility. Banner shows when the
+  // authed PATIENT has no linked ABHA id AND hasn't dismissed the prompt this
+  // browser. Dismissal persists via `localStorage.medcore_abha_prompt_dismissed`
+  // so the prompt is genuinely "one-time per device" rather than nagging on
+  // every dashboard mount.
+  const [abhaPromptVisible, setAbhaPromptVisible] = useState<boolean>(false);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load(): Promise<void> {
       try {
-        const [apptRes, rxRes, invRes] = await Promise.allSettled([
+        const [apptRes, rxRes, invRes, meRes] = await Promise.allSettled([
           // Pull a small window of active appointments — the patient
           // role-scope happens server-side. We over-fetch slightly (20) so
           // the soonest-future pick has a real chance to land even when
@@ -126,6 +147,10 @@ export default function PatientDashboardPage() {
             "/billing/invoices?status=PENDING,PARTIAL&limit=3",
             { skip401Redirect: true },
           ),
+          // Pearl §5.3 row 147 — pull /auth/me so we can decide whether to
+          // surface the first-login ABHA prompt. Failure here is non-fatal:
+          // the dashboard still renders without the banner.
+          api.get<MeResponse>("/auth/me", { skip401Redirect: true }),
         ]);
         if (cancelled) return;
 
@@ -156,6 +181,32 @@ export default function PatientDashboardPage() {
         setAppointments(apptList);
         setPrescriptions(rxList);
         setInvoices(invList);
+
+        // Pearl §5.3 row 147 — decide ABHA-prompt visibility AFTER the
+        // payloads land so a slow /auth/me doesn't delay the rest of the
+        // dashboard render. Three conditions, all required:
+        //   1. /auth/me succeeded AND the row is a PATIENT
+        //   2. user.patient.abhaId is null/empty
+        //   3. no prior dismissal in localStorage
+        let showAbhaPrompt = false;
+        if (meRes.status === "fulfilled" && meRes.value.success) {
+          const u = meRes.value.data;
+          const isPatient = u?.role === "PATIENT";
+          const noAbha = !u?.patient?.abhaId;
+          let dismissed = false;
+          try {
+            dismissed =
+              typeof window !== "undefined" &&
+              window.localStorage?.getItem(ABHA_PROMPT_DISMISS_KEY) === "1";
+          } catch {
+            // localStorage may throw under private-browsing / SSR. Treat as
+            // not-dismissed — the user can dismiss again in this session.
+            dismissed = false;
+          }
+          showAbhaPrompt = Boolean(isPatient && noAbha && !dismissed);
+        }
+        setAbhaPromptVisible(showAbhaPrompt);
+
         setState("ready");
       } catch {
         if (!cancelled) setState("error");
@@ -186,6 +237,16 @@ export default function PatientDashboardPage() {
       .sort((x, y) => x.ts - y.ts);
     return upcoming[0]?.a ?? null;
   }, [appointments]);
+
+  const dismissAbhaPrompt = (): void => {
+    try {
+      window.localStorage?.setItem(ABHA_PROMPT_DISMISS_KEY, "1");
+    } catch {
+      // localStorage write may throw (quota / private mode). The session-
+      // level hide still works because we toggle React state too.
+    }
+    setAbhaPromptVisible(false);
+  };
 
   const openBillsTotal = useMemo(
     () =>
@@ -241,10 +302,48 @@ export default function PatientDashboardPage() {
   }
 
   return (
-    <section
-      data-testid="patient-dashboard"
-      className="space-y-4 py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:space-y-0"
-    >
+    <div className="space-y-4 py-4">
+      {/* ─── Pearl §5.3 row 147 — Optional ABHA link prompt ─────────── */}
+      {abhaPromptVisible ? (
+        <aside
+          data-testid="patient-abha-prompt-banner"
+          role="region"
+          aria-label="Link your ABHA Health ID"
+          className="flex flex-col gap-3 rounded-lg border border-sky-200 bg-sky-50 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-sky-900">
+              Link your ABHA Health ID for portable medical records.
+            </p>
+            <p className="text-xs text-sky-800">
+              Skip for now if you don't have one — you can link it any time
+              from your profile.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Link
+              href="/patient/profile?section=abha"
+              className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-sky-700 px-4 text-sm font-medium text-white"
+              data-testid="patient-abha-prompt-link"
+            >
+              Link ABHA
+            </Link>
+            <button
+              type="button"
+              onClick={dismissAbhaPrompt}
+              className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-sky-300 bg-white px-4 text-sm font-medium text-sky-900"
+              data-testid="patient-abha-prompt-skip"
+            >
+              Skip for now
+            </button>
+          </div>
+        </aside>
+      ) : null}
+
+      <section
+        data-testid="patient-dashboard"
+        className="space-y-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:space-y-0"
+      >
       {/* ─── Next Appointment ───────────────────────────────────────── */}
       <article
         data-testid="patient-dashboard-next-appointment"
@@ -482,6 +581,7 @@ export default function PatientDashboardPage() {
           </p>
         )}
       </article>
-    </section>
+      </section>
+    </div>
   );
 }

@@ -153,7 +153,7 @@ async function seedExecutedErasureRequest(
       action: "DPDP_ERASURE_REQUESTED",
       entity: "dpdp_erasure_request",
       entityId: row.id,
-      payload: { patientId: p.id, tenantId },
+      details: { patientId: p.id, tenantId },
     },
   });
   await prisma.auditLog.create({
@@ -162,7 +162,7 @@ async function seedExecutedErasureRequest(
       action: "DPDP_ERASURE_EXECUTED",
       entity: "dpdp_erasure_request",
       entityId: row.id,
-      payload: { patientId: p.id, tenantId },
+      details: { patientId: p.id, tenantId },
     },
   });
   return { requestId: row.id, patientId: p.id };

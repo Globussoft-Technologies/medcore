@@ -150,6 +150,7 @@ import { tenantOnboardingRouter } from "./routes/tenant-onboarding";
 import { dpdpWorkbenchRouter } from "./routes/dpdp-workbench";
 import { scheduledJobsRouter } from "./routes/scheduled-jobs";
 import { supportTicketsRouter } from "./routes/support-tickets";
+import { superAdminUsersRouter } from "./routes/super-admin-users";
 import { branchesRouter } from "./routes/branches";
 import { campaignsRouter, publicCampaignsRouter } from "./routes/campaigns";
 import { campaignAudiencesRouter } from "./routes/campaign-audiences";
@@ -451,6 +452,11 @@ export function buildApp() {
   // ADMINs raise tickets against the Pearl operator (super-admin) team
   // and the operator triages on /super-admin/support.
   app.use("/api/v1/support-tickets", supportTicketsRouter);
+  // Pearl §8.2 gap row 208 closure (2026-05-23) — cross-tenant super-admin
+  // roster (Role.ADMIN with tenantId == null). GET list + PATCH deactivate
+  // with last-active count guard. Defence-in-depth alongside the
+  // /super-admin/ layout's client-side gate.
+  app.use("/api/v1/super-admin/users", superAdminUsersRouter);
   app.use("/api/v1/branches", branchesRouter);
   app.use("/api/v1/campaigns", campaignsRouter);
   app.use("/api/v1/campaign-audiences", campaignAudiencesRouter);

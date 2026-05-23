@@ -5,7 +5,7 @@
 // piece 4 (cross-tenant metrics).
 
 import Link from "next/link";
-import { Building2, CreditCard, ArrowRight, UserPlus, ListChecks, ShieldAlert, Inbox } from "lucide-react";
+import { Building2, CreditCard, ArrowRight, UserPlus, ListChecks, ShieldAlert, Inbox, Users } from "lucide-react";
 
 export default function SuperAdminLandingPage() {
   return (
@@ -182,6 +182,37 @@ export default function SuperAdminLandingPage() {
           </div>
           <p className="text-xs text-slate-500">
             Pearl §8.5 — operator-facing tenant escalation channel.
+          </p>
+        </Link>
+
+        {/* Super-admin roster tile — Pearl §8.2 (gap row 208 closure 2026-05-23).
+            Cross-tenant list of users with role=ADMIN AND tenantId==null.
+            Deactivate flow with last-active count guard lives here. */}
+        <Link
+          href="/super-admin/users"
+          data-testid="super-admin-tile-users"
+          className="group flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2"
+        >
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-sky-600 text-white">
+              <Users size={18} aria-hidden="true" />
+            </span>
+            <div className="flex-1">
+              <h2 className="text-base font-semibold text-slate-900">
+                Super-admin roster
+              </h2>
+              <p className="text-xs text-slate-500">
+                List + deactivate operators with no tenant binding.
+              </p>
+            </div>
+            <ArrowRight
+              size={16}
+              className="text-slate-400 transition group-hover:translate-x-0.5"
+              aria-hidden="true"
+            />
+          </div>
+          <p className="text-xs text-slate-500">
+            Pearl §8.2 — cross-tenant Role.ADMIN users.
           </p>
         </Link>
 

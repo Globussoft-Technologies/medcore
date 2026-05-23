@@ -342,8 +342,12 @@ function EntryTable({ entries }: { entries: CsEntry[] }) {
           </tr>
         </thead>
         <tbody>
+          {/* Issue #941: register rows rendered with inherited light text
+              against the white table surface in light mode (WCAG contrast
+              failure). Pin the row text to the canonical dark-on-light /
+              light-on-dark pair every other dashboard table uses. */}
           {entries.map((e) => (
-            <tr key={e.id} className="border-t hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
+            <tr key={e.id} className="border-t text-gray-900 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-700">
               <td className="p-2 font-mono text-xs">{e.entryNumber}</td>
               <td className="p-2">{new Date(e.dispensedAt).toLocaleString()}</td>
               <td className="p-2">
@@ -398,7 +402,7 @@ function AuditTable({ rows }: { rows: AuditRow[] }) {
           {rows.map((r) => (
             <tr
               key={r.medicineId}
-              className={`border-t dark:border-gray-700 ${
+              className={`border-t text-gray-900 dark:border-gray-700 dark:text-gray-100 ${
                 r.discrepancy !== null && r.discrepancy !== 0 ? "bg-red-50 dark:bg-red-900/20" : ""
               }`}
             >

@@ -80,6 +80,86 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("heading", { name: /^settings$/i })).toBeInTheDocument();
   });
 
+  // Issue #940: the Notifications-tab "Send test" button previously fired
+  // immediately on click, so a stray click could send a real (potentially
+  // SMS/WhatsApp-charged) test message. The fix wraps the click in a
+  // window.confirm prompt. We assert both (a) the confirm is called and
+  // (b) NO POST is fired when the user declines.
+  it("gates Send test behind window.confirm (#940 — declines do not POST)", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/notifications/preferences"))
+        return Promise.resolve({
+          data: [
+            { channel: "EMAIL", enabled: true },
+            { channel: "SMS", enabled: true },
+            { channel: "WHATSAPP", enabled: true },
+            { channel: "PUSH", enabled: true },
+          ],
+        });
+      if (url.startsWith("/notifications/schedule"))
+        return Promise.resolve({ data: null });
+      return Promise.resolve({ data: [] });
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+    // Switch to the Notifications tab.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /^notifications$/i })
+      ).toBeInTheDocument()
+    );
+    await user.click(screen.getByRole("button", { name: /^notifications$/i }));
+    // The Send-test buttons render one-per-channel — click the first.
+    const sendButtons = await screen.findAllByRole("button", { name: /send test/i });
+    expect(sendButtons.length).toBeGreaterThan(0);
+    apiMock.post.mockClear();
+    await user.click(sendButtons[0]);
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(confirmSpy.mock.calls[0][0]).toMatch(/send a test notification via/i);
+    // Critical: declining the confirm must NOT fire the test-notification POST.
+    expect(apiMock.post).not.toHaveBeenCalledWith(
+      "/notifications/test",
+      expect.anything()
+    );
+    confirmSpy.mockRestore();
+  });
+
+  it("Send test POSTs when window.confirm is accepted (#940 — happy path)", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/notifications/preferences"))
+        return Promise.resolve({
+          data: [{ channel: "EMAIL", enabled: true }],
+        });
+      if (url.startsWith("/notifications/schedule"))
+        return Promise.resolve({ data: null });
+      return Promise.resolve({ data: [] });
+    });
+    apiMock.post.mockResolvedValue({ data: { ok: true } });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /^notifications$/i })
+      ).toBeInTheDocument()
+    );
+    await user.click(screen.getByRole("button", { name: /^notifications$/i }));
+    // NotificationsTab always renders all 4 channels (WHATSAPP/SMS/EMAIL/PUSH)
+    // — click any one; we just assert that confirm was honoured and a POST
+    // to /notifications/test fired with SOME channel string.
+    const sendButtons = await screen.findAllByRole("button", { name: /send test/i });
+    await user.click(sendButtons[0]);
+    expect(confirmSpy).toHaveBeenCalled();
+    await waitFor(() =>
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/notifications/test",
+        expect.objectContaining({ channel: expect.any(String) })
+      )
+    );
+    confirmSpy.mockRestore();
+  });
+
   // Issue #437: nurse role must only see personal-scoped settings tabs.
   // The current allow-list lists the same four for every role, but the
   // important RBAC contract is that the *list* is filtered through the

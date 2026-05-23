@@ -128,4 +128,27 @@ describe("ControlledSubstancesPage", () => {
       ).toBeInTheDocument()
     );
   });
+
+  // Issue #941: register data rows rendered with the dashboard layout's
+  // inherited light text against the table's white surface (WCAG contrast
+  // failure in light mode). The fix pins each <tr> to the canonical
+  // text-gray-900 / dark:text-gray-100 pair every other dashboard table
+  // uses. We seed a row, render, and assert the row class carries the new
+  // text-gray-900 token so a future regression that drops the class fails
+  // here rather than going un-noticed.
+  it("renders entry rows with WCAG-safe text-gray-900 (#941)", async () => {
+    asPharmacist();
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/controlled-substances?"))
+        return Promise.resolve({ data: [sampleEntry] });
+      return Promise.resolve({ data: [] });
+    });
+    const { container } = render(<ControlledSubstancesPage />);
+    await waitFor(() => expect(screen.getByText(/CS-001/)).toBeInTheDocument());
+    // The entry's row is the only <tr> in <tbody> for this fixture.
+    const row = container.querySelector("tbody tr");
+    expect(row).not.toBeNull();
+    expect(row?.className).toMatch(/text-gray-900/);
+    expect(row?.className).toMatch(/dark:text-gray-100/);
+  });
 });

@@ -26,6 +26,12 @@ interface CalEvent {
   id: string;
   date: string; // YYYY-MM-DD
   time?: string;
+  // Issue #945: the detail popup showed only the start time, which made
+  // back-to-back / long-running events ambiguous. `endTime` is populated
+  // whenever the source has a known end (appointments via slotEnd, shifts
+  // via endTime, custom events via endAt) and the popup renders
+  // "start – end" instead of just "start".
+  endTime?: string;
   title: string;
   subtitle?: string;
   type:
@@ -247,6 +253,10 @@ export default function UnifiedCalendarPage() {
         // shift) — no more 12-hour "02:30 PM" next to 24-hour "14:30".
         const apptInstant = parseEventTime(a.slotStart, a.date);
         const apptTime = apptInstant ? hhmm(apptInstant) : undefined;
+        // Issue #945: mirror the same anchoring for the slot's end so the
+        // detail popup can render "start – end" in one format.
+        const apptEndInstant = parseEventTime(a.slotEnd, a.date);
+        const apptEndTime = apptEndInstant ? hhmm(apptEndInstant) : undefined;
         // Issue #388: a `BOOKED` appointment whose start has passed should
         // render as `COMPLETED` (display only).
         const apptStatus = displayStatusForAppointment({
@@ -273,6 +283,7 @@ export default function UnifiedCalendarPage() {
           id: `appt-${a.id}`,
           date: fmtYmd(d),
           time: apptTime,
+          endTime: apptEndTime,
           title: titleForViewer,
           subtitle: `${apptTypeLabel} · ${doctorDisplay} · ${apptStatus}`,
           type: "appointment",
@@ -372,6 +383,8 @@ export default function UnifiedCalendarPage() {
           id: `shift-${sh.id}`,
           date: fmtYmd(d),
           time: sh.startTime,
+          // Issue #945: surface the shift end on the detail popup too.
+          endTime: sh.endTime,
           title: `${sh.user?.name || "Staff"} · ${sh.type}`,
           subtitle: `${sh.startTime}-${sh.endTime}`,
           type: "shift",
@@ -384,10 +397,17 @@ export default function UnifiedCalendarPage() {
       for (const ev of custom.data || []) {
         const start = new Date(ev.startAt);
         if (Number.isNaN(start.getTime())) continue; // Issue #593
+        // Issue #945: custom events always carry endAt (Zod schema requires
+        // end > start). Render it on the popup so a "Town Hall 14:00 –
+        // 15:30" is unambiguous instead of just "14:00".
+        const customEnd = ev.endAt ? new Date(ev.endAt) : null;
+        const customEndTime =
+          customEnd && !Number.isNaN(customEnd.getTime()) ? hhmm(customEnd) : undefined;
         collected.push({
           id: `custom-${ev.id}`,
           date: fmtYmd(start),
           time: hhmm(start),
+          endTime: customEndTime,
           title: ev.title,
           subtitle: ev.category
             ? `${String(ev.category).replace(/_/g, " ").toLowerCase()}${ev.description ? ` · ${ev.description}` : ""}`
@@ -1011,7 +1031,15 @@ export default function UnifiedCalendarPage() {
                   month: "long",
                   year: "numeric",
                 })}
-                {selected.time ? ` · ${selected.time}` : ""}
+                {/* Issue #945: render the event's End time alongside Start —
+                    "start – end" with an en-dash — whenever the source has
+                    a known end. Falls back to just `start` for ANC visits /
+                    follow-ups / telemedicine where the data has no end. */}
+                {selected.time
+                  ? selected.endTime
+                    ? ` · ${selected.time} – ${selected.endTime}`
+                    : ` · ${selected.time}`
+                  : ""}
               </p>
               <p className="text-xs uppercase tracking-wide text-gray-400">
                 {selected.type}

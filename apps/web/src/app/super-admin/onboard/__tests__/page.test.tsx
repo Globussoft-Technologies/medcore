@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Smoke tests for the super-admin onboarding wizard (gap #6 piece 2 of 4
-// + piece 2b wizard steps — WhatsApp (step 4) and HFR (step 5)).
+// + piece 2b wizard steps — WhatsApp (step 4), HFR (step 5), HPR
+// (step 6)).
 //
 // Covers:
 //   - Step 1 renders by default. Filling tenant fields + clicking Next
@@ -17,12 +18,24 @@
 //     deferred-config CTA.
 //   - Step 4 validation rejects malformed source phones inline.
 //   - Step 5 ("HFR") renders the facility fields, has a "Skip for now"
-//     button that completes the wizard, and a "Configure HFR" save
-//     action that stores a sessionStorage draft + surfaces the
+//     button that advances to step 6 (no longer completes the wizard
+//     since HPR was appended), and a "Configure HFR" save action that
+//     stores a sessionStorage draft + surfaces the
 //     /dashboard/settings/abdm CTA.
 //   - Step 5 validation rejects malformed HFR IDs inline.
-//   - Skip-for-now on step 5 bypasses without persisting.
-//   - 44px touch invariant on the primary wizard buttons (incl. step 5).
+//   - Skip-for-now on step 5 bypasses without persisting + advances to
+//     step 6.
+//   - Step 6 ("HPR") renders the professional-registry fields with
+//     prefilled doctor name, has a "Skip for now" button that
+//     completes the wizard, and a "Configure HPR" save action that
+//     stores a sessionStorage draft + surfaces the
+//     /dashboard/settings/abdm CTA.
+//   - Step 6 validation rejects malformed HPR IDs inline.
+//   - Skip-for-now on step 6 bypasses without persisting + completes
+//     the wizard.
+//   - Step indicator renders all 6 steps.
+//   - 44px touch invariant on the primary wizard buttons (incl. steps
+//     5 + 6).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -93,7 +106,15 @@ async function walkToStep5() {
   await waitFor(() => screen.getByTestId("onboarding-step-5"));
 }
 
-describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp & HFR steps)", () => {
+async function walkToStep6() {
+  await walkToStep5();
+  // Same skip-trick — the HFR skip button now advances to step 6
+  // (HPR) instead of completing the wizard.
+  fireEvent.click(screen.getByTestId("onboarding-hfr-skip"));
+  await waitFor(() => screen.getByTestId("onboarding-step-6"));
+}
+
+describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp, HFR & HPR steps)", () => {
   beforeEach(() => {
     routerPush.mockReset();
     (global.fetch as any) = vi.fn();
@@ -126,7 +147,7 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp 
     expect(screen.queryByTestId("onboarding-step-1")).not.toBeInTheDocument();
   });
 
-  it("renders a 5-step indicator (WhatsApp is the 4th, HFR is the 5th)", () => {
+  it("renders a 6-step indicator (WhatsApp is the 4th, HFR is the 5th, HPR is the 6th)", () => {
     render(<OnboardingWizardPage />);
     expect(
       screen.getByTestId("onboarding-step-indicator-1"),
@@ -149,6 +170,12 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp 
     expect(
       screen.getByTestId("onboarding-step-indicator-5"),
     ).toHaveTextContent(/hfr/i);
+    expect(
+      screen.getByTestId("onboarding-step-indicator-6"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("onboarding-step-indicator-6"),
+    ).toHaveTextContent(/hpr/i);
   });
 
   it("submits the full payload to /api/v1/tenant-onboarding and advances to step 4", async () => {
@@ -384,7 +411,7 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp 
     expect(screen.getByTestId("onboarding-hfr-save")).toBeInTheDocument();
   });
 
-  it("step 5 'Skip for now' bypasses without persisting a draft and completes the wizard", async () => {
+  it("step 5 'Skip for now' bypasses without persisting a draft and advances to step 6 (HPR)", async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
       status: 201,
@@ -396,9 +423,12 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp 
 
     fireEvent.click(screen.getByTestId("onboarding-hfr-skip"));
 
+    // Step 6 (HPR) is the new post-HFR step — the wizard no longer
+    // completes after skipping HFR.
     await waitFor(() => {
-      expect(screen.getByTestId("onboarding-success")).toBeInTheDocument();
+      expect(screen.getByTestId("onboarding-step-6")).toBeInTheDocument();
     });
+    expect(screen.queryByTestId("onboarding-success")).not.toBeInTheDocument();
     // No HFR draft written to sessionStorage when the user skips.
     expect(sessionStorage.getItem("medcore_hfr_draft:new-id")).toBeNull();
   });
@@ -486,6 +516,128 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp 
     expect(sessionStorage.getItem("medcore_hfr_draft:new-id")).toBeNull();
   });
 
+  it("step 6 renders HPR fields with doctor name prefilled from step-3 super-admin", async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => SUCCESS_RESPONSE,
+    });
+
+    render(<OnboardingWizardPage />);
+    await walkToStep6();
+
+    expect(screen.getByTestId("onboarding-step-6")).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-hpr-id")).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-hpr-doctorname")).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-hpr-specialty")).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-hpr-councilreg")).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-hpr-skip")).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-hpr-save")).toBeInTheDocument();
+
+    // Prefill convention: the doctor-name field defaults to the super-
+    // admin name typed in step 3 ("Admin User" in walkToStep4).
+    expect(
+      (screen.getByTestId("onboarding-hpr-doctorname") as HTMLInputElement)
+        .value,
+    ).toBe("Admin User");
+  });
+
+  it("step 6 'Skip for now' bypasses without persisting a draft and completes the wizard", async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => SUCCESS_RESPONSE,
+    });
+
+    render(<OnboardingWizardPage />);
+    await walkToStep6();
+
+    fireEvent.click(screen.getByTestId("onboarding-hpr-skip"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("onboarding-success")).toBeInTheDocument();
+    });
+    // No HPR draft written to sessionStorage when the user skips.
+    expect(sessionStorage.getItem("medcore_hpr_draft:new-id")).toBeNull();
+  });
+
+  it("step 6 saves an HPR draft to sessionStorage + surfaces the deferred-config CTA", async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => SUCCESS_RESPONSE,
+    });
+
+    render(<OnboardingWizardPage />);
+    await walkToStep6();
+
+    fireEvent.change(screen.getByTestId("onboarding-hpr-id"), {
+      target: { value: "9876543210" },
+    });
+    // Override the prefilled doctor name.
+    fireEvent.change(screen.getByTestId("onboarding-hpr-doctorname"), {
+      target: { value: "Dr. Asha Rao" },
+    });
+    fireEvent.change(screen.getByTestId("onboarding-hpr-specialty"), {
+      target: { value: "CARDIOLOGY" },
+    });
+    fireEvent.change(screen.getByTestId("onboarding-hpr-councilreg"), {
+      target: { value: "MMC-12345" },
+    });
+
+    fireEvent.click(screen.getByTestId("onboarding-hpr-save"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("onboarding-hpr-saved-banner"),
+      ).toBeInTheDocument();
+    });
+    const cta = screen.getByTestId("onboarding-hpr-cta");
+    expect(cta).toHaveAttribute("href", "/dashboard/settings/abdm");
+
+    const raw = sessionStorage.getItem("medcore_hpr_draft:new-id");
+    expect(raw).toBeTruthy();
+    const draft = JSON.parse(raw!);
+    expect(draft.hprId).toBe("9876543210");
+    expect(draft.doctorName).toBe("Dr. Asha Rao");
+    expect(draft.specialty).toBe("CARDIOLOGY");
+    expect(draft.councilRegNo).toBe("MMC-12345");
+  });
+
+  it("step 6 rejects a malformed HPR ID inline", async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => SUCCESS_RESPONSE,
+    });
+
+    render(<OnboardingWizardPage />);
+    await walkToStep6();
+
+    // Numeric-only filter on the input strips letters; a too-short
+    // numeric value exercises the validator.
+    fireEvent.change(screen.getByTestId("onboarding-hpr-id"), {
+      target: { value: "12345" },
+    });
+    fireEvent.change(screen.getByTestId("onboarding-hpr-councilreg"), {
+      target: { value: "MMC-1" },
+    });
+
+    fireEvent.click(screen.getByTestId("onboarding-hpr-save"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("onboarding-error-banner")).toHaveTextContent(
+        /hpr id must be 10-12 digits/i,
+      );
+    });
+    // The save-banner did NOT render.
+    expect(
+      screen.queryByTestId("onboarding-hpr-saved-banner"),
+    ).not.toBeInTheDocument();
+    // And no draft written.
+    expect(sessionStorage.getItem("medcore_hpr_draft:new-id")).toBeNull();
+  });
+
   it("primary wizard buttons honour the 44px touch invariant", async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
@@ -551,6 +703,18 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp 
     ).toBe("44px");
     expect(
       (screen.getByTestId("onboarding-hfr-save") as HTMLButtonElement).style
+        .minHeight,
+    ).toBe("44px");
+
+    // Advance to step 6 and check the HPR action buttons too.
+    fireEvent.click(screen.getByTestId("onboarding-hfr-skip"));
+    await waitFor(() => screen.getByTestId("onboarding-step-6"));
+    expect(
+      (screen.getByTestId("onboarding-hpr-skip") as HTMLButtonElement).style
+        .minHeight,
+    ).toBe("44px");
+    expect(
+      (screen.getByTestId("onboarding-hpr-save") as HTMLButtonElement).style
         .minHeight,
     ).toBe("44px");
   });

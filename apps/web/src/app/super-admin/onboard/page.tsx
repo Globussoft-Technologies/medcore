@@ -1,6 +1,6 @@
 // Super-admin onboarding wizard — Pearl ERP Stage 1 §8.1 (gap #6).
 //
-// 5-step wizard. Steps:
+// 6-step wizard. Steps:
 //   1. Tenant basics (name, subdomain, plan)
 //   2. First branch (name, code, address, city, state, pincode, phone)
 //   3. Super-admin user (name, email, phone, password)
@@ -18,20 +18,28 @@
 //      to /api/v1/abdm/* config (tenantId=null), so collect the HFR
 //      fields in sessionStorage keyed by tenant id; the first ADMIN
 //      finalizes at /dashboard/settings/abdm on first login.
+//   6. HPR (Health Professional Registry — ABDM M3) — piece 2b step 6.
+//      Same scope-cut as steps 4/5: collect the primary doctor's HPR
+//      identity fields (HPR ID + name + specialty + council reg) in
+//      sessionStorage keyed by tenant id; per-doctor HPR linking via
+//      the existing ABDM M1 flow is finalized by the new tenant's
+//      first ADMIN at /dashboard/settings/abdm on first login.
 //
-// The full PRD calls for 8 steps; HPR / Razorpay / post-creation
-// remain deferred to subsequent piece 2b ticks — each needs an
-// external integration the wizard would validate against.
+// The full PRD calls for 8 steps; Razorpay / post-creation remain
+// deferred to subsequent piece 2b ticks — each needs an external
+// integration the wizard would validate against.
 //
 // Auth: relies on the super-admin layout's client-side gate. No
 // additional check needed here.
 //
-// Test ids: onboarding-step-{1,2,3,4,5}, onboarding-back, onboarding-next,
+// Test ids: onboarding-step-{1,2,3,4,5,6}, onboarding-back, onboarding-next,
 // onboarding-submit, onboarding-error-banner, onboarding-wa-skip,
 // onboarding-wa-save, onboarding-wa-cta, onboarding-hfr-skip,
-// onboarding-hfr-save, onboarding-hfr-cta, plus per-field
+// onboarding-hfr-save, onboarding-hfr-cta, onboarding-hpr-skip,
+// onboarding-hpr-save, onboarding-hpr-cta, plus per-field
 // onboarding-tenant-name / onboarding-branch-name / onboarding-admin-*
-// / onboarding-wa-* / onboarding-hfr-* for the smoke component test.
+// / onboarding-wa-* / onboarding-hfr-* / onboarding-hpr-* for the smoke
+// component test.
 
 "use client";
 
@@ -40,12 +48,21 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 
 type Plan = "BASIC" | "PRO" | "ENTERPRISE";
-type Step = 1 | 2 | 3 | 4 | 5;
+type Step = 1 | 2 | 3 | 4 | 5 | 6;
 type FacilityType =
   | "HOSPITAL"
   | "CLINIC"
   | "DIAGNOSTIC_CENTER"
   | "PHARMACY"
+  | "OTHER";
+type Specialty =
+  | "GENERAL_PRACTICE"
+  | "CARDIOLOGY"
+  | "DERMATOLOGY"
+  | "PEDIATRICS"
+  | "ORTHOPEDICS"
+  | "GYNECOLOGY"
+  | "ENT"
   | "OTHER";
 
 // Indian states + UTs (36). Inlined to keep the wizard free of any
@@ -124,6 +141,12 @@ interface HFRStepState {
   state: string;
   district: string;
 }
+interface HPRStepState {
+  hprId: string;
+  doctorName: string;
+  specialty: Specialty;
+  councilRegNo: string;
+}
 
 // Mirror the server-side regex (kept in sync with
 // packages/shared/src/validation/tenant-onboarding.ts). We duplicate
@@ -159,6 +182,10 @@ const E164_REGEX = /^\+\d{7,15}$/;
 // rejecting future-format ids; the upstream registry is the source of
 // truth — the wizard just stashes a draft.
 const HFR_ID_REGEX = /^\d{8,14}$/;
+// HPR IDs as issued by doctor.abdm.gov.in are numeric, typically 10-12
+// digits. Mirror the HFR rule (8-14 numeric) for the same future-proof
+// reason — upstream registry is the source of truth.
+const HPR_ID_REGEX = /^\d{8,14}$/;
 
 function validateTenantStep(s: TenantStepState): string | null {
   if (s.name.trim().length < 2) return "Hospital name must be at least 2 characters";
@@ -211,6 +238,21 @@ function validateHFRStep(s: HFRStepState): string | null {
   return null;
 }
 
+// Validate HPR step only if the operator opted to save (not skip).
+// HPR ID + doctor name + specialty + council reg are required together;
+// the wizard captures only the *primary* doctor's identity — per-doctor
+// HPR linking happens later via the existing ABDM M1 flow at
+// /dashboard/settings/abdm.
+function validateHPRStep(s: HPRStepState): string | null {
+  if (!HPR_ID_REGEX.test(s.hprId.trim()))
+    return "HPR ID must be 10-12 digits (from doctor.abdm.gov.in)";
+  if (s.doctorName.trim().length < 2)
+    return "Doctor name must be at least 2 characters";
+  if (s.councilRegNo.trim().length < 2)
+    return "Council registration number is required";
+  return null;
+}
+
 export default function OnboardingWizardPage() {
   const router = useRouter();
 
@@ -233,6 +275,7 @@ export default function OnboardingWizardPage() {
   } | null>(null);
   const [waSaved, setWaSaved] = useState(false);
   const [hfrSaved, setHfrSaved] = useState(false);
+  const [hprSaved, setHprSaved] = useState(false);
 
   const [tenantStep, setTenantStep] = useState<TenantStepState>({
     name: "",
@@ -268,6 +311,12 @@ export default function OnboardingWizardPage() {
     state: "",
     district: "",
   });
+  const [hprStep, setHprStep] = useState<HPRStepState>({
+    hprId: "",
+    doctorName: "",
+    specialty: "GENERAL_PRACTICE",
+    councilRegNo: "",
+  });
 
   const tenantError = useMemo(
     () => (step === 1 && (tenantStep.name || tenantStep.subdomain) ? validateTenantStep(tenantStep) : null),
@@ -288,7 +337,7 @@ export default function OnboardingWizardPage() {
   function goBack() {
     setErrorBanner(null);
     setServerFieldError(null);
-    // Don't allow stepping back from 4 or 5 since the tenant has
+    // Don't allow stepping back from 4 / 5 / 6 since the tenant has
     // already been created at that point. The operator dismisses
     // post-create steps via their respective "Skip for now" / "Save"
     // buttons.
@@ -517,13 +566,77 @@ export default function OnboardingWizardPage() {
   }
 
   function skipHFR() {
+    // Advance to step 6 (HPR) — wizard now has a further optional
+    // post-create step for the Health Professional Registry. The
+    // wizard only completes after the HPR step's skip / finish.
+    setErrorBanner(null);
+    prefillHprDoctorName();
+    setStep(6);
+  }
+
+  function finishAfterHfrSave() {
+    setErrorBanner(null);
+    prefillHprDoctorName();
+    setStep(6);
+  }
+
+  // Prefill the HPR step's doctor-name field from the step-3 super-
+  // admin name, but only if the user hasn't already typed something.
+  // Called on transition into step 6 from either the HFR skip or the
+  // HFR finish path.
+  function prefillHprDoctorName() {
+    if (!hprStep.doctorName && adminStep.name.trim().length > 0) {
+      setHprStep((prev) => ({ ...prev, doctorName: adminStep.name.trim() }));
+    }
+  }
+
+  // Step 6 — HPR (Health Professional Registry, ABDM M3). Mirrors the
+  // HFR step's "stash a draft, ADMIN finalizes on first login" shape
+  // because the super-admin caller has tenantId=null and cannot write
+  // to per-tenant ABDM config rows. Draft is keyed by tenant id
+  // exactly like the WhatsApp + HFR drafts (same
+  // medcore_<area>_draft:<id> convention). Per-doctor HPR linking
+  // continues to flow through the existing ABDM M1 surface at
+  // /dashboard/settings/abdm; this step just captures the *primary*
+  // doctor's HPR identity as a deferred-config hint.
+  function saveHPR() {
+    setErrorBanner(null);
+    const e = validateHPRStep(hprStep);
+    if (e) {
+      setErrorBanner(e);
+      return;
+    }
+    if (!createdTenant) {
+      setErrorBanner("Tenant context missing — please retry from step 1");
+      return;
+    }
+    try {
+      const draft = {
+        hprId: hprStep.hprId.trim(),
+        doctorName: hprStep.doctorName.trim(),
+        specialty: hprStep.specialty,
+        councilRegNo: hprStep.councilRegNo.trim(),
+      };
+      sessionStorage.setItem(
+        `medcore_hpr_draft:${createdTenant.id}`,
+        JSON.stringify(draft),
+      );
+    } catch {
+      // SessionStorage can throw in some private-browse modes.
+      // Continue anyway — the CTA still points the operator at the
+      // settings page; the draft hint is best-effort.
+    }
+    setHprSaved(true);
+  }
+
+  function skipHPR() {
     setSuccess(true);
     setTimeout(() => {
       router.push("/super-admin");
     }, 1200);
   }
 
-  function finishAfterHfrSave() {
+  function finishAfterHprSave() {
     setSuccess(true);
     setTimeout(() => {
       router.push("/super-admin");
@@ -560,9 +673,9 @@ export default function OnboardingWizardPage() {
           Onboard new tenant
         </h1>
         <p className="text-sm text-slate-600">
-          5-step wizard. Steps 1-3 create the tenant, its first branch, and
-          the super-admin user atomically. Steps 4 (WhatsApp) and 5 (HFR)
-          are optional — HPR / Razorpay / post-creation steps land in
+          6-step wizard. Steps 1-3 create the tenant, its first branch, and
+          the super-admin user atomically. Steps 4 (WhatsApp), 5 (HFR), and
+          6 (HPR) are optional — Razorpay / post-creation steps land in
           subsequent piece 2b ticks.
         </p>
       </header>
@@ -573,7 +686,7 @@ export default function OnboardingWizardPage() {
         data-testid="onboarding-step-indicator"
         aria-label="Onboarding progress"
       >
-        {([1, 2, 3, 4, 5] as const).map((n) => (
+        {([1, 2, 3, 4, 5, 6] as const).map((n) => (
           <li
             key={n}
             data-testid={`onboarding-step-indicator-${n}`}
@@ -596,7 +709,9 @@ export default function OnboardingWizardPage() {
                     ? "Super-admin"
                     : n === 4
                       ? "WhatsApp"
-                      : "HFR"}
+                      : n === 5
+                        ? "HFR"
+                        : "HPR"}
             </span>
           </li>
         ))}
@@ -1135,12 +1250,139 @@ export default function OnboardingWizardPage() {
         </fieldset>
       )}
 
+      {step === 6 && (
+        <fieldset
+          data-testid="onboarding-step-6"
+          className="space-y-4 rounded-lg border border-slate-200 bg-white p-6"
+        >
+          <legend className="sr-only">HPR (Health Professional Registry)</legend>
+          <h2 className="text-lg font-semibold">
+            HPR (Health Professional Registry)
+          </h2>
+          <p className="text-xs text-slate-500">
+            Optional — ABDM M3 captures the primary doctor&apos;s HPR
+            identity. Can be configured later from Settings &rarr; ABDM. The
+            new tenant&apos;s ADMIN will finalize per-doctor HPR linking on
+            first login.
+          </p>
+
+          {hprSaved && createdTenant ? (
+            <div
+              data-testid="onboarding-hpr-saved-banner"
+              className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+              role="status"
+            >
+              <p className="font-medium">
+                HPR draft saved for {createdTenant.name}
+                {hprStep.hprId
+                  ? ` (HPR ID ${hprStep.hprId.trim()})`
+                  : ""}
+                .
+              </p>
+              <p className="mt-1 text-xs">
+                After tenant onboarding, the first ADMIN will finalize
+                per-doctor HPR linking at{" "}
+                <a
+                  data-testid="onboarding-hpr-cta"
+                  href="/dashboard/settings/abdm"
+                  className="font-medium underline"
+                >
+                  /dashboard/settings/abdm
+                </a>
+                .
+              </p>
+            </div>
+          ) : (
+            <>
+              <Field
+                label="Primary Doctor's HPR ID"
+                hint="10-12 digit ID from doctor.abdm.gov.in."
+              >
+                <input
+                  data-testid="onboarding-hpr-id"
+                  value={hprStep.hprId}
+                  onChange={(e) =>
+                    setHprStep({
+                      ...hprStep,
+                      hprId: e.target.value.replace(/[^0-9]/g, ""),
+                    })
+                  }
+                  inputMode="numeric"
+                  maxLength={14}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="off"
+                />
+              </Field>
+
+              <Field
+                label="Primary Doctor's Name"
+                hint="Defaults to the step-3 super-admin name; override if a different doctor is the HPR holder."
+              >
+                <input
+                  data-testid="onboarding-hpr-doctorname"
+                  value={hprStep.doctorName}
+                  onChange={(e) =>
+                    setHprStep({ ...hprStep, doctorName: e.target.value })
+                  }
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="name"
+                />
+              </Field>
+
+              <Field label="Specialty">
+                <select
+                  data-testid="onboarding-hpr-specialty"
+                  value={hprStep.specialty}
+                  onChange={(e) =>
+                    setHprStep({
+                      ...hprStep,
+                      specialty: e.target.value as Specialty,
+                    })
+                  }
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                >
+                  <option value="GENERAL_PRACTICE">GENERAL_PRACTICE</option>
+                  <option value="CARDIOLOGY">CARDIOLOGY</option>
+                  <option value="DERMATOLOGY">DERMATOLOGY</option>
+                  <option value="PEDIATRICS">PEDIATRICS</option>
+                  <option value="ORTHOPEDICS">ORTHOPEDICS</option>
+                  <option value="GYNECOLOGY">GYNECOLOGY</option>
+                  <option value="ENT">ENT</option>
+                  <option value="OTHER">OTHER</option>
+                </select>
+              </Field>
+
+              <Field
+                label="Council Registration No."
+                hint='State medical council registration — e.g. "MMC-12345" for Maharashtra Medical Council.'
+              >
+                <input
+                  data-testid="onboarding-hpr-councilreg"
+                  value={hprStep.councilRegNo}
+                  onChange={(e) =>
+                    setHprStep({ ...hprStep, councilRegNo: e.target.value })
+                  }
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="off"
+                />
+              </Field>
+            </>
+          )}
+        </fieldset>
+      )}
+
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
           data-testid="onboarding-back"
           onClick={goBack}
-          disabled={step === 1 || step === 4 || step === 5 || submitting}
+          disabled={
+            step === 1 ||
+            step === 4 ||
+            step === 5 ||
+            step === 6 ||
+            submitting
+          }
           className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           style={{ minHeight: 44 }}
         >
@@ -1237,6 +1479,39 @@ export default function OnboardingWizardPage() {
             type="button"
             data-testid="onboarding-hfr-finish"
             onClick={finishAfterHfrSave}
+            className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+            style={{ minHeight: 44 }}
+          >
+            Continue
+          </button>
+        )}
+        {step === 6 && !hprSaved && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="onboarding-hpr-skip"
+              onClick={skipHPR}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              style={{ minHeight: 44 }}
+            >
+              Skip for now
+            </button>
+            <button
+              type="button"
+              data-testid="onboarding-hpr-save"
+              onClick={saveHPR}
+              className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+              style={{ minHeight: 44 }}
+            >
+              Configure HPR
+            </button>
+          </div>
+        )}
+        {step === 6 && hprSaved && (
+          <button
+            type="button"
+            data-testid="onboarding-hpr-finish"
+            onClick={finishAfterHprSave}
             className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
             style={{ minHeight: 44 }}
           >

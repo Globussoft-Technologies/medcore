@@ -27,6 +27,7 @@ import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
+import { Skeleton } from "@/components/Skeleton";
 
 type Plan = "BASIC" | "PRO" | "ENTERPRISE";
 
@@ -60,6 +61,26 @@ interface TenantDetail extends Tenant {
   admins: TenantAdmin[];
   config: Record<string, string>;
 }
+
+/**
+ * Pearl §8.1 row 204 — per-tenant KPI rollup shape sourced from
+ * `GET /api/v1/super-admin/metrics`. Capped server-side at the top-20
+ * tenants by userCount, so any tenant beyond that bucket renders `—`
+ * with a tooltip rather than blocking the page.
+ */
+interface PerTenantMetricsRow {
+  tenantId: string;
+  userCount: number;
+  patientCount: number;
+  appointmentsLast7d: number;
+  invoicesLast30d: number;
+}
+
+type MetricsState =
+  | { phase: "idle" }
+  | { phase: "loading" }
+  | { phase: "loaded"; byTenantId: Map<string, PerTenantMetricsRow> }
+  | { phase: "failed" };
 
 const RESERVED = new Set([
   "admin",
@@ -121,6 +142,11 @@ export default function TenantsAdminPage() {
   const [detailOpen, setDetailOpen] = useState<string | null>(null);
   const [detail, setDetail] = useState<TenantDetail | null>(null);
 
+  // Pearl §8.1 row 204 — per-tenant KPI rollup (super-admin metrics).
+  // Fetched once on mount in parallel with the tenants list; failure
+  // degrades to dashes rather than blocking the list.
+  const [metrics, setMetrics] = useState<MetricsState>({ phase: "idle" });
+
   useEffect(() => {
     if (user && user.role !== "ADMIN") {
       router.push("/dashboard");
@@ -159,6 +185,41 @@ export default function TenantsAdminPage() {
   useEffect(() => {
     if (user?.role === "ADMIN") load();
   }, [load, user]);
+
+  // Pearl §8.1 row 204 — load /super-admin/metrics once for the ADMIN
+  // session and index `perTenant` by tenantId. The API returns 403 for
+  // anything but a super-admin (tenant-less ADMIN OR ADMIN on the
+  // seeded "default" tenant); on any error we degrade the KPI cells to
+  // dashes rather than failing the whole page.
+  //
+  // Dep is `user?.role` (primitive) not `user` — the auth store
+  // returns a fresh user-object reference on every render, which would
+  // cause this effect to re-fire and loop with setMetrics.
+  const userRole = user?.role;
+  useEffect(() => {
+    if (userRole !== "ADMIN") return;
+    let cancelled = false;
+    setMetrics({ phase: "loading" });
+    (async () => {
+      try {
+        const res = await api.get<{
+          data: { perTenant: PerTenantMetricsRow[] };
+        }>("/super-admin/metrics");
+        if (cancelled) return;
+        const byTenantId = new Map<string, PerTenantMetricsRow>();
+        for (const row of res.data.perTenant ?? []) {
+          byTenantId.set(row.tenantId, row);
+        }
+        setMetrics({ phase: "loaded", byTenantId });
+      } catch {
+        if (cancelled) return;
+        setMetrics({ phase: "failed" });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userRole]);
 
   const loadDetail = useCallback(async (id: string) => {
     try {
@@ -294,6 +355,9 @@ export default function TenantsAdminPage() {
                   {t("tenants.col.patients", "Patients")}
                 </th>
                 <th className="px-4 py-3">
+                  {t("tenants.col.appts7d", "Appts 7d")}
+                </th>
+                <th className="px-4 py-3">
                   {t("tenants.col.invoices30", "Inv / 30d")}
                 </th>
                 <th className="px-4 py-3">
@@ -321,15 +385,37 @@ export default function TenantsAdminPage() {
                       {tt.plan}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-xs">
-                    {tt.stats?.userCount ?? "—"}
-                  </td>
-                  <td className="px-4 py-3 text-xs">
-                    {tt.stats?.patientCount ?? "—"}
-                  </td>
-                  <td className="px-4 py-3 text-xs">
-                    {tt.stats?.invoicesLast30Days ?? "—"}
-                  </td>
+                  <KpiCell
+                    metrics={metrics}
+                    tenantId={tt.id}
+                    field="userCount"
+                    fallback={tt.stats?.userCount}
+                    testid="tenant-kpi-users"
+                    tenantSubdomain={tt.subdomain}
+                  />
+                  <KpiCell
+                    metrics={metrics}
+                    tenantId={tt.id}
+                    field="patientCount"
+                    fallback={tt.stats?.patientCount}
+                    testid="tenant-kpi-patients"
+                    tenantSubdomain={tt.subdomain}
+                  />
+                  <KpiCell
+                    metrics={metrics}
+                    tenantId={tt.id}
+                    field="appointmentsLast7d"
+                    testid="tenant-kpi-appts7d"
+                    tenantSubdomain={tt.subdomain}
+                  />
+                  <KpiCell
+                    metrics={metrics}
+                    tenantId={tt.id}
+                    field="invoicesLast30d"
+                    fallback={tt.stats?.invoicesLast30Days}
+                    testid="tenant-kpi-invoices30d"
+                    tenantSubdomain={tt.subdomain}
+                  />
                   <td className="px-4 py-3 text-xs">
                     {formatBytes(tt.stats?.storageBytes ?? 0)}
                   </td>
@@ -390,6 +476,74 @@ export default function TenantsAdminPage() {
         />
       )}
     </div>
+  );
+}
+
+// ─── Per-tenant KPI Cell (Pearl §8.1 row 204) ────────────────────────
+
+/**
+ * Renders one KPI cell sourced from the super-admin metrics rollup.
+ *   - phase=loading → SkeletonText placeholder
+ *   - phase=loaded + tenantId in top-20 map → KPI value
+ *   - phase=loaded + NOT in top-20 → em-dash with explanatory tooltip
+ *     (or per-tenant `stats` fallback when one is supplied — used for
+ *     userCount/patientCount/invoicesLast30Days where the row-level
+ *     stats endpoint already gave us a number)
+ *   - phase=failed → em-dash (silent degrade; list still renders)
+ */
+function KpiCell({
+  metrics,
+  tenantId,
+  field,
+  fallback,
+  testid,
+  tenantSubdomain,
+}: {
+  metrics: MetricsState;
+  tenantId: string;
+  field: keyof Omit<PerTenantMetricsRow, "tenantId">;
+  fallback?: number;
+  testid: string;
+  tenantSubdomain: string;
+}) {
+  const dataTestId = `${testid}-${tenantSubdomain}`;
+  if (metrics.phase === "loading" || metrics.phase === "idle") {
+    return (
+      <td className="px-4 py-3 text-xs" data-testid={dataTestId}>
+        <Skeleton variant="text" width="40px" height={14} />
+      </td>
+    );
+  }
+  if (metrics.phase === "failed") {
+    return (
+      <td className="px-4 py-3 text-xs" data-testid={dataTestId}>
+        —
+      </td>
+    );
+  }
+  const row = metrics.byTenantId.get(tenantId);
+  if (row) {
+    return (
+      <td className="px-4 py-3 text-xs" data-testid={dataTestId}>
+        {row[field]}
+      </td>
+    );
+  }
+  if (fallback !== undefined) {
+    return (
+      <td className="px-4 py-3 text-xs" data-testid={dataTestId}>
+        {fallback}
+      </td>
+    );
+  }
+  return (
+    <td
+      className="px-4 py-3 text-xs"
+      data-testid={dataTestId}
+      title="Metrics shown for top-20 tenants by user count"
+    >
+      —
+    </td>
   );
 }
 

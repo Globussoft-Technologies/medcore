@@ -1,30 +1,30 @@
-name: Lighthouse budgets (mobile + desktop)
+name: Lighthouse budgets (PR — mobile + desktop)
 
-# Closes Pearl SOW §6.2 NFR: Lighthouse mobile Performance >= 85 and
-# Accessibility >= 95 on the 4 anchor patient PWA routes. Also closes
-# Pearl SOW §7.3 (PRD M6) NFR: Lighthouse desktop Performance and
+# Closes Pearl SOW §7.3 (PRD M6) NFR: Lighthouse desktop Performance and
 # Accessibility >= 90 on the staff PWA shell (Dashboard, OPD Consult
-# scribe, Rx Writer prescriptions). Fails the build (and therefore
-# blocks merge to main on PRs that touch apps/web/**) if either budget
-# regresses. Budgets live in `.lighthouserc.json` (mobile, patient
-# routes) and `.lighthouserc.desktop.json` (desktop, staff routes) at
-# the repo root; this workflow only orchestrates the build + serve +
-# measure dance and runs LHCI autorun twice — once per config — so a
-# regression in either form factor turns the job red.
+# scribe, Rx Writer prescriptions). Also re-runs the mobile patient PWA
+# budget (Perf >= 85, A11y >= 95 — same `.lighthouserc.json`) on PRs so
+# regressions surface pre-merge.
+#
+# **PR-only as of 2026-05-24 (Pearl decision doc #7).** The on-push-to-main
+# trigger was moved into `test.yml` as the `lhci` job — that pathway is
+# the deploy gate for the PRD §6.2 mobile budget. Keeping the desktop
+# pass here (PR-only) avoids doubling the deploy critical path; staff
+# Perf/A11y >=90 is the M6 commitment, not the M5 hard-gate.
+#
+# Fails the build (and therefore blocks merge to main on PRs that touch
+# apps/web/**) if either budget regresses. Budgets live in
+# `.lighthouserc.json` (mobile, patient routes) and
+# `.lighthouserc.desktop.json` (desktop, staff routes) at the repo root;
+# this workflow only orchestrates the build + serve + measure dance and
+# runs LHCI autorun twice — once per config — so a regression in either
+# form factor turns the job red.
 #
 # Cost shape: ~12-15 min on ubuntu-latest (one shared build, then two
 # autorun passes). Scoped to PRs that touch apps/web/** plus either
-# LHCI config or this workflow itself, so most pushes do not pay the
-# cost.
+# LHCI config or this workflow itself, so most PRs do not pay the cost.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "apps/web/**"
-      - ".lighthouserc.json"
-      - ".lighthouserc.desktop.json"
-      - ".github/workflows/lighthouse.yml"
   pull_request:
     paths:
       - "apps/web/**"

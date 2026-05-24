@@ -163,7 +163,7 @@ describe("Patient dashboard — gap #5 piece 3a", () => {
     });
     expect(
       screen.getByTestId("patient-dashboard-book-cta"),
-    ).toHaveAttribute("href", "/patient/appointments/book");
+    ).toHaveAttribute("href", "/patient/book");
     expect(
       screen.getByTestId("patient-dashboard-prescriptions-empty"),
     ).toBeInTheDocument();

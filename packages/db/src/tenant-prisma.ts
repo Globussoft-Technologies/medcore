@@ -221,6 +221,7 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   "OperatingTheater",
   "AnesthesiaRecord",
   "PostOpObservation",
+  "Implant",
   "Supplier",
   "PurchaseOrder",
   "Expense",

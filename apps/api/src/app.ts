@@ -70,6 +70,9 @@ import { referralRouter } from "./routes/referrals";
 // route; this router is just CRUD on the snapshot table.
 import { referralCommissionsRouter } from "./routes/referral-commissions";
 import { surgeryRouter } from "./routes/surgery";
+// Pearl §S2.2 row 92 — Implant register (traceability/recall lookup).
+// Gated by `requireFeature("ot")` inside the router; ADMIN/DOCTOR/NURSE.
+import { implantsRouter } from "./routes/implants";
 import { shiftRouter } from "./routes/shifts";
 import { leaveRouter } from "./routes/leaves";
 import { packageRouter } from "./routes/packages";
@@ -383,6 +386,7 @@ export function buildApp() {
   // referrals router (it isn't on referralRouter today but staying defensive).
   app.use("/api/v1/referral-commissions", referralCommissionsRouter);
   app.use("/api/v1/surgery", surgeryRouter);
+  app.use("/api/v1/implants", implantsRouter);
   app.use("/api/v1/shifts", shiftRouter);
   app.use("/api/v1/leaves", leaveRouter);
   app.use("/api/v1/packages", packageRouter);

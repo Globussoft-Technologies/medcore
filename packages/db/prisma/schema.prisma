@@ -17,9 +17,9 @@ enum Role {
   PATIENT
   PHARMACIST
   LAB_TECH
-  BILLING                    // finance staff — TDS, no-show, commission, lead-funnel reports
-  PLATFORM_OPERATOR          // Onviqa platform staff; tenantId=null; bypasses tenant-scope filter
-  PLATFORM_BILLING_OPERATOR  // Onviqa finance staff; tenantId=null; billing-only platform actions
+  BILLING // finance staff — TDS, no-show, commission, lead-funnel reports
+  PLATFORM_OPERATOR // Onviqa platform staff; tenantId=null; bypasses tenant-scope filter
+  PLATFORM_BILLING_OPERATOR // Onviqa finance staff; tenantId=null; billing-only platform actions
 }
 
 enum Gender {
@@ -683,6 +683,7 @@ model Tenant {
   operatingTheaters          OperatingTheater[]
   anesthesiaRecords          AnesthesiaRecord[]
   postOpObservations         PostOpObservation[]
+  implants                   Implant[]
   suppliers                  Supplier[]
   purchaseOrders             PurchaseOrder[]
   expenses                   Expense[]
@@ -1273,6 +1274,9 @@ model User {
   userInvitesSent     UserInvite[] @relation("UserInviteInviter")
   userInvitesAccepted UserInvite[] @relation("UserInviteAcceptedUser")
 
+  // Pearl §S2.2 row 92 (closure 2026-05-25) — implants this user registered.
+  implantsRegistered Implant[] @relation("ImplantRegisteredBy")
+
   @@index([email])
   @@index([phone])
   @@index([role])
@@ -1541,7 +1545,7 @@ model Patient {
   // separate from the freetext address column. Optional; legacy patients
   // remain valid with city=null (filter only matches non-null rows when
   // a city filter is active).
-  city  String?
+  city String?
 
   // Pearl §5.1 audience-builder opt-in filter for WhatsApp campaigns.
   // Default false (must explicitly opt in to be eligible for marketing
@@ -3172,6 +3176,7 @@ model Surgery {
 
   anesthesiaRecord   AnesthesiaRecord?
   postOpObservations PostOpObservation[]
+  implants           Implant[]
 
   @@index([patientId])
   @@index([surgeonId])
@@ -3179,6 +3184,40 @@ model Surgery {
   @@index([status])
   @@index([tenantId])
   @@map("surgeries")
+}
+
+// Pearl §S2.2 row 92 — Implant register for OT module traceability.
+// One row per implant USED in a Surgery. Captures lot/serial/expiry per
+// regulatory (CDSCO) traceability + DPDP-aligned audit requirements.
+// Stage-2 only; gated by the `ot` feature flag at the route layer.
+//
+// Common lookups:
+//   - per-surgery view  → (@@index surgeryId)
+//   - recall sweep      → (@@index lotNumber)  — manufacturer recall by lot
+model Implant {
+  id           String    @id @default(uuid())
+  tenantId     String?
+  tenant       Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  surgeryId    String
+  surgery      Surgery   @relation(fields: [surgeryId], references: [id], onDelete: Cascade)
+  category     String // "ORTHOPAEDIC" | "CARDIAC" | "OPHTHALMIC" | "DENTAL" | "OTHER"
+  manufacturer String
+  productName  String
+  modelNumber  String?
+  lotNumber    String
+  serialNumber String?
+  expiryDate   DateTime?
+  implantedAt  DateTime  @default(now())
+  notes        String?
+  createdById  String
+  createdBy    User      @relation("ImplantRegisteredBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([surgeryId])
+  @@index([lotNumber])
+  @@map("implants")
 }
 
 model AnesthesiaRecord {

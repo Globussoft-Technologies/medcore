@@ -26,7 +26,12 @@ vi.mock("@/lib/api", () => ({
 import PatientDashboardPage from "../page";
 
 const HOUR = 60 * 60 * 1000;
-const FUTURE = new Date(Date.now() + 24 * HOUR).toISOString();
+// 48h ahead (not 24h) so the UTC YYYY-MM-DD slice is never equal to today's
+// IST calendar day. With +24h, runs after 18:30 UTC drift such that
+// `FUTURE.slice(0,10)` lands on the same day as `ymdInIST(new Date())`,
+// flipping the page's `isTodayInIST(FUTURE)` branch and rendering the
+// active "I've arrived" button instead of the disabled fallback.
+const FUTURE = new Date(Date.now() + 48 * HOUR).toISOString();
 // Pearl §6.3 row 340 — today in IST as YYYY-MM-DD-anchored ISO so the
 // dashboard's `isTodayInIST` slice picks up the right calendar day no
 // matter what timezone the test host runs in.

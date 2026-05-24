@@ -38,6 +38,16 @@ The user-at-keyboard answered all open product questions. Locked answers below; 
 - **Currency:** INR only for Stage 1. Store prices in paise (`Int`) following the existing `Invoice` convention.
 - **Billing cycle:** Monthly. Invoice generated on the 1st of each month for the previous month's usage. Cron job in `apps/api/src/services/`.
 - **Invoice number format:** `PI-YYYYMM-NNNN` (e.g. `PI-202605-0001`), monotonic per-month sequence across all tenants. `PI` = Platform Invoice (vs `INV-*` for the existing hospital-to-patient `Invoice`).
+- **Plan → feature mapping** (seeded into a `Plan` lookup table or constants module — agent picks the cleaner spot):
+  - **STARTER**: OPD only. Feature flags enabled: `opd`, `appointments`, `prescriptions`, `opd_billing`, `patient_pwa`, `crm_basic`, `abha_link`. Stage-1 minimum for Pearl pilot.
+  - **GROWTH**: Starter + `lab`, `radiology`, `abdm_m1`. Adds the diagnostic surfaces hospitals usually buy together.
+  - **ENTERPRISE**: Growth + `ipd`, `ot`, `abdm_m2`, `ai_scribe`. Adds the heavy clinical surfaces + advanced AI.
+  - Use the existing `Tenant.featureFlags Json?` field (shipped 2026-05-21 via `d6a5370`); plan-tier change writes the resolved feature-flag set into `Tenant.featureFlags`. `requireFeature(key)` middleware already exists.
+- **Placeholder prices** (real prices can be updated via DB seed post-launch — these unblock the agent):
+  - STARTER: ₹4,999/mo (`499900` paise)
+  - GROWTH: ₹14,999/mo (`1499900` paise)
+  - ENTERPRISE: ₹39,999/mo (`3999900` paise) — sales team can override per-tenant via `customPriceMonthlyInPaise`.
+- **PLATFORM_OPERATOR / PLATFORM_BILLING_OPERATOR tenancy:** Tenant-less. `User.tenantId = null` for these two roles. JWT carries `tenantId: null` + `role: PLATFORM_OPERATOR` (or `PLATFORM_BILLING_OPERATOR`). The existing `tenantContextMiddleware` in `@medcore/db` MUST be extended with a role-allow-list that short-circuits tenant-scope filtering for these two roles. Add the allow-list as a small named export so it's discoverable by future platform-role additions. NO `__platform__` magic tenant — keep the schema clean.
 
 ### 2. Book Appointment patient PWA UX (row 161) — DECIDED
 

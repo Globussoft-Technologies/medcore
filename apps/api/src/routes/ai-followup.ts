@@ -8,11 +8,16 @@ import { Role, NotificationType } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
+import { requireFeature } from "../middleware/feature-flag";
 import { suggestFollowUp } from "../services/ai/follow-up";
 import { sendNotification } from "../services/notification";
 
 const router = Router();
 router.use(authenticate);
+// Pearl §6 + §18 (gap item #9 — audit fix-up #3, 2026-05-25): AI follow-up
+// sequencing is a Stage-2 paid feature. Pearl-branded tenants set
+// `aiFollowup=false` and every follow-up route 404s before authorize runs.
+router.use(requireFeature("aiFollowup"));
 // #511 audit (file-level, 2026-05-09): /suggest/:consultationId is staff-only
 // (`authorize(Role.DOCTOR, Role.ADMIN)`). /:consultationId/book includes
 // Role.PATIENT but loads the consultation's `appointment.patientId` and

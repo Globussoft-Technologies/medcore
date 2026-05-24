@@ -103,7 +103,7 @@ The matrix uses Stage-1 §10 row numbers as the canonical "S2 module" anchor. St
 | QC + Levey-Jennings + Westgard rules | ✅ Code present (Stage-1 visible per §10 carve-out for lab QC) | [`/dashboard/lab/qc/`](../apps/web/src/app/dashboard/lab/qc/) | — |
 | Sample collection + barcode | ✅ Code present (Stage-1 visible) | `routes/lab.ts` sample sub-routes | — |
 
-**Productisation gap for §S2.3**: Wire `requireFeature("hl7Inbound")` on `routes/hl7v2.ts` (per grep, NOT wired today) + provision per-tenant HL7 listener URL (operator-side infra). The `hl7Inbound` Stage-1 hiding may already be implicit if the route isn't surfaced to PEARL ENTERPRISE Pearl tenant.
+**Productisation gap for §S2.3**: ~~Wire `requireFeature("hl7Inbound")` on `routes/hl7v2.ts`~~ **Closed 2026-05-25 (verification-audit fix-up #3 tick)** — `requireFeature("hl7Inbound")` now wired at top of `routes/hl7v2.ts` right after `authenticate`; STARTER-tier Pearl tenants 404 on every `/api/v1/hl7v2/*` endpoint. Per-tenant HL7 listener URL provisioning + per-analyser-vendor message-template seed remain Stage-2 productisation work. Coverage at `apps/api/src/test/integration/feature-flag-coverage.test.ts`.
 
 ### §S2.4 Telemedicine + video
 
@@ -186,7 +186,7 @@ The matrix uses Stage-1 §10 row numbers as the canonical "S2 module" anchor. St
 | Expense claims | 🟡 Productise | `:3422` `Expense`; [`routes/expenses.ts`](../apps/api/src/routes/expenses.ts); [`/dashboard/expenses/`](../apps/web/src/app/dashboard/expenses/) | Sits under HRMS productisation. |
 | Expense budgets | 🟡 Productise | `:4406` `ExpenseBudget`; [`/dashboard/budgets/`](../apps/web/src/app/dashboard/budgets/) | — |
 
-**Productisation gap for §S2.10**: Wire `requireFeature("hrmsPayroll")` on `routes/{leaves,hr-ops,expenses}.ts` + decide bundling (`hrmsPayroll` is one flag covering all payroll surfaces today — split or keep bundled?).
+**Productisation gap for §S2.10**: ~~Wire `requireFeature("hrmsPayroll")` on `routes/{leaves,hr-ops,expenses}.ts`~~ **Closed 2026-05-25 (verification-audit fix-up #3 tick)** — `requireFeature("hrmsPayroll")` now wired at top of all three routers (`hr-ops.ts`, `leaves.ts`, `expenses.ts`); STARTER-tier Pearl tenants 404 on every HRMS/payroll surface. Bundling decision (split vs keep as one flag) deferred — current shape keeps the three routes coupled, matching the PRD §S2.10 "HRMS bundle" framing; if Stage-2 plan-tier mapping wants finer SKU control, split into `hrmsLeaves` + `hrmsExpenses` + `hrmsPayroll` then. Coverage at `apps/api/src/test/integration/feature-flag-coverage.test.ts`.
 
 ### §S2.11 Asset / biomed tracker
 

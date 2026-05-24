@@ -11,9 +11,14 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { requireFeature } from "../middleware/feature-flag";
 
 const router = Router();
 router.use(authenticate);
+// Pearl §6 + §18 (gap item #9 — audit fix-up #3, 2026-05-25): expense
+// tracking is part of the HRMS/payroll Stage-2 bundle. Pearl-branded
+// tenants set `hrmsPayroll=false` and every expense route 404s before authorize.
+router.use(requireFeature("hrmsPayroll"));
 
 // GET /api/v1/expenses — list with filters
 // RBAC (issue #89 + #98): DOCTOR + RECEPTION must NOT see expenses

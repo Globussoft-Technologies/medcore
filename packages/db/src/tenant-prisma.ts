@@ -29,7 +29,44 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { Role } from "@prisma/client";
 import { prisma } from "./client";
+
+// ── Platform-role allow-list ────────────────────────────────────────────────
+
+/**
+ * Roles that operate at the PLATFORM level rather than within a single
+ * tenant scope. Users with these roles carry `tenantId = null` in their
+ * JWT — `tenantContextMiddleware` short-circuits tenant resolution for
+ * them so they can act across tenants (onboard new tenants, view all
+ * platform invoices, etc.) without the `tenantScopedPrisma` extension
+ * silently filtering everything out.
+ *
+ * Lives here (next to `tenantScopedPrisma`) so the source of truth for
+ * "is this caller exempt from tenant scoping?" is co-located with the
+ * scoping primitives themselves — both the storage primitive and the
+ * allow-list update together when a new platform role lands.
+ *
+ * Pearl ERP Stage 1 §8.2 (gap row 209 scope-reduced), 2026-05-24. Add
+ * any future platform-level role to this set so the bypass picks it up
+ * without needing to touch the Express middleware.
+ */
+export const PLATFORM_ROLES: ReadonlySet<Role> = new Set<Role>([
+  Role.PLATFORM_OPERATOR,
+  Role.PLATFORM_BILLING_OPERATOR,
+]);
+
+/**
+ * Predicate convenience — `true` when the given role string (or `Role`
+ * enum value) is on the platform-level allow-list. Accepts unknown
+ * inputs because callers typically pass `req.user?.role` which is
+ * typed as `Role | undefined` at the application layer but flows in
+ * here as `string | undefined` from the decoded JWT.
+ */
+export function isPlatformRole(role: string | undefined | null): boolean {
+  if (!role) return false;
+  return PLATFORM_ROLES.has(role as Role);
+}
 
 // ── AsyncLocalStorage tenant context ────────────────────────────────────────
 

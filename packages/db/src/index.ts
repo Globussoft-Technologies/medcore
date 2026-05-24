@@ -21,9 +21,11 @@ export type { TemplateDef as NotificationSeedTemplateDef } from "./seed-notifica
 // shim at the legacy path so the 100+ existing import sites compile
 // unchanged. See `./tenant-prisma.ts` for full architectural notes.
 export {
+  PLATFORM_ROLES,
   TENANT_SCOPED_MODELS,
   applyTenantScope,
   getTenantId,
+  isPlatformRole,
   requireTenantId,
   runWithTenant,
   shouldScope,

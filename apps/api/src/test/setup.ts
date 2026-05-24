@@ -67,7 +67,15 @@ export type TestRole =
   | "NURSE"
   | "PATIENT"
   | "PHARMACIST"
-  | "LAB_TECH";
+  | "LAB_TECH"
+  // Pearl ERP §8.2 (gap row 209) / OPEN_DECISIONS #4, 2026-05-24:
+  // BILLING is a tenant-level finance role; PLATFORM_* are tenant-less
+  // (their seed-users intentionally carry tenantId=null and the
+  // tenantContextMiddleware short-circuits tenant resolution for them
+  // via the @medcore/db PLATFORM_ROLES allow-list).
+  | "BILLING"
+  | "PLATFORM_OPERATOR"
+  | "PLATFORM_BILLING_OPERATOR";
 
 /**
  * Creates a user with the requested role (if it doesn't already exist) and

@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import type { AuthPayload } from "@medcore/shared";
-import { prisma } from "@medcore/db";
+import { prisma, isPlatformRole } from "@medcore/db";
 import { verifyAccessToken } from "../services/jwt";
 
 /**
@@ -99,6 +99,47 @@ export async function tenantContextMiddleware(
   // First pass — pick the candidate tenantId (string) without committing
   // it to req.tenantId yet. Validation against the DB happens after.
   let candidate: string | undefined;
+  // Pearl ERP §8.2 (gap row 209, 2026-05-24): also capture the caller's
+  // role so we can short-circuit tenant resolution for PLATFORM_OPERATOR
+  // / PLATFORM_BILLING_OPERATOR. These users carry `tenantId = null` in
+  // their JWT and act across tenants; running them through the DB
+  // existence check below would always drop the (null) tenantId and
+  // never set anything on req — which is fine, but skipping the round
+  // trip also saves a Prisma hop on every super-admin request.
+  let callerRole: string | undefined;
+
+  // Always try the bearer-token decode up front. It produces BOTH the
+  // tenantId candidate (used when no header / no req.user.tenantId) and
+  // the caller's role (always needed so the platform-role bypass below
+  // works even when a header DID set the candidate — otherwise a
+  // super-admin curl with `-H 'X-Tenant-Id: …'` would silently pin
+  // themselves to that tenant before the bypass ever ran).
+  let bearerTenant: string | undefined;
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.slice("Bearer ".length);
+    try {
+      // Issue #482: algorithm-agnostic — see services/jwt.ts.
+      const decoded = verifyAccessToken<Partial<AuthPayload>>(token);
+      if (decoded && typeof decoded.tenantId === "string" && decoded.tenantId.length > 0) {
+        bearerTenant = decoded.tenantId;
+      }
+      if (decoded && typeof decoded.role === "string") {
+        callerRole = decoded.role;
+      }
+    } catch {
+      // Leave bearerTenant/callerRole undefined; upstream auth middleware
+      // will handle the invalid/expired token case. We deliberately do
+      // not 401 here because not all routes require authentication.
+    }
+  }
+
+  // Prefer the typed req.user.role when authenticate() has already run —
+  // it's the post-validated source, identical to what the JWT carries but
+  // already coerced to the `Role` union type.
+  if (!callerRole && typeof req.user?.role === "string") {
+    callerRole = req.user.role;
+  }
 
   // 1. Explicit header override — server-to-server calls, admin tooling.
   const headerTenant = req.header("X-Tenant-Id");
@@ -107,25 +148,22 @@ export async function tenantContextMiddleware(
   } else if (req.user?.tenantId) {
     // 2a. If authenticate() already ran, use the typed payload directly.
     candidate = req.user.tenantId;
-  } else {
-    // 2b. Fall back to decoding the bearer token ourselves — this middleware
-    //     is mounted globally BEFORE the per-router `authenticate` call, so
+  } else if (bearerTenant) {
+    // 2b. Fall back to the bearer token's tenantId — this middleware is
+    //     mounted globally BEFORE the per-router `authenticate` call, so
     //     `req.user` is typically still undefined here.
-    const authHeader = req.headers.authorization;
-    if (authHeader?.startsWith("Bearer ")) {
-      const token = authHeader.slice("Bearer ".length);
-      try {
-        // Issue #482: algorithm-agnostic — see services/jwt.ts.
-        const decoded = verifyAccessToken<Partial<AuthPayload>>(token);
-        if (decoded && typeof decoded.tenantId === "string" && decoded.tenantId.length > 0) {
-          candidate = decoded.tenantId;
-        }
-      } catch {
-        // Leave candidate undefined; upstream auth middleware will handle
-        // the invalid/expired token case. We deliberately do not 401 here
-        // because not all routes require authentication.
-      }
-    }
+    candidate = bearerTenant;
+  }
+
+  // Pearl ERP §8.2 (gap row 209, 2026-05-24): platform-level callers
+  // bypass tenant scoping entirely. We leave req.tenantId undefined so
+  // downstream `tenantScopedPrisma` queries see no tenant filter and
+  // route handlers gated on platform roles can act cross-tenant. Note:
+  // we honour this even if the caller ALSO sent an X-Tenant-Id header,
+  // because the header would otherwise let a super-admin accidentally
+  // pin themselves to one tenant's view across multiple requests.
+  if (isPlatformRole(callerRole)) {
+    return next();
   }
 
   // No candidate → pass through. /api/health, login, register, etc. all

@@ -17,6 +17,9 @@ enum Role {
   PATIENT
   PHARMACIST
   LAB_TECH
+  BILLING                    // finance staff — TDS, no-show, commission, lead-funnel reports
+  PLATFORM_OPERATOR          // Onviqa platform staff; tenantId=null; bypasses tenant-scope filter
+  PLATFORM_BILLING_OPERATOR  // Onviqa finance staff; tenantId=null; billing-only platform actions
 }
 
 enum Gender {

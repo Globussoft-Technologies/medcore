@@ -86,7 +86,7 @@ The matrix uses Stage-1 §10 row numbers as the canonical "S2 module" anchor. St
 | Stage-2 deliverable | Status | MedCore reference | Notes |
 |---|---|---|---|
 | OT theatre master | 🟡 Productise | `:3096` `OperatingTheater`; [`/dashboard/operating-theaters/page.tsx`](../apps/web/src/app/dashboard/operating-theaters/page.tsx) + duplicate [`/dashboard/operating-theatres/page.tsx`](../apps/web/src/app/dashboard/operating-theatres/page.tsx) + [`/dashboard/ot/`](../apps/web/src/app/dashboard/ot/) | Three-way route-dir duplicate (theaters / theatres / ot) — pre-Stage-2 cleanup target. |
-| Surgery scheduling + booking | 🟡 Productise | `:3113` `Surgery`; [`routes/surgery.ts`](../apps/api/src/routes/surgery.ts) (15 endpoints) | `requireFeature("ot")` NOT wired on `surgery.ts` per the grep — productisation gap (add the middleware). |
+| Surgery scheduling + booking | ✅ Closed 2026-05-25 | `:3113` `Surgery`; [`routes/surgery.ts`](../apps/api/src/routes/surgery.ts) (15 endpoints) | ✅ Closed 2026-05-25 (Pearl Stage-2 cron tick): `requireFeature("ot")` now wired at top of `routes/surgery.ts` right after `authenticate`; integration coverage at `apps/api/src/test/integration/surgery-feature-flag.test.ts` (default-on reachable + ADMIN-PATCHed-off → 404). |
 | Anesthesia record | 🟡 Productise | `:3184` `AnesthesiaRecord` | — |
 | Post-op observation | 🟡 Productise | `PostOpObservation` (referenced in Stage-1 doc §10) | — |
 | Implant register / traceability | ❌ Missing | (no `Implant` model in schema; no `implantRegister` references) | Greenfield within Bucket A — needed for OT module completeness per PRD §18. Schema add + 4-5 routes + tracker UI. ~1.5 weeks. |

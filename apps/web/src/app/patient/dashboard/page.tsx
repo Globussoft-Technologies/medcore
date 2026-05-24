@@ -489,7 +489,7 @@ export default function PatientDashboardPage() {
               You don't have any upcoming appointments.
             </p>
             <Link
-              href="/patient/appointments/book"
+              href="/patient/book"
               className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-slate-900 px-4 text-sm font-medium text-white"
               data-testid="patient-dashboard-book-cta"
             >

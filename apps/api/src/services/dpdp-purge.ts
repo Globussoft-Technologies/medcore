@@ -16,14 +16,22 @@
  *     is persisted on `DPDPErasureRequest.executionReceipt` so a regulator
  *     auditing the request later can verify the action without re-running
  *     it.
- *   - Scope-cut: this is the "known-safe core" set of child tables. The
- *     fuller sweep (Admission, LabOrder, Allergy, ChronicCondition,
- *     Surgery, RadiologyStudy, etc.) is deliberately deferred — those
- *     each carry FK constraints into further sub-tables (LabOrderItems,
- *     AdmissionTransfers, …) and a recursive purge across them needs its
- *     own dependency-order analysis. A follow-up gap ticket will widen
- *     this list. Per-table coverage is fully encoded in the receipt so
- *     a downstream service can extend it idempotently.
+ *   - 2026-05-24 widening (OPEN_DECISIONS #5 closure): the original
+ *     "known-safe core" (9 tables) is now extended with the Admission,
+ *     LabOrder, PatientAllergy, ChronicCondition, Surgery, and
+ *     RadiologyStudy families (+ their FK-dependent sub-tables) for full
+ *     DPDP Act §17 erasure-right coverage of the Stage-1 patient surface.
+ *     Total per-table coverage = 15 parent tables, plus the cascade-fed
+ *     sub-tables (IpdVitals, MedicationOrder→MedicationAdministration,
+ *     NurseRound, IpdIntakeOutput, PatientBelongings, LabOrderItem,
+ *     LabResult, AnesthesiaRecord, PostOpObservation, RadiologyReport).
+ *     Per-table counts are encoded in the receipt so a regulator can
+ *     verify the action without re-running it.
+ *   - Notes on FK choreography: (a) EmergencyCase.linkedAdmissionId is
+ *     nullable + NoAction, so we NULL it before deleting Admissions;
+ *     (b) RadiologyStudy.orderId is nullable + SetNull on LabOrder, so
+ *     the LabOrder delete that precedes it just nulls those refs (then
+ *     RadiologyStudy is itself deleted by patientId).
  */
 
 import type { PrismaClient } from "@prisma/client";
@@ -143,6 +151,169 @@ export async function purgePatient(
     counts.Appointment = appt.count;
     purgedTables.push("Appointment");
 
+    // ────────────────────────────────────────────────────────────────
+    // 2026-05-24 widening — Admission family.
+    // EmergencyCase.linkedAdmissionId has NO cascade, so null those
+    // refs first to avoid FK violation on Admission delete. We then
+    // explicitly deleteMany on each Admission sub-table (even though
+    // some cascade) so the receipt captures per-table counts. Order:
+    // leaves → parent.
+    // ────────────────────────────────────────────────────────────────
+    const admList = await tx.admission.findMany({
+      where: { patientId },
+      select: { id: true },
+    });
+    if (admList.length > 0) {
+      const admissionIds = admList.map((a) => a.id);
+
+      // Null EmergencyCase → Admission link (nullable, no cascade).
+      await tx.emergencyCase.updateMany({
+        where: { linkedAdmissionId: { in: admissionIds } },
+        data: { linkedAdmissionId: null },
+      });
+
+      // MedicationAdministration ← MedicationOrder (cascade), but we
+      // delete explicitly to count.
+      const moList = await tx.medicationOrder.findMany({
+        where: { admissionId: { in: admissionIds } },
+        select: { id: true },
+      });
+      if (moList.length > 0) {
+        const moIds = moList.map((m) => m.id);
+        const ma = await tx.medicationAdministration.deleteMany({
+          where: { medicationOrderId: { in: moIds } },
+        });
+        counts.MedicationAdministration = ma.count;
+        purgedTables.push("MedicationAdministration");
+      }
+
+      const mo = await tx.medicationOrder.deleteMany({
+        where: { admissionId: { in: admissionIds } },
+      });
+      counts.MedicationOrder = mo.count;
+      purgedTables.push("MedicationOrder");
+
+      const ipv = await tx.ipdVitals.deleteMany({
+        where: { admissionId: { in: admissionIds } },
+      });
+      counts.IpdVitals = ipv.count;
+      purgedTables.push("IpdVitals");
+
+      const nr = await tx.nurseRound.deleteMany({
+        where: { admissionId: { in: admissionIds } },
+      });
+      counts.NurseRound = nr.count;
+      purgedTables.push("NurseRound");
+
+      const iio = await tx.ipdIntakeOutput.deleteMany({
+        where: { admissionId: { in: admissionIds } },
+      });
+      counts.IpdIntakeOutput = iio.count;
+      purgedTables.push("IpdIntakeOutput");
+
+      const pb = await tx.patientBelongings.deleteMany({
+        where: { admissionId: { in: admissionIds } },
+      });
+      counts.PatientBelongings = pb.count;
+      purgedTables.push("PatientBelongings");
+
+      const adm = await tx.admission.deleteMany({ where: { patientId } });
+      counts.Admission = adm.count;
+      purgedTables.push("Admission");
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // LabOrder family. LabResult ← LabOrderItem (cascade) ← LabOrder
+    // (cascade). We explicitly count each. RadiologyStudy.orderId is
+    // nullable + SetNull on LabOrder delete, so the radiology rows
+    // we delete a few lines down won't have a dangling FK after this.
+    // ────────────────────────────────────────────────────────────────
+    const loList = await tx.labOrder.findMany({
+      where: { patientId },
+      select: { id: true },
+    });
+    if (loList.length > 0) {
+      const labOrderIds = loList.map((l) => l.id);
+      const loiList = await tx.labOrderItem.findMany({
+        where: { orderId: { in: labOrderIds } },
+        select: { id: true },
+      });
+      if (loiList.length > 0) {
+        const orderItemIds = loiList.map((i) => i.id);
+        const lr = await tx.labResult.deleteMany({
+          where: { orderItemId: { in: orderItemIds } },
+        });
+        counts.LabResult = lr.count;
+        purgedTables.push("LabResult");
+      }
+      const loi = await tx.labOrderItem.deleteMany({
+        where: { orderId: { in: labOrderIds } },
+      });
+      counts.LabOrderItem = loi.count;
+      purgedTables.push("LabOrderItem");
+      const lo = await tx.labOrder.deleteMany({ where: { patientId } });
+      counts.LabOrder = lo.count;
+      purgedTables.push("LabOrder");
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // EHR profile rows (terminal — no sub-tables).
+    // ────────────────────────────────────────────────────────────────
+    const allg = await tx.patientAllergy.deleteMany({ where: { patientId } });
+    counts.PatientAllergy = allg.count;
+    purgedTables.push("PatientAllergy");
+
+    const cc = await tx.chronicCondition.deleteMany({ where: { patientId } });
+    counts.ChronicCondition = cc.count;
+    purgedTables.push("ChronicCondition");
+
+    // ────────────────────────────────────────────────────────────────
+    // Surgery family. AnesthesiaRecord + PostOpObservation are
+    // cascade-fed; we count them explicitly.
+    // ────────────────────────────────────────────────────────────────
+    const sList = await tx.surgery.findMany({
+      where: { patientId },
+      select: { id: true },
+    });
+    if (sList.length > 0) {
+      const surgeryIds = sList.map((s) => s.id);
+      const ar = await tx.anesthesiaRecord.deleteMany({
+        where: { surgeryId: { in: surgeryIds } },
+      });
+      counts.AnesthesiaRecord = ar.count;
+      purgedTables.push("AnesthesiaRecord");
+
+      const poo = await tx.postOpObservation.deleteMany({
+        where: { surgeryId: { in: surgeryIds } },
+      });
+      counts.PostOpObservation = poo.count;
+      purgedTables.push("PostOpObservation");
+
+      const surg = await tx.surgery.deleteMany({ where: { patientId } });
+      counts.Surgery = surg.count;
+      purgedTables.push("Surgery");
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Radiology family. RadiologyReport ← RadiologyStudy (cascade).
+    // ────────────────────────────────────────────────────────────────
+    const rsList = await tx.radiologyStudy.findMany({
+      where: { patientId },
+      select: { id: true },
+    });
+    if (rsList.length > 0) {
+      const studyIds = rsList.map((r) => r.id);
+      const rr = await tx.radiologyReport.deleteMany({
+        where: { studyId: { in: studyIds } },
+      });
+      counts.RadiologyReport = rr.count;
+      purgedTables.push("RadiologyReport");
+
+      const rs = await tx.radiologyStudy.deleteMany({ where: { patientId } });
+      counts.RadiologyStudy = rs.count;
+      purgedTables.push("RadiologyStudy");
+    }
+
     // Anonymize Patient (keep the row so retained AuditLog + the request
     // row itself stay FK-valid; null out PII).
     const ts = Date.now();
@@ -196,7 +367,7 @@ export async function purgePatient(
     anonymizedTables: ["Patient", "User"],
     retainedTables: ["AuditLog", "DPDPErasureRequest"],
     notes:
-      "DPDP Act 2023 §17 right-to-erasure. AuditLog retained per regulatory requirement; DPDPErasureRequest retained as compliance trail. Scope-cut: core child tables (Appointment-tree, Prescription-tree, Invoice-tree, Vitals, Consultation, PatientDocument). Wider sweep (Admission/LabOrder/Allergy/etc.) deferred — see TODO Pearl §8.6 follow-up.",
+      "DPDP Act 2023 §17 right-to-erasure. AuditLog retained per regulatory requirement; DPDPErasureRequest retained as compliance trail. Coverage: 15 parent patient-linked tables (Appointment-tree, Prescription-tree, Invoice-tree, Vitals, Consultation, PatientDocument, Admission-tree, LabOrder-tree, PatientAllergy, ChronicCondition, Surgery-tree, RadiologyStudy-tree) — full Pearl Stage-1 surface as of 2026-05-24.",
     executedAt: new Date().toISOString(),
   };
 }

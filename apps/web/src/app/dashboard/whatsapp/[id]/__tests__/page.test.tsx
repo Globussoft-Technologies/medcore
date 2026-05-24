@@ -128,10 +128,14 @@ describe("/dashboard/whatsapp/[id] — Pearl §6.1 pieces 3j-iii + 3j-iv (thread
   it("renders the patient name in the header + the reply composer (piece 3j-iv)", async () => {
     asRole("RECEPTION");
     render(<WhatsAppThreadPage />);
+    // The <h1 data-testid="wa-thread-title"> is rendered immediately with the
+    // "Conversation" fallback BEFORE the api.get resolves. Waiting for the
+    // element to be present is not enough — we have to wait for the resolved
+    // patient name to land. Same for the reply form/composer, which only
+    // mount once `convo` is non-null.
     await waitFor(() =>
-      expect(screen.getByTestId("wa-thread-title")).toBeInTheDocument(),
+      expect(screen.getByTestId("wa-thread-title").textContent).toBe("Aarav Sharma"),
     );
-    expect(screen.getByTestId("wa-thread-title").textContent).toBe("Aarav Sharma");
     expect(screen.getByTestId("wa-thread-reply-form")).toBeInTheDocument();
     expect(screen.getByTestId("wa-thread-reply-input")).toBeInTheDocument();
     expect(screen.getByTestId("wa-thread-reply-send")).toBeInTheDocument();

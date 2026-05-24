@@ -76,6 +76,24 @@ const RESCHEDULABLE_STATUSES = new Set(["BOOKED", "CHECKED_IN"]);
 // confusing-and-then-rejected click.
 const TERMINAL_STATUSES = new Set(["COMPLETED", "CANCELLED", "NO_SHOW"]);
 
+// Pearl §6.3 row 340 — "I've arrived" button is shown only on TODAY's BOOKED
+// rows. The server (appointments.ts:PATCH /:id/status PATIENT branch, enabler
+// `683f460` + date-string fix `502adf7`) compares calendar days as
+// YYYY-MM-DD strings against the Asia/Kolkata wallclock — we mirror that
+// here so the button never appears for a row the server would reject.
+function ymdInIST(d: Date): string {
+  // en-CA gives ISO-ish YYYY-MM-DD; timeZone fixes the calendar day to IST
+  // regardless of the device's local timezone.
+  return d.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
+
+function isTodayInIST(a: AppointmentRow): boolean {
+  // Appointment.date is stored at UTC-midnight for the calendar day; the
+  // string slice avoids any locale drift on the server-issued ISO date.
+  const apptYmd = (a.date ?? "").slice(0, 10);
+  return apptYmd === ymdInIST(new Date());
+}
+
 function composeWhen(a: AppointmentRow): number {
   // Stored Appointment.date is the calendar day at UTC midnight; slotStart is
   // "HH:MM:SS" or "HH:MM". Compose for sort/display. Match the dashboard's
@@ -141,6 +159,13 @@ export default function PatientAppointmentsPage() {
   const [cancelDraft, setCancelDraft] = useState<CancelDraft | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Pearl §6.3 row 340 — per-row arrive state. `arriving` disables the button
+  // while the PATCH is in flight; `arrived` flips the row to the "Arrived ✓"
+  // pill optimistically. We don't refetch on success — the green pill is the
+  // ack — but we DO surface the new status if the next refetch lands first.
+  const [arriving, setArriving] = useState<Set<string>>(new Set());
+  const [arrived, setArrived] = useState<Set<string>>(new Set());
+  const [arriveError, setArriveError] = useState<string | null>(null);
 
   const refetch = useCallback(async (): Promise<void> => {
     setState("loading");
@@ -272,6 +297,41 @@ export default function PatientAppointmentsPage() {
     }
   }
 
+  async function submitArrive(appointmentId: string): Promise<void> {
+    // Pearl §6.3 row 340 — patient self-check-in. Optimistic flip: disable +
+    // green pill on success, re-enable + inline error on failure. We don't
+    // refetch on success because the visible "Arrived ✓" badge IS the ack;
+    // the next natural reload (e.g. nav-back) will hydrate `CHECKED_IN`.
+    setArriveError(null);
+    setArriving((prev) => {
+      const next = new Set(prev);
+      next.add(appointmentId);
+      return next;
+    });
+    try {
+      await api.patch(`/appointments/${appointmentId}/status`, {
+        status: "CHECKED_IN",
+      });
+      setArrived((prev) => {
+        const next = new Set(prev);
+        next.add(appointmentId);
+        return next;
+      });
+    } catch (err) {
+      setArriveError(
+        err instanceof Error
+          ? err.message
+          : "Could not notify reception. Please try again.",
+      );
+    } finally {
+      setArriving((prev) => {
+        const next = new Set(prev);
+        next.delete(appointmentId);
+        return next;
+      });
+    }
+  }
+
   if (state === "loading") {
     return (
       <section
@@ -372,25 +432,39 @@ export default function PatientAppointmentsPage() {
                 No upcoming appointments.
               </p>
             ) : (
-              <ul className="space-y-3">
-                {upcoming.map((a) => (
-                  <AppointmentCard
-                    key={a.id}
-                    appointment={a}
-                    onReschedule={() =>
-                      setRescheduleDraft({
-                        appointment: a,
-                        date: new Date(a.date).toISOString().slice(0, 10),
-                        slotStart: (a.slotStart ?? "10:00").slice(0, 5),
-                        reason: "",
-                      })
-                    }
-                    onCancel={() =>
-                      setCancelDraft({ appointment: a, reason: "" })
-                    }
-                  />
-                ))}
-              </ul>
+              <>
+                <ul className="space-y-3">
+                  {upcoming.map((a) => (
+                    <AppointmentCard
+                      key={a.id}
+                      appointment={a}
+                      onReschedule={() =>
+                        setRescheduleDraft({
+                          appointment: a,
+                          date: new Date(a.date).toISOString().slice(0, 10),
+                          slotStart: (a.slotStart ?? "10:00").slice(0, 5),
+                          reason: "",
+                        })
+                      }
+                      onCancel={() =>
+                        setCancelDraft({ appointment: a, reason: "" })
+                      }
+                      onArrive={() => void submitArrive(a.id)}
+                      arriving={arriving.has(a.id)}
+                      arrived={arrived.has(a.id)}
+                    />
+                  ))}
+                </ul>
+                {arriveError ? (
+                  <p
+                    role="alert"
+                    data-testid="patient-appointments-arrive-error"
+                    className="rounded-md bg-red-50 p-2 text-xs text-red-800"
+                  >
+                    {arriveError}
+                  </p>
+                ) : null}
+              </>
             )}
           </section>
 
@@ -429,6 +503,9 @@ export default function PatientAppointmentsPage() {
                       appointment={a}
                       onReschedule={null}
                       onCancel={null}
+                      onArrive={null}
+                      arriving={false}
+                      arrived={false}
                     />
                   ))}
                 </ul>
@@ -624,12 +701,18 @@ interface CardProps {
   appointment: AppointmentRow;
   onReschedule: (() => void) | null;
   onCancel: (() => void) | null;
+  onArrive: (() => void) | null;
+  arriving: boolean;
+  arrived: boolean;
 }
 
 function AppointmentCard({
   appointment,
   onReschedule,
   onCancel,
+  onArrive,
+  arriving,
+  arrived,
 }: CardProps) {
   const when = formatDateTime(composeWhen(appointment));
   const canReschedule =
@@ -638,6 +721,16 @@ function AppointmentCard({
     composeWhen(appointment) >= Date.now() - 60 * 60 * 1000;
   const canCancel =
     !!onCancel && !TERMINAL_STATUSES.has(appointment.status);
+  // Pearl §6.3 row 340 — the button is visible iff (a) we have a handler,
+  // (b) the row is TODAY in IST (mirrors server gate at routes/appointments.ts
+  // PATCH /:id/status PATIENT branch), and (c) the live status is still
+  // BOOKED. Once the optimistic `arrived` flips on we render the pill
+  // instead. Past + future + non-BOOKED rows never show the button — server
+  // would 403 and the UI should never tempt the click.
+  const canArrive =
+    !!onArrive &&
+    appointment.status === "BOOKED" &&
+    isTodayInIST(appointment);
   const shareUrl = appointment.branch?.address
     ? `https://maps.google.com/?q=${encodeURIComponent(appointment.branch.address)}`
     : null;
@@ -687,8 +780,27 @@ function AppointmentCard({
         </span>
       </div>
 
-      {(canReschedule || canCancel || shareUrl) ? (
+      {(canReschedule || canCancel || canArrive || arrived || shareUrl) ? (
         <div className="flex flex-wrap gap-2 pt-1">
+          {arrived ? (
+            <span
+              data-testid={`patient-arrived-pill-${appointment.id}`}
+              className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-emerald-100 px-4 text-sm font-medium text-emerald-900"
+              aria-live="polite"
+            >
+              Arrived ✓
+            </span>
+          ) : canArrive ? (
+            <button
+              type="button"
+              onClick={onArrive ?? undefined}
+              disabled={arriving}
+              data-testid={`patient-arrive-${appointment.id}`}
+              className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-emerald-700 px-4 text-sm font-medium text-white disabled:opacity-60"
+            >
+              {arriving ? "Notifying…" : "I've arrived"}
+            </button>
+          ) : null}
           {canReschedule ? (
             <button
               type="button"

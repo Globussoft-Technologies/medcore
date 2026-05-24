@@ -32,6 +32,30 @@ import PatientAppointmentsPage from "../page";
 const HOUR = 60 * 60 * 1000;
 const FUTURE = new Date(Date.now() + 48 * HOUR).toISOString();
 const PAST = new Date(Date.now() - 48 * HOUR).toISOString();
+// Pearl §6.3 row 340 — "today" in IST as YYYY-MM-DD (matches server compare).
+// We synthesise the ISO at IST-midnight so the page's date-string slice picks
+// up the same calendar day no matter what timezone the test host runs in.
+const TODAY_IST_YMD = new Date().toLocaleDateString("en-CA", {
+  timeZone: "Asia/Kolkata",
+});
+const TODAY = `${TODAY_IST_YMD}T00:00:00.000Z`;
+
+// Build a fixture row whose composeWhen lands ≥ 1h in the future (so the
+// upcoming/past sort always parks it in Upcoming regardless of wallclock).
+function bookActiveTodayUpcoming(id: string) {
+  const futureSlotMs = Date.now() + 4 * HOUR;
+  const slot = new Date(futureSlotMs);
+  const hh = String(slot.getUTCHours()).padStart(2, "0");
+  const mm = String(slot.getUTCMinutes()).padStart(2, "0");
+  return {
+    id,
+    date: TODAY,
+    slotStart: `${hh}:${mm}:00`,
+    tokenNumber: 12,
+    status: "BOOKED",
+    doctor: { user: { name: "Sharma" }, specialty: "Obstetrics" },
+  };
+}
 
 function listOk<T>(data: T[]) {
   return { success: true, data, error: null, meta: { total: data.length } };
@@ -317,6 +341,127 @@ describe("Patient appointments page — gap #5 piece 3b", () => {
         { status: "CANCELLED" },
       );
     });
+  });
+
+  // ─── Pearl §6.3 row 340 — "I've arrived" button visibility + wire ────
+  // Visibility matrix (mirrors server gate at routes/appointments.ts PATCH
+  // /:id/status PATIENT branch + date-string fix `502adf7`):
+  //   today + BOOKED       → visible
+  //   today + non-BOOKED   → hidden
+  //   future + BOOKED      → hidden
+  //   past + BOOKED        → hidden (and row lands in Past anyway)
+
+  it("renders the 'I've arrived' button on TODAY's BOOKED row only", async () => {
+    apiGetMock.mockImplementation((endpoint: string) => {
+      if (endpoint.includes("status=BOOKED")) {
+        return Promise.resolve(
+          listOk([
+            bookActiveTodayUpcoming("appt-today"),
+            { ...bookActive("appt-future", FUTURE) },
+            { ...bookActive("appt-future-checked-in", FUTURE), status: "CHECKED_IN" },
+          ]),
+        );
+      }
+      return Promise.resolve(listOk([]));
+    });
+
+    render(<PatientAppointmentsPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("patient-appointments")).toBeInTheDocument(),
+    );
+
+    // Today + BOOKED → visible with stable per-row testid
+    expect(
+      screen.getByTestId("patient-arrive-appt-today"),
+    ).toBeInTheDocument();
+    // Future + BOOKED → hidden (server would reject + UI shouldn't tempt)
+    expect(
+      screen.queryByTestId("patient-arrive-appt-future"),
+    ).not.toBeInTheDocument();
+    // Today/future + non-BOOKED → hidden
+    expect(
+      screen.queryByTestId("patient-arrive-appt-future-checked-in"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides the arrive button on past BOOKED rows (they sort into Past)", async () => {
+    apiGetMock.mockImplementation((endpoint: string) => {
+      if (endpoint.includes("status=BOOKED")) {
+        return Promise.resolve(listOk([bookActive("appt-old", PAST)]));
+      }
+      return Promise.resolve(listOk([]));
+    });
+    render(<PatientAppointmentsPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("patient-appointments")).toBeInTheDocument(),
+    );
+    // PAST + BOOKED ends up in Past (non-mutating card) regardless — no
+    // arrive testid should appear anywhere on the page.
+    expect(screen.queryByTestId("patient-arrive-appt-old")).not.toBeInTheDocument();
+  });
+
+  it("clicking 'I've arrived' PATCHes /appointments/:id/status with { status: 'CHECKED_IN' } and flips to Arrived pill", async () => {
+    apiGetMock.mockImplementation((endpoint: string) => {
+      if (endpoint.includes("status=BOOKED")) {
+        return Promise.resolve(listOk([bookActiveTodayUpcoming("appt-today")]));
+      }
+      return Promise.resolve(listOk([]));
+    });
+    apiPatchMock.mockResolvedValue({ success: true, data: {}, error: null });
+
+    render(<PatientAppointmentsPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("patient-appointments")).toBeInTheDocument(),
+    );
+
+    const btn = screen.getByTestId("patient-arrive-appt-today");
+    expect(btn.className, "arrive button must honour 44px touch-target floor").toMatch(/\bh-11\b/);
+    expect(btn.className).toMatch(/min-w-\[44px\]/);
+    fireEvent.click(btn);
+
+    await waitFor(() => {
+      expect(apiPatchMock).toHaveBeenCalledWith(
+        "/appointments/appt-today/status",
+        { status: "CHECKED_IN" },
+      );
+    });
+
+    // Optimistic flip — button gone, pill present.
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("patient-arrived-pill-appt-today"),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId("patient-arrive-appt-today"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("surfaces an inline error and re-enables when the arrive PATCH 4xxs", async () => {
+    apiGetMock.mockImplementation((endpoint: string) => {
+      if (endpoint.includes("status=BOOKED")) {
+        return Promise.resolve(listOk([bookActiveTodayUpcoming("appt-today")]));
+      }
+      return Promise.resolve(listOk([]));
+    });
+    apiPatchMock.mockRejectedValue(
+      Object.assign(new Error("Forbidden"), { status: 403 }),
+    );
+
+    render(<PatientAppointmentsPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("patient-appointments")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByTestId("patient-arrive-appt-today"));
+
+    // Error region renders; button stays present + clickable.
+    const errEl = await screen.findByTestId(
+      "patient-appointments-arrive-error",
+    );
+    expect(errEl).toHaveTextContent(/Forbidden/);
+    const btn = screen.getByTestId("patient-arrive-appt-today");
+    expect(btn).not.toBeDisabled();
   });
 
   it("renders the unauthed sign-in surface when /appointments returns 401", async () => {

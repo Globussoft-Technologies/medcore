@@ -81,6 +81,18 @@ const ABHA_PROMPT_DISMISS_KEY = "medcore_abha_prompt_dismissed";
 
 type LoadState = "loading" | "ready" | "unauth" | "error";
 
+// Pearl §6.3 row 340 — "I've arrived" date helpers. Mirror the server's
+// YYYY-MM-DD comparison (Postgres @db.Date stripping — fix `502adf7`) in
+// the Asia/Kolkata wallclock so the button only renders for rows the
+// server would accept.
+function ymdInIST(d: Date): string {
+  return d.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
+
+function isTodayInIST(appointmentDate: string): boolean {
+  return (appointmentDate ?? "").slice(0, 10) === ymdInIST(new Date());
+}
+
 function formatDateTime(d: Date): string {
   // 22 May 2026 · 10:30 AM (locale-agnostic enough for the PWA; date-fns
   // would be cleaner but the dashboard isn't worth pulling it in for).
@@ -125,6 +137,14 @@ export default function PatientDashboardPage() {
   // so the prompt is genuinely "one-time per device" rather than nagging on
   // every dashboard mount.
   const [abhaPromptVisible, setAbhaPromptVisible] = useState<boolean>(false);
+  // Pearl §6.3 row 340 — arrive state for the "I've arrived" placeholder
+  // wire. idle → submitting → arrived (terminal); error transitions back
+  // to idle and surfaces an inline message. We don't refetch on success —
+  // the green pill IS the ack; the next natural nav will hydrate CHECKED_IN.
+  const [arriveState, setArriveState] = useState<
+    "idle" | "submitting" | "arrived"
+  >("idle");
+  const [arriveError, setArriveError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -237,6 +257,29 @@ export default function PatientDashboardPage() {
       .sort((x, y) => x.ts - y.ts);
     return upcoming[0]?.a ?? null;
   }, [appointments]);
+
+  const handleArrive = async (appointmentId: string): Promise<void> => {
+    // Pearl §6.3 row 340 — PATCH the appointment's status to CHECKED_IN.
+    // Server enabler `683f460` + date-string fix `502adf7` allow PATIENT for
+    // today's own BOOKED row. We render the green badge optimistically on
+    // success and surface an inline error on failure (no toast lib in this
+    // surface today; the same convention is used elsewhere on /patient).
+    setArriveError(null);
+    setArriveState("submitting");
+    try {
+      await api.patch(`/appointments/${appointmentId}/status`, {
+        status: "CHECKED_IN",
+      });
+      setArriveState("arrived");
+    } catch (err) {
+      setArriveError(
+        err instanceof Error
+          ? err.message
+          : "Could not notify reception. Please try again.",
+      );
+      setArriveState("idle");
+    }
+  };
 
   const dismissAbhaPrompt = (): void => {
     try {
@@ -396,15 +439,46 @@ export default function PatientDashboardPage() {
               >
                 View / reschedule
               </Link>
-              <button
-                type="button"
-                className="inline-flex h-11 min-w-[44px] flex-1 items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-800"
-                data-testid="patient-dashboard-next-appointment-arrived"
-                title="Notify reception (coming soon)"
-              >
-                I've arrived
-              </button>
+              {arriveState === "arrived" ? (
+                <span
+                  data-testid="patient-dashboard-next-appointment-arrived-pill"
+                  aria-live="polite"
+                  className="inline-flex h-11 min-w-[44px] flex-1 items-center justify-center rounded-md bg-emerald-100 px-4 text-sm font-medium text-emerald-900"
+                >
+                  Arrived ✓
+                </span>
+              ) : nextAppointment.status === "BOOKED" &&
+                isTodayInIST(nextAppointment.date) ? (
+                <button
+                  type="button"
+                  onClick={() => void handleArrive(nextAppointment.id)}
+                  disabled={arriveState === "submitting"}
+                  className="inline-flex h-11 min-w-[44px] flex-1 items-center justify-center rounded-md bg-emerald-700 px-4 text-sm font-medium text-white disabled:opacity-60"
+                  data-testid="patient-dashboard-next-appointment-arrived"
+                >
+                  {arriveState === "submitting" ? "Notifying…" : "I've arrived"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="inline-flex h-11 min-w-[44px] flex-1 items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-400 disabled:cursor-not-allowed"
+                  data-testid="patient-dashboard-next-appointment-arrived"
+                  title="Available on the day of your appointment"
+                >
+                  I've arrived
+                </button>
+              )}
             </div>
+            {arriveError ? (
+              <p
+                role="alert"
+                data-testid="patient-dashboard-arrive-error"
+                className="rounded-md bg-red-50 p-2 text-xs text-red-800"
+              >
+                {arriveError}
+              </p>
+            ) : null}
           </div>
         ) : (
           <div

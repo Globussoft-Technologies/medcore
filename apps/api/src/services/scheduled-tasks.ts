@@ -12,6 +12,7 @@ import { autoEnrolAndRemove } from "./chronic-care-enrolment";
 import { runChronicCareSequenceSends } from "./chronic-care-scheduler";
 import { dispatchPendingCampaigns } from "./campaign-dispatcher-sweep";
 import { collectYesterdayUsage } from "./tenant-usage-collector";
+import { generateMonthlyPlatformInvoices } from "./platform-invoice-generator";
 
 // ───────────────────────────────────────────────────────
 // Lightweight setInterval-based scheduler.
@@ -1174,6 +1175,37 @@ async function tenantUsageDailyCollectorTask(): Promise<void> {
   }
 }
 
+// ─── Monthly platform-invoice generator (Pearl §8.3 row 215 piece 3b) ─
+//
+// On the 1st of every UTC month at ~02:00 UTC, walk every ACTIVE
+// TenantSubscription and create a PlatformInvoice for the PREVIOUS
+// month (idempotent — re-runs find the row + skip). The scheduler
+// doesn't have first-class day-of-month support, so the task body
+// short-circuits unless `now.getUTCDate() === 1`. The hourly cadence
+// with the `runAtHour: 2` filter means we get one shot at ~02:00 UTC
+// on the 1st; if the host is down at that hour the task waits for
+// the next month rather than back-filling (operators can re-run
+// manually via the retry endpoint — the function is idempotent).
+async function monthlyPlatformInvoiceGeneratorTask(): Promise<void> {
+  const now = new Date();
+  if (now.getUTCDate() !== 1) return;
+  try {
+    const result = await generateMonthlyPlatformInvoices(prisma, now);
+    if (
+      result.generated > 0 ||
+      result.skippedAlreadyExists > 0 ||
+      result.skippedInactive > 0 ||
+      result.errors > 0
+    ) {
+      console.log(
+        `[monthly_platform_invoice_generator] yyyymm=${result.yyyymm} generated=${result.generated} skippedAlreadyExists=${result.skippedAlreadyExists} skippedInactive=${result.skippedInactive} errors=${result.errors}`,
+      );
+    }
+  } catch (err) {
+    console.error("[monthly_platform_invoice_generator]", err);
+  }
+}
+
 // ─── Drain queued (deferred) notifications ─────────────
 
 async function notificationDrainQueued(): Promise<void> {
@@ -1378,6 +1410,20 @@ const TASKS: ScheduledTask[] = [
     intervalMinutes: 24 * 60,
     runAtHour: 1,
     run: tenantUsageDailyCollectorTask,
+  },
+  // Pearl §8.3 row 215 piece 3b — monthly platform-invoice generator. The
+  // scheduler has no first-class day-of-month gate, so the task body returns
+  // immediately on every day except the 1st (UTC). `runAtHour: 2` narrows
+  // the firing window to ~02:00 host-time (prod runs IST, so ~02:00 IST =
+  // ~20:30 UTC the prior day — the task's "1st UTC" guard then keeps the
+  // generator from firing until the host's date crosses into the 1st UTC,
+  // which happens 5h30m after IST midnight). `intervalMinutes: 24*60` so
+  // the per-day "did we already run today" tracking still works.
+  {
+    name: "monthly_platform_invoice_generator",
+    intervalMinutes: 24 * 60,
+    runAtHour: 2,
+    run: monthlyPlatformInvoiceGeneratorTask,
   },
 ];
 

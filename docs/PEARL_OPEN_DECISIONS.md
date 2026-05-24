@@ -30,6 +30,15 @@ The user-at-keyboard answered all open product questions. Locked answers below; 
 
 **Naming note:** Use `TenantSubscription` (the thing a tenant subscribes to) and `PlatformInvoice` (an invoice the platform operator sends a tenant). Do NOT create `Pearl*`-prefixed models. Existing patient-facing `Invoice` model stays as-is (hospital→patient billing); `PlatformInvoice` is platform→tenant billing.
 
+**Implementation defaults for piece 3a (DECIDED 2026-05-24):**
+
+- **Plan structure:** 3 fixed plans via `enum Plan { STARTER, GROWTH, ENTERPRISE }`. Each plan has a fixed monthly INR price + an included-features array. Custom Enterprise pricing handled via a `customPriceMonthlyInPaise Int?` override field on `TenantSubscription`. Self-serve pricing page can ship later without schema change.
+- **Trial duration:** 30 days. `TenantSubscription.trialEndsAt = createdAt + 30d` at signup. State machine starts in `trial` status.
+- **GST on `PlatformInvoice`:** 18% GST, full tax-invoice format. Same-state tenant → CGST 9% + SGST 9%; cross-state → IGST 18%. HSN/SAC code per line item (use the SaaS SAC code `998314` — Information Technology Software Services). Mirror the existing `Invoice` model's tax-invoice convention (per-line CGST/SGST/HSN persisted, commit `#901`).
+- **Currency:** INR only for Stage 1. Store prices in paise (`Int`) following the existing `Invoice` convention.
+- **Billing cycle:** Monthly. Invoice generated on the 1st of each month for the previous month's usage. Cron job in `apps/api/src/services/`.
+- **Invoice number format:** `PI-YYYYMM-NNNN` (e.g. `PI-202605-0001`), monotonic per-month sequence across all tenants. `PI` = Platform Invoice (vs `INV-*` for the existing hospital-to-patient `Invoice`).
+
 ### 2. Book Appointment patient PWA UX (row 161) — DECIDED
 
 - **TOKEN-mode doctors:** Patient **picks a specific token number (T-15)** ahead. Backend assigns token at booking, not on arrival. Deterministic; patient sees "Token 15, ~10:30 AM ETA" on the booking confirmation.

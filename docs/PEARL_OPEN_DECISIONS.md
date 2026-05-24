@@ -2,6 +2,8 @@
 
 **Last updated:** 2026-05-24 — all 6 HARD BLOCKERs + 4 soft blockers DECIDED by user-at-keyboard. Cron will now pick the previously-blocked pieces in priority order.
 
+> **Naming convention (corrected 2026-05-24):** "Pearl" is the pilot tenant (Pearl Women's & Children's Hospital), NOT the product. The product is MedCore HMS; Onviqa is the platform operator. New schema models and role enum values MUST be tenant-agnostic. Use `TenantSubscription`, `PlatformInvoice`, `PLATFORM_OPERATOR`, `PLATFORM_BILLING_OPERATOR` — NEVER `Pearl*` in code. "Pearl" survives only as: (a) the tenant's actual data row name, (b) the deploy host URL `admin.pearl-erp.in`, (c) descriptive doc text where "Pearl-side" means "operator→tenant direction".
+
 ## How to read this doc
 
 These are decisions the autonomous gap-close cron CANNOT make on its own. The cron will keep picking from the ~40 open gap-doc rows that DON'T require these decisions — it skips blocked pieces and picks others. None of these block overall progress; they just constrain which specific pieces get picked.
@@ -22,9 +24,11 @@ The user-at-keyboard answered all open product questions. Locked answers below; 
 - **d. Trial-period end?** → **7-day grace (read-only), then suspend.** State machine: `trial → past_due (7-day read-only window with upgrade banner) → suspended (login blocked except for billing)`.
 
 **Now-pickable 3-piece chain:**
-- 3a — `PearlSubscription` + `PearlInvoice` schemas + state machine.
-- 3b — Pearl invoice generation + monthly cron + email.
+- 3a — `TenantSubscription` + `PlatformInvoice` schemas + state machine.
+- 3b — `PlatformInvoice` generation + monthly cron + email.
 - 3c — Payment recording + Razorpay Subscriptions webhook + proration logic + grace-period transitions.
+
+**Naming note:** Use `TenantSubscription` (the thing a tenant subscribes to) and `PlatformInvoice` (an invoice the platform operator sends a tenant). Do NOT create `Pearl*`-prefixed models. Existing patient-facing `Invoice` model stays as-is (hospital→patient billing); `PlatformInvoice` is platform→tenant billing.
 
 ### 2. Book Appointment patient PWA UX (row 161) — DECIDED
 
@@ -36,7 +40,13 @@ The user-at-keyboard answered all open product questions. Locked answers below; 
 
 ### 3. Row 209 — granular super-admin permissions — DECIDED (Stage-1 scope reduced)
 
-**Decision:** Add 2–3 new Roles (`PEARL_OPERATOR`, `PEARL_BILLING_OPERATOR`) to the existing Role enum. Route guards stay `authorize(Role.X)`. ~1-day ship. Covers ~80% of Pearl Stage-1 need.
+**Decision:** Add 2 new Roles to the existing `Role` enum (in BOTH `packages/db/prisma/schema.prisma` AND `packages/shared/src/types/roles.ts`):
+- `PLATFORM_OPERATOR` — Onviqa staff running medcore; can onboard tenants, manage feature flags, run DPDP jobs, view billing.
+- `PLATFORM_BILLING_OPERATOR` — Onviqa finance staff; billing-only (view tenants, view/mark-paid invoices, view payments). No tenant config access.
+
+Route guards stay `authorize(Role.X)` pattern. ~1-day ship. Covers ~80% of Pearl Stage-1 need.
+
+**Do NOT use `PEARL_*` naming** — these are platform-level roles, not tenant-specific.
 
 **Out of scope for Stage 1:** Full per-tenant / per-module `Permission` / `Grant` tables — deferred to Stage 2. Row 209 will flip to ✅ once the new roles + route-guard updates land.
 

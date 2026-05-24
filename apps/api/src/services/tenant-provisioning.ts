@@ -619,14 +619,28 @@ export async function backfillTenantSubscriptions(
  * Soft-deactivate a tenant. `active=false` causes the auth resolver to skip
  * the tenant on subdomain resolution, and existing sessions will fail at the
  * next `/refresh` attempt because we look up the tenant's `active` flag.
+ *
+ * Pearl §8.1 row 233 (2026-05-25) — stamps `deactivatedAt = now` so the
+ * daily `tenant_archive_sweep` cron can detect tenants suspended >=90
+ * days and trigger `archiveTenant()`. Idempotent: re-suspending an
+ * already-suspended tenant does NOT advance `deactivatedAt` (we keep the
+ * original suspend timestamp so the 90-day window doesn't slide on a
+ * second click).
  */
 export async function deactivateTenant(tenantId: string): Promise<void> {
   await prisma.$transaction(async (tx) => {
     const tenant = await tx.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) throw new Error("Tenant not found");
+    const data: { active: false; deactivatedAt?: Date } = { active: false };
+    // Only set deactivatedAt on the first suspend — keep the original
+    // timestamp so the 90-day archive window is anchored to the first
+    // suspend, not the most recent click.
+    if (!tenant.deactivatedAt) {
+      data.deactivatedAt = new Date();
+    }
     await tx.tenant.update({
       where: { id: tenantId },
-      data: { active: false },
+      data,
     });
     // Invalidate refresh tokens for every user of this tenant so the next
     // refresh call fails immediately instead of after the current access
@@ -644,8 +658,15 @@ export async function deactivateTenant(tenantId: string): Promise<void> {
  * must perform a fresh `/auth/login`. Idempotent — restoring an already-
  * active tenant is a no-op.
  *
- * Pearl §8.1 row 206 — suspend/restore symmetry. The S3 archival side
- * (90-day cold storage on suspend) is a separate piece and remains deferred.
+ * Pearl §8.1 row 206 — suspend/restore symmetry. Row 233 (2026-05-25)
+ * additionally clears `deactivatedAt` so a future suspend re-anchors the
+ * 90-day archival window. Archive metadata (`archivedAt`,
+ * `archiveS3Key`, etc.) is NOT cleared by restore — those are stamped by
+ * `archiveTenant()` and remain even after a restore so the operator
+ * retains a forensic trail of "this tenant was once archived to S3 key
+ * X". A restored tenant is again live (active=true) but the historical
+ * archive in S3 stays put until the operator explicitly purges via
+ * `purgeArchivedTenant()`.
  */
 export async function activateTenant(tenantId: string): Promise<void> {
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
@@ -653,6 +674,6 @@ export async function activateTenant(tenantId: string): Promise<void> {
   if (tenant.active) return;
   await prisma.tenant.update({
     where: { id: tenantId },
-    data: { active: true },
+    data: { active: true, deactivatedAt: null },
   });
 }

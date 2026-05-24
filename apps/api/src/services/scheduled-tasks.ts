@@ -14,6 +14,7 @@ import { dispatchPendingCampaigns } from "./campaign-dispatcher-sweep";
 import { collectYesterdayUsage } from "./tenant-usage-collector";
 import { generateMonthlyPlatformInvoices } from "./platform-invoice-generator";
 import { checkGracePeriodExpirations } from "./platform-subscription-state";
+import { runTenantArchiveSweep } from "./tenant-archival";
 
 // ───────────────────────────────────────────────────────
 // Lightweight setInterval-based scheduler.
@@ -1230,6 +1231,35 @@ async function platformGracePeriodSweepTask(): Promise<void> {
   }
 }
 
+// ─── Tenant 90-day S3 archival sweep (Pearl §8.1 row 233) ──────────
+//
+// Daily at 04:00 host-time: find every tenant currently SUSPENDED
+// (`active=false`) for >=90 days (`deactivatedAt` older than the
+// 90-day cutoff) and stream-export their tenant-scoped data
+// (Patients, Appointments, Prescriptions, Invoices, AuditLog) to S3
+// at key `tenant-archives/{tenantId}/{ts}.tar.gz`, with SHA-256
+// checksum stamped on `Tenant.archiveChecksum`. Live-data purge is a
+// SEPARATE operator-gated `purgeArchivedTenant()` function (not auto-
+// wired — irreversible, wants explicit operator confirmation).
+// Idempotent: re-runs find no candidates because `archivedAt is null`
+// is part of the eligibility gate.
+async function tenantArchiveSweepTask(): Promise<void> {
+  try {
+    const result = await runTenantArchiveSweep(prisma);
+    if (
+      result.inspected > 0 ||
+      result.archived > 0 ||
+      result.errors > 0
+    ) {
+      console.log(
+        `[tenant_archive_sweep] inspected=${result.inspected} archived=${result.archived} errors=${result.errors}`,
+      );
+    }
+  } catch (err) {
+    console.error("[tenant_archive_sweep]", err);
+  }
+}
+
 // ─── Drain queued (deferred) notifications ─────────────
 
 async function notificationDrainQueued(): Promise<void> {
@@ -1460,6 +1490,19 @@ const TASKS: ScheduledTask[] = [
     intervalMinutes: 24 * 60,
     runAtHour: 3,
     run: platformGracePeriodSweepTask,
+  },
+  // Pearl §8.1 row 233 — daily at 04:00 host-time. Finds every tenant
+  // suspended (`active=false`) for >=90 days and uploads a gzipped JSON
+  // export of their tenant-scoped data to S3 (key:
+  // `tenant-archives/{tenantId}/{ts}.tar.gz`), stamping `archivedAt` +
+  // `archiveS3Key` + `archiveSizeBytes` + `archiveChecksum` on the
+  // Tenant row. Live-data purge is a separate operator-gated function
+  // (`purgeArchivedTenant`) — not on the cron path.
+  {
+    name: "tenant_archive_sweep",
+    intervalMinutes: 24 * 60,
+    runAtHour: 4,
+    run: tenantArchiveSweepTask,
   },
 ];
 

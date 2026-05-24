@@ -525,6 +525,23 @@ model Tenant {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
+  // Pearl Stage 1 §8.1 row 233 closure (2026-05-25) — 90-day S3 archival.
+  // `deactivatedAt` is stamped by `deactivateTenant()` (suspend) and
+  // cleared by `activateTenant()` (restore). The daily
+  // `tenant_archive_sweep` cron (`services/tenant-archival.ts:
+  // findArchiveCandidates`) treats `active=false AND deactivatedAt is
+  // older than 90 days AND archivedAt is null` as the eligibility
+  // gate. `archivedAt` + `archiveS3Key` + `archiveSizeBytes` +
+  // `archiveChecksum` are populated by `archiveTenant()` once the
+  // tarball is uploaded to S3 (key: `tenant-archives/{tenantId}/{ts}.
+  // tar.gz`). Live-data purge is a SEPARATE operator-gated callable
+  // (`purgeArchivedTenant()`) — not auto-wired to any cron.
+  deactivatedAt    DateTime?
+  archivedAt       DateTime?
+  archiveS3Key     String?
+  archiveSizeBytes Int?
+  archiveChecksum  String? // SHA-256 of the uploaded tarball
+
   // Pearl ERP Stage 1 gap item #10b — per-tenant Razorpay credentials.
   // Today services/razorpay.ts reads RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET
   // from process.env, which only works for single-tenant deploys. For

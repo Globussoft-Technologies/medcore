@@ -13,6 +13,7 @@ import { runChronicCareSequenceSends } from "./chronic-care-scheduler";
 import { dispatchPendingCampaigns } from "./campaign-dispatcher-sweep";
 import { collectYesterdayUsage } from "./tenant-usage-collector";
 import { generateMonthlyPlatformInvoices } from "./platform-invoice-generator";
+import { checkGracePeriodExpirations } from "./platform-subscription-state";
 
 // ───────────────────────────────────────────────────────
 // Lightweight setInterval-based scheduler.
@@ -1206,6 +1207,29 @@ async function monthlyPlatformInvoiceGeneratorTask(): Promise<void> {
   }
 }
 
+// ─── Platform-subscription grace-period sweep (Pearl §8.3 row 215 piece 3c) ─
+//
+// Daily at 03:00 host-time: walk every `past_due` TenantSubscription and
+// flip rows whose `pastDueSince + 7d < now` to `suspended` (login
+// blocked except for billing surface). Idempotent — a second pass on
+// the same day finds zero rows because the prior pass already
+// suspended them. The Razorpay webhook (routes/webhooks/platform-razorpay.ts)
+// is the OTHER entry point that can transition rows; both call the
+// same idempotent helper in services/platform-subscription-state.ts so
+// race conditions reconverge to the right state.
+async function platformGracePeriodSweepTask(): Promise<void> {
+  try {
+    const result = await checkGracePeriodExpirations(prisma);
+    if (result.inspected > 0 || result.suspended > 0 || result.errors > 0) {
+      console.log(
+        `[platform_grace_period_sweep] inspected=${result.inspected} suspended=${result.suspended} errors=${result.errors}`,
+      );
+    }
+  } catch (err) {
+    console.error("[platform_grace_period_sweep]", err);
+  }
+}
+
 // ─── Drain queued (deferred) notifications ─────────────
 
 async function notificationDrainQueued(): Promise<void> {
@@ -1424,6 +1448,18 @@ const TASKS: ScheduledTask[] = [
     intervalMinutes: 24 * 60,
     runAtHour: 2,
     run: monthlyPlatformInvoiceGeneratorTask,
+  },
+  // Pearl §8.3 row 215 piece 3c — daily at 03:00 host-time. Walks every
+  // `past_due` TenantSubscription and flips rows whose pastDueSince was
+  // more than `GRACE_PERIOD_DAYS` (7d) ago to `suspended`. Companion to
+  // the Razorpay platform webhook (routes/webhooks/platform-razorpay.ts)
+  // — both call the same idempotent helpers in
+  // services/platform-subscription-state.ts.
+  {
+    name: "platform_grace_period_sweep",
+    intervalMinutes: 24 * 60,
+    runAtHour: 3,
+    run: platformGracePeriodSweepTask,
   },
 ];
 

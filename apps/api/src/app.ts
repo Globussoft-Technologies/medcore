@@ -156,6 +156,7 @@ import { supportTicketsRouter } from "./routes/support-tickets";
 import { superAdminUsersRouter } from "./routes/super-admin-users";
 import { superAdminMetricsRouter } from "./routes/super-admin-metrics";
 import { superAdminComplianceRouter } from "./routes/super-admin-compliance";
+import { platformBillingRouter } from "./routes/platform-billing";
 import { branchesRouter } from "./routes/branches";
 import { campaignsRouter, publicCampaignsRouter } from "./routes/campaigns";
 import { campaignAudiencesRouter } from "./routes/campaign-audiences";
@@ -170,6 +171,14 @@ import { whatsappConfigRouter } from "./routes/whatsapp-config";
 // signature verification. Mounted before express.json() because the
 // router uses express.raw() for HMAC over the un-parsed bytes.
 import { whatsappWebhookRouter } from "./routes/whatsapp-webhook";
+// Pearl ERP Stage 1 §8.3 (gap rows 215-218 piece 3c, 2026-05-25) —
+// platform-side Razorpay-Subscriptions webhook. Distinct from the
+// patient-side `razorpayWebhookRouter`: this one consumes
+// `subscription.charged` / `payment.failed` / `subscription.halted` /
+// `subscription.cancelled` events and drives the TenantSubscription
+// state machine + flips the matching PlatformInvoice to PAID. Same
+// pre-JSON-parser placement reason — express.raw() for HMAC.
+import { platformRazorpayRouter } from "./routes/webhooks/platform-razorpay";
 // Pearl §6.1 gap row 167 piece 3j-iii — reception inbox read endpoints.
 // ADMIN/RECEPTION/DOCTOR/NURSE read conversations + messages persisted
 // by the inbound webhook (piece 3j-ii). PATIENT role denied. Reply +
@@ -271,6 +280,10 @@ export function buildApp() {
   // per-provider HMAC verification (Meta / Gupshup) needs the raw bytes.
   // Unauth on purpose — gated by signature verification inside.
   app.use("/api/v1/wa/webhook", whatsappWebhookRouter);
+
+  // Pearl §8.3 piece 3c — platform-side Razorpay subscriptions webhook.
+  // Same pre-JSON-parser + HMAC-only-auth contract as the routers above.
+  app.use("/api/v1/webhooks", platformRazorpayRouter);
 
   // Audio transcription sends base64-encoded audio chunks (~200 KB per 8 s flush).
   // Mount a higher limit for that route before the default 100 KB global parser.
@@ -472,6 +485,13 @@ export function buildApp() {
   // volume, ADMIN-TOTP coverage. Read-only; mounts UI at
   // /super-admin/compliance.
   app.use("/api/v1/super-admin/compliance", superAdminComplianceRouter);
+  // Pearl §8.3 gap rows 215-218 closure piece 3-UI (2026-05-25) —
+  // operator-facing platform-billing API. Lists cross-tenant
+  // TenantSubscription + PlatformInvoice rows; POST mark-paid is gated
+  // strictly to PLATFORM_OPERATOR / PLATFORM_BILLING_OPERATOR (legacy
+  // super-admin shape can read but not mark paid per
+  // PEARL_OPEN_DECISIONS.md #1). Mounts UI at /super-admin/platform-billing.
+  app.use("/api/v1/platform-billing", platformBillingRouter);
   app.use("/api/v1/branches", branchesRouter);
   app.use("/api/v1/campaigns", campaignsRouter);
   app.use("/api/v1/campaign-audiences", campaignAudiencesRouter);

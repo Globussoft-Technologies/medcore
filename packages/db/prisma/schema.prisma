@@ -1537,6 +1537,17 @@ model Patient {
   branchId String?
   branch   Branch? @relation("PatientBranch", fields: [branchId], references: [id], onDelete: SetNull)
 
+  // Pearl §5.1 audience-builder demographic filter — explicit city field
+  // separate from the freetext address column. Optional; legacy patients
+  // remain valid with city=null (filter only matches non-null rows when
+  // a city filter is active).
+  city  String?
+
+  // Pearl §5.1 audience-builder opt-in filter for WhatsApp campaigns.
+  // Default false (must explicitly opt in to be eligible for marketing
+  // pushes). DPDP-aligned — consent must be affirmative.
+  whatsappOptIn Boolean @default(false)
+
   user                 User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   guardian             Patient?                   @relation("PatientGuardian", fields: [guardianPatientId], references: [id])
   dependents           Patient[]                  @relation("PatientGuardian")

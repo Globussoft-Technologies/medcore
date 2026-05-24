@@ -452,6 +452,19 @@ export default function AppointmentsPage() {
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [showCoordModal, setShowCoordModal] = useState(false);
   const [selectedDoctor, setSelectedDoctor] = useState("");
+  // Issue #950 — when the user enters the booking flow via the "Next
+  // Available" suggestion, the booking POST must target the exact
+  // doctor/date the suggestion advertised — NOT whatever the form's
+  // selectedDoctor/selectedDate happen to be by the time the user clicks
+  // Confirm (those can drift via DoctorSelect re-renders, channel auto-
+  // derivation, or a date input change between confirm-shown and
+  // confirm-clicked). When set, this lock is used as a hard override in
+  // `confirmPatientIdAndBook` and cleared after the booking completes or
+  // the dialog is cancelled. Null = the user is on the normal slot-grid
+  // path and the form state IS the source of truth.
+  const [nextAvailableLock, setNextAvailableLock] = useState<
+    { doctorId: string; date: string } | null
+  >(null);
   // Pearl ERP Stage 1 §3.1 (gap row 71, 2026-05-22) — selected booking
   // channel for the current doctor. Auto-derived from `availableChannelsFor`
   // each time the doctor changes (see `onChange` on the DoctorSelect below):
@@ -772,11 +785,22 @@ export default function AppointmentsPage() {
       return;
     }
     const slotStartTime = slotOverride ?? confirmDialog.slotStartTime;
+    // Issue #950 — if the booking flow was entered via the "Next
+    // Available" suggestion, ALWAYS prefer the doctorId + date the
+    // suggestion advertised over the form-state pair. Form state can
+    // legitimately drift between the dialog being shown and the user
+    // clicking Confirm (DoctorSelect re-renders, channel auto-derivation
+    // setting `selectedChannel` which re-runs the slot effect, date
+    // input edits), and we MUST NOT silently book against a different
+    // doctor than the one the user just agreed to in the suggestion
+    // confirm prompt.
+    const bookDoctorId = nextAvailableLock?.doctorId ?? selectedDoctor;
+    const bookDate = nextAvailableLock?.date ?? selectedDate;
     // Pearl ERP Stage 1 §2.1.2 — CALLING-mode doctors don't take a slot.
     // For SLOT and TOKEN, we still require the picker to have produced
     // a slotStartTime (the slot picker is the only path into this fn).
     const doctorMode =
-      doctors.find((d) => d.id === selectedDoctor)?.appointmentMode ?? "TOKEN";
+      doctors.find((d) => d.id === bookDoctorId)?.appointmentMode ?? "TOKEN";
     if (doctorMode !== "CALLING" && !slotStartTime) {
       toast.error("Please pick a slot before booking");
       return;
@@ -786,8 +810,8 @@ export default function AppointmentsPage() {
       if (isRecurring) {
         await api.post("/appointments/recurring", {
           patientId,
-          doctorId: selectedDoctor,
-          startDate: selectedDate,
+          doctorId: bookDoctorId,
+          startDate: bookDate,
           slotStart: slotStartTime,
           frequency: recFrequency,
           occurrences: recOccurrences,
@@ -796,8 +820,8 @@ export default function AppointmentsPage() {
       } else {
         const body: Record<string, unknown> = {
           patientId,
-          doctorId: selectedDoctor,
-          date: selectedDate,
+          doctorId: bookDoctorId,
+          date: bookDate,
         };
         // Omit slotId for CALLING-mode bookings; the API mints arrivalSeq.
         if (doctorMode !== "CALLING" && slotStartTime) {
@@ -807,6 +831,7 @@ export default function AppointmentsPage() {
         toast.success("Appointment booked!");
       }
       setConfirmDialog({ open: false, slotStartTime: "", slotEndTime: "" });
+      setNextAvailableLock(null);
       setPatientIdInput("");
       setPickedPatientName("");
       setPickerResetKey((k) => k + 1);
@@ -1015,6 +1040,7 @@ export default function AppointmentsPage() {
             specialization: string | null;
             date: string;
             startTime: string;
+            endTime?: string;
           } | null;
         };
       }>("/appointments/next-available");
@@ -1032,11 +1058,42 @@ export default function AppointmentsPage() {
         }))
       )
         return;
-      // Pre-fill the booking form
+      // Issue #950 — the suggested slot's doctor MUST be the one that
+      // ends up booked. Earlier this handler only called
+      //   setSelectedDoctor(s.doctorId); setSelectedDate(s.date);
+      //   setShowBooking(true);
+      // …and relied on the user to (a) re-pick the slot from a slot grid
+      // that was NEVER refreshed for the new doctor (loadSlots wasn't
+      // called) and (b) trust that React had flushed `selectedDoctor`
+      // before they clicked. In practice the slots panel showed the
+      // PREVIOUS doctor's slots; the user clicked a stale slot; and
+      // because the booking POST reads `selectedDoctor` from state, any
+      // re-render that came in between (e.g. DoctorSelect's auto-channel
+      // derivation, or a tab refocus) could flip the doctor — yielding
+      // the user-visible "I picked Dr A but the row says Dr B" bug.
+      //
+      // The fix is to remove the round-trip: we book the suggested
+      // (doctorId, date, slotStart) tuple DIRECTLY against the API, and
+      // the form state is updated only so the post-book "current view"
+      // (date filter, opened panel) stays coherent. The PATIENT/staff
+      // patient-picker contract is preserved by opening the same
+      // Confirm-Appointment dialog with the slot pre-filled — but the
+      // dialog handler now also receives the exact doctorId + date as
+      // overrides, so even if `selectedDoctor` is later mutated, the
+      // booking still targets the doctor the suggestion advertised.
       setSelectedDoctor(s.doctorId);
       setSelectedDate(s.date);
       setShowBooking(true);
-      // The form auto-loads slots when doctor + date change; the user picks the slot.
+      // Refresh the slot grid for the new doctor so it isn't visually
+      // out of sync with the dialog the user just confirmed.
+      void loadSlots(s.doctorId, s.date);
+      // Lock the suggested slot in for the upcoming confirmation step.
+      setNextAvailableLock({ doctorId: s.doctorId, date: s.date });
+      setConfirmDialog({
+        open: true,
+        slotStartTime: s.startTime,
+        slotEndTime: s.endTime ?? "",
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not find next slot");
     }
@@ -1255,7 +1312,11 @@ export default function AppointmentsPage() {
         const dialogPatientName = isPatient
           ? mePatient?.name ?? ""
           : pickedPatientName;
-        const doctor = doctors.find((x) => x.id === selectedDoctor);
+        // Issue #950 — when the dialog was opened from "Next Available"
+        // the doctor shown MUST be the locked suggestion, not whatever
+        // the form's selectedDoctor happens to be by now.
+        const displayDoctorId = nextAvailableLock?.doctorId ?? selectedDoctor;
+        const doctor = doctors.find((x) => x.id === displayDoctorId);
         return (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
@@ -1301,7 +1362,7 @@ export default function AppointmentsPage() {
                     className="text-right text-gray-900 dark:text-gray-100"
                     data-testid="confirm-appointment-date"
                   >
-                    {selectedDate}
+                    {nextAvailableLock?.date ?? selectedDate}
                   </dd>
                 </div>
                 <div className="flex justify-between gap-4">
@@ -1326,6 +1387,10 @@ export default function AppointmentsPage() {
                     // change the patient, use the "Change" button on the
                     // in-form picker itself.
                     setConfirmDialog({ open: false, slotStartTime: "", slotEndTime: "" });
+                    // Issue #950 — drop the suggestion lock so a follow-up
+                    // manual slot click books against form state, not the
+                    // stale "Next Available" suggestion.
+                    setNextAvailableLock(null);
                   }}
                   className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-700"
                   data-testid="confirm-appointment-cancel"
@@ -1792,6 +1857,11 @@ export default function AppointmentsPage() {
                     placeholder={t("dashboard.appointments.selectDoctor")}
                     onChange={(id) => {
                       setSelectedDoctor(id);
+                      // Issue #950 — the user is now manually choosing a
+                      // doctor, so the "Next Available" suggestion lock
+                      // is no longer authoritative. Drop it so the next
+                      // booking uses the form-state pair.
+                      setNextAvailableLock(null);
                       // Pearl §3.1 (gap row 71) — re-derive the booking
                       // channel for the newly-picked doctor. Single-channel
                       // doctors lock immediately to that channel; multi-
@@ -1821,6 +1891,11 @@ export default function AppointmentsPage() {
                     value={selectedDate}
                     onChange={(e) => {
                       setSelectedDate(e.target.value);
+                      // Issue #950 — drop the "Next Available" lock when
+                      // the user picks a different date, so the booking
+                      // tracks the new form-state instead of the stale
+                      // suggestion.
+                      setNextAvailableLock(null);
                       if (selectedDoctor) loadSlots(selectedDoctor, e.target.value);
                     }}
                     className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"

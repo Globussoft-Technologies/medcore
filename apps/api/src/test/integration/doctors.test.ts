@@ -3,6 +3,7 @@ import { it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
 import { createDoctorFixture } from "../factories";
+import { waitForAuditFlush } from "../helpers/audit-wait";
 
 let app: any;
 let adminToken: string;
@@ -429,19 +430,20 @@ describeIfDB("Doctors API (integration)", () => {
   it("PATCH appointment-mode: writes an audit log entry", async () => {
     const doctor = await createDoctorFixture();
     const prisma = await getPrisma();
-    const before = await prisma.auditLog.count({
-      where: { entity: "doctor", entityId: doctor.id, action: "DOCTOR_APPOINTMENT_MODE_UPDATE" },
-    });
     await request(app)
       .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
       .set("Authorization", `Bearer ${adminToken}`)
       .send({ appointmentMode: "SLOT" })
       .expect(200);
-    // auditLog is fire-and-forget; allow a brief window for the insert.
-    await new Promise((r) => setTimeout(r, 50));
-    const after = await prisma.auditLog.count({
-      where: { entity: "doctor", entityId: doctor.id, action: "DOCTOR_APPOINTMENT_MODE_UPDATE" },
+    // safeAudit is fire-and-forget — poll via the canonical helper instead
+    // of a brittle fixed wait. Don't filter on userId/tenantId: the audit
+    // here is written with tenantId=null on this code path, which the
+    // tenant-scoped client's `count` filter excludes.
+    const row = await waitForAuditFlush(prisma as never, {
+      action: "DOCTOR_APPOINTMENT_MODE_UPDATE",
+      entity: "doctor",
+      entityId: doctor.id,
     });
-    expect(after).toBeGreaterThan(before);
+    expect(row).toBeTruthy();
   });
 });

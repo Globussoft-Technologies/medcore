@@ -2,6 +2,7 @@
 
 import { useEffect, useState, use, useId, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import {
@@ -156,6 +157,7 @@ export default function AdmissionDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const router = useRouter();
   const { user } = useAuthStore();
   const [tab, setTab] = useState<Tab>("overview");
   const [admission, setAdmission] = useState<Admission | null>(null);
@@ -165,11 +167,25 @@ export default function AdmissionDetailPage({
     loadAdmission();
   }, [id]);
 
+  // Issue #957: Detail-tab sub-resource calls (`/admissions/:id/vitals`,
+  // `/mar`, `/intake-output`, …) still go through routes that key by
+  // UUID. If the user landed via the human-readable admissionNumber
+  // (e.g. /dashboard/admissions/IPD000010), the API GET /:id resolves
+  // the row by either id-or-number (see admissions.ts), but every
+  // sub-tab would 404. So once we know the canonical UUID, swap the URL
+  // in-place so all child fetches use the UUID. `router.replace` keeps
+  // the back-button stack clean (no entry for the code-shaped URL).
+  const UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
   async function loadAdmission() {
     setLoading(true);
     try {
       const res = await api.get<{ data: Admission }>(`/admissions/${id}`);
       setAdmission(res.data);
+      if (res.data?.id && res.data.id !== id && !UUID_RE.test(id)) {
+        router.replace(`/dashboard/admissions/${res.data.id}`);
+      }
     } catch {
       // empty
     }

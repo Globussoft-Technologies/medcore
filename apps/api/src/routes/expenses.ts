@@ -26,6 +26,8 @@ router.get("/", authorize(Role.ADMIN), async (req: Request, res: Response, next:
       from,
       to,
       paidBy,
+      status,
+      approvalStatus,
       page = "1",
       limit = "20",
     } = req.query as Record<string, string | undefined>;
@@ -33,6 +35,17 @@ router.get("/", authorize(Role.ADMIN), async (req: Request, res: Response, next:
     const where: Record<string, unknown> = {};
     if (category) where.category = category;
     if (paidBy) where.paidBy = paidBy;
+    // Issue #936 (2026-05-24): the Pending-Approvals card on the Admin
+    // Console queried `/expenses?status=PENDING&limit=20` but the list
+    // handler ignored both `status` and the canonical `approvalStatus`,
+    // returning every expense (including already-approved rows) and
+    // leaving stale entries on the card with an enabled Approve button.
+    // Accept either alias (`status` for legacy callers, `approvalStatus`
+    // for the schema-true name) and apply the filter so the same Prisma
+    // `where: { approvalStatus: "PENDING" }` semantics as
+    // `/expenses/pending` are reachable through the generic list.
+    const statusFilter = approvalStatus ?? status;
+    if (statusFilter) where.approvalStatus = statusFilter;
     if (from || to) {
       where.date = {};
       if (from) (where.date as Record<string, unknown>).gte = new Date(from);

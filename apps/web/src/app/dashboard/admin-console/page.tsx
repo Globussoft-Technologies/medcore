@@ -120,6 +120,11 @@ export default function AdminConsolePage() {
   // employed-doctor count so the bar shows "0/12 (0%)" or "8/12 (66%)".
   const [totalDoctors, setTotalDoctors] = useState(0);
   const [refreshTick, setRefreshTick] = useState(0);
+  // Issue #936 (2026-05-24): track in-flight approval IDs so the row's
+  // Approve button can be disabled while the PATCH is on the wire. Stops
+  // the admin from double-clicking and racing the optimistic-prune
+  // against the server's "already APPROVED" 4xx.
+  const [approving, setApproving] = useState<Set<string>>(new Set());
   // Issue #744: friendly tenant identity for the header. Replaces the
   // raw `clinicId: <uuid>` fallback the page used to surface when ops
   // wanted to know which hospital they were looking at. We fetch from
@@ -416,6 +421,13 @@ export default function AdminConsolePage() {
   }).length;
 
   async function approve(kind: "leave" | "expense" | "po", id: string) {
+    // Issue #936: guard against double-clicks while in flight.
+    if (approving.has(id)) return;
+    setApproving((s) => {
+      const next = new Set(s);
+      next.add(id);
+      return next;
+    });
     try {
       if (kind === "leave") {
         // Issue #288 (2026-04-30): the previous URL was `/leaves/${id}`
@@ -447,6 +459,33 @@ export default function AdminConsolePage() {
       // "Cannot modify leave in status APPROVED" or "approved Required"
       // instead of the opaque "Approve failed".
       toast.error(topLineError(err, "Approve failed"));
+      // Issue #936 (2026-05-24): when the server rejects with "already
+      // APPROVED/REJECTED" (the row is stale on the client), prune the
+      // dead row optimistically AND bump the refresh tick so the next
+      // useEffect cycle refetches authoritative state. Without this the
+      // row sat in the list with an enabled Approve button forever, and
+      // the counter (`Expenses (N)`) never decremented — repeated
+      // clicks reproduced the same toast indefinitely.
+      const status = (err as { status?: number })?.status;
+      const message = (err as { message?: string })?.message ?? "";
+      const isAlready = status === 400 && /already (APPROVED|REJECTED)/i.test(message);
+      if (isAlready) {
+        if (kind === "leave") {
+          setPendingLeaves((xs) => xs.filter((x) => x.id !== id));
+        } else if (kind === "expense") {
+          setPendingExpenses((xs) => xs.filter((x) => x.id !== id));
+        } else if (kind === "po") {
+          setPendingPOs((xs) => xs.filter((x) => x.id !== id));
+        }
+        setRefreshTick((t) => t + 1);
+      }
+    } finally {
+      // Issue #936: always release the in-flight latch.
+      setApproving((s) => {
+        const next = new Set(s);
+        next.delete(id);
+        return next;
+      });
     }
   }
 
@@ -685,6 +724,7 @@ export default function AdminConsolePage() {
               secondary: `${l.type} · ${formatDate(l.fromDate ?? l.startDate)} → ${formatDate(l.toDate ?? l.endDate)}`,
             }))}
             onApprove={(id) => approve("leave", id)}
+            approving={approving}
             viewAllHref="/dashboard/leave-management"
           />
           <ApprovalGroup
@@ -696,6 +736,7 @@ export default function AdminConsolePage() {
               secondary: `Rs. ${(e.amount || 0).toLocaleString("en-IN")}`,
             }))}
             onApprove={(id) => approve("expense", id)}
+            approving={approving}
             viewAllHref="/dashboard/expenses"
           />
           <ApprovalGroup
@@ -707,6 +748,7 @@ export default function AdminConsolePage() {
               secondary: `${p.supplier?.name || "—"} · Rs. ${(p.totalAmount || 0).toLocaleString("en-IN")}`,
             }))}
             onApprove={(id) => approve("po", id)}
+            approving={approving}
             viewAllHref="/dashboard/purchase-orders"
           />
         </div>
@@ -880,12 +922,18 @@ function ApprovalGroup({
   title,
   items,
   onApprove,
+  approving,
   viewAllHref,
 }: {
   Icon: React.ElementType;
   title: string;
   items: Array<{ id: string; primary: string; secondary: string }>;
   onApprove: (id: string) => void;
+  // Issue #936 (2026-05-24): set of row ids whose approval PATCH is
+  // currently in flight. Used to disable the per-row Approve button so
+  // the admin can't double-click and race the optimistic prune against
+  // the server's "already APPROVED" 4xx.
+  approving?: Set<string>;
   viewAllHref: string;
 }) {
   return (
@@ -919,13 +967,22 @@ function ApprovalGroup({
                   below WCAG AA (4.5:1) for the 11px button label. Bumping the
                   resting state to bg-green-700 (#15803d) raises it to ~5.5:1
                   while keeping the same hover affordance via bg-green-800. */}
-              <button
-                onClick={() => onApprove(it.id)}
-                aria-label={`Approve ${it.primary}`}
-                className="shrink-0 rounded-md bg-green-700 px-2 py-1 text-[11px] font-medium text-white hover:bg-green-800"
-              >
-                Approve
-              </button>
+              {/* Issue #936: disable while the approval PATCH is in flight so
+                  a double-click cannot race the optimistic prune. */}
+              {(() => {
+                const busy = approving?.has(it.id) ?? false;
+                return (
+                  <button
+                    onClick={() => onApprove(it.id)}
+                    disabled={busy}
+                    aria-label={`Approve ${it.primary}`}
+                    aria-busy={busy || undefined}
+                    className="shrink-0 rounded-md bg-green-700 px-2 py-1 text-[11px] font-medium text-white hover:bg-green-800 disabled:cursor-not-allowed disabled:bg-green-700/60"
+                  >
+                    {busy ? "Approving…" : "Approve"}
+                  </button>
+                );
+              })()}
             </div>
           ))}
         </div>

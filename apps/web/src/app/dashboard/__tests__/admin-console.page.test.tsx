@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
-const { apiMock, authMock, routerReplace } = vi.hoisted(() => ({
+const { apiMock, authMock, routerReplace, toastMock } = vi.hoisted(() => ({
   apiMock: {
     get: vi.fn(),
     post: vi.fn(),
@@ -12,10 +13,12 @@ const { apiMock, authMock, routerReplace } = vi.hoisted(() => ({
   },
   authMock: vi.fn(),
   routerReplace: vi.fn(),
+  toastMock: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }));
 
 vi.mock("@/lib/api", () => ({ api: apiMock }));
 vi.mock("@/lib/store", () => ({ useAuthStore: authMock }));
+vi.mock("@/lib/toast", () => ({ toast: toastMock }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: routerReplace, back: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
@@ -57,6 +60,9 @@ function defaultGet(url: string) {
 describe("AdminConsolePage", () => {
   beforeEach(() => {
     apiMock.get.mockReset();
+    apiMock.patch.mockReset();
+    toastMock.error.mockReset();
+    toastMock.success.mockReset();
     routerReplace.mockReset();
     authMock.mockReturnValue({
       user: { id: "u1", name: "Admin", email: "a@x.com", role: "ADMIN" },
@@ -201,6 +207,155 @@ describe("AdminConsolePage", () => {
   // because the widget read a key the server did not return. Now the
   // analytics API aliases `newPatients = newPatientsInPeriod` — verify
   // the widget renders the value the API provides.
+  // Regression guard for Issue #936 (2026-05-24): already-approved
+  // expenses lingered on the Pending Approvals card with the Approve
+  // button still enabled. Two fixes:
+  //   (a) On a successful approval the row is optimistically pruned and
+  //       the `Expenses (N)` counter decrements immediately.
+  //   (b) When the server rejects with "already APPROVED" the client
+  //       still prunes the stale row + bumps the refresh tick (rather
+  //       than leaving the row clickable forever).
+  //   (c) While the PATCH is in flight, the Approve button is disabled
+  //       so a double-click cannot race the optimistic prune.
+  it("Issue #936: successful expense approval prunes the row and decrements the counter", async () => {
+    const expenses = [
+      { id: "e1", description: "Patient refreshment supplies", amount: 1767 },
+      { id: "e2", description: "IV cannula stock replenishment", amount: 2988 },
+    ];
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.includes("/expenses")) return Promise.resolve({ data: expenses });
+      return Promise.resolve(defaultGet(url));
+    });
+    apiMock.patch.mockResolvedValue({ data: { id: "e1", approvalStatus: "APPROVED" } });
+
+    const user = userEvent.setup();
+    render(<AdminConsolePage />);
+
+    // Wait for the populated card.
+    await waitFor(() => {
+      expect(screen.getByText(/Patient refreshment supplies/)).toBeInTheDocument();
+    });
+    // Counter starts at 2.
+    expect(screen.getByText(/Expenses \(2\)/)).toBeInTheDocument();
+
+    const approveBtn = screen.getByRole("button", {
+      name: /Approve Patient refreshment supplies/,
+    });
+    await user.click(approveBtn);
+
+    await waitFor(() => {
+      expect(apiMock.patch).toHaveBeenCalledWith(
+        "/expenses/e1/approve",
+        { approved: true },
+      );
+    });
+    // Row gone, counter decremented to 1.
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/Patient refreshment supplies/),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText(/Expenses \(1\)/)).toBeInTheDocument();
+    });
+  });
+
+  it("Issue #936: already-APPROVED 4xx prunes the stale row instead of leaving it clickable", async () => {
+    // Server-side state: e1 is already APPROVED, so the /expenses?status=PENDING
+    // refetch should NOT return it. The page's pre-fix bug was that even when
+    // the user clicked Approve and the server 4xx'd "already APPROVED", the
+    // dead row stayed clickable forever.
+    let serverPendingExpenses: any[] = [
+      { id: "e1", description: "Patient refreshment supplies", amount: 1767 },
+    ];
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.includes("/expenses"))
+        return Promise.resolve({ data: serverPendingExpenses });
+      return Promise.resolve(defaultGet(url));
+    });
+    const err = Object.assign(new Error("Expense is already APPROVED"), {
+      status: 400,
+      payload: { error: "Expense is already APPROVED" },
+    });
+    apiMock.patch.mockImplementation(async () => {
+      // Mirror server reality: by the time the admin clicks, the expense is
+      // already APPROVED upstream — so the next refetch returns an empty list.
+      serverPendingExpenses = [];
+      throw err;
+    });
+
+    const user = userEvent.setup();
+    render(<AdminConsolePage />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Patient refreshment supplies/)).toBeInTheDocument();
+    });
+
+    const approveBtn = screen.getByRole("button", {
+      name: /Approve Patient refreshment supplies/,
+    });
+    await user.click(approveBtn);
+
+    // Surfaced the real error to the admin.
+    await waitFor(() => {
+      expect(toastMock.error).toHaveBeenCalled();
+    });
+    // Row pruned and counter decremented to 0 even though the PATCH 4xx'd.
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/Patient refreshment supplies/),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText(/Expenses \(0\)/)).toBeInTheDocument();
+    });
+  });
+
+  it("Issue #936: Approve button disables while the PATCH is in flight", async () => {
+    const expenses = [
+      { id: "e1", description: "Patient refreshment supplies", amount: 1767 },
+    ];
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.includes("/expenses")) return Promise.resolve({ data: expenses });
+      return Promise.resolve(defaultGet(url));
+    });
+    // Hold the PATCH open so we can observe the disabled state.
+    let resolvePatch: (v: unknown) => void = () => {};
+    apiMock.patch.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePatch = resolve;
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(<AdminConsolePage />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Patient refreshment supplies/)).toBeInTheDocument();
+    });
+
+    const approveBtn = screen.getByRole("button", {
+      name: /Approve Patient refreshment supplies/,
+    });
+    expect(approveBtn).not.toBeDisabled();
+    await user.click(approveBtn);
+
+    await waitFor(() => {
+      const busy = screen.getByRole("button", {
+        name: /Approve Patient refreshment supplies/,
+      });
+      expect(busy).toBeDisabled();
+    });
+
+    // Double-click while busy must not fire a second PATCH.
+    await user.click(approveBtn);
+    expect(apiMock.patch).toHaveBeenCalledTimes(1);
+
+    // Resolve to let the test exit cleanly.
+    resolvePatch({ data: { id: "e1", approvalStatus: "APPROVED" } });
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/Patient refreshment supplies/),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it("Issue #48: Today Snapshot renders newPatients count from API", async () => {
     render(<AdminConsolePage />);
     // The Snap widget formats numeric values via toLocaleString("en-IN").

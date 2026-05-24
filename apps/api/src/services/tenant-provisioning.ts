@@ -36,6 +36,7 @@ import type {
   TenantPlan,
   LeaveType,
 } from "@prisma/client";
+import { PLAN_DEFINITIONS, TRIAL_DAYS, type Plan } from "@medcore/shared";
 
 // ─── Reserved subdomains ─────────────────────────────────────────────
 // Subdomains that must never be taken by an operator-created tenant. `default`
@@ -241,6 +242,19 @@ export interface CreateTenantParams {
     gstin?: string;
     address?: string;
   };
+  /**
+   * Pearl Stage 1 §8.3 (gap rows 215-218 piece 3a wiring) — the platform-
+   * billing `Plan` tier the new tenant pays on. Independent of the legacy
+   * `plan: TenantPlan` field above (which feeds `Tenant.plan` for the
+   * older BASIC/PRO/ENTERPRISE pricing — kept for back-compat).
+   *
+   * Default `STARTER` (every freshly-onboarded tenant lands on Starter +
+   * 30-day trial unless super-admin onboards a bespoke Enterprise
+   * tenant and explicitly overrides). Resolved `includedFeatures` are
+   * materialised onto `Tenant.featureFlags` in the same transaction so
+   * `requireFeature(...)` middleware gates accordingly from day 1.
+   */
+  initialPlan?: Plan;
 }
 
 export interface CreateTenantResult {
@@ -267,6 +281,21 @@ export interface CreateTenantResult {
     holidays: number;
     systemConfigRows: number;
   };
+  /**
+   * Pearl Stage 1 §8.3 — the auto-provisioned `TenantSubscription` row
+   * (see gap rows 215-218 piece 3a wiring). Always present on a fresh
+   * `createTenant()` call; field is included so callers (super-admin
+   * onboarding UI, future Stage-1 e2e helpers) can echo the plan tier +
+   * trial deadline back to the operator without a follow-up read.
+   */
+  subscription: {
+    id: string;
+    plan: Plan;
+    status: "trial";
+    trialEndsAt: Date;
+    currentPeriodStart: Date;
+    currentPeriodEnd: Date;
+  };
 }
 
 /**
@@ -291,6 +320,25 @@ export async function createTenant(
   // should not hold a txn open while we compute the salt rounds.
   const passwordHash = await bcrypt.hash(adminPassword, 10);
 
+  // Pearl Stage 1 §8.3 — every freshly-onboarded tenant lands on a
+  // platform-billing plan tier (default STARTER) with a 30-day trial.
+  // The resolved feature-flag set (PLAN_DEFINITIONS[plan].includedFeatures)
+  // is materialised onto Tenant.featureFlags in the same transaction so
+  // requireFeature(...) gates work from day 1 without a separate write.
+  const initialPlan: Plan = params.initialPlan ?? "STARTER";
+  const planDef = PLAN_DEFINITIONS[initialPlan];
+  if (!planDef) {
+    throw new Error(`Unknown plan tier: ${initialPlan}`);
+  }
+  const featureFlagsForPlan: Record<string, boolean> = {};
+  for (const key of planDef.includedFeatures) {
+    featureFlagsForPlan[key] = true;
+  }
+  const provisionedAt = new Date();
+  const trialEndsAt = new Date(
+    provisionedAt.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000,
+  );
+
   return prisma.$transaction(
     async (tx) => {
       // 1. Tenant row ────────────────────────────────────────────────
@@ -300,6 +348,12 @@ export async function createTenant(
           subdomain,
           plan,
           active: true,
+          // Pearl Stage 1 §6 + §8.3 — materialise the plan's included
+          // features as the initial `featureFlags` JSON. Stage-2+
+          // features default to false (omitted ⇒ falls through to
+          // FEATURE_METADATA.defaultEnabled, but explicit-true here is
+          // load-bearing for the requireFeature middleware).
+          featureFlags: featureFlagsForPlan,
         },
       });
 
@@ -419,6 +473,32 @@ export async function createTenant(
         });
       }
 
+      // 8. Platform-billing TenantSubscription row ─────────────────────
+      // Pearl Stage 1 §8.3 (gap rows 215-218 piece 3a wiring 2026-05-25)
+      // — every new tenant gets a `TenantSubscription` in `trial` status
+      // with `trialEndsAt = provisionedAt + 30d`. Without this, the
+      // monthly platform-invoice generator (`platform-invoice-generator.
+      // ts`) skips the tenant entirely because its
+      // `tenantSubscription.findMany({status: not cancelled})` query
+      // would return nothing — silent missed billing.
+      //
+      // currentPeriodStart = now; currentPeriodEnd = trialEndsAt so the
+      // first billable window (post-trial) starts exactly when the
+      // trial expires. Plan defaults to STARTER unless super-admin
+      // overrode `initialPlan` (e.g. for a hand-onboarded Enterprise
+      // tenant). One subscription per tenant — guarded by
+      // `TenantSubscription.tenantId @unique`.
+      const subscription = await tx.tenantSubscription.create({
+        data: {
+          tenantId: tenant.id,
+          plan: initialPlan,
+          status: "trial",
+          trialEndsAt,
+          currentPeriodStart: provisionedAt,
+          currentPeriodEnd: trialEndsAt,
+        },
+      });
+
       return {
         tenant: {
           id: tenant.id,
@@ -440,10 +520,99 @@ export async function createTenant(
           holidays: holidayResult.count,
           systemConfigRows: configEntries.length,
         },
+        subscription: {
+          id: subscription.id,
+          plan: initialPlan,
+          status: "trial" as const,
+          trialEndsAt,
+          currentPeriodStart: provisionedAt,
+          currentPeriodEnd: trialEndsAt,
+        },
       };
     },
     { timeout: 30_000 },
   );
+}
+
+/**
+ * Pearl Stage 1 §8.3 (gap rows 215-218 piece 3a wiring 2026-05-25) —
+ * back-fill helper. Walks every `Tenant` row that has NO
+ * `TenantSubscription` and creates one. Use case: pre-existing tenants
+ * that were created before this auto-provisioning landed; without a
+ * subscription they are silently invisible to the monthly invoice
+ * generator.
+ *
+ * Differences vs the fresh-onboarding path in `createTenant`:
+ *   - status is `active` (not `trial`) — back-filled tenants are not
+ *     on a trial window; they have been running in production already.
+ *   - trialEndsAt = null.
+ *   - currentPeriodStart = first of the current calendar month (UTC);
+ *     currentPeriodEnd = first of next calendar month (UTC). This
+ *     aligns with the monthly invoice generator's window math (see
+ *     `computePreviousMonthUtcWindow` in `platform-invoice-generator.
+ *     ts`) so the very first invoice covers a clean calendar month.
+ *
+ * Idempotent — skips any tenant that already has a subscription. Safe
+ * to call multiple times. Returns the count of subscriptions created.
+ *
+ * Not auto-wired into a route; super-admin can invoke via a one-shot
+ * npm script (`tsx -e "..."`) or a follow-up admin route. Kept as a
+ * pure function for testability.
+ */
+export async function backfillTenantSubscriptions(
+  client: {
+    tenant: {
+      findMany: (args: {
+        where: { tenantSubscription: { is: null } };
+        select: { id: true };
+      }) => Promise<Array<{ id: string }>>;
+    };
+    tenantSubscription: {
+      create: (args: {
+        data: {
+          tenantId: string;
+          plan: Plan;
+          status: "active";
+          trialEndsAt: null;
+          currentPeriodStart: Date;
+          currentPeriodEnd: Date;
+        };
+      }) => Promise<unknown>;
+    };
+  } = prisma as never,
+  opts: { defaultPlan?: Plan; now?: Date } = {},
+): Promise<{ created: number }> {
+  const defaultPlan: Plan = opts.defaultPlan ?? "STARTER";
+  const now = opts.now ?? new Date();
+  // First-of-current-month / first-of-next-month in UTC, matching the
+  // generator's window math.
+  const periodStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+  );
+  const periodEnd = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+  );
+
+  const orphanTenants = await client.tenant.findMany({
+    where: { tenantSubscription: { is: null } },
+    select: { id: true },
+  });
+
+  let created = 0;
+  for (const t of orphanTenants) {
+    await client.tenantSubscription.create({
+      data: {
+        tenantId: t.id,
+        plan: defaultPlan,
+        status: "active",
+        trialEndsAt: null,
+        currentPeriodStart: periodStart,
+        currentPeriodEnd: periodEnd,
+      },
+    });
+    created += 1;
+  }
+  return { created };
 }
 
 /**

@@ -1,6 +1,65 @@
 # Pearl Stage-2 PRD — Open Decisions (for the operator at the keyboard)
 
-**Last updated:** 2026-05-25 — initial build alongside [`PEARL_STAGE2_GAP_ANALYSIS.md`](./PEARL_STAGE2_GAP_ANALYSIS.md). All 5 HARD BLOCKERs awaiting operator decision.
+**Last updated:** 2026-05-25 — **all 5 HARD BLOCKERs + 3 soft blockers DECIDED by user-at-keyboard**. Cron lanes unblock; productisation work picks up on next tick.
+
+---
+
+## DECISIONS LANDED 2026-05-25
+
+The user-at-keyboard answered the Stage-2 product questions. Locked answers below; each "DECIDED" block authoritative for cron picks.
+
+### 1. Plan-tier expansion — DECIDED (keep 3 tiers, suggested expansion)
+- **STARTER**: OPD-only (Stage-1 baseline; unchanged)
+- **GROWTH** adds: `hl7Inbound` (LIS), `telemedicine` (video), `hrmsPayroll` (HR), `assetTracker`
+- **ENTERPRISE** adds: `abdmAdvanced` (M2/M3), `voiceRx` (Voice-Rx end-to-end including Aadhaar e-Sign), `aiDischarge`, `nabhDashboard`, `aiRadiology`, all 6 `ai*` predictive flags
+- **Price bump**: STARTER ₹4,999/mo unchanged; GROWTH ₹14,999/mo unchanged; **ENTERPRISE bumps from ₹39,999 to ₹69,999** to reflect IPD/OT/AI bundle expansion
+- Update `packages/shared/src/billing/plans.ts` `PLAN_DEFINITIONS` accordingly
+- ~20 Bucket-A productisation rows unblock
+
+### 2. À-la-carte SKUs — DECIDED (hybrid)
+- **À-la-carte SKUs (8)**: `predictiveSepsis`, `predictiveNoShow`, `predictiveDeterioration`, `aiCapacity`, `aiRoster`, `aiCoaching`, `aiFollowup`, `aiFraud`, plus `assetTracker` and `nabhDashboard` as separate SKUs — buyable individually on top of tier subscriptions
+- **Tier-bundled (not à-la-carte)**: `ipd`, `ot`, `hl7Inbound`, `telemedicine`, `voiceRx`, `abdmAdvanced` (share infrastructure; tier-bound makes more sense)
+- **Razorpay strategy**: Each à-la-carte flag = one Razorpay add-on SKU (8-10 SKUs). Plumb via existing per-tenant Razorpay creds
+- **UI**: Super-admin → Tenants → Tenant detail → "Add-ons" tab with SKU catalogue + toggle + price
+- Adds ~8 weeks of parallelizable plumbing work
+
+### 3. ABDM M2/M3 sandbox enrolment — DECIDED (operator drives)
+- Onviqa team provisions ABDM sandbox creds for Pearl Women's & Children's Hospital + walks hospital admin through HFR + HPR enrolment via Stage-1 Settings → ABDM wizard
+- **Target: complete within 2 weeks** of 2026-05-25
+- §S2.8 productisation rows unblock once creds land
+
+### 4. Voice AI Receptionist provider — DECIDED (Sarvam in-house)
+- **Sarvam ASR + Sarvam-LLM + Sarvam TTS** (India-hosted, DPDP-friendly)
+- Reuses the existing Sarvam abstraction in `services/ai/`
+- ~6 weeks engineering (higher than US-hosted options but no Cross-Border Data Transfer assessment needed)
+- §S2.13 4 greenfield rows now buildable
+
+### 5. DICOM viewer / PACS backend — DECIDED (OHIF + Orthanc)
+- **Frontend**: OHIF Viewer (open-source MIT, React, ~2-3 MB bundle)
+- **Backend**: Self-hosted Orthanc DICOM server as the DICOMweb backend
+- **Schema**: New `DicomStudy` model with FK to existing `RadiologyStudy` (do NOT extend `imageUrls` JSON — keep DICOM metadata first-class)
+- **Modality worklist (MWL) integration**: Deferred to Stage 3
+- ~6-8 engineer-weeks
+- §S2.17 4 rows unblock
+
+### 6. Aadhaar e-Sign vendor — DECIDED (NSDL e-Gov)
+- Voice-Rx productisation (§S2.5 e-Sign sub-row) integrates NSDL e-Gov ESP
+- ~2-3 weeks integration
+- Voice-Rx end-to-end flow completes once e-Sign lands
+
+### 7. Predictive CDS sub-flags — DECIDED (split into per-model flags)
+- Add to `FEATURE_KEYS` constant: `predictiveSepsis`, `predictiveNoShow`, `predictiveDeterioration` (the existing `aiCapacity`, `aiRoster`, `aiCoaching`, `aiFollowup`, `aiFraud` stay as-is)
+- Retire the single `predictiveCds` umbrella flag (or keep as a legacy alias that ORs the 3 new sub-flags)
+- Per-route `requireFeature(...)` wiring updates accordingly
+- Enables the à-la-carte SKU model from decision #2
+
+### 8. NABH dashboard scope — DECIDED (pilot subset, 7-10 indicators, ~2 weeks)
+- Stage-2 ships a focused subset of NABH 5th-edition indicators
+- Suggested 7-10 highest-value indicators: mortality rate, hospital-acquired infection rate, medication-error rate, fall rate, surgical-site infection rate, blood-transfusion-reaction rate, patient-satisfaction score, return-to-OT rate, average length-of-stay, readmission-within-30-days rate
+- Stage-3 extends to full 1-21 standard set based on pilot feedback
+
+### Naming reminder
+Per the Stage-1 naming-correction (locked 2026-05-24): NEW schema models and role enum values MUST be tenant-agnostic. New DICOM model name = `DicomStudy` (not `PearlDicomStudy`). New SKU model name (if needed for à-la-carte) = `TenantAddon` or `PlatformAddonSku` (not `Pearl*`).
 
 > **Naming convention:** "Pearl" is the pilot tenant, NOT the product. The product is MedCore HMS; Onviqa is the platform operator. New schema models and role enum values MUST be tenant-agnostic. Do NOT create `Pearl*`-prefixed models. (Carries forward from Stage-1 OPEN_DECISIONS — see that doc for full rationale.)
 
@@ -28,7 +87,7 @@ Stage 2 extends all of these — does NOT replace them.
 
 ---
 
-## 🛑 HARD BLOCKERS — operator decision required before cron can pick the lane
+## 🛑 HARD BLOCKERS — ALL DECIDED 2026-05-25 (see "DECISIONS LANDED" section at top of doc)
 
 ### 1. Stage-2 plan-tier → feature-flag bundle mapping
 

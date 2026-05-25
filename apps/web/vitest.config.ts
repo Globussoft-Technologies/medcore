@@ -55,6 +55,12 @@ export default defineConfig({
           functions: 100,
           statements: 99,
         },
+        "src/app/dashboard/billing/patient/[patientId]/page.tsx": {
+          lines: 99,
+          branches: 95,
+          functions: 94,
+          statements: 99,
+        },
       },
     },
   },

@@ -34,6 +34,15 @@ export default defineConfig({
         branches: 65,
         functions: 31,
         statements: 51,
+        // Per-file ratchets — lock in well-covered files so future refactors
+        // can't silently regress them. Source: single-file --coverage runs.
+        // Format: glob path → {lines, branches, functions, statements}.
+        "src/app/dashboard/audit/page.tsx": {
+          lines: 99,
+          branches: 95,
+          functions: 100,
+          statements: 99,
+        },
       },
     },
   },

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { Search, Baby } from "lucide-react";
 import { SkeletonTable } from "@/components/Skeleton";
+import { TablePagination } from "@/components/TablePagination";
 
 interface Patient {
   id: string;
@@ -33,6 +34,8 @@ export default function PediatricPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   useEffect(() => {
     load();
@@ -42,6 +45,12 @@ export default function PediatricPage() {
     const t = setTimeout(() => load(), 250);
     return () => clearTimeout(t);
   }, [search]);
+
+  // Reset to the first page whenever the filtered result set changes (new
+  // search, fresh load) so the user never lands on an out-of-range page.
+  useEffect(() => {
+    setPage(1);
+  }, [patients]);
 
   async function load() {
     setLoading(true);
@@ -61,6 +70,13 @@ export default function PediatricPage() {
     }
     setLoading(false);
   }
+
+  const totalPages = Math.max(1, Math.ceil(patients.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pageItems = patients.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
 
   return (
     <div>
@@ -119,7 +135,7 @@ export default function PediatricPage() {
               </tr>
             </thead>
             <tbody>
-              {patients.map((p) => {
+              {pageItems.map((p) => {
                 const age = computeAgeYears(p);
                 return (
                   <tr
@@ -159,6 +175,20 @@ export default function PediatricPage() {
               })}
             </tbody>
           </table>
+        )}
+
+        {!loading && patients.length > 0 && (
+          <TablePagination
+            page={currentPage}
+            totalPages={totalPages}
+            pageSize={pageSize}
+            totalItems={patients.length}
+            onPageChange={setPage}
+            onPageSizeChange={(n) => {
+              setPageSize(n);
+              setPage(1);
+            }}
+          />
         )}
       </div>
     </div>

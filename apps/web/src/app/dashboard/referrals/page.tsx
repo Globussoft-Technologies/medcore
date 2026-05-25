@@ -8,6 +8,7 @@ import { Autocomplete } from "@/components/Autocomplete";
 import { createReferralSchema } from "@medcore/shared";
 import { Plus, ArrowRightLeft } from "lucide-react";
 import { SkeletonTable } from "@/components/Skeleton";
+import { TablePagination } from "@/components/TablePagination";
 
 // Issue #173: replace the free-text Specialty <input> with the same coded
 // Autocomplete pattern Surgery uses for ICD-10 (Issue #97). The canonical
@@ -80,6 +81,8 @@ export default function ReferralsPage() {
   const [tab, setTab] = useState<Tab>("outgoing");
   const [showCreate, setShowCreate] = useState(false);
   const [selected, setSelected] = useState<Referral | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   // Form state
   const [doctors, setDoctors] = useState<Doctor[]>([]);
@@ -145,6 +148,18 @@ export default function ReferralsPage() {
     if (isDoctor && !myDoctorId) return;
     loadReferrals();
   }, [loadReferrals, isDoctor, myDoctorId]);
+
+  // Reset to page 1 whenever the tab or result set changes.
+  useEffect(() => {
+    setPage(1);
+  }, [tab, referrals.length]);
+
+  const totalPages = Math.max(1, Math.ceil(referrals.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedReferrals = referrals.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
 
   useEffect(() => {
     if (showCreate) {
@@ -317,7 +332,7 @@ export default function ReferralsPage() {
               </tr>
             </thead>
             <tbody>
-              {referrals.map((r) => (
+              {pagedReferrals.map((r) => (
                 <tr
                   key={r.id}
                   onClick={() => setSelected(r)}
@@ -354,6 +369,19 @@ export default function ReferralsPage() {
               ))}
             </tbody>
           </table>
+        )}
+        {!loading && referrals.length > 0 && (
+          <TablePagination
+            page={currentPage}
+            totalPages={totalPages}
+            pageSize={pageSize}
+            totalItems={referrals.length}
+            onPageChange={setPage}
+            onPageSizeChange={(n) => {
+              setPage(1);
+              setPageSize(n);
+            }}
+          />
         )}
       </div>
 

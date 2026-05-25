@@ -10,6 +10,7 @@ import { useTranslation } from "@/lib/i18n";
 import { formatINR } from "@/lib/currency";
 import { Plus, FlaskConical, Inbox } from "lucide-react";
 import { extractFieldErrors, type FieldErrorMap } from "@/lib/field-errors";
+import { TablePagination } from "@/components/TablePagination";
 // Issue #438 (Apr 30 2026): canonicalise dates via the shared formatter so
 // the lab tab matches the rest of the app's `DD MMM YYYY` style.
 import { formatDate } from "@/lib/format";
@@ -111,6 +112,8 @@ export default function LabPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [statOnly, setStatOnly] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [aiInsights, setAiInsights] = useState<Record<string, {
     loading: boolean;
     data?: {
@@ -154,6 +157,12 @@ export default function LabPage() {
     else loadTests();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, statOnly]);
+
+  // Reset to page 1 whenever the order set changes (tab switch, STAT filter
+  // toggle, reload) so the user never lands on an out-of-range page.
+  useEffect(() => {
+    setPage(1);
+  }, [tab, statOnly, orders.length]);
 
   // Auto-open the order form when the doctor workspace quick-action links
   // here with ?new=1 (companion to issue #11 Write Rx fix).
@@ -210,6 +219,15 @@ export default function LabPage() {
       return acc;
     },
     {} as Record<string, LabTest[]>
+  );
+
+  // Client-side pagination over the loaded orders (already STAT-filtered
+  // server-side via loadOrders).
+  const totalPages = Math.max(1, Math.ceil(orders.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedOrders = orders.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
   );
 
   return (
@@ -346,6 +364,7 @@ export default function LabPage() {
               )}
             </div>
           ) : (
+            <>
             <div className="overflow-x-auto">
             <table className="w-full min-w-[820px]">
               <thead>
@@ -360,7 +379,7 @@ export default function LabPage() {
                 </tr>
               </thead>
               <tbody>
-                {orders.map((o) => (
+                {pagedOrders.map((o) => (
                   <Fragment key={o.id}>
                     <tr
                       data-testid="lab-order-row"
@@ -601,6 +620,20 @@ export default function LabPage() {
               </tbody>
             </table>
             </div>
+            {orders.length > 0 && (
+              <TablePagination
+                page={currentPage}
+                totalPages={totalPages}
+                pageSize={pageSize}
+                totalItems={orders.length}
+                onPageChange={setPage}
+                onPageSizeChange={(n) => {
+                  setPage(1);
+                  setPageSize(n);
+                }}
+              />
+            )}
+            </>
           )}
         </div>
       )}

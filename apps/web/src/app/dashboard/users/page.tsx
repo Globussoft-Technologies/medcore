@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { PasswordInput } from "@/components/PasswordInput";
+import { TablePagination } from "@/components/TablePagination";
 import {
   Plus,
   Shield,
@@ -53,6 +54,8 @@ export default function UsersPage() {
   const confirm = useConfirm();
   const [users, setUsers] = useState<StaffUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
     name: "",
@@ -278,6 +281,13 @@ export default function UsersPage() {
     LAB_TECH: "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300",
   };
 
+  const totalPages = Math.max(1, Math.ceil(users.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedUsers = users.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
@@ -492,7 +502,7 @@ export default function UsersPage() {
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => (
+              {pagedUsers.map((u) => (
                 <tr key={u.id} className="border-b last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/50">
                   <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{u.name}</td>
                   <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{u.email}</td>
@@ -584,6 +594,19 @@ export default function UsersPage() {
             </tbody>
           </table>
           </div>
+        )}
+        {!loading && users.length > 0 && (
+          <TablePagination
+            page={currentPage}
+            totalPages={totalPages}
+            pageSize={pageSize}
+            totalItems={users.length}
+            onPageChange={setPage}
+            onPageSizeChange={(n) => {
+              setPage(1);
+              setPageSize(n);
+            }}
+          />
         )}
       </div>
 

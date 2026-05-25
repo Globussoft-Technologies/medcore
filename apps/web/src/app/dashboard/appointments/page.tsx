@@ -14,6 +14,7 @@ import {
 } from "@/lib/appointments";
 import { SkeletonTable, SkeletonCard } from "@/components/Skeleton";
 import { EmptyState } from "@/components/EmptyState";
+import { TablePagination } from "@/components/TablePagination";
 import { EntityPicker } from "@/components/EntityPicker";
 import { AppointmentRemarksModal } from "@/components/AppointmentRemarksModal";
 import { Calendar, MessageSquare } from "lucide-react";
@@ -478,6 +479,8 @@ export default function AppointmentsPage() {
   const [patientTab, setPatientTab] = useState<PatientTab>("upcoming");
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -1001,6 +1004,18 @@ export default function AppointmentsPage() {
     }
     return list;
   }, [appointments, isPatient, patientTab, statusFilter]);
+
+  // List-view pagination over the filtered set.
+  const totalPages = Math.max(1, Math.ceil(filteredAppointments.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedAppointments = filteredAppointments.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, patientTab, filterDate, filteredAppointments.length]);
 
   // ─── CSV export ───────────────────
 
@@ -2264,7 +2279,7 @@ export default function AppointmentsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredAppointments.map((apt) => {
+                  {pagedAppointments.map((apt) => {
                     // Issue #388: a `BOOKED` row whose start time has passed
                     // must read as `COMPLETED` (display layer only).
                     // Issue #389: route every time string through the same
@@ -2433,6 +2448,19 @@ export default function AppointmentsPage() {
                 </tbody>
               </table>
               </div>
+            )}
+            {!loading && filteredAppointments.length > 0 && (
+              <TablePagination
+                page={currentPage}
+                totalPages={totalPages}
+                pageSize={pageSize}
+                totalItems={filteredAppointments.length}
+                onPageChange={setPage}
+                onPageSizeChange={(n) => {
+                  setPage(1);
+                  setPageSize(n);
+                }}
+              />
             )}
           </div>
         </>

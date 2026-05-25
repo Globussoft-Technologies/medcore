@@ -121,6 +121,12 @@ export default defineConfig({
           functions: 92,
           statements: 99,
         },
+        "src/app/dashboard/lab-intel/page.tsx": {
+          lines: 97,
+          branches: 90,
+          functions: 100,
+          statements: 97,
+        },
       },
     },
   },

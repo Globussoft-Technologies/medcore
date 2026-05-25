@@ -97,6 +97,12 @@ export default defineConfig({
           functions: 90,
           statements: 99,
         },
+        "src/app/dashboard/payroll/page.tsx": {
+          lines: 99,
+          branches: 80,
+          functions: 79,
+          statements: 99,
+        },
       },
     },
   },

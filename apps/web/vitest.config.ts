@@ -103,6 +103,12 @@ export default defineConfig({
           functions: 79,
           statements: 99,
         },
+        "src/app/dashboard/walk-in/page.tsx": {
+          lines: 98,
+          branches: 94,
+          functions: 100,
+          statements: 98,
+        },
       },
     },
   },

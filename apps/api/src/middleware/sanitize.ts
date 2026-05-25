@@ -33,12 +33,29 @@ import { Request, Response, NextFunction } from "express";
 // saved `alert('XSS')` with zero user feedback. createCalendarEventSchema
 // now refines title/description with containsHtmlOrScript and needs the
 // bypass to actually fire.
+//
+// Issue #938 (2026-05-23): /api/v1/settings/branding rejects HTML in
+// hospitalName + javascript: in logoUrl via updateBrandingSchema. The global
+// stripper would launder `<script>alert(1)</script>` into `alert(1)` and the
+// refines never fire — so bypass for the whole /settings tree.
+//
+// Issue #947 (2026-05-23): /api/v1/appointments (notably the threaded-remarks
+// endpoint) gets clinical free-text. Per Pearl §2.2 we reject rather than
+// silently strip so the clinician sees an explicit error instead of the
+// payload getting laundered into the chart.
+//
+// Issue #954 (2026-05-23): /api/v1/prescriptions takes per-item `medicineName`
+// which must reject HTML — the global stripper was laundering tags. Bypass
+// the whole prescriptions tree so the schema-level refine fires.
 const SCHEMA_REJECT_PATHS: readonly string[] = [
   "/api/v1/auth/register",
   "/api/v1/auth/forgot-password",
   "/api/v1/lab/results",
   "/api/v1/complaints",
   "/api/v1/calendar-events",
+  "/api/v1/settings/branding",
+  "/api/v1/appointments",
+  "/api/v1/prescriptions",
 ];
 
 function stripHtmlTags(value: unknown): unknown {

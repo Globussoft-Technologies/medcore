@@ -8,6 +8,7 @@ import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { usePrompt } from "@/lib/use-dialog";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
 import {
   ArrowLeft,
   Plus,
@@ -220,7 +221,17 @@ export default function AncCaseDetailPage() {
   }
 
   if (loading || !caseData) {
-    return <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>;
+    return (
+      <div
+        data-testid="antenatal-detail-loading"
+        aria-busy="true"
+        className="space-y-4 p-6"
+      >
+        <SkeletonCard />
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    );
   }
 
   const weeksGestation = Math.round(
@@ -1028,7 +1039,12 @@ function PartographTab({ caseId, canEdit }: { caseId: string; canEdit: boolean }
       </div>
 
       {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
+        <div
+          data-testid="antenatal-partograph-loading"
+          aria-busy="true"
+        >
+          <SkeletonTable rows={4} columns={5} />
+        </div>
       ) : !active ? (
         <p className="text-sm text-gray-500">No partograph started.</p>
       ) : (
@@ -1637,7 +1653,12 @@ function PostnatalTab({ caseId, canEdit }: { caseId: string; canEdit: boolean })
       )}
 
       {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
+        <div
+          data-testid="antenatal-postnatal-visits-loading"
+          aria-busy="true"
+        >
+          <SkeletonTable rows={4} columns={4} />
+        </div>
       ) : rows.length === 0 ? (
         <p className="text-sm text-gray-500">No postnatal visits recorded.</p>
       ) : (

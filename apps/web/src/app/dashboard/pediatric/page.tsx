@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { Search, Baby } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 interface Patient {
   id: string;
@@ -85,8 +86,12 @@ export default function PediatricPage() {
 
       <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800 dark:shadow-none dark:ring-1 dark:ring-white/10">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-300">
-            Loading...
+          <div
+            data-testid="pediatric-loading"
+            aria-busy="true"
+            className="p-4"
+          >
+            <SkeletonTable rows={6} columns={5} />
           </div>
         ) : patients.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 p-12 text-center">

@@ -62,17 +62,17 @@ describe("AncCaseDetailPage", () => {
   it("shows loading with empty data", async () => {
     apiMock.get.mockReturnValue(new Promise(() => {}));
     render(<AncCaseDetailPage />);
-    await waitFor(() =>
-      expect(screen.getByText(/loading/i)).toBeInTheDocument()
-    );
+    const loader = await screen.findByTestId("antenatal-detail-loading");
+    expect(loader).toBeInTheDocument();
+    expect(loader).toHaveAttribute("aria-busy", "true");
   });
 
   it("stays on loading when fetch fails (no crash)", async () => {
     apiMock.get.mockRejectedValue(new Error("500"));
     render(<AncCaseDetailPage />);
-    await waitFor(() =>
-      expect(screen.getByText(/loading/i)).toBeInTheDocument()
-    );
+    const loader = await screen.findByTestId("antenatal-detail-loading");
+    expect(loader).toBeInTheDocument();
+    expect(loader).toHaveAttribute("aria-busy", "true");
   });
 
   it("renders populated ANC case", async () => {

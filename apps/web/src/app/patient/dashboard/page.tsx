@@ -1,6 +1,6 @@
 "use client";
 
-// Patient PWA dashboard (Pearl §6.1 — gap #5 piece 3a of 4).
+// Patient PWA dashboard (Pearl §6.1 — gap #5 piece 3a of 4 + Pearl §5.3 row 147).
 //
 // Three tiles, all read-only, stacked on mobile and 3-up from sm: breakpoint.
 // Reads existing patient-scoped endpoints (no new server surface this tick —
@@ -64,7 +64,34 @@ interface ApiList<T> {
   meta?: { total: number };
 }
 
+// Pearl §5.3 row 147: optional ABHA link CTA on first login.
+// The /auth/me probe returns `patient: { abhaId: string | null }` nested under
+// the user row (see apps/api/src/routes/auth.ts ~L1118 — `patient: true`).
+interface MeResponse {
+  success: boolean;
+  data: {
+    id: string;
+    role?: string | null;
+    patient?: { abhaId?: string | null } | null;
+  } | null;
+  error?: string | null;
+}
+
+const ABHA_PROMPT_DISMISS_KEY = "medcore_abha_prompt_dismissed";
+
 type LoadState = "loading" | "ready" | "unauth" | "error";
+
+// Pearl §6.3 row 340 — "I've arrived" date helpers. Mirror the server's
+// YYYY-MM-DD comparison (Postgres @db.Date stripping — fix `502adf7`) in
+// the Asia/Kolkata wallclock so the button only renders for rows the
+// server would accept.
+function ymdInIST(d: Date): string {
+  return d.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
+
+function isTodayInIST(appointmentDate: string): boolean {
+  return (appointmentDate ?? "").slice(0, 10) === ymdInIST(new Date());
+}
 
 function formatDateTime(d: Date): string {
   // 22 May 2026 · 10:30 AM (locale-agnostic enough for the PWA; date-fns
@@ -104,13 +131,27 @@ export default function PatientDashboardPage() {
   const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
   const [prescriptions, setPrescriptions] = useState<PrescriptionRow[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
+  // Pearl §5.3 row 147 — ABHA-link prompt visibility. Banner shows when the
+  // authed PATIENT has no linked ABHA id AND hasn't dismissed the prompt this
+  // browser. Dismissal persists via `localStorage.medcore_abha_prompt_dismissed`
+  // so the prompt is genuinely "one-time per device" rather than nagging on
+  // every dashboard mount.
+  const [abhaPromptVisible, setAbhaPromptVisible] = useState<boolean>(false);
+  // Pearl §6.3 row 340 — arrive state for the "I've arrived" placeholder
+  // wire. idle → submitting → arrived (terminal); error transitions back
+  // to idle and surfaces an inline message. We don't refetch on success —
+  // the green pill IS the ack; the next natural nav will hydrate CHECKED_IN.
+  const [arriveState, setArriveState] = useState<
+    "idle" | "submitting" | "arrived"
+  >("idle");
+  const [arriveError, setArriveError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load(): Promise<void> {
       try {
-        const [apptRes, rxRes, invRes] = await Promise.allSettled([
+        const [apptRes, rxRes, invRes, meRes] = await Promise.allSettled([
           // Pull a small window of active appointments — the patient
           // role-scope happens server-side. We over-fetch slightly (20) so
           // the soonest-future pick has a real chance to land even when
@@ -126,6 +167,10 @@ export default function PatientDashboardPage() {
             "/billing/invoices?status=PENDING,PARTIAL&limit=3",
             { skip401Redirect: true },
           ),
+          // Pearl §5.3 row 147 — pull /auth/me so we can decide whether to
+          // surface the first-login ABHA prompt. Failure here is non-fatal:
+          // the dashboard still renders without the banner.
+          api.get<MeResponse>("/auth/me", { skip401Redirect: true }),
         ]);
         if (cancelled) return;
 
@@ -156,6 +201,32 @@ export default function PatientDashboardPage() {
         setAppointments(apptList);
         setPrescriptions(rxList);
         setInvoices(invList);
+
+        // Pearl §5.3 row 147 — decide ABHA-prompt visibility AFTER the
+        // payloads land so a slow /auth/me doesn't delay the rest of the
+        // dashboard render. Three conditions, all required:
+        //   1. /auth/me succeeded AND the row is a PATIENT
+        //   2. user.patient.abhaId is null/empty
+        //   3. no prior dismissal in localStorage
+        let showAbhaPrompt = false;
+        if (meRes.status === "fulfilled" && meRes.value.success) {
+          const u = meRes.value.data;
+          const isPatient = u?.role === "PATIENT";
+          const noAbha = !u?.patient?.abhaId;
+          let dismissed = false;
+          try {
+            dismissed =
+              typeof window !== "undefined" &&
+              window.localStorage?.getItem(ABHA_PROMPT_DISMISS_KEY) === "1";
+          } catch {
+            // localStorage may throw under private-browsing / SSR. Treat as
+            // not-dismissed — the user can dismiss again in this session.
+            dismissed = false;
+          }
+          showAbhaPrompt = Boolean(isPatient && noAbha && !dismissed);
+        }
+        setAbhaPromptVisible(showAbhaPrompt);
+
         setState("ready");
       } catch {
         if (!cancelled) setState("error");
@@ -186,6 +257,39 @@ export default function PatientDashboardPage() {
       .sort((x, y) => x.ts - y.ts);
     return upcoming[0]?.a ?? null;
   }, [appointments]);
+
+  const handleArrive = async (appointmentId: string): Promise<void> => {
+    // Pearl §6.3 row 340 — PATCH the appointment's status to CHECKED_IN.
+    // Server enabler `683f460` + date-string fix `502adf7` allow PATIENT for
+    // today's own BOOKED row. We render the green badge optimistically on
+    // success and surface an inline error on failure (no toast lib in this
+    // surface today; the same convention is used elsewhere on /patient).
+    setArriveError(null);
+    setArriveState("submitting");
+    try {
+      await api.patch(`/appointments/${appointmentId}/status`, {
+        status: "CHECKED_IN",
+      });
+      setArriveState("arrived");
+    } catch (err) {
+      setArriveError(
+        err instanceof Error
+          ? err.message
+          : "Could not notify reception. Please try again.",
+      );
+      setArriveState("idle");
+    }
+  };
+
+  const dismissAbhaPrompt = (): void => {
+    try {
+      window.localStorage?.setItem(ABHA_PROMPT_DISMISS_KEY, "1");
+    } catch {
+      // localStorage write may throw (quota / private mode). The session-
+      // level hide still works because we toggle React state too.
+    }
+    setAbhaPromptVisible(false);
+  };
 
   const openBillsTotal = useMemo(
     () =>
@@ -241,10 +345,48 @@ export default function PatientDashboardPage() {
   }
 
   return (
-    <section
-      data-testid="patient-dashboard"
-      className="space-y-4 py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:space-y-0"
-    >
+    <div className="space-y-4 py-4">
+      {/* ─── Pearl §5.3 row 147 — Optional ABHA link prompt ─────────── */}
+      {abhaPromptVisible ? (
+        <aside
+          data-testid="patient-abha-prompt-banner"
+          role="region"
+          aria-label="Link your ABHA Health ID"
+          className="flex flex-col gap-3 rounded-lg border border-sky-200 bg-sky-50 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-sky-900">
+              Link your ABHA Health ID for portable medical records.
+            </p>
+            <p className="text-xs text-sky-800">
+              Skip for now if you don't have one — you can link it any time
+              from your profile.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Link
+              href="/patient/profile?section=abha"
+              className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-sky-700 px-4 text-sm font-medium text-white"
+              data-testid="patient-abha-prompt-link"
+            >
+              Link ABHA
+            </Link>
+            <button
+              type="button"
+              onClick={dismissAbhaPrompt}
+              className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-sky-300 bg-white px-4 text-sm font-medium text-sky-900"
+              data-testid="patient-abha-prompt-skip"
+            >
+              Skip for now
+            </button>
+          </div>
+        </aside>
+      ) : null}
+
+      <section
+        data-testid="patient-dashboard"
+        className="space-y-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:space-y-0"
+      >
       {/* ─── Next Appointment ───────────────────────────────────────── */}
       <article
         data-testid="patient-dashboard-next-appointment"
@@ -297,15 +439,46 @@ export default function PatientDashboardPage() {
               >
                 View / reschedule
               </Link>
-              <button
-                type="button"
-                className="inline-flex h-11 min-w-[44px] flex-1 items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-800"
-                data-testid="patient-dashboard-next-appointment-arrived"
-                title="Notify reception (coming soon)"
-              >
-                I've arrived
-              </button>
+              {arriveState === "arrived" ? (
+                <span
+                  data-testid="patient-dashboard-next-appointment-arrived-pill"
+                  aria-live="polite"
+                  className="inline-flex h-11 min-w-[44px] flex-1 items-center justify-center rounded-md bg-emerald-100 px-4 text-sm font-medium text-emerald-900"
+                >
+                  Arrived ✓
+                </span>
+              ) : nextAppointment.status === "BOOKED" &&
+                isTodayInIST(nextAppointment.date) ? (
+                <button
+                  type="button"
+                  onClick={() => void handleArrive(nextAppointment.id)}
+                  disabled={arriveState === "submitting"}
+                  className="inline-flex h-11 min-w-[44px] flex-1 items-center justify-center rounded-md bg-emerald-700 px-4 text-sm font-medium text-white disabled:opacity-60"
+                  data-testid="patient-dashboard-next-appointment-arrived"
+                >
+                  {arriveState === "submitting" ? "Notifying…" : "I've arrived"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="inline-flex h-11 min-w-[44px] flex-1 items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-400 disabled:cursor-not-allowed"
+                  data-testid="patient-dashboard-next-appointment-arrived"
+                  title="Available on the day of your appointment"
+                >
+                  I've arrived
+                </button>
+              )}
             </div>
+            {arriveError ? (
+              <p
+                role="alert"
+                data-testid="patient-dashboard-arrive-error"
+                className="rounded-md bg-red-50 p-2 text-xs text-red-800"
+              >
+                {arriveError}
+              </p>
+            ) : null}
           </div>
         ) : (
           <div
@@ -316,7 +489,7 @@ export default function PatientDashboardPage() {
               You don't have any upcoming appointments.
             </p>
             <Link
-              href="/patient/appointments/book"
+              href="/patient/book"
               className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-slate-900 px-4 text-sm font-medium text-white"
               data-testid="patient-dashboard-book-cta"
             >
@@ -482,6 +655,7 @@ export default function PatientDashboardPage() {
           </p>
         )}
       </article>
-    </section>
+      </section>
+    </div>
   );
 }

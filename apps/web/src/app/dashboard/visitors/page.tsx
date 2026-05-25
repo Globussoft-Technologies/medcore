@@ -9,6 +9,7 @@ import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 // Issue #92 / #162 / #163 — shared elapsed-minutes helper (year-2000 clamp).
 import { elapsedMinutes } from "@/lib/time";
+import { SkeletonTable } from "@/components/Skeleton";
 
 // Issue #509: page-level gate matching API authorize() in
 // apps/api/src/routes/visitors.ts.
@@ -371,7 +372,9 @@ export default function VisitorsPage() {
       {/* Table */}
       <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div className="p-4" data-testid="visitors-loading" aria-busy="true">
+            <SkeletonTable rows={6} columns={6} />
+          </div>
         ) : (Array.isArray(visitors) ? visitors : []).length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">No visitors</div>
         ) : (

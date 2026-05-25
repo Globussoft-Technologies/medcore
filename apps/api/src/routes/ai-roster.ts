@@ -20,6 +20,7 @@ import path from "path";
 import crypto from "crypto";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
+import { requireFeature } from "../middleware/feature-flag";
 import {
   generateRosterProposal,
   materializeRoster,
@@ -113,6 +114,10 @@ const store = {
 export const aiRosterRouter = Router();
 
 aiRosterRouter.use(authenticate);
+// Pearl §6 + §18 (gap item #9 — audit fix-up #3, 2026-05-25): AI staff
+// roster optimisation is a Stage-2 paid feature. Pearl-branded tenants set
+// `aiRoster=false` and every roster route 404s before authorize runs.
+aiRosterRouter.use(requireFeature("aiRoster"));
 // #511 audit (file-level, 2026-05-09): router-level `authorize(Role.ADMIN)`
 // excludes PATIENT (and every non-admin role) from every handler in this
 // file. Verified-safe.

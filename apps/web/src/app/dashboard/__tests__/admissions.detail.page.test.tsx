@@ -69,9 +69,9 @@ describe("AdmissionDetailPage", () => {
   it("renders loading initially", async () => {
     apiMock.get.mockReturnValue(new Promise(() => {}));
     renderPage();
-    await waitFor(() =>
-      expect(screen.getByText(/loading/i)).toBeInTheDocument()
-    );
+    const loader = await screen.findByTestId("admissions-detail-loading");
+    expect(loader).toBeInTheDocument();
+    expect(loader).toHaveAttribute("aria-busy", "true");
   });
 
   it("shows not-found when admission fetch fails", async () => {

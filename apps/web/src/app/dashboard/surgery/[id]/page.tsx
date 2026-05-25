@@ -9,6 +9,7 @@ import { toast } from "@/lib/toast";
 import { extractFieldErrors } from "@/lib/field-errors";
 import { usePrompt } from "@/lib/use-dialog";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { SkeletonCard, SkeletonText, SkeletonTable } from "@/components/Skeleton";
 import {
   ArrowLeft,
   Scissors,
@@ -214,7 +215,17 @@ export default function SurgeryDetailPage() {
   }
 
   if (loading) {
-    return <div className="p-8 text-center text-gray-500">Loading...</div>;
+    return (
+      <div
+        data-testid="surgery-detail-loading"
+        aria-busy="true"
+        className="space-y-4 p-6"
+      >
+        <SkeletonCard />
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    );
   }
 
   if (!surgery) {
@@ -857,7 +868,12 @@ function AnesthesiaCard({ surgeryId, canEdit }: { surgeryId: string; canEdit: bo
         )}
       </div>
       {loading ? (
-        <p className="text-sm text-gray-500">Loading...</p>
+        <div
+          data-testid="surgery-anesthesia-loading"
+          aria-busy="true"
+        >
+          <SkeletonText lines={4} />
+        </div>
       ) : !edit ? (
         record ? (
           <div className="space-y-1 text-sm text-gray-700">
@@ -1066,7 +1082,12 @@ function PacuObservationsCard({ surgeryId, canEdit }: { surgeryId: string; canEd
         </div>
       )}
       {loading ? (
-        <p className="text-sm text-gray-500">Loading...</p>
+        <div
+          data-testid="surgery-observations-loading"
+          aria-busy="true"
+        >
+          <SkeletonTable rows={4} columns={4} />
+        </div>
       ) : rows.length === 0 ? (
         <p className="text-sm text-gray-500">No observations yet.</p>
       ) : (

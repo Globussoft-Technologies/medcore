@@ -436,6 +436,78 @@ describeIfDB("Appointments API — deep edges", () => {
     expect(res.status).toBe(200);
   });
 
+  // Issue #950 — round-trip regression. The /next-available suggestion
+  // advertises a (doctorId, doctorName, date, startTime) tuple, and the
+  // user is shown that doctor name on the confirm card. If we then POST
+  // /book with that exact doctorId, the persisted appointment MUST be
+  // assigned to the same doctor — anything else is a scheduling-integrity
+  // bug (the user agreed to book Dr. A and ended up with Dr. B).
+  // Pre-fix the web flow re-derived doctorId from React state after the
+  // user re-picked the slot in the booking form, and form-state drift
+  // (DoctorSelect re-render / channel auto-derivation / date input edit
+  // between confirm-shown and confirm-clicked) could silently flip the
+  // doctor. The fix locks the suggestion's doctorId into a separate
+  // override that wins over form state until the booking completes.
+  // This test pins the API contract that the post-fix client relies on.
+  it(
+    "Issue #950: next-available -> /book round-trip persists the suggested doctor",
+    async () => {
+      const prisma = await getPrisma();
+      // Seed two doctors with identical Sunday-through-Saturday schedules
+      // so /next-available has a deterministic pool to pick from.
+      const drA = await createDoctorFixture();
+      const drB = await createDoctorFixture();
+      for (const docId of [drA.id, drB.id]) {
+        for (let dow = 0; dow < 7; dow++) {
+          await prisma.doctorSchedule.create({
+            data: {
+              doctorId: docId,
+              dayOfWeek: dow,
+              startTime: "09:00",
+              endTime: "17:00",
+              slotDurationMinutes: 30,
+            },
+          });
+        }
+      }
+      const patient = await createPatientFixture();
+
+      const suggest = await request(app)
+        .get("/api/v1/appointments/next-available")
+        .set("Authorization", `Bearer ${reception}`);
+      expect(suggest.status).toBe(200);
+      expect(suggest.body.data?.slot).toBeTruthy();
+      const slot = suggest.body.data.slot as {
+        doctorId: string;
+        doctorName: string;
+        date: string;
+        startTime: string;
+      };
+      expect([drA.id, drB.id]).toContain(slot.doctorId);
+
+      // The web client posts /book with the EXACT doctorId the
+      // suggestion advertised. Verify the API persists that doctor.
+      const book = await request(app)
+        .post("/api/v1/appointments/book")
+        .set("Authorization", `Bearer ${reception}`)
+        .send({
+          patientId: patient.id,
+          doctorId: slot.doctorId,
+          date: slot.date,
+          slotId: slot.startTime,
+        });
+      expect(book.status).toBe(201);
+      expect(book.body.data?.doctorId).toBe(slot.doctorId);
+
+      // Re-read the row to defend against any post-create remapping.
+      const persisted = await prisma.appointment.findUnique({
+        where: { id: book.body.data.id },
+        select: { doctorId: true },
+      });
+      expect(persisted?.doctorId).toBe(slot.doctorId);
+    }
+  );
+
   // ─── Calendar.ics ──────────────────────────────────────────
   it("calendar.ics returns iCalendar text", async () => {
     const patient = await createPatientFixture();

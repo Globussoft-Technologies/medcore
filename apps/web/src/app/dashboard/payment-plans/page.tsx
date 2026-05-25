@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { CreditCard, Plus, X } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
+import { SkeletonTable, SkeletonText } from "@/components/Skeleton";
 
 type Tab = "ACTIVE" | "OVERDUE" | "COMPLETED" | "ALL";
 
@@ -152,7 +153,9 @@ export default function PaymentPlansPage() {
 
       <div className="overflow-x-auto rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div className="p-4" data-testid="payment-plans-loading" aria-busy="true">
+            <SkeletonTable rows={5} columns={6} />
+          </div>
         ) : tab === "OVERDUE" ? (
           overdue.length === 0 ? (
             <div className="p-8 text-center text-gray-500 dark:text-gray-400">
@@ -480,7 +483,16 @@ function NewPlanModal({
                 Select a patient first.
               </p>
             ) : loadingInv ? (
-              <p className="text-xs text-gray-500 dark:text-gray-400">Loading invoices...</p>
+              // Pearl §7.2 skeleton sweep (wave 13, 2026-05-23): replaced
+              // the "Loading invoices..." line with a `SkeletonText lines=2`
+              // block under a stable `payment-plans-invoices-loading` testid
+              // + `aria-busy="true"`. Same pattern as wave-12 `<slug>-loading`.
+              <div
+                data-testid="payment-plans-invoices-loading"
+                aria-busy="true"
+              >
+                <SkeletonText lines={2} />
+              </div>
             ) : invoices.length === 0 ? (
               <p
                 data-testid="new-plan-no-invoices"
@@ -686,7 +698,9 @@ function PlanDetailModal({
         </div>
 
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div className="p-6" data-testid="payment-plan-detail-loading" aria-busy="true">
+            <SkeletonText lines={6} />
+          </div>
         ) : !plan ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">Not found.</div>
         ) : (

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { Syringe } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 interface ScheduleRow {
   id: string;
@@ -108,7 +109,13 @@ export default function ImmunizationSchedulePage() {
       {/* Table */}
       <div className="overflow-hidden rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div
+            data-testid="immunization-schedule-loading"
+            aria-busy="true"
+            className="p-4"
+          >
+            <SkeletonTable rows={5} columns={8} />
+          </div>
         ) : rows.length === 0 ? (
           <div className="p-8 text-center text-gray-400">
             No immunizations match this filter

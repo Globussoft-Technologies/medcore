@@ -22,6 +22,7 @@ import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { useTranslation } from "@/lib/i18n";
 import { EntityPicker } from "@/components/EntityPicker";
+import { SkeletonCard } from "@/components/Skeleton";
 
 // Issue #509: page-level gate matching API authorize() in
 // apps/api/src/routes/ai-radiology.ts (DOCTOR, ADMIN). The page previously
@@ -550,9 +551,19 @@ function PendingTab({
 }) {
   const { t } = useTranslation();
   if (loading) {
+    // Pearl §7.2 skeleton sweep (wave 13, 2026-05-23): replaced the bare
+    // `t("common.loading", "Loading…")` centered text with a
+    // `SkeletonCard ×3` block under a stable `ai-radiology-loading` testid
+    // + `aria-busy="true"`. Same pattern as wave-12 `<slug>-loading`.
     return (
-      <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-        {t("common.loading", "Loading…")}
+      <div
+        data-testid="ai-radiology-loading"
+        aria-busy="true"
+        className="space-y-3"
+      >
+        <SkeletonCard />
+        <SkeletonCard />
+        <SkeletonCard />
       </div>
     );
   }

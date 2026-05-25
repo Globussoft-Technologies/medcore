@@ -18,9 +18,13 @@
  *     survive DSL evolution; throwing would brick tenant-owned content on a
  *     rename/removal.
  *   - Unknown `op` for a known field → ditto (warn + no-op).
- *   - Filters that target Patient columns that do not exist yet (city, branchId,
- *     optedOut) also no-op + warn. They start filtering automatically once
- *     gap #2 piece 2b lands Patient.branchId etc — no compiler change needed.
+ *
+ * 2026-05-25 — Pearl §5.1 row 161 closure:
+ *   - `city`, `branchId`, and `optedOut` now compile to real Prisma clauses.
+ *     `Patient.branchId` shipped 2026-05-21 (migration 20260521000002);
+ *     `Patient.city` + `Patient.whatsappOptIn` shipped 2026-05-25 (migration
+ *     20260525000002_add_patient_city_and_whatsapp_optin). `optedOut` maps to
+ *     the inverse of `whatsappOptIn` (optedOut=true ⇒ whatsappOptIn=false).
  *
  * matchMode semantics:
  *   - "ALL" → AND-combine clauses (default if omitted)
@@ -119,18 +123,78 @@ function compileFilter(filter: AudienceFilter): Clause {
       return value ? { abhaId: { not: null } } : { abhaId: null };
     }
 
-    case "city":
-    case "branchId":
-    case "optedOut": {
-      // Pearl §5.1 piece-2a documented limitation: Patient lacks these
-      // columns today. Patient.branchId lands in gap #2 piece 2b;
-      // Patient.address+city and Patient.optedOut have no committed
-      // home yet. Compiler emits no-op so the saved DSL is forward-
-      // compatible (no code change needed once the columns appear).
+    case "city": {
+      // Pearl §5.1 row 161 — Patient.city landed 2026-05-25
+      // (migration 20260525000002). Supports eq (single city) and in
+      // (array of cities). Empty array → no-op (matches nothing would
+      // be surprising; matching everything is safer for an audience
+      // preview and consistent with the empty-filters convention).
+      if (op === "eq") {
+        if (typeof value !== "string" || value.trim().length === 0) {
+          console.warn(
+            `[audience-compiler] non-string/empty value for city eq; treating as no-op`,
+          );
+          return null;
+        }
+        return { city: value };
+      }
+      if (op === "in") {
+        if (
+          !Array.isArray(value) ||
+          value.length === 0 ||
+          !value.every((v) => typeof v === "string" && v.trim().length > 0)
+        ) {
+          console.warn(
+            `[audience-compiler] invalid value for city in; treating as no-op`,
+          );
+          return null;
+        }
+        return { city: { in: value as string[] } };
+      }
       console.warn(
-        `[audience-compiler] field "${field}" is reserved for a future schema change; treating as no-op`,
+        `[audience-compiler] unsupported op "${op}" for field "city"; treating as no-op`,
       );
       return null;
+    }
+
+    case "branchId": {
+      // Pearl §5.1 row 161 — Patient.branchId landed 2026-05-21
+      // (migration 20260521000002). Single-branch eq only; multi-branch
+      // would be modelled as a "branch" filter with op=in if needed
+      // later — keep the v1 shape narrow.
+      if (op !== "eq") {
+        console.warn(
+          `[audience-compiler] unsupported op "${op}" for field "branchId"; treating as no-op`,
+        );
+        return null;
+      }
+      if (typeof value !== "string" || value.trim().length === 0) {
+        console.warn(
+          `[audience-compiler] non-string/empty value for branchId eq; treating as no-op`,
+        );
+        return null;
+      }
+      return { branchId: value };
+    }
+
+    case "optedOut": {
+      // Pearl §5.1 row 161 — Patient.whatsappOptIn landed 2026-05-25
+      // (migration 20260525000002). The DSL exposes the inverse
+      // ("optedOut") for operator legibility; compiler flips it so the
+      // Patient column stays affirmative-consent shaped (DPDP).
+      if (op !== "eq") {
+        console.warn(
+          `[audience-compiler] unsupported op "${op}" for field "optedOut"; treating as no-op`,
+        );
+        return null;
+      }
+      if (typeof value !== "boolean") {
+        console.warn(
+          `[audience-compiler] non-boolean value for optedOut eq; treating as no-op`,
+        );
+        return null;
+      }
+      return { whatsappOptIn: !value };
     }
 
     default: {

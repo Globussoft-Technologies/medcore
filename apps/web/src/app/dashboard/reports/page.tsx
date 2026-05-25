@@ -16,6 +16,7 @@ import {
   Download,
 } from "lucide-react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
 
 const REPORT_TYPES = [
   { value: "DAILY_CENSUS", label: "Daily Census" },
@@ -414,7 +415,9 @@ function ReportsPageBody() {
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="col-span-2 rounded-xl bg-white shadow-sm dark:bg-gray-800 dark:border dark:border-gray-700">
               {runsLoading ? (
-                <div className="p-8 text-center text-gray-500">Loading...</div>
+                <div className="p-4" data-testid="report-runs-loading" aria-busy="true">
+                  <SkeletonTable rows={5} columns={4} />
+                </div>
               ) : (Array.isArray(runs) ? runs : []).length === 0 ? (
                 <div className="p-8 text-center text-gray-500">No report runs yet</div>
               ) : (
@@ -723,7 +726,11 @@ function ReportsPageBody() {
         <div>
 
       {loading ? (
-        <div className="p-8 text-center text-gray-500">Loading...</div>
+        <div data-testid="report-detail-loading" aria-busy="true" className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
       ) : report ? (
         <>
           {/* Summary Cards */}

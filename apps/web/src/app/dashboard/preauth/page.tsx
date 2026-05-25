@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast";
 import { extractFieldErrors } from "@/lib/field-errors";
 import { useAuthStore } from "@/lib/store";
 import { FileCheck, Plus, X } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 // Issue #509: page-level gate matching API authorize() in
 // apps/api/src/routes/preauth.ts (ADMIN, RECEPTION). Page previously had no
@@ -144,7 +145,9 @@ export default function PreAuthPage() {
 
       <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div className="p-4" data-testid="preauth-loading" aria-busy="true">
+            <SkeletonTable rows={5} columns={6} />
+          </div>
         ) : rows.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No requests in this category.

@@ -8,6 +8,7 @@ import { toast } from "@/lib/toast";
 import { useConfirm, usePrompt } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Percent } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 // Issue #509: page-level gate matching API authorize() in
 // apps/api/src/routes/billing.ts on /discount-approvals (ADMIN, RECEPTION).
@@ -151,7 +152,13 @@ export default function DiscountApprovalsPage() {
 
       <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div
+            data-testid="discount-approvals-loading"
+            aria-busy="true"
+            className="p-4"
+          >
+            <SkeletonTable rows={5} columns={6} />
+          </div>
         ) : rows.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No {tab.toLowerCase()} approvals.

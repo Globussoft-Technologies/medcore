@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { getSocket } from "@/lib/socket";
 import { Plus, Building, Power, PowerOff, Edit2 } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 interface OT {
   id: string;
@@ -225,7 +226,9 @@ export default function OTPage() {
 
       <div className="mb-6 rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div data-testid="ot-loading" aria-busy="true" className="p-4">
+            <SkeletonTable rows={5} columns={6} />
+          </div>
         ) : ots.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">No OTs configured.</div>
         ) : (

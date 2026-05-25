@@ -28,6 +28,7 @@ import {
   X,
   Globe,
 } from "lucide-react";
+import { SkeletonCard } from "@/components/Skeleton";
 import { fetchRazorpayConfig, openRazorpayCheckout } from "@/lib/razorpay";
 import NHCXStepper from "@/components/NHCXStepper";
 
@@ -427,7 +428,17 @@ export default function InvoiceDetailPage() {
   }
 
   if (loading) {
-    return <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading invoice...</div>;
+    return (
+      <div
+        data-testid="invoice-detail-loading"
+        aria-busy="true"
+        className="space-y-3 p-4"
+      >
+        <SkeletonCard />
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    );
   }
 
   if (!invoice) {

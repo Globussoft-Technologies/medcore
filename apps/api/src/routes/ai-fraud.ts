@@ -3,6 +3,7 @@ import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
+import { requireFeature } from "../middleware/feature-flag";
 import { detectBillingAnomalies } from "../services/ai/fraud-detection";
 
 function safeAudit(
@@ -20,6 +21,11 @@ function safeAudit(
 export const aiFraudRouter = Router();
 
 aiFraudRouter.use(authenticate);
+// Pearl §S2.6 + §18 (gap row 138): AI fraud detection is a Stage-2+ feature.
+// Pearl-branded tenants set `aiFraud=false` in tenant.featureFlags and every
+// route here 404s before authorize ever runs. Non-Pearl tenants default to
+// enabled (FEATURE_DEFAULTS in packages/shared/src/feature-flags.ts).
+aiFraudRouter.use(requireFeature("aiFraud"));
 // #511 audit (file-level, 2026-05-09): every handler applies either
 // `adminOnly` (Role.ADMIN) or `investigators` (Role.ADMIN, Role.RECEPTION).
 // PATIENT is excluded from every fraud-detection surface. Verified-safe.

@@ -7,6 +7,7 @@ import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { ShieldAlert, Download, FileWarning, ListTree } from "lucide-react";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { SkeletonTable } from "@/components/Skeleton";
 
 // Shared styling for the filter-bar form controls. The page renders on the dark
 // dashboard layout, so without explicit colors these inputs inherit the layout's
@@ -289,7 +290,13 @@ export default function ControlledSubstancesPage() {
 
       {/* Content */}
       {loading ? (
-        <p className="text-gray-500 dark:text-gray-400">Loading...</p>
+        <div
+          data-testid="controlled-substances-loading"
+          aria-busy="true"
+          className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800"
+        >
+          <SkeletonTable rows={6} columns={6} />
+        </div>
       ) : tab === "entries" ? (
         <EntryTable entries={entries} />
       ) : tab === "register" ? (
@@ -335,8 +342,12 @@ function EntryTable({ entries }: { entries: CsEntry[] }) {
           </tr>
         </thead>
         <tbody>
+          {/* Issue #941: register rows rendered with inherited light text
+              against the white table surface in light mode (WCAG contrast
+              failure). Pin the row text to the canonical dark-on-light /
+              light-on-dark pair every other dashboard table uses. */}
           {entries.map((e) => (
-            <tr key={e.id} className="border-t hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
+            <tr key={e.id} className="border-t text-gray-900 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-700">
               <td className="p-2 font-mono text-xs">{e.entryNumber}</td>
               <td className="p-2">{new Date(e.dispensedAt).toLocaleString()}</td>
               <td className="p-2">
@@ -391,7 +402,7 @@ function AuditTable({ rows }: { rows: AuditRow[] }) {
           {rows.map((r) => (
             <tr
               key={r.medicineId}
-              className={`border-t dark:border-gray-700 ${
+              className={`border-t text-gray-900 dark:border-gray-700 dark:text-gray-100 ${
                 r.discrepancy !== null && r.discrepancy !== 0 ? "bg-red-50 dark:bg-red-900/20" : ""
               }`}
             >

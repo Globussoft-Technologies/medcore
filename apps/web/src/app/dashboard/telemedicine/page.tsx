@@ -21,6 +21,7 @@ import {
   Mic,
 } from "lucide-react";
 import { getSocket } from "@/lib/socket";
+import { SkeletonCard } from "@/components/Skeleton";
 
 interface PatientLite {
   id: string;
@@ -198,11 +199,24 @@ export default function TelemedicinePage() {
             .catch(() => ({ data: [] })),
         ]);
         const merged = [...res.data, ...waitRes.data, ...progRes.data];
-        merged.sort(
+        // Issue #956: the API filter only matches by `status`, so a SCHEDULED
+        // session whose `scheduledAt` has already elapsed (because no cron
+        // has flipped it to MISSED yet) was leaking into the "Upcoming" tab.
+        // TEL000018 was the reported instance. Drop any SCHEDULED row whose
+        // scheduled time is in the past — those belong in Missed/Completed,
+        // not Upcoming. WAITING/IN_PROGRESS are kept regardless of clock
+        // time: a call that ran 30 min past its scheduled start is still
+        // actively running and should remain visible.
+        const now = Date.now();
+        const upcoming = merged.filter((s) => {
+          if (s.status !== "SCHEDULED") return true;
+          return new Date(s.scheduledAt).getTime() > now;
+        });
+        upcoming.sort(
           (a, b) =>
             new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
         );
-        setSessions(merged);
+        setSessions(upcoming);
       } else {
         setSessions(res.data);
       }
@@ -463,8 +477,14 @@ export default function TelemedicinePage() {
       </div>
 
       {loading ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
-          Loading...
+        <div
+          data-testid="telemedicine-loading"
+          aria-busy="true"
+          className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
+        >
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
         </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">

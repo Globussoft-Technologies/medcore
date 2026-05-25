@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
-const { apiMock, authMock, routerPush } = vi.hoisted(() => ({
+const { apiMock, authMock, routerPush, toastErrorMock } = vi.hoisted(() => ({
   apiMock: {
     get: vi.fn(),
     post: vi.fn(),
@@ -12,10 +13,14 @@ const { apiMock, authMock, routerPush } = vi.hoisted(() => ({
   },
   authMock: vi.fn(),
   routerPush: vi.fn(),
+  toastErrorMock: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({ api: apiMock }));
 vi.mock("@/lib/store", () => ({ useAuthStore: authMock }));
+vi.mock("@/lib/toast", () => ({
+  toast: { error: toastErrorMock, success: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: routerPush, replace: vi.fn(), back: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
@@ -47,6 +52,7 @@ describe("AnalyticsPage", () => {
     apiMock.get.mockReset();
     apiMock.post.mockReset();
     routerPush.mockReset();
+    toastErrorMock.mockReset();
     apiMock.get.mockResolvedValue({ data: [] });
   });
 
@@ -90,6 +96,40 @@ describe("AnalyticsPage", () => {
     await waitFor(() =>
       expect(routerPush).toHaveBeenCalledWith("/dashboard")
     );
+  });
+
+  // Issue #942: clicking Apply with an inverted custom range previously fanned
+  // out 18 analytics endpoints and zeroed the Appointments + Revenue widgets.
+  // The Apply handler must now toast and refuse to mutate the active range.
+  it("rejects an inverted From > To range on Apply with a toast and no new fetch", async () => {
+    asAdmin();
+    render(<AnalyticsPage />);
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /analytics dashboard/i })).toBeInTheDocument()
+    );
+    const fromInput = document.getElementById("analytics-filter-from") as HTMLInputElement;
+    const toInput = document.getElementById("analytics-filter-to") as HTMLInputElement;
+    // Date input onChanges set `pendingFrom`/`pendingTo` AND `setPreset("custom")`,
+    // and the preset change re-runs the loadAll effect. Set the inputs first
+    // and let those re-fetches settle, then clear so the assertion window only
+    // sees what happens AFTER the user clicks Apply.
+    fireEvent.change(fromInput, { target: { value: "2026-05-01" } });
+    fireEvent.change(toInput, { target: { value: "2026-04-01" } });
+    await waitFor(() =>
+      expect(apiMock.get.mock.calls.some((c) => String(c[0]).startsWith("/analytics"))).toBe(true)
+    );
+    apiMock.get.mockClear();
+    toastErrorMock.mockClear();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^apply$/i }));
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith(expect.stringMatching(/must be on or before/i))
+    );
+    // Apply did NOT fan out the analytics endpoints — `from`/`to` stayed put.
+    const analyticsFetchCalls = apiMock.get.mock.calls.filter((c) =>
+      String(c[0]).startsWith("/analytics")
+    );
+    expect(analyticsFetchCalls).toHaveLength(0);
   });
 
   it("does not crash on empty data from every endpoint", async () => {

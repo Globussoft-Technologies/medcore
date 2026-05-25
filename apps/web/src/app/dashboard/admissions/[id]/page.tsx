@@ -2,6 +2,7 @@
 
 import { useEffect, useState, use, useId, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import {
@@ -22,6 +23,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { extractFieldErrors, topLineError } from "@/lib/field-errors";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { formatDate, formatDateTime, formatTime } from "@/lib/format";
+import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
 
 interface Admission {
   id: string;
@@ -155,6 +157,7 @@ export default function AdmissionDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const router = useRouter();
   const { user } = useAuthStore();
   const [tab, setTab] = useState<Tab>("overview");
   const [admission, setAdmission] = useState<Admission | null>(null);
@@ -164,11 +167,25 @@ export default function AdmissionDetailPage({
     loadAdmission();
   }, [id]);
 
+  // Issue #957: Detail-tab sub-resource calls (`/admissions/:id/vitals`,
+  // `/mar`, `/intake-output`, …) still go through routes that key by
+  // UUID. If the user landed via the human-readable admissionNumber
+  // (e.g. /dashboard/admissions/IPD000010), the API GET /:id resolves
+  // the row by either id-or-number (see admissions.ts), but every
+  // sub-tab would 404. So once we know the canonical UUID, swap the URL
+  // in-place so all child fetches use the UUID. `router.replace` keeps
+  // the back-button stack clean (no entry for the code-shaped URL).
+  const UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
   async function loadAdmission() {
     setLoading(true);
     try {
       const res = await api.get<{ data: Admission }>(`/admissions/${id}`);
       setAdmission(res.data);
+      if (res.data?.id && res.data.id !== id && !UUID_RE.test(id)) {
+        router.replace(`/dashboard/admissions/${res.data.id}`);
+      }
     } catch {
       // empty
     }
@@ -176,7 +193,17 @@ export default function AdmissionDetailPage({
   }
 
   if (loading)
-    return <div className="p-8 text-center text-gray-500">Loading...</div>;
+    return (
+      <div
+        data-testid="admissions-detail-loading"
+        aria-busy="true"
+        className="space-y-4 p-6"
+      >
+        <SkeletonCard />
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    );
   if (!admission)
     return (
       <div className="p-8 text-center text-gray-500">Admission not found.</div>
@@ -984,7 +1011,13 @@ function VitalsTab({
 
       <div className="rounded-xl bg-white dark:bg-gray-800 shadow-sm">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div
+            className="p-4"
+            data-testid="admissions-detail-vitals-loading"
+            aria-busy="true"
+          >
+            <SkeletonTable rows={5} columns={6} />
+          </div>
         ) : (Array.isArray(vitals) ? vitals : []).length === 0 ? (
           <div className="p-8 text-center text-gray-500">
             No vitals recorded yet.
@@ -1363,8 +1396,12 @@ function MedicationsTab({
       )}
 
       {loading ? (
-        <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
-          Loading...
+        <div
+          className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm"
+          data-testid="admissions-detail-medications-loading"
+          aria-busy="true"
+        >
+          <SkeletonTable rows={4} columns={5} />
         </div>
       ) : orders.length === 0 ? (
         <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
@@ -1562,8 +1599,12 @@ function RoundsTab({
       )}
 
       {loading ? (
-        <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
-          Loading...
+        <div
+          className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm"
+          data-testid="admissions-detail-rounds-loading"
+          aria-busy="true"
+        >
+          <SkeletonTable rows={4} columns={4} />
         </div>
       ) : rounds.length === 0 ? (
         <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
@@ -1774,8 +1815,12 @@ function LabsTab({
       )}
 
       {loading ? (
-        <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
-          Loading...
+        <div
+          className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm"
+          data-testid="admissions-detail-lab-orders-loading"
+          aria-busy="true"
+        >
+          <SkeletonTable rows={4} columns={5} />
         </div>
       ) : orders.length === 0 ? (
         <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
@@ -3194,7 +3239,12 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
         <div className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm">
           <h3 className="mb-3 text-sm font-semibold">I/O Events</h3>
           {loading ? (
-            <p className="text-sm text-gray-500">Loading...</p>
+            <div
+              data-testid="admissions-detail-io-events-loading"
+              aria-busy="true"
+            >
+              <SkeletonTable rows={4} columns={4} />
+            </div>
           ) : rows.length === 0 ? (
             <p className="text-sm text-gray-400">No events recorded.</p>
           ) : (

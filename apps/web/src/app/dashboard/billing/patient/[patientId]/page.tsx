@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { ArrowLeft, Receipt, Percent } from "lucide-react";
+import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
 
 // Issue #385 (CRITICAL prod RBAC bypass, Apr 29 2026): bulk-billing page
 // renders Bulk Payment / Bulk Discount actions and must be staff-only. The
@@ -218,7 +219,16 @@ export default function PatientBillingPage() {
       </div>
 
       {loading ? (
-        <div className="p-8 text-center text-gray-500">Loading...</div>
+        <div
+          data-testid="patient-billing-loading"
+          aria-busy="true"
+          className="space-y-4"
+        >
+          <SkeletonCard />
+          <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+            <SkeletonTable rows={6} columns={5} />
+          </div>
+        </div>
       ) : (
         <>
           {/* Patient header */}

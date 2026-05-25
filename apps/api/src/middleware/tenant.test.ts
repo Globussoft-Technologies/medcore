@@ -30,6 +30,14 @@ vi.mock("@medcore/db", () => ({
   getTenantId: () => undefined,
   runWithTenant: (_t: string, fn: () => unknown) => fn(),
   requireTenantId: () => { throw new Error("tenant ctx required"); },
+  // Pearl ERP §8.2 (gap row 209, 2026-05-24): platform-role allow-list
+  // bypass. The real implementation lives in `@medcore/db`; here we
+  // mirror the contract — `true` for the 2 platform roles, `false`
+  // otherwise — so the middleware's short-circuit branch can be
+  // exercised without pulling in the whole Prisma client.
+  isPlatformRole: (role: string | undefined | null) =>
+    role === "PLATFORM_OPERATOR" || role === "PLATFORM_BILLING_OPERATOR",
+  PLATFORM_ROLES: new Set(["PLATFORM_OPERATOR", "PLATFORM_BILLING_OPERATOR"]),
   prisma: {
     tenant: { findUnique: findUniqueMock },
   },
@@ -325,5 +333,66 @@ describe("tenantContextMiddleware — A9 tenant validation", () => {
     expect(req.tenantId).toBeUndefined();
     expect(findUniqueMock).not.toHaveBeenCalled();
     expect(next).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Pearl ERP §8.2 (gap row 209, 2026-05-24): platform-role bypass. The
+// middleware MUST leave req.tenantId undefined and NOT call findUnique
+// when the caller's role is one of PLATFORM_OPERATOR /
+// PLATFORM_BILLING_OPERATOR — these users carry `tenantId = null` and
+// act across tenants by design. The short-circuit also overrides an
+// otherwise-valid X-Tenant-Id header so a super-admin can't accidentally
+// pin themselves to one tenant's view across multiple requests.
+describe("tenantContextMiddleware — Pearl §8.2 platform-role bypass", () => {
+  it("leaves req.tenantId undefined for PLATFORM_OPERATOR (req.user path)", async () => {
+    const req = makeReq({
+      user: { userId: "u1", email: "ops@onviqa.com", role: "PLATFORM_OPERATOR", tenantId: undefined },
+    });
+    const next = vi.fn();
+    await tenantContextMiddleware(req, {} as any, next);
+    expect(req.tenantId).toBeUndefined();
+    expect(findUniqueMock).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves req.tenantId undefined for PLATFORM_BILLING_OPERATOR (JWT path)", async () => {
+    const token = jwt.sign(
+      { userId: "u1", email: "finance@onviqa.com", role: "PLATFORM_BILLING_OPERATOR" },
+      SECRET,
+    );
+    const req = makeReq({ headers: { Authorization: `Bearer ${token}` } });
+    const next = vi.fn();
+    await tenantContextMiddleware(req, {} as any, next);
+    expect(req.tenantId).toBeUndefined();
+    expect(findUniqueMock).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores X-Tenant-Id header when the caller is a platform role", async () => {
+    // A super-admin curl-ing with `-H 'X-Tenant-Id: tenant-A'` MUST NOT
+    // get pinned to tenant-A; the platform-role bypass takes priority.
+    const token = jwt.sign(
+      { userId: "u1", email: "ops@onviqa.com", role: "PLATFORM_OPERATOR" },
+      SECRET,
+    );
+    const req = makeReq({
+      headers: { "X-Tenant-Id": "tenant-A", Authorization: `Bearer ${token}` },
+    });
+    const next = vi.fn();
+    await tenantContextMiddleware(req, {} as any, next);
+    expect(req.tenantId).toBeUndefined();
+    expect(findUniqueMock).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT bypass for tenant-scoped roles (ADMIN still resolves tenant)", async () => {
+    findUniqueMock.mockResolvedValueOnce({ id: "real-tenant", active: true });
+    const req = makeReq({
+      user: { userId: "u1", email: "a@b.c", role: "ADMIN", tenantId: "real-tenant" },
+    });
+    const next = vi.fn();
+    await tenantContextMiddleware(req, {} as any, next);
+    expect(req.tenantId).toBe("real-tenant");
+    expect(findUniqueMock).toHaveBeenCalledTimes(1);
   });
 });

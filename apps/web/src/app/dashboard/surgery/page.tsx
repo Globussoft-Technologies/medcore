@@ -11,6 +11,7 @@ import { Autocomplete } from "@/components/Autocomplete";
 import { InfoIcon } from "@/components/Tooltip";
 import { Plus, Scissors } from "lucide-react";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { SkeletonTable } from "@/components/Skeleton";
 
 interface Doctor {
   id: string;
@@ -521,7 +522,9 @@ export default function SurgeryPage() {
 
       <div className="rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div className="p-4" data-testid="surgery-loading" aria-busy="true">
+            <SkeletonTable rows={5} columns={9} />
+          </div>
         ) : sortedSurgeries.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             <Scissors size={32} className="mx-auto mb-2 text-gray-300 dark:text-gray-600" />

@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Search, Plus, Pill, X, Pencil, Trash2 } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 // Issue #509: page-level gate matching API authorize() in
 // apps/api/src/routes/medicines.ts (writes are ADMIN/DOCTOR; the master list
@@ -245,8 +246,12 @@ export default function MedicinesPage() {
       </div>
 
       {loading ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
-          Loading...
+        <div
+          data-testid="medicines-loading"
+          aria-busy="true"
+          className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800"
+        >
+          <SkeletonTable rows={6} columns={5} />
         </div>
       ) : medicines.length === 0 ? (
         <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">

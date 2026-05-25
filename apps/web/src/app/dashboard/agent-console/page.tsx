@@ -25,6 +25,7 @@ import { toast } from "@/lib/toast";
 import { getSocket } from "@/lib/socket";
 import { usePrompt } from "@/lib/use-dialog";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { SkeletonText, SkeletonCard } from "@/components/Skeleton";
 
 interface HandoffSummary {
   chatRoomId: string;
@@ -368,9 +369,15 @@ export default function AgentConsolePage() {
   }
 
   if (!user) {
+    // Pearl §7.2 wave 11: skeleton card while the auth store hydrates so the
+    // page real estate is reserved instead of showing a tiny "Loading…" line.
     return (
-      <div className="p-6 text-sm text-gray-500">
-        {t("common.loading", "Loading...")}
+      <div
+        className="p-6"
+        data-testid="agent-console-loading"
+        aria-busy="true"
+      >
+        <SkeletonCard />
       </div>
     );
   }
@@ -430,9 +437,15 @@ export default function AgentConsolePage() {
           </div>
           <div className="flex-1 overflow-y-auto">
             {!loaded ? (
-              <p className="p-4 text-sm text-gray-400 dark:text-gray-500">
-                {t("common.loading", "Loading...")}
-              </p>
+              // Pearl §7.2 wave 11: skeleton-text rows instead of the inline
+              // "Loading…" so the handoff-list footprint stays stable.
+              <div
+                className="p-4"
+                data-testid="agent-console-handoffs-loading"
+                aria-busy="true"
+              >
+                <SkeletonText lines={4} />
+              </div>
             ) : handoffs.length === 0 ? (
               <p className="p-4 text-sm text-gray-400 dark:text-gray-500">
                 {t(

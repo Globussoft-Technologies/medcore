@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { useRouter } from "next/navigation";
 import { Shield, Download, Info } from "lucide-react";
@@ -146,6 +147,13 @@ export default function AuditPage() {
 
   const loadEntries = useCallback(
     async (pageNum: number, append = false) => {
+      // Issue #290: guard against inverted date range. ISO YYYY-MM-DD lexical
+      // compare matches calendar order, so a plain `>` works here. Silently
+      // returning zero rows (the prior behavior) hid the user's mistake.
+      if (fromDate && toDate && fromDate > toDate) {
+        toast.error('"From" date must be on or before "To" date');
+        return;
+      }
       setLoading(true);
       try {
         const endpoint = freeText.trim() ? "/audit/search" : "/audit";
@@ -163,7 +171,7 @@ export default function AuditPage() {
       }
       setLoading(false);
     },
-    [buildQuery, freeText]
+    [buildQuery, freeText, fromDate, toDate]
   );
 
   // Initial load + filter options + retention stats
@@ -196,6 +204,12 @@ export default function AuditPage() {
   }
 
   function handleExport() {
+    // Issue #290: same inverted-range guard as loadEntries — export should
+    // refuse before hitting the network rather than ship an empty CSV.
+    if (fromDate && toDate && fromDate > toDate) {
+      toast.error('"From" date must be on or before "To" date');
+      return;
+    }
     const token = localStorage.getItem("medcore_token");
     const qs = buildQuery(1);
     const API_BASE =

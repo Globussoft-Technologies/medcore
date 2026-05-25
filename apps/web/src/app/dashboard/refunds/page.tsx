@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/format";
+import { SkeletonTable } from "@/components/Skeleton";
 
 // Issue #509: page-level gate matching API authorize() in
 // apps/api/src/routes/billing.ts (ADMIN, RECEPTION on /reports/refunds and
@@ -154,7 +155,9 @@ export default function RefundsPage() {
 
       <div className="overflow-x-auto rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div className="p-4" data-testid="refunds-loading" aria-busy="true">
+            <SkeletonTable rows={5} columns={6} />
+          </div>
         ) : rows.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No refunds in this period.

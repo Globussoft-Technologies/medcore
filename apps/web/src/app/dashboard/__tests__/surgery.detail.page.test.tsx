@@ -65,9 +65,9 @@ describe("SurgeryDetailPage", () => {
   it("shows loading state", async () => {
     apiMock.get.mockReturnValue(new Promise(() => {}));
     render(<SurgeryDetailPage />);
-    await waitFor(() =>
-      expect(screen.getByText(/loading/i)).toBeInTheDocument()
-    );
+    const loader = await screen.findByTestId("surgery-detail-loading");
+    expect(loader).toBeInTheDocument();
+    expect(loader).toHaveAttribute("aria-busy", "true");
   });
 
   it("shows surgery-not-found on failure", async () => {

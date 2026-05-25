@@ -14,6 +14,7 @@ import {
   ClipboardList,
   FileJson,
 } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 // ─── Types ──────────────────────────────────────────
 
@@ -528,7 +529,15 @@ export default function ReportsPage() {
         </div>
 
         {loading ? (
-          <div className="py-12 text-center text-sm text-gray-400">Loading preview...</div>
+          // Pearl §7.2 wave 11: skeleton table while the preview rows fetch
+          // so the page footprint matches the eventual table layout.
+          <div
+            className="py-4"
+            data-testid="analytics-reports-loading"
+            aria-busy="true"
+          >
+            <SkeletonTable rows={6} columns={5} />
+          </div>
         ) : !preview || preview.rows.length === 0 ? (
           <div className="py-12 text-center text-sm text-gray-400">
             No data for this configuration

@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast";
 import { Autocomplete } from "@/components/Autocomplete";
 import { createReferralSchema } from "@medcore/shared";
 import { Plus, ArrowRightLeft } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 // Issue #173: replace the free-text Specialty <input> with the same coded
 // Autocomplete pattern Surgery uses for ICD-10 (Issue #97). The canonical
@@ -297,7 +298,9 @@ export default function ReferralsPage() {
 
       <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div className="p-4" data-testid="referrals-loading" aria-busy="true">
+            <SkeletonTable rows={5} columns={5} />
+          </div>
         ) : referrals.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">No referrals found.</div>
         ) : (

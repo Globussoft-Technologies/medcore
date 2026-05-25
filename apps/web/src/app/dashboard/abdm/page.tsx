@@ -31,6 +31,7 @@ import {
   AlertTriangle,
   Trash2,
 } from "lucide-react";
+import { SkeletonText } from "@/components/Skeleton";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -666,7 +667,11 @@ function ConsentsTab({ patient }: { patient: PatientOpt | null }) {
         )}
       </div>
 
-      {loading && <p className="text-sm text-gray-500">Loading…</p>}
+      {loading && (
+        <div data-testid="abdm-loading" aria-busy="true">
+          <SkeletonText lines={3} />
+        </div>
+      )}
       {error && (
         <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
           {error}

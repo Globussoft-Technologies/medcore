@@ -102,11 +102,11 @@ yet — they have open items). Reading order on session start: this
 reference-only — no need to read its contents to pick up work.
 
 Currently archived in `archive/`:
-- 12 `SESSION_SNAPSHOT_*` files (2026-04-27 through 2026-05-05).
-  The most recent — `SESSION_SNAPSHOT_2026-05-05.md` — is the current
-  handoff: read it first on next pickup. It supersedes
-  `SESSION_SNAPSHOT_2026-05-04.md` (which itself superseded the
-  late-night snapshot from 2026-05-03).
+- 27 `SESSION_SNAPSHOT_*` files (2026-04-27 through 2026-05-22). The
+  most recent — `SESSION_SNAPSHOT_2026-05-22-afternoon.md` — is the
+  current handoff: read it first on next pickup. Each snapshot
+  supersedes the one before it; the chain is in-place reading-order
+  for historical context.
 - `TODO_2026-04-29.md` (superseded by [`/TODO.md`](../TODO.md) at repo root)
 - `RBAC_AUDIT_2026-04-30.md` (point-in-time RBAC audit; the e2e
   `rbac-matrix.spec.ts` now serves as the live source of truth)
@@ -115,6 +115,10 @@ Currently archived in `archive/gaps/`:
 - `TEST_GAPS_2026-05-03.md` — all 10 priority items + 5 honorable
   mentions closed; 510+ new tests shipped on 2026-05-03. Closure log
   preserved.
+- `TEST_GAPS_2026-05-06.md` — file-by-file follow-up audit against
+  HEAD `9b2291a` covering routes / services / middleware / pages /
+  validators / packages plus 20 absent categories. Subsequent waves
+  closed the §5 P-priority slate; archived alongside its predecessor.
 
 ## Top-level conventions
 

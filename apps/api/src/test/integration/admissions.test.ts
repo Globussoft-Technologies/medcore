@@ -203,4 +203,48 @@ describeIfDB("Admissions API (integration)", () => {
     const res = await request(app).post("/api/v1/admissions").send({});
     expect(res.status).toBe(401);
   });
+
+  // Issue #957: GET /:id must accept EITHER the row UUID OR the
+  // human-readable admissionNumber (e.g. IPD000010). The "Admission #"
+  // column in the list UI displays the code, so deep-link / bookmark
+  // / share URLs frequently carry the code shape. Before this fix the
+  // detail route only accepted UUIDs, returning 404 for the code URL.
+  it("resolves admission by row UUID (deep-link parity, #957)", async () => {
+    const { patient, doctor, bed } = await setupAdmission();
+    const admission = await createAdmissionFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      bedId: bed.id,
+    });
+    const res = await request(app)
+      .get(`/api/v1/admissions/${admission.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data?.id).toBe(admission.id);
+    expect(res.body.data?.admissionNumber).toBe(admission.admissionNumber);
+  });
+
+  it("resolves admission by human-readable admissionNumber (#957)", async () => {
+    const { patient, doctor, bed } = await setupAdmission();
+    const admission = await createAdmissionFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      bedId: bed.id,
+    });
+    // The user-facing code path: hit the route with IPD000xxx rather
+    // than the UUID — this used to 404 (issue #957).
+    const res = await request(app)
+      .get(`/api/v1/admissions/${admission.admissionNumber}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data?.id).toBe(admission.id);
+    expect(res.body.data?.admissionNumber).toBe(admission.admissionNumber);
+  });
+
+  it("returns 404 for an unknown admission id/code (#957)", async () => {
+    const res = await request(app)
+      .get(`/api/v1/admissions/IPD999999`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(404);
+  });
 });

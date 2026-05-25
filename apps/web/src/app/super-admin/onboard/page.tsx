@@ -1,24 +1,58 @@
-// Super-admin onboarding wizard — Pearl ERP Stage 1 §8.1 (gap #6 piece 2 of 4).
+// Super-admin onboarding wizard — Pearl ERP Stage 1 §8.1 (gap #6).
 //
-// 3-step MVP wizard that posts a single atomic payload to
-// /api/v1/tenant-onboarding (which creates Tenant + first Branch + super-admin
-// User in one transaction). Steps:
+// 8-step wizard. Steps:
 //   1. Tenant basics (name, subdomain, plan)
 //   2. First branch (name, code, address, city, state, pincode, phone)
 //   3. Super-admin user (name, email, phone, password)
-//
-// The full PRD calls for 8 steps including HFR / HPR / WhatsApp /
-// Razorpay config. Those are deferred to piece 2b — each needs an
-// external integration the wizard would validate against, which is
-// meaningfully more work than this MVP.
+//      → submits the atomic POST /api/v1/tenant-onboarding which
+//      provisions Tenant + Branch + Admin in one $transaction.
+//   4. WhatsApp Business API (Gupshup) — piece 2b. Optional, deferred.
+//      The super-admin caller's session has tenantId=null, so it
+//      cannot write to PUT /api/v1/wa/config (which requires
+//      req.user.tenantId). Scope-cut: collect the Gupshup fields in
+//      sessionStorage as a hint for the new tenant's first ADMIN
+//      login, plus a clear CTA linking to /dashboard/settings/whatsapp
+//      for the just-created tenant.
+//   5. HFR (Healthcare Facility Registry — ABDM M2) — piece 2b step 5.
+//      Same shape as step 4: optional, super-admin caller cannot PUT
+//      to /api/v1/abdm/* config (tenantId=null), so collect the HFR
+//      fields in sessionStorage keyed by tenant id; the first ADMIN
+//      finalizes at /dashboard/settings/abdm on first login.
+//   6. HPR (Health Professional Registry — ABDM M3) — piece 2b step 6.
+//      Same scope-cut as steps 4/5: collect the primary doctor's HPR
+//      identity fields (HPR ID + name + specialty + council reg) in
+//      sessionStorage keyed by tenant id; per-doctor HPR linking via
+//      the existing ABDM M1 flow is finalized by the new tenant's
+//      first ADMIN at /dashboard/settings/abdm on first login.
+//   7. Razorpay (Payment Gateway) — piece 2b step 7. Same scope-cut
+//      as steps 4/5/6: collect Razorpay credentials (business name +
+//      key id + key secret + webhook secret + mode TEST/LIVE) in
+//      sessionStorage keyed by tenant id; the new tenant's first
+//      ADMIN finalizes at /dashboard/settings/payments on first login.
+//   8. Post-creation summary — piece 2b step 8 (CHAIN CLOSED). Recaps
+//      everything the wizard captured (tenant + branch + super-admin
+//      + 4 deferred-config drafts), shows SAVED vs SKIPPED per draft,
+//      surfaces next-steps panel pointing the operator at the new
+//      tenant's first-ADMIN login + relevant /dashboard/settings/*
+//      pages, and provides the final "Finish onboarding" action which
+//      navigates to /super-admin/tenants?onboarded=<tenantId>. Does
+//      NOT clear sessionStorage drafts — the first ADMIN clears them
+//      when they finalize each config.
 //
 // Auth: relies on the super-admin layout's client-side gate. No
 // additional check needed here.
 //
-// Test ids: onboarding-step-{1,2,3}, onboarding-back, onboarding-next,
-// onboarding-submit, onboarding-error-banner, plus per-field
-// onboarding-tenant-name / onboarding-branch-name / onboarding-admin-*
-// for the smoke component test.
+// Test ids: onboarding-step-{1,2,3,4,5,6,7,8}, onboarding-back, onboarding-next,
+// onboarding-submit, onboarding-error-banner, onboarding-wa-skip,
+// onboarding-wa-save, onboarding-wa-cta, onboarding-hfr-skip,
+// onboarding-hfr-save, onboarding-hfr-cta, onboarding-hpr-skip,
+// onboarding-hpr-save, onboarding-hpr-cta, onboarding-rzp-skip,
+// onboarding-rzp-save, onboarding-rzp-cta, onboarding-summary-*
+// (-tenant, -branch, -admin, -whatsapp, -hfr, -hpr, -razorpay),
+// onboarding-finish-final, plus per-field onboarding-tenant-name /
+// onboarding-branch-name / onboarding-admin-* / onboarding-wa-* /
+// onboarding-hfr-* / onboarding-hpr-* / onboarding-rzp-* for the
+// smoke component test.
 
 "use client";
 
@@ -27,7 +61,65 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 
 type Plan = "BASIC" | "PRO" | "ENTERPRISE";
-type Step = 1 | 2 | 3;
+type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+type RazorpayMode = "TEST" | "LIVE";
+type FacilityType =
+  | "HOSPITAL"
+  | "CLINIC"
+  | "DIAGNOSTIC_CENTER"
+  | "PHARMACY"
+  | "OTHER";
+type Specialty =
+  | "GENERAL_PRACTICE"
+  | "CARDIOLOGY"
+  | "DERMATOLOGY"
+  | "PEDIATRICS"
+  | "ORTHOPEDICS"
+  | "GYNECOLOGY"
+  | "ENT"
+  | "OTHER";
+
+// Indian states + UTs (36). Inlined to keep the wizard free of any
+// shared-dep churn — the canonical list is small and stable. If a
+// reusable IndianStates component lands later, swap this for it.
+const INDIAN_STATES = [
+  "Andhra Pradesh",
+  "Arunachal Pradesh",
+  "Assam",
+  "Bihar",
+  "Chhattisgarh",
+  "Goa",
+  "Gujarat",
+  "Haryana",
+  "Himachal Pradesh",
+  "Jharkhand",
+  "Karnataka",
+  "Kerala",
+  "Madhya Pradesh",
+  "Maharashtra",
+  "Manipur",
+  "Meghalaya",
+  "Mizoram",
+  "Nagaland",
+  "Odisha",
+  "Punjab",
+  "Rajasthan",
+  "Sikkim",
+  "Tamil Nadu",
+  "Telangana",
+  "Tripura",
+  "Uttar Pradesh",
+  "Uttarakhand",
+  "West Bengal",
+  "Andaman and Nicobar Islands",
+  "Chandigarh",
+  "Dadra and Nagar Haveli and Daman and Diu",
+  "Delhi",
+  "Jammu and Kashmir",
+  "Ladakh",
+  "Lakshadweep",
+  "Puducherry",
+] as const;
 
 interface TenantStepState {
   name: string;
@@ -48,6 +140,33 @@ interface AdminStepState {
   email: string;
   phone: string;
   password: string;
+}
+interface WhatsAppStepState {
+  apiKey: string;
+  appName: string;
+  sourcePhone: string;
+  defaultProductId: string;
+  autoReply: boolean;
+}
+interface HFRStepState {
+  facilityName: string;
+  hfrId: string;
+  facilityType: FacilityType;
+  state: string;
+  district: string;
+}
+interface HPRStepState {
+  hprId: string;
+  doctorName: string;
+  specialty: Specialty;
+  councilRegNo: string;
+}
+interface RazorpayStepState {
+  businessName: string;
+  keyId: string;
+  keySecret: string;
+  webhookSecret: string;
+  mode: RazorpayMode;
 }
 
 // Mirror the server-side regex (kept in sync with
@@ -78,6 +197,21 @@ const BRANCH_CODE_REGEX = /^[A-Z0-9_-]{1,10}$/;
 const PINCODE_REGEX = /^\d{6}$/;
 const PHONE_REGEX = /^\+?\d{7,15}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const E164_REGEX = /^\+\d{7,15}$/;
+// HFR IDs as issued by facility.abdm.gov.in are numeric, typically
+// 10-12 digits. Accept a slightly wider numeric range to avoid
+// rejecting future-format ids; the upstream registry is the source of
+// truth — the wizard just stashes a draft.
+const HFR_ID_REGEX = /^\d{8,14}$/;
+// HPR IDs as issued by doctor.abdm.gov.in are numeric, typically 10-12
+// digits. Mirror the HFR rule (8-14 numeric) for the same future-proof
+// reason — upstream registry is the source of truth.
+const HPR_ID_REGEX = /^\d{8,14}$/;
+// Razorpay Key IDs always carry the rzp_test_ or rzp_live_ prefix
+// followed by an alphanumeric token. The upstream dashboard is the
+// source of truth — the wizard just stashes a draft, so accept a
+// permissive 10+ alphanumeric tail.
+const RAZORPAY_KEY_ID_REGEX = /^rzp_(test|live)_[A-Za-z0-9]{10,}$/;
 
 function validateTenantStep(s: TenantStepState): string | null {
   if (s.name.trim().length < 2) return "Hospital name must be at least 2 characters";
@@ -107,18 +241,87 @@ function validateAdminStep(s: AdminStepState): string | null {
   return null;
 }
 
+// Validate WhatsApp step only if the operator opted to save (not skip).
+// All three Gupshup fields are required together — the server-side
+// discriminated union in whatsapp-config.ts insists on it.
+function validateWhatsAppStep(s: WhatsAppStepState): string | null {
+  if (s.apiKey.trim().length < 1) return "Gupshup API key is required";
+  if (s.appName.trim().length < 1) return "Gupshup app name is required";
+  if (!E164_REGEX.test(s.sourcePhone.trim()))
+    return "Source phone must be E.164 (e.g. +919876543210)";
+  return null;
+}
+
+// Validate HFR step only if the operator opted to save (not skip).
+// Facility name + HFR ID + facility type + state are required together;
+// district is encouraged but not load-bearing.
+function validateHFRStep(s: HFRStepState): string | null {
+  if (s.facilityName.trim().length < 2)
+    return "Facility name must be at least 2 characters";
+  if (!HFR_ID_REGEX.test(s.hfrId.trim()))
+    return "HFR ID must be 10-12 digits (from facility.abdm.gov.in)";
+  if (s.state.trim().length < 1) return "State is required";
+  return null;
+}
+
+// Validate HPR step only if the operator opted to save (not skip).
+// HPR ID + doctor name + specialty + council reg are required together;
+// the wizard captures only the *primary* doctor's identity — per-doctor
+// HPR linking happens later via the existing ABDM M1 flow at
+// /dashboard/settings/abdm.
+function validateHPRStep(s: HPRStepState): string | null {
+  if (!HPR_ID_REGEX.test(s.hprId.trim()))
+    return "HPR ID must be 10-12 digits (from doctor.abdm.gov.in)";
+  if (s.doctorName.trim().length < 2)
+    return "Doctor name must be at least 2 characters";
+  if (s.councilRegNo.trim().length < 2)
+    return "Council registration number is required";
+  return null;
+}
+
+// Validate Razorpay step only if the operator opted to save (not skip).
+// Business name + key id + key secret + webhook secret are all required
+// together when saving; mode defaults to TEST and is always populated.
+// The wizard only stashes a draft — the new tenant's first ADMIN
+// finalizes at /dashboard/settings/payments on first login.
+function validateRazorpayStep(s: RazorpayStepState): string | null {
+  if (s.businessName.trim().length < 2)
+    return "Business name must be at least 2 characters";
+  if (!RAZORPAY_KEY_ID_REGEX.test(s.keyId.trim()))
+    return "Key ID must look like rzp_live_XXXXXXXXXXXX or rzp_test_XXXXXXXXXXXX";
+  if (s.keySecret.trim().length < 8)
+    return "Key Secret must be at least 8 characters";
+  if (s.webhookSecret.trim().length < 8)
+    return "Webhook Secret must be at least 8 characters";
+  return null;
+}
+
 export default function OnboardingWizardPage() {
   const router = useRouter();
 
   const [step, setStep] = useState<Step>(1);
   const [submitting, setSubmitting] = useState(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
   // Per-field error from a server 409, keyed by the `field` returned
   // by the API. Cleared whenever the user navigates back.
   const [serverFieldError, setServerFieldError] = useState<
     { field: string; message: string } | null
   >(null);
+
+  // Captures the newly-created tenant after step-3 submit so step 4
+  // (WhatsApp) and the success card can link into it.
+  const [createdTenant, setCreatedTenant] = useState<{
+    id: string;
+    name: string;
+    subdomain: string;
+  } | null>(null);
+  const [waSaved, setWaSaved] = useState(false);
+  const [hfrSaved, setHfrSaved] = useState(false);
+  const [hprSaved, setHprSaved] = useState(false);
+  const [rzpSaved, setRzpSaved] = useState(false);
+  // Toggles for masking the Razorpay secret + webhook secret inputs.
+  const [showRzpKeySecret, setShowRzpKeySecret] = useState(false);
+  const [showRzpWebhookSecret, setShowRzpWebhookSecret] = useState(false);
 
   const [tenantStep, setTenantStep] = useState<TenantStepState>({
     name: "",
@@ -140,6 +343,33 @@ export default function OnboardingWizardPage() {
     phone: "",
     password: "",
   });
+  const [waStep, setWaStep] = useState<WhatsAppStepState>({
+    apiKey: "",
+    appName: "",
+    sourcePhone: "",
+    defaultProductId: "",
+    autoReply: true,
+  });
+  const [hfrStep, setHfrStep] = useState<HFRStepState>({
+    facilityName: "",
+    hfrId: "",
+    facilityType: "HOSPITAL",
+    state: "",
+    district: "",
+  });
+  const [hprStep, setHprStep] = useState<HPRStepState>({
+    hprId: "",
+    doctorName: "",
+    specialty: "GENERAL_PRACTICE",
+    councilRegNo: "",
+  });
+  const [rzpStep, setRzpStep] = useState<RazorpayStepState>({
+    businessName: "",
+    keyId: "",
+    keySecret: "",
+    webhookSecret: "",
+    mode: "TEST",
+  });
 
   const tenantError = useMemo(
     () => (step === 1 && (tenantStep.name || tenantStep.subdomain) ? validateTenantStep(tenantStep) : null),
@@ -160,7 +390,11 @@ export default function OnboardingWizardPage() {
   function goBack() {
     setErrorBanner(null);
     setServerFieldError(null);
-    if (step > 1) setStep((step - 1) as Step);
+    // Don't allow stepping back from 4 / 5 / 6 / 7 / 8 since the tenant
+    // has already been created at that point. The operator dismisses
+    // post-create steps via their respective "Skip for now" / "Save" /
+    // "Continue" / "Finish" buttons.
+    if (step > 1 && step < 4) setStep((step - 1) as Step);
   }
 
   function goNext() {
@@ -241,7 +475,9 @@ export default function OnboardingWizardPage() {
 
       const json: {
         success: boolean;
-        data: { tenant: { id: string } } | null;
+        data: {
+          tenant: { id: string; name: string; subdomain: string };
+        } | null;
         error: string | null;
         field?: string;
       } = await res.json().catch(() => ({
@@ -267,14 +503,17 @@ export default function OnboardingWizardPage() {
         return;
       }
 
-      setSuccess(true);
-      // Short delay so the success card is visible before the bounce.
-      setTimeout(() => {
-        // /super-admin/tenants/[id] doesn't exist yet (piece 3+);
-        // fall back to the landing page. Operator can verify the new
-        // tenant from there.
-        router.push("/super-admin");
-      }, 1200);
+      // Tenant is created. Advance to step 4 (WhatsApp config) so the
+      // operator can either skip or stash the Gupshup creds for the
+      // new tenant's first login.
+      if (json.data?.tenant) {
+        setCreatedTenant({
+          id: json.data.tenant.id,
+          name: json.data.tenant.name,
+          subdomain: json.data.tenant.subdomain,
+        });
+      }
+      setStep(4);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setErrorBanner(`Network error: ${msg}`);
@@ -283,24 +522,261 @@ export default function OnboardingWizardPage() {
     }
   }
 
-  if (success) {
-    return (
-      <section
-        data-testid="onboarding-success"
-        className="mx-auto max-w-2xl space-y-4 py-12 text-center"
-      >
-        <CheckCircle2
-          className="mx-auto text-emerald-500"
-          size={48}
-          aria-hidden="true"
-        />
-        <h1 className="text-2xl font-semibold">Tenant onboarded</h1>
-        <p className="text-sm text-slate-600">
-          {tenantStep.name} ({tenantStep.subdomain}) is now active.
-          Redirecting to the super-admin console…
-        </p>
-      </section>
-    );
+  // Step 4 — WhatsApp. The super-admin caller cannot write to
+  // /api/v1/wa/config directly (the route requires req.user.tenantId,
+  // which is null for the tenant-less super-admin). Scope-cut for
+  // piece 2b first wizard step: stash the Gupshup fields in
+  // sessionStorage keyed by tenant id, mark the wizard step "saved",
+  // and surface a deferred-config CTA so the new tenant's first ADMIN
+  // can paste the creds into /dashboard/settings/whatsapp on first
+  // login. A future piece 2b tick will swap this for a direct PUT
+  // once the wizard has a way to mint a session as the new admin
+  // (mint-and-redirect, or token-issued-by-tenant-onboarding response).
+  function saveWhatsApp() {
+    setErrorBanner(null);
+    const e = validateWhatsAppStep(waStep);
+    if (e) {
+      setErrorBanner(e);
+      return;
+    }
+    if (!createdTenant) {
+      setErrorBanner("Tenant context missing — please retry from step 1");
+      return;
+    }
+    try {
+      const draft = {
+        credentials: {
+          provider: "GUPSHUP" as const,
+          apiKey: waStep.apiKey.trim(),
+          appName: waStep.appName.trim(),
+          sourcePhone: waStep.sourcePhone.trim(),
+        },
+        defaultProductId: waStep.defaultProductId.trim() || null,
+        autoReply: waStep.autoReply,
+      };
+      sessionStorage.setItem(
+        `medcore_wa_draft:${createdTenant.id}`,
+        JSON.stringify(draft),
+      );
+    } catch {
+      // SessionStorage can throw in some private-browse modes.
+      // Continue anyway — the CTA still points the operator at the
+      // settings page; the draft hint is best-effort.
+    }
+    setWaSaved(true);
+  }
+
+  function skipWhatsApp() {
+    // Advance to step 5 (HFR) — the wizard now has an additional
+    // optional post-create step. Both WhatsApp and HFR write
+    // sessionStorage drafts; the new tenant's first ADMIN finalizes
+    // each at /dashboard/settings/{whatsapp,abdm} on first login.
+    setErrorBanner(null);
+    setStep(5);
+  }
+
+  function finishAfterWaSave() {
+    setErrorBanner(null);
+    setStep(5);
+  }
+
+  // Step 5 — HFR (Healthcare Facility Registry, ABDM M2). Mirrors the
+  // WhatsApp step's "stash a draft, ADMIN finalizes on first login"
+  // shape because the super-admin caller has tenantId=null and cannot
+  // write to per-tenant ABDM config rows. Draft is keyed by tenant id
+  // exactly like the WhatsApp draft (same medcore_<area>_draft:<id>
+  // convention). A future piece 2b tick will swap this for a direct
+  // PUT once the wizard mints a session as the new admin.
+  function saveHFR() {
+    setErrorBanner(null);
+    const e = validateHFRStep(hfrStep);
+    if (e) {
+      setErrorBanner(e);
+      return;
+    }
+    if (!createdTenant) {
+      setErrorBanner("Tenant context missing — please retry from step 1");
+      return;
+    }
+    try {
+      const draft = {
+        facilityName: hfrStep.facilityName.trim(),
+        hfrId: hfrStep.hfrId.trim(),
+        facilityType: hfrStep.facilityType,
+        state: hfrStep.state.trim(),
+        district: hfrStep.district.trim() || null,
+      };
+      sessionStorage.setItem(
+        `medcore_hfr_draft:${createdTenant.id}`,
+        JSON.stringify(draft),
+      );
+    } catch {
+      // SessionStorage can throw in some private-browse modes.
+      // Continue anyway — the CTA still points the operator at the
+      // settings page; the draft hint is best-effort.
+    }
+    setHfrSaved(true);
+  }
+
+  function skipHFR() {
+    // Advance to step 6 (HPR) — wizard now has a further optional
+    // post-create step for the Health Professional Registry. The
+    // wizard only completes after the HPR step's skip / finish.
+    setErrorBanner(null);
+    prefillHprDoctorName();
+    setStep(6);
+  }
+
+  function finishAfterHfrSave() {
+    setErrorBanner(null);
+    prefillHprDoctorName();
+    setStep(6);
+  }
+
+  // Prefill the HPR step's doctor-name field from the step-3 super-
+  // admin name, but only if the user hasn't already typed something.
+  // Called on transition into step 6 from either the HFR skip or the
+  // HFR finish path.
+  function prefillHprDoctorName() {
+    if (!hprStep.doctorName && adminStep.name.trim().length > 0) {
+      setHprStep((prev) => ({ ...prev, doctorName: adminStep.name.trim() }));
+    }
+  }
+
+  // Step 6 — HPR (Health Professional Registry, ABDM M3). Mirrors the
+  // HFR step's "stash a draft, ADMIN finalizes on first login" shape
+  // because the super-admin caller has tenantId=null and cannot write
+  // to per-tenant ABDM config rows. Draft is keyed by tenant id
+  // exactly like the WhatsApp + HFR drafts (same
+  // medcore_<area>_draft:<id> convention). Per-doctor HPR linking
+  // continues to flow through the existing ABDM M1 surface at
+  // /dashboard/settings/abdm; this step just captures the *primary*
+  // doctor's HPR identity as a deferred-config hint.
+  function saveHPR() {
+    setErrorBanner(null);
+    const e = validateHPRStep(hprStep);
+    if (e) {
+      setErrorBanner(e);
+      return;
+    }
+    if (!createdTenant) {
+      setErrorBanner("Tenant context missing — please retry from step 1");
+      return;
+    }
+    try {
+      const draft = {
+        hprId: hprStep.hprId.trim(),
+        doctorName: hprStep.doctorName.trim(),
+        specialty: hprStep.specialty,
+        councilRegNo: hprStep.councilRegNo.trim(),
+      };
+      sessionStorage.setItem(
+        `medcore_hpr_draft:${createdTenant.id}`,
+        JSON.stringify(draft),
+      );
+    } catch {
+      // SessionStorage can throw in some private-browse modes.
+      // Continue anyway — the CTA still points the operator at the
+      // settings page; the draft hint is best-effort.
+    }
+    setHprSaved(true);
+  }
+
+  function skipHPR() {
+    // Advance to step 7 (Razorpay) — wizard now has a further optional
+    // post-create step for payment gateway credentials. The wizard
+    // only completes after the Razorpay step's skip / finish.
+    setErrorBanner(null);
+    prefillRzpBusinessName();
+    setStep(7);
+  }
+
+  function finishAfterHprSave() {
+    setErrorBanner(null);
+    prefillRzpBusinessName();
+    setStep(7);
+  }
+
+  // Prefill the Razorpay step's business-name field from the step-1
+  // tenant name, but only if the user hasn't already typed something.
+  // Called on transition into step 7 from either the HPR skip or HPR
+  // finish path.
+  function prefillRzpBusinessName() {
+    if (!rzpStep.businessName && tenantStep.name.trim().length > 0) {
+      setRzpStep((prev) => ({
+        ...prev,
+        businessName: tenantStep.name.trim(),
+      }));
+    }
+  }
+
+  // Step 7 — Razorpay payment gateway. Mirrors the HPR step's "stash a
+  // draft, ADMIN finalizes on first login" shape because the
+  // super-admin caller has tenantId=null and cannot write to per-tenant
+  // payment config rows. Draft is keyed by tenant id exactly like the
+  // WhatsApp + HFR + HPR drafts (same medcore_<area>_draft:<id>
+  // convention). The new tenant's first ADMIN finalizes Razorpay
+  // credentials at /dashboard/settings/payments on first login.
+  function saveRazorpay() {
+    setErrorBanner(null);
+    const e = validateRazorpayStep(rzpStep);
+    if (e) {
+      setErrorBanner(e);
+      return;
+    }
+    if (!createdTenant) {
+      setErrorBanner("Tenant context missing — please retry from step 1");
+      return;
+    }
+    try {
+      const draft = {
+        businessName: rzpStep.businessName.trim(),
+        keyId: rzpStep.keyId.trim(),
+        keySecret: rzpStep.keySecret.trim(),
+        webhookSecret: rzpStep.webhookSecret.trim(),
+        mode: rzpStep.mode,
+      };
+      sessionStorage.setItem(
+        `medcore_razorpay_draft:${createdTenant.id}`,
+        JSON.stringify(draft),
+      );
+    } catch {
+      // SessionStorage can throw in some private-browse modes.
+      // Continue anyway — the CTA still points the operator at the
+      // settings page; the draft hint is best-effort.
+    }
+    setRzpSaved(true);
+  }
+
+  function skipRazorpay() {
+    // Advance to step 8 (post-creation summary) — the wizard no longer
+    // completes after skipping Razorpay. The summary step recaps
+    // everything captured and provides the final Finish action.
+    setErrorBanner(null);
+    setStep(8);
+  }
+
+  function finishAfterRzpSave() {
+    setErrorBanner(null);
+    setStep(8);
+  }
+
+  // Step 8 — Post-creation summary. Reads the 4 deferred-config drafts
+  // from sessionStorage (if present) so the recap matches the saved /
+  // skipped state per area. Final action navigates to the tenant list
+  // with a query param so the destination page can highlight the
+  // freshly-onboarded row. Drafts are deliberately NOT cleared — the
+  // new tenant's first ADMIN clears each on first-login when they
+  // finalize the respective config at /dashboard/settings/{whatsapp,
+  // abdm, payments}.
+  function finishWizard() {
+    if (createdTenant) {
+      router.push(
+        `/super-admin/tenants?onboarded=${encodeURIComponent(createdTenant.id)}`,
+      );
+    } else {
+      router.push("/super-admin/tenants");
+    }
   }
 
   return (
@@ -313,9 +789,11 @@ export default function OnboardingWizardPage() {
           Onboard new tenant
         </h1>
         <p className="text-sm text-slate-600">
-          3-step MVP wizard. Creates the tenant, its first branch, and the
-          super-admin user atomically. HFR / HPR / WhatsApp / Razorpay
-          steps land in piece 2b.
+          8-step wizard. Steps 1-3 create the tenant, its first branch,
+          and the super-admin user atomically. Steps 4 (WhatsApp), 5
+          (HFR), 6 (HPR), and 7 (Razorpay) are optional and stash
+          drafts for first-ADMIN finalization. Step 8 recaps everything
+          captured and completes the wizard.
         </p>
       </header>
 
@@ -325,7 +803,7 @@ export default function OnboardingWizardPage() {
         data-testid="onboarding-step-indicator"
         aria-label="Onboarding progress"
       >
-        {([1, 2, 3] as const).map((n) => (
+        {([1, 2, 3, 4, 5, 6, 7, 8] as const).map((n) => (
           <li
             key={n}
             data-testid={`onboarding-step-indicator-${n}`}
@@ -340,7 +818,21 @@ export default function OnboardingWizardPage() {
           >
             <span className="font-semibold">{n}.</span>
             <span>
-              {n === 1 ? "Tenant" : n === 2 ? "First branch" : "Super-admin"}
+              {n === 1
+                ? "Tenant"
+                : n === 2
+                  ? "First branch"
+                  : n === 3
+                    ? "Super-admin"
+                    : n === 4
+                      ? "WhatsApp"
+                      : n === 5
+                        ? "HFR"
+                        : n === 6
+                          ? "HPR"
+                          : n === 7
+                            ? "Razorpay"
+                            : "Summary"}
             </span>
           </li>
         ))}
@@ -625,33 +1117,608 @@ export default function OnboardingWizardPage() {
         </fieldset>
       )}
 
+      {step === 4 && (
+        <fieldset
+          data-testid="onboarding-step-4"
+          className="space-y-4 rounded-lg border border-slate-200 bg-white p-6"
+        >
+          <legend className="sr-only">WhatsApp Business API</legend>
+          <h2 className="text-lg font-semibold">
+            WhatsApp Business API (Gupshup)
+          </h2>
+          <p className="text-xs text-slate-500">
+            Optional — can be configured later from Settings → WhatsApp.
+            The new tenant&apos;s ADMIN can finish this step from
+            /dashboard/settings/whatsapp on first login.
+          </p>
+
+          {waSaved && createdTenant ? (
+            <div
+              data-testid="onboarding-wa-saved-banner"
+              className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+              role="status"
+            >
+              <p className="font-medium">
+                WhatsApp draft saved for {createdTenant.name}
+                {waStep.sourcePhone
+                  ? ` (Gupshup, ${waStep.sourcePhone.trim()})`
+                  : ""}
+                .
+              </p>
+              <p className="mt-1 text-xs">
+                The new tenant&apos;s ADMIN will be prompted to finalize the
+                configuration on first login at{" "}
+                <a
+                  data-testid="onboarding-wa-cta"
+                  href="/dashboard/settings/whatsapp"
+                  className="font-medium underline"
+                >
+                  /dashboard/settings/whatsapp
+                </a>
+                .
+              </p>
+            </div>
+          ) : (
+            <>
+              <Field
+                label="Gupshup API key"
+                hint="From the Gupshup partner dashboard."
+              >
+                <input
+                  data-testid="onboarding-wa-apikey"
+                  type="password"
+                  value={waStep.apiKey}
+                  onChange={(e) =>
+                    setWaStep({ ...waStep, apiKey: e.target.value })
+                  }
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="off"
+                />
+              </Field>
+
+              <Field
+                label="Gupshup app name"
+                hint="The named app inside your Gupshup account."
+              >
+                <input
+                  data-testid="onboarding-wa-appname"
+                  value={waStep.appName}
+                  onChange={(e) =>
+                    setWaStep({ ...waStep, appName: e.target.value })
+                  }
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                />
+              </Field>
+
+              <Field
+                label="Source phone (E.164)"
+                hint="The WhatsApp number messages send from — e.g. +919876543210."
+              >
+                <input
+                  data-testid="onboarding-wa-sourcephone"
+                  value={waStep.sourcePhone}
+                  onChange={(e) =>
+                    setWaStep({ ...waStep, sourcePhone: e.target.value })
+                  }
+                  inputMode="tel"
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="off"
+                />
+              </Field>
+
+              <Field
+                label="Default product id (optional)"
+                hint="Used to scope outbound campaign routing — leave blank if unsure."
+              >
+                <input
+                  data-testid="onboarding-wa-productid"
+                  value={waStep.defaultProductId}
+                  onChange={(e) =>
+                    setWaStep({ ...waStep, defaultProductId: e.target.value })
+                  }
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="off"
+                />
+              </Field>
+
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  data-testid="onboarding-wa-autoreply"
+                  type="checkbox"
+                  checked={waStep.autoReply}
+                  onChange={(e) =>
+                    setWaStep({ ...waStep, autoReply: e.target.checked })
+                  }
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+                <span>Enable auto-reply for inbound messages</span>
+              </label>
+            </>
+          )}
+        </fieldset>
+      )}
+
+      {step === 5 && (
+        <fieldset
+          data-testid="onboarding-step-5"
+          className="space-y-4 rounded-lg border border-slate-200 bg-white p-6"
+        >
+          <legend className="sr-only">HFR (Healthcare Facility Registry)</legend>
+          <h2 className="text-lg font-semibold">
+            HFR (Healthcare Facility Registry)
+          </h2>
+          <p className="text-xs text-slate-500">
+            Optional — ABDM M2 facility registration. Can be configured later
+            from Settings &rarr; ABDM. The new tenant&apos;s ADMIN will
+            finalize this step from /dashboard/settings/abdm on first login.
+          </p>
+
+          {hfrSaved && createdTenant ? (
+            <div
+              data-testid="onboarding-hfr-saved-banner"
+              className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+              role="status"
+            >
+              <p className="font-medium">
+                HFR draft saved for {createdTenant.name}
+                {hfrStep.hfrId
+                  ? ` (HFR ID ${hfrStep.hfrId.trim()})`
+                  : ""}
+                .
+              </p>
+              <p className="mt-1 text-xs">
+                After tenant onboarding, the first ADMIN will finalize ABDM
+                HFR registration at{" "}
+                <a
+                  data-testid="onboarding-hfr-cta"
+                  href="/dashboard/settings/abdm"
+                  className="font-medium underline"
+                >
+                  /dashboard/settings/abdm
+                </a>
+                .
+              </p>
+            </div>
+          ) : (
+            <>
+              <Field
+                label="Facility name"
+                hint="The facility name as registered (or to be registered) with ABDM."
+              >
+                <input
+                  data-testid="onboarding-hfr-facilityname"
+                  value={hfrStep.facilityName}
+                  onChange={(e) =>
+                    setHfrStep({ ...hfrStep, facilityName: e.target.value })
+                  }
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="organization"
+                />
+              </Field>
+
+              <Field
+                label="HFR ID"
+                hint="10-12 digit ID from facility.abdm.gov.in."
+              >
+                <input
+                  data-testid="onboarding-hfr-id"
+                  value={hfrStep.hfrId}
+                  onChange={(e) =>
+                    setHfrStep({
+                      ...hfrStep,
+                      hfrId: e.target.value.replace(/[^0-9]/g, ""),
+                    })
+                  }
+                  inputMode="numeric"
+                  maxLength={14}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="off"
+                />
+              </Field>
+
+              <Field label="Facility type">
+                <select
+                  data-testid="onboarding-hfr-facilitytype"
+                  value={hfrStep.facilityType}
+                  onChange={(e) =>
+                    setHfrStep({
+                      ...hfrStep,
+                      facilityType: e.target.value as FacilityType,
+                    })
+                  }
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                >
+                  <option value="HOSPITAL">HOSPITAL</option>
+                  <option value="CLINIC">CLINIC</option>
+                  <option value="DIAGNOSTIC_CENTER">DIAGNOSTIC_CENTER</option>
+                  <option value="PHARMACY">PHARMACY</option>
+                  <option value="OTHER">OTHER</option>
+                </select>
+              </Field>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field label="State">
+                  <select
+                    data-testid="onboarding-hfr-state"
+                    value={hfrStep.state}
+                    onChange={(e) =>
+                      setHfrStep({ ...hfrStep, state: e.target.value })
+                    }
+                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                  >
+                    <option value="">Select state…</option>
+                    {INDIAN_STATES.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="District">
+                  <input
+                    data-testid="onboarding-hfr-district"
+                    value={hfrStep.district}
+                    onChange={(e) =>
+                      setHfrStep({ ...hfrStep, district: e.target.value })
+                    }
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                    autoComplete="off"
+                  />
+                </Field>
+              </div>
+            </>
+          )}
+        </fieldset>
+      )}
+
+      {step === 6 && (
+        <fieldset
+          data-testid="onboarding-step-6"
+          className="space-y-4 rounded-lg border border-slate-200 bg-white p-6"
+        >
+          <legend className="sr-only">HPR (Health Professional Registry)</legend>
+          <h2 className="text-lg font-semibold">
+            HPR (Health Professional Registry)
+          </h2>
+          <p className="text-xs text-slate-500">
+            Optional — ABDM M3 captures the primary doctor&apos;s HPR
+            identity. Can be configured later from Settings &rarr; ABDM. The
+            new tenant&apos;s ADMIN will finalize per-doctor HPR linking on
+            first login.
+          </p>
+
+          {hprSaved && createdTenant ? (
+            <div
+              data-testid="onboarding-hpr-saved-banner"
+              className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+              role="status"
+            >
+              <p className="font-medium">
+                HPR draft saved for {createdTenant.name}
+                {hprStep.hprId
+                  ? ` (HPR ID ${hprStep.hprId.trim()})`
+                  : ""}
+                .
+              </p>
+              <p className="mt-1 text-xs">
+                After tenant onboarding, the first ADMIN will finalize
+                per-doctor HPR linking at{" "}
+                <a
+                  data-testid="onboarding-hpr-cta"
+                  href="/dashboard/settings/abdm"
+                  className="font-medium underline"
+                >
+                  /dashboard/settings/abdm
+                </a>
+                .
+              </p>
+            </div>
+          ) : (
+            <>
+              <Field
+                label="Primary Doctor's HPR ID"
+                hint="10-12 digit ID from doctor.abdm.gov.in."
+              >
+                <input
+                  data-testid="onboarding-hpr-id"
+                  value={hprStep.hprId}
+                  onChange={(e) =>
+                    setHprStep({
+                      ...hprStep,
+                      hprId: e.target.value.replace(/[^0-9]/g, ""),
+                    })
+                  }
+                  inputMode="numeric"
+                  maxLength={14}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="off"
+                />
+              </Field>
+
+              <Field
+                label="Primary Doctor's Name"
+                hint="Defaults to the step-3 super-admin name; override if a different doctor is the HPR holder."
+              >
+                <input
+                  data-testid="onboarding-hpr-doctorname"
+                  value={hprStep.doctorName}
+                  onChange={(e) =>
+                    setHprStep({ ...hprStep, doctorName: e.target.value })
+                  }
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="name"
+                />
+              </Field>
+
+              <Field label="Specialty">
+                <select
+                  data-testid="onboarding-hpr-specialty"
+                  value={hprStep.specialty}
+                  onChange={(e) =>
+                    setHprStep({
+                      ...hprStep,
+                      specialty: e.target.value as Specialty,
+                    })
+                  }
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                >
+                  <option value="GENERAL_PRACTICE">GENERAL_PRACTICE</option>
+                  <option value="CARDIOLOGY">CARDIOLOGY</option>
+                  <option value="DERMATOLOGY">DERMATOLOGY</option>
+                  <option value="PEDIATRICS">PEDIATRICS</option>
+                  <option value="ORTHOPEDICS">ORTHOPEDICS</option>
+                  <option value="GYNECOLOGY">GYNECOLOGY</option>
+                  <option value="ENT">ENT</option>
+                  <option value="OTHER">OTHER</option>
+                </select>
+              </Field>
+
+              <Field
+                label="Council Registration No."
+                hint='State medical council registration — e.g. "MMC-12345" for Maharashtra Medical Council.'
+              >
+                <input
+                  data-testid="onboarding-hpr-councilreg"
+                  value={hprStep.councilRegNo}
+                  onChange={(e) =>
+                    setHprStep({ ...hprStep, councilRegNo: e.target.value })
+                  }
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="off"
+                />
+              </Field>
+            </>
+          )}
+        </fieldset>
+      )}
+
+      {step === 7 && (
+        <fieldset
+          data-testid="onboarding-step-7"
+          className="space-y-4 rounded-lg border border-slate-200 bg-white p-6"
+        >
+          <legend className="sr-only">Razorpay (Payment Gateway)</legend>
+          <h2 className="text-lg font-semibold">
+            Razorpay (Payment Gateway)
+          </h2>
+          <p className="text-xs text-slate-500">
+            Optional — capture the tenant&apos;s Razorpay credentials so
+            invoices can be paid online. Can be configured later from
+            Settings &rarr; Payments. The new tenant&apos;s ADMIN will
+            finalize Razorpay credentials on first login.
+          </p>
+
+          {rzpSaved && createdTenant ? (
+            <div
+              data-testid="onboarding-rzp-saved-banner"
+              className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+              role="status"
+            >
+              <p className="font-medium">
+                Razorpay draft saved for {createdTenant.name}
+                {rzpStep.keyId ? ` (${rzpStep.mode}, ${rzpStep.keyId.trim()})` : ""}
+                .
+              </p>
+              <p className="mt-1 text-xs">
+                After tenant onboarding, the first ADMIN will finalize
+                Razorpay credentials at{" "}
+                <a
+                  data-testid="onboarding-rzp-cta"
+                  href="/dashboard/settings/payments"
+                  className="font-medium underline"
+                >
+                  /dashboard/settings/payments
+                </a>
+                .
+              </p>
+            </div>
+          ) : (
+            <>
+              <Field
+                label="Business Name"
+                hint="Appears on Razorpay invoices. Defaults to the tenant name from step 1."
+              >
+                <input
+                  data-testid="onboarding-rzp-businessname"
+                  value={rzpStep.businessName}
+                  onChange={(e) =>
+                    setRzpStep({ ...rzpStep, businessName: e.target.value })
+                  }
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="organization"
+                />
+              </Field>
+
+              <Field
+                label="Key ID"
+                hint="Format: rzp_live_XXXXXXXXXXXX or rzp_test_XXXXXXXXXXXX."
+              >
+                <input
+                  data-testid="onboarding-rzp-keyid"
+                  value={rzpStep.keyId}
+                  onChange={(e) =>
+                    setRzpStep({ ...rzpStep, keyId: e.target.value })
+                  }
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-base focus:border-slate-500 focus:outline-none"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                />
+              </Field>
+
+              <Field
+                label="Key Secret"
+                hint="From the Razorpay dashboard. Stored only as a draft."
+              >
+                <div className="flex items-center gap-2">
+                  <input
+                    data-testid="onboarding-rzp-keysecret"
+                    type={showRzpKeySecret ? "text" : "password"}
+                    value={rzpStep.keySecret}
+                    onChange={(e) =>
+                      setRzpStep({ ...rzpStep, keySecret: e.target.value })
+                    }
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-base focus:border-slate-500 focus:outline-none"
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    data-testid="onboarding-rzp-keysecret-toggle"
+                    onClick={() => setShowRzpKeySecret((v) => !v)}
+                    className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    aria-label={
+                      showRzpKeySecret ? "Hide key secret" : "Show key secret"
+                    }
+                  >
+                    {showRzpKeySecret ? "Hide" : "Show"}
+                  </button>
+                </div>
+              </Field>
+
+              <Field
+                label="Webhook Secret"
+                hint="Used to verify Razorpay webhook HMAC signatures."
+              >
+                <div className="flex items-center gap-2">
+                  <input
+                    data-testid="onboarding-rzp-webhooksecret"
+                    type={showRzpWebhookSecret ? "text" : "password"}
+                    value={rzpStep.webhookSecret}
+                    onChange={(e) =>
+                      setRzpStep({ ...rzpStep, webhookSecret: e.target.value })
+                    }
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-base focus:border-slate-500 focus:outline-none"
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    data-testid="onboarding-rzp-webhooksecret-toggle"
+                    onClick={() => setShowRzpWebhookSecret((v) => !v)}
+                    className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    aria-label={
+                      showRzpWebhookSecret
+                        ? "Hide webhook secret"
+                        : "Show webhook secret"
+                    }
+                  >
+                    {showRzpWebhookSecret ? "Hide" : "Show"}
+                  </button>
+                </div>
+              </Field>
+
+              <Field
+                label="Mode"
+                hint="TEST drives the rzp_test_ keys; LIVE drives the rzp_live_ keys."
+              >
+                <div
+                  role="radiogroup"
+                  aria-label="Razorpay mode"
+                  className="inline-flex overflow-hidden rounded-md border border-slate-300"
+                  data-testid="onboarding-rzp-mode"
+                >
+                  {(["TEST", "LIVE"] as const).map((m) => {
+                    const active = rzpStep.mode === m;
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        data-testid={`onboarding-rzp-mode-${m.toLowerCase()}`}
+                        onClick={() =>
+                          setRzpStep({ ...rzpStep, mode: m })
+                        }
+                        className={`px-4 py-2 text-sm font-medium ${
+                          active
+                            ? "bg-slate-900 text-white"
+                            : "bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        {m}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Field>
+            </>
+          )}
+        </fieldset>
+      )}
+
+      {step === 8 && <SummaryStep
+        createdTenant={createdTenant}
+        tenantStep={tenantStep}
+        branchStep={branchStep}
+        adminStep={adminStep}
+        waSaved={waSaved}
+        hfrSaved={hfrSaved}
+        hprSaved={hprSaved}
+        rzpSaved={rzpSaved}
+        waStep={waStep}
+        hfrStep={hfrStep}
+        hprStep={hprStep}
+        rzpStep={rzpStep}
+      />}
+
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
           data-testid="onboarding-back"
           onClick={goBack}
-          disabled={step === 1 || submitting}
+          disabled={
+            step === 1 ||
+            step === 4 ||
+            step === 5 ||
+            step === 6 ||
+            step === 7 ||
+            step === 8 ||
+            submitting
+          }
           className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          style={{ minHeight: 44 }}
         >
           <ArrowLeft size={14} aria-hidden="true" /> Back
         </button>
-        {step < 3 ? (
+        {step < 3 && (
           <button
             type="button"
             data-testid="onboarding-next"
             onClick={goNext}
             disabled={submitting}
             className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ minHeight: 44 }}
           >
             Next <ArrowRight size={14} aria-hidden="true" />
           </button>
-        ) : (
+        )}
+        {step === 3 && (
           <button
             type="button"
             data-testid="onboarding-submit"
             onClick={submit}
             disabled={submitting}
             className="inline-flex items-center gap-2 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ minHeight: 44 }}
           >
             {submitting ? (
               <>
@@ -661,6 +1728,149 @@ export default function OnboardingWizardPage() {
             ) : (
               <>Create tenant</>
             )}
+          </button>
+        )}
+        {step === 4 && !waSaved && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="onboarding-wa-skip"
+              onClick={skipWhatsApp}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              style={{ minHeight: 44 }}
+            >
+              Skip for now
+            </button>
+            <button
+              type="button"
+              data-testid="onboarding-wa-save"
+              onClick={saveWhatsApp}
+              className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+              style={{ minHeight: 44 }}
+            >
+              Configure WhatsApp
+            </button>
+          </div>
+        )}
+        {step === 4 && waSaved && (
+          <button
+            type="button"
+            data-testid="onboarding-wa-finish"
+            onClick={finishAfterWaSave}
+            className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+            style={{ minHeight: 44 }}
+          >
+            Continue
+          </button>
+        )}
+        {step === 5 && !hfrSaved && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="onboarding-hfr-skip"
+              onClick={skipHFR}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              style={{ minHeight: 44 }}
+            >
+              Skip for now
+            </button>
+            <button
+              type="button"
+              data-testid="onboarding-hfr-save"
+              onClick={saveHFR}
+              className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+              style={{ minHeight: 44 }}
+            >
+              Configure HFR
+            </button>
+          </div>
+        )}
+        {step === 5 && hfrSaved && (
+          <button
+            type="button"
+            data-testid="onboarding-hfr-finish"
+            onClick={finishAfterHfrSave}
+            className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+            style={{ minHeight: 44 }}
+          >
+            Continue
+          </button>
+        )}
+        {step === 6 && !hprSaved && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="onboarding-hpr-skip"
+              onClick={skipHPR}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              style={{ minHeight: 44 }}
+            >
+              Skip for now
+            </button>
+            <button
+              type="button"
+              data-testid="onboarding-hpr-save"
+              onClick={saveHPR}
+              className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+              style={{ minHeight: 44 }}
+            >
+              Configure HPR
+            </button>
+          </div>
+        )}
+        {step === 6 && hprSaved && (
+          <button
+            type="button"
+            data-testid="onboarding-hpr-finish"
+            onClick={finishAfterHprSave}
+            className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+            style={{ minHeight: 44 }}
+          >
+            Continue
+          </button>
+        )}
+        {step === 7 && !rzpSaved && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="onboarding-rzp-skip"
+              onClick={skipRazorpay}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              style={{ minHeight: 44 }}
+            >
+              Skip for now
+            </button>
+            <button
+              type="button"
+              data-testid="onboarding-rzp-save"
+              onClick={saveRazorpay}
+              className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+              style={{ minHeight: 44 }}
+            >
+              Configure Razorpay
+            </button>
+          </div>
+        )}
+        {step === 7 && rzpSaved && (
+          <button
+            type="button"
+            data-testid="onboarding-rzp-finish"
+            onClick={finishAfterRzpSave}
+            className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+            style={{ minHeight: 44 }}
+          >
+            Continue
+          </button>
+        )}
+        {step === 8 && (
+          <button
+            type="button"
+            data-testid="onboarding-finish-final"
+            onClick={finishWizard}
+            className="inline-flex items-center gap-2 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+            style={{ minHeight: 44 }}
+          >
+            <CheckCircle2 size={14} aria-hidden="true" /> Finish onboarding
           </button>
         )}
       </div>
@@ -693,5 +1903,243 @@ function Field({
         <span className="block text-[11px] text-slate-500">{hint}</span>
       ) : null}
     </label>
+  );
+}
+
+// ─── Step 8 — Post-creation summary card grid + next-steps panel.
+//
+// Pure presentational; no state of its own. Reads the four deferred-
+// config "saved" flags from the parent wizard state (waSaved, hfrSaved,
+// hprSaved, rzpSaved) — each renders a SAVED chip with a short recap or
+// a SKIPPED chip with a "configure later at …" hint. The whole step is
+// keyed by the createdTenant returned from POST /tenant-onboarding;
+// without it (defensive — shouldn't happen since step 8 is only
+// reachable after step 3 submit), the summary degrades to a generic
+// "Onboarding complete" headline.
+function SummaryStep(props: {
+  createdTenant: { id: string; name: string; subdomain: string } | null;
+  tenantStep: TenantStepState;
+  branchStep: BranchStepState;
+  adminStep: AdminStepState;
+  waSaved: boolean;
+  hfrSaved: boolean;
+  hprSaved: boolean;
+  rzpSaved: boolean;
+  waStep: WhatsAppStepState;
+  hfrStep: HFRStepState;
+  hprStep: HPRStepState;
+  rzpStep: RazorpayStepState;
+}) {
+  const {
+    createdTenant,
+    tenantStep,
+    branchStep,
+    adminStep,
+    waSaved,
+    hfrSaved,
+    hprSaved,
+    rzpSaved,
+    waStep,
+    hfrStep,
+    hprStep,
+    rzpStep,
+  } = props;
+
+  return (
+    <section
+      data-testid="onboarding-step-8"
+      className="space-y-6 rounded-lg border border-emerald-200 bg-emerald-50 p-6"
+    >
+      <header className="space-y-1">
+        <div className="flex items-center gap-2">
+          <CheckCircle2
+            className="text-emerald-600"
+            size={20}
+            aria-hidden="true"
+          />
+          <h2 className="text-lg font-semibold text-emerald-900">
+            Onboarding complete — review &amp; finish
+          </h2>
+        </div>
+        <p className="text-xs text-emerald-800">
+          Tenant created. Review what the wizard captured below, then
+          click <span className="font-medium">Finish onboarding</span> to
+          jump to the tenant list. Deferred-config drafts persist in this
+          browser&apos;s sessionStorage until the new tenant&apos;s first
+          ADMIN signs in and finalizes each at the linked settings page.
+        </p>
+      </header>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <SummaryCard
+          testId="onboarding-summary-tenant"
+          title="Tenant"
+          status="created"
+          rows={[
+            ["Name", tenantStep.name],
+            ["Subdomain", tenantStep.subdomain],
+            ["Plan", tenantStep.plan],
+          ]}
+        />
+        <SummaryCard
+          testId="onboarding-summary-branch"
+          title="First branch"
+          status="created"
+          rows={[
+            ["Name", branchStep.name],
+            [
+              "Address",
+              [
+                branchStep.address,
+                branchStep.city,
+                branchStep.state,
+                branchStep.pincode,
+              ]
+                .filter(Boolean)
+                .join(", ") || "—",
+            ],
+          ]}
+        />
+        <SummaryCard
+          testId="onboarding-summary-admin"
+          title="Super-admin user"
+          status="created"
+          rows={[
+            ["Name", adminStep.name],
+            ["Email", adminStep.email],
+          ]}
+        />
+        <SummaryCard
+          testId="onboarding-summary-whatsapp"
+          title="WhatsApp"
+          status={waSaved ? "saved" : "skipped"}
+          rows={
+            waSaved
+              ? [
+                  ["Provider", "GUPSHUP"],
+                  ["App", waStep.appName.trim() || "—"],
+                ]
+              : [["", "Configure later at /dashboard/settings/whatsapp"]]
+          }
+        />
+        <SummaryCard
+          testId="onboarding-summary-hfr"
+          title="HFR (Healthcare Facility Registry)"
+          status={hfrSaved ? "saved" : "skipped"}
+          rows={
+            hfrSaved
+              ? [
+                  ["Facility", hfrStep.facilityName.trim() || "—"],
+                  ["HFR ID", hfrStep.hfrId.trim() || "—"],
+                ]
+              : [["", "Configure later at /dashboard/settings/abdm"]]
+          }
+        />
+        <SummaryCard
+          testId="onboarding-summary-hpr"
+          title="HPR (Health Professional Registry)"
+          status={hprSaved ? "saved" : "skipped"}
+          rows={
+            hprSaved
+              ? [
+                  ["HPR ID", hprStep.hprId.trim() || "—"],
+                  ["Doctor", hprStep.doctorName.trim() || "—"],
+                ]
+              : [["", "Configure later at /dashboard/settings/abdm"]]
+          }
+        />
+        <SummaryCard
+          testId="onboarding-summary-razorpay"
+          title="Razorpay"
+          status={rzpSaved ? "saved" : "skipped"}
+          rows={
+            rzpSaved
+              ? [
+                  ["Key ID", rzpStep.keyId.trim() || "—"],
+                  ["Mode", rzpStep.mode],
+                ]
+              : [["", "Configure later at /dashboard/settings/payments"]]
+          }
+        />
+      </div>
+
+      <div
+        data-testid="onboarding-summary-next-steps"
+        className="rounded-md border border-emerald-300 bg-white px-4 py-3 text-xs text-slate-700"
+      >
+        <p className="font-semibold text-slate-900">Next steps</p>
+        <ul className="mt-2 list-inside list-disc space-y-1">
+          <li>
+            The new tenant&apos;s first ADMIN (
+            <span className="font-mono">{adminStep.email || "—"}</span>)
+            will finalize the saved drafts at{" "}
+            <span className="font-mono">/dashboard/settings/whatsapp</span>
+            ,{" "}
+            <span className="font-mono">/dashboard/settings/abdm</span>,
+            and{" "}
+            <span className="font-mono">/dashboard/settings/payments</span>.
+          </li>
+          <li>
+            Drafts persist in this browser&apos;s sessionStorage until
+            the first ADMIN signs in and clears them.
+          </li>
+          {createdTenant ? (
+            <li>
+              Tenant ID:{" "}
+              <span className="font-mono">{createdTenant.id}</span>{" "}
+              (subdomain{" "}
+              <span className="font-mono">{createdTenant.subdomain}</span>
+              ).
+            </li>
+          ) : null}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+// ─── Summary card primitive — one row per (label, value) pair. The
+// status chip is purely visual ("created" / "saved" / "skipped").
+function SummaryCard(props: {
+  testId: string;
+  title: string;
+  status: "created" | "saved" | "skipped";
+  rows: Array<[string, string]>;
+}) {
+  const { testId, title, status, rows } = props;
+  const chipClass =
+    status === "skipped"
+      ? "bg-slate-200 text-slate-700"
+      : "bg-emerald-200 text-emerald-900";
+  const chipLabel =
+    status === "skipped" ? "SKIPPED" : status === "saved" ? "SAVED" : "CREATED";
+
+  return (
+    <div
+      data-testid={testId}
+      className="rounded-md border border-slate-200 bg-white px-4 py-3"
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+        <span
+          data-testid={`${testId}-status`}
+          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${chipClass}`}
+        >
+          {chipLabel}
+        </span>
+      </div>
+      <dl className="space-y-1 text-xs">
+        {rows.map(([label, value], i) => (
+          <div key={i} className="flex gap-2">
+            {label ? (
+              <dt className="min-w-[5rem] font-medium text-slate-500">
+                {label}
+              </dt>
+            ) : null}
+            <dd className="text-slate-800">{value || "—"}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }

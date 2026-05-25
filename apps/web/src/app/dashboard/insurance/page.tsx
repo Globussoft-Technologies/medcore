@@ -17,6 +17,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { Plus, Shield, X, Loader2, Edit2 } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 const INSURANCE_ALLOWED = new Set(["ADMIN", "RECEPTION"]);
 
@@ -110,8 +111,12 @@ export default function InsuranceProvidersPage() {
       </div>
 
       {loading ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
-          Loading...
+        <div
+          className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800"
+          data-testid="insurance-providers-loading"
+          aria-busy="true"
+        >
+          <SkeletonTable rows={5} columns={6} />
         </div>
       ) : providers.length === 0 ? (
         <div

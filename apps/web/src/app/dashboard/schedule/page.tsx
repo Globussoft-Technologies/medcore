@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { Plus, X, CalendarOff, Clock } from "lucide-react";
+import { SkeletonCard } from "@/components/Skeleton";
 
 // Issue #77 — Sunday is a valid working day for some specialists
 // (Dental, Casualty, Radiology). Include the full Mon..Sun set.
@@ -533,7 +534,15 @@ export default function SchedulePage() {
 
       {/* Weekly Schedule Grid */}
       {loading ? (
-        <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+        <div
+          data-testid="schedule-loading"
+          aria-busy="true"
+          className="mb-8 grid grid-cols-7 gap-3"
+        >
+          {Array.from({ length: 7 }).map((_, i) => (
+            <SkeletonCard key={i} />
+          ))}
+        </div>
       ) : (
         <div className="mb-8 grid grid-cols-7 gap-3">
           {DAYS.map((day) => {

@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { Plus, AlertTriangle, Baby, Calendar, Activity } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 // Issue #57 (Apr 2026): blood-group select uses the canonical 8 ABO+Rh
 // tokens shared with the blood-bank module so cross-match warnings work.
 import {
@@ -330,7 +331,13 @@ export default function AntenatalPage() {
 
       <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div
+            data-testid="antenatal-loading"
+            aria-busy="true"
+            className="p-4"
+          >
+            <SkeletonTable rows={5} columns={8} />
+          </div>
         ) : cases.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">No ANC cases found.</div>
         ) : (

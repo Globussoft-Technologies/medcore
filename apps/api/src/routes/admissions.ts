@@ -108,12 +108,21 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // GET /api/v1/admissions/:id — admission detail
+//
+// Issue #957: accept EITHER the row UUID (the canonical key our list links
+// emit) OR the human-readable admissionNumber (e.g. `IPD000010`, what
+// appears in the UI's "Admission #" column and what users copy/share for
+// deep-links and bookmarks). Without this, `/dashboard/admissions/IPD000010`
+// 404'd because the route only accepted UUIDs. We pick `findFirst` with an
+// `OR` so a single round-trip handles both shapes; both columns are indexed
+// (id = PK, admissionNumber = @unique) so the query plan stays cheap.
 router.get(
   "/:id",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const admission = await prisma.admission.findUnique({
-        where: { id: req.params.id },
+      const param = req.params.id;
+      const admission = await prisma.admission.findFirst({
+        where: { OR: [{ id: param }, { admissionNumber: param }] },
         include: {
           patient: {
             include: { user: { select: { name: true, phone: true, email: true } } },

@@ -13,13 +13,12 @@
  *       PATCH /:id    — mark PAID (or manually VOIDED) with audit row
  *
  * RBAC:
- *   - All three endpoints: ADMIN only this tick. The §4.4 spec calls for
- *     ADMIN + BILLING on the ledger, but the shared `Role` enum
- *     (`packages/shared/src/types/roles.ts`) doesn't yet expose BILLING
- *     even though the Prisma enum does. Widening the gate is a one-line
- *     follow-up once the shared enum catches up — until then we mirror
- *     the existing §4.1 file's "standardise on ADMIN, widen later"
- *     posture so this tick stays scoped to the report endpoint itself.
+ *   - GET / (list) + PATCH /:id (mark-paid): ADMIN only.
+ *   - GET /ledger (§4.4 row 114 report): ADMIN + BILLING — widened
+ *     2026-05-24 once `BILLING` landed on the shared `Role` enum (Pearl
+ *     OPEN_DECISIONS item #4). The list + PATCH stay ADMIN-only to keep
+ *     write authority concentrated; the read-only report is the surface
+ *     finance staff actually need without bumping them to full ADMIN.
  *
  * Audit:
  *   - REFERRAL_COMMISSION_PAID / REFERRAL_COMMISSION_VOIDED_MANUAL on
@@ -172,7 +171,7 @@ function toCsv(rows: Record<string, unknown>[], columns: string[]): string {
 // Audit: REFERRAL_COMMISSION_LEDGER_EXPORTED fired only on format=csv.
 router.get(
   "/ledger",
-  authorize(Role.ADMIN),
+  authorize(Role.ADMIN, Role.BILLING),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const {

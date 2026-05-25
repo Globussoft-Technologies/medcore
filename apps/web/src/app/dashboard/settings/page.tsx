@@ -950,13 +950,20 @@ function NotificationsTab() {
   }
 
   async function testChannel(channel: string) {
+    // Issue #940: the "Send test" button fired immediately on click with no
+    // confirmation, which let a stray click send a real (potentially SMS or
+    // WhatsApp-charged) test message. Gate it behind a native confirm so the
+    // user explicitly opts in. The label uses the same friendly map the
+    // success toast does so the prompt and the toast read consistently.
+    const label =
+      CHANNEL_LABEL[channel as Preference["channel"]] ?? channel;
+    if (typeof window !== "undefined" && !window.confirm(`Send a test notification via ${label}?`)) {
+      return;
+    }
     try {
       await api.post("/notifications/test", { channel });
-      // Issue #873 continued: the toast was also rendering the raw enum
-      // ("Test WHATSAPP notification queued") — route it through the same
-      // label map so the test confirmation reads cleanly.
-      const label =
-        CHANNEL_LABEL[channel as Preference["channel"]] ?? channel;
+      // Issue #873 continued: the toast renders the friendly label (set
+      // above) instead of the raw enum so it reads cleanly.
       toast.success(`Test ${label} notification queued`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");

@@ -72,7 +72,9 @@ describe("LabExplainerPage", () => {
     let resolveFn: (v: any) => void = () => {};
     apiMock.get.mockImplementation(() => new Promise((r) => (resolveFn = r)));
     render(<LabExplainerPage />);
-    expect(await screen.findByText(/loading pending explanations/i)).toBeInTheDocument();
+    const loader = await screen.findByTestId("lab-explainer-loading");
+    expect(loader).toBeInTheDocument();
+    expect(loader).toHaveAttribute("aria-busy", "true");
     resolveFn({ success: true, data: [] });
   });
 

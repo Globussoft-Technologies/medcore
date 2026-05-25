@@ -11,9 +11,14 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { requireFeature } from "../middleware/feature-flag";
 
 const router = Router();
 router.use(authenticate);
+// Pearl §6 + §18 (gap item #9 — audit fix-up #3, 2026-05-25): expense
+// tracking is part of the HRMS/payroll Stage-2 bundle. Pearl-branded
+// tenants set `hrmsPayroll=false` and every expense route 404s before authorize.
+router.use(requireFeature("hrmsPayroll"));
 
 // GET /api/v1/expenses — list with filters
 // RBAC (issue #89 + #98): DOCTOR + RECEPTION must NOT see expenses
@@ -26,6 +31,8 @@ router.get("/", authorize(Role.ADMIN), async (req: Request, res: Response, next:
       from,
       to,
       paidBy,
+      status,
+      approvalStatus,
       page = "1",
       limit = "20",
     } = req.query as Record<string, string | undefined>;
@@ -33,6 +40,17 @@ router.get("/", authorize(Role.ADMIN), async (req: Request, res: Response, next:
     const where: Record<string, unknown> = {};
     if (category) where.category = category;
     if (paidBy) where.paidBy = paidBy;
+    // Issue #936 (2026-05-24): the Pending-Approvals card on the Admin
+    // Console queried `/expenses?status=PENDING&limit=20` but the list
+    // handler ignored both `status` and the canonical `approvalStatus`,
+    // returning every expense (including already-approved rows) and
+    // leaving stale entries on the card with an enabled Approve button.
+    // Accept either alias (`status` for legacy callers, `approvalStatus`
+    // for the schema-true name) and apply the filter so the same Prisma
+    // `where: { approvalStatus: "PENDING" }` semantics as
+    // `/expenses/pending` are reachable through the generic list.
+    const statusFilter = approvalStatus ?? status;
+    if (statusFilter) where.approvalStatus = statusFilter;
     if (from || to) {
       where.date = {};
       if (from) (where.date as Record<string, unknown>).gte = new Date(from);

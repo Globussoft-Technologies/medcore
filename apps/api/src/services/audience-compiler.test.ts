@@ -5,10 +5,15 @@
  *   - Pure-function tests. No Prisma I/O, no DB; we assert shape of the
  *     returned `where` object so we know the compiler emits valid Prisma
  *     filter shapes BEFORE the integration suite (which is slower) runs.
- *   - Covers each v1 predicate (gender / age / lastVisitDays / abhaLinked),
- *     matchMode ALL vs ANY, empty filters, all-no-op filters, and the
- *     three "reserved for future schema" fields (city / branchId / optedOut)
- *     which today emit no-ops + warnings.
+ *   - Covers each v1 predicate (gender / age / lastVisitDays / abhaLinked /
+ *     city / branchId / optedOut), matchMode ALL vs ANY, empty filters,
+ *     all-no-op filters, and unknown-field / bad-value warn-and-no-op
+ *     fallbacks.
+ *
+ * 2026-05-25 — Pearl §5.1 row 161 closure: city / branchId / optedOut now
+ *   resolve to real Prisma `where` clauses (previously no-ops pending
+ *   schema). Tests below assert the compiled shapes match the new
+ *   Patient.city / Patient.branchId / Patient.whatsappOptIn columns.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { compileAudience } from "./audience-compiler";
@@ -137,15 +142,99 @@ describe("compileAudience — Pearl §5.1 piece 2a", () => {
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('unsupported op "ne"'));
   });
 
-  it("reserved fields (city / branchId / optedOut) → no-op + warn", () => {
-    for (const field of ["city", "branchId", "optedOut"] as const) {
-      warnSpy.mockClear();
-      const where = compileAudience({
-        filters: [{ field, op: "eq", value: "anything" as unknown as never }],
-      });
-      expect(where).toEqual({});
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(field));
-    }
+  // ── city / branchId / optedOut — Pearl §5.1 row 161 (2026-05-25) ──
+  // Replaces the prior "reserved fields → no-op + warn" suite: the three
+  // fields now compile to real Prisma where-clauses after the schema
+  // additions (Patient.city, Patient.branchId, Patient.whatsappOptIn).
+
+  it("city eq 'Mumbai' → { city: 'Mumbai' }", () => {
+    expect(
+      compileAudience({ filters: [{ field: "city", op: "eq", value: "Mumbai" }] }),
+    ).toEqual({ city: "Mumbai" });
+  });
+
+  it("city in ['Mumbai','Pune'] → { city: { in: ['Mumbai','Pune'] } }", () => {
+    expect(
+      compileAudience({
+        filters: [{ field: "city", op: "in", value: ["Mumbai", "Pune"] }],
+      }),
+    ).toEqual({ city: { in: ["Mumbai", "Pune"] } });
+  });
+
+  it("city eq with non-string value → no-op + warn", () => {
+    const where = compileAudience({
+      filters: [{ field: "city", op: "eq", value: 42 as unknown as string }],
+    });
+    expect(where).toEqual({});
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it("city in with mixed-type array → no-op + warn", () => {
+    const where = compileAudience({
+      filters: [
+        { field: "city", op: "in", value: ["Mumbai", 42] as unknown as string[] },
+      ],
+    });
+    expect(where).toEqual({});
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it("branchId eq 'branch-1' → { branchId: 'branch-1' }", () => {
+    expect(
+      compileAudience({
+        filters: [{ field: "branchId", op: "eq", value: "branch-1" }],
+      }),
+    ).toEqual({ branchId: "branch-1" });
+  });
+
+  it("branchId with unsupported op (in) → no-op + warn", () => {
+    const where = compileAudience({
+      filters: [
+        { field: "branchId", op: "in", value: ["b1", "b2"] as unknown as string },
+      ],
+    });
+    expect(where).toEqual({});
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('unsupported op "in"'));
+  });
+
+  it("optedOut eq false → { whatsappOptIn: true } (eligible for marketing)", () => {
+    expect(
+      compileAudience({
+        filters: [{ field: "optedOut", op: "eq", value: false }],
+      }),
+    ).toEqual({ whatsappOptIn: true });
+  });
+
+  it("optedOut eq true → { whatsappOptIn: false } (suppressed from marketing)", () => {
+    expect(
+      compileAudience({
+        filters: [{ field: "optedOut", op: "eq", value: true }],
+      }),
+    ).toEqual({ whatsappOptIn: false });
+  });
+
+  it("optedOut with non-boolean value → no-op + warn", () => {
+    const where = compileAudience({
+      filters: [
+        { field: "optedOut", op: "eq", value: "no" as unknown as boolean },
+      ],
+    });
+    expect(where).toEqual({});
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it("composes city + branchId + optedOut + abhaLinked under AND", () => {
+    const where = compileAudience({
+      filters: [
+        { field: "city", op: "eq", value: "Mumbai" },
+        { field: "branchId", op: "eq", value: "branch-1" },
+        { field: "optedOut", op: "eq", value: false },
+        { field: "abhaLinked", op: "eq", value: true },
+      ],
+      matchMode: "ALL",
+    }) as { AND?: unknown[] };
+    expect(Array.isArray(where.AND)).toBe(true);
+    expect(where.AND).toHaveLength(4);
   });
 
   it("mixed real + no-op filters → only real ones compose into AND", () => {

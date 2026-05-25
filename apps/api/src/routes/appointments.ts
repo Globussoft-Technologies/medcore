@@ -27,12 +27,14 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
+import { istMidnightUtc } from "../utils/ist-time";
 import { recordCampaignConversion } from "../services/campaign-conversion";
 import {
   onAppointmentBooked,
   onAppointmentCancelled,
   onTokenCalled,
   notifyQueuePosition,
+  onPatientCheckedIn,
 } from "../services/notification-triggers";
 import { auditLog } from "../middleware/audit";
 import { notifyNextInWaitlist } from "../services/waitlist";
@@ -635,12 +637,27 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 
 // PATCH /api/v1/appointments/:id/status — update status
 //
-// PATIENT is allowed here ONLY to self-cancel their own appointment from the
-// "My Appointments" UI. Any other status transition (CHECKED_IN, IN_CONSULTATION,
-// COMPLETED, NO_SHOW, BOOKED) stays staff-only — patients cannot mark themselves
-// as checked-in or completed. Per CLAUDE.md gotcha #14: adding Role.PATIENT to
-// authorize() does NOT exempt the handler from per-row scoping, so we also load
-// the row and run assertPatientOwnsResource against its patientId.
+// PATIENT is allowed here to:
+//   (a) self-cancel their own appointment from the "My Appointments" UI, or
+//   (b) self-check-in ("I've arrived" button on the patient PWA) for TODAY's
+//       own BOOKED appointment only — Pearl PRD §6.3 row 340.
+//
+// Any other status transition (IN_CONSULTATION, COMPLETED, NO_SHOW, BOOKED)
+// stays staff-only. The CHECKED_IN branch is constrained by:
+//   - per-row ownership (`assertPatientOwnsResource`),
+//   - appointment.date must match TODAY in IST (no pre-arriving for tomorrow,
+//     no back-arriving for yesterday — uses `istMidnightUtc(0|1)` window so the
+//     check is stable across UTC vs IST hosts),
+//   - current status MUST be BOOKED (no idempotent re-check-in, no resurrecting
+//     CANCELLED / COMPLETED).
+// On success the existing CHECKED_IN side-effects (checkInAt stamp at L687,
+// queue-updated emit + notifyQueuePosition + onPatientCheckedIn) fire as
+// they would for staff-initiated check-in. We additionally emit a
+// `PATIENT_SELF_CHECKIN` audit row so this distinct provenance is grep-able.
+//
+// Per CLAUDE.md gotcha #14: adding Role.PATIENT to authorize() does NOT
+// exempt the handler from per-row scoping, so we also load the row and run
+// assertPatientOwnsResource against its patientId.
 router.patch(
   "/:id/status",
   authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION, Role.NURSE, Role.PATIENT),
@@ -659,14 +676,62 @@ router.patch(
         return;
       }
 
-      // PATIENT scoping: must own the row AND can only self-cancel.
+      // PATIENT scoping: must own the row AND can only self-cancel or
+      // self-check-in (the latter constrained to today's own BOOKED row —
+      // Pearl PRD §6.3 row 340).
       if (req.user?.role === Role.PATIENT) {
         if (!(await assertPatientOwnsResource(req, res, prev.patientId))) return;
-        if (req.body.status !== "CANCELLED") {
+        const nextStatus = req.body.status;
+        if (nextStatus === "CANCELLED") {
+          // existing allowed transition — falls through to update.
+        } else if (nextStatus === "CHECKED_IN") {
+          // Self-check-in window: appointment.date must equal "today IST".
+          // `Appointment.date` is `@db.Date` (postgres DATE), which drops
+          // the time component on round-trip. Comparing on instant bounds
+          // (`istMidnightUtc(0)` vs the loaded Date) drifts by one
+          // calendar day because Postgres returns UTC-midnight regardless
+          // of how the row was inserted. Compare as `YYYY-MM-DD` strings
+          // instead — the Postgres-stored DATE and the IST "today" both
+          // yield clean string identities with no tz drift.
+          const dateRow = await prisma.appointment.findUnique({
+            where: { id: req.params.id },
+            select: { date: true },
+          });
+          const apptDateStr =
+            dateRow?.date instanceof Date
+              ? dateRow.date.toISOString().slice(0, 10)
+              : typeof dateRow?.date === "string"
+                ? String(dateRow.date).slice(0, 10)
+                : "";
+          // Today in IST as YYYY-MM-DD: shift UTC now by +5.5h, then
+          // slice the date portion.
+          const istNow = new Date(Date.now() + 5.5 * 3600 * 1000);
+          const istTodayStr = istNow.toISOString().slice(0, 10);
+          if (!apptDateStr || apptDateStr !== istTodayStr) {
+            res.status(403).json({
+              success: false,
+              data: null,
+              error:
+                "You can only check in for an appointment scheduled for today.",
+            });
+            return;
+          }
+          if (prev.status !== "BOOKED") {
+            res.status(403).json({
+              success: false,
+              data: null,
+              error:
+                "Self check-in is only allowed for appointments that are still BOOKED.",
+            });
+            return;
+          }
+          // falls through to update.
+        } else {
           res.status(403).json({
             success: false,
             data: null,
-            error: "Patients can only cancel their own appointments.",
+            error:
+              "Patients can only cancel or check in to their own appointments.",
           });
           return;
         }
@@ -722,6 +787,9 @@ router.patch(
       }
       if (req.body.status === "CHECKED_IN" && prev?.status !== "CHECKED_IN") {
         notifyQueuePosition(appointment.id).catch(console.error);
+        // Pearl §5.2 row 145 — advance the patient's chronic-care
+        // sequence on check-in (skip-and-advance pattern).
+        onPatientCheckedIn(appointment.patientId).catch(console.error);
       }
 
       // No-show policy: increment counter + add fee when transitioning to NO_SHOW
@@ -774,6 +842,20 @@ router.patch(
       }
 
       auditLog(req, "APPOINTMENT_STATUS_UPDATE", "appointment", req.params.id, { status: req.body.status }).catch(console.error);
+
+      // Pearl PRD §6.3 row 340 — distinct audit provenance for patient-driven
+      // arrivals (vs reception staff marking arrival). Only fires for the
+      // PATIENT → CHECKED_IN flow that the branch above just authorised.
+      if (
+        req.user?.role === Role.PATIENT &&
+        req.body.status === "CHECKED_IN" &&
+        prev?.status !== "CHECKED_IN"
+      ) {
+        auditLog(req, "PATIENT_SELF_CHECKIN", "appointment", req.params.id, {
+          patientId: appointment.patientId,
+          appointmentDate: appointment.date.toISOString().slice(0, 10),
+        }).catch(console.error);
+      }
 
       res.json({ success: true, data: appointment, error: null });
     } catch (err) {

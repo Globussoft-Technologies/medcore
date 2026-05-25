@@ -7,6 +7,7 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { PatientServiceWorkerRegistration } from "@/components/PatientServiceWorkerRegistration";
+import { InstallPWAButton } from "@/components/InstallPWAButton";
 
 export const metadata: Metadata = {
   title: "Patient Portal — MedCore",
@@ -48,13 +49,16 @@ export default function PatientLayout({
           >
             Patient Portal
           </Link>
-          <Link
-            href="/patient/login"
-            className="inline-flex h-11 min-w-[44px] items-center rounded-md bg-slate-900 px-4 text-sm font-medium text-white"
-            data-testid="patient-shell-login-link"
-          >
-            Sign in
-          </Link>
+          <div className="flex items-center gap-2">
+            <InstallPWAButton />
+            <Link
+              href="/patient/login"
+              className="inline-flex h-11 min-w-[44px] items-center rounded-md bg-slate-900 px-4 text-sm font-medium text-white"
+              data-testid="patient-shell-login-link"
+            >
+              Sign in
+            </Link>
+          </div>
         </div>
       </header>
       <main className="mx-auto w-full max-w-screen-md flex-1 px-4 py-6">

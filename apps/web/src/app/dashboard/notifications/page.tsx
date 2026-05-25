@@ -12,7 +12,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
-import { SkeletonRow } from "@/components/Skeleton";
+import { SkeletonRow, SkeletonText } from "@/components/Skeleton";
 import { formatDate } from "@/lib/format";
 
 // Issue #733: the API returns `readAt: string | null` (the timestamp at
@@ -335,7 +335,17 @@ export default function NotificationsPage() {
         {prefsOpen && (
           <div className="border-t border-gray-200 px-5 pb-5 dark:border-gray-700">
             {prefsLoading ? (
-              <div className="py-6 text-center text-gray-500 dark:text-gray-400">Loading preferences...</div>
+              // Pearl §7.2 skeleton sweep (wave 13, 2026-05-23): replaced the
+              // "Loading preferences..." text with a `SkeletonText lines=3`
+              // block under a stable `notifications-prefs-loading` testid +
+              // `aria-busy="true"`. Same pattern as wave-12 `<slug>-loading`.
+              <div
+                data-testid="notifications-prefs-loading"
+                aria-busy="true"
+                className="py-4"
+              >
+                <SkeletonText lines={3} />
+              </div>
             ) : preferences.length === 0 ? (
               <div className="py-6 text-center text-gray-500 dark:text-gray-400">
                 No preference settings available

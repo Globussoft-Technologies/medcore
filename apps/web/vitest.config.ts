@@ -175,6 +175,18 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        "src/app/dashboard/lab/qc/page.tsx": {
+          lines: 100,
+          branches: 95,
+          functions: 100,
+          statements: 100,
+        },
+        "src/app/dashboard/ai/chart-search/page.tsx": {
+          lines: 99,
+          branches: 89,
+          functions: 93,
+          statements: 99,
+        },
       },
     },
   },

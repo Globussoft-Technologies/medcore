@@ -223,6 +223,12 @@ export default defineConfig({
           functions: 96,
           statements: 100,
         },
+        "src/app/dashboard/admissions/page.tsx": {
+          lines: 97,
+          branches: 91,
+          functions: 90,
+          statements: 97,
+        },
         "src/app/dashboard/analytics/reports/page.tsx": {
           lines: 100,
           branches: 76,

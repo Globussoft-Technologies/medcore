@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { Activity, CheckCircle, XCircle, Plus } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 interface LabTest {
   id: string;
@@ -300,7 +301,13 @@ export default function LabQCPage() {
       <div className="mb-6">
         <h2 className="mb-2 font-semibold">Pass rate (last 30 days)</h2>
         {loading ? (
-          <p className="text-gray-500 dark:text-gray-400">Loading...</p>
+          <div
+            data-testid="lab-qc-loading"
+            aria-busy="true"
+            className="overflow-x-auto rounded-lg border bg-white p-2 dark:border-gray-700 dark:bg-gray-800"
+          >
+            <SkeletonTable rows={5} columns={5} />
+          </div>
         ) : summary.length === 0 ? (
           <p className="text-gray-500 dark:text-gray-400">No QC data yet.</p>
         ) : (

@@ -17,6 +17,9 @@ enum Role {
   PATIENT
   PHARMACIST
   LAB_TECH
+  BILLING // finance staff — TDS, no-show, commission, lead-funnel reports
+  PLATFORM_OPERATOR // Onviqa platform staff; tenantId=null; bypasses tenant-scope filter
+  PLATFORM_BILLING_OPERATOR // Onviqa finance staff; tenantId=null; billing-only platform actions
 }
 
 enum Gender {
@@ -477,6 +480,40 @@ enum TenantPlan {
   ENTERPRISE
 }
 
+// Pearl ERP Stage 1 §8.3 (gap rows 215-218 closure piece 3a 2026-05-24) —
+// platform-billing plan tiers. Distinct from the legacy `TenantPlan` enum
+// (which feeds `Tenant.plan` and predates the platform-billing surface).
+// The new `Plan` enum drives `TenantSubscription` and `PlatformInvoice`
+// — i.e. what the platform operator (Onviqa) bills tenant hospitals for.
+//
+// STARTER  = OPD-only core (opd / appointments / prescriptions / opd_billing
+//            / patient_pwa / crm_basic / abha_link).
+// GROWTH   = STARTER + lab / radiology / abdm_m1.
+// ENTERPRISE = GROWTH + ipd / ot / abdm_m2 / ai_scribe.
+//
+// Resolved feature-flag sets live in packages/shared/src/billing/plans.ts
+// and get written into `Tenant.featureFlags` on plan-change.
+enum Plan {
+  STARTER
+  GROWTH
+  ENTERPRISE
+}
+
+// Pearl ERP Stage 1 §8.3 (gap rows 215-218 closure piece 3a 2026-05-24) —
+// platform-billing subscription state machine. `trial` is the first 30
+// days after tenant creation; on `trialEndsAt` the daily cron flips to
+// `past_due` (7-day read-only grace) and then to `suspended` (login
+// blocked except for billing). `cancelled` is operator-initiated; the
+// tenant row stays for audit/data-retention but no further invoices are
+// generated.
+enum SubscriptionStatus {
+  trial
+  active
+  past_due
+  suspended
+  cancelled
+}
+
 // ─── MULTI-TENANCY ──────────────────────────────────────
 
 model Tenant {
@@ -487,6 +524,23 @@ model Tenant {
   active    Boolean    @default(true)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
+
+  // Pearl Stage 1 §8.1 row 233 closure (2026-05-25) — 90-day S3 archival.
+  // `deactivatedAt` is stamped by `deactivateTenant()` (suspend) and
+  // cleared by `activateTenant()` (restore). The daily
+  // `tenant_archive_sweep` cron (`services/tenant-archival.ts:
+  // findArchiveCandidates`) treats `active=false AND deactivatedAt is
+  // older than 90 days AND archivedAt is null` as the eligibility
+  // gate. `archivedAt` + `archiveS3Key` + `archiveSizeBytes` +
+  // `archiveChecksum` are populated by `archiveTenant()` once the
+  // tarball is uploaded to S3 (key: `tenant-archives/{tenantId}/{ts}.
+  // tar.gz`). Live-data purge is a SEPARATE operator-gated callable
+  // (`purgeArchivedTenant()`) — not auto-wired to any cron.
+  deactivatedAt    DateTime?
+  archivedAt       DateTime?
+  archiveS3Key     String?
+  archiveSizeBytes Int?
+  archiveChecksum  String? // SHA-256 of the uploaded tarball
 
   // Pearl ERP Stage 1 gap item #10b — per-tenant Razorpay credentials.
   // Today services/razorpay.ts reads RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET
@@ -509,6 +563,17 @@ model Tenant {
   // message. Pearl-branded tenants set this to true; non-Pearl tenants
   // leave it false (current default — opt-in TOTP only).
   requireAdminTOTP Boolean @default(false)
+
+  // Pearl ERP Stage 1 §8.2 gap row 212 — per-tenant idle session timeout
+  // (configurable). Captures how many minutes a tenant's users may sit
+  // idle before being considered logged out. The value is rendered in
+  // the super-admin tenant edit drawer; super-admins write through the
+  // existing PATCH /api/v1/tenants/:id handler (range [5, 1440] enforced
+  // by Zod). JWT TTL enforcement (auth.ts) is explicitly DEFERRED to a
+  // separate piece — that touches token-signing code which is high-risk
+  // and out of scope for this row. Default 30 mirrors the legacy
+  // global JWT_TTL_MIN default.
+  sessionIdleMinutes Int @default(30)
 
   // Pearl ERP Stage 1 §6 + §18 (gap item #9) — per-tenant feature flags.
   // JSON shape:
@@ -618,6 +683,7 @@ model Tenant {
   operatingTheaters          OperatingTheater[]
   anesthesiaRecords          AnesthesiaRecord[]
   postOpObservations         PostOpObservation[]
+  implants                   Implant[]
   suppliers                  Supplier[]
   purchaseOrders             PurchaseOrder[]
   expenses                   Expense[]
@@ -675,6 +741,10 @@ model Tenant {
   frontDeskCalls      FrontDeskCall[]
   medicationIncidents MedicationIncident[]
 
+  // ── Pearl §8.6 (2026-05-23 — gap row 224 closure) ──────────────────────
+  // Back-relation for DPDP cross-tenant erasure-request workbench.
+  dpdpErasureRequests DPDPErasureRequest[]
+
   // ── Audit log scoping (Issue #456 — migration
   //    20260504000002_audit_log_tenant_id) ──────────────────────────────────
   auditLogs AuditLog[]
@@ -697,7 +767,192 @@ model Tenant {
   campaignAudiences CampaignAudience[]
   campaignSends     CampaignSend[]
 
+  // Pearl §5.2 (gap rows 142-145) — chronic-care cohort templates with
+  // rule DSL + sequence-of-touchpoints. Per-patient enrolment lives on
+  // ChronicCarePlan; the cohort template is tenant-wide.
+  chronicCareCohorts  ChronicCareCohort[]
+  cohortSequenceSteps CohortSequenceStep[]
+
+  // Pearl §6.1 (gap row 167 — piece 3j-i of 4) — WhatsApp inbox.
+  // One WhatsAppConfig per tenant (per-tenant Gupshup / WATI / AiSensei /
+  // Interakt / Meta-Cloud-API creds + auto-reply toggle). Conversations
+  // + messages are inbound/outbound rows that the inbox UI (piece 3j-iii)
+  // and the webhook (piece 3j-ii) read/write. The legacy outbound adapter
+  // (services/channels/whatsapp.ts) keeps using WHATSAPP_API_URL / KEY
+  // env vars until piece 3j-iv flips it to read these creds instead.
+  whatsappConfig        WhatsAppConfig?
+  whatsappConversations WhatsAppConversation[]
+  whatsappMessages      WhatsAppMessage[]
+
+  // Pearl §8.5 (gap row 223 closure 2026-05-23) — Pearl-operator support
+  // tickets raised by this tenant's ADMIN against the Pearl operator
+  // (super-admin) team. Distinct from `complaints` (patient → hospital).
+  supportTickets SupportTicket[]
+
+  // Pearl §8.2 (gap row 213 closure 2026-05-23) — staff email-invite flow.
+  // Admin issues an invite scoped to a Role + optional branchIds; the
+  // recipient clicks the magic link and sets their password to materialise
+  // the User row. The token itself is stored as a SHA-256 hash on the
+  // invite row — raw token only leaves the server in the outbound email.
+  userInvites UserInvite[]
+
+  // Pearl §8.3 (gap row 214 closure 2026-05-24) — per-tenant daily usage
+  // metering. One row per tenant per day; the daily 01:00 collector
+  // (`services/tenant-usage-collector.ts`) groups Notifications by
+  // channel for the prior UTC day and upserts the counts. Powers
+  // operator billing visibility (plan-quota vs actual usage); the
+  // super-admin UI consumer ships as a separate piece.
+  tenantUsageDaily TenantUsageDaily[]
+
+  // Pearl §8.3 (gap rows 215-218 closure piece 3a 2026-05-24) — platform
+  // billing surface. One TenantSubscription per tenant (the plan the
+  // tenant is subscribed to + trial/active/past_due/suspended state);
+  // many PlatformInvoice rows (one per month per tenant, generated by
+  // the monthly cron in piece 3b).
+  tenantSubscription TenantSubscription?
+  platformInvoices   PlatformInvoice[]
+
   @@map("tenants")
+}
+
+// Pearl ERP Stage 1 §8.3 (gap row 214 closure 2026-05-24) — per-tenant
+// daily usage counters. The collector cron (apps/api/src/services/
+// tenant-usage-collector.ts) runs once daily at ~01:00 host time, groups
+// the prior UTC day's `notifications` rows by `channel` per `tenantId`
+// (filter: deliveryStatus in SENT/DELIVERED/READ), and upserts one row
+// per (tenantId, date) pair. Super-admins can later read these rows for
+// plan-vs-usage dashboards / billing line items.
+//
+// Idempotent by construction — the `@@unique([tenantId, date])` lets the
+// collector re-run for the same date without duplicating rows.
+model TenantUsageDaily {
+  id            String   @id @default(uuid())
+  tenantId      String
+  date          DateTime @db.Date
+  whatsappCount Int      @default(0)
+  smsCount      Int      @default(0)
+  emailCount    Int      @default(0)
+  pushCount     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date])
+  @@index([tenantId, date])
+  @@map("tenant_usage_daily")
+}
+
+// Pearl ERP Stage 1 §8.3 (gap rows 215-218 closure piece 3a 2026-05-24) —
+// platform-billing subscription. One row per tenant capturing the plan
+// the tenant pays the platform operator (Onviqa) for + the lifecycle
+// state machine (trial → active → past_due → suspended / cancelled).
+//
+// - `plan` picks one of the three Plan tiers (STARTER / GROWTH /
+//   ENTERPRISE); the resolved feature-flag set is materialised onto
+//   `Tenant.featureFlags` whenever the plan changes (writer lives in
+//   piece 3c).
+// - `customPriceMonthlyInPaise` lets the sales team override the plan
+//   base price for bespoke Enterprise deals without forking the Plan
+//   enum or seeding a separate price table.
+// - `razorpaySubscriptionId` is populated once auto-debit is enabled
+//   (Razorpay Subscriptions API; piece 3c).
+// - `pastDueSince` stamps the start of the 7-day read-only grace
+//   window so the daily transition cron can flip past_due → suspended
+//   at `pastDueSince + 7d`.
+//
+// Pieces 3b (monthly invoice generation cron) and 3c (Razorpay webhook
+// + proration logic + grace-period state-machine transitions) ship
+// separately and read/write rows on this table + PlatformInvoice below.
+model TenantSubscription {
+  id                        String             @id @default(uuid())
+  tenantId                  String             @unique
+  tenant                    Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan                      Plan
+  status                    SubscriptionStatus @default(trial)
+  trialEndsAt               DateTime?
+  currentPeriodStart        DateTime
+  currentPeriodEnd          DateTime
+  customPriceMonthlyInPaise Int? // overrides plan base price for Enterprise bespoke deals
+  razorpaySubscriptionId    String? // populated when auto-debit is enabled
+  pastDueSince              DateTime? // set when status flips to past_due
+  cancelledAt               DateTime?
+  createdAt                 DateTime           @default(now())
+  updatedAt                 DateTime           @updatedAt
+  invoices                  PlatformInvoice[]
+
+  @@map("tenant_subscriptions")
+}
+
+// Pearl ERP Stage 1 §8.3 (gap rows 215-218 closure piece 3a 2026-05-24) —
+// platform → tenant invoice (Onviqa → hospital, monthly). Distinct from
+// the existing patient-facing `Invoice` model which is hospital → patient.
+//
+// - `invoiceNumber` follows the `PI-YYYYMM-NNNN` convention (PI =
+//   Platform Invoice; monotonic per-month sequence across all tenants),
+//   distinguishing these from the hospital-side `INV-*` series.
+// - GST is persisted per-invoice (CGST / SGST for same-state tenants;
+//   IGST for cross-state). Line-item HSN/SAC defaults to `998314`
+//   (Information Technology Software Services) and may be overridden
+//   per line for non-SaaS charges.
+// - `paidByUserId` records the PLATFORM_OPERATOR / PLATFORM_BILLING_
+//   OPERATOR User who marked the invoice paid. No FK constraint to
+//   `User` yet (the operator roles ship in a separate piece and the
+//   relation can be added then without a destructive migration).
+// - `onDelete: Restrict` on both FKs — we never want to lose financial
+//   history through cascade deletion.
+model PlatformInvoice {
+  id               String                    @id @default(uuid())
+  invoiceNumber    String                    @unique // format: PI-YYYYMM-NNNN
+  tenantId         String
+  tenant           Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  subscriptionId   String
+  subscription     TenantSubscription        @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  periodStart      DateTime
+  periodEnd        DateTime
+  subtotalInPaise  Int // line items sum before tax
+  cgstInPaise      Int                       @default(0)
+  sgstInPaise      Int                       @default(0)
+  igstInPaise      Int                       @default(0)
+  totalInPaise     Int // subtotal + GST
+  status           String                    @default("DRAFT") // DRAFT, ISSUED, PAID, VOID
+  issuedAt         DateTime?
+  paidAt           DateTime?
+  paidByUserId     String? // FK-by-convention to User; cascade rules + relation deferred to operator-role piece
+  paymentReference String? // bank ref / Razorpay payment id
+  hsnSacCode       String                    @default("998314") // SAC for SaaS
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  lineItems        PlatformInvoiceLineItem[]
+
+  @@index([tenantId])
+  @@index([subscriptionId])
+  @@index([status])
+  @@index([periodStart])
+  @@map("platform_invoices")
+}
+
+// Pearl ERP Stage 1 §8.3 (gap rows 215-218 closure piece 3a 2026-05-24) —
+// PlatformInvoice line items. Per-line CGST/SGST/IGST rates persisted
+// (rather than computed) so re-pricing the Plan tiers later does not
+// retroactively re-shape historical invoices. `amountInPaise` equals
+// `unitPriceInPaise * quantity` and is the pre-tax line subtotal.
+model PlatformInvoiceLineItem {
+  id               String          @id @default(uuid())
+  invoiceId        String
+  invoice          PlatformInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description      String
+  unitPriceInPaise Int
+  quantity         Int             @default(1)
+  amountInPaise    Int // unitPrice * quantity
+  hsnSacCode       String          @default("998314")
+  cgstRate         Float           @default(0) // e.g. 9.0 for 9%
+  sgstRate         Float           @default(0)
+  igstRate         Float           @default(0)
+  createdAt        DateTime        @default(now())
+
+  @@index([invoiceId])
+  @@map("platform_invoice_line_items")
 }
 
 // Pearl ERP Stage 1 §7.2 + §8.1 (gap item #2 — pieces 1 + 2a of 3) — branch model.
@@ -1003,6 +1258,25 @@ model User {
   // distinct relations to User without colliding.
   campaignsCreated Campaign[] @relation("CampaignCreator")
 
+  // Pearl §8.5 (gap row 223 closure 2026-05-23) — Pearl-operator support
+  // tickets. Three distinct relations:
+  //   - opener  : the tenant-ADMIN (or super-admin) who filed the ticket.
+  //   - assignee: the super-admin currently triaging it.
+  //   - messages: replies authored on either side of the thread.
+  supportTicketsOpened   SupportTicket[]        @relation("SupportTicketOpener")
+  supportTicketsAssigned SupportTicket[]        @relation("SupportTicketAssignee")
+  supportTicketMessages  SupportTicketMessage[]
+
+  // Pearl §8.2 (gap row 213 closure 2026-05-23) — staff email-invite flow.
+  //   - userInvitesSent     : invites this ADMIN issued.
+  //   - userInvitesAccepted : invites this user materialised by accepting
+  //     (back-pointer to the originating UserInvite row for audit trace).
+  userInvitesSent     UserInvite[] @relation("UserInviteInviter")
+  userInvitesAccepted UserInvite[] @relation("UserInviteAcceptedUser")
+
+  // Pearl §S2.2 row 92 (closure 2026-05-25) — implants this user registered.
+  implantsRegistered Implant[] @relation("ImplantRegisteredBy")
+
   @@index([email])
   @@index([phone])
   @@index([role])
@@ -1116,8 +1390,8 @@ model Doctor {
   // working unchanged. `bufferMinutes` is the Doctor-level DEFAULT
   // buffer between slots — distinct from `DoctorSchedule.bufferMinutes`,
   // which can override it per weekday schedule.
-  enabledChannels        AppointmentChannel[] @default([])
-  bufferMinutes          Int                  @default(0)
+  enabledChannels AppointmentChannel[] @default([])
+  bufferMinutes   Int                  @default(0)
 
   // Pearl ERP Stage 1 §2.1.4 — NMC (National Medical Commission)
   // registration number. Required to render on every signed Rx PDF.
@@ -1267,6 +1541,17 @@ model Patient {
   branchId String?
   branch   Branch? @relation("PatientBranch", fields: [branchId], references: [id], onDelete: SetNull)
 
+  // Pearl §5.1 audience-builder demographic filter — explicit city field
+  // separate from the freetext address column. Optional; legacy patients
+  // remain valid with city=null (filter only matches non-null rows when
+  // a city filter is active).
+  city String?
+
+  // Pearl §5.1 audience-builder opt-in filter for WhatsApp campaigns.
+  // Default false (must explicitly opt in to be eligible for marketing
+  // pushes). DPDP-aligned — consent must be affirmative.
+  whatsappOptIn Boolean @default(false)
+
   user                 User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   guardian             Patient?                   @relation("PatientGuardian", fields: [guardianPatientId], references: [id])
   dependents           Patient[]                  @relation("PatientGuardian")
@@ -1325,6 +1610,18 @@ model Patient {
   // ── PRD closure (2026-04-24) ─────────────────────────────
   dataExports         PatientDataExport[]
   medicationIncidents MedicationIncident[]
+
+  // Pearl §6.1 (gap row 167 — piece 3j-i) — WhatsApp inbox.
+  // Back-relation; the conversation is opened the first time an inbound
+  // message arrives and is matched to this patient by phone number.
+  whatsappConversations WhatsAppConversation[]
+
+  // ── Pearl §8.6 (2026-05-23 — gap row 224 closure) ───────
+  // Cross-tenant DPDP erasure-request workbench: every right-to-be-
+  // forgotten ticket filed for this patient gets a row here. The purge
+  // executes against the rest of this Patient's row + child rows; we
+  // keep the request rows themselves as a compliance trail.
+  erasureRequests DPDPErasureRequest[]
 
   // Pearl §3.3 (gap item #3) — backref for the Lead that converted into
   // this patient (if any). Most patients have no source-lead.
@@ -1686,18 +1983,18 @@ model PrescriptionTemplate {
 // one click. Coexists with PrescriptionTemplate (whole-Rx scaffold);
 // favourites are strictly per-medicine.
 model DoctorFavouriteMedicine {
-  id                String   @id @default(cuid())
-  doctorId          String
-  medicineId        String
-  position          Int      @default(0)
-  defaultDosage     String?
-  defaultFrequency  String?
-  defaultDuration   String?
+  id               String   @id @default(cuid())
+  doctorId         String
+  medicineId       String
+  position         Int      @default(0)
+  defaultDosage    String?
+  defaultFrequency String?
+  defaultDuration  String?
   // Denormalized for tenant-scoped queries — the per-tenant Prisma extension
   // auto-filters on this column without joining through Doctor.
-  tenantId          String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  tenantId         String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   doctor   Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
   medicine Medicine @relation(fields: [medicineId], references: [id], onDelete: Cascade)
@@ -1976,6 +2273,141 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+// ─── PEARL §6.1 (gap row 167 — piece 3j-i of 4) — WhatsApp inbox ────────
+// Per-tenant WhatsApp provider configuration + bi-directional conversation
+// + message log. Pieces 3j-ii / 3j-iii / 3j-iv add the inbound webhook,
+// reception inbox UI, and reply endpoint respectively. The legacy outbound
+// adapter (services/channels/whatsapp.ts) keeps reading env vars until
+// piece 3j-iv. Credentials are stored as a single JSON blob encrypted at
+// rest (AES-256-GCM via apps/api/src/services/whatsapp-crypto.ts) so that
+// (a) the schema doesn't have to change per-provider as new providers ship
+// and (b) the SystemConfig key/value table doesn't have to fan out.
+
+enum WhatsAppProvider {
+  GUPSHUP
+  WATI
+  AISENSEI
+  INTERAKT
+  META
+}
+
+enum WhatsAppConversationStatus {
+  OPEN
+  SNOOZED
+  CLOSED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+// Generic enough to be reused if a future channel (e.g. RCS, Telegram) needs
+// the same lifecycle. Mirrors NotificationDeliveryStatus shape but kept
+// distinct because the WhatsApp adapter receives finer-grained webhook
+// callbacks (delivered/read/failed) than the broader Notification table.
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+model WhatsAppConfig {
+  id String @id @default(cuid())
+
+  tenantId String           @unique
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  provider WhatsAppProvider @default(GUPSHUP)
+
+  // AES-256-GCM ciphertext (base64) — see whatsapp-crypto.ts. In dev/stub
+  // mode (WHATSAPP_CREDS_KEY unset) the value is a JSON blob with a
+  // `__plaintext: true` marker so the route layer can warn loudly without
+  // crashing local dev. Per-provider field shape lives in the Zod schema
+  // at packages/shared/src/validation/whatsapp-config.ts.
+  credentialsEncrypted String?
+
+  // Optional outbound routing knob used by piece 3j-iv to scope which
+  // pre-approved template / product the auto-replies / drips go through.
+  defaultProductId String?
+
+  // Whether the (future Stage-2) AI agent auto-replies to inbound messages.
+  // Today this is just a persistence column — Stage-1 ships the inbox only.
+  autoReply Boolean @default(true)
+  active    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("whatsapp_config")
+}
+
+model WhatsAppConversation {
+  id String @id @default(cuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Nullable until the inbound webhook matches the phone number to a
+  // Patient row. Receptionists in piece 3j-iii can also manually link a
+  // conversation to a patient.
+  patientId String?
+  patient   Patient? @relation(fields: [patientId], references: [id], onDelete: SetNull)
+
+  // Canonical E.164 (e.g. "+919876543210"). Together with tenantId, this
+  // uniquely identifies the conversation.
+  phone String
+
+  lastMessageAt DateTime?
+  lastInboundAt DateTime?
+  unreadCount   Int       @default(0)
+
+  status WhatsAppConversationStatus @default(OPEN)
+
+  // Receptionist who claimed the conversation. Null = unassigned.
+  assignedToUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages WhatsAppMessage[]
+
+  @@unique([tenantId, phone])
+  @@index([tenantId, lastMessageAt])
+  @@map("whatsapp_conversations")
+}
+
+model WhatsAppMessage {
+  id String @id @default(cuid())
+
+  conversationId String
+  conversation   WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  // Denormalised tenantId so the cross-tenant tenant-scoped Prisma
+  // extension can filter without a join. Maintained by the route layer.
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  direction MessageDirection
+  body      String           @db.Text
+  mediaUrl  String?
+
+  providerMessageId String?
+
+  status        MessageStatus @default(QUEUED)
+  sentAt        DateTime?
+  deliveredAt   DateTime?
+  readAt        DateTime?
+  failedAt      DateTime?
+  failureReason String?
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@map("whatsapp_messages")
+}
+
 // ─── SYSTEM ─────────────────────────────────────────────
 
 model SystemConfig {
@@ -1984,6 +2416,46 @@ model SystemConfig {
   value String
 
   @@map("system_config")
+}
+
+// Pearl ERP Stage 1 §8.4 (gap row 222 closure, 2026-05-22) — observability
+// table for the in-process cron scheduler in apps/api/src/services/
+// scheduled-tasks.ts. Every invocation of a registered task creates a row
+// (status=RUNNING at start, updated to SUCCESS/FAILED on completion) so
+// super-admins can see what ran, how long it took, what errored, and retry
+// a FAILED row from /super-admin/jobs.
+//
+// tenantId is nullable because most scheduled tasks operate globally
+// (cross-tenant), e.g. notification_drain_queued. Per-tenant tasks should
+// populate it for the cross-tenant filter on the admin UI.
+model ScheduledTaskRun {
+  id               String        @id @default(cuid())
+  tenantId         String?
+  taskName         String
+  status           TaskRunStatus
+  startedAt        DateTime
+  completedAt      DateTime?
+  durationMs       Int?
+  error            String? // stack trace truncated at 5000 chars
+  recordsProcessed Int?
+  // The id of the original run when this row was created by a manual retry
+  // from POST /api/v1/scheduled-jobs/:id/retry. Lets the UI link the new
+  // run back to the failed parent so operators can see the retry chain.
+  retryOfRunId     String?
+  createdAt        DateTime      @default(now())
+
+  @@index([taskName])
+  @@index([startedAt])
+  @@index([status])
+  @@index([tenantId, startedAt])
+  @@map("scheduled_task_runs")
+}
+
+enum TaskRunStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2612,8 +3084,8 @@ model ReferralCommission {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  invoice          Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  referringDoctor  Doctor  @relation("ReferringDoctorCommissions", fields: [referringDoctorId], references: [id])
+  invoice         Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  referringDoctor Doctor  @relation("ReferringDoctorCommissions", fields: [referringDoctorId], references: [id])
 
   @@index([referringDoctorId])
   @@index([tenantId])
@@ -2704,6 +3176,7 @@ model Surgery {
 
   anesthesiaRecord   AnesthesiaRecord?
   postOpObservations PostOpObservation[]
+  implants           Implant[]
 
   @@index([patientId])
   @@index([surgeonId])
@@ -2711,6 +3184,40 @@ model Surgery {
   @@index([status])
   @@index([tenantId])
   @@map("surgeries")
+}
+
+// Pearl §S2.2 row 92 — Implant register for OT module traceability.
+// One row per implant USED in a Surgery. Captures lot/serial/expiry per
+// regulatory (CDSCO) traceability + DPDP-aligned audit requirements.
+// Stage-2 only; gated by the `ot` feature flag at the route layer.
+//
+// Common lookups:
+//   - per-surgery view  → (@@index surgeryId)
+//   - recall sweep      → (@@index lotNumber)  — manufacturer recall by lot
+model Implant {
+  id           String    @id @default(uuid())
+  tenantId     String?
+  tenant       Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  surgeryId    String
+  surgery      Surgery   @relation(fields: [surgeryId], references: [id], onDelete: Cascade)
+  category     String // "ORTHOPAEDIC" | "CARDIAC" | "OPHTHALMIC" | "DENTAL" | "OTHER"
+  manufacturer String
+  productName  String
+  modelNumber  String?
+  lotNumber    String
+  serialNumber String?
+  expiryDate   DateTime?
+  implantedAt  DateTime  @default(now())
+  notes        String?
+  createdById  String
+  createdBy    User      @relation("ImplantRegisteredBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([surgeryId])
+  @@index([lotNumber])
+  @@map("implants")
 }
 
 model AnesthesiaRecord {
@@ -5336,13 +5843,98 @@ model ChronicCarePlan {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  // Pearl §5.2 (gap rows 142-145, 2026-05-23) — when this plan was
+  // auto-created from a ChronicCareCohort template (rule-DSL match),
+  // `cohortId` links back to the template so the sequence stepper can
+  // look up the next CohortSequenceStep. Manual plans (today's default)
+  // leave this null — full back-compat.
+  cohortId String?
+  cohort   ChronicCareCohort? @relation(fields: [cohortId], references: [id], onDelete: SetNull)
+
+  // Pearl §5.2 — last sequence step delivered for this enrolment. Step 0
+  // = nothing sent yet (initial state after enrolment). The scheduler
+  // advances `lastStepSent` after each successful send + records
+  // `lastStepSentAt` so the next step's `delayDays` is measured from
+  // the prior send (not from enrolment time).
+  lastStepSent   Int       @default(0)
+  lastStepSentAt DateTime?
+
   patient  Patient              @relation(fields: [patientId], references: [id], onDelete: Cascade)
   checkIns ChronicCareCheckIn[]
   alerts   ChronicCareAlert[]
 
   @@index([patientId, active])
   @@index([tenantId])
+  @@index([cohortId, active])
   @@map("chronic_care_plans")
+}
+
+// ─── Pearl §5.2 (gap rows 142-145) — chronic-care cohort templates ──────
+//
+// A ChronicCareCohort is the TENANT-LEVEL template ("all diabetics in
+// branch X over age 50") that the auto-enrolment cron uses to materialize
+// per-patient ChronicCarePlan rows. The matching DSL lives in `cohortRule`
+// and reuses the shape that `services/audience-compiler.ts` already
+// understands (shipped via f701b52 for the Campaign domain — Pearl §5.1).
+//
+// Per-cohort `CohortSequenceStep` rows define the sequence of touchpoints
+// (visit-reminder + lab-reminder + education-snippet, etc.) that fan out
+// from each enrolment. The scheduler advances step N → N+1 either by
+// `delayDays` elapsing OR by the on-visit hook in
+// `notification-triggers.ts` (Appointment.status flips to CHECKED_IN
+// triggers `advanceChronicCareSequence(patientId)`).
+model ChronicCareCohort {
+  id          String                @id @default(uuid())
+  name        String
+  description String?
+  condition   ChronicConditionCode?
+  // Mirror of CampaignAudience.rules: `{ filters: [...], matchMode:
+  // "ALL" | "ANY" }`. Null = manual enrolment only (no cron action).
+  cohortRule  Json?
+  active      Boolean               @default(true)
+  createdBy   String
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  steps CohortSequenceStep[]
+  plans ChronicCarePlan[]
+
+  @@index([tenantId, active])
+  @@index([condition])
+  @@map("chronic_care_cohorts")
+}
+
+model CohortSequenceStep {
+  id                  String                @id @default(uuid())
+  chronicCareCohortId String
+  // 1-based step ordering within a cohort. Unique per cohort.
+  stepNumber          Int
+  // Days to wait AFTER the prior step's `lastStepSentAt` (or AFTER
+  // enrolment for step 1). 0 = send immediately.
+  delayDays           Int                   @default(0)
+  // References a NotificationTemplate by stable key (templates are
+  // tenant-scoped — resolution happens at send time). Free-form string
+  // so future template additions don't require a schema change.
+  templateKey         String
+  // Channels to fan out per step. Reuses the existing
+  // `NotificationChannel` enum.
+  channels            NotificationChannel[]
+  active              Boolean               @default(true)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  cohort ChronicCareCohort @relation(fields: [chronicCareCohortId], references: [id], onDelete: Cascade)
+
+  @@unique([chronicCareCohortId, stepNumber])
+  @@index([chronicCareCohortId, active])
+  @@index([tenantId])
+  @@map("cohort_sequence_steps")
 }
 
 model ChronicCareCheckIn {
@@ -5649,6 +6241,52 @@ model PatientDataExport {
   @@map("patient_data_exports")
 }
 
+// ─── DPDP CROSS-TENANT ERASURE WORKBENCH (Pearl §8.6 — gap row 224) ─────
+//
+// Right-to-erasure (DPDP Act 2023 §17). Filed by the patient themselves, an
+// external DPO, or a super-admin acting on their behalf. The workbench at
+// /super-admin/dpdp lists rows and lets the super-admin EXECUTE (runs the
+// cross-table purge transaction in services/dpdp-purge.ts) or REJECT.
+//
+// We retain this table — and the AuditLog rows it emits — even after a
+// COMPLETED purge, because the regulator's audit requirement supersedes
+// the patient's right to be forgotten ABOUT the request itself (only the
+// substantive PII is purged). `executionReceipt` captures which tables
+// were purged + counts so a regulator can verify the action.
+enum ErasureStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  REJECTED
+}
+
+model DPDPErasureRequest {
+  id               String        @id @default(uuid())
+  tenantId         String
+  patientId        String
+  // Who initiated. For PATIENT/SUPER_ADMIN this is the User.id; for
+  // DPO_EXTERNAL we store the contact email (no user row exists).
+  requestedBy      String
+  requestedByRole  String // PATIENT | DPO_EXTERNAL | SUPER_ADMIN
+  reason           String?       @db.Text
+  status           ErasureStatus @default(PENDING)
+  requestedAt      DateTime      @default(now())
+  executedAt       DateTime?
+  executedBy       String? // User.id of the super-admin who ran the purge
+  executionReceipt Json? // { purgedTables, purgedRows, anonymizedTables, retainedTables, notes }
+  failureReason    String?       @db.Text
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([requestedAt])
+  @@index([patientId])
+  @@map("dpdp_erasure_requests")
+}
+
 // Curated SNOMED-CT subset (~120 concepts) for Indian OPD presentations.
 // Global reference catalogue — NOT tenant-scoped. Mirrors Icd10Code shape.
 model SnomedConcept {
@@ -5900,4 +6538,127 @@ model CampaignSend {
   // small tail in-memory.
   @@index([patientId, clickedAt])
   @@map("campaign_sends")
+}
+
+// ============================================================================
+// Pearl ERP Stage 1 §8.5 (gap row 223 closure 2026-05-23) — Pearl-operator
+// support inbox.
+//
+// Tenant-ADMIN → Pearl-operator (super-admin) ticket lifecycle. Distinct from
+// `Complaint` (patient → hospital). Threading via SupportTicketMessage:
+// each reply flips the ticket back and forth between OPEN (tenant just
+// wrote) and AWAITING_TENANT (super-admin just replied), so both sides see
+// a clear "needs my attention" filter.
+//
+// Super-admin (tenantId == null OR seeded "default" tenant) sees all
+// tickets across all tenants; tenant-ADMIN sees only own tenant's rows.
+// Per-row scoping enforced in apps/api/src/routes/support-tickets.ts.
+// ============================================================================
+model SupportTicket {
+  id               String                @id @default(uuid())
+  // Raising tenant. Nullable so a super-admin can file an internal-only
+  // ticket (no tenant context) — same flexibility the DPDP workbench has.
+  tenantId         String?
+  openedByUserId   String
+  subject          String
+  body             String
+  status           SupportTicketStatus   @default(OPEN)
+  priority         SupportTicketPriority @default(NORMAL)
+  assignedToUserId String?
+  resolvedAt       DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  tenant     Tenant?                @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  openedBy   User                   @relation("SupportTicketOpener", fields: [openedByUserId], references: [id])
+  assignedTo User?                  @relation("SupportTicketAssignee", fields: [assignedToUserId], references: [id])
+  messages   SupportTicketMessage[]
+
+  @@index([tenantId, status])
+  @@index([assignedToUserId, status])
+  @@index([status, updatedAt])
+  @@map("support_tickets")
+}
+
+model SupportTicketMessage {
+  id           String   @id @default(uuid())
+  ticketId     String
+  authorUserId String
+  body         String
+  createdAt    DateTime @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author User          @relation(fields: [authorUserId], references: [id])
+
+  @@index([ticketId, createdAt])
+  @@map("support_ticket_messages")
+}
+
+enum SupportTicketStatus {
+  OPEN
+  AWAITING_TENANT
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum SupportTicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+// Pearl ERP Stage 1 §8.2 (gap row 213 closure, 2026-05-23) — staff
+// email-invite flow.
+//
+// Today the ADMIN-side "create user" UX requires the admin to type a
+// password and share it out-of-band, which (a) leaks the password in
+// chat / email plaintext, (b) skips email-verification (the new user
+// might not actually own the address), and (c) blocks self-service
+// onboarding of a roster of staff. This model captures the "invite
+// pending acceptance" state between the admin issuing an invite and
+// the recipient materialising their User row by setting a password.
+//
+// Token storage contract:
+//   - `token` holds the SHA-256 hex hash of a 32-byte CSPRNG nonce.
+//   - The raw nonce ONLY ever leaves the server in the outbound email
+//     body; we never persist it. A DB compromise therefore cannot be
+//     used to assume any unaccepted invite — the attacker would need
+//     the email contents too.
+//   - On accept, the User row is created with the role + tenantId
+//     captured at invite-time (NOT what the URL says — prevents a
+//     forged Role on the accept body from privilege-escalating).
+//
+// `branchIds` is a denormalised string[] of Branch.id values that the
+// new user should be assigned to once Pearl §7.2 piece 2b lands the
+// per-user branch ACL. Today the field is stored for the audit trail
+// and surfaced verbatim on the accept GET, but no enforcement reads
+// it — the staff-user model has no branch ACL yet.
+//
+// Lifecycle: an invite is "active" while expiresAt > now() AND
+// acceptedAt IS NULL. Re-inviting the same email collapses any
+// outstanding active invites (the POST handler does a DELETE-then-
+// INSERT) so a victim of an email-typo can re-send without leaving
+// the wrong-address invite valid in the wild.
+model UserInvite {
+  id              String    @id @default(uuid())
+  tenantId        String
+  email           String
+  role            Role
+  branchIds       String[]  @default([])
+  token           String    @unique // sha256 hex of the raw nonce
+  invitedByUserId String
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  acceptedUserId  String?
+  createdAt       DateTime  @default(now())
+
+  tenant       Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invitedBy    User   @relation("UserInviteInviter", fields: [invitedByUserId], references: [id])
+  acceptedUser User?  @relation("UserInviteAcceptedUser", fields: [acceptedUserId], references: [id])
+
+  @@index([tenantId, email])
+  @@index([expiresAt])
+  @@map("user_invites")
 }

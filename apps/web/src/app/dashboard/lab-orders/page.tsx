@@ -25,6 +25,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { EmptyState } from "@/components/EmptyState";
+import { SkeletonTable } from "@/components/Skeleton";
 import { FlaskConical, ExternalLink } from "lucide-react";
 
 // PATIENT is the primary audience but we keep clinical staff allowed so the
@@ -161,10 +162,11 @@ export default function LabOrdersPage() {
 
       {loading ? (
         <div
-          className="rounded-xl bg-white p-8 text-center text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+          className="rounded-xl bg-white p-4 dark:bg-gray-800"
           data-testid="lab-orders-loading"
+          aria-busy="true"
         >
-          Loading...
+          <SkeletonTable rows={5} columns={6} />
         </div>
       ) : loadError ? (
         <div

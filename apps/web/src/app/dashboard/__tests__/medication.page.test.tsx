@@ -85,7 +85,9 @@ describe("MedicationDashboardPage", () => {
     let resolve: (v: any) => void = () => {};
     apiMock.get.mockImplementation(() => new Promise((r) => { resolve = r; }));
     render(<MedicationDashboardPage />);
-    expect(await screen.findByText(/loading/i)).toBeInTheDocument();
+    const loader = await screen.findByTestId("medication-dashboard-loading");
+    expect(loader).toBeInTheDocument();
+    expect(loader).toHaveAttribute("aria-busy", "true");
     resolve({ data: [] });
   });
 

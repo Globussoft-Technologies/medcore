@@ -5,6 +5,7 @@ import { ClipboardCheck, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
+import { SkeletonTable } from "@/components/Skeleton";
 
 interface DocQAReport {
   consultationId: string;
@@ -102,7 +103,13 @@ export default function AiDocQaPage() {
         <div className="lg:col-span-2">
           <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
             {loading ? (
-              <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+              <div
+                data-testid="ai-doc-qa-loading"
+                aria-busy="true"
+                className="p-4"
+              >
+                <SkeletonTable rows={5} columns={4} />
+              </div>
             ) : reports.length === 0 ? (
               <div className="p-8 text-center text-gray-500 dark:text-gray-400">
                 No reports yet. Click &quot;Run Sample Audit&quot; to generate.

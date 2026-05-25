@@ -10,6 +10,8 @@ import { toast } from "@/lib/toast";
 import { useConfirm, usePrompt } from "@/lib/use-dialog";
 import { useTranslation } from "@/lib/i18n";
 import { PatientEditModal } from "@/components/PatientEditModal";
+import { PatientCRMActivity } from "@/components/PatientCRMActivity";
+import { SkeletonCard, SkeletonText } from "@/components/Skeleton";
 import {
   ArrowLeft,
   ChevronDown,
@@ -397,7 +399,16 @@ export default function PatientDetailPage() {
   }
 
   if (loading) {
-    return <div className="p-8 text-center text-gray-500">Loading...</div>;
+    return (
+      <div
+        className="space-y-4 p-8"
+        data-testid="patients-detail-loading"
+        aria-busy="true"
+      >
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    );
   }
 
   if (!patient) {
@@ -829,6 +840,14 @@ export default function PatientDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Pearl §7.1 (gap row 183) — CRM History.
+          Read-only timeline of the originating Lead + last 5 activities
+          when the patient was converted from a lead. Component is
+          self-gating on role: PATIENT renders null; staff roles render
+          the section (with empty-state when no Lead links to the
+          patient — i.e. walk-in / pre-CRM patients). */}
+      <PatientCRMActivity patientId={id} />
 
       {/* Tabs */}
       <div className="no-print mb-6 flex gap-1 overflow-x-auto border-b border-gray-200 dark:border-white/10">
@@ -2686,7 +2705,15 @@ function MedicalRecordsTab({
   }
 
   if (loading) {
-    return <div className="p-6 text-gray-500 dark:text-gray-400">Loading...</div>;
+    return (
+      <div
+        className="p-6"
+        data-testid="patients-detail-family-loading"
+        aria-busy="true"
+      >
+        <SkeletonText lines={4} />
+      </div>
+    );
   }
 
   return (
@@ -3535,7 +3562,15 @@ function DocumentsTab({
   }
 
   if (loading) {
-    return <div className="p-6 text-gray-500 dark:text-gray-400">Loading...</div>;
+    return (
+      <div
+        className="p-6"
+        data-testid="patients-detail-documents-loading"
+        aria-busy="true"
+      >
+        <SkeletonText lines={4} />
+      </div>
+    );
   }
 
   const grouped = DOC_TYPES.reduce<Record<string, PatientDoc[]>>((acc, t) => {

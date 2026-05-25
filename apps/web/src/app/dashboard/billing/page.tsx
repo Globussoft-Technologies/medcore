@@ -9,6 +9,7 @@ import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { EmptyState } from "@/components/EmptyState";
+import { SkeletonTable } from "@/components/Skeleton";
 import { derivePaymentStatus, computeInvoiceTotals } from "@medcore/shared";
 
 // Issue #89: DOCTOR must NOT see Billing / invoices. PATIENT keeps own-data
@@ -547,7 +548,9 @@ export default function BillingPage() {
       {/* Content */}
       <div className="overflow-x-auto rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div className="p-4" data-testid="billing-loading" aria-busy="true">
+            <SkeletonTable rows={6} columns={8} />
+          </div>
         ) : tab === "outstanding" ? (
           outstanding.length === 0 ? (
             <div className="p-8 text-center text-gray-500 dark:text-gray-400">

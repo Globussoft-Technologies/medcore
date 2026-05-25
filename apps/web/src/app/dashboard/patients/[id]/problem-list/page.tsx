@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { ArrowLeft, AlertTriangle, Activity, FileText, BedDouble, Filter } from "lucide-react";
+import { SkeletonCard } from "@/components/Skeleton";
 
 interface ProblemItem {
   id: string;
@@ -108,7 +109,16 @@ export default function PatientProblemListPage() {
       </div>
 
       {loading ? (
-        <div className="p-8 text-center text-slate-500">Loading...</div>
+        <div
+          data-testid="problem-list-loading"
+          aria-busy="true"
+          className="space-y-3"
+        >
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
       ) : items.length === 0 ? (
         <div className="p-8 text-center text-slate-500 border border-dashed border-slate-300 rounded-lg">
           No problems found.

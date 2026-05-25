@@ -10,6 +10,10 @@ import type { SOAPNote } from "@medcore/shared";
 // function so it can be unit-tested independent of the Web Speech API and
 // the page component (see ./voice-commands.ts and __tests__/voice-commands.test.tsx).
 import { parseVoiceCommand, type VoiceAction } from "./voice-commands";
+// Pearl ERP Stage 1 §2.1.3 (gap row 46) — right rail with derived
+// favourites + last 3 visits, click-to-paste into the active SOAP draft.
+import { ConsultRightRail } from "@/components/ConsultRightRail";
+import { SkeletonText } from "@/components/Skeleton";
 // PRD §3.5.1 Phase 2 — 8-language picker + BCP-47 conversion. The scribe
 // page exposes the selected language as the `language_code` the ASR client
 // forwards to Sarvam, so the doctor can transcribe regional-language
@@ -525,13 +529,13 @@ function ReviewCard({
               <>
                 <button
                   onClick={handleSave}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700"
+                  className="touch-target flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700"
                 >
                   <Save className="w-3.5 h-3.5" /> Save Edit
                 </button>
                 <button
                   onClick={() => setEditing(false)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg text-xs hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+                  className="touch-target flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg text-xs hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
                 >
                   <X className="w-3.5 h-3.5" /> Cancel
                 </button>
@@ -541,20 +545,20 @@ function ReviewCard({
                 <button
                   onClick={onAccept}
                   disabled={status === "accepted"}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="touch-target flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Check className="w-3.5 h-3.5" /> Accept
                 </button>
                 <button
                   onClick={handleEditClick}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-blue-300 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-50"
+                  className="touch-target flex items-center gap-1.5 px-3 py-1.5 border border-blue-300 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-50"
                 >
                   <Edit3 className="w-3.5 h-3.5" /> Edit
                 </button>
                 <button
                   onClick={onReject}
                   disabled={status === "rejected"}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-red-300 text-red-600 rounded-lg text-xs font-medium hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="touch-target flex items-center gap-1.5 px-3 py-1.5 border border-red-300 text-red-600 rounded-lg text-xs font-medium hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Ban className="w-3.5 h-3.5" /> Reject
                 </button>
@@ -1499,6 +1503,52 @@ export default function ScribePage() {
     });
   };
 
+  // ── Right-rail paste handlers (Pearl §2.1.3, gap row 46) ──────────────
+  // Click-to-paste from the right rail into the active SOAP draft. We do
+  // NOT clobber the existing chief complaint — if one's already typed we
+  // append with a separator so a quick second click doesn't lose work.
+  const handlePasteDiagnosis = useCallback((value: string) => {
+    setEditedSOAP((prev) => {
+      const next: SOAPNote = prev
+        ? JSON.parse(JSON.stringify(prev))
+        : ({
+            subjective: { chiefComplaint: "" },
+            objective: {},
+            assessment: {},
+            plan: {},
+          } as unknown as SOAPNote);
+      const sub = (next.subjective ?? (next.subjective = {} as any)) as any;
+      const existing = (sub.chiefComplaint ?? "").trim();
+      sub.chiefComplaint = existing ? `${existing}; ${value}` : value;
+      return next;
+    });
+  }, []);
+
+  const handlePasteMedicine = useCallback(
+    (med: { name: string; dose?: string; frequency?: string; duration?: string }) => {
+      setEditedSOAP((prev) => {
+        const next: SOAPNote = prev
+          ? JSON.parse(JSON.stringify(prev))
+          : ({
+              subjective: {},
+              objective: {},
+              assessment: {},
+              plan: { medications: [] },
+            } as unknown as SOAPNote);
+        const plan = (next.plan ?? (next.plan = {} as any)) as any;
+        const meds = Array.isArray(plan.medications) ? plan.medications : (plan.medications = []);
+        meds.push({
+          name: med.name,
+          dose: med.dose ?? "",
+          frequency: med.frequency ?? "",
+          duration: med.duration ?? "",
+        });
+        return next;
+      });
+    },
+    [],
+  );
+
   // ── Enter review mode ─────────────────────────────────
   const handleEnterReview = () => {
     if (!editedSOAP) return;
@@ -1973,7 +2023,18 @@ export default function ScribePage() {
                 )}
               </div>
               {previousLoading ? (
-                <div className="p-4 text-xs text-gray-500 dark:text-gray-400">Loading previous consultation…</div>
+                // Pearl §7.2 skeleton sweep (wave 13, 2026-05-23): replaced
+                // the bare "Loading previous consultation…" text with a
+                // `SkeletonText lines=4` block under a stable
+                // `scribe-previous-loading` testid + `aria-busy="true"`.
+                // Same pattern as wave-12 `<slug>-loading`.
+                <div
+                  data-testid="scribe-previous-loading"
+                  aria-busy="true"
+                  className="p-4"
+                >
+                  <SkeletonText lines={4} />
+                </div>
               ) : !previousConsultation ? (
                 <div className="p-4 text-xs text-gray-500 italic dark:text-gray-400">
                   No prior completed consultation found for this patient.
@@ -2654,6 +2715,20 @@ export default function ScribePage() {
               </p>
             </div>
           )}
+        </div>
+
+        {/* ── Pearl §2.1.3 (gap row 46) Right rail: favourites + last 3 visits.
+              Hidden on small screens (the page already crowds at <lg) and
+              promoted to a third column at lg+. Click-to-paste wired into the
+              active SOAP draft via handlePasteDiagnosis / handlePasteMedicine. */}
+        <div className="hidden lg:flex">
+          <ConsultRightRail
+            doctorId={selectedAppointment?.doctorId ?? null}
+            patientId={selectedAppointment?.patientId ?? null}
+            token={token}
+            onPasteDiagnosis={handlePasteDiagnosis}
+            onPasteMedicine={handlePasteMedicine}
+          />
         </div>
       </div>
     </>

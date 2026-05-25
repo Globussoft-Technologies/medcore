@@ -6,6 +6,7 @@ import { useAuthStore } from "@/lib/store";
 import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
 import { RefreshCw, Send } from "lucide-react";
+import { SkeletonRow } from "@/components/Skeleton";
 import { formatDateTime } from "@/lib/format";
 
 interface DeliveryRow {
@@ -157,13 +158,15 @@ export default function NotificationDeliveryPage() {
               <th className="px-4 py-3">Action</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody data-testid={loading ? "notifications-delivery-loading" : undefined} aria-busy={loading ? "true" : undefined}>
             {loading ? (
-              <tr>
-                <td colSpan={8} className="px-4 py-6 text-center text-gray-500">
-                  Loading...
-                </td>
-              </tr>
+              <>
+                <SkeletonRow columns={8} />
+                <SkeletonRow columns={8} />
+                <SkeletonRow columns={8} />
+                <SkeletonRow columns={8} />
+                <SkeletonRow columns={8} />
+              </>
             ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={8} className="px-4 py-6 text-center text-gray-500">

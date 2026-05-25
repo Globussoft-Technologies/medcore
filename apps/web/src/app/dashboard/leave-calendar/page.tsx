@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { SkeletonCard } from "@/components/Skeleton";
 
 interface Leave {
   id: string;
@@ -182,7 +183,15 @@ export default function LeaveCalendarPage() {
 
       <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div
+            data-testid="leave-calendar-loading"
+            aria-busy="true"
+            className="grid grid-cols-7 gap-1 p-2"
+          >
+            {Array.from({ length: 35 }).map((_, i) => (
+              <SkeletonCard key={i} className="h-28" />
+            ))}
+          </div>
         ) : (
           <>
             <div className="mb-1 grid grid-cols-7 text-center text-xs font-semibold text-gray-500 dark:text-gray-400">

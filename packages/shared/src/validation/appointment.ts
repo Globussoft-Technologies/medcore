@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { containsHtmlOrScript } from "./security";
 
 // Issue #491 (2026-05-03): the booking form let users pick `01-01-2020` and
 // the API happily wrote a row for it. We piggy-back on the existing #362
@@ -11,6 +12,17 @@ function isBookingDateNotPast(yyyyMmDd: string): boolean {
   return yyyyMmDd >= todayStr;
 }
 
+// Issue #947 (2026-05-23): with `/api/v1/appointments` now in
+// SCHEMA_REJECT_PATHS (so the remarks-body refine isn't silently laundered),
+// other free-text fields on the same router tree must also reject HTML
+// themselves — otherwise raw `<script>` in `notes` would pass through.
+const optionalFreeText = z
+  .string()
+  .optional()
+  .refine((v) => v === undefined || !containsHtmlOrScript(v), {
+    message: "Field cannot contain HTML or script tags",
+  });
+
 export const bookAppointmentSchema = z.object({
   patientId: z.string().uuid(),
   doctorId: z.string().uuid(),
@@ -22,14 +34,14 @@ export const bookAppointmentSchema = z.object({
   // do not take a slot at all; the booking handler enforces "slotId
   // required for SLOT mode, ignored for CALLING, optional for TOKEN".
   slotId: z.string().regex(/^\d{2}:\d{2}$/, "slotId must be HH:MM").optional(),
-  notes: z.string().optional(),
+  notes: optionalFreeText,
 });
 
 export const walkInSchema = z.object({
   patientId: z.string().uuid(),
   doctorId: z.string().uuid(),
   priority: z.enum(["NORMAL", "URGENT", "EMERGENCY"]).default("NORMAL"),
-  notes: z.string().optional(),
+  notes: optionalFreeText,
 });
 
 export const updateAppointmentStatusSchema = z.object({
@@ -192,7 +204,7 @@ export const recurringAppointmentSchema = z.object({
   slotStart: z.string().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM"),
   frequency: z.enum(["DAILY", "WEEKLY", "MONTHLY"]),
   occurrences: z.number().int().min(2).max(52),
-  notes: z.string().optional(),
+  notes: optionalFreeText,
 });
 
 // ─── Waitlist (Apr 2026) ─────────────────────────────
@@ -301,12 +313,21 @@ export const appointmentRemarkVisibilityValues = [
   "PRIVATE",
 ] as const;
 
+// Issue #947 (2026-05-23, High): the appointment remarks body field was
+// being silently stripped of HTML by the global `sanitize` middleware,
+// laundering a `<script>` paste into "" with no signal to the clinician.
+// Per Pearl §2.2 (clinical text), reject explicitly — paired with adding
+// `/api/v1/appointments` to SCHEMA_REJECT_PATHS so the schema actually
+// sees the raw payload.
 export const createAppointmentRemarkSchema = z.object({
   body: z
     .string()
     .trim()
     .min(1, "Remark body cannot be empty")
-    .max(5000, "Remark body cannot exceed 5000 characters"),
+    .max(5000, "Remark body cannot exceed 5000 characters")
+    .refine((v) => !containsHtmlOrScript(v), {
+      message: "Remark body cannot contain HTML or script tags",
+    }),
   visibility: z.enum(appointmentRemarkVisibilityValues).optional(),
   parentRemarkId: z.string().uuid().nullable().optional(),
 });
@@ -316,7 +337,10 @@ export const updateAppointmentRemarkSchema = z.object({
     .string()
     .trim()
     .min(1, "Remark body cannot be empty")
-    .max(5000, "Remark body cannot exceed 5000 characters"),
+    .max(5000, "Remark body cannot exceed 5000 characters")
+    .refine((v) => !containsHtmlOrScript(v), {
+      message: "Remark body cannot contain HTML or script tags",
+    }),
 });
 
 export const pinAppointmentRemarkSchema = z.object({

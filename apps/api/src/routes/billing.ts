@@ -3060,7 +3060,7 @@ function tdsToCsv(rows: Record<string, unknown>[], columns: string[]): string {
 // matching the referral-commission ledger).
 router.get(
   "/tds-report",
-  authorize(Role.ADMIN),
+  authorize(Role.ADMIN, Role.BILLING),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const {

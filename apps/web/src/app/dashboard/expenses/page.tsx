@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Wallet, Plus, X } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 // Issue #89: DOCTOR must NOT see Expenses (₹9.29 lakh staff-salary leak).
 // Issue #98: RECEPTION must NOT see staff-salary expenses either. Until we
@@ -109,6 +110,15 @@ export default function ExpensesPage() {
   }, [from, to, categoryFilter, user]);
 
   async function load() {
+    // Issue #939: refuse to fetch when the user has inverted the date range
+    // (From > To). Previously the API would happily return zero rows and the
+    // UI showed an empty table, hiding the user's mistake. ISO YYYY-MM-DD
+    // strings compare correctly with `>` because the format is calendar-sortable.
+    if (from && to && from > to) {
+      toast.error('"From" date must be on or before "To" date');
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -263,7 +273,9 @@ export default function ExpensesPage() {
 
       <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div className="p-4" data-testid="expenses-loading" aria-busy="true">
+            <SkeletonTable rows={6} columns={6} />
+          </div>
         ) : expenses.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">No expenses found</div>
         ) : (

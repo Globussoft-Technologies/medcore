@@ -8,6 +8,13 @@ import { runDailyDocQAScheduledTask } from "../routes/ai-doc-qa";
 import { runDailyNpsDriverRollup } from "../routes/ai-sentiment";
 import { runAuditLogArchival } from "./audit-archival";
 import { autoNoShowElapsedBookedTask } from "./auto-noshow";
+import { autoEnrolAndRemove } from "./chronic-care-enrolment";
+import { runChronicCareSequenceSends } from "./chronic-care-scheduler";
+import { dispatchPendingCampaigns } from "./campaign-dispatcher-sweep";
+import { collectYesterdayUsage } from "./tenant-usage-collector";
+import { generateMonthlyPlatformInvoices } from "./platform-invoice-generator";
+import { checkGracePeriodExpirations } from "./platform-subscription-state";
+import { runTenantArchiveSweep } from "./tenant-archival";
 
 // ───────────────────────────────────────────────────────
 // Lightweight setInterval-based scheduler.
@@ -1083,6 +1090,176 @@ async function autoCloseStuckTelemedicineSessionsTask(): Promise<void> {
   }
 }
 
+// ─── Chronic-care cohort auto-enrolment (Pearl §5.2 row 143) ───
+//
+// Every hour, re-evaluate every active ChronicCareCohort's `cohortRule`
+// and reconcile per-patient ChronicCarePlan rows: enrol newly-matching
+// patients, deactivate plans whose patients no longer match. Idempotent
+// — a no-op pass logs nothing. ScheduledTaskRun captures the run via
+// `runTaskWithAudit` (Pearl §8.4 row 222).
+async function autoEnrolChronicCareCohortsTask(): Promise<void> {
+  try {
+    const result = await autoEnrolAndRemove();
+    if (result.enrolled > 0 || result.removed > 0 || result.errors > 0) {
+      console.log(
+        `[auto_enrol_chronic_care_cohorts] cohorts=${result.cohortsEvaluated} enrolled=${result.enrolled} removed=${result.removed} errors=${result.errors}`,
+      );
+    }
+  } catch (err) {
+    console.error("[auto_enrol_chronic_care_cohorts]", err);
+  }
+}
+
+// ─── Chronic-care sequence-step sweep (Pearl §5.2 row 144) ─────
+//
+// Every hour, walk every active cohort-linked ChronicCarePlan and send
+// the next pending CohortSequenceStep whose `delayDays` window has
+// elapsed. Companion to the on-visit hook in
+// `services/notification-triggers.ts:onPatientCheckedIn` which handles
+// the skip-and-advance case (row 145).
+async function chronicCareSequenceSweepTask(): Promise<void> {
+  try {
+    const result = await runChronicCareSequenceSends();
+    if (result.sent > 0 || result.errors > 0) {
+      console.log(
+        `[chronic_care_sequence_sweep] sent=${result.sent} errors=${result.errors}`,
+      );
+    }
+  } catch (err) {
+    console.error("[chronic_care_sequence_sweep]", err);
+  }
+}
+
+// ─── Campaign dispatcher sweep (Pearl §5.1 piece 2b row 131/132/137/336/338) ───
+//
+// Every 5 min, find Campaign rows in `SCHEDULED` status whose
+// `scheduledAt` is in the past and dispatch them via the existing sync
+// fan-out. Per-tick cap: 10 campaigns (the remainder defer to the next
+// tick). Per-recipient send-window quiet-hour clamp enforced at sweep
+// time — out-of-window campaigns stay SCHEDULED and retry next tick.
+// Implementation: services/campaign-dispatcher-sweep.ts.
+async function campaignDispatchSweepTask(): Promise<void> {
+  try {
+    const result = await dispatchPendingCampaigns(prisma);
+    if (
+      result.dispatched > 0 ||
+      result.errors > 0 ||
+      result.deferredQuietHours > 0 ||
+      result.cancelledNoAudience > 0 ||
+      result.cancelledNoChannels > 0
+    ) {
+      console.log(
+        `[campaign_dispatch_sweep] inspected=${result.inspected} dispatched=${result.dispatched} deferredQuietHours=${result.deferredQuietHours} cancelledNoAudience=${result.cancelledNoAudience} cancelledNoChannels=${result.cancelledNoChannels} skippedInactiveTenant=${result.skippedInactiveTenant} errors=${result.errors}`,
+      );
+    }
+  } catch (err) {
+    console.error("[campaign_dispatch_sweep]", err);
+  }
+}
+
+// ─── Tenant usage daily collector (Pearl §8.3 row 214) ─
+//
+// Once daily, group the prior UTC day's Notification rows by
+// (tenantId, channel) and upsert one TenantUsageDaily row per tenant
+// for that date. Idempotent (upsert on `@@unique([tenantId, date])`).
+// Powers per-tenant plan-quota vs actual-usage visibility for the
+// super-admin billing surface (UI consumer ships as a separate piece).
+async function tenantUsageDailyCollectorTask(): Promise<void> {
+  try {
+    const result = await collectYesterdayUsage(prisma);
+    if (result.totalRowsWritten > 0) {
+      console.log(
+        `[tenant_usage_daily_collector] date=${result.date} tenantsProcessed=${result.tenantsProcessed} rowsWritten=${result.totalRowsWritten}`,
+      );
+    }
+  } catch (err) {
+    console.error("[tenant_usage_daily_collector]", err);
+  }
+}
+
+// ─── Monthly platform-invoice generator (Pearl §8.3 row 215 piece 3b) ─
+//
+// On the 1st of every UTC month at ~02:00 UTC, walk every ACTIVE
+// TenantSubscription and create a PlatformInvoice for the PREVIOUS
+// month (idempotent — re-runs find the row + skip). The scheduler
+// doesn't have first-class day-of-month support, so the task body
+// short-circuits unless `now.getUTCDate() === 1`. The hourly cadence
+// with the `runAtHour: 2` filter means we get one shot at ~02:00 UTC
+// on the 1st; if the host is down at that hour the task waits for
+// the next month rather than back-filling (operators can re-run
+// manually via the retry endpoint — the function is idempotent).
+async function monthlyPlatformInvoiceGeneratorTask(): Promise<void> {
+  const now = new Date();
+  if (now.getUTCDate() !== 1) return;
+  try {
+    const result = await generateMonthlyPlatformInvoices(prisma, now);
+    if (
+      result.generated > 0 ||
+      result.skippedAlreadyExists > 0 ||
+      result.skippedInactive > 0 ||
+      result.errors > 0
+    ) {
+      console.log(
+        `[monthly_platform_invoice_generator] yyyymm=${result.yyyymm} generated=${result.generated} skippedAlreadyExists=${result.skippedAlreadyExists} skippedInactive=${result.skippedInactive} errors=${result.errors}`,
+      );
+    }
+  } catch (err) {
+    console.error("[monthly_platform_invoice_generator]", err);
+  }
+}
+
+// ─── Platform-subscription grace-period sweep (Pearl §8.3 row 215 piece 3c) ─
+//
+// Daily at 03:00 host-time: walk every `past_due` TenantSubscription and
+// flip rows whose `pastDueSince + 7d < now` to `suspended` (login
+// blocked except for billing surface). Idempotent — a second pass on
+// the same day finds zero rows because the prior pass already
+// suspended them. The Razorpay webhook (routes/webhooks/platform-razorpay.ts)
+// is the OTHER entry point that can transition rows; both call the
+// same idempotent helper in services/platform-subscription-state.ts so
+// race conditions reconverge to the right state.
+async function platformGracePeriodSweepTask(): Promise<void> {
+  try {
+    const result = await checkGracePeriodExpirations(prisma);
+    if (result.inspected > 0 || result.suspended > 0 || result.errors > 0) {
+      console.log(
+        `[platform_grace_period_sweep] inspected=${result.inspected} suspended=${result.suspended} errors=${result.errors}`,
+      );
+    }
+  } catch (err) {
+    console.error("[platform_grace_period_sweep]", err);
+  }
+}
+
+// ─── Tenant 90-day S3 archival sweep (Pearl §8.1 row 233) ──────────
+//
+// Daily at 04:00 host-time: find every tenant currently SUSPENDED
+// (`active=false`) for >=90 days (`deactivatedAt` older than the
+// 90-day cutoff) and stream-export their tenant-scoped data
+// (Patients, Appointments, Prescriptions, Invoices, AuditLog) to S3
+// at key `tenant-archives/{tenantId}/{ts}.tar.gz`, with SHA-256
+// checksum stamped on `Tenant.archiveChecksum`. Live-data purge is a
+// SEPARATE operator-gated `purgeArchivedTenant()` function (not auto-
+// wired — irreversible, wants explicit operator confirmation).
+// Idempotent: re-runs find no candidates because `archivedAt is null`
+// is part of the eligibility gate.
+async function tenantArchiveSweepTask(): Promise<void> {
+  try {
+    const result = await runTenantArchiveSweep(prisma);
+    if (
+      result.inspected > 0 ||
+      result.archived > 0 ||
+      result.errors > 0
+    ) {
+      console.log(
+        `[tenant_archive_sweep] inspected=${result.inspected} archived=${result.archived} errors=${result.errors}`,
+      );
+    }
+  } catch (err) {
+    console.error("[tenant_archive_sweep]", err);
+  }
+}
+
 // ─── Drain queued (deferred) notifications ─────────────
 
 async function notificationDrainQueued(): Promise<void> {
@@ -1246,9 +1423,176 @@ const TASKS: ScheduledTask[] = [
     intervalMinutes: 30,
     run: autoCloseStuckTelemedicineSessionsTask,
   },
+  // Pearl §5.2 row 143 — hourly auto-enrol / auto-remove. Re-evaluates
+  // every active ChronicCareCohort's `cohortRule` against current patient
+  // rows, creates/activates ChronicCarePlan rows for new matches, and
+  // deactivates plans for patients who no longer match. Idempotent.
+  {
+    name: "auto_enrol_chronic_care_cohorts",
+    intervalMinutes: 60,
+    run: autoEnrolChronicCareCohortsTask,
+  },
+  // Pearl §5.2 row 144 — hourly sweep that advances the per-enrolment
+  // sequence stepper. Sends the next pending CohortSequenceStep whose
+  // delayDays window has elapsed. On-visit fast-path lives in
+  // `services/notification-triggers.ts:onPatientCheckedIn` (row 145).
+  {
+    name: "chronic_care_sequence_sweep",
+    intervalMinutes: 60,
+    run: chronicCareSequenceSweepTask,
+  },
+  // Pearl §5.1 piece 2b (rows 131, 132, 137, 336, 338) — every 5 min, find
+  // Campaign rows whose `scheduledAt` is in the past and dispatch via the
+  // existing sync fan-out. Per-tick cap: 10 campaigns. Quiet-hour clamp
+  // (Campaign.sendWindowStart/End) defers out-of-window dispatches to the
+  // next tick. Inactive tenants are skipped. Wraps `dispatchCampaign`
+  // (services/campaign-dispatcher.ts) for per-recipient send work.
+  {
+    name: "campaign_dispatch_sweep",
+    intervalMinutes: 5,
+    run: campaignDispatchSweepTask,
+  },
+  // Pearl §8.3 row 214 — daily 01:00 UTC (host-time scheduler approximates
+  // via `runAtHour: 1`; prod hosts run IST so this lands ~01:00 IST =
+  // 19:30 UTC prior day. The collector's "yesterday" computation uses UTC
+  // explicitly so the date boundary is stable regardless of host TZ).
+  // Groups the prior UTC day's notifications by (tenantId, channel) and
+  // upserts one TenantUsageDaily row per tenant — idempotent on the
+  // `@@unique([tenantId, date])` constraint.
+  {
+    name: "tenant_usage_daily_collector",
+    intervalMinutes: 24 * 60,
+    runAtHour: 1,
+    run: tenantUsageDailyCollectorTask,
+  },
+  // Pearl §8.3 row 215 piece 3b — monthly platform-invoice generator. The
+  // scheduler has no first-class day-of-month gate, so the task body returns
+  // immediately on every day except the 1st (UTC). `runAtHour: 2` narrows
+  // the firing window to ~02:00 host-time (prod runs IST, so ~02:00 IST =
+  // ~20:30 UTC the prior day — the task's "1st UTC" guard then keeps the
+  // generator from firing until the host's date crosses into the 1st UTC,
+  // which happens 5h30m after IST midnight). `intervalMinutes: 24*60` so
+  // the per-day "did we already run today" tracking still works.
+  {
+    name: "monthly_platform_invoice_generator",
+    intervalMinutes: 24 * 60,
+    runAtHour: 2,
+    run: monthlyPlatformInvoiceGeneratorTask,
+  },
+  // Pearl §8.3 row 215 piece 3c — daily at 03:00 host-time. Walks every
+  // `past_due` TenantSubscription and flips rows whose pastDueSince was
+  // more than `GRACE_PERIOD_DAYS` (7d) ago to `suspended`. Companion to
+  // the Razorpay platform webhook (routes/webhooks/platform-razorpay.ts)
+  // — both call the same idempotent helpers in
+  // services/platform-subscription-state.ts.
+  {
+    name: "platform_grace_period_sweep",
+    intervalMinutes: 24 * 60,
+    runAtHour: 3,
+    run: platformGracePeriodSweepTask,
+  },
+  // Pearl §8.1 row 233 — daily at 04:00 host-time. Finds every tenant
+  // suspended (`active=false`) for >=90 days and uploads a gzipped JSON
+  // export of their tenant-scoped data to S3 (key:
+  // `tenant-archives/{tenantId}/{ts}.tar.gz`), stamping `archivedAt` +
+  // `archiveS3Key` + `archiveSizeBytes` + `archiveChecksum` on the
+  // Tenant row. Live-data purge is a separate operator-gated function
+  // (`purgeArchivedTenant`) — not on the cron path.
+  {
+    name: "tenant_archive_sweep",
+    intervalMinutes: 24 * 60,
+    runAtHour: 4,
+    run: tenantArchiveSweepTask,
+  },
 ];
 
 let intervalHandle: NodeJS.Timeout | null = null;
+
+/**
+ * Pearl §8.4 (gap row 222 closure, 2026-05-22) — observability wrap.
+ *
+ * Runs a single task's `run()` while persisting a ScheduledTaskRun row so
+ * super-admins can see what ran, what errored, and what to retry.
+ * Intentionally narrow: a try/catch around the existing task body, with
+ * status RUNNING → SUCCESS|FAILED. The original error-handling inside each
+ * task (`console.error("[task_name] ...", err)`) still runs because we
+ * re-throw is NOT done — we only swallow it the same way the prior
+ * fire-and-forget code did. If creating the audit row itself fails, we log
+ * and proceed so a DB hiccup never blocks the scheduler.
+ *
+ * `retryOfRunId` is forwarded when this invocation was kicked off manually
+ * from `POST /api/v1/scheduled-jobs/:id/retry`, so the UI can show the
+ * retry chain.
+ */
+export async function runTaskWithAudit(
+  task: ScheduledTask,
+  opts: { retryOfRunId?: string } = {}
+): Promise<{ runId: string | null; status: "SUCCESS" | "FAILED" }> {
+  const startedAt = new Date();
+  let runId: string | null = null;
+  try {
+    const row = await prisma.scheduledTaskRun.create({
+      data: {
+        taskName: task.name,
+        status: "RUNNING",
+        startedAt,
+        ...(opts.retryOfRunId ? { retryOfRunId: opts.retryOfRunId } : {}),
+      },
+      select: { id: true },
+    });
+    runId = row.id;
+  } catch (err) {
+    console.error(`[scheduler] failed to record run start for ${task.name}`, err);
+  }
+
+  try {
+    await task.run();
+    const completedAt = new Date();
+    if (runId) {
+      try {
+        await prisma.scheduledTaskRun.update({
+          where: { id: runId },
+          data: {
+            status: "SUCCESS",
+            completedAt,
+            durationMs: completedAt.getTime() - startedAt.getTime(),
+          },
+        });
+      } catch (err) {
+        console.error(`[scheduler] failed to record SUCCESS for ${task.name}`, err);
+      }
+    }
+    return { runId, status: "SUCCESS" };
+  } catch (err) {
+    const completedAt = new Date();
+    const msg = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    if (runId) {
+      try {
+        await prisma.scheduledTaskRun.update({
+          where: { id: runId },
+          data: {
+            status: "FAILED",
+            completedAt,
+            durationMs: completedAt.getTime() - startedAt.getTime(),
+            error: msg.slice(0, 5000),
+          },
+        });
+      } catch (innerErr) {
+        console.error(`[scheduler] failed to record FAILED for ${task.name}`, innerErr);
+      }
+    }
+    console.error(`[scheduler] ${task.name} failed`, err);
+    return { runId, status: "FAILED" };
+  }
+}
+
+/**
+ * Pearl §8.4 — lookup a registered task by name. Used by the retry route to
+ * locate the original task body when re-invoking a failed run.
+ */
+export function getRegisteredTask(name: string): ScheduledTask | null {
+  return TASKS.find((t) => t.name === name) ?? null;
+}
 
 async function tick(): Promise<void> {
   const now = new Date();
@@ -1262,10 +1606,12 @@ async function tick(): Promise<void> {
       }
       // Mark as started immediately to avoid double-run on next tick
       await setLastRun(task.name, now);
-      // Fire-and-forget; errors are caught inside each task
-      task
-        .run()
-        .catch((err) => console.error(`[scheduler] ${task.name} failed`, err));
+      // Fire-and-forget; runTaskWithAudit handles SUCCESS/FAILED persistence
+      // and swallows the error the same way the prior `.catch(console.error)`
+      // wrap did.
+      runTaskWithAudit(task).catch((err) =>
+        console.error(`[scheduler] ${task.name} wrap failed`, err)
+      );
     } catch (err) {
       console.error(`[scheduler] tick error for ${task.name}`, err);
     }
@@ -1341,7 +1687,7 @@ export async function _runSchedulerTickForTests(): Promise<void> {
         if (sinceMin < task.intervalMinutes) continue;
       }
       await setLastRun(task.name, now);
-      await task.run();
+      await runTaskWithAudit(task);
     } catch (err) {
       console.error(`[scheduler-test] ${task.name} failed`, err);
     }

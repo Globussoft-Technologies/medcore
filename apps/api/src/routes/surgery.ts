@@ -26,9 +26,14 @@ import { authenticate, authorize } from "../middleware/auth";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { requireFeature } from "../middleware/feature-flag";
 
 const router = Router();
 router.use(authenticate);
+// Pearl §S2.2 + PRD §18: OT module is Stage-2-paid. Pearl-branded tenants
+// that haven't opted into `ot` should 404 on every surgery endpoint before
+// authorize/handler logic runs. Non-Pearl tenants pass through (default = true).
+router.use(requireFeature("ot"));
 
 // Issue #86 (Apr 2026): SCHEDULED surgeries whose scheduledAt is more than
 // 30 minutes in the past should be reported as MISSED_SCHEDULE on read.

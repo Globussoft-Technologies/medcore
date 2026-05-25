@@ -60,10 +60,17 @@ describe("OTPage", () => {
   });
 
   it("shows loading state while fetching", async () => {
+    // Issue (2026-05-23, Pearl §7.2 wave 6): the literal "Loading..." text
+    // node was replaced with a <SkeletonTable /> wrapped in
+    // `data-testid="ot-loading" aria-busy="true"`. Assert against the
+    // skeleton's testid + aria-busy instead of the removed text — both are
+    // stable contract elements rendered by ot/page.tsx.
     let resolve: (v: any) => void = () => {};
     apiMock.get.mockImplementation(() => new Promise((r) => { resolve = r; }));
     render(<OTPage />);
-    expect(await screen.findByText(/loading/i)).toBeInTheDocument();
+    const loadingRegion = await screen.findByTestId("ot-loading");
+    expect(loadingRegion).toBeInTheDocument();
+    expect(loadingRegion).toHaveAttribute("aria-busy", "true");
     resolve({ data: [] });
   });
 

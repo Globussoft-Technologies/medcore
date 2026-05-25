@@ -712,4 +712,160 @@ describeIfDB("Prescriptions API (integration)", () => {
       });
     expect([200, 201]).toContain(res.status);
   });
+
+  // ─────────────────────────────────────────────────────────
+  // Pearl ERP Stage 1 §12.c (gap-doc row 388) — Schedule-X Rx
+  // requires explicit prescriber acknowledgement + audit
+  // ─────────────────────────────────────────────────────────
+
+  it("rejects Schedule-X Rx without scheduleXOverrideAcknowledged (400, gap-row 388)", async () => {
+    const { doctor, token } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    // Seed a Schedule-X medicine. The route resolves by name OR id, so a
+    // name-only POST is enough to exercise the gate. createMedicineFixture
+    // doesn't forward `schedule`, so write through prisma directly here so
+    // the row actually carries `schedule: "X"`. Per-test unique suffix to
+    // dodge the `Medicine.name @unique` collision across re-runs.
+    const prisma = await getPrisma();
+    const medName = `Morphine 10mg X-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    await prisma.medicine.create({
+      data: {
+        name: medName,
+        genericName: "Morphine",
+        form: "tablet",
+        strength: "10mg",
+        category: "opioid",
+        schedule: "X",
+        isNarcotic: true,
+        requiresRegister: true,
+      },
+    });
+
+    const res = await request(app)
+      .post("/api/v1/prescriptions")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        diagnosis: "Severe post-op pain",
+        items: [
+          {
+            medicineName: medName,
+            dosage: "10mg",
+            frequency: "QID",
+            duration: "3 days",
+          },
+        ],
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Schedule-X.*acknowledgement/i);
+    expect(Array.isArray(res.body.scheduleXItems)).toBe(true);
+    expect(res.body.scheduleXItems).toContain(medName);
+  });
+
+  it("allows Schedule-X Rx when scheduleXOverrideAcknowledged=true and audits the override (201, gap-row 388)", async () => {
+    const { doctor, token } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    const prisma = await getPrisma();
+    const medName = `Fentanyl 50mcg X-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    await prisma.medicine.create({
+      data: {
+        name: medName,
+        genericName: "Fentanyl",
+        form: "patch",
+        strength: "50mcg",
+        category: "opioid",
+        schedule: "X",
+        isNarcotic: true,
+        requiresRegister: true,
+      },
+    });
+
+    const res = await request(app)
+      .post("/api/v1/prescriptions")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        diagnosis: "Severe chronic pain",
+        scheduleXOverrideAcknowledged: true,
+        items: [
+          {
+            medicineName: medName,
+            dosage: "50mcg",
+            frequency: "QID",
+            duration: "3 days",
+          },
+        ],
+      });
+    expect([200, 201]).toContain(res.status);
+
+    // Fire-and-forget auditLog — poll briefly so we don't race the
+    // deferred prisma.auditLog.create() the route schedules after the
+    // 201 has already been sent (mirrors the PRESCRIPTION_ALLERGY_OVERRIDE
+    // poll above).
+    let auditCount = 0;
+    for (let i = 0; i < 30; i++) {
+      auditCount = await prisma.auditLog.count({
+        where: {
+          action: "SCHEDULE_X_OVERRIDE_ACKNOWLEDGED",
+          entity: "prescription",
+          entityId: res.body.data.id,
+        },
+      });
+      if (auditCount > 0) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(auditCount).toBeGreaterThan(0);
+  });
+
+  it("allows non-Schedule-X Rx without acknowledgement (201, gap-row 388 unaffected baseline)", async () => {
+    const { doctor, token } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    // Schedule H (not X) — must not trigger the gate.
+    const prisma = await getPrisma();
+    const medName = `Ciprofloxacin 500mg H-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    await prisma.medicine.create({
+      data: {
+        name: medName,
+        genericName: "Ciprofloxacin",
+        form: "tablet",
+        strength: "500mg",
+        category: "antibiotic",
+        schedule: "H",
+      },
+    });
+
+    const res = await request(app)
+      .post("/api/v1/prescriptions")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        diagnosis: "UTI",
+        // Deliberately no scheduleXOverrideAcknowledged — the route must
+        // not require it for a Schedule-H drug.
+        items: [
+          {
+            medicineName: medName,
+            dosage: "500mg",
+            frequency: "BID",
+            duration: "5 days",
+          },
+        ],
+      });
+    expect([200, 201]).toContain(res.status);
+  });
 });

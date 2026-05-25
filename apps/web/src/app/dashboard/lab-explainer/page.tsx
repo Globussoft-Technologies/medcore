@@ -16,6 +16,7 @@ import {
   RefreshCw,
   User,
 } from "lucide-react";
+import { SkeletonCard } from "@/components/Skeleton";
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -369,11 +370,16 @@ export default function LabExplainerPage() {
 
       {/* Content */}
       {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <div className="text-center space-y-2">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-500 dark:text-blue-300 mx-auto" />
-            <p className="text-sm text-gray-500 dark:text-gray-400">Loading pending explanations...</p>
-          </div>
+        // Pearl §7.2 wave 11: skeleton card grid matches the eventual
+        // explanation-card layout so the queue shape is visible immediately.
+        <div
+          className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+          data-testid="lab-explainer-loading"
+          aria-busy="true"
+        >
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
         </div>
       ) : explanations.length === 0 ? (
         <div className="flex items-center justify-center py-16">

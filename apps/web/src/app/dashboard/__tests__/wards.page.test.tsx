@@ -72,7 +72,9 @@ describe("WardsPage", () => {
     let resolve: (v: any) => void = () => {};
     apiMock.get.mockImplementation(() => new Promise((r) => { resolve = r; }));
     render(<WardsPage />);
-    expect(await screen.findByText(/loading/i)).toBeInTheDocument();
+    const loader = await screen.findByTestId("wards-loading");
+    expect(loader).toBeInTheDocument();
+    expect(loader).toHaveAttribute("aria-busy", "true");
     resolve({ data: [] });
   });
 

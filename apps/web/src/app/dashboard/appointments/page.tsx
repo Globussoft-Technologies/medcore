@@ -12,13 +12,26 @@ import {
   displayStatusForAppointment,
   formatAppointmentTime,
 } from "@/lib/appointments";
-import { SkeletonTable } from "@/components/Skeleton";
+import { SkeletonTable, SkeletonCard } from "@/components/Skeleton";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityPicker } from "@/components/EntityPicker";
 import { AppointmentRemarksModal } from "@/components/AppointmentRemarksModal";
 import { Calendar, MessageSquare } from "lucide-react";
 
 // ─── Types ─────────────────────────────────────────
+
+// Pearl ERP Stage 1 §3.1 (gap row 71, closed 2026-05-22) — booking channels
+// the receptionist can pick for a given doctor. The set of channels actually
+// surfaced in the picker is derived per doctor by `availableChannelsFor()`
+// below: (mode-semantically-valid channels) ∩ (doctor.enabledChannels ?? all).
+type AppointmentChannel = "CALLING" | "SLOT" | "TOKEN" | "WALKIN";
+
+const CHANNEL_LABEL: Record<AppointmentChannel, string> = {
+  CALLING: "Calling (arrival queue)",
+  SLOT: "Slot (fixed time)",
+  TOKEN: "Token (sequential)",
+  WALKIN: "Walk-in",
+};
 
 interface Doctor {
   id: string;
@@ -27,6 +40,44 @@ interface Doctor {
   // Pearl ERP Stage 1 §2.1.2 — TOKEN is the legacy MedCore behaviour;
   // CALLING / SLOT activate alternate booking flows below.
   appointmentMode?: "CALLING" | "TOKEN" | "SLOT";
+  // Pearl ERP Stage 1 §3.2 (gap row 77, 2026-05-22) — per-doctor channel
+  // allow-list. Empty / undefined = "all mode-valid channels permitted"
+  // (back-compat default). Stored as `Doctor.enabledChannels` enum array.
+  enabledChannels?: AppointmentChannel[];
+}
+
+// Pearl ERP Stage 1 §3.1 (gap row 71) — channels semantically valid for
+// each appointmentMode. Picking a SLOT against a CALLING doctor is
+// nonsensical (the API rejects it too), so we never offer it in the UI.
+// WALKIN is always paired alongside the primary booking channel because
+// every clinic accepts walk-ins regardless of how its scheduling is run.
+const MODE_VALID_CHANNELS: Record<
+  NonNullable<Doctor["appointmentMode"]>,
+  AppointmentChannel[]
+> = {
+  CALLING: ["CALLING", "WALKIN"],
+  TOKEN: ["TOKEN", "WALKIN"],
+  SLOT: ["SLOT", "WALKIN"],
+};
+
+// Derive the channels actually offered for a given doctor: the intersection
+// of (channels valid for the doctor's mode) and (doctor.enabledChannels —
+// when explicitly configured). An empty / undefined enabledChannels list
+// means "all mode-valid channels permitted" (back-compat), so we return the
+// full mode-valid set in that case. If the configured array narrows the set
+// to nothing valid (e.g. enabledChannels=["SLOT"] on a CALLING doctor), we
+// fall back to the mode's primary channel so the receptionist isn't locked
+// out — the API's own enforcement is the authoritative gate.
+function availableChannelsFor(doctor: {
+  appointmentMode?: Doctor["appointmentMode"];
+  enabledChannels?: AppointmentChannel[];
+}): AppointmentChannel[] {
+  const mode = doctor.appointmentMode ?? "TOKEN";
+  const modeValid = MODE_VALID_CHANNELS[mode];
+  const configured = doctor.enabledChannels ?? [];
+  if (configured.length === 0) return modeValid;
+  const intersection = modeValid.filter((c) => configured.includes(c));
+  return intersection.length > 0 ? intersection : [modeValid[0]];
 }
 
 interface Appointment {
@@ -401,6 +452,26 @@ export default function AppointmentsPage() {
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [showCoordModal, setShowCoordModal] = useState(false);
   const [selectedDoctor, setSelectedDoctor] = useState("");
+  // Issue #950 — when the user enters the booking flow via the "Next
+  // Available" suggestion, the booking POST must target the exact
+  // doctor/date the suggestion advertised — NOT whatever the form's
+  // selectedDoctor/selectedDate happen to be by the time the user clicks
+  // Confirm (those can drift via DoctorSelect re-renders, channel auto-
+  // derivation, or a date input change between confirm-shown and
+  // confirm-clicked). When set, this lock is used as a hard override in
+  // `confirmPatientIdAndBook` and cleared after the booking completes or
+  // the dialog is cancelled. Null = the user is on the normal slot-grid
+  // path and the form state IS the source of truth.
+  const [nextAvailableLock, setNextAvailableLock] = useState<
+    { doctorId: string; date: string } | null
+  >(null);
+  // Pearl ERP Stage 1 §3.1 (gap row 71, 2026-05-22) — selected booking
+  // channel for the current doctor. Auto-derived from `availableChannelsFor`
+  // each time the doctor changes (see `onChange` on the DoctorSelect below):
+  // single-channel doctors lock the picker; multi-channel doctors render a
+  // segmented control and require an explicit pick. Empty string until the
+  // first doctor is chosen.
+  const [selectedChannel, setSelectedChannel] = useState<AppointmentChannel | "">("");
   const [selectedDate, setSelectedDate] = useState(toISODate(new Date()));
   const [slots, setSlots] = useState<Slot[]>([]);
   const [filterDate, setFilterDate] = useState(toISODate(new Date()));
@@ -714,11 +785,22 @@ export default function AppointmentsPage() {
       return;
     }
     const slotStartTime = slotOverride ?? confirmDialog.slotStartTime;
+    // Issue #950 — if the booking flow was entered via the "Next
+    // Available" suggestion, ALWAYS prefer the doctorId + date the
+    // suggestion advertised over the form-state pair. Form state can
+    // legitimately drift between the dialog being shown and the user
+    // clicking Confirm (DoctorSelect re-renders, channel auto-derivation
+    // setting `selectedChannel` which re-runs the slot effect, date
+    // input edits), and we MUST NOT silently book against a different
+    // doctor than the one the user just agreed to in the suggestion
+    // confirm prompt.
+    const bookDoctorId = nextAvailableLock?.doctorId ?? selectedDoctor;
+    const bookDate = nextAvailableLock?.date ?? selectedDate;
     // Pearl ERP Stage 1 §2.1.2 — CALLING-mode doctors don't take a slot.
     // For SLOT and TOKEN, we still require the picker to have produced
     // a slotStartTime (the slot picker is the only path into this fn).
     const doctorMode =
-      doctors.find((d) => d.id === selectedDoctor)?.appointmentMode ?? "TOKEN";
+      doctors.find((d) => d.id === bookDoctorId)?.appointmentMode ?? "TOKEN";
     if (doctorMode !== "CALLING" && !slotStartTime) {
       toast.error("Please pick a slot before booking");
       return;
@@ -728,8 +810,8 @@ export default function AppointmentsPage() {
       if (isRecurring) {
         await api.post("/appointments/recurring", {
           patientId,
-          doctorId: selectedDoctor,
-          startDate: selectedDate,
+          doctorId: bookDoctorId,
+          startDate: bookDate,
           slotStart: slotStartTime,
           frequency: recFrequency,
           occurrences: recOccurrences,
@@ -738,8 +820,8 @@ export default function AppointmentsPage() {
       } else {
         const body: Record<string, unknown> = {
           patientId,
-          doctorId: selectedDoctor,
-          date: selectedDate,
+          doctorId: bookDoctorId,
+          date: bookDate,
         };
         // Omit slotId for CALLING-mode bookings; the API mints arrivalSeq.
         if (doctorMode !== "CALLING" && slotStartTime) {
@@ -749,6 +831,7 @@ export default function AppointmentsPage() {
         toast.success("Appointment booked!");
       }
       setConfirmDialog({ open: false, slotStartTime: "", slotEndTime: "" });
+      setNextAvailableLock(null);
       setPatientIdInput("");
       setPickedPatientName("");
       setPickerResetKey((k) => k + 1);
@@ -957,6 +1040,7 @@ export default function AppointmentsPage() {
             specialization: string | null;
             date: string;
             startTime: string;
+            endTime?: string;
           } | null;
         };
       }>("/appointments/next-available");
@@ -974,11 +1058,42 @@ export default function AppointmentsPage() {
         }))
       )
         return;
-      // Pre-fill the booking form
+      // Issue #950 — the suggested slot's doctor MUST be the one that
+      // ends up booked. Earlier this handler only called
+      //   setSelectedDoctor(s.doctorId); setSelectedDate(s.date);
+      //   setShowBooking(true);
+      // …and relied on the user to (a) re-pick the slot from a slot grid
+      // that was NEVER refreshed for the new doctor (loadSlots wasn't
+      // called) and (b) trust that React had flushed `selectedDoctor`
+      // before they clicked. In practice the slots panel showed the
+      // PREVIOUS doctor's slots; the user clicked a stale slot; and
+      // because the booking POST reads `selectedDoctor` from state, any
+      // re-render that came in between (e.g. DoctorSelect's auto-channel
+      // derivation, or a tab refocus) could flip the doctor — yielding
+      // the user-visible "I picked Dr A but the row says Dr B" bug.
+      //
+      // The fix is to remove the round-trip: we book the suggested
+      // (doctorId, date, slotStart) tuple DIRECTLY against the API, and
+      // the form state is updated only so the post-book "current view"
+      // (date filter, opened panel) stays coherent. The PATIENT/staff
+      // patient-picker contract is preserved by opening the same
+      // Confirm-Appointment dialog with the slot pre-filled — but the
+      // dialog handler now also receives the exact doctorId + date as
+      // overrides, so even if `selectedDoctor` is later mutated, the
+      // booking still targets the doctor the suggestion advertised.
       setSelectedDoctor(s.doctorId);
       setSelectedDate(s.date);
       setShowBooking(true);
-      // The form auto-loads slots when doctor + date change; the user picks the slot.
+      // Refresh the slot grid for the new doctor so it isn't visually
+      // out of sync with the dialog the user just confirmed.
+      void loadSlots(s.doctorId, s.date);
+      // Lock the suggested slot in for the upcoming confirmation step.
+      setNextAvailableLock({ doctorId: s.doctorId, date: s.date });
+      setConfirmDialog({
+        open: true,
+        slotStartTime: s.startTime,
+        slotEndTime: s.endTime ?? "",
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not find next slot");
     }
@@ -1197,7 +1312,11 @@ export default function AppointmentsPage() {
         const dialogPatientName = isPatient
           ? mePatient?.name ?? ""
           : pickedPatientName;
-        const doctor = doctors.find((x) => x.id === selectedDoctor);
+        // Issue #950 — when the dialog was opened from "Next Available"
+        // the doctor shown MUST be the locked suggestion, not whatever
+        // the form's selectedDoctor happens to be by now.
+        const displayDoctorId = nextAvailableLock?.doctorId ?? selectedDoctor;
+        const doctor = doctors.find((x) => x.id === displayDoctorId);
         return (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
@@ -1243,7 +1362,7 @@ export default function AppointmentsPage() {
                     className="text-right text-gray-900 dark:text-gray-100"
                     data-testid="confirm-appointment-date"
                   >
-                    {selectedDate}
+                    {nextAvailableLock?.date ?? selectedDate}
                   </dd>
                 </div>
                 <div className="flex justify-between gap-4">
@@ -1268,6 +1387,10 @@ export default function AppointmentsPage() {
                     // change the patient, use the "Change" button on the
                     // in-form picker itself.
                     setConfirmDialog({ open: false, slotStartTime: "", slotEndTime: "" });
+                    // Issue #950 — drop the suggestion lock so a follow-up
+                    // manual slot click books against form state, not the
+                    // stale "Next Available" suggestion.
+                    setNextAvailableLock(null);
                   }}
                   className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-700"
                   data-testid="confirm-appointment-cancel"
@@ -1734,7 +1857,27 @@ export default function AppointmentsPage() {
                     placeholder={t("dashboard.appointments.selectDoctor")}
                     onChange={(id) => {
                       setSelectedDoctor(id);
-                      if (id) loadSlots(id, selectedDate);
+                      // Issue #950 — the user is now manually choosing a
+                      // doctor, so the "Next Available" suggestion lock
+                      // is no longer authoritative. Drop it so the next
+                      // booking uses the form-state pair.
+                      setNextAvailableLock(null);
+                      // Pearl §3.1 (gap row 71) — re-derive the booking
+                      // channel for the newly-picked doctor. Single-channel
+                      // doctors lock immediately to that channel; multi-
+                      // channel doctors land on the primary mode channel
+                      // (the receptionist can still segmented-control over
+                      // to WALKIN). Clearing the doctor resets the channel.
+                      if (id) {
+                        const d = doctors.find((x) => x.id === id);
+                        if (d) {
+                          const avail = availableChannelsFor(d);
+                          setSelectedChannel(avail[0]);
+                        }
+                        loadSlots(id, selectedDate);
+                      } else {
+                        setSelectedChannel("");
+                      }
                     }}
                   />
                 </div>
@@ -1748,6 +1891,11 @@ export default function AppointmentsPage() {
                     value={selectedDate}
                     onChange={(e) => {
                       setSelectedDate(e.target.value);
+                      // Issue #950 — drop the "Next Available" lock when
+                      // the user picks a different date, so the booking
+                      // tracks the new form-state instead of the stale
+                      // suggestion.
+                      setNextAvailableLock(null);
                       if (selectedDoctor) loadSlots(selectedDoctor, e.target.value);
                     }}
                     className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
@@ -1810,16 +1958,105 @@ export default function AppointmentsPage() {
                   className="mt-4 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
                   data-testid="appt-book-pick-doctor"
                 >
-                  Pick a doctor and date above to load available slots.
+                  Pick a doctor to see booking options.
                 </div>
               )}
-              {/* Pearl ERP Stage 1 §2.1.2 — CALLING-mode doctors don't take
-                  slots; the patient just joins today's arrival-order queue.
-                  We branch the whole "no slots / slots / book" panel off
-                  the selected doctor's appointmentMode (TOKEN is the
-                  legacy default and keeps the slot picker). */}
+
+              {/* Pearl ERP Stage 1 §3.1 (gap row 71, closed 2026-05-22) —
+                  per-doctor channel picker. Only the channels semantically
+                  valid for the doctor's mode AND present in the doctor's
+                  enabledChannels[] allow-list (when configured) are shown.
+                  Single-channel doctors: the picker auto-selects + hides;
+                  multi-channel doctors: a segmented control. */}
               {selectedDoctor &&
-                doctors.find((d) => d.id === selectedDoctor)?.appointmentMode === "CALLING" && (
+                (() => {
+                  const d = doctors.find((x) => x.id === selectedDoctor);
+                  if (!d) return null;
+                  const avail = availableChannelsFor(d);
+                  if (avail.length <= 1) return null;
+                  return (
+                    <div className="mt-4" data-testid="appt-book-channel-picker">
+                      <p className="mb-2 text-sm font-medium">Booking channel</p>
+                      <div
+                        role="radiogroup"
+                        aria-label="Booking channel"
+                        className="inline-flex rounded-lg border border-gray-300 bg-white p-0.5 dark:border-gray-700 dark:bg-gray-900"
+                      >
+                        {avail.map((ch) => (
+                          <button
+                            key={ch}
+                            type="button"
+                            role="radio"
+                            aria-checked={selectedChannel === ch}
+                            data-testid={`appt-book-channel-${ch.toLowerCase()}`}
+                            onClick={() => setSelectedChannel(ch)}
+                            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                              selectedChannel === ch
+                                ? "bg-primary text-white"
+                                : "text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
+                            }`}
+                          >
+                            {CHANNEL_LABEL[ch]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+              {/* Pearl §3.1 (gap row 71) — WALKIN channel: same shape as
+                  CALLING (no slot time), but the API endpoint differs
+                  (/appointments/walk-in mints a token + writes WALK_IN
+                  type). Surfaced for ANY mode that includes WALKIN in
+                  its enabled set. */}
+              {selectedDoctor && selectedChannel === "WALKIN" && (
+                <div
+                  className="mt-4 rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-100"
+                  data-testid="appt-book-walkin-mode"
+                >
+                  <p className="mb-3">
+                    Register the patient as a <strong>walk-in</strong>. A token is
+                    minted for today and the patient joins the in-clinic queue.
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="appt-book-walkin-add"
+                    disabled={bookingInFlight}
+                    onClick={async () => {
+                      if (patientIdInput.trim().length === 0) {
+                        setPatientFieldError(true);
+                        return;
+                      }
+                      setBookingInFlight(true);
+                      try {
+                        await api.post("/appointments/walk-in", {
+                          patientId: patientIdInput.trim(),
+                          doctorId: selectedDoctor,
+                        });
+                        toast.success("Walk-in registered!");
+                        setPatientIdInput("");
+                        setPickedPatientName("");
+                        setPickerResetKey((k) => k + 1);
+                        setPatientFieldError(false);
+                        setShowBooking(false);
+                        loadAppointments();
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : "Walk-in failed");
+                      } finally {
+                        setBookingInFlight(false);
+                      }
+                    }}
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    Add to today&apos;s walk-in queue
+                  </button>
+                </div>
+              )}
+
+              {/* Pearl ERP Stage 1 §2.1.2 — CALLING channel (arrival-order
+                  queue, no slot time). Reachable for CALLING-mode doctors
+                  whose enabledChannels include CALLING. */}
+              {selectedDoctor && selectedChannel === "CALLING" && (
                   <div
                     className="mt-4 rounded-lg border border-blue-300 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-700 dark:bg-blue-900/20 dark:text-blue-100"
                     data-testid="appt-book-calling-mode"
@@ -1841,7 +2078,7 @@ export default function AppointmentsPage() {
                 )}
 
               {selectedDoctor &&
-                doctors.find((d) => d.id === selectedDoctor)?.appointmentMode !== "CALLING" &&
+                (selectedChannel === "SLOT" || selectedChannel === "TOKEN") &&
                 slotsWithPast.length === 0 && (
                 <div
                   className="mt-4 rounded-lg border border-dashed border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200"
@@ -1861,7 +2098,7 @@ export default function AppointmentsPage() {
               )}
 
               {selectedDoctor &&
-                doctors.find((d) => d.id === selectedDoctor)?.appointmentMode !== "CALLING" &&
+                (selectedChannel === "SLOT" || selectedChannel === "TOKEN") &&
                 slotsWithPast.length > 0 && (
                 <div className="mt-4" data-testid="appt-book-slots">
                   <p className="mb-2 text-sm font-medium">
@@ -2246,7 +2483,19 @@ export default function AppointmentsPage() {
 
           <div className="overflow-x-auto rounded-xl bg-white shadow-sm dark:bg-gray-800">
             {calLoading ? (
-              <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading calendar…</div>
+              // Pearl §7.2 skeleton sweep (wave 13, 2026-05-23): replaced the
+              // bare "Loading calendar…" text with a `SkeletonCard ×3` block
+              // under a stable `appointments-calendar-loading` testid +
+              // `aria-busy="true"`. Same pattern as wave-12 `<slug>-loading`.
+              <div
+                data-testid="appointments-calendar-loading"
+                aria-busy="true"
+                className="space-y-3 p-4"
+              >
+                <SkeletonCard />
+                <SkeletonCard />
+                <SkeletonCard />
+              </div>
             ) : (
               <div className="min-w-200">
                 {/* Header row */}

@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
+import { SkeletonTable } from "@/components/Skeleton";
 import { Wrench, Plus, Search, AlertTriangle } from "lucide-react";
 
 interface AssetAssignment {
@@ -225,7 +226,13 @@ export default function AssetsPage() {
       )}
 
       {loading ? (
-        <p className="text-gray-500 dark:text-gray-400">Loading...</p>
+        <div
+          className="rounded-lg bg-white p-4 shadow dark:bg-gray-800"
+          data-testid="assets-loading"
+          aria-busy="true"
+        >
+          <SkeletonTable rows={5} columns={8} />
+        </div>
       ) : (
         <div className="rounded-lg bg-white shadow dark:bg-gray-800">
           <div className="overflow-x-auto">

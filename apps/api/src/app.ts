@@ -29,6 +29,13 @@ import { patientAuthRouter } from "./routes/patient-auth";
 import { featureFlagsRouter } from "./routes/feature-flags";
 import { leadRouter } from "./routes/leads";
 import { patientRouter } from "./routes/patients";
+// Pearl ERP Stage 1 §2.1.1 (gap row 41) — patient duplicate batch-merge
+// endpoint. Mounted on /api/v1/patients BEFORE patientRouter so Express's
+// first-match rule routes POST /:keepId/merge to the new batch handler
+// (accepts {mergeFromIds: string[]} from the duplicates page; back-compat
+// accepts {otherPatientId} from the legacy MergePatientModal). See
+// routes/patients-merge.ts header for the scope-cut log.
+import { patientsMergeRouter } from "./routes/patients-merge";
 import { appointmentRouter } from "./routes/appointments";
 import { doctorRouter } from "./routes/doctors";
 // Pearl ERP Stage 1 §2.1.4 (gap item #50) — per-doctor favourite-medicine
@@ -36,6 +43,9 @@ import { doctorRouter } from "./routes/doctors";
 // before any /:id-shaped handler on the doctors router (CLAUDE.md gotcha
 // §14 — static-before-dynamic).
 import { doctorFavouritesRouter } from "./routes/doctor-favourites";
+// Pearl ERP Stage 1 §2.1.3 (gap row 46) — consult right-rail data feed
+// (derived favourites + last-3-visits) for the /dashboard/scribe page.
+import { consultRailRouter } from "./routes/consult-rail";
 import { billingRouter, razorpayWebhookRouter } from "./routes/billing";
 import { prescriptionRouter, publicPrescriptionRouter } from "./routes/prescriptions";
 import { publicPatientRouter } from "./routes/public-patient";
@@ -60,6 +70,9 @@ import { referralRouter } from "./routes/referrals";
 // route; this router is just CRUD on the snapshot table.
 import { referralCommissionsRouter } from "./routes/referral-commissions";
 import { surgeryRouter } from "./routes/surgery";
+// Pearl §S2.2 row 92 — Implant register (traceability/recall lookup).
+// Gated by `requireFeature("ot")` inside the router; ADMIN/DOCTOR/NURSE.
+import { implantsRouter } from "./routes/implants";
 import { shiftRouter } from "./routes/shifts";
 import { leaveRouter } from "./routes/leaves";
 import { packageRouter } from "./routes/packages";
@@ -101,6 +114,11 @@ import { visitorsStatsRouter } from "./routes/visitors-stats";
 import { holidaysRouter } from "./routes/holidays";
 import { patientExtrasRouter } from "./routes/patient-extras";
 import { usersRouter } from "./routes/users";
+// Pearl ERP Stage 1 §8.2 (gap row 213 closure, 2026-05-23) — staff
+// email-invite flow. POST mints the invite (ADMIN-only, awaited
+// auditLog); GET + POST /accept are public surfaces gated by the
+// hashed token. Mounted alongside /users.
+import { userInvitesRouter } from "./routes/user-invites";
 import { aiTriageRouter } from "./routes/ai-triage";
 import { aiScribeRouter } from "./routes/ai-scribe";
 import { aiTranscribeRouter } from "./routes/ai-transcribe";
@@ -135,13 +153,48 @@ import { aiDocQaRouter } from "./routes/ai-doc-qa";
 import { aiSentimentRouter } from "./routes/ai-sentiment";
 import { tenantsRouter } from "./routes/tenants";
 import { tenantOnboardingRouter } from "./routes/tenant-onboarding";
+import { dpdpWorkbenchRouter } from "./routes/dpdp-workbench";
+import { scheduledJobsRouter } from "./routes/scheduled-jobs";
+import { supportTicketsRouter } from "./routes/support-tickets";
+import { superAdminUsersRouter } from "./routes/super-admin-users";
+import { superAdminMetricsRouter } from "./routes/super-admin-metrics";
+import { superAdminComplianceRouter } from "./routes/super-admin-compliance";
+import { platformBillingRouter } from "./routes/platform-billing";
 import { branchesRouter } from "./routes/branches";
 import { campaignsRouter, publicCampaignsRouter } from "./routes/campaigns";
 import { campaignAudiencesRouter } from "./routes/campaign-audiences";
 import { settingsRouter } from "./routes/settings";
+// Pearl §6.1 gap row 167 piece 3j-i of 4 — per-tenant WhatsApp inbox
+// provider config (GUPSHUP / WATI / AISENSEI / INTERAKT / META). The
+// outbound adapter at services/channels/whatsapp.ts stays unchanged
+// (still env-driven) until piece 3j-iv flips it to per-tenant creds.
+import { whatsappConfigRouter } from "./routes/whatsapp-config";
+// Pearl §6.1 gap row 167 piece 3j-ii — inbound WhatsApp webhook receiver
+// (5 providers). Unauthenticated by JWT — gated by per-provider
+// signature verification. Mounted before express.json() because the
+// router uses express.raw() for HMAC over the un-parsed bytes.
+import { whatsappWebhookRouter } from "./routes/whatsapp-webhook";
+// Pearl ERP Stage 1 §8.3 (gap rows 215-218 piece 3c, 2026-05-25) —
+// platform-side Razorpay-Subscriptions webhook. Distinct from the
+// patient-side `razorpayWebhookRouter`: this one consumes
+// `subscription.charged` / `payment.failed` / `subscription.halted` /
+// `subscription.cancelled` events and drives the TenantSubscription
+// state machine + flips the matching PlatformInvoice to PAID. Same
+// pre-JSON-parser placement reason — express.raw() for HMAC.
+import { platformRazorpayRouter } from "./routes/webhooks/platform-razorpay";
+// Pearl §6.1 gap row 167 piece 3j-iii — reception inbox read endpoints.
+// ADMIN/RECEPTION/DOCTOR/NURSE read conversations + messages persisted
+// by the inbound webhook (piece 3j-ii). PATIENT role denied. Reply +
+// outbound send is piece 3j-iv.
+import { whatsappInboxRouter } from "./routes/whatsapp-inbox";
 import { agentConsoleRouter } from "./routes/agent-console";
 import { aiKpisRouter } from "./routes/ai-kpis";
 import { healthRouter } from "./routes/health";
+// Pearl ERP Stage 1 §8.4 (gap row 221 closure, 2026-05-23) — public
+// status page backend. Mounted BEFORE any auth-bearing router so the
+// /status Next.js page (and external uptime monitors) can probe
+// MedCore without a session.
+import { statusRouter } from "./routes/status";
 import { patientDataExportRouter } from "./routes/patient-data-export";
 import { startChronicCareScheduler } from "./services/chronic-care-scheduler";
 import { errorHandler } from "./middleware/error";
@@ -225,6 +278,16 @@ export function buildApp() {
   // signature, NOT JWT, so it is intentionally mounted before authenticate.
   app.use("/api/v1/billing", razorpayWebhookRouter);
 
+  // Pearl §6.1 gap row 167 piece 3j-ii — inbound WhatsApp webhook. Same
+  // pre-JSON-parser placement reason as the Razorpay webhook above:
+  // per-provider HMAC verification (Meta / Gupshup) needs the raw bytes.
+  // Unauth on purpose — gated by signature verification inside.
+  app.use("/api/v1/wa/webhook", whatsappWebhookRouter);
+
+  // Pearl §8.3 piece 3c — platform-side Razorpay subscriptions webhook.
+  // Same pre-JSON-parser + HMAC-only-auth contract as the routers above.
+  app.use("/api/v1/webhooks", platformRazorpayRouter);
+
   // Audio transcription sends base64-encoded audio chunks (~200 KB per 8 s flush).
   // Mount a higher limit for that route before the default 100 KB global parser.
   app.use("/api/v1/ai/transcribe", express.json({ limit: "10mb" }));
@@ -272,6 +335,11 @@ export function buildApp() {
   app.use("/api/v1/public", publicPrescriptionRouter);
   app.use("/api/v1/public", publicPatientRouter);
   app.use("/api/v1/public", publicCampaignsRouter);
+  // Pearl §8.4 gap row 221 — public status endpoint. UNAUTHENTICATED;
+  // mounted alongside the other /public routes (and BEFORE any router
+  // that calls `router.use(authenticate)`). External uptime monitors
+  // and the /status Next.js page consume it.
+  app.use("/api/v1/status", statusRouter);
 
   // Routes
   const authLimiter =
@@ -283,12 +351,17 @@ export function buildApp() {
   app.use("/api/v1/patient-auth", patientAuthRouter);
   app.use("/api/v1/feature-flags", featureFlagsRouter);
   app.use("/api/v1/leads", leadRouter);
+  // Pearl §2.1.1 gap row 41 — merge router MUST mount before patientRouter
+  // so /:keepId/merge resolves to the batch handler (Express matches the
+  // first router that defines the path).
+  app.use("/api/v1/patients", patientsMergeRouter);
   app.use("/api/v1/patients", patientRouter);
   app.use("/api/v1/appointments", appointmentRouter);
   // Pearl §2.1.4 gap #50 — favourite-medicine quick-add. Mounted BEFORE
   // the generic doctorRouter so Express matches /doctors/me/favourites
   // first (static path > dynamic /:id).
   app.use("/api/v1/doctors/me/favourites", doctorFavouritesRouter);
+  app.use("/api/v1/consult-rail", consultRailRouter);
   app.use("/api/v1/doctors", doctorRouter);
   app.use("/api/v1/billing", billingRouter);
   app.use("/api/v1/prescriptions", prescriptionRouter);
@@ -313,6 +386,7 @@ export function buildApp() {
   // referrals router (it isn't on referralRouter today but staying defensive).
   app.use("/api/v1/referral-commissions", referralCommissionsRouter);
   app.use("/api/v1/surgery", surgeryRouter);
+  app.use("/api/v1/implants", implantsRouter);
   app.use("/api/v1/shifts", shiftRouter);
   app.use("/api/v1/leaves", leaveRouter);
   app.use("/api/v1/packages", packageRouter);
@@ -387,10 +461,52 @@ export function buildApp() {
   // atomically). HFR/HPR/WhatsApp/Razorpay config steps deferred to
   // piece 2b. See apps/web/src/app/super-admin/onboard/.
   app.use("/api/v1/tenant-onboarding", tenantOnboardingRouter);
+  // Pearl §8.4 gap row 222 closure (2026-05-22) — background-job queue
+  // view + retry for super-admins. Surfaces ScheduledTaskRun rows
+  // persisted by services/scheduled-tasks.ts; mounts UI at
+  // /super-admin/jobs.
+  app.use("/api/v1/scheduled-jobs", scheduledJobsRouter);
+  // Pearl §8.6 gap row 224 closure (2026-05-23) — cross-tenant DPDP
+  // erasure-request workbench. Super-admins on /super-admin/dpdp file
+  // / execute / reject right-to-erasure tickets per DPDP Act 2023 §17.
+  app.use("/api/v1/dpdp-workbench", dpdpWorkbenchRouter);
+  // Pearl §8.5 gap row 223 closure (2026-05-23) — Pearl-operator support
+  // inbox. Orthogonal to the patient→hospital Complaint flow; tenant
+  // ADMINs raise tickets against the Pearl operator (super-admin) team
+  // and the operator triages on /super-admin/support.
+  app.use("/api/v1/support-tickets", supportTicketsRouter);
+  // Pearl §8.2 gap row 208 closure (2026-05-23) — cross-tenant super-admin
+  // roster (Role.ADMIN with tenantId == null). GET list + PATCH deactivate
+  // with last-active count guard. Defence-in-depth alongside the
+  // /super-admin/ layout's client-side gate.
+  app.use("/api/v1/super-admin/users", superAdminUsersRouter);
+  // Pearl §8.4 gap rows 219 + 220 closure (2026-05-23) — cross-tenant
+  // metrics + per-tenant health rollup for the super-admin console.
+  // Read-only; mounts UI at /super-admin/metrics.
+  app.use("/api/v1/super-admin/metrics", superAdminMetricsRouter);
+  // Pearl §8.6 gap row 225 closure (2026-05-23) — per-tenant compliance
+  // posture dashboard. ABHA-link adoption, DPDP erasure activity, audit
+  // volume, ADMIN-TOTP coverage. Read-only; mounts UI at
+  // /super-admin/compliance.
+  app.use("/api/v1/super-admin/compliance", superAdminComplianceRouter);
+  // Pearl §8.3 gap rows 215-218 closure piece 3-UI (2026-05-25) —
+  // operator-facing platform-billing API. Lists cross-tenant
+  // TenantSubscription + PlatformInvoice rows; POST mark-paid is gated
+  // strictly to PLATFORM_OPERATOR / PLATFORM_BILLING_OPERATOR (legacy
+  // super-admin shape can read but not mark paid per
+  // PEARL_OPEN_DECISIONS.md #1). Mounts UI at /super-admin/platform-billing.
+  app.use("/api/v1/platform-billing", platformBillingRouter);
   app.use("/api/v1/branches", branchesRouter);
   app.use("/api/v1/campaigns", campaignsRouter);
   app.use("/api/v1/campaign-audiences", campaignAudiencesRouter);
   app.use("/api/v1/settings", settingsRouter);
+  // Pearl §6.1 gap row 167 piece 3j-i — per-tenant WhatsApp inbox
+  // provider config. ADMIN-only; sibling to /settings/integrations.
+  app.use("/api/v1/wa/config", whatsappConfigRouter);
+  // Pearl §6.1 gap row 167 piece 3j-iii — reception inbox read endpoints.
+  // ADMIN/RECEPTION/DOCTOR/NURSE — PATIENT denied. Backs
+  // /dashboard/whatsapp (list) + /dashboard/whatsapp/[id] (thread view).
+  app.use("/api/v1/wa/inbox", whatsappInboxRouter);
   app.use("/api/v1/agent-console", agentConsoleRouter);
   app.use("/api/v1/ai/kpis", aiKpisRouter);
   app.use("/api/v1/patient-data-export", patientDataExportRouter);
@@ -398,6 +514,9 @@ export function buildApp() {
   // Must be registered before the catch-all `patientExtrasRouter` mount
   // so Express finds it first.
   app.use("/api/v1/users", usersRouter);
+  // Pearl §8.2 gap row 213 — staff email-invite flow. Mounted AFTER
+  // /users so admin-side endpoints stay grouped on the same surface.
+  app.use("/api/v1/user-invites", userInvitesRouter);
   app.use("/api/v1", patientExtrasRouter);
 
   // Health check — the router provides shallow `/api/health` (public) plus

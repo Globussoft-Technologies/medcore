@@ -319,6 +319,92 @@ jobs:
           fi
           echo "::notice::Bundle ${MB} MB is under the ${BUDGET_MB} MB tripwire budget."
 
+  lhci:
+    # Lighthouse CI budget gate — Pearl PRD §6.2 hard requirement:
+    # mobile Performance >= 85 and Accessibility >= 95 on the 4 patient PWA
+    # anchor URLs (`/patient`, `/patient/dashboard`, `/patient/bills`,
+    # `/patient/appointments`). Budgets enforced via the `error`-level
+    # assertions in `.lighthouserc.json` at the repo root.
+    #
+    # Lives in test.yml (rather than lighthouse.yml) specifically so the
+    # `deploy` job below can `needs: lhci` — GHA `needs:` only resolves
+    # within the same workflow file, so cross-workflow gating would
+    # otherwise require a `workflow_run` indirection. Pearl decision doc
+    # item #7 picked the single-workflow approach.
+    #
+    # `lighthouse.yml` still runs on PRs to surface budget regressions
+    # pre-merge; the on-push-to-main trigger lives here.
+    #
+    # Cost shape: ~12-15 min on ubuntu-latest (one build + one autorun).
+    # Desktop staff-shell budget remains in lighthouse.yml (PR-only) so we
+    # don't double the per-push deploy critical path; staff Perf/A11y >=90
+    # is the M6 commitment, not the M5 PWA hard-gate.
+    name: Lighthouse budget (mobile patient PWA — Perf >=85, A11y >=95)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Generate Prisma client
+        # next build imports shared types whose generation triggers
+        # prisma generate; without this `npm --prefix apps/web run build`
+        # errors on missing `@prisma/client` types. Mirrors web-bundle.
+        run: npm run db:generate
+
+      - name: Build web (production)
+        env:
+          # Next.js 16's worker pool needs more heap than the default
+          # 2 GB on ubuntu-latest. Inherited from the web-bundle job —
+          # keep the two in lockstep when one changes.
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: npm --prefix apps/web run build
+
+      - name: Start web server (background)
+        # Boot `next start` in the background and poll /patient until it
+        # accepts connections or 30 seconds elapse. On timeout dump web.log
+        # so the run output explains the failure.
+        run: |
+          npm --prefix apps/web run start > web.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/patient > /dev/null; then
+              echo "web server ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::web server failed to start within 30s"
+          cat web.log
+          exit 1
+
+      - name: Run Lighthouse CI (mobile / patient PWA)
+        # `npx -y @lhci/cli@latest autorun` reads .lighthouserc.json,
+        # collects 1 run per URL, asserts the configured budgets (Perf
+        # >=85, A11y >=95 — error level), and uploads the HTML report to
+        # temporary public storage. On any assertion failure the CLI
+        # exits non-zero and this step — and therefore the workflow and
+        # the gated `deploy` job — turns red.
+        run: npx -y @lhci/cli@latest autorun --config=.lighthouserc.json
+
+      - name: Upload Lighthouse report artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lighthouse-report-mobile
+          path: |
+            .lighthouseci/
+            web.log
+          retention-days: 14
+          if-no-files-found: ignore
+
   migration-safety:
     # Scan new/modified Prisma migrations for destructive ops and fail the
     # build unless the commit message explicitly opts in. Since this repo
@@ -419,16 +505,23 @@ jobs:
     # release-validation is the heavier "are we good to declare a
     # release" check the user triggers on demand.
     #
-    # Also gating on the hardening jobs (Phases 1.1, 1.3, 2.3, 2.4):
+    # Also gating on the hardening jobs (Phases 1.1, 1.3, 2.3, 2.4) and the
+    # Pearl §6.2 Lighthouse budget (decision doc item #7 → DECIDED):
     #   - lint              apps/web ESLint (next/core-web-vitals + next/typescript)
     #   - npm-audit         no high/critical CVE in prod runtime deps
     #   - migration-safety  no destructive Prisma migration without the
     #                        `[allow-destructive-migration]` opt-in marker
     #   - web-bundle        no catastrophic bundle bloat (>7 MB chunks)
+    #   - lhci              Lighthouse mobile Perf >=85 + A11y >=95 on the
+    #                        4 patient PWA anchor URLs (PRD §6.2 hard
+    #                        requirement; thresholds asserted at `error`
+    #                        level in .lighthouserc.json)
     # These are deploy-correctness gates: a failing one means we should
     # NOT ship to dev. `lint` was added to the gate in TODO #3 once the
     # eslint config was bootstrapped and existing violations triaged
-    # (rule severities tuned in apps/web/eslint.config.mjs).
+    # (rule severities tuned in apps/web/eslint.config.mjs). `lhci` was
+    # added per Pearl decision doc #7 on 2026-05-24 — failing budget
+    # blocks the deploy.
     needs:
       - test
       - web-tests
@@ -437,6 +530,7 @@ jobs:
       - npm-audit
       - migration-safety
       - web-bundle
+      - lhci
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     # Don't cancel a deploy that's already in progress — let it finish, then
     # the next one runs. Two deploys racing on the same host can corrupt

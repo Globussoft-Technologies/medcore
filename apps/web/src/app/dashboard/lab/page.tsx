@@ -13,6 +13,7 @@ import { extractFieldErrors, type FieldErrorMap } from "@/lib/field-errors";
 // Issue #438 (Apr 30 2026): canonicalise dates via the shared formatter so
 // the lab tab matches the rest of the app's `DD MMM YYYY` style.
 import { formatDate } from "@/lib/format";
+import { SkeletonTable, SkeletonText } from "@/components/Skeleton";
 
 // Issue #90: RECEPTION must NOT see lab orders / results / result-entry form.
 // Clinical roles + LAB_TECH + PATIENT (own data).
@@ -254,7 +255,9 @@ export default function LabPage() {
       {tab === "catalog" ? (
         <div className="rounded-xl bg-white p-6 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
           {loading ? (
-            <div className="text-center text-gray-500 dark:text-gray-400">Loading...</div>
+            <div data-testid="lab-tests-loading" aria-busy="true">
+              <SkeletonText lines={6} />
+            </div>
           ) : tests.length === 0 ? (
             <div className="text-center text-gray-500 dark:text-gray-400">No tests defined.</div>
           ) : (
@@ -310,7 +313,9 @@ export default function LabPage() {
       ) : (
         <div className="rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
           {loading ? (
-            <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+            <div className="p-4" data-testid="lab-orders-list-loading" aria-busy="true">
+              <SkeletonTable rows={5} columns={6} />
+            </div>
           ) : orders.length === 0 ? (
             // Issue #438 (Apr 30 2026): give the empty state an icon + helper
             // copy instead of a single dashed line.

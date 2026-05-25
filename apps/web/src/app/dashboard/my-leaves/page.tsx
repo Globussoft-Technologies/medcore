@@ -6,6 +6,7 @@ import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { formatDate } from "@/lib/format";
 import { PlaneTakeoff, Plus, XCircle } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 interface Leave {
   id: string;
@@ -209,7 +210,13 @@ export default function MyLeavesPage() {
       {/* List */}
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div
+            data-testid="my-leaves-loading"
+            aria-busy="true"
+            className="p-4"
+          >
+            <SkeletonTable rows={5} columns={6} />
+          </div>
         ) : leaves.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No leave requests yet. Click &quot;Request Leave&quot; to create one.

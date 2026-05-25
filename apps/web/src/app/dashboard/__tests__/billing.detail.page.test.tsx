@@ -72,11 +72,16 @@ describe("InvoiceDetailPage", () => {
   });
 
   it("shows loading state", async () => {
+    // Skeleton sweep wave 12 (2026-05-23): the bare "Loading invoice..."
+    // text was replaced with a `SkeletonCard ×3` block under a stable
+    // `invoice-detail-loading` testid + `aria-busy="true"` so screen
+    // readers announce the busy region. Match the testid + aria-busy
+    // contract — same pattern as wave-8 `<slug>-detail-loading` (commit
+    // c24e25d / 0bc4964 references).
     apiMock.get.mockReturnValue(new Promise(() => {}));
     render(<InvoiceDetailPage />);
-    await waitFor(() =>
-      expect(screen.getByText(/loading invoice/i)).toBeInTheDocument()
-    );
+    const loadingEl = await screen.findByTestId("invoice-detail-loading");
+    expect(loadingEl).toHaveAttribute("aria-busy", "true");
   });
 
   it("shows invoice-not-found on fetch failure", async () => {

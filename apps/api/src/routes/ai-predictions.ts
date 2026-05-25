@@ -9,6 +9,7 @@ import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
 import { validateUuidParams } from "../middleware/validate-params";
+import { requireFeature } from "../middleware/feature-flag";
 import { predictNoShow } from "../services/ai/no-show-predictor";
 
 /**
@@ -37,6 +38,11 @@ const noShowBatchQuerySchema = z.object({
 });
 
 const router = Router();
+// Pearl §6 + §18 (gap item #9 — audit fix-up #3, 2026-05-25): predictive CDS
+// (no-show, sepsis, deterioration predictors) is a Stage-2 paid feature.
+// Pearl-branded tenants set `predictiveCds=false` and every predictions
+// route 404s before per-handler authenticate/authorize runs.
+router.use(requireFeature("predictiveCds"));
 
 // #511 audit (file-level, 2026-05-09): every handler applies
 // `authorize(Role.ADMIN, Role.RECEPTION)` (or DOCTOR/ADMIN/RECEPTION for

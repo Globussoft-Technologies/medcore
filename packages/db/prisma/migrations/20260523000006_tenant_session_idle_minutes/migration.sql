@@ -1,0 +1,23 @@
+-- ================================================================
+-- 20260523000006_tenant_session_idle_minutes
+--
+-- Pearl ERP Stage 1 §8.2 (gap row 212 closure, 2026-05-23):
+-- "30-min idle session timeout (configurable)". Adds the
+-- `sessionIdleMinutes` column to the `tenants` table so each
+-- tenant can set their own idle-timeout (the value lives in the
+-- super-admin tenant edit drawer; Zod validation pins [5, 1440]
+-- on the PATCH).
+--
+-- Default 30 mirrors the legacy global JWT_TTL_MIN default so
+-- existing tenants pick up the same behaviour they had before
+-- this row landed (zero-regression).
+--
+-- JWT TTL enforcement (apps/api/src/routes/auth.ts) is
+-- explicitly DEFERRED to a separate piece — that touches
+-- token-signing code which is high-risk and out of scope.
+--
+-- Strictly additive: one new column with a sane default. No
+-- existing column altered, no constraint dropped. Safe online.
+-- ================================================================
+
+ALTER TABLE "tenants" ADD COLUMN "sessionIdleMinutes" INTEGER NOT NULL DEFAULT 30;

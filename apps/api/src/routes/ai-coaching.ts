@@ -5,6 +5,7 @@ import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
 import { validateUuidParams } from "../middleware/validate-params";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
+import { requireFeature } from "../middleware/feature-flag";
 import { evaluateThresholds } from "../services/chronic-care-scheduler";
 
 function safeAudit(
@@ -21,6 +22,10 @@ function safeAudit(
 
 const router = Router();
 router.use(authenticate);
+// Pearl §6 + §18 (gap item #9 — audit fix-up #3, 2026-05-25): chronic-care
+// AI coaching is a Stage-2 paid feature. Pearl-branded tenants set
+// `aiCoaching=false` and every coaching route 404s before authorize runs.
+router.use(requireFeature("aiCoaching"));
 // #511 audit (file-level, 2026-05-09): /enroll is staff-only
 // (`authorize(Role.DOCTOR, Role.ADMIN)`). /plans/:patientId admits PATIENT
 // and uses `assertPatientOwnsResource` against the URL `:patientId`.

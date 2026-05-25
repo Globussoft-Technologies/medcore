@@ -23,6 +23,7 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { SkeletonText } from "@/components/Skeleton";
 
 const QUEUE_ALLOWED = new Set(["ADMIN", "RECEPTION", "DOCTOR", "NURSE"]);
 
@@ -166,7 +167,15 @@ export default function LiveQueuePage() {
         </p>
       )}
       {!loaded && !error && (
-        <p className="text-xs text-gray-600">Loading counts…</p>
+        // Pearl §7.2 wave 11: thin SkeletonText strip in place of the inline
+        // "Loading counts…" so the layout area is visibly reserved.
+        <div
+          className="max-w-xs"
+          data-testid="live-queue-loading"
+          aria-busy="true"
+        >
+          <SkeletonText lines={1} />
+        </div>
       )}
     </div>
   );

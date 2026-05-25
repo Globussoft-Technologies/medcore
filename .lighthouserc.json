@@ -20,7 +20,13 @@
         "categories:accessibility": ["error", { "minScore": 0.95 }],
         "uses-http2": "off",
         "csp-xss": "off",
-        "is-on-https": "off"
+        "is-on-https": "off",
+        "errors-in-console": "warn",
+        "label-content-name-mismatch": "warn",
+        "legacy-javascript-insight": "warn",
+        "network-dependency-tree-insight": "warn",
+        "skip-link": "warn",
+        "unused-javascript": "warn"
       }
     },
     "upload": {

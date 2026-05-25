@@ -6,6 +6,7 @@ import { useAuthStore } from "@/lib/store";
 import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
 import { Save, FileText } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 interface Template {
   id: string;
@@ -111,7 +112,21 @@ export default function NotificationTemplatesPage() {
     }
   }
 
-  if (loading) return <p>Loading...</p>;
+  if (loading)
+    return (
+      <div>
+        <h1 className="mb-6 flex items-center gap-2 text-2xl font-bold">
+          <FileText size={22} /> Notification Templates
+        </h1>
+        <div
+          data-testid="notification-templates-loading"
+          aria-busy="true"
+          className="overflow-x-auto rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800"
+        >
+          <SkeletonTable rows={5} columns={5} />
+        </div>
+      </div>
+    );
 
   return (
     <div>

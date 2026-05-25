@@ -138,6 +138,23 @@ select {
   color: #86efac; /* green-300 */
 }
 
+/* ───────── Pearl §6.2 — Touch-friendly 44px targets (gap row 172) ─────────
+ *
+ * iOS HIG specifies a 44pt × 44pt minimum hit area for interactive controls;
+ * Material 3 / WCAG 2.5.5 land on the same 44 CSS-pixel floor for mobile UX.
+ * Components that need a guaranteed touch target add `className="touch-target"`
+ * and inherit both axes without having to remember the per-side `h-11
+ * min-w-[44px]` pair every time. Existing patient-surface CTAs already use
+ * the explicit pair — this utility is the codebase-wide rule the gap analysis
+ * row asked for, and the migration path for any future component.
+ */
+@layer utilities {
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
 /* Skip link (hidden until focused) */
 .skip-link {
   position: absolute;

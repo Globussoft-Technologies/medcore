@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
+import { SkeletonTable } from "@/components/Skeleton";
 
 interface Complaint {
   id: string;
@@ -488,7 +489,9 @@ export default function ComplaintsPage() {
         /* Regular table */
         <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
           {loading ? (
-            <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+            <div className="p-4" data-testid="complaints-loading" aria-busy="true">
+              <SkeletonTable rows={5} columns={9} />
+            </div>
           ) : complaints.length === 0 ? (
             <div className="p-8 text-center text-gray-500 dark:text-gray-400">
               No complaints in this category

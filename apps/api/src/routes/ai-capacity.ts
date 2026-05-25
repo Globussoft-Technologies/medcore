@@ -12,6 +12,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
+import { requireFeature } from "../middleware/feature-flag";
 import {
   forecastBedOccupancy,
   forecastICUDemand,
@@ -40,6 +41,10 @@ function parseHorizon(raw: unknown): CapacityHorizonHours | null {
 export const aiCapacityRouter = Router();
 
 aiCapacityRouter.use(authenticate);
+// Pearl §6 + §18 (gap item #9 — audit fix-up #3, 2026-05-25): AI capacity
+// forecasting (bed/OT/ICU) is a Stage-2 paid feature. Pearl-branded tenants
+// set `aiCapacity=false` and every capacity route 404s before authorize.
+aiCapacityRouter.use(requireFeature("aiCapacity"));
 // #511 audit (file-level, 2026-05-09): every handler applies
 // `authorize(Role.ADMIN, Role.NURSE)` (or ADMIN-only for OT). PATIENT
 // excluded from capacity-forecast surfaces. Verified-safe.

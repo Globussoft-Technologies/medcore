@@ -19,6 +19,7 @@ import {
   aboMismatchReason,
   prettyBloodGroup as sharedPrettyGroup,
 } from "@medcore/shared";
+import { SkeletonTable } from "@/components/Skeleton";
 
 const BLOOD_GROUPS = [
   "A_POS",
@@ -338,7 +339,9 @@ export default function BloodBankPage() {
       </div>
 
       {loading ? (
-        <p className="text-gray-500 dark:text-gray-400">Loading...</p>
+        <div data-testid="bloodbank-loading" aria-busy="true" className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+          <SkeletonTable rows={6} columns={5} />
+        </div>
       ) : (
         <>
           {tab === "inventory" && (

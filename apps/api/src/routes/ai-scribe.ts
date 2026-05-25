@@ -15,6 +15,7 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { validate } from "../middleware/validate";
+import { requireFeature } from "../middleware/feature-flag";
 import { generateSOAPNote, translateText } from "../services/ai/sarvam";
 import { checkDrugSafety } from "../services/ai/drug-interactions";
 import { auditLog } from "../middleware/audit";
@@ -76,6 +77,10 @@ function soapFinalToNotes(soapFinal: unknown): string {
 
 const router = Router();
 router.use(authenticate);
+// Pearl §6 + §18 (gap item #9 — audit fix-up #3, 2026-05-25): Voice-Rx
+// (AI scribe + ASR + SOAP drafting) is a Stage-2 paid feature. Pearl-branded
+// tenants set `voiceRx=false` and every scribe route 404s before authorize.
+router.use(requireFeature("voiceRx"));
 // #511 audit (file-level, 2026-05-09): every staff handler applies
 // `authorize(Role.DOCTOR, Role.ADMIN)` (or DOCTOR-only for /finalize) — PATIENT
 // excluded from list / start / transcript / soap / drafts / previous-consultation

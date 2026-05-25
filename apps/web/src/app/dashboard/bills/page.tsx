@@ -27,6 +27,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { EmptyState } from "@/components/EmptyState";
+import { SkeletonTable } from "@/components/Skeleton";
 import { Receipt } from "lucide-react";
 
 // Issue #89: DOCTOR is excluded from billing; ADMIN + RECEPTION + PATIENT
@@ -174,10 +175,11 @@ export default function BillsPage() {
 
       {loading ? (
         <div
-          className="rounded-xl bg-white p-8 text-center text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+          className="rounded-xl bg-white p-4 dark:bg-gray-800"
           data-testid="bills-loading"
+          aria-busy="true"
         >
-          Loading...
+          <SkeletonTable rows={5} columns={5} />
         </div>
       ) : loadError ? (
         <div

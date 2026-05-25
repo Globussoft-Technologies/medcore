@@ -7,6 +7,7 @@ import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { formatDate } from "@/lib/format";
 import { Check, X, PlaneTakeoff, Printer } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 interface Leave {
   id: string;
@@ -194,7 +195,13 @@ export default function LeaveManagementPage() {
 
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm dark:bg-gray-800">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div
+            data-testid="leave-management-loading"
+            aria-busy="true"
+            className="p-4"
+          >
+            <SkeletonTable rows={6} columns={7} />
+          </div>
         ) : filtered.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No leave requests found.

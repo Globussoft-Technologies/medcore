@@ -23,6 +23,18 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
   usePathname: () => "/dashboard/appointments",
 }));
+// Issue #950 regression — the test below needs to walk the user through
+// the "Next Available" confirm prompt. Mock useConfirm to auto-accept so
+// the prompt doesn't require a real DialogProvider tree (the page is
+// rendered in isolation; mounting the provider isn't necessary for this
+// flow).
+vi.mock("@/lib/use-dialog", async () => {
+  const actual = await vi.importActual<Record<string, unknown>>("@/lib/use-dialog");
+  return {
+    ...actual,
+    useConfirm: () => () => Promise.resolve(true),
+  };
+});
 
 import AppointmentsPage from "../appointments/page";
 
@@ -282,6 +294,281 @@ describe("AppointmentsPage", () => {
       expect(
         await screen.findByTestId("confirm-appointment-dialog")
       ).toBeInTheDocument();
+    });
+  });
+
+  /**
+   * Pearl ERP Stage 1 §3.1 (gap row 71, closed 2026-05-22) — booking form
+   * derives the available channels from `(doctor.appointmentMode,
+   * doctor.enabledChannels[])`. Single-channel doctors auto-select and hide
+   * the picker; multi-channel doctors render a segmented control with only
+   * the enabled channels. Doctor switch re-derives the channel set.
+   */
+  describe("per-doctor channel gating (Pearl §3.1 / gap row 71)", () => {
+    async function openBookingPanelWithDoctors(
+      doctors: Array<{
+        id: string;
+        user: { name: string };
+        specialization: string;
+        appointmentMode?: "CALLING" | "TOKEN" | "SLOT";
+        enabledChannels?: Array<"CALLING" | "SLOT" | "TOKEN" | "WALKIN">;
+      }>
+    ) {
+      apiMock.get.mockImplementation((url: string) => {
+        if (url === "/doctors") return Promise.resolve({ data: doctors });
+        if (url.startsWith("/doctors/") && url.includes("/slots"))
+          return Promise.resolve({
+            data: {
+              slots: [
+                { startTime: "10:00", endTime: "10:15", isAvailable: true },
+              ],
+            },
+          });
+        if (url.startsWith("/appointments"))
+          return Promise.resolve({ data: [] });
+        return Promise.resolve({ data: [] });
+      });
+      const user = userEvent.setup();
+      render(<AppointmentsPage />);
+      const bookBtn = await screen.findByRole("button", {
+        name: /book appointment/i,
+      });
+      await user.click(bookBtn);
+      return user;
+    }
+
+    it("CALLING-mode doctor with no enabledChannels shows BOTH calling + walkin", async () => {
+      const user = await openBookingPanelWithDoctors([
+        {
+          id: "d1",
+          user: { name: "Dr. Calling" },
+          specialization: "GP",
+          appointmentMode: "CALLING",
+          enabledChannels: [],
+        },
+      ]);
+      await user.click(await screen.findByTestId("appt-book-doctor"));
+      await user.click(await screen.findByRole("option", { name: /Dr\. Calling/i }));
+      const picker = await screen.findByTestId("appt-book-channel-picker");
+      expect(picker).toBeInTheDocument();
+      expect(screen.getByTestId("appt-book-channel-calling")).toBeInTheDocument();
+      expect(screen.getByTestId("appt-book-channel-walkin")).toBeInTheDocument();
+      expect(screen.queryByTestId("appt-book-channel-slot")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("appt-book-channel-token")).not.toBeInTheDocument();
+      // CALLING auto-selected → calling-mode block is visible by default.
+      expect(screen.getByTestId("appt-book-calling-mode")).toBeInTheDocument();
+    });
+
+    it("TOKEN-mode doctor narrowed to enabledChannels=[TOKEN] hides the picker AND auto-selects TOKEN", async () => {
+      const user = await openBookingPanelWithDoctors([
+        {
+          id: "d2",
+          user: { name: "Dr. Token" },
+          specialization: "Derm",
+          appointmentMode: "TOKEN",
+          enabledChannels: ["TOKEN"],
+        },
+      ]);
+      await user.click(await screen.findByTestId("appt-book-doctor"));
+      await user.click(await screen.findByRole("option", { name: /Dr\. Token/i }));
+      // Wait for slot grid (proves the doctor is selected + TOKEN channel
+      // is active — only SLOT/TOKEN render the slot grid).
+      await waitFor(() =>
+        expect(screen.getByTestId("appt-book-slots")).toBeInTheDocument()
+      );
+      // Only one channel available → picker is hidden (no friction).
+      expect(screen.queryByTestId("appt-book-channel-picker")).not.toBeInTheDocument();
+      // WALKIN block must NOT be present (channel not enabled).
+      expect(screen.queryByTestId("appt-book-walkin-mode")).not.toBeInTheDocument();
+    });
+
+    it("SLOT-mode doctor with enabledChannels=[SLOT, WALKIN] shows both options, defaults to SLOT", async () => {
+      const user = await openBookingPanelWithDoctors([
+        {
+          id: "d3",
+          user: { name: "Dr. Slot" },
+          specialization: "Ortho",
+          appointmentMode: "SLOT",
+          enabledChannels: ["SLOT", "WALKIN"],
+        },
+      ]);
+      await user.click(await screen.findByTestId("appt-book-doctor"));
+      await user.click(await screen.findByRole("option", { name: /Dr\. Slot/i }));
+      await screen.findByTestId("appt-book-channel-picker");
+      expect(screen.getByTestId("appt-book-channel-slot")).toBeInTheDocument();
+      expect(screen.getByTestId("appt-book-channel-walkin")).toBeInTheDocument();
+      expect(screen.queryByTestId("appt-book-channel-calling")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("appt-book-channel-token")).not.toBeInTheDocument();
+      // SLOT auto-selected → slot grid visible.
+      await waitFor(() =>
+        expect(screen.getByTestId("appt-book-slots")).toBeInTheDocument()
+      );
+      // Switch to WALKIN: slot grid disappears, walk-in block appears.
+      await user.click(screen.getByTestId("appt-book-channel-walkin"));
+      expect(screen.queryByTestId("appt-book-slots")).not.toBeInTheDocument();
+      expect(screen.getByTestId("appt-book-walkin-mode")).toBeInTheDocument();
+    });
+
+    it("switching from a CALLING doctor to a TOKEN doctor re-derives the channel set", async () => {
+      const user = await openBookingPanelWithDoctors([
+        {
+          id: "d-c",
+          user: { name: "Dr. Calling" },
+          specialization: "GP",
+          appointmentMode: "CALLING",
+          enabledChannels: [],
+        },
+        {
+          id: "d-t",
+          user: { name: "Dr. Token" },
+          specialization: "Derm",
+          appointmentMode: "TOKEN",
+          enabledChannels: ["TOKEN"],
+        },
+      ]);
+      // Pick the CALLING doctor → both CALLING + WALKIN visible.
+      await user.click(await screen.findByTestId("appt-book-doctor"));
+      await user.click(await screen.findByRole("option", { name: /Dr\. Calling/i }));
+      await screen.findByTestId("appt-book-channel-picker");
+      expect(screen.getByTestId("appt-book-channel-calling")).toBeInTheDocument();
+      // Switch to the TOKEN doctor narrowed to TOKEN-only → picker hides,
+      // slot grid renders. The stale CALLING / WALKIN buttons must be gone.
+      await user.click(screen.getByTestId("appt-book-doctor"));
+      await user.click(screen.getByRole("option", { name: /Dr\. Token/i }));
+      await waitFor(() =>
+        expect(screen.queryByTestId("appt-book-channel-picker")).not.toBeInTheDocument()
+      );
+      expect(screen.queryByTestId("appt-book-channel-calling")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("appt-book-channel-walkin")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("appt-book-calling-mode")).not.toBeInTheDocument();
+    });
+  });
+
+  /**
+   * Issue #950 — "Next Available" booking must assign the appointment to
+   * the SAME doctor whose name appeared on the suggestion card. Pre-fix
+   * the handler only pre-filled `selectedDoctor` and opened the form,
+   * leaving the user to manually re-pick a slot from a slot-grid that
+   * had NEVER been refreshed for the new doctor. The booking POST then
+   * read `selectedDoctor` from React state, which could drift between
+   * the confirm prompt and the user's slot click (DoctorSelect re-render,
+   * channel auto-derivation, date input change) — and the persisted row
+   * could end up against a DIFFERENT doctor.
+   *
+   * The fix locks the suggestion's doctorId + date into a separate
+   * override that wins over form state until the booking completes.
+   * This test pins that contract: click "Next Available", confirm, type
+   * a patient, click the pre-locked slot, click Confirm, and assert the
+   * resulting POST /appointments/book body carries the suggestion's
+   * doctorId — not whatever the form's state happened to be.
+   */
+  describe("Issue #950 — Next Available locks the suggested doctor", () => {
+    it("books against the suggested doctor even if form state would drift", async () => {
+      const user = userEvent.setup();
+      apiMock.get.mockImplementation((url: string) => {
+        if (url === "/doctors")
+          return Promise.resolve({
+            data: [
+              {
+                id: "doc-A",
+                user: { name: "Dr. Alice" },
+                specialization: "Cardiology",
+                appointmentMode: "SLOT",
+                enabledChannels: ["SLOT"],
+              },
+              {
+                id: "doc-B",
+                user: { name: "Dr. Bob" },
+                specialization: "Dermatology",
+                appointmentMode: "SLOT",
+                enabledChannels: ["SLOT"],
+              },
+            ],
+          });
+        if (url === "/appointments/next-available")
+          return Promise.resolve({
+            data: {
+              slot: {
+                doctorId: "doc-B",
+                doctorName: "Dr. Bob",
+                specialization: "Dermatology",
+                date: "2026-06-01",
+                startTime: "11:00",
+                endTime: "11:30",
+              },
+            },
+          });
+        if (url.startsWith("/doctors/doc-B/slots"))
+          return Promise.resolve({
+            data: {
+              slots: [
+                { startTime: "11:00", endTime: "11:30", isAvailable: true },
+              ],
+            },
+          });
+        if (url.startsWith("/patients"))
+          return Promise.resolve({
+            data: [
+              {
+                id: "pat-1",
+                mrNumber: "MR-1",
+                user: { name: "Asha Roy", phone: "9000000001" },
+              },
+            ],
+          });
+        if (url.startsWith("/appointments")) return Promise.resolve({ data: [] });
+        return Promise.resolve({ data: [] });
+      });
+      apiMock.post.mockResolvedValue({ data: { id: "a-1", doctorId: "doc-B" } });
+
+      render(<AppointmentsPage />);
+
+      // Click the top-bar "Next Available" — fires findNextAvailable,
+      // which calls GET /next-available, opens the (mocked-true) confirm,
+      // then pre-fills the booking form AND surfaces the Confirm
+      // Appointment dialog with the locked (doctorId, date, slot).
+      const nextBtn = await screen.findByRole("button", {
+        name: /^next available$/i,
+      });
+      await user.click(nextBtn);
+
+      // The Confirm Appointment dialog should be open with Dr. Bob shown.
+      const dialog = await screen.findByTestId("confirm-appointment-dialog");
+      expect(dialog).toBeInTheDocument();
+      expect(screen.getByTestId("confirm-appointment-doctor")).toHaveTextContent(
+        /Dr\. Bob/i
+      );
+      expect(screen.getByTestId("confirm-appointment-date")).toHaveTextContent(
+        "2026-06-01"
+      );
+
+      // Patient pre-pick (staff flow requires a patient before booking).
+      const patientInput = screen.getByTestId("appt-book-patient-input");
+      await user.type(patientInput, "as");
+      const patientOption = await screen.findByTestId(
+        "appt-book-patient-option"
+      );
+      await user.click(patientOption);
+
+      // Click Confirm — fires confirmPatientIdAndBook, which under the
+      // fix uses the locked suggestion doctorId + date even if form state
+      // has drifted.
+      await user.click(screen.getByTestId("confirm-appointment-confirm"));
+
+      await waitFor(() => {
+        expect(apiMock.post).toHaveBeenCalled();
+      });
+      // The booking POST MUST target doc-B (the suggestion), not doc-A
+      // (the first doctor in the list, which would be a plausible
+      // pre-fix bug shape if React batched setSelectedDoctor late).
+      const [path, body] = apiMock.post.mock.calls[0];
+      expect(path).toBe("/appointments/book");
+      expect(body).toMatchObject({
+        doctorId: "doc-B",
+        date: "2026-06-01",
+        slotId: "11:00",
+        patientId: "pat-1",
+      });
     });
   });
 });

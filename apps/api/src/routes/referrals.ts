@@ -52,6 +52,21 @@ router.post(
         commissionPercent,
       } = req.body;
 
+      // Issue #949 (2026-05-23, High): a doctor was allowed to refer a
+      // patient to themselves (fromDoctorId === toDoctorId). That has no
+      // clinical meaning, pollutes the inbox / commission ledger, and
+      // games the referral commission split. Reject explicitly at the
+      // route boundary; the schema can't easily express a same-field
+      // equality refine because both fields are optional/conditional.
+      if (toDoctorId && fromDoctorId && toDoctorId === fromDoctorId) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Cannot refer a patient to the same doctor (self-referral)",
+        });
+        return;
+      }
+
       const referralNumber = await nextReferralNumber();
 
       const referral = await prisma.referral.create({

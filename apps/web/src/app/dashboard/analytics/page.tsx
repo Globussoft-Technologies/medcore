@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
+import { SkeletonText, SkeletonCard } from "@/components/Skeleton";
 import {
   Users,
   Calendar,
@@ -797,6 +798,15 @@ export default function AnalyticsPage() {
   }
 
   const loadAll = useCallback(async () => {
+    // Issue #942: defence-in-depth — even if a future code path mutates
+    // `from`/`to` directly (URL params, preset bugs), refuse to fan out 18
+    // analytics requests on an inverted range. UI Apply button handles the
+    // foreground case with a toast; this is the safety net.
+    if (from && to && from > to) {
+      toast.error('"From" date must be on or before "To" date');
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     // Issue #78: previously `from`/`to` were captured in component state at
     // mount (defaultFrom() = today-30d, today() = today), so a tab left open
@@ -1159,6 +1169,15 @@ export default function AnalyticsPage() {
           </div>
           <button
             onClick={() => {
+              // Issue #942: refuse to apply an inverted custom range. The
+              // analytics dashboard previously zeroed Appointments + Revenue
+              // (and 16 other endpoints) without any indication the range
+              // was invalid. ISO YYYY-MM-DD compares lexically, matching
+              // calendar order.
+              if (pendingFrom && pendingTo && pendingFrom > pendingTo) {
+                toast.error('"From" date must be on or before "To" date');
+                return;
+              }
               setFrom(pendingFrom);
               setTo(pendingTo);
             }}
@@ -2169,7 +2188,15 @@ export default function AnalyticsPage() {
 // ─── Sub-components ────────────────────────────────
 
 function Loader() {
-  return <div className="py-8 text-center text-sm text-gray-400">Loading...</div>;
+  return (
+    <div
+      className="py-4"
+      data-testid="analytics-loader-loading"
+      aria-busy="true"
+    >
+      <SkeletonText lines={3} />
+    </div>
+  );
 }
 
 function EmptyState() {
@@ -2471,7 +2498,18 @@ function BenchmarkAndForecastPanel() {
         </div>
       </div>
 
-      {loading && <p className="text-sm text-gray-400">Loading...</p>}
+      {loading && (
+        <div
+          data-testid="analytics-benchmark-loading"
+          aria-busy="true"
+          className="grid grid-cols-1 gap-4 md:grid-cols-4"
+        >
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
+      )}
 
       {bench && !loading && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">

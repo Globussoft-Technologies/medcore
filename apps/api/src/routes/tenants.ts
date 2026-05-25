@@ -11,7 +11,11 @@
  * cross-tenant visibility is the whole point of this module.
  *
  * All mutations emit an AuditLog row (actions TENANT_CREATE / TENANT_UPDATE
- * / TENANT_DEACTIVATE) tagged with the caller's userId.
+ * / TENANT_SUSPENDED / TENANT_RESTORED) tagged with the caller's userId.
+ * Pearl §8.1 row 206 — suspend/restore are symmetric POST endpoints
+ * (`/:id/deactivate` retained as the suspend path for back-compat; the
+ * matching restore is `/:id/restore`). S3 archival of suspended-tenant
+ * data remains a separate piece (deferred).
  */
 
 import { Router, Request, Response, NextFunction } from "express";
@@ -24,6 +28,7 @@ import { auditLog } from "../middleware/audit";
 import {
   createTenant,
   deactivateTenant,
+  activateTenant,
   validateSubdomain,
   tenantConfigKey,
 } from "../services/tenant-provisioning";
@@ -71,6 +76,12 @@ const updateTenantSchema = z.object({
   razorpayKeySecret: z.string().trim().min(8).max(128).nullable().optional(),
   razorpayMode: z.enum(["test", "live"]).nullable().optional(),
   requireAdminTOTP: z.boolean().optional(),
+  // Pearl §8.2 row 212 — per-tenant idle session timeout (minutes).
+  // Range [5, 1440] = 5 min floor (avoids accidental "logged out
+  // every page load" misconfiguration) → 24 h ceiling (avoids
+  // effectively-never-expires). JWT TTL enforcement deferred — this
+  // PATCH only persists the configured value for now.
+  sessionIdleMinutes: z.number().int().min(5).max(1440).optional(),
 });
 
 // ─── Guards ──────────────────────────────────────────────────────────
@@ -347,8 +358,24 @@ router.patch(
           ...(body.razorpayKeySecret !== undefined ? { razorpayKeySecret: body.razorpayKeySecret } : {}),
           ...(body.razorpayMode !== undefined ? { razorpayMode: body.razorpayMode } : {}),
           ...(body.requireAdminTOTP !== undefined ? { requireAdminTOTP: body.requireAdminTOTP } : {}),
+          ...(body.sessionIdleMinutes !== undefined
+            ? { sessionIdleMinutes: body.sessionIdleMinutes }
+            : {}),
         },
       });
+
+      // Pearl §8.2 row 212 — dedicated audit row when the idle-timeout
+      // changes, so super-admin policy changes are independently
+      // discoverable from the generic TENANT_UPDATE stream.
+      if (
+        body.sessionIdleMinutes !== undefined &&
+        body.sessionIdleMinutes !== tenant.sessionIdleMinutes
+      ) {
+        auditLog(req, "TENANT_SESSION_IDLE_UPDATED", "tenant", tenant.id, {
+          previous: tenant.sessionIdleMinutes,
+          next: body.sessionIdleMinutes,
+        }).catch(console.error);
+      }
       // Pearl #10b — bust the Razorpay creds cache so the next payment
       // call uses the new keys immediately (no stale 60s window).
       if (
@@ -388,7 +415,9 @@ router.patch(
   },
 );
 
-// POST /api/v1/tenants/:id/deactivate — soft deactivate
+// POST /api/v1/tenants/:id/deactivate — soft deactivate / suspend
+// Pearl §8.1 row 206 — emits TENANT_SUSPENDED (replaces the legacy
+// TENANT_DEACTIVATE action so suspend/restore audit pairs cleanly).
 router.post(
   "/:id/deactivate",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -411,13 +440,48 @@ router.post(
 
       await deactivateTenant(tenant.id);
 
-      auditLog(req, "TENANT_DEACTIVATE", "tenant", tenant.id, {
+      auditLog(req, "TENANT_SUSPENDED", "tenant", tenant.id, {
         subdomain: tenant.subdomain,
       }).catch(console.error);
 
       res.json({
         success: true,
         data: { id: tenant.id, active: false },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/tenants/:id/restore — mirror of /deactivate
+// Pearl §8.1 row 206 — flips `Tenant.active=true` and emits
+// TENANT_RESTORED. Idempotent at the service layer (no-op if already
+// active). Super-admin-only via the router-level requireSuperAdmin
+// guard. S3 cold-storage archival on suspend remains a separate
+// piece (explicitly deferred).
+router.post(
+  "/:id/restore",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!tenant) {
+        res.status(404).json({ success: false, data: null, error: "Tenant not found" });
+        return;
+      }
+
+      await activateTenant(tenant.id);
+
+      auditLog(req, "TENANT_RESTORED", "tenant", tenant.id, {
+        subdomain: tenant.subdomain,
+      }).catch(console.error);
+
+      res.json({
+        success: true,
+        data: { id: tenant.id, active: true },
         error: null,
       });
     } catch (err) {

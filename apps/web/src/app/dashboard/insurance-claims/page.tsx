@@ -18,6 +18,7 @@ import { usePrompt } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { formatINR } from "@/lib/currency";
 import { EntityPicker } from "@/components/EntityPicker";
+import { SkeletonTable } from "@/components/Skeleton";
 import { INDIAN_INSURERS } from "@medcore/shared";
 import {
   Receipt,
@@ -367,8 +368,17 @@ export default function InsuranceClaimsPage() {
         </p>
       )}
 
-      {/* Table */}
-      {loading && <p className="p-6 text-sm text-gray-500">Loading claims…</p>}
+      {/* Table — Pearl §7.2 wave 11: skeleton rows replace the plain text
+          so the table footprint is stable while claims load. */}
+      {loading && (
+        <div
+          className="overflow-hidden rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900"
+          data-testid="insurance-claims-loading"
+          aria-busy="true"
+        >
+          <SkeletonTable rows={6} columns={6} />
+        </div>
+      )}
       {error && (
         <div className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
           {error}

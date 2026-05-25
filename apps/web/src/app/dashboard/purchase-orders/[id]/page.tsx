@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { ArrowLeft, Printer, Check, Send, Package, X } from "lucide-react";
+import { SkeletonCard } from "@/components/Skeleton";
 
 interface POItem {
   id: string;
@@ -103,7 +104,17 @@ export default function PurchaseOrderDetailPage() {
   }
 
   if (loading) {
-    return <div className="py-16 text-center text-gray-500">Loading...</div>;
+    return (
+      <div
+        data-testid="purchase-order-detail-loading"
+        aria-busy="true"
+        className="space-y-4 py-6"
+      >
+        <SkeletonCard />
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    );
   }
 
   if (!po) {

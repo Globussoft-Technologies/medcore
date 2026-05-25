@@ -2280,7 +2280,7 @@ router.get(
 // browsing is unaudited per the analytics convention).
 router.get(
   "/no-show-report",
-  authorize(Role.ADMIN),
+  authorize(Role.ADMIN, Role.BILLING),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const {
@@ -2591,7 +2591,7 @@ router.get(
 // JSON browsing is unaudited per the analytics convention).
 router.get(
   "/lead-funnel-report",
-  authorize(Role.ADMIN),
+  authorize(Role.ADMIN, Role.BILLING),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const {

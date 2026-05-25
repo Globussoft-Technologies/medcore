@@ -80,13 +80,17 @@ describe("DoctorDetailPage", () => {
     toastMock.error.mockReset();
   });
 
-  it("renders the loading copy while the fetch is in flight", async () => {
+  it("renders the loading skeleton while the fetch is in flight", async () => {
+    // Pearl §7.2 wave 11 (2026-05-23): plain "Loading doctor…" text was
+    // replaced with a `<SkeletonCard />` pair wrapped in a
+    // `data-testid="doctor-detail-loading"` + `aria-busy="true"` container.
+    // Matches the wave-8/9 `<slug>-detail-loading` testid convention.
     asAdmin();
     apiMock.get.mockReturnValue(new Promise(() => {}));
     render(<DoctorDetailPage />);
-    await waitFor(() =>
-      expect(screen.getByText(/loading doctor/i)).toBeInTheDocument()
-    );
+    const skeleton = await screen.findByTestId("doctor-detail-loading");
+    expect(skeleton).toBeInTheDocument();
+    expect(skeleton).toHaveAttribute("aria-busy", "true");
   });
 
   it("renders not-found when the doctor id is not in the list", async () => {

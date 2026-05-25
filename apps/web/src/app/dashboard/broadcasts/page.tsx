@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Megaphone, Send, Mail, MessageSquare, Smartphone, Bell } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
@@ -404,7 +405,13 @@ export default function BroadcastsPage() {
           <h2 className="font-semibold text-gray-900 dark:text-gray-100">Broadcast History</h2>
         </div>
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div
+            data-testid="broadcasts-loading"
+            aria-busy="true"
+            className="p-4"
+          >
+            <SkeletonTable rows={5} columns={6} />
+          </div>
         ) : broadcasts.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No broadcasts sent yet.

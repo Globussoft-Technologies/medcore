@@ -22,6 +22,7 @@ import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
 import { rateLimit } from "../middleware/rate-limit";
+import { requireFeature } from "../middleware/feature-flag";
 import {
   buildADT_A04,
   buildORM_O01,
@@ -40,6 +41,11 @@ import {
 
 const router = Router();
 router.use(authenticate);
+// Pearl §6 + §18 (gap item #9 — audit fix-up #3, 2026-05-25): HL7v2 inbound
+// lab analyser feed is a Stage-2 paid feature. Pearl-branded tenants set
+// `hl7Inbound=false` and every HL7v2 route 404s before authorize runs.
+// Non-Pearl tenants pass through (default `true`).
+router.use(requireFeature("hl7Inbound"));
 
 const HL7_CONTENT_TYPE = "application/hl7-v2";
 

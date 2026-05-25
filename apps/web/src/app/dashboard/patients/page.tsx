@@ -107,6 +107,16 @@ export default function PatientsPage() {
     // matches the receptionist's intent.
     source: "WALK_IN",
   });
+  // Pearl §2.1.1 (gap row 40) — optional ABHA-link CTA on the patient
+  // registration form. Collapsed by default so it does not slow the
+  // happy-path register flow. When filled, the form fires a second POST
+  // to /abdm/abha/link AFTER the patient is created (the create endpoint
+  // does not accept abhaId on the wire — see apps/api/src/routes/patients.ts
+  // POST /, which only writes the columns it explicitly lists). The
+  // backend handler is the same one /dashboard/abdm uses; full OTP /
+  // verify can still be driven from there.
+  const [abhaExpanded, setAbhaExpanded] = useState(false);
+  const [abhaAddress, setAbhaAddress] = useState("");
   const [total, setTotal] = useState(0);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
@@ -279,13 +289,42 @@ export default function PatientsPage() {
     setDuplicateMatch(null);
     if (Object.keys(errs).length > 0) return;
     try {
-      await api.post("/patients", {
+      const createRes = await api.post<{ data: { id: string } }>("/patients", {
         ...form,
         name: trimmedName,
         phone: trimmedPhone,
         age: form.age ? parseInt(form.age) : undefined,
         bloodGroup: form.bloodGroup || undefined,
       });
+      // Pearl §2.1.1 (gap row 40) — if reception entered an ABHA address,
+      // fire the existing /abdm/abha/link endpoint with the newly-minted
+      // patientId. We do NOT block the success toast/list-refresh on this
+      // sidecar call: an ABDM failure should not unwind a successful
+      // patient registration. A failed link surfaces as a non-fatal toast
+      // so reception can retry from /dashboard/abdm.
+      const trimmedAbha = abhaAddress.trim();
+      const newPatientId = createRes?.data?.id;
+      if (trimmedAbha && newPatientId) {
+        if (!trimmedAbha.includes("@")) {
+          toast.error(
+            "Patient registered, but ABHA address must look like handle@domain — link skipped.",
+          );
+        } else {
+          try {
+            await api.post("/abdm/abha/link", {
+              patientId: newPatientId,
+              abhaAddress: trimmedAbha,
+            });
+            toast.success(`ABHA link initiated for ${trimmedAbha}.`);
+          } catch (linkErr) {
+            toast.error(
+              `Patient registered, but ABHA link failed: ${
+                linkErr instanceof Error ? linkErr.message : "unknown error"
+              }. Retry from /dashboard/abdm.`,
+            );
+          }
+        }
+      }
       setShowForm(false);
       setForm({
         name: "",
@@ -297,6 +336,8 @@ export default function PatientsPage() {
         bloodGroup: "",
         source: "WALK_IN",
       });
+      setAbhaAddress("");
+      setAbhaExpanded(false);
       loadPatients();
     } catch (err) {
       // Issue #103: 409 carries `existingPatient` so reception can pull up
@@ -716,6 +757,66 @@ export default function PatientsPage() {
               onChange={(e) => setForm({ ...form, address: e.target.value })}
               className="col-span-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             />
+          </div>
+          {/* Pearl §2.1.1 (gap row 40) — optional ABHA-link CTA. Collapsed
+              by default so it does not slow the happy-path register flow.
+              Expanding shows an ABHA address input; on submit, a sidecar
+              POST /abdm/abha/link runs AFTER the patient create succeeds. */}
+          <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-700">
+            <button
+              type="button"
+              data-testid="patient-abha-toggle"
+              aria-expanded={abhaExpanded}
+              aria-controls="patient-abha-section"
+              onClick={() => setAbhaExpanded((v) => !v)}
+              className="flex items-center gap-2 text-sm font-medium text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-200"
+            >
+              <KeyRound size={14} aria-hidden="true" />
+              {abhaExpanded ? "Hide" : "Link ABHA (optional)"}
+            </button>
+            {abhaExpanded && (
+              <div
+                id="patient-abha-section"
+                data-testid="patient-abha-section"
+                className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50/40 p-3 dark:border-indigo-900 dark:bg-indigo-950/20"
+              >
+                <label
+                  htmlFor="patient-abha-address"
+                  className="block text-xs font-medium text-gray-700 dark:text-gray-300"
+                >
+                  ABHA Health ID address
+                </label>
+                <input
+                  id="patient-abha-address"
+                  data-testid="patient-abha-address"
+                  type="text"
+                  value={abhaAddress}
+                  onChange={(e) => setAbhaAddress(e.target.value)}
+                  placeholder="username@abdm"
+                  className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                />
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  Optional. Submitting the form will create the patient AND
+                  initiate the ABHA link request. Don&apos;t have an ABHA?{" "}
+                  <a
+                    href="https://abha.abdm.gov.in"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-indigo-600 underline hover:text-indigo-800 dark:text-indigo-400"
+                  >
+                    Create one at abha.abdm.gov.in
+                  </a>
+                  . Full OTP verification can be completed later from{" "}
+                  <Link
+                    href="/dashboard/abdm"
+                    className="text-indigo-600 underline hover:text-indigo-800 dark:text-indigo-400"
+                  >
+                    /dashboard/abdm
+                  </Link>
+                  .
+                </p>
+              </div>
+            )}
           </div>
           <div className="mt-4 flex gap-2">
             <button

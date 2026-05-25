@@ -21,12 +21,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Search, Info, Power, X } from "lucide-react";
+import { Plus, Search, Info, Power, X, PowerOff } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
+import { Skeleton } from "@/components/Skeleton";
 
 type Plan = "BASIC" | "PRO" | "ENTERPRISE";
 
@@ -46,6 +47,9 @@ interface Tenant {
   createdAt: string;
   updatedAt: string;
   stats?: TenantStats;
+  // Pearl §8.2 row 212 — per-tenant idle session timeout (minutes).
+  // PATCH /api/v1/tenants/:id accepts integers in [5, 1440].
+  sessionIdleMinutes?: number;
 }
 
 interface TenantAdmin {
@@ -60,6 +64,26 @@ interface TenantDetail extends Tenant {
   admins: TenantAdmin[];
   config: Record<string, string>;
 }
+
+/**
+ * Pearl §8.1 row 204 — per-tenant KPI rollup shape sourced from
+ * `GET /api/v1/super-admin/metrics`. Capped server-side at the top-20
+ * tenants by userCount, so any tenant beyond that bucket renders `—`
+ * with a tooltip rather than blocking the page.
+ */
+interface PerTenantMetricsRow {
+  tenantId: string;
+  userCount: number;
+  patientCount: number;
+  appointmentsLast7d: number;
+  invoicesLast30d: number;
+}
+
+type MetricsState =
+  | { phase: "idle" }
+  | { phase: "loading" }
+  | { phase: "loaded"; byTenantId: Map<string, PerTenantMetricsRow> }
+  | { phase: "failed" };
 
 const RESERVED = new Set([
   "admin",
@@ -121,6 +145,11 @@ export default function TenantsAdminPage() {
   const [detailOpen, setDetailOpen] = useState<string | null>(null);
   const [detail, setDetail] = useState<TenantDetail | null>(null);
 
+  // Pearl §8.1 row 204 — per-tenant KPI rollup (super-admin metrics).
+  // Fetched once on mount in parallel with the tenants list; failure
+  // degrades to dashes rather than blocking the list.
+  const [metrics, setMetrics] = useState<MetricsState>({ phase: "idle" });
+
   useEffect(() => {
     if (user && user.role !== "ADMIN") {
       router.push("/dashboard");
@@ -160,6 +189,41 @@ export default function TenantsAdminPage() {
     if (user?.role === "ADMIN") load();
   }, [load, user]);
 
+  // Pearl §8.1 row 204 — load /super-admin/metrics once for the ADMIN
+  // session and index `perTenant` by tenantId. The API returns 403 for
+  // anything but a super-admin (tenant-less ADMIN OR ADMIN on the
+  // seeded "default" tenant); on any error we degrade the KPI cells to
+  // dashes rather than failing the whole page.
+  //
+  // Dep is `user?.role` (primitive) not `user` — the auth store
+  // returns a fresh user-object reference on every render, which would
+  // cause this effect to re-fire and loop with setMetrics.
+  const userRole = user?.role;
+  useEffect(() => {
+    if (userRole !== "ADMIN") return;
+    let cancelled = false;
+    setMetrics({ phase: "loading" });
+    (async () => {
+      try {
+        const res = await api.get<{
+          data: { perTenant: PerTenantMetricsRow[] };
+        }>("/super-admin/metrics");
+        if (cancelled) return;
+        const byTenantId = new Map<string, PerTenantMetricsRow>();
+        for (const row of res.data.perTenant ?? []) {
+          byTenantId.set(row.tenantId, row);
+        }
+        setMetrics({ phase: "loaded", byTenantId });
+      } catch {
+        if (cancelled) return;
+        setMetrics({ phase: "failed" });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userRole]);
+
   const loadDetail = useCallback(async (id: string) => {
     try {
       const res = await api.get<{ data: TenantDetail }>(`/tenants/${id}`);
@@ -174,20 +238,23 @@ export default function TenantsAdminPage() {
     else setDetail(null);
   }, [detailOpen, loadDetail]);
 
+  // Pearl §8.1 row 206 — suspend flips Tenant.active=false. The audit row
+  // (TENANT_SUSPENDED) lands server-side. Refresh tokens are wiped so users
+  // are signed out at their next refresh cycle.
   async function deactivateTenant(id: string, name: string) {
     const ok = await confirm({
-      title: t("tenants.deactivate.confirm", `Deactivate tenant "${name}"?`),
+      title: t("tenants.deactivate.confirm", `Suspend tenant "${name}"?`),
       message: t(
         "tenants.deactivate.warning",
-        "All users of this tenant will be signed out at their next refresh. You can reactivate later.",
+        "Users won't be able to sign in. All active sessions will be signed out at their next refresh. You can restore later.",
       ),
-      confirmLabel: t("tenants.deactivate.button", "Deactivate"),
+      confirmLabel: t("tenants.deactivate.button", "Suspend"),
       danger: true,
     });
     if (!ok) return;
     try {
       await api.post(`/tenants/${id}/deactivate`);
-      toast.success(t("tenants.deactivate.ok", "Tenant deactivated"));
+      toast.success(t("tenants.deactivate.ok", "Tenant suspended"));
       setDetailOpen(null);
       load();
     } catch (err) {
@@ -195,10 +262,47 @@ export default function TenantsAdminPage() {
     }
   }
 
-  async function reactivateTenant(id: string) {
+  // Pearl §8.2 row 212 — PATCH the per-tenant idle session timeout
+  // (minutes). The drawer input owns the staging value; this just
+  // does the wire call + toast + list refresh + detail refresh.
+  // JWT TTL enforcement (auth.ts) is deferred to a separate piece —
+  // this only persists the configured value.
+  async function updateSessionIdle(id: string, minutes: number) {
     try {
-      await api.patch(`/tenants/${id}`, { active: true });
-      toast.success(t("tenants.reactivate.ok", "Tenant reactivated"));
+      await api.patch(`/tenants/${id}`, { sessionIdleMinutes: minutes });
+      toast.success(
+        t("tenants.sessionIdle.ok", "Idle timeout updated"),
+      );
+      load();
+      if (detailOpen) loadDetail(detailOpen);
+    } catch (err) {
+      const e = err as { status?: number; message?: string };
+      toast.error(
+        e.message ||
+          t(
+            "tenants.sessionIdle.error",
+            "Failed to update idle timeout",
+          ),
+      );
+    }
+  }
+
+  // Pearl §8.1 row 206 — restore flips Tenant.active=true via the dedicated
+  // POST /:id/restore endpoint (emits TENANT_RESTORED audit row). Mirrors
+  // suspend so audit pairs cleanly per the gap-doc closure annotation.
+  async function reactivateTenant(id: string, name?: string) {
+    const ok = await confirm({
+      title: t("tenants.reactivate.confirm", `Restore tenant${name ? ` "${name}"` : ""}?`),
+      message: t(
+        "tenants.reactivate.warning",
+        "Users of this tenant will be able to sign in again.",
+      ),
+      confirmLabel: t("tenants.reactivate.button", "Restore"),
+    });
+    if (!ok) return;
+    try {
+      await api.post(`/tenants/${id}/restore`);
+      toast.success(t("tenants.reactivate.ok", "Tenant restored"));
       load();
       if (detailOpen) loadDetail(detailOpen);
     } catch (err) {
@@ -294,6 +398,9 @@ export default function TenantsAdminPage() {
                   {t("tenants.col.patients", "Patients")}
                 </th>
                 <th className="px-4 py-3">
+                  {t("tenants.col.appts7d", "Appts 7d")}
+                </th>
+                <th className="px-4 py-3">
                   {t("tenants.col.invoices30", "Inv / 30d")}
                 </th>
                 <th className="px-4 py-3">
@@ -309,8 +416,11 @@ export default function TenantsAdminPage() {
               {tenants.map((tt) => (
                 <tr
                   key={tt.id}
-                  className="border-b last:border-0 text-sm"
+                  className={`border-b last:border-0 text-sm ${
+                    tt.active ? "" : "bg-gray-50 text-gray-500 opacity-75"
+                  }`}
                   data-testid={`tenant-row-${tt.subdomain}`}
+                  data-tenant-active={tt.active ? "true" : "false"}
                 >
                   <td className="px-4 py-3 font-medium">{tt.name}</td>
                   <td className="px-4 py-3 font-mono text-xs text-gray-600">
@@ -321,15 +431,37 @@ export default function TenantsAdminPage() {
                       {tt.plan}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-xs">
-                    {tt.stats?.userCount ?? "—"}
-                  </td>
-                  <td className="px-4 py-3 text-xs">
-                    {tt.stats?.patientCount ?? "—"}
-                  </td>
-                  <td className="px-4 py-3 text-xs">
-                    {tt.stats?.invoicesLast30Days ?? "—"}
-                  </td>
+                  <KpiCell
+                    metrics={metrics}
+                    tenantId={tt.id}
+                    field="userCount"
+                    fallback={tt.stats?.userCount}
+                    testid="tenant-kpi-users"
+                    tenantSubdomain={tt.subdomain}
+                  />
+                  <KpiCell
+                    metrics={metrics}
+                    tenantId={tt.id}
+                    field="patientCount"
+                    fallback={tt.stats?.patientCount}
+                    testid="tenant-kpi-patients"
+                    tenantSubdomain={tt.subdomain}
+                  />
+                  <KpiCell
+                    metrics={metrics}
+                    tenantId={tt.id}
+                    field="appointmentsLast7d"
+                    testid="tenant-kpi-appts7d"
+                    tenantSubdomain={tt.subdomain}
+                  />
+                  <KpiCell
+                    metrics={metrics}
+                    tenantId={tt.id}
+                    field="invoicesLast30d"
+                    fallback={tt.stats?.invoicesLast30Days}
+                    testid="tenant-kpi-invoices30d"
+                    tenantSubdomain={tt.subdomain}
+                  />
                   <td className="px-4 py-3 text-xs">
                     {formatBytes(tt.stats?.storageBytes ?? 0)}
                   </td>
@@ -339,28 +471,69 @@ export default function TenantsAdminPage() {
                         {t("tenants.status.active", "Active")}
                       </span>
                     ) : (
-                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-800">
-                        {t("tenants.status.inactive", "Inactive")}
+                      <span
+                        className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800"
+                        data-testid={`tenant-suspended-badge-${tt.subdomain}`}
+                      >
+                        {t("tenants.status.suspended", "SUSPENDED")}
                       </span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      data-testid={`tenant-detail-${tt.subdomain}`}
-                      onClick={() => setDetailOpen(tt.id)}
-                      className="mr-2 rounded p-1 text-gray-600 hover:bg-gray-100"
-                      title={t("tenants.view.details", "View details")}
-                    >
-                      <Info size={14} />
-                    </button>
-                    <Link
-                      data-testid={`tenant-onboarding-${tt.subdomain}`}
-                      href={`/dashboard/tenants/${tt.id}/onboarding`}
-                      className="rounded p-1 text-primary hover:bg-primary/10"
-                      title={t("tenants.view.onboarding", "Onboarding")}
-                    >
-                      <Plus size={14} />
-                    </Link>
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        data-testid={`tenant-detail-${tt.subdomain}`}
+                        onClick={() => setDetailOpen(tt.id)}
+                        className="inline-flex h-11 w-11 items-center justify-center rounded text-gray-600 hover:bg-gray-100"
+                        title={t("tenants.view.details", "View details")}
+                        aria-label={t("tenants.view.details", "View details")}
+                      >
+                        <Info size={14} />
+                      </button>
+                      <Link
+                        data-testid={`tenant-onboarding-${tt.subdomain}`}
+                        href={`/dashboard/tenants/${tt.id}/onboarding`}
+                        className="inline-flex h-11 w-11 items-center justify-center rounded text-primary hover:bg-primary/10"
+                        title={t("tenants.view.onboarding", "Onboarding")}
+                        aria-label={t("tenants.view.onboarding", "Onboarding")}
+                      >
+                        <Plus size={14} />
+                      </Link>
+                      {/* Pearl §8.1 row 206 — per-row Suspend / Restore
+                          icon buttons. Suspend hidden for the default
+                          tenant (server-side guard blocks it anyway, but
+                          we don't render the button to avoid a confusing
+                          400). 44px touch targets per spec. */}
+                      {tt.active ? (
+                        tt.subdomain === "default" ? null : (
+                          <button
+                            data-testid={`tenant-row-suspend-${tt.subdomain}`}
+                            onClick={() => deactivateTenant(tt.id, tt.name)}
+                            className="inline-flex h-11 w-11 items-center justify-center rounded text-red-600 hover:bg-red-50"
+                            title={t("tenants.deactivate.button", "Suspend")}
+                            aria-label={t(
+                              "tenants.deactivate.aria",
+                              `Suspend ${tt.name}`,
+                            )}
+                          >
+                            <PowerOff size={14} />
+                          </button>
+                        )
+                      ) : (
+                        <button
+                          data-testid={`tenant-row-restore-${tt.subdomain}`}
+                          onClick={() => reactivateTenant(tt.id, tt.name)}
+                          className="inline-flex h-11 w-11 items-center justify-center rounded text-green-600 hover:bg-green-50"
+                          title={t("tenants.reactivate.button", "Restore")}
+                          aria-label={t(
+                            "tenants.reactivate.aria",
+                            `Restore ${tt.name}`,
+                          )}
+                        >
+                          <Power size={14} />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -387,9 +560,78 @@ export default function TenantsAdminPage() {
           onClose={() => setDetailOpen(null)}
           onDeactivate={deactivateTenant}
           onReactivate={reactivateTenant}
+          onUpdateSessionIdle={updateSessionIdle}
         />
       )}
     </div>
+  );
+}
+
+// ─── Per-tenant KPI Cell (Pearl §8.1 row 204) ────────────────────────
+
+/**
+ * Renders one KPI cell sourced from the super-admin metrics rollup.
+ *   - phase=loading → SkeletonText placeholder
+ *   - phase=loaded + tenantId in top-20 map → KPI value
+ *   - phase=loaded + NOT in top-20 → em-dash with explanatory tooltip
+ *     (or per-tenant `stats` fallback when one is supplied — used for
+ *     userCount/patientCount/invoicesLast30Days where the row-level
+ *     stats endpoint already gave us a number)
+ *   - phase=failed → em-dash (silent degrade; list still renders)
+ */
+function KpiCell({
+  metrics,
+  tenantId,
+  field,
+  fallback,
+  testid,
+  tenantSubdomain,
+}: {
+  metrics: MetricsState;
+  tenantId: string;
+  field: keyof Omit<PerTenantMetricsRow, "tenantId">;
+  fallback?: number;
+  testid: string;
+  tenantSubdomain: string;
+}) {
+  const dataTestId = `${testid}-${tenantSubdomain}`;
+  if (metrics.phase === "loading" || metrics.phase === "idle") {
+    return (
+      <td className="px-4 py-3 text-xs" data-testid={dataTestId}>
+        <Skeleton variant="text" width="40px" height={14} />
+      </td>
+    );
+  }
+  if (metrics.phase === "failed") {
+    return (
+      <td className="px-4 py-3 text-xs" data-testid={dataTestId}>
+        —
+      </td>
+    );
+  }
+  const row = metrics.byTenantId.get(tenantId);
+  if (row) {
+    return (
+      <td className="px-4 py-3 text-xs" data-testid={dataTestId}>
+        {row[field]}
+      </td>
+    );
+  }
+  if (fallback !== undefined) {
+    return (
+      <td className="px-4 py-3 text-xs" data-testid={dataTestId}>
+        {fallback}
+      </td>
+    );
+  }
+  return (
+    <td
+      className="px-4 py-3 text-xs"
+      data-testid={dataTestId}
+      title="Metrics shown for top-20 tenants by user count"
+    >
+      —
+    </td>
   );
 }
 
@@ -688,14 +930,41 @@ function TenantDetailDrawer({
   onClose,
   onDeactivate,
   onReactivate,
+  onUpdateSessionIdle,
 }: {
   tenantId: string;
   detail: TenantDetail | null;
   onClose: () => void;
   onDeactivate: (id: string, name: string) => void;
-  onReactivate: (id: string) => void;
+  onReactivate: (id: string, name?: string) => void;
+  onUpdateSessionIdle: (id: string, minutes: number) => void;
 }) {
   const { t } = useTranslation();
+
+  // Pearl §8.2 row 212 — staging value for the idle-timeout input
+  // (controlled). Resets on detail change so opening a different
+  // tenant shows that tenant's persisted value.
+  const [sessionIdleDraft, setSessionIdleDraft] = useState<string>("");
+  useEffect(() => {
+    if (detail) {
+      setSessionIdleDraft(String(detail.sessionIdleMinutes ?? 30));
+    }
+  }, [detail]);
+
+  const sessionIdleError = (() => {
+    if (sessionIdleDraft.trim() === "") return null;
+    const n = Number(sessionIdleDraft);
+    if (!Number.isFinite(n) || !Number.isInteger(n)) return "Must be an integer";
+    if (n < 5) return "Minimum 5 minutes";
+    if (n > 1440) return "Maximum 1440 minutes (24 h)";
+    return null;
+  })();
+
+  const canSaveSessionIdle =
+    !sessionIdleError &&
+    sessionIdleDraft.trim() !== "" &&
+    detail !== null &&
+    Number(sessionIdleDraft) !== (detail.sessionIdleMinutes ?? 30);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/30" data-testid="tenants-detail">
@@ -762,6 +1031,59 @@ function TenantDetailDrawer({
               </dl>
             </div>
 
+            {/* Pearl §8.2 row 212 — per-tenant idle session timeout
+                (configurable). PATCH /api/v1/tenants/:id accepts
+                sessionIdleMinutes in [5, 1440]. JWT TTL enforcement
+                deferred (separate piece touches auth.ts). */}
+            <div>
+              <h4 className="mb-2 text-sm font-semibold">
+                {t(
+                  "tenants.detail.sessionIdle.title",
+                  "Session idle timeout (minutes)",
+                )}
+              </h4>
+              <div className="flex items-start gap-2">
+                <input
+                  data-testid="tenants-detail-session-idle-input"
+                  type="number"
+                  min={5}
+                  max={1440}
+                  step={1}
+                  value={sessionIdleDraft}
+                  onChange={(e) => setSessionIdleDraft(e.target.value)}
+                  className="w-32 rounded-lg border px-3 py-2 text-sm"
+                  aria-label={t(
+                    "tenants.detail.sessionIdle.aria",
+                    "Session idle timeout in minutes",
+                  )}
+                />
+                <button
+                  data-testid="tenants-detail-session-idle-save"
+                  disabled={!canSaveSessionIdle}
+                  onClick={() =>
+                    onUpdateSessionIdle(tenantId, Number(sessionIdleDraft))
+                  }
+                  className="rounded-lg bg-primary px-3 py-2 text-sm text-white hover:bg-primary-dark disabled:opacity-50"
+                >
+                  {t("common.save", "Save")}
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-gray-500">
+                {t(
+                  "tenants.detail.sessionIdle.hint",
+                  "Allowed range: 5–1440. JWT TTL enforcement coming in a separate release; this value is currently persisted only.",
+                )}
+              </p>
+              {sessionIdleError && (
+                <p
+                  data-testid="tenants-detail-session-idle-error"
+                  className="mt-1 text-[11px] text-red-600"
+                >
+                  {sessionIdleError}
+                </p>
+              )}
+            </div>
+
             <div>
               <h4 className="mb-2 text-sm font-semibold">
                 {t("tenants.detail.admins", "Admin Users")}
@@ -806,16 +1128,16 @@ function TenantDetailDrawer({
                   className="ml-auto flex items-center gap-1 rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700"
                 >
                   <Power size={14} />
-                  {t("tenants.deactivate.button", "Deactivate")}
+                  {t("tenants.deactivate.button", "Suspend")}
                 </button>
               ) : (
                 <button
                   data-testid="tenants-detail-reactivate"
-                  onClick={() => onReactivate(detail.id)}
+                  onClick={() => onReactivate(detail.id, detail.name)}
                   className="ml-auto flex items-center gap-1 rounded-lg bg-green-600 px-4 py-2 text-sm text-white hover:bg-green-700"
                 >
                   <Power size={14} />
-                  {t("tenants.reactivate.button", "Reactivate")}
+                  {t("tenants.reactivate.button", "Restore")}
                 </button>
               )}
             </div>

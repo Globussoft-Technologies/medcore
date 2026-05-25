@@ -17,11 +17,17 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { requireFeature } from "../middleware/feature-flag";
 import { generatePaySlipHTML } from "../services/pdf";
 import { computePayroll, daysInMonth as daysInMonthFor } from "../services/payroll";
 
 const router = Router();
 router.use(authenticate);
+// Pearl §6 + §18 (gap item #9 — audit fix-up #3, 2026-05-25): HRMS / payroll
+// (holidays, payroll, certifications, overtime) is a Stage-2 paid feature.
+// Pearl-branded tenants set `hrmsPayroll=false` and every hr-ops route 404s.
+// Clinical shift scheduling stays — that lives elsewhere (see `staff-shifts.ts`).
+router.use(requireFeature("hrmsPayroll"));
 
 // #511 audit (2026-05-05, cron-tick): all handlers verified safe.
 // HR-ops is staff-only by domain (holiday calendar, attendance, payroll,

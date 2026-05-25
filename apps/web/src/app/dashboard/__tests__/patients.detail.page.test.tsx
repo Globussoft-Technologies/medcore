@@ -52,9 +52,11 @@ describe("PatientDetailPage", () => {
   it("shows loading state", async () => {
     apiMock.get.mockReturnValue(new Promise(() => {}));
     render(<PatientDetailPage />);
-    await waitFor(() =>
-      expect(screen.getByText(/loading/i)).toBeInTheDocument()
-    );
+    await waitFor(() => {
+      const loader = screen.getByTestId("patients-detail-loading");
+      expect(loader).toBeInTheDocument();
+      expect(loader).toHaveAttribute("aria-busy", "true");
+    });
   });
 
   it("shows patient-not-found on failure", async () => {
@@ -69,6 +71,12 @@ describe("PatientDetailPage", () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === "/patients/test-id") return Promise.resolve({ data: samplePatient });
       if (url.endsWith("/stats")) return Promise.reject(new Error("no stats"));
+      // PatientCRMActivity (Pearl §7.1, commit 2ec88c3) fires
+      // GET /leads/by-patient/:id on mount — render the empty-state
+      // path rather than feeding it an array and tripping
+      // `lead.source.replace`.
+      if (url.startsWith("/leads/by-patient/"))
+        return Promise.reject(new Error("404 not found"));
       return Promise.resolve({ data: [] });
     });
     render(<PatientDetailPage />);
@@ -81,6 +89,12 @@ describe("PatientDetailPage", () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === "/patients/test-id") return Promise.resolve({ data: samplePatient });
       if (url.endsWith("/stats")) return Promise.reject(new Error("no stats"));
+      // PatientCRMActivity (Pearl §7.1, commit 2ec88c3) fires
+      // GET /leads/by-patient/:id on mount — render the empty-state
+      // path rather than feeding it an array and tripping
+      // `lead.source.replace`.
+      if (url.startsWith("/leads/by-patient/"))
+        return Promise.reject(new Error("404 not found"));
       return Promise.resolve({ data: [] });
     });
     render(<PatientDetailPage />);
@@ -93,6 +107,12 @@ describe("PatientDetailPage", () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === "/patients/test-id") return Promise.resolve({ data: samplePatient });
       if (url.endsWith("/stats")) return Promise.reject(new Error("no stats"));
+      // PatientCRMActivity (Pearl §7.1, commit 2ec88c3) fires
+      // GET /leads/by-patient/:id on mount — render the empty-state
+      // path rather than feeding it an array and tripping
+      // `lead.source.replace`.
+      if (url.startsWith("/leads/by-patient/"))
+        return Promise.reject(new Error("404 not found"));
       return Promise.resolve({ data: [] });
     });
     render(<PatientDetailPage />);
@@ -107,6 +127,13 @@ describe("PatientDetailPage", () => {
         if (url === "/patients/test-id")
           return Promise.resolve({ data: samplePatient });
         if (url.endsWith("/stats")) return Promise.reject(new Error("no stats"));
+        // PatientCRMActivity (Pearl §7.1, commit 2ec88c3) fires
+        // GET /leads/by-patient/:id on mount. The empty-state path is
+        // a 404 — which the component matches via /404|not found|No lead/
+        // and renders the "no CRM history" pill rather than throwing on
+        // an unexpected response shape.
+        if (url.startsWith("/leads/by-patient/"))
+          return Promise.reject(new Error("404 not found"));
         return Promise.resolve({ data: [] });
       });
     }
@@ -310,6 +337,13 @@ describe("PatientDetailPage", () => {
               ],
             },
           });
+        // PatientCRMActivity (Pearl §7.1, commit 2ec88c3) fires
+        // GET /leads/by-patient/:id on mount. The empty-state path is
+        // a 404 — which the component matches via /404|not found|No lead/
+        // and renders the "no CRM history" pill rather than throwing on
+        // an unexpected response shape.
+        if (url.startsWith("/leads/by-patient/"))
+          return Promise.reject(new Error("404 not found"));
         return Promise.resolve({ data: [] });
       });
     }

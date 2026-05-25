@@ -243,6 +243,7 @@ router.post(
         overrideWarnings,
         overrideAllergies,
         allergyOverrideReason,
+        scheduleXOverrideAcknowledged,
         signatureDataUrl,
       } = req.body as {
           appointmentId: string;
@@ -254,6 +255,7 @@ router.post(
           overrideWarnings?: boolean;
           overrideAllergies?: boolean;
           allergyOverrideReason?: string;
+          scheduleXOverrideAcknowledged?: boolean;
           signatureDataUrl?: string;
         };
 
@@ -343,6 +345,58 @@ router.post(
         ).catch(console.error);
       }
 
+      // Pearl §12.c (gap-doc row 388) — Schedule-X (controlled substance)
+      // prescriptions require an explicit prescriber acknowledgement before
+      // we persist. Resolve every item to a Medicine row (by id when present,
+      // else by case-insensitive name/genericName match — same lookup shape
+      // as the allergy + interaction engines) and inspect `Medicine.schedule`.
+      // Any item with schedule === "X" requires `scheduleXOverrideAcknowledged
+      // === true` on the request. Defence-in-depth: the UI raises a banner +
+      // window.confirm() that sets the flag, but the route also enforces it
+      // so a CLI / mobile client can't silently skip the acknowledgement.
+      const scheduleXMedicines = await prisma.medicine.findMany({
+        where: {
+          AND: [
+            { schedule: "X" },
+            {
+              OR: [
+                ...(providedMedicineIds.length
+                  ? [{ id: { in: providedMedicineIds } }]
+                  : []),
+                ...names.flatMap((n) => [
+                  { name: { equals: n, mode: "insensitive" as const } },
+                  { genericName: { equals: n, mode: "insensitive" as const } },
+                ]),
+              ],
+            },
+          ],
+        },
+        select: { id: true, name: true, genericName: true, schedule: true },
+      });
+      const scheduleXItemNames = normalizedItems
+        .filter((it) => {
+          if (it.medicineId && scheduleXMedicines.some((m) => m.id === it.medicineId)) {
+            return true;
+          }
+          const lower = it.medicineName.toLowerCase();
+          return scheduleXMedicines.some(
+            (m) =>
+              m.name.toLowerCase() === lower ||
+              (m.genericName && m.genericName.toLowerCase() === lower),
+          );
+        })
+        .map((it) => it.medicineName);
+      if (scheduleXItemNames.length > 0 && scheduleXOverrideAcknowledged !== true) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error:
+            "Schedule-X medicines require an explicit override acknowledgement",
+          scheduleXItems: scheduleXItemNames,
+        });
+        return;
+      }
+
       // Get doctor record from user
       const doctor = await prisma.doctor.findUnique({
         where: { userId: req.user!.userId },
@@ -412,6 +466,31 @@ router.post(
         warningCount: warnings.length,
         overrideWarnings: Boolean(overrideWarnings),
       }).catch(console.error);
+
+      // Pearl §12.c (gap-doc row 388) — capture the prescriber's explicit
+      // acknowledgement of the Schedule-X dispense in its own audit row so
+      // the controlled-substance compliance review can list every Rx that
+      // tripped the gate and the doctor who acknowledged it. The
+      // `itemIds` list pins which prescription_items were the Schedule-X
+      // ones (not just every item in the Rx).
+      if (scheduleXItemNames.length > 0) {
+        const xItemIds = prescription.items
+          .filter((it: { medicineName: string }) =>
+            scheduleXItemNames.includes(it.medicineName),
+          )
+          .map((it: { id: string }) => it.id);
+        auditLog(
+          req,
+          "SCHEDULE_X_OVERRIDE_ACKNOWLEDGED",
+          "prescription",
+          prescription.id,
+          {
+            itemIds: xItemIds,
+            medicineNames: scheduleXItemNames,
+            prescribedBy: doctorId,
+          },
+        ).catch(console.error);
+      }
 
       // Index the prescription into the RAG knowledge base so cohort/chart
       // searches ("which of my patients are on metformin?") can find it.

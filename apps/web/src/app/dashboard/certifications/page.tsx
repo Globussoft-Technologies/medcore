@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { EntityPicker } from "@/components/EntityPicker";
 import { Award, Plus, AlertTriangle, X } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 interface Cert {
   id: string;
@@ -157,7 +158,9 @@ export default function CertificationsPage() {
       </div>
 
       {loading ? (
-        <div className="p-8 text-center text-slate-500 dark:text-slate-400">Loading...</div>
+        <div className="p-4" data-testid="certifications-loading" aria-busy="true">
+          <SkeletonTable rows={5} columns={6} />
+        </div>
       ) : filtered.length === 0 ? (
         <div className="p-8 text-center text-slate-500 dark:text-slate-400 border border-dashed rounded-lg dark:border-gray-700">
           No certifications found.

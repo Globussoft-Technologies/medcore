@@ -15,8 +15,20 @@ import { InfoIcon } from "@/components/Tooltip";
 import { Autocomplete } from "@/components/Autocomplete";
 import { EntityPicker } from "@/components/EntityPicker";
 import { EmptyState } from "@/components/EmptyState";
+import { SkeletonCard } from "@/components/Skeleton";
 import { FileText, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+// Pearl ERP Stage 1 §2.1.4 (gap-doc row 49) — chip / segmented-control
+// helpers for the structured prescription row. Lives in lib/ because
+// Next.js page modules forbid non-default exports.
+import {
+  DOSE_PRESETS,
+  ROUTE_OPTIONS,
+  FREQUENCY_TOOLTIPS,
+  computeAutoQuantity,
+  composeInstructions,
+  parseInstructions,
+} from "@/lib/rx-form";
 
 // Issue #398: render the prescription's actual issue date with explicit
 // en-IN locale and Asia/Kolkata TZ, so a server in UTC doesn't shift the
@@ -158,8 +170,47 @@ export default function PrescriptionsPage() {
     // Prescription.signatureUrl so the share endpoint stops rejecting.
     signatureDataUrl: "",
   });
-  const [medicines, setMedicines] = useState([
-    { medicineName: "", dosage: "", frequency: "", duration: "", instructions: "" },
+  // Pearl §2.1.4 (gap-doc row 49): each medicine row carries the
+  // wire fields PLUS purely-UI structured pieces (route / quantity /
+  // qtyOverridden) that get serialized into `instructions` on submit.
+  // `dosagePreset` tracks which chip is highlighted; the actual
+  // `dosage` string remains the source of truth (matches the
+  // dosageStringSchema regex on the wire).
+  const [medicines, setMedicines] = useState<
+    Array<{
+      medicineName: string;
+      dosage: string;
+      frequency: string;
+      duration: string;
+      instructions: string;
+      // Pearl §2.1.4 row 49 — UI-only structured fields:
+      dosagePreset: string; // one of DOSE_PRESETS or "custom" or ""
+      route: string; // one of ROUTE_OPTIONS.value or custom string or ""
+      routeMode: "preset" | "custom"; // controls whether free-text route input is shown
+      quantity: string; // auto-calculated unless qtyOverridden
+      qtyOverridden: boolean; // user manually edited quantity
+      // Pearl §12.c row 388 — populated when the doctor picks a medicine
+      // from autocomplete AND the resolved Medicine.schedule === "X". Used
+      // to render the inline controlled-substance warning banner under the
+      // row and to gate the window.confirm() at submit. Free-text rows
+      // (no autocomplete pick) stay false; the API enforces the gate as
+      // defence-in-depth.
+      scheduleX: boolean;
+    }>
+  >([
+    {
+      medicineName: "",
+      dosage: "",
+      frequency: "",
+      duration: "",
+      instructions: "",
+      dosagePreset: "",
+      route: "",
+      routeMode: "preset",
+      quantity: "",
+      qtyOverridden: false,
+      scheduleX: false,
+    },
   ]);
 
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -334,13 +385,33 @@ export default function PrescriptionsPage() {
       advice: tpl.advice ?? "",
     }));
     setMedicines(
-      tpl.items.map((i) => ({
-        medicineName: i.medicineName,
-        dosage: i.dosage,
-        frequency: i.frequency,
-        duration: i.duration,
-        instructions: i.instructions ?? "",
-      }))
+      tpl.items.map((i) => {
+        const parsed = parseInstructions(i.instructions);
+        const dosagePresetMatch = DOSE_PRESETS.find((p) => p === i.dosage.trim());
+        const routePreset = ROUTE_OPTIONS.find((r) => r.value === parsed.route);
+        return {
+          medicineName: i.medicineName,
+          dosage: i.dosage,
+          frequency: i.frequency,
+          duration: i.duration,
+          instructions: parsed.notes,
+          dosagePreset: dosagePresetMatch ?? (i.dosage.trim() ? "custom" : ""),
+          route: parsed.route,
+          routeMode: (routePreset ? "preset" : parsed.route ? "custom" : "preset") as
+            | "preset"
+            | "custom",
+          quantity: parsed.quantity,
+          qtyOverridden:
+            parsed.quantity !== "" &&
+            parsed.quantity !== computeAutoQuantity(i.frequency, i.duration),
+          // Pearl §12.c row 388 — templates carry medicine names only, no
+          // resolved Medicine row. Start at false; if the template's name
+          // happens to resolve to a Schedule-X medicine, the API will still
+          // gate the submit (defence-in-depth). The doctor can also tweak
+          // the row via the autocomplete to refresh the flag.
+          scheduleX: false,
+        };
+      })
     );
   }
 
@@ -528,7 +599,19 @@ export default function PrescriptionsPage() {
   function addMedicine() {
     setMedicines([
       ...medicines,
-      { medicineName: "", dosage: "", frequency: "", duration: "", instructions: "" },
+      {
+        medicineName: "",
+        dosage: "",
+        frequency: "",
+        duration: "",
+        instructions: "",
+        dosagePreset: "",
+        route: "",
+        routeMode: "preset",
+        quantity: "",
+        qtyOverridden: false,
+        scheduleX: false,
+      },
     ]);
     // Issue #541: clear stale "At least one medicine is required" the moment
     // the user adds a row.
@@ -543,7 +626,26 @@ export default function PrescriptionsPage() {
 
   function updateMedicine(idx: number, field: string, value: string) {
     const updated = [...medicines];
-    (updated[idx] as Record<string, string>)[field] = value;
+    const row = { ...updated[idx] };
+    (row as unknown as Record<string, string>)[field] = value;
+
+    // Pearl §2.1.4 row 49 — auto-quantity recalc whenever the
+    // contributing inputs change AND the user hasn't manually
+    // overridden it. Manual edits set qtyOverridden=true via a
+    // separate handler so this recalc respects that.
+    if ((field === "frequency" || field === "duration") && !row.qtyOverridden) {
+      row.quantity = computeAutoQuantity(row.frequency, row.duration);
+    }
+
+    // Keep dosagePreset chip highlight in sync if the user types into
+    // the dosage field directly: if it matches a preset, light the
+    // chip; otherwise switch to "custom" so the chips don't lie.
+    if (field === "dosage") {
+      const match = DOSE_PRESETS.find((p) => p === value.trim());
+      row.dosagePreset = match ?? (value.trim() ? "custom" : "");
+    }
+
+    updated[idx] = row;
     setMedicines(updated);
     // Issue #541: clear the medicines error as soon as any field of any row
     // is filled — the error wording covers both "no rows" and "row missing
@@ -553,13 +655,82 @@ export default function PrescriptionsPage() {
     }
   }
 
+  // Pearl §2.1.4 row 49 — dedicated handler for the quantity field so
+  // a manual edit flips qtyOverridden and stops the auto-recalc from
+  // clobbering it on the next frequency/duration change.
+  function updateQuantity(idx: number, value: string) {
+    const updated = [...medicines];
+    updated[idx] = { ...updated[idx], quantity: value, qtyOverridden: true };
+    setMedicines(updated);
+  }
+
+  // Pearl §2.1.4 row 49 — release the manual override and snap back
+  // to the auto-calculated value.
+  function resetQuantityAuto(idx: number) {
+    const updated = [...medicines];
+    const row = { ...updated[idx], qtyOverridden: false };
+    row.quantity = computeAutoQuantity(row.frequency, row.duration);
+    updated[idx] = row;
+    setMedicines(updated);
+  }
+
+  // Pearl §2.1.4 row 49 — chip click handler. "custom" reveals the
+  // free-text input (and clears the value so the user can type fresh);
+  // any other chip fills the dosage field with the chip's literal.
+  function selectDosePreset(idx: number, preset: string) {
+    const updated = [...medicines];
+    if (preset === "custom") {
+      updated[idx] = { ...updated[idx], dosagePreset: "custom", dosage: "" };
+    } else {
+      updated[idx] = { ...updated[idx], dosagePreset: preset, dosage: preset };
+    }
+    setMedicines(updated);
+    if (formErrors.medicines) {
+      setFormErrors((p) => ({ ...p, medicines: "" }));
+    }
+  }
+
+  // Pearl §2.1.4 row 49 — frequency segmented selection. Stores the
+  // canonical FREQUENCY_OPTIONS string so the wire shape is unchanged
+  // (and the API's Zod schema continues to validate it).
+  function selectFrequency(idx: number, freq: string) {
+    updateMedicine(idx, "frequency", freq);
+  }
+
+  // Pearl §2.1.4 row 49 — route segmented selection. "Custom" flips
+  // the row into a free-text input mode; otherwise stores the preset
+  // literal which gets serialized into `instructions` on submit.
+  function selectRoute(idx: number, route: string) {
+    const updated = [...medicines];
+    if (route === "custom") {
+      updated[idx] = { ...updated[idx], routeMode: "custom", route: "" };
+    } else {
+      updated[idx] = { ...updated[idx], routeMode: "preset", route };
+    }
+    setMedicines(updated);
+  }
+
   function resetForm() {
     setShowForm(false);
     setShowInteractionModal(false);
     setInteractionWarnings([]);
     setEditingId(null);
     setForm({ appointmentId: "", patientId: "", diagnosis: "", advice: "", followUpDate: "", signatureDataUrl: "" });
-    setMedicines([{ medicineName: "", dosage: "", frequency: "", duration: "", instructions: "" }]);
+    setMedicines([
+      {
+        medicineName: "",
+        dosage: "",
+        frequency: "",
+        duration: "",
+        instructions: "",
+        dosagePreset: "",
+        route: "",
+        routeMode: "preset",
+        quantity: "",
+        qtyOverridden: false,
+        scheduleX: false,
+      },
+    ]);
     setFormErrors({});
   }
 
@@ -586,14 +757,49 @@ export default function PrescriptionsPage() {
     });
     setMedicines(
       rx.items.length > 0
-        ? rx.items.map((it) => ({
-            medicineName: it.medicineName,
-            dosage: it.dosage,
-            frequency: it.frequency,
-            duration: it.duration,
-            instructions: it.instructions ?? "",
-          }))
-        : [{ medicineName: "", dosage: "", frequency: "", duration: "", instructions: "" }],
+        ? rx.items.map((it) => {
+            // Pearl §2.1.4 row 49 — parse the structured pieces back out
+            // of the stored `instructions` so the chips/segments rehydrate.
+            const parsed = parseInstructions(it.instructions);
+            const dosagePresetMatch = DOSE_PRESETS.find((p) => p === it.dosage.trim());
+            const routePreset = ROUTE_OPTIONS.find((r) => r.value === parsed.route);
+            return {
+              medicineName: it.medicineName,
+              dosage: it.dosage,
+              frequency: it.frequency,
+              duration: it.duration,
+              instructions: parsed.notes,
+              dosagePreset: dosagePresetMatch ?? (it.dosage.trim() ? "custom" : ""),
+              route: parsed.route,
+              routeMode: (routePreset ? "preset" : parsed.route ? "custom" : "preset") as
+                | "preset"
+                | "custom",
+              quantity: parsed.quantity,
+              qtyOverridden:
+                parsed.quantity !== "" &&
+                parsed.quantity !== computeAutoQuantity(it.frequency, it.duration),
+              // Edit mode: PrescriptionItem doesn't carry the schedule flag
+              // (it's a Medicine attribute, not a copy on the item). Start
+              // at false; a fresh autocomplete pick in edit mode will set
+              // it. The API still re-resolves on PATCH so the gate holds.
+              scheduleX: false,
+            };
+          })
+        : [
+            {
+              medicineName: "",
+              dosage: "",
+              frequency: "",
+              duration: "",
+              instructions: "",
+              dosagePreset: "",
+              route: "",
+              routeMode: "preset" as const,
+              quantity: "",
+              qtyOverridden: false,
+              scheduleX: false,
+            },
+          ],
     );
     setFormErrors({});
     // Scroll up so the edit form is visible (doctor clicked the Edit button
@@ -603,14 +809,37 @@ export default function PrescriptionsPage() {
     }
   }
 
-  async function submitPrescription(override: boolean) {
+  // Pearl §2.1.4 row 49 — collapse the row's structured route/quantity
+  // pieces into the `instructions` field so the wire payload shape
+  // stays exactly what the createPrescriptionSchema expects (which has
+  // no route/quantity columns on PrescriptionItem). Drops the UI-only
+  // fields (dosagePreset, route, routeMode, quantity, qtyOverridden)
+  // before they reach the network.
+  function toWireItem(m: (typeof medicines)[number]) {
+    return {
+      medicineName: m.medicineName,
+      dosage: m.dosage,
+      frequency: m.frequency,
+      duration: m.duration,
+      instructions: composeInstructions({
+        route: m.route,
+        quantity: m.quantity,
+        notes: m.instructions,
+      }) || undefined,
+    };
+  }
+
+  async function submitPrescription(
+    override: boolean,
+    scheduleXAck = false,
+  ) {
     try {
       if (editingId) {
         // Edit mode: PATCH /:id. appointment/patient are immutable on the
         // server side, so we deliberately omit them from the payload.
         await api.patch(`/prescriptions/${editingId}`, {
           diagnosis: form.diagnosis,
-          items: medicines.filter((m) => m.medicineName),
+          items: medicines.filter((m) => m.medicineName).map(toWireItem),
           advice: form.advice || undefined,
           followUpDate: form.followUpDate || undefined,
           overrideWarnings: override,
@@ -625,10 +854,15 @@ export default function PrescriptionsPage() {
           appointmentId: form.appointmentId,
           patientId: form.patientId,
           diagnosis: form.diagnosis,
-          items: medicines.filter((m) => m.medicineName),
+          items: medicines.filter((m) => m.medicineName).map(toWireItem),
           advice: form.advice || undefined,
           followUpDate: form.followUpDate || undefined,
           overrideWarnings: override,
+          // Pearl §12.c row 388 — only set when the doctor accepted the
+          // window.confirm() warning. Omitted otherwise so the API can't
+          // mis-attribute an Rx as acknowledged just because the flag was
+          // passed through as `false`.
+          ...(scheduleXAck ? { scheduleXOverrideAcknowledged: true } : {}),
           signatureDataUrl: form.signatureDataUrl || undefined,
         });
       }
@@ -691,11 +925,8 @@ export default function PrescriptionsPage() {
       ? updatePrescriptionSchema.safeParse({
           diagnosis: form.diagnosis,
           items: items.map((m) => ({
-            medicineName: m.medicineName,
-            dosage: m.dosage,
-            frequency: m.frequency,
+            ...toWireItem(m),
             duration: m.duration || "—",
-            instructions: m.instructions || undefined,
           })),
           advice: form.advice || undefined,
           followUpDate: form.followUpDate || undefined,
@@ -705,11 +936,8 @@ export default function PrescriptionsPage() {
           patientId: form.patientId,
           diagnosis: form.diagnosis,
           items: items.map((m) => ({
-            medicineName: m.medicineName,
-            dosage: m.dosage,
-            frequency: m.frequency,
+            ...toWireItem(m),
             duration: m.duration || "—",
-            instructions: m.instructions || undefined,
           })),
           advice: form.advice || undefined,
           followUpDate: form.followUpDate || undefined,
@@ -784,12 +1012,37 @@ export default function PrescriptionsPage() {
       }
       return;
     }
+    // Pearl §12.c (gap-doc row 388) — Schedule-X controlled-substance
+    // confirm. If ANY medicine row resolved to schedule "X" via the
+    // autocomplete-detail fetch, the doctor must explicitly confirm the
+    // dispense is medically justified before we submit. Declining cancels
+    // the submit entirely. Captured in `scheduleXAck` so we can pass it
+    // through to submitPrescription (which sets the wire field).
+    const hasScheduleX = medicines.some(
+      (m) => m.scheduleX && m.medicineName.trim(),
+    );
+    let scheduleXAck = false;
+    if (hasScheduleX) {
+      if (typeof window === "undefined" || !window.confirm) {
+        toast.error(
+          "Schedule-X confirmation required — please use a browser to submit.",
+        );
+        return;
+      }
+      scheduleXAck = window.confirm(
+        "This prescription includes Schedule-X controlled substances. By proceeding, you confirm you have reviewed the patient's history and the dispensing is medically justified. Continue?",
+      );
+      if (!scheduleXAck) {
+        toast.warning("Submission cancelled.");
+        return;
+      }
+    }
     // Preview interaction check before saving. Only runs in CREATE mode —
     // edit mode has no patientId on the form (it's immutable on the server),
     // and the PATCH handler re-runs the same check anyway, so blocking
     // interactions will still surface as a 400 with warnings on submit.
     if (editingId) {
-      await submitPrescription(false);
+      await submitPrescription(false, scheduleXAck);
       return;
     }
     setCheckingInteractions(true);
@@ -807,11 +1060,11 @@ export default function PrescriptionsPage() {
         return;
       }
       // Non-blocking: proceed; warnings (if any) will still be returned in response
-      await submitPrescription(false);
+      await submitPrescription(false, scheduleXAck);
     } catch (err) {
       setCheckingInteractions(false);
       // If preview itself fails, fall back to normal POST
-      await submitPrescription(false);
+      await submitPrescription(false, scheduleXAck);
     }
   }
 
@@ -1115,91 +1368,354 @@ export default function PrescriptionsPage() {
             {medicines.map((med, idx) => (
               <div
                 key={idx}
-                className="mb-2 grid grid-cols-6 gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900/40"
+                data-testid={`rx-medicine-row-${idx}`}
+                className="mb-3 flex flex-col gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900/40"
               >
-                <div className="col-span-2">
-                  <Autocomplete<{
-                    id: string;
-                    name: string;
-                    genericName?: string | null;
-                    strength?: string | null;
-                    form?: string | null;
-                  }>
-                    value={med.medicineName}
-                    onChange={(val, item) =>
-                      updateMedicine(idx, "medicineName", item ? item.name : val)
-                    }
-                    fetchOptions={async (q) => {
-                      const r = await api.get<{
-                        data: Array<{
-                          id: string;
-                          name: string;
-                          genericName?: string | null;
-                          strength?: string | null;
-                          form?: string | null;
-                        }>;
-                      }>(`/medicines/search/autocomplete?q=${encodeURIComponent(q)}`);
-                      return r.data ?? [];
-                    }}
-                    getOptionLabel={(o) => o.name}
-                    renderOption={(o) => (
-                      <div>
-                        <div className="font-medium">{o.name}</div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {[o.genericName, o.strength, o.form]
-                            .filter(Boolean)
-                            .join(" • ")}
+                {/* Medicine autocomplete + remove on the top row. */}
+                <div className="flex items-start gap-2">
+                  <div className="flex-1">
+                    <Autocomplete<{
+                      id: string;
+                      name: string;
+                      genericName?: string | null;
+                      strength?: string | null;
+                      form?: string | null;
+                    }>
+                      value={med.medicineName}
+                      onChange={(val, item) => {
+                        updateMedicine(idx, "medicineName", item ? item.name : val);
+                        // Pearl §12.c row 388 — when the user picks a medicine
+                        // from autocomplete, fetch its detail so we can
+                        // surface the Schedule-X banner. Free-text input
+                        // (no `item`) clears the flag — the API still
+                        // gates the submit as defence-in-depth. The
+                        // autocomplete response itself doesn't include
+                        // `schedule`, so we do a single GET /medicines/:id.
+                        if (item?.id) {
+                          api
+                            .get<{ data: { schedule?: string | null } }>(
+                              `/medicines/${item.id}`,
+                            )
+                            .then((r) => {
+                              const isX = (r.data?.schedule ?? "").toUpperCase() === "X";
+                              setMedicines((prev) => {
+                                const next = [...prev];
+                                if (next[idx]) {
+                                  next[idx] = { ...next[idx], scheduleX: isX };
+                                }
+                                return next;
+                              });
+                            })
+                            .catch(() => {
+                              // Swallow — the API gate still applies. We
+                              // never want a transient /medicines/:id failure
+                              // to block the prescriber from writing.
+                            });
+                        } else {
+                          setMedicines((prev) => {
+                            const next = [...prev];
+                            if (next[idx]) {
+                              next[idx] = { ...next[idx], scheduleX: false };
+                            }
+                            return next;
+                          });
+                        }
+                      }}
+                      fetchOptions={async (q) => {
+                        const r = await api.get<{
+                          data: Array<{
+                            id: string;
+                            name: string;
+                            genericName?: string | null;
+                            strength?: string | null;
+                            form?: string | null;
+                          }>;
+                        }>(`/medicines/search/autocomplete?q=${encodeURIComponent(q)}`);
+                        return r.data ?? [];
+                      }}
+                      getOptionLabel={(o) => o.name}
+                      renderOption={(o) => (
+                        <div>
+                          <div className="font-medium">{o.name}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            {[o.genericName, o.strength, o.form]
+                              .filter(Boolean)
+                              .join(" • ")}
+                          </div>
                         </div>
-                      </div>
-                    )}
-                    placeholder="Medicine name"
-                    inputClassName="py-1.5 text-sm"
+                      )}
+                      placeholder="Medicine name"
+                      inputClassName="py-1.5 text-sm"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeMedicine(idx)}
+                    aria-label="Remove medicine"
+                    data-testid={`rx-remove-medicine-${idx}`}
+                    className="inline-flex h-11 min-w-[44px] items-center justify-center rounded px-3 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30"
+                  >
+                    Remove
+                  </button>
+                </div>
+
+                {/* Pearl §12.c (gap-doc row 388) — Schedule-X controlled
+                    substance warning. Surfaced inline under the medicine
+                    row the moment an autocomplete-picked Medicine resolves
+                    to `schedule === "X"`. On submit, a window.confirm()
+                    additionally gates the POST. */}
+                {med.scheduleX ? (
+                  <div
+                    role="alert"
+                    data-testid={`rx-schedule-x-warning-${idx}`}
+                    className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+                  >
+                    <span aria-hidden>⚠ </span>
+                    Schedule-X controlled substance — extra prescribing
+                    controls apply. You will be asked to confirm the
+                    dispense is medically justified before submitting.
+                  </div>
+                ) : null}
+
+                {/* Pearl §2.1.4 row 49 — Dose chip selector. */}
+                <div>
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                      Dose
+                    </span>
+                  </div>
+                  <div
+                    role="group"
+                    aria-label="Dose preset"
+                    data-testid={`rx-dose-chips-${idx}`}
+                    className="flex flex-wrap gap-1.5"
+                  >
+                    {DOSE_PRESETS.map((preset) => {
+                      const active = med.dosagePreset === preset;
+                      return (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => selectDosePreset(idx, preset)}
+                          aria-pressed={active}
+                          data-testid={`rx-dose-chip-${idx}-${preset}`}
+                          className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border px-3 py-2 text-sm transition ${
+                            active
+                              ? "border-primary bg-primary text-white"
+                              : "border-gray-300 bg-white text-gray-700 hover:border-primary hover:text-primary dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                          }`}
+                        >
+                          {preset}
+                        </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => selectDosePreset(idx, "custom")}
+                      aria-pressed={med.dosagePreset === "custom"}
+                      data-testid={`rx-dose-chip-${idx}-custom`}
+                      className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border px-3 py-2 text-sm transition ${
+                        med.dosagePreset === "custom"
+                          ? "border-primary bg-primary text-white"
+                          : "border-gray-300 bg-white text-gray-700 hover:border-primary hover:text-primary dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                      }`}
+                    >
+                      Custom…
+                    </button>
+                  </div>
+                  {med.dosagePreset === "custom" || (med.dosage && !DOSE_PRESETS.some((p) => p === med.dosage.trim())) ? (
+                    <input
+                      placeholder="Dosage (e.g. 750mg)"
+                      value={med.dosage}
+                      onChange={(e) => updateMedicine(idx, "dosage", e.target.value)}
+                      data-testid={`rx-dose-custom-input-${idx}`}
+                      className="mt-2 min-h-[44px] w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
+                    />
+                  ) : null}
+                </div>
+
+                {/* Pearl §2.1.4 row 49 — Frequency segmented control. */}
+                <div>
+                  <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+                    Frequency
+                  </span>
+                  <div
+                    role="group"
+                    aria-label="Frequency"
+                    data-testid={`rx-frequency-segmented-${idx}`}
+                    className="flex flex-wrap gap-1.5"
+                  >
+                    {FREQUENCY_OPTIONS.map((f) => {
+                      const active = med.frequency === f;
+                      return (
+                        <button
+                          key={f}
+                          type="button"
+                          onClick={() => selectFrequency(idx, f)}
+                          aria-pressed={active}
+                          title={FREQUENCY_TOOLTIPS[f] ?? f}
+                          data-testid={`rx-frequency-option-${idx}-${f.split(" ")[0]}`}
+                          className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border px-3 py-2 text-xs transition ${
+                            active
+                              ? "border-primary bg-primary text-white"
+                              : "border-gray-300 bg-white text-gray-700 hover:border-primary hover:text-primary dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                          }`}
+                        >
+                          {f}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Pearl §2.1.4 row 49 — Route segmented control. Serialized
+                    into `instructions` as `Route: XX | ...` on submit. */}
+                <div>
+                  <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+                    Route
+                  </span>
+                  <div
+                    role="group"
+                    aria-label="Route"
+                    data-testid={`rx-route-segmented-${idx}`}
+                    className="flex flex-wrap gap-1.5"
+                  >
+                    {ROUTE_OPTIONS.map((r) => {
+                      const active = med.routeMode === "preset" && med.route === r.value;
+                      return (
+                        <button
+                          key={r.value}
+                          type="button"
+                          onClick={() => selectRoute(idx, r.value)}
+                          aria-pressed={active}
+                          title={r.tooltip}
+                          data-testid={`rx-route-option-${idx}-${r.value}`}
+                          className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border px-3 py-2 text-xs transition ${
+                            active
+                              ? "border-primary bg-primary text-white"
+                              : "border-gray-300 bg-white text-gray-700 hover:border-primary hover:text-primary dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                          }`}
+                        >
+                          {r.label}
+                        </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => selectRoute(idx, "custom")}
+                      aria-pressed={med.routeMode === "custom"}
+                      data-testid={`rx-route-option-${idx}-custom`}
+                      className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border px-3 py-2 text-xs transition ${
+                        med.routeMode === "custom"
+                          ? "border-primary bg-primary text-white"
+                          : "border-gray-300 bg-white text-gray-700 hover:border-primary hover:text-primary dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                      }`}
+                    >
+                      Custom…
+                    </button>
+                  </div>
+                  {med.routeMode === "custom" ? (
+                    <input
+                      placeholder="Route (e.g. Inhalation)"
+                      value={med.route}
+                      onChange={(e) => {
+                        const updated = [...medicines];
+                        updated[idx] = { ...updated[idx], route: e.target.value };
+                        setMedicines(updated);
+                      }}
+                      data-testid={`rx-route-custom-input-${idx}`}
+                      className="mt-2 min-h-[44px] w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
+                    />
+                  ) : null}
+                </div>
+
+                {/* Duration + auto-calc quantity side by side. */}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label
+                      htmlFor={`rx-duration-input-${idx}`}
+                      className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300"
+                    >
+                      Duration
+                    </label>
+                    <input
+                      id={`rx-duration-input-${idx}`}
+                      placeholder="e.g. 5 days"
+                      value={med.duration}
+                      onChange={(e) => updateMedicine(idx, "duration", e.target.value)}
+                      data-testid={`rx-duration-input-${idx}`}
+                      className="min-h-[44px] w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 flex items-center justify-between">
+                      <label
+                        htmlFor={`rx-qty-input-${idx}`}
+                        className="text-xs font-medium text-gray-600 dark:text-gray-300"
+                      >
+                        Quantity
+                      </label>
+                      {med.qtyOverridden ? (
+                        <button
+                          type="button"
+                          onClick={() => resetQuantityAuto(idx)}
+                          data-testid={`rx-qty-reset-auto-${idx}`}
+                          className="text-xs text-primary hover:underline"
+                        >
+                          Reset to auto
+                        </button>
+                      ) : med.quantity ? (
+                        <span
+                          data-testid={`rx-qty-auto-hint-${idx}`}
+                          className="text-xs text-gray-500 dark:text-gray-400"
+                        >
+                          auto-calculated
+                        </span>
+                      ) : null}
+                    </div>
+                    <input
+                      id={`rx-qty-input-${idx}`}
+                      placeholder="auto"
+                      value={med.quantity}
+                      onChange={(e) => updateQuantity(idx, e.target.value)}
+                      data-testid={`rx-qty-input-${idx}`}
+                      className="min-h-[44px] w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Optional free-text instructions, separate from
+                    the structured route/qty pieces. */}
+                <div>
+                  <label
+                    htmlFor={`rx-notes-input-${idx}`}
+                    className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300"
+                  >
+                    Notes (optional)
+                  </label>
+                  <input
+                    id={`rx-notes-input-${idx}`}
+                    placeholder="Special instructions (e.g. after meals)"
+                    value={med.instructions}
+                    onChange={(e) => updateMedicine(idx, "instructions", e.target.value)}
+                    data-testid={`rx-notes-input-${idx}`}
+                    className="min-h-[44px] w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                   />
                 </div>
-                <input
-                  placeholder="Dosage"
-                  value={med.dosage}
-                  onChange={(e) => updateMedicine(idx, "dosage", e.target.value)}
-                  className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
-                />
-                <select
-                  value={med.frequency}
-                  onChange={(e) => updateMedicine(idx, "frequency", e.target.value)}
-                  className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
-                >
-                  <option value="">Frequency</option>
-                  {FREQUENCY_OPTIONS.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  placeholder="Duration"
-                  value={med.duration}
-                  onChange={(e) => updateMedicine(idx, "duration", e.target.value)}
-                  className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => removeMedicine(idx)}
-                  className="text-sm text-red-500"
-                >
-                  Remove
-                </button>
+
                 {med.medicineName ? (
-                  <div className="col-span-6 mt-1 flex flex-wrap gap-3">
+                  <div className="flex flex-wrap gap-3">
                     <button
                       type="button"
                       onClick={() => openGenericsModal(idx, med.medicineName)}
-                      className="text-left text-xs text-emerald-700 hover:underline"
+                      className="min-h-[44px] text-left text-xs text-emerald-700 hover:underline"
                     >
                       💰 Check for cheaper generics
                     </button>
                     <button
                       type="button"
                       onClick={() => setRenalDoseRow(idx)}
-                      className="text-left text-xs text-amber-700 hover:underline"
+                      className="min-h-[44px] text-left text-xs text-amber-700 hover:underline"
                     >
                       🧪 Calculate Renal Dose
                     </button>
@@ -1401,11 +1917,10 @@ export default function PrescriptionsPage() {
       {/* Prescriptions list */}
       <div className="space-y-3">
         {loading ? (
-          <div
-            className="rounded-xl bg-white p-8 text-center text-gray-500 dark:bg-gray-800 dark:text-gray-400"
-            data-testid="rx-loading"
-          >
-            Loading...
+          <div className="space-y-3" data-testid="rx-loading" aria-busy="true">
+            <SkeletonCard className="h-32" />
+            <SkeletonCard className="h-32" />
+            <SkeletonCard className="h-32" />
           </div>
         ) : loadError ? (
           <div
@@ -1743,7 +2258,14 @@ export default function PrescriptionsPage() {
               </button>
             </div>
             {genericLoading ? (
-              <p className="text-gray-500 dark:text-gray-400">Loading...</p>
+              <div
+                data-testid="prescriptions-generic-loading"
+                aria-busy="true"
+                className="space-y-3"
+              >
+                <SkeletonCard />
+                <SkeletonCard />
+              </div>
             ) : !genericData || genericData.alternatives.length === 0 ? (
               <p className="text-gray-500 dark:text-gray-400">No cheaper generics in stock.</p>
             ) : (

@@ -49,6 +49,12 @@ export default defineConfig({
           functions: 100,
           statements: 99,
         },
+        "src/app/dashboard/budgets/page.tsx": {
+          lines: 99,
+          branches: 96,
+          functions: 100,
+          statements: 99,
+        },
       },
     },
   },

@@ -205,6 +205,18 @@ export default defineConfig({
           functions: 94,
           statements: 98,
         },
+        "src/app/dashboard/preauth/page.tsx": {
+          lines: 100,
+          branches: 99,
+          functions: 96,
+          statements: 100,
+        },
+        "src/app/dashboard/ai-fraud/page.tsx": {
+          lines: 98,
+          branches: 87,
+          functions: 100,
+          statements: 98,
+        },
       },
     },
   },

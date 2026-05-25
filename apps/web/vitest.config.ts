@@ -109,6 +109,12 @@ export default defineConfig({
           functions: 100,
           statements: 98,
         },
+        "src/app/dashboard/scheduled-reports/page.tsx": {
+          lines: 100,
+          branches: 95,
+          functions: 95,
+          statements: 100,
+        },
       },
     },
   },

@@ -85,6 +85,18 @@ export default defineConfig({
           functions: 100,
           statements: 99,
         },
+        "src/app/dashboard/expenses/page.tsx": {
+          lines: 99,
+          branches: 91,
+          functions: 95,
+          statements: 99,
+        },
+        "src/app/dashboard/medicines/page.tsx": {
+          lines: 99,
+          branches: 84,
+          functions: 90,
+          statements: 99,
+        },
       },
     },
   },

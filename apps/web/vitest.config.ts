@@ -193,6 +193,12 @@ export default defineConfig({
           functions: 95,
           statements: 99,
         },
+        "src/app/dashboard/chat/page.tsx": {
+          lines: 98,
+          branches: 86,
+          functions: 94,
+          statements: 98,
+        },
       },
     },
   },

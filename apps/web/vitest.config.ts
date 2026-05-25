@@ -247,6 +247,12 @@ export default defineConfig({
           functions: 100,
           statements: 99,
         },
+        "src/app/dashboard/referrals/page.tsx": {
+          lines: 98,
+          branches: 96,
+          functions: 80,
+          statements: 98,
+        },
       },
     },
   },

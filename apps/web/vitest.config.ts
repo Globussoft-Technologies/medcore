@@ -67,6 +67,18 @@ export default defineConfig({
           functions: 100,
           statements: 97,
         },
+        "src/app/dashboard/ai-kpis/page.tsx": {
+          lines: 99,
+          branches: 97,
+          functions: 100,
+          statements: 99,
+        },
+        "src/app/dashboard/profile/page.tsx": {
+          lines: 98,
+          branches: 87,
+          functions: 100,
+          statements: 98,
+        },
       },
     },
   },

@@ -16,6 +16,12 @@ import { __resetFeatureFlagsCacheForTests } from "../../services/feature-flags";
 async function buildTestApp(): Promise<express.Express> {
   const a = express();
   a.use(express.json());
+  // Tenant resolver must run BEFORE the gated router or req.tenantId stays
+  // undefined and the feature-flag service short-circuits to `true` (see
+  // services/feature-flags.ts:54). The full app installs this globally in
+  // app.ts; this mini-app has to mirror that.
+  const { tenantContextMiddleware } = await import("../../middleware/tenant");
+  a.use(tenantContextMiddleware);
   const { aiFraudRouter } = await import("../../routes/ai-fraud");
   a.use("/api/v1/ai/fraud", aiFraudRouter);
   const { errorHandler } = await import("../../middleware/error");

@@ -24,15 +24,25 @@ type AnyVisitor = Record<string, unknown> & {
   idProofNumber?: string | null;
 };
 
-export function redactVisitorPII<T extends AnyVisitor>(visitor: T): T {
-  if (!visitor || typeof visitor !== "object") return visitor;
+// Return type is `T & { idProofNumber: string | null }` (not just `T`) — the
+// function ALWAYS spreads in a masked `idProofNumber`, even when the input
+// omits the field. The earlier `(visitor: T): T` lied about that and broke
+// callers that passed inputs without `idProofNumber` (TS2339 on `safe.idProofNumber`).
+export function redactVisitorPII<T extends AnyVisitor>(
+  visitor: T,
+): T & { idProofNumber: string | null } {
+  if (!visitor || typeof visitor !== "object") {
+    return visitor as T & { idProofNumber: string | null };
+  }
   return {
     ...visitor,
     idProofNumber: maskIdNumber(visitor.idProofNumber ?? null),
   };
 }
 
-export function redactVisitorListPII<T extends AnyVisitor>(visitors: T[]): T[] {
+export function redactVisitorListPII<T extends AnyVisitor>(
+  visitors: T[],
+): Array<T & { idProofNumber: string | null }> {
   if (!Array.isArray(visitors)) return visitors;
   return visitors.map((v) => redactVisitorPII(v));
 }

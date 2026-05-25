@@ -19,6 +19,7 @@ import {
   isolationStatusSchema,
   belongingsSchema,
   updateBelongingsSchema,
+  INVOICE_NUMBER_PREFIX,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
@@ -251,6 +252,19 @@ router.post(
 
       const admissionNumber = await nextAdmissionNumber();
 
+      // 2026-05-25 — IPD billing visibility: pre-read the next_invoice_number
+      // sequence OUTSIDE the transaction (matches the pattern in billing.ts
+      // POST /invoices). A PENDING placeholder Invoice is created inside the
+      // tx so the admitted patient surfaces in /billing/invoices immediately;
+      // amounts start at 0 (the running bill is computed live by
+      // GET /admissions/:id/bill and finalized to bed-charge total on
+      // discharge — out of scope for this change).
+      const invConfig = await rawPrisma.systemConfig.findUnique({
+        where: { key: "next_invoice_number" },
+      });
+      const invSeq = invConfig ? parseInt(invConfig.value) : 1;
+      const invoiceNumber = `${INVOICE_NUMBER_PREFIX}${String(invSeq).padStart(6, "0")}`;
+
       // Issue #421: defensive race-handling. The findFirst pre-check above
       // closes the common case but two concurrent admission POSTs for the
       // same patient can both pass it (TOCTOU window). The partial-unique
@@ -304,6 +318,33 @@ router.post(
             where: { id: bedId },
             data: { status: "OCCUPIED" },
           });
+
+          // PENDING IPD invoice placeholder. admissionId is @unique on
+          // Invoice, so each admission gets exactly one. appointmentId is
+          // intentionally left null — Admissions have no Appointment row.
+          // Totals are zero on create; finalized on discharge (next phase).
+          await tx.invoice.create({
+            data: {
+              invoiceNumber,
+              admissionId: created.id,
+              patientId,
+              subtotal: 0,
+              totalAmount: 0,
+              paymentStatus: "PENDING",
+              notes: `IPD admission ${admissionNumber} — running bill (auto-created on admit)`,
+            },
+          });
+          if (invConfig) {
+            await tx.systemConfig.update({
+              where: { key: "next_invoice_number" },
+              data: { value: String(invSeq + 1) },
+            });
+          } else {
+            await tx.systemConfig.create({
+              data: { key: "next_invoice_number", value: String(invSeq + 1) },
+            });
+          }
+
           return created;
         });
       } catch (e: unknown) {

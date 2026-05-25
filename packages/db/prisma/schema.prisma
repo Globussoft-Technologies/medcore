@@ -2010,7 +2010,17 @@ model DoctorFavouriteMedicine {
 model Invoice {
   id               String        @id @default(uuid())
   invoiceNumber    String        @unique
-  appointmentId    String        @unique
+  // Invoice was historically appointment-scoped (one-to-one with Appointment).
+  // 2026-05-25: IPD invoices need their own anchor — Admissions don't have an
+  // Appointment row. Made `appointmentId` nullable and added `admissionId`
+  // (also nullable, also @unique) so an Invoice belongs to EXACTLY one of
+  // {Appointment, Admission}. The "exactly one" invariant is enforced at the
+  // route layer (billing.ts and admissions.ts) — Prisma can't express XOR
+  // constraints natively. Nullable @unique columns allow multiple NULLs in
+  // both PostgreSQL and SQLite, so a single Invoice continues to map 1:1 to
+  // its parent without false-positive uniqueness violations.
+  appointmentId    String?       @unique
+  admissionId      String?       @unique
   patientId        String
   // Issue #901 (2026-05-19): money columns migrated from Float (IEEE-754
   // double) to DECIMAL(12,2) so paise arithmetic is exact and reconciles
@@ -2069,7 +2079,8 @@ model Invoice {
   referringDoctorId String?
   referralId        String?
 
-  appointment       Appointment        @relation(fields: [appointmentId], references: [id])
+  appointment       Appointment?       @relation(fields: [appointmentId], references: [id])
+  admission         Admission?         @relation("AdmissionInvoice", fields: [admissionId], references: [id])
   patient           Patient            @relation(fields: [patientId], references: [id])
   items             InvoiceItem[]
   payments          Payment[]
@@ -2091,6 +2102,7 @@ model Invoice {
   @@index([tenantId])
   @@index([branchId])
   @@index([referringDoctorId])
+  @@index([admissionId])
   @@map("invoices")
 }
 
@@ -2544,6 +2556,10 @@ model Admission {
   intakeOutputs    IpdIntakeOutput[]
   emergencyCases   EmergencyCase[]    @relation("EmergencyAdmission")
   belongings       PatientBelongings?
+  // 2026-05-25: Admission-anchored invoice (zero-amount PENDING placeholder
+  // created on admit so the Billing page surfaces every admitted patient
+  // immediately; finalized to the bed-charge total on discharge).
+  invoice          Invoice?           @relation("AdmissionInvoice")
 
   @@index([patientId])
   @@index([doctorId])

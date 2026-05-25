@@ -48,11 +48,15 @@ beforeEach(() => {
   // Without this, the registered interval keeps living on the fake-timer
   // queue across test cases and pollutes call counts.
   originalSetInterval = global.setInterval;
+  // Two-step cast: `typeof setInterval` is a multi-overload type
+  // (DOM returns number, Node returns Timeout) and our single-arrow shim
+  // doesn't "sufficiently overlap" all overloads — TS2352. The unknown
+  // hop is exactly what the error message recommends.
   global.setInterval = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
     const id = originalSetInterval(handler as (...a: unknown[]) => void, timeout, ...args);
     activeIntervals.push(id);
     return id;
-  }) as typeof setInterval;
+  }) as unknown as typeof setInterval;
 });
 
 afterEach(() => {

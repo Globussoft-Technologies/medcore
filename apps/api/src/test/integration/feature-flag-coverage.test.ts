@@ -115,6 +115,14 @@ const ROUTES: RouteProbe[] = [
 async function buildAppFor(route: RouteProbe): Promise<express.Express> {
   const app = express();
   app.use(express.json());
+  // Mount the tenant context resolver BEFORE the gated router. Without it,
+  // `req.tenantId` stays undefined and `isFeatureEnabled(undefined, …)`
+  // short-circuits to `true` (see services/feature-flags.ts:54) — every
+  // request slips past the gate and the test sees 200 where 404 was
+  // expected. The full app wires this in app.ts; the per-route mini-app
+  // here must do the same.
+  const { tenantContextMiddleware } = await import("../../middleware/tenant");
+  app.use(tenantContextMiddleware);
   app.use(route.mountPath, await route.importRouter());
   const { errorHandler } = await import("../../middleware/error");
   app.use(errorHandler);

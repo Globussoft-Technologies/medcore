@@ -314,12 +314,6 @@ const en: Dict = {
   "dashboard.patients.col.gender": "Gender",
   "dashboard.patients.col.age": "Age",
   "dashboard.patients.col.bloodGroup": "Blood Group",
-  "dashboard.patients.col.quickActions": "Actions",
-  // Issue #951: this key was being referenced by the patients table but
-  // missing from the dictionary, so `t()` fell back to returning the key
-  // itself. The DataTable header row applies `text-xs uppercase`, which
-  // turned the leaked key into "DASHBOARD.PATIENTS.COL.QUICKACTIONS" in
-  // the UI. Adding the entry restores the human-readable label.
   "dashboard.patients.col.quickActions": "Quick Actions",
   "dashboard.patients.empty": "No patients yet",
   "dashboard.patients.fullName": "Full Name",

@@ -151,6 +151,12 @@ export default defineConfig({
           functions: 100,
           statements: 98,
         },
+        "src/app/dashboard/notifications/page.tsx": {
+          lines: 99,
+          branches: 93,
+          functions: 100,
+          statements: 99,
+        },
       },
     },
   },

@@ -115,6 +115,12 @@ export default defineConfig({
           functions: 95,
           statements: 100,
         },
+        "src/app/dashboard/emergency/[id]/page.tsx": {
+          lines: 99,
+          branches: 95,
+          functions: 92,
+          statements: 99,
+        },
       },
     },
   },

@@ -41,11 +41,18 @@ interface RouteProbe {
 
 const ROUTES: RouteProbe[] = [
   {
+    // Probes POST /inbound with no body. Avoid GET /patient/:id /
+    // GET /lab-order/:id — those handlers `sendError(res, 404, …)` when
+    // the row doesn't exist, which is indistinguishable from the gate's
+    // 404 and causes the "flag=true → non-404" assertion to flake even
+    // when the gate is wired correctly. POST /inbound on an empty body
+    // returns 415 (unsupported content-type) — clearly non-404 — so the
+    // gate's verdict is the only way the response can be 404.
     flag: "hl7Inbound",
     mountPath: "/api/v1/hl7v2",
     importRouter: async () => (await import("../../routes/hl7v2")).hl7v2Router,
-    probeMethod: "get",
-    probePath: "/patient/00000000-0000-0000-0000-000000000000",
+    probeMethod: "post",
+    probePath: "/inbound",
   },
   {
     flag: "aiCoaching",

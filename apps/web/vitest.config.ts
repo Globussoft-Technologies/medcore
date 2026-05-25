@@ -223,6 +223,18 @@ export default defineConfig({
           functions: 96,
           statements: 100,
         },
+        "src/app/dashboard/analytics/reports/page.tsx": {
+          lines: 100,
+          branches: 76,
+          functions: 100,
+          statements: 100,
+        },
+        "src/app/dashboard/duty-roster/page.tsx": {
+          lines: 99,
+          branches: 97,
+          functions: 87,
+          statements: 99,
+        },
       },
     },
   },

@@ -133,6 +133,12 @@ export default defineConfig({
           functions: 100,
           statements: 97,
         },
+        "src/app/dashboard/workspace/page.tsx": {
+          lines: 100,
+          branches: 92,
+          functions: 100,
+          statements: 100,
+        },
       },
     },
   },

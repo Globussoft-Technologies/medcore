@@ -259,6 +259,18 @@ export default defineConfig({
           functions: 80,
           statements: 98,
         },
+        "src/app/dashboard/doctors/[id]/page.tsx": {
+          lines: 99,
+          branches: 90,
+          functions: 100,
+          statements: 99,
+        },
+        "src/app/dashboard/insurance/page.tsx": {
+          lines: 99,
+          branches: 96,
+          functions: 88,
+          statements: 99,
+        },
       },
     },
   },

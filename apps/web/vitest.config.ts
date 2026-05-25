@@ -139,6 +139,12 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        "src/app/dashboard/ai-letters/page.tsx": {
+          lines: 100,
+          branches: 100,
+          functions: 93,
+          statements: 100,
+        },
       },
     },
   },

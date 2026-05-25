@@ -217,6 +217,12 @@ export default defineConfig({
           functions: 100,
           statements: 98,
         },
+        "src/app/dashboard/antenatal/page.tsx": {
+          lines: 100,
+          branches: 98,
+          functions: 96,
+          statements: 100,
+        },
       },
     },
   },

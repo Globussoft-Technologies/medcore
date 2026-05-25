@@ -79,6 +79,12 @@ export default defineConfig({
           functions: 100,
           statements: 98,
         },
+        "src/app/dashboard/er-triage/page.tsx": {
+          lines: 99,
+          branches: 98,
+          functions: 100,
+          statements: 99,
+        },
       },
     },
   },

@@ -121,8 +121,15 @@ async function buildAppFor(route: RouteProbe): Promise<express.Express> {
   // request slips past the gate and the test sees 200 where 404 was
   // expected. The full app wires this in app.ts; the per-route mini-app
   // here must do the same.
+  //
+  // CodeQL false-positive note: `js/missing-rate-limiting` flags this
+  // because the production router we mount carries `authorize(...)` calls
+  // and the test app does not also mount rate-limiting. Rate limiting in a
+  // throw-away vitest fixture that never binds to a port and never accepts
+  // real traffic serves no security purpose; production rate limiting
+  // lives in app.ts where it actually matters.
   const { tenantContextMiddleware } = await import("../../middleware/tenant");
-  app.use(tenantContextMiddleware);
+  app.use(tenantContextMiddleware); // lgtm[js/missing-rate-limiting]
   app.use(route.mountPath, await route.importRouter());
   const { errorHandler } = await import("../../middleware/error");
   app.use(errorHandler);

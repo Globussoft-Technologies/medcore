@@ -20,8 +20,15 @@ async function buildTestApp(): Promise<express.Express> {
   // undefined and the feature-flag service short-circuits to `true` (see
   // services/feature-flags.ts:54). The full app installs this globally in
   // app.ts; this mini-app has to mirror that.
+  //
+  // CodeQL false-positive note: `js/missing-rate-limiting` flags this
+  // because the production router we mount carries `authorize(...)` calls
+  // and the test app does not also mount rate-limiting. Rate limiting in a
+  // throw-away vitest fixture that never binds to a port and never accepts
+  // real traffic serves no security purpose; production rate limiting
+  // lives in app.ts where it actually matters.
   const { tenantContextMiddleware } = await import("../../middleware/tenant");
-  a.use(tenantContextMiddleware);
+  a.use(tenantContextMiddleware); // lgtm[js/missing-rate-limiting]
   const { aiFraudRouter } = await import("../../routes/ai-fraud");
   a.use("/api/v1/ai/fraud", aiFraudRouter);
   const { errorHandler } = await import("../../middleware/error");

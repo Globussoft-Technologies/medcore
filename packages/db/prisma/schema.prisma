@@ -2698,6 +2698,12 @@ model Medicine {
   sideEffects             String?
   contraindications       String?
   prescriptionRequired    Boolean  @default(true)
+  // 2026-05-25 — Maximum Retail Price printed on the pack. Catalog-level
+  // reference price; the actual sale price still comes from
+  // InventoryItem.sellingPrice (per-batch). Nullable so existing rows stay
+  // valid and the column can be backfilled progressively from
+  // distributor price lists.
+  mrp                     Float?
   pregnancyCategory       String? // A, B, C, D, X
   isNarcotic              Boolean  @default(false)
   schedule                String? // H, H1, X, G

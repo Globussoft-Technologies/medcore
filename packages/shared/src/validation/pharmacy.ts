@@ -35,6 +35,11 @@ export const createMedicineSchema = z
     contraindications: z.string().optional(),
     prescriptionRequired: z.boolean().optional(),
     rxRequired: z.boolean().optional(),
+    // 2026-05-25 — Maximum Retail Price printed on the pack. Catalog-level
+    // reference price; per-batch sale price still lives on InventoryItem.
+    // Nullable so the field can be omitted on create and later cleared
+    // via PATCH by sending `null`.
+    mrp: z.number().nonnegative("MRP must be ≥ 0").nullable().optional(),
   })
   .refine(
     (v) =>
@@ -57,6 +62,7 @@ export const updateMedicineSchema = z.object({
   contraindications: z.string().optional(),
   prescriptionRequired: z.boolean().optional(),
   rxRequired: z.boolean().optional(),
+  mrp: z.number().nonnegative("MRP must be ≥ 0").nullable().optional(),
 });
 
 export const createDrugInteractionSchema = z.object({

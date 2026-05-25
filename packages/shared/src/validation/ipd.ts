@@ -118,14 +118,14 @@ export const recordIpdVitalsSchema = z
     bloodPressureSystolic: z
       .number()
       .int()
-      .min(VITALS_RANGES.bloodPressureSystolic.min, "Systolic must be at least 60 mmHg")
-      .max(VITALS_RANGES.bloodPressureSystolic.max, "Systolic must be at most 260 mmHg")
+      .min(VITALS_RANGES.bloodPressureSystolic.min, "Systolic must be at least 40 mmHg")
+      .max(VITALS_RANGES.bloodPressureSystolic.max, "Systolic must be at most 300 mmHg")
       .optional(),
     bloodPressureDiastolic: z
       .number()
       .int()
-      .min(VITALS_RANGES.bloodPressureDiastolic.min, "Diastolic must be at least 30 mmHg")
-      .max(VITALS_RANGES.bloodPressureDiastolic.max, "Diastolic must be at most 180 mmHg")
+      .min(VITALS_RANGES.bloodPressureDiastolic.min, "Diastolic must be at least 20 mmHg")
+      .max(VITALS_RANGES.bloodPressureDiastolic.max, "Diastolic must be at most 220 mmHg")
       .optional(),
     temperature: z.number().optional(),
     temperatureUnit: z.enum(["F", "C"]).optional(),
@@ -194,7 +194,15 @@ export const recordIpdVitalsSchema = z
 
 export const medicationOrderSchema = z.object({
   admissionId: z.string().uuid(),
-  medicineId: z.string().uuid().optional(),
+  // 2026-05-25 — relaxed from .uuid() to an id-like string. Some Medicine
+  // rows in the catalog were seeded with arbitrary 36-char hex strings
+  // (UUID-shaped but missing the RFC 4122 version digit at position 14),
+  // which fail strict .uuid() validation even though they're valid
+  // Medicine.id values. The route handler still validates existence by
+  // doing a Prisma lookup, so accepting "any non-empty ≤64-char id" here
+  // is safe. Mirrors the same idLike convention in
+  // validation/doctor-favourite-medicine.ts.
+  medicineId: z.string().min(1).max(64).optional(),
   medicineName: z.string().min(1).optional(),
   dosage: z.string().min(1),
   frequency: z.string().min(1),

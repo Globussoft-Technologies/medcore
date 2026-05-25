@@ -190,8 +190,12 @@ export const mergePatientSchema = z.object({
 // Anything outside these ranges is rejected as data-entry error.
 // Issue #91 (Apr 2026): reject impossible values like -50 systolic, 999°F, 500 bpm.
 export const VITALS_RANGES = {
-  bloodPressureSystolic: { min: 60, max: 260 },
-  bloodPressureDiastolic: { min: 30, max: 180 },
+  // 2026-05-25 — BP bounds widened from 60-260 / 30-180 so emergency and
+  // critical-care entries (severe shock at the low end, hypertensive
+  // crisis at the high end) don't fail validation. Still excludes
+  // obvious typos like -50 / 1000.
+  bloodPressureSystolic: { min: 40, max: 300 },
+  bloodPressureDiastolic: { min: 20, max: 220 },
   temperatureF: { min: 90, max: 110 },
   temperatureC: { min: 32, max: 43 },
   pulseRate: { min: 30, max: 220 },
@@ -209,14 +213,14 @@ export const recordVitalsSchema = z
     bloodPressureSystolic: z
       .number()
       .int()
-      .min(VITALS_RANGES.bloodPressureSystolic.min, "Systolic must be at least 60 mmHg")
-      .max(VITALS_RANGES.bloodPressureSystolic.max, "Systolic must be at most 260 mmHg")
+      .min(VITALS_RANGES.bloodPressureSystolic.min, "Systolic must be at least 40 mmHg")
+      .max(VITALS_RANGES.bloodPressureSystolic.max, "Systolic must be at most 300 mmHg")
       .optional(),
     bloodPressureDiastolic: z
       .number()
       .int()
-      .min(VITALS_RANGES.bloodPressureDiastolic.min, "Diastolic must be at least 30 mmHg")
-      .max(VITALS_RANGES.bloodPressureDiastolic.max, "Diastolic must be at most 180 mmHg")
+      .min(VITALS_RANGES.bloodPressureDiastolic.min, "Diastolic must be at least 20 mmHg")
+      .max(VITALS_RANGES.bloodPressureDiastolic.max, "Diastolic must be at most 220 mmHg")
       .optional(),
     // Temperature bounds depend on the unit. We use a permissive numeric range
     // here and validate the unit-specific bounds in the .superRefine() below

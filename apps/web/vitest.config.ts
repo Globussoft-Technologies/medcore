@@ -241,6 +241,12 @@ export default defineConfig({
           functions: 87,
           statements: 99,
         },
+        "src/app/dashboard/symptom-diary/page.tsx": {
+          lines: 99,
+          branches: 91,
+          functions: 100,
+          statements: 99,
+        },
       },
     },
   },

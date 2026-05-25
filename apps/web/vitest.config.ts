@@ -61,6 +61,12 @@ export default defineConfig({
           functions: 94,
           statements: 99,
         },
+        "src/app/dashboard/purchase-orders/[id]/page.tsx": {
+          lines: 99,
+          branches: 93,
+          functions: 100,
+          statements: 99,
+        },
         "src/app/dashboard/sentiment/page.tsx": {
           lines: 97,
           branches: 90,

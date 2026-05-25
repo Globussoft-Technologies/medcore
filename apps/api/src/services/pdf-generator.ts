@@ -289,13 +289,17 @@ export async function generatePrescriptionPDFBuffer(
   drawKeyVal(doc, "Date", formatDate(prescription.createdAt), 310, topY + 84);
   doc.y = topY + 118;
 
-  // Diagnosis box
-  doc.rect(40, doc.y, 515, 28).fill("#f1f5f9");
+  // Diagnosis box — label + value rendered INSIDE the box, not via
+  // negative offsets (negative offsets collided with the Date row added
+  // by 704a5f57; see PR #965 screenshot).
+  const diagBoxY = doc.y;
+  const diagBoxH = 40;
+  doc.rect(40, diagBoxY, 515, diagBoxH).fill("#f1f5f9");
   doc.fillColor("#64748b").font("Helvetica-Bold").fontSize(9)
-    .text("DIAGNOSIS", 48, doc.y - 24);
+    .text("DIAGNOSIS", 48, diagBoxY + 6);
   doc.fillColor("#1e293b").font("Helvetica").fontSize(11)
-    .text(prescription.diagnosis, 48, doc.y - 12, { width: 500 });
-  doc.y = doc.y + 12;
+    .text(prescription.diagnosis, 48, diagBoxY + 20, { width: 500 });
+  doc.y = diagBoxY + diagBoxH + 8;
 
   drawSectionTitle(doc, "Medications");
   drawTable(

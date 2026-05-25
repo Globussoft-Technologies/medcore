@@ -145,6 +145,12 @@ export default defineConfig({
           functions: 93,
           statements: 100,
         },
+        "src/app/dashboard/lab-explainer/page.tsx": {
+          lines: 98,
+          branches: 93,
+          functions: 100,
+          statements: 98,
+        },
       },
     },
   },

@@ -157,6 +157,18 @@ export default defineConfig({
           functions: 100,
           statements: 99,
         },
+        "src/app/dashboard/holidays/page.tsx": {
+          lines: 100,
+          branches: 93,
+          functions: 100,
+          statements: 100,
+        },
+        "src/app/dashboard/adherence/page.tsx": {
+          lines: 100,
+          branches: 95,
+          functions: 93,
+          statements: 100,
+        },
       },
     },
   },

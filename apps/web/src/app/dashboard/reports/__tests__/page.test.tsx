@@ -788,7 +788,10 @@ describe("Billing Reports dashboard page (admin-only aggregate /dashboard/report
     fireEvent.click(screen.getByTestId(`report-export-${run.id}`));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    const [calledUrl, calledInit] = fetchMock.mock.calls[0] as [string, any];
+    const [calledUrl, calledInit] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      any,
+    ];
     expect(calledUrl).toContain("/analytics/export/revenue.csv");
     expect(calledUrl).toContain("from=2026-05-01");
     expect(calledUrl).toContain("to=2026-05-07");
@@ -827,7 +830,7 @@ describe("Billing Reports dashboard page (admin-only aggregate /dashboard/report
     fireEvent.click(screen.getByTestId(`report-export-${run.id}`));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    const [calledUrl] = fetchMock.mock.calls[0] as [string, any];
+    const [calledUrl] = fetchMock.mock.calls[0] as unknown as [string, any];
     expect(calledUrl).toContain("/analytics/export/appointments.csv");
 
     createUrlSpy.mockRestore();

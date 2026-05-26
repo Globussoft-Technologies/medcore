@@ -755,8 +755,11 @@ describe("Admin Console dashboard page", () => {
     );
     expect(screen.getAllByTestId("skeleton-card-stub").length).toBe(3);
 
-    // Resolve the gating endpoint.
-    resolveLeaves?.({ data: [] });
+    // Resolve the gating endpoint. The cast re-widens — TS's control-flow
+    // analysis narrows the local `let` back to `null` here because the
+    // assignment in the mockImplementation lives in an async callback that
+    // hasn't run synchronously by this point in the type-checker's view.
+    (resolveLeaves as ((v: any) => void) | null)?.({ data: [] });
 
     await waitFor(() =>
       expect(

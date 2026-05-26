@@ -600,7 +600,7 @@ router.post(
   validate(strictRegisterSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { email, phone, password, address, emergencyContact, dateOfBirth } = req.body as {
+      const { email, phone, password, address, emergencyContact, dateOfBirth, gender, age } = req.body as {
         email: string;
         phone: string;
         password: string;
@@ -612,6 +612,15 @@ router.post(
         };
         // Issue #617: ISO calendar string YYYY-MM-DD when sent by the web form.
         dateOfBirth?: string;
+        // Gender on PATIENT self-registration. Required by the public web
+        // /register form (Issue #684 — no silent MALE default) and the
+        // patient PWA register page. Persisted onto the Patient row below.
+        gender?: "MALE" | "FEMALE" | "OTHER";
+        // Age on PATIENT self-registration. The public /register form sends
+        // an explicit integer; the PWA register uses DOB instead. Persisted
+        // onto the Patient row below so the Rx PDF's "Age / Gender" line
+        // shows the value the user actually entered.
+        age?: number;
       };
       // Issue #489: sanitize the display name as a defence-in-depth pass on
       // top of the schema-level XSS rejection. Strips tags, normalises whitespace,
@@ -720,7 +729,17 @@ router.post(
           data: {
             userId: user.id,
             mrNumber,
-            gender: "OTHER",
+            // Use the submitted gender when the form provided one; fall
+            // back to "OTHER" only for legacy callers that don't send it.
+            // Before this fix the field was hard-coded to "OTHER", so every
+            // self-registered patient landed as OTHER regardless of form
+            // selection — visible on the Rx PDF's "Age / Gender" line.
+            gender: gender ?? "OTHER",
+            // Persist the registration-time age. The public /register form
+            // sends an explicit integer; the PWA path sends DOB instead and
+            // age stays undefined here (Prisma writes null, downstream
+            // helpers derive age from dateOfBirth when needed).
+            age: age ?? null,
             // The Doctor.create branch below already pins tenantId; the
             // Patient.create did not. Without it the row is created with
             // tenantId: null and tenantScopedPrisma filters it out for

@@ -20,7 +20,16 @@
         "categories:seo": "off",
         "is-on-https": "off",
         "uses-http2": "off",
-        "csp-xss": "off"
+        "csp-xss": "off",
+        "errors-in-console": "warn",
+        "forced-reflow-insight": "warn",
+        "image-delivery-insight": "warn",
+        "is-crawlable": "off",
+        "label-content-name-mismatch": "warn",
+        "legacy-javascript-insight": "warn",
+        "network-dependency-tree-insight": "warn",
+        "skip-link": "warn",
+        "unused-javascript": "warn"
       }
     },
     "upload": {

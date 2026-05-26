@@ -649,6 +649,22 @@ export default defineConfig({
           statements: 98,
         },
         // 2026-05-26 (test-cron pick): new colocated coverage suite for the
+        // patient PWA scoped 404 page
+        // (src/app/patient/__tests__/not-found.test.tsx, 6 tests covering
+        // the section testid, the Page-not-found <h1>, the helper copy,
+        // the Back-to-home <Link> href invariant (/patient — NOT / or
+        // /dashboard, so users don't bounce into the staff dashboard
+        // chrome per gap #5 piece 1 of 4 contract), and the 44px tap-target
+        // hygiene classes). Single-file coverage measured: 100% lines /
+        // 100% branches / 100% funcs / 100% statements. Floors set 2pp
+        // below measured per convention.
+        "src/app/patient/not-found.tsx": {
+          lines: 98,
+          branches: 98,
+          functions: 98,
+          statements: 98,
+        },
+        // 2026-05-26 (test-cron pick): new colocated coverage suite for the
         // segment-scoped patient PWA manifest
         // (src/app/patient/__tests__/manifest.test.ts, 19 tests across the
         // default-export shape, the patient-specific branding (name /

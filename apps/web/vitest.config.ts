@@ -67,6 +67,12 @@ export default defineConfig({
           functions: 94,
           statements: 99,
         },
+        "src/app/dashboard/billing/page.tsx": {
+          lines: 97,
+          branches: 82,
+          functions: 81,
+          statements: 97,
+        },
         "src/app/dashboard/purchase-orders/[id]/page.tsx": {
           lines: 99,
           branches: 93,

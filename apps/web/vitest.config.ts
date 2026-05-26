@@ -313,6 +313,12 @@ export default defineConfig({
           functions: 88,
           statements: 100,
         },
+        "src/app/dashboard/agent-console/page.tsx": {
+          lines: 97,
+          branches: 84,
+          functions: 100,
+          statements: 97,
+        },
       },
     },
   },

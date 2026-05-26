@@ -217,6 +217,12 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        "src/app/dashboard/lab/[orderId]/page.tsx": {
+          lines: 98,
+          branches: 81,
+          functions: 81,
+          statements: 98,
+        },
         "src/app/dashboard/ai/chart-search/page.tsx": {
           lines: 99,
           branches: 89,

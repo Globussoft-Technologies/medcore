@@ -768,6 +768,23 @@ export default defineConfig({
           functions: 98,
           statements: 98,
         },
+        // 2026-05-26 (test-cron pick): new colocated coverage suite for the
+        // Next.js instrumentation hook (apps/web/src/__tests__/
+        // instrumentation.test.ts, 11 tests across the async-register shape,
+        // the no-DSN no-op, both runtime branches (nodejs gets
+        // tracesSampleRate, edge does not), NODE_ENV "production" fallback +
+        // honoring a non-prod value, SENTRY_RELEASE precedence over the
+        // NEXT_PUBLIC_SENTRY_RELEASE alias, release=undefined when neither
+        // env is set, unknown-runtime no-op, and unset-runtime no-op).
+        // Single-file coverage measured: 100% lines / 100% branches /
+        // 100% funcs / 100% statements. Floors set 2pp below measured per
+        // convention (small headroom for future refactors).
+        "src/instrumentation.ts": {
+          lines: 98,
+          branches: 98,
+          functions: 98,
+          statements: 98,
+        },
       },
     },
   },

@@ -523,7 +523,21 @@ describe("AppointmentsPage", () => {
 
       render(<AppointmentsPage />);
 
-      // Click the top-bar "Next Available" — fires findNextAvailable,
+      // Open the booking panel + pre-pick a patient FIRST. The Next
+      // Available handler now guards staff flows behind a
+      // patientIdInput-non-empty check (page.tsx findNextAvailable
+      // line ~1100) — without a picked patient the handler toast.errors
+      // and returns BEFORE opening the confirm dialog.
+      const bookToggle = await screen.findByTestId("appt-book-toggle");
+      await user.click(bookToggle);
+      const patientInput = await screen.findByTestId("appt-book-patient-input");
+      await user.type(patientInput, "as");
+      const patientOption = await screen.findByTestId(
+        "appt-book-patient-option"
+      );
+      await user.click(patientOption);
+
+      // Now click the top-bar "Next Available" — fires findNextAvailable,
       // which calls GET /next-available, opens the (mocked-true) confirm,
       // then pre-fills the booking form AND surfaces the Confirm
       // Appointment dialog with the locked (doctorId, date, slot).
@@ -541,14 +555,6 @@ describe("AppointmentsPage", () => {
       expect(screen.getByTestId("confirm-appointment-date")).toHaveTextContent(
         "2026-06-01"
       );
-
-      // Patient pre-pick (staff flow requires a patient before booking).
-      const patientInput = screen.getByTestId("appt-book-patient-input");
-      await user.type(patientInput, "as");
-      const patientOption = await screen.findByTestId(
-        "appt-book-patient-option"
-      );
-      await user.click(patientOption);
 
       // Click Confirm — fires confirmPatientIdAndBook, which under the
       // fix uses the locked suggestion doctorId + date even if form state

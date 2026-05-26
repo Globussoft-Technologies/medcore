@@ -370,10 +370,15 @@ describe("AdmissionsPage (IPD admissions register + admit modal — full surface
     // Row content duplicates across desktop + mobile views.
     expect((await screen.findAllByText("ADM-2026-001")).length).toBeGreaterThanOrEqual(1);
 
-    // Patient link to detail (desktop + mobile = 2)
+    // Patient-name link in row → patient detail (with `from=admissions`
+    // back-marker). Separate from the "View Chart" action link, which
+    // goes to the admission detail.
     const patientLinks = screen.getAllByRole("link", { name: "Ramesh Kumar" });
     expect(patientLinks.length).toBeGreaterThanOrEqual(1);
-    expect(patientLinks[0]).toHaveAttribute("href", "/dashboard/admissions/adm-1");
+    expect(patientLinks[0]).toHaveAttribute(
+      "href",
+      "/dashboard/patients/pat-1?from=admissions",
+    );
     // MR shown under the name
     expect(screen.getAllByText("MR-001").length).toBeGreaterThanOrEqual(1);
     // Ward / Bed bedNumber appears in row cells.

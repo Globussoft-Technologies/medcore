@@ -254,8 +254,12 @@ describe("MedicinesPage (formulary catalog — full surface)", () => {
     await screen.findByText("Amlodipine 5mg");
     await screen.findByText("Paracetamol 500mg");
 
-    // Querystring contract — no filters → bare URL.
-    expect(apiMock.get).toHaveBeenCalledWith("/medicines");
+    // Querystring contract — page+limit always appended (server-side
+    // pagination, see page.tsx load() — params.set("page"/"limit")). No
+    // filters → only page/limit on the URL.
+    expect(apiMock.get).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/medicines\?[^?]*page=1[^?]*limit=25/),
+    );
 
     // Mfg labels both render with the correct mfg.
     const mfgs = screen.getAllByTestId("medicine-manufacturer");
@@ -322,8 +326,12 @@ describe("MedicinesPage (formulary catalog — full surface)", () => {
     const searchInput = screen.getByPlaceholderText(/Search medicines/i);
     fireEvent.change(searchInput, { target: { value: "para" } });
 
+    // Source builds the URL via URLSearchParams with page+limit always set;
+    // ignore that suffix here and just assert the search param round-trips.
     await waitFor(() =>
-      expect(apiMock.get).toHaveBeenCalledWith("/medicines?search=para"),
+      expect(apiMock.get).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/medicines\?[^?]*search=para/),
+      ),
     );
   });
 
@@ -349,7 +357,7 @@ describe("MedicinesPage (formulary catalog — full surface)", () => {
 
     await waitFor(() =>
       expect(apiMock.get).toHaveBeenCalledWith(
-        "/medicines?category=Antibiotic",
+        expect.stringMatching(/^\/medicines\?[^?]*category=Antibiotic/),
       ),
     );
   });

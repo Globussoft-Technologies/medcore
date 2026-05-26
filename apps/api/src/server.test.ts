@@ -42,10 +42,18 @@ vi.mock("./services/scheduled-tasks", () => ({
 
 const ORIGINAL_PORT = process.env.PORT;
 
-let processOnSpy: ReturnType<typeof vi.spyOn>;
-let processExitSpy: ReturnType<typeof vi.spyOn>;
-let consoleLogSpy: ReturnType<typeof vi.spyOn>;
-let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
+// `ReturnType<typeof vi.spyOn>` resolves to a generic MockInstance whose
+// signature widens to `(this: unknown, ...args: unknown[]) => unknown`;
+// process.on / process.exit are multi-overload typed methods whose narrow
+// signatures aren't assignable to that wide one. Type these as the
+// generic mock returned by vi.fn so each `vi.spyOn(...)` assigns cleanly.
+// The tests only consume .mock.calls / .mockClear / .mockRestore on these,
+// all of which are present on the generic Mock type.
+type AnyArgsMock = ReturnType<typeof vi.fn<(...args: unknown[]) => unknown>>;
+let processOnSpy: AnyArgsMock;
+let processExitSpy: AnyArgsMock;
+let consoleLogSpy: AnyArgsMock;
+let consoleWarnSpy: AnyArgsMock;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -59,15 +67,25 @@ beforeEach(() => {
   closeMock.mockImplementation((cb?: CloseCallback) => {
     cb?.();
   });
-  processOnSpy = vi.spyOn(process, "on").mockImplementation(
-    // Casting because process.on has multiple overloads we don't need to satisfy here.
-    (() => process) as unknown as typeof process.on,
-  );
+  // Each cast goes through `unknown` because the narrow MockInstance
+  // returned by vi.spyOn (typed against the spied method's specific
+  // overload set) isn't covariantly assignable to the generic
+  // AnyArgsMock holder above. The tests only consume .mock.calls /
+  // .mockClear / .mockRestore so the loose generic shape is sufficient.
+  processOnSpy = vi
+    .spyOn(process, "on")
+    .mockImplementation((() => process) as unknown as typeof process.on) as unknown as AnyArgsMock;
   processExitSpy = vi
     .spyOn(process, "exit")
-    .mockImplementation(((_code?: number) => undefined as never) as typeof process.exit);
-  consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-  consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    .mockImplementation(
+      ((_code?: number) => undefined as never) as typeof process.exit,
+    ) as unknown as AnyArgsMock;
+  consoleLogSpy = vi
+    .spyOn(console, "log")
+    .mockImplementation(() => {}) as unknown as AnyArgsMock;
+  consoleWarnSpy = vi
+    .spyOn(console, "warn")
+    .mockImplementation(() => {}) as unknown as AnyArgsMock;
 });
 
 afterEach(() => {

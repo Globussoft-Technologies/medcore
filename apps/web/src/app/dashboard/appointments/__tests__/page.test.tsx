@@ -241,26 +241,27 @@ describe("AppointmentsPage — colocated coverage", () => {
     const user = userEvent.setup();
     render(<AppointmentsPage />);
 
-    // Default tab = upcoming → only token 10.
-    await waitFor(() => expect(screen.getByText("10")).toBeInTheDocument());
-    expect(screen.queryByText("11")).toBeNull();
+    // Default tab = upcoming → only token 10. Token cell renders via
+    // appointmentRefLabel(apt) → "T-<n>" for non-CALLING modes.
+    await waitFor(() => expect(screen.getByText("T-10")).toBeInTheDocument());
+    expect(screen.queryByText("T-11")).toBeNull();
 
     // Past tab → tokens 11, 12, 13 (cancelled NOT shown).
     await user.click(screen.getByRole("button", { name: /^past$/i }));
     await waitFor(() => {
-      expect(screen.getByText("11")).toBeInTheDocument();
-      expect(screen.getByText("12")).toBeInTheDocument();
-      expect(screen.getByText("13")).toBeInTheDocument();
+      expect(screen.getByText("T-11")).toBeInTheDocument();
+      expect(screen.getByText("T-12")).toBeInTheDocument();
+      expect(screen.getByText("T-13")).toBeInTheDocument();
     });
-    expect(screen.queryByText("14")).toBeNull();
+    expect(screen.queryByText("T-14")).toBeNull();
 
     // Cancelled tab → only token 14, NO_SHOW excluded (Issue #387).
     await user.click(screen.getByRole("button", { name: /^cancelled$/i }));
     await waitFor(() => {
-      expect(screen.getByText("14")).toBeInTheDocument();
+      expect(screen.getByText("T-14")).toBeInTheDocument();
     });
-    expect(screen.queryByText("11")).toBeNull();
-    expect(screen.queryByText("12")).toBeNull();
+    expect(screen.queryByText("T-11")).toBeNull();
+    expect(screen.queryByText("T-12")).toBeNull();
   });
 
   it("PATIENT empty state: 'No upcoming appointments' message renders when the list is empty", async () => {
@@ -766,7 +767,10 @@ describe("AppointmentsPage — colocated coverage", () => {
     const user = userEvent.setup();
     render(<AppointmentsPage />);
     const cb = await screen.findByRole("checkbox", {
-      name: /select appointment 1/i,
+      // page.tsx labels each checkbox via appointmentRefLabel(apt), which
+      // formats tokenNumber as "T-<n>" for non-CALLING modes. Match the
+      // suffix to stay robust if the prefix changes.
+      name: /select appointment t-1/i,
     });
     await user.click(cb);
     await user.click(screen.getByRole("button", { name: /send reminder/i }));
@@ -789,7 +793,10 @@ describe("AppointmentsPage — colocated coverage", () => {
     const user = userEvent.setup();
     render(<AppointmentsPage />);
     const cb = await screen.findByRole("checkbox", {
-      name: /select appointment 1/i,
+      // page.tsx labels each checkbox via appointmentRefLabel(apt), which
+      // formats tokenNumber as "T-<n>" for non-CALLING modes. Match the
+      // suffix to stay robust if the prefix changes.
+      name: /select appointment t-1/i,
     });
     await user.click(cb);
     await user.click(screen.getByRole("button", { name: /mark as no-show/i }));
@@ -807,7 +814,10 @@ describe("AppointmentsPage — colocated coverage", () => {
     const user = userEvent.setup();
     render(<AppointmentsPage />);
     const cb = await screen.findByRole("checkbox", {
-      name: /select appointment 1/i,
+      // page.tsx labels each checkbox via appointmentRefLabel(apt), which
+      // formats tokenNumber as "T-<n>" for non-CALLING modes. Match the
+      // suffix to stay robust if the prefix changes.
+      name: /select appointment t-1/i,
     });
     await user.click(cb);
     expect(await screen.findByText(/1 selected/i)).toBeInTheDocument();
@@ -1226,17 +1236,20 @@ describe("AppointmentsPage — colocated coverage", () => {
     });
     const user = userEvent.setup();
     render(<AppointmentsPage />);
-    await screen.findByText("100");
+    // Tokens render via appointmentRefLabel() as "T-<n>". Bare "100" would
+    // also match the page-size <option value="100">, so the T- prefix
+    // disambiguates the row cell from chrome.
+    await screen.findByText("T-100");
     // Click the COMPLETED chip (filters out the BOOKED row).
     await user.click(screen.getByRole("button", { name: /^completed$/i }));
     await waitFor(() => {
-      expect(screen.queryByText("100")).toBeNull();
-      expect(screen.getByText("101")).toBeInTheDocument();
+      expect(screen.queryByText("T-100")).toBeNull();
+      expect(screen.getByText("T-101")).toBeInTheDocument();
     });
     // Click All to restore.
     await user.click(screen.getByRole("button", { name: /^all$/i }));
     await waitFor(() => {
-      expect(screen.getByText("100")).toBeInTheDocument();
+      expect(screen.getByText("T-100")).toBeInTheDocument();
     });
   });
 

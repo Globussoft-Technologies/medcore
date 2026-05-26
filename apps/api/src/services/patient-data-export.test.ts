@@ -97,10 +97,12 @@ const { prismaMock, runWithTenantMock, fhirMocks } = vi.hoisted(() => {
         resourceType: "Observation",
         id: r?.id ?? "obs1",
       })),
-      labOrderToDiagnosticReport: vi.fn((o: { id?: string }) => ({
-        resourceType: "DiagnosticReport",
-        id: `${o?.id ?? "dr1"}-dr`,
-      })),
+      labOrderToDiagnosticReport: vi.fn(
+        (o: { id?: string }, _resultIds?: string[]) => ({
+          resourceType: "DiagnosticReport",
+          id: `${o?.id ?? "dr1"}-dr`,
+        }),
+      ),
       allergyToFhir: vi.fn((al: { id?: string }) => ({
         resourceType: "AllergyIntolerance",
         id: al?.id ?? "al1",

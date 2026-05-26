@@ -10,7 +10,7 @@
 //   PATCH /:id                            — save SOAP / codes / notes draft
 //   POST  /:id/sign                       — finalize (DRAFT → SIGNED)
 import { Router, Request, Response, NextFunction } from "express";
-import { prisma } from "@medcore/db";
+import { prisma, Prisma } from "@medcore/db";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 
@@ -275,9 +275,14 @@ router.patch(
           ...(objective !== undefined ? { objective } : {}),
           ...(assessment !== undefined ? { assessment } : {}),
           ...(plan !== undefined ? { plan } : {}),
-          ...(icd10Codes !== undefined ? { icd10Codes: icd10Codes ?? [] } : {}),
+          // Cast to Prisma.InputJsonValue — DiagnosisCode[] is structurally
+          // an InputJsonArray (validated above by isDiagnosisArray) but TS
+          // doesn't widen named interfaces to the indexable JSON shape.
+          ...(icd10Codes !== undefined
+            ? { icd10Codes: (icd10Codes ?? []) as unknown as Prisma.InputJsonValue }
+            : {}),
           ...(snomedCodes !== undefined
-            ? { snomedCodes: snomedCodes ?? [] }
+            ? { snomedCodes: (snomedCodes ?? []) as unknown as Prisma.InputJsonValue }
             : {}),
           ...(notes !== undefined ? { notes } : {}),
           ...(findings !== undefined ? { findings } : {}),

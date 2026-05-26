@@ -569,8 +569,13 @@ describe("QueuePage", () => {
       });
 
       apiMock.get.mockClear();
+      // 30s poll tick fires `refreshAllQueues`, which schedules the actual
+      // /queue fetch via a 150ms trailing debounce (page.tsx `runRefresh`
+      // / `refreshAllQueues`). Advance past both windows so the debounced
+      // call lands before we assert.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(30_000);
+        await vi.advanceTimersByTimeAsync(200);
       });
       const urls = apiMock.get.mock.calls.map((c) => String(c[0]));
       expect(urls.some((u) => u === "/queue")).toBe(true);

@@ -81,61 +81,6 @@ router.use(authenticate);
 // admissions.ts) needed the same contract. Idempotency, formula, and
 // behavior unchanged. See that file's header for the full rationale.
 import { syncIpdInvoiceTotals } from "../services/ipd-billing-sync";
-// 2026-05-25 — IPD running-bill DB sync. IPD invoices are created at admit
-// with totalAmount = 0 and that figure grows daily (days × bed.dailyRate).
-// Rather than overlay live math in every reader (billing list, KPI cards,
-// outstanding report, downstream services like getOutstanding), this helper
-// walks every PENDING IPD invoice whose admission is still active and
-// persists the current bed-charge total to the DB. Called at the top of the
-// list/report endpoints so a single bulk update keeps all downstream queries
-// honest. Idempotent — safe to call on every request; skips rows whose
-// total already matches the computed value.
-//
-// Future: extract to services/ipd-billing-sync.ts when a second non-route
-// caller (cron, scheduled report) needs it.
-const DAY_MS = 24 * 60 * 60 * 1000;
-async function syncIpdInvoiceTotals(): Promise<number> {
-  // Pull PENDING invoices that are admission-anchored AND whose admission
-  // is still ADMITTED (not yet discharged). Discharged admissions stay
-  // frozen — discharge-side finalization will own that handoff later.
-  const invoices = await rawPrisma.invoice.findMany({
-    where: {
-      paymentStatus: "PENDING",
-      admissionId: { not: null },
-      admission: { status: "ADMITTED" },
-    },
-    select: {
-      id: true,
-      totalAmount: true,
-      admission: {
-        select: {
-          admittedAt: true,
-          dischargedAt: true,
-          bed: { select: { dailyRate: true } },
-        },
-      },
-    },
-  });
-  let updated = 0;
-  for (const inv of invoices) {
-    if (!inv.admission) continue;
-    const startMs = new Date(inv.admission.admittedAt).getTime();
-    const endMs = inv.admission.dischargedAt
-      ? new Date(inv.admission.dischargedAt).getTime()
-      : Date.now();
-    const days = Math.max(1, Math.ceil((endMs - startMs) / DAY_MS));
-    const dailyRate = inv.admission.bed?.dailyRate ?? 0;
-    const target = dailyRate * days;
-    // Skip the write if nothing changed (idempotency keeps the DB log calm).
-    if (Number(inv.totalAmount) === target) continue;
-    await rawPrisma.invoice.update({
-      where: { id: inv.id },
-      data: { subtotal: target, totalAmount: target },
-    });
-    updated++;
-  }
-  return updated;
-}
 
 // ─── Decimal → number helper (Issue #901) ────────────────────────
 // Coerce a Prisma.Decimal / number / string to a JS number for math

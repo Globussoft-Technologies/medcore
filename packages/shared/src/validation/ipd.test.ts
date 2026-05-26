@@ -457,45 +457,53 @@ describe("recordIpdVitalsSchema — boundaries per vital field", () => {
     ).toBe(false);
   });
 
-  it("systolic accepts 60 and 260 boundaries; rejects 59 and 261", () => {
+  it("systolic accepts 40 and 300 boundaries; rejects 39 and 301", () => {
+    // Bounds widened 2026-05-25 (VITALS_RANGES.bloodPressureSystolic) so
+    // emergency-care entries (severe shock at the low end, hypertensive
+    // crisis at the high end) don't fail validation.
     expect(
-      recordIpdVitalsSchema.safeParse({ ...base, bloodPressureSystolic: 60 }).success,
+      recordIpdVitalsSchema.safeParse({ ...base, bloodPressureSystolic: 40 }).success,
     ).toBe(true);
     expect(
-      recordIpdVitalsSchema.safeParse({ ...base, bloodPressureSystolic: 260 })
+      recordIpdVitalsSchema.safeParse({ ...base, bloodPressureSystolic: 300 })
         .success,
     ).toBe(true);
     expect(
-      recordIpdVitalsSchema.safeParse({ ...base, bloodPressureSystolic: 59 }).success,
+      recordIpdVitalsSchema.safeParse({ ...base, bloodPressureSystolic: 39 }).success,
     ).toBe(false);
     expect(
-      recordIpdVitalsSchema.safeParse({ ...base, bloodPressureSystolic: 261 })
+      recordIpdVitalsSchema.safeParse({ ...base, bloodPressureSystolic: 301 })
         .success,
     ).toBe(false);
   });
 
-  it("diastolic accepts 30 and 180 boundaries; rejects 29 and 181", () => {
-    // Pair with a high systolic so the cross-field refine doesn't reject.
+  it("diastolic accepts 20 and 220 boundaries; rejects 19 and 221", () => {
+    // Bounds widened 2026-05-25 (VITALS_RANGES.bloodPressureDiastolic).
+    // Pair high diastolic with an even higher systolic so the cross-field
+    // refine (diastolic must be < systolic) doesn't reject.
     expect(
       recordIpdVitalsSchema.safeParse({
         ...base,
-        bloodPressureSystolic: 200,
-        bloodPressureDiastolic: 30,
+        bloodPressureSystolic: 250,
+        bloodPressureDiastolic: 20,
       }).success,
     ).toBe(true);
     expect(
       recordIpdVitalsSchema.safeParse({
         ...base,
-        bloodPressureSystolic: 200,
-        bloodPressureDiastolic: 180,
+        bloodPressureSystolic: 250,
+        bloodPressureDiastolic: 220,
       }).success,
     ).toBe(true);
     expect(
-      recordIpdVitalsSchema.safeParse({ ...base, bloodPressureDiastolic: 29 }).success,
+      recordIpdVitalsSchema.safeParse({ ...base, bloodPressureDiastolic: 19 }).success,
     ).toBe(false);
     expect(
-      recordIpdVitalsSchema.safeParse({ ...base, bloodPressureDiastolic: 181 })
-        .success,
+      recordIpdVitalsSchema.safeParse({
+        ...base,
+        bloodPressureSystolic: 300,
+        bloodPressureDiastolic: 221,
+      }).success,
     ).toBe(false);
   });
 
@@ -789,9 +797,23 @@ describe("medicationOrderSchema accepts/rejects order shape", () => {
     ).toBe(false);
   });
 
-  it("rejects non-UUID medicineId when supplied", () => {
+  it("accepts a non-UUID id-shaped medicineId (catalog ids are id-like, not strict UUID — 2026-05-25 contract)", () => {
+    // Source relaxed medicineId from .uuid() to .string().min(1).max(64)
+    // on 2026-05-25 because some seeded Medicine.id values are 36-char
+    // hex strings that aren't RFC-4122 compliant. The route handler
+    // verifies existence via Prisma lookup. Schema-level acceptance
+    // mirrors the doctor-favourite-medicine convention.
     expect(
       medicationOrderSchema.safeParse({ ...valid, medicineId: "x" }).success,
+    ).toBe(true);
+    // Still rejects empty and over-length strings — the only bounds the
+    // schema enforces post-relaxation.
+    expect(
+      medicationOrderSchema.safeParse({ ...valid, medicineId: "" }).success,
+    ).toBe(false);
+    expect(
+      medicationOrderSchema.safeParse({ ...valid, medicineId: "x".repeat(65) })
+        .success,
     ).toBe(false);
   });
 

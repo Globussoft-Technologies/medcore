@@ -437,6 +437,16 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        // 2026-05-26 (test-cron pick): brand-new colocated suite for the
+        // super-admin platform-billing invoice detail page (19 tests).
+        // Single-file coverage: 98.33% lines / 88.88% branches / 100% funcs.
+        // Floors set 2pp below measured.
+        "src/app/super-admin/platform-billing/invoices/[id]/page.tsx": {
+          lines: 96,
+          branches: 86,
+          functions: 98,
+          statements: 96,
+        },
       },
     },
   },

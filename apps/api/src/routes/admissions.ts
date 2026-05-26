@@ -29,6 +29,7 @@ import { generateDischargeSummaryHTML } from "../services/pdf";
 import { generateDischargeSummaryPDFBuffer } from "../services/pdf-generator";
 
 import { requireFeature } from "../middleware/feature-flag";
+import { syncIpdInvoiceTotals } from "../services/ipd-billing-sync";
 
 const router = Router();
 router.use(authenticate);
@@ -413,6 +414,12 @@ router.get(
   "/:id/discharge-readiness",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Refresh IPD running-bill totals so the outstanding-bills check
+      // below reads today's bed charges, not the stale zero stored at
+      // admit-time. Without this the readiness check incorrectly reports
+      // "Fully settled" for any admission whose IPD invoice hasn't been
+      // viewed via the Billing list yet.
+      await syncIpdInvoiceTotals().catch(() => undefined);
       const admissionId = req.params.id;
       const admission = await prisma.admission.findUnique({
         where: { id: admissionId },
@@ -530,6 +537,13 @@ router.patch(
       // Outstanding bill guard unless forceDischarge=true
       const forceDischarge = req.body.forceDischarge === true;
       if (!forceDischarge) {
+        // Refresh IPD running-bill totals before reading. Without this,
+        // an IPD invoice whose totalAmount has never been re-synced
+        // (e.g. patient was never opened on the Billing list page)
+        // reads as 0 and the discharge slips through despite unpaid bed
+        // charges — same root cause as the discharge-readiness check
+        // above. Idempotent: skips rows where stored == computed.
+        await syncIpdInvoiceTotals().catch(() => undefined);
         const pendingInvoices = await prisma.invoice.findMany({
           where: {
             patientId: existing.patientId,
@@ -801,16 +815,102 @@ router.get(
       const dailyRate = admission.bed?.dailyRate ?? 0;
       const bedCharges = dailyRate * days;
 
-      // Fetch pharmacy/lab sub-totals if linked invoices exist — omitted for now
-      // Simple breakdown
-      const breakdown = [
+      // ── Pharmacy sub-total (2026-05-25) ────────────────────────────────
+      // Fetch every medication order against this admission + its
+      // administrations + the linked Medicine (for `mrp` — catalog price).
+      // Charge = sum over each ADMINISTERED administration of the parent
+      // medicine's MRP. Scheduled / Missed / Refused doses aren't billed —
+      // only what the nurse actually gave the patient.
+      //
+      // Pricing source: Medicine.mrp (catalog). InventoryItem.sellingPrice
+      // would be more accurate per-batch, but we don't currently track
+      // which batch was dispensed for each administration. MRP is the
+      // standard running-bill approximation; the final discharge invoice
+      // can reconcile against actual batch costs later.
+      const medOrders = await prisma.medicationOrder.findMany({
+        where: { admissionId: admission.id },
+        select: {
+          id: true,
+          medicineName: true,
+          dosage: true,
+          medicine: { select: { mrp: true } },
+          administrations: {
+            where: { status: "ADMINISTERED" },
+            select: { id: true },
+          },
+        },
+      });
+      type BreakdownLine = {
+        label: string;
+        days: number;
+        ratePerDay: number;
+        amount: number;
+        unit?: "day" | "dose" | "test";
+      };
+      const medicineLines: BreakdownLine[] = [];
+      let pharmacyTotal = 0;
+      for (const o of medOrders) {
+        const doseCount = o.administrations.length;
+        if (doseCount === 0) continue; // not yet given — don't bill
+        const perDose = o.medicine?.mrp ?? 0;
+        const amount = perDose * doseCount;
+        pharmacyTotal += amount;
+        medicineLines.push({
+          label: `${o.medicineName}${o.dosage ? ` (${o.dosage})` : ""}`,
+          days: doseCount,
+          ratePerDay: perDose,
+          amount,
+          unit: "dose",
+        });
+      }
+
+      // ── Lab sub-total (2026-05-25) ────────────────────────────────────
+      // Bill every COMPLETED LabOrderItem against this admission at the
+      // linked LabTest.price (catalog price). ORDERED / SAMPLE_COLLECTED
+      // / IN_PROGRESS items aren't billed yet — only delivered results
+      // are charged, mirroring the "ADMINISTERED-only" rule for meds.
+      // Result: as soon as a lab order's result is filed, the cost
+      // appears in the running bill.
+      const labOrders = await prisma.labOrder.findMany({
+        where: { admissionId: admission.id },
+        select: {
+          orderNumber: true,
+          items: {
+            where: { status: "COMPLETED" },
+            select: {
+              test: { select: { name: true, price: true } },
+            },
+          },
+        },
+      });
+      const labLines: BreakdownLine[] = [];
+      let labTotal = 0;
+      for (const order of labOrders) {
+        for (const item of order.items) {
+          const price = item.test?.price ?? 0;
+          labTotal += price;
+          labLines.push({
+            label: `Lab: ${item.test?.name ?? "—"}`,
+            days: 1,
+            ratePerDay: price,
+            amount: price,
+            unit: "test",
+          });
+        }
+      }
+
+      const breakdown: BreakdownLine[] = [
         {
           label: `Bed Charges (${admission.bed?.ward?.name ?? "Ward"} / ${admission.bed?.bedNumber ?? "-"})`,
           days,
           ratePerDay: dailyRate,
           amount: bedCharges,
+          unit: "day",
         },
+        ...medicineLines,
+        ...labLines,
       ];
+      const grandTotal = bedCharges + pharmacyTotal + labTotal;
 
       res.json({
         success: true,
@@ -821,8 +921,8 @@ router.get(
           dischargedAt: admission.dischargedAt,
           days,
           breakdown,
-          grandTotal: bedCharges,
-          currentTotal: admission.totalBillAmount ?? bedCharges,
+          grandTotal,
+          currentTotal: admission.totalBillAmount ?? grandTotal,
         },
         error: null,
       });

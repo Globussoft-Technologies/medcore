@@ -76,6 +76,11 @@ import { generateInvoicePDFBuffer } from "../services/pdf-generator";
 const router = Router();
 router.use(authenticate);
 
+// IPD running-bill sync — moved to services/ipd-billing-sync.ts on
+// 2026-05-25 once a second non-billing caller (discharge handlers in
+// admissions.ts) needed the same contract. Idempotency, formula, and
+// behavior unchanged. See that file's header for the full rationale.
+import { syncIpdInvoiceTotals } from "../services/ipd-billing-sync";
 // 2026-05-25 — IPD running-bill DB sync. IPD invoices are created at admit
 // with totalAmount = 0 and that figure grows daily (days × bed.dailyRate).
 // Rather than overlay live math in every reader (billing list, KPI cards,

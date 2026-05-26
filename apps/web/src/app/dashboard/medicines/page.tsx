@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
@@ -8,6 +8,7 @@ import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Search, Plus, Pill, X, Pencil, Trash2 } from "lucide-react";
 import { SkeletonTable } from "@/components/Skeleton";
+import { TablePagination } from "@/components/TablePagination";
 
 // Issue #509: page-level gate matching API authorize() in
 // apps/api/src/routes/medicines.ts (writes are ADMIN/DOCTOR; the master list
@@ -25,6 +26,9 @@ interface Medicine {
   category?: string | null;
   rxRequired?: boolean;
   manufacturer?: string | null;
+  // 2026-05-25 — MRP (Maximum Retail Price) printed on the pack.
+  // Stored as Float; null when not yet recorded.
+  mrp?: number | null;
   interactions?: Interaction[];
 }
 
@@ -61,6 +65,39 @@ export default function MedicinesPage() {
   const [category, setCategory] = useState("");
   const [selected, setSelected] = useState<Medicine | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  // Server-side pagination — /medicines accepts ?page=N&limit=M and returns
+  // meta.total. Client-side slicing wouldn't work here because the API
+  // defaults to limit=20 (caps at 100), so we'd never see medicines past
+  // index 20 without explicitly walking the pages.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [total, setTotal] = useState(0);
+  // Pagination scroll behavior — direction-split per user request 2026-05-25:
+  //   - NEXT (>) : after the new page renders, scroll so the grid's first
+  //     card sits at the top of the scroll area. User reads top-down.
+  //   - PREV (<) : anchor the pagination bar in place via the same
+  //     viewport-offset capture/restore trick, so the bar stays under
+  //     the user's cursor for repeated back-clicks.
+  // Refs:
+  //   - paginationRef → the pagination wrapper, for anchor-restore on PREV
+  //   - gridRef       → the cards grid, for scroll-to-top on NEXT
+  //   - pendingDirectionRef → "forward" | "backward" set on click,
+  //     consumed by the layout effect once new data has rendered.
+  //   - barOffsetBeforeLoadRef → captured viewport-top of the pagination
+  //     bar at click time, used only on PREV.
+  const paginationRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const pendingDirectionRef = useRef<"forward" | "backward" | null>(null);
+  const barOffsetBeforeLoadRef = useRef<number | null>(null);
+
+  function changePage(newPage: number) {
+    pendingDirectionRef.current = newPage > page ? "forward" : "backward";
+    if (pendingDirectionRef.current === "backward" && paginationRef.current) {
+      barOffsetBeforeLoadRef.current =
+        paginationRef.current.getBoundingClientRect().top;
+    }
+    setPage(newPage);
+  }
 
   // Issue #509: redirect non-allowed roles to /dashboard/not-authorized.
   useEffect(() => {
@@ -83,6 +120,9 @@ export default function MedicinesPage() {
     category: "",
     rxRequired: true,
     manufacturer: "",
+    // String in form state (raw input); coerced to Number on submit.
+    // Empty string means "no MRP" and is sent as null on PATCH / omitted on POST.
+    mrp: "",
   });
 
   const isAdmin = user?.role === "ADMIN";
@@ -91,6 +131,14 @@ export default function MedicinesPage() {
   // ADMIN-only.
   const canEdit = isAdmin || isDoctor;
   const canDelete = isAdmin;
+
+  // Page-window derivation. `total` comes from /medicines `meta.total`
+  // (the FULL filtered count on the server); `medicines` is just the
+  // current page's slice. Don't compute totalPages off medicines.length
+  // — that would mistakenly bound it to ≤ pageSize and lock the user
+  // on page 1 forever.
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const currentPage = Math.min(page, totalPages);
 
   function openEdit(m: Medicine) {
     setEditing(m);
@@ -102,6 +150,7 @@ export default function MedicinesPage() {
       category: m.category ?? "",
       rxRequired: !!m.rxRequired,
       manufacturer: m.manufacturer ?? "",
+      mrp: m.mrp == null ? "" : String(m.mrp),
     });
     setShowAdd(true);
   }
@@ -124,9 +173,67 @@ export default function MedicinesPage() {
     }
   }
 
+  // Reset to page 1 when the filter changes (so switching from "Antibiotic"
+  // page 3 → "Antiviral" doesn't strand the user on an empty page). The
+  // separate refetch effect below handles the actual /medicines call once
+  // `page` settles back to 1.
+  useEffect(() => {
+    setPage(1);
+  }, [search, category]);
+
+  // Fetch whenever the filter OR the page-window changes. Server-side
+  // pagination — the API returns the current page + meta.total, and we
+  // render those rows directly (no client-side slicing).
   useEffect(() => {
     load();
-  }, [search, category]);
+  }, [search, category, page, pageSize]);
+
+  // After the new page lays out, do the direction-specific scroll move.
+  // useLayoutEffect runs synchronously before the browser paints, so any
+  // adjustment is invisible — no flash of the natural position.
+  //
+  // Scroll target: the dashboard layout puts the scrollable region on
+  // `<main id="main-content" overflow-y-auto>` — NOT on window. window
+  // scroll is a no-op here. Fall back to documentElement defensively
+  // for surfaces that mount this page outside the dashboard chrome.
+  useLayoutEffect(() => {
+    if (loading) return;
+    const direction = pendingDirectionRef.current;
+    if (!direction) return;
+    pendingDirectionRef.current = null;
+
+    const scroller =
+      document.getElementById("main-content") ??
+      (document.scrollingElement as HTMLElement | null) ??
+      document.documentElement;
+
+    if (direction === "forward") {
+      // NEXT click — bring the grid's top to the top of the scroller
+      // (minus a small breathing-room offset so the search bar is still
+      // visible above). Computed via getBoundingClientRect because the
+      // grid's offsetTop is relative to its nearest positioned ancestor
+      // which isn't necessarily the scroller.
+      if (!gridRef.current) return;
+      const gridTop = gridRef.current.getBoundingClientRect().top;
+      const scrollerTop = scroller.getBoundingClientRect().top;
+      const delta = gridTop - scrollerTop;
+      // Leave ~16px of breathing room above the grid so the page header
+      // and filter row peek above it — feels less jarring than slamming
+      // the grid against the very top edge of the scroll region.
+      const target = delta - 16;
+      if (Math.abs(target) > 1) scroller.scrollTop += target;
+      return;
+    }
+
+    // PREV click — restore the pagination bar to its captured offset so
+    // the user can chain back-clicks without the bar moving.
+    if (barOffsetBeforeLoadRef.current === null) return;
+    if (!paginationRef.current) return;
+    const newTop = paginationRef.current.getBoundingClientRect().top;
+    const delta = newTop - barOffsetBeforeLoadRef.current;
+    barOffsetBeforeLoadRef.current = null;
+    if (Math.abs(delta) > 1) scroller.scrollTop += delta;
+  }, [loading, medicines]);
 
   async function load() {
     setLoading(true);
@@ -134,9 +241,14 @@ export default function MedicinesPage() {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
       if (category) params.set("category", category);
-      const q = params.toString() ? `?${params.toString()}` : "";
-      const res = await api.get<{ data: Medicine[] }>(`/medicines${q}`);
+      params.set("page", String(page));
+      params.set("limit", String(pageSize));
+      const res = await api.get<{
+        data: Medicine[];
+        meta?: { total?: number };
+      }>(`/medicines?${params.toString()}`);
       setMedicines(res.data);
+      setTotal(res.meta?.total ?? res.data.length);
     } catch {
       // empty
     }
@@ -167,6 +279,22 @@ export default function MedicinesPage() {
       toast.error("Manufacturer is required");
       return;
     }
+    // MRP coercion. Form holds a string; API expects number | null | undefined.
+    // - "" → undefined on create (Zod field is optional); null on edit (so a
+    //   cleared input actually clears the column).
+    // - Non-numeric input rejected up-front with a clean toast.
+    let mrpForApi: number | null | undefined;
+    const mrpRaw = form.mrp.trim();
+    if (mrpRaw === "") {
+      mrpForApi = editing ? null : undefined;
+    } else {
+      const parsed = Number(mrpRaw);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        toast.error("MRP must be a non-negative number");
+        return;
+      }
+      mrpForApi = parsed;
+    }
     try {
       const payload = {
         ...form,
@@ -175,6 +303,7 @@ export default function MedicinesPage() {
         strength: form.strength || undefined,
         category: form.category || undefined,
         manufacturer: form.manufacturer.trim(),
+        mrp: mrpForApi,
       };
       if (editing) {
         await api.patch(`/medicines/${editing.id}`, payload);
@@ -193,6 +322,7 @@ export default function MedicinesPage() {
         category: "",
         rxRequired: true,
         manufacturer: "",
+        mrp: "",
       });
       load();
     } catch (err) {
@@ -245,7 +375,13 @@ export default function MedicinesPage() {
         </select>
       </div>
 
-      {loading ? (
+      {/* Skeleton ONLY when we have no data yet (first load, filter-change
+          that emptied the previous list). On chevron clicks we keep the
+          old page rendered (slightly dimmed) until the new page arrives,
+          so the grid's height — and therefore the pagination bar's
+          position — never collapses + reflows. That was the cause of the
+          "bar jumps when I click next" feel. */}
+      {loading && medicines.length === 0 ? (
         <div
           data-testid="medicines-loading"
           aria-busy="true"
@@ -258,7 +394,13 @@ export default function MedicinesPage() {
           No medicines found.
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div
+          ref={gridRef}
+          className={`grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 transition-opacity ${
+            loading ? "opacity-60" : "opacity-100"
+          }`}
+          aria-busy={loading}
+        >
           {medicines.map((m) => (
             // Issue #85: card wrapper is now a <div>, not a <button>, so we
             // can place real <button> children for Edit / Delete without
@@ -304,6 +446,14 @@ export default function MedicinesPage() {
                 >
                   Mfg: {m.manufacturer || "—"}
                 </p>
+                {m.mrp != null && (
+                  <p
+                    className="mt-0.5 text-xs font-medium text-gray-700 dark:text-gray-200"
+                    data-testid="medicine-mrp"
+                  >
+                    MRP: ₹{m.mrp.toFixed(2)}
+                  </p>
+                )}
                 {m.category && (
                   <span className="mt-2 inline-block rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-200">
                     {m.category}
@@ -339,6 +489,22 @@ export default function MedicinesPage() {
         </div>
       )}
 
+      {total > 0 && (
+        <div ref={paginationRef} className="mt-3 rounded-xl bg-white shadow-sm dark:bg-gray-800">
+          <TablePagination
+            page={currentPage}
+            totalPages={totalPages}
+            pageSize={pageSize}
+            totalItems={total}
+            onPageChange={changePage}
+            onPageSizeChange={(n) => {
+              setPage(1);
+              setPageSize(n);
+            }}
+          />
+        </div>
+      )}
+
       {/* Detail Modal */}
       {selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -367,6 +533,10 @@ export default function MedicinesPage() {
               <Info
                 label="Rx Required"
                 value={selected.rxRequired ? "Yes" : "No"}
+              />
+              <Info
+                label="MRP"
+                value={selected.mrp != null ? `₹${selected.mrp.toFixed(2)}` : "—"}
               />
               <Info
                 label="Manufacturer"
@@ -493,18 +663,36 @@ export default function MedicinesPage() {
                   />
                 </div>
               </div>
-              <div>
-                <label htmlFor="add-medicine-manufacturer" className="mb-1 block text-sm font-medium">
-                  Manufacturer <span className="text-red-500">*</span>
-                </label>
-                <input
-                  id="add-medicine-manufacturer"
-                  value={form.manufacturer}
-                  onChange={(e) =>
-                    setForm({ ...form, manufacturer: e.target.value })
-                  }
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="add-medicine-manufacturer" className="mb-1 block text-sm font-medium">
+                    Manufacturer <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    id="add-medicine-manufacturer"
+                    value={form.manufacturer}
+                    onChange={(e) =>
+                      setForm({ ...form, manufacturer: e.target.value })
+                    }
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="add-medicine-mrp" className="mb-1 block text-sm font-medium">
+                    MRP (₹)
+                  </label>
+                  <input
+                    id="add-medicine-mrp"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    inputMode="decimal"
+                    placeholder="e.g. 25.50"
+                    value={form.mrp}
+                    onChange={(e) => setForm({ ...form, mrp: e.target.value })}
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
+                  />
+                </div>
               </div>
               <label className="flex items-center gap-2 text-sm">
                 <input

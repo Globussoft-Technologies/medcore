@@ -338,7 +338,16 @@ export default function AdmissionDetailPage({
 interface BillInfo {
   days: number;
   grandTotal: number;
-  breakdown: Array<{ label: string; days: number; ratePerDay: number; amount: number }>;
+  breakdown: Array<{
+    label: string;
+    days: number;
+    ratePerDay: number;
+    amount: number;
+    // 2026-05-25 — optional unit for each line. "day" (bed charges) /
+    // "dose" (medications) / "test" (lab orders). Omitted = "day" for
+    // back-compat with older /admissions/:id/bill responses.
+    unit?: "day" | "dose" | "test";
+  }>;
 }
 
 function OverviewTab({
@@ -494,6 +503,29 @@ function OverviewTab({
           <div className="rounded-xl bg-white dark:bg-gray-800 p-6 shadow-sm">
             <h3 className="mb-3 font-semibold">Running Bill</h3>
             <div className="space-y-2 text-sm">
+              {bill.breakdown.map((b, i) => {
+                // Render a tidy "× N day(s)" / "× N dose(s)" / "× N test(s)"
+                // hint per breakdown line. Default to "day" if the backend
+                // didn't send a unit (back-compat with older /bill responses).
+                const unitWord =
+                  b.unit === "dose"
+                    ? "dose"
+                    : b.unit === "test"
+                      ? "test"
+                      : "day";
+                const unitLabel =
+                  b.days === 1 ? unitWord : `${unitWord}s`;
+                return (
+                  <div key={i} className="flex justify-between gap-2">
+                    <span className="text-gray-600 dark:text-gray-300">
+                      {b.label} × {b.days} {unitLabel} @ ₹{b.ratePerDay}
+                    </span>
+                    <span className="shrink-0 font-medium dark:text-gray-100">
+                      ₹{b.amount.toLocaleString()}
+                    </span>
+                  </div>
+                );
+              })}
               {bill.breakdown.map((b, i) => (
                 <div key={i} className="flex justify-between">
                   <span className="text-gray-600 dark:text-gray-300">
@@ -749,8 +781,11 @@ const ADMISSION_VITALS_RANGE: Record<
   string,
   { min: number; max: number; unit: string; int: boolean }
 > = {
-  bpSystolic: { min: 60, max: 260, unit: "mmHg", int: true },
-  bpDiastolic: { min: 30, max: 180, unit: "mmHg", int: true },
+  // BP bounds widened 2026-05-25 to cover clinically extreme readings
+  // (severe shock at the low end, hypertensive crisis at the high end)
+  // so emergency / critical-care entries don't fail validation.
+  bpSystolic: { min: 40, max: 300, unit: "mmHg", int: true },
+  bpDiastolic: { min: 20, max: 220, unit: "mmHg", int: true },
   temperature: { min: 32, max: 43, unit: "°C", int: false },
   pulse: { min: 30, max: 220, unit: "bpm", int: true },
   respiratoryRate: { min: 5, max: 80, unit: "/min", int: true },
@@ -858,14 +893,52 @@ function VitalsTab({
   ) {
     clientFieldErrors.bpDiastolic = "Diastolic must be lower than systolic";
   }
+
+  // BP is a pair — recording just one half (e.g. only Systolic) is
+  // clinically incomplete. Require both-or-neither. Attach the error
+  // to the EMPTY side so the user knows which input to fill.
+  const sysFilled = (form.bpSystolic ?? "").trim() !== "";
+  const diaFilled = (form.bpDiastolic ?? "").trim() !== "";
+  if (sysFilled && !diaFilled && !clientFieldErrors.bpDiastolic) {
+    clientFieldErrors.bpDiastolic = "Required when BP Systolic is filled";
+  }
+  if (diaFilled && !sysFilled && !clientFieldErrors.bpSystolic) {
+    clientFieldErrors.bpSystolic = "Required when BP Diastolic is filled";
+  }
   const fieldErrors: Record<string, string> = { ...clientFieldErrors };
   for (const [k, v] of Object.entries(serverFieldErrors)) fieldErrors[k] = v;
   const hasFieldErrors = Object.keys(fieldErrors).length > 0;
+
+  // Require at least 2 vital values before allowing save. Recording a
+  // single isolated reading (e.g. just BP) is rarely clinically useful;
+  // 2+ catches the common BP-pair or BP + pulse / temp combos staff
+  // actually take during rounds. `notes` doesn't count — it's metadata.
+  const VITAL_FIELDS = [
+    "bpSystolic",
+    "bpDiastolic",
+    "temperature",
+    "pulse",
+    "respiratoryRate",
+    "spO2",
+    "painScore",
+    "bloodSugar",
+  ] as const;
+  const MIN_VITALS = 2;
+  const filledVitalCount = VITAL_FIELDS.filter(
+    (k) => ((form as unknown as Record<string, string>)[k] ?? "").trim() !== "",
+  ).length;
+  const hasMinimumVitals = filledVitalCount >= MIN_VITALS;
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (hasFieldErrors) {
       toast.error("Please fix the highlighted vitals before saving");
+      return;
+    }
+    if (!hasMinimumVitals) {
+      toast.error(
+        `Record at least ${MIN_VITALS} vital values before saving (currently ${filledVitalCount}).`,
+      );
       return;
     }
     setServerFieldErrors({});
@@ -994,14 +1067,23 @@ function VitalsTab({
             value={form.notes}
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
             rows={2}
-            className="mt-3 w-full rounded-lg border px-3 py-2 text-sm"
+            className="mt-3 w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
           />
-          <div className="mt-3 flex justify-end">
+          <div className="mt-3 flex items-center justify-end gap-3">
+            {!hasMinimumVitals && (
+              <span
+                data-testid="vitals-min-hint"
+                className="text-xs text-gray-500 dark:text-gray-400"
+              >
+                Enter at least {MIN_VITALS} vital values to save
+                {filledVitalCount > 0 ? ` (${filledVitalCount}/${MIN_VITALS})` : ""}
+              </span>
+            )}
             <button
               type="submit"
               data-testid="vitals-save"
-              disabled={hasFieldErrors}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+              disabled={hasFieldErrors || !hasMinimumVitals}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Save Vitals
             </button>
@@ -1019,13 +1101,13 @@ function VitalsTab({
             <SkeletonTable rows={5} columns={6} />
           </div>
         ) : (Array.isArray(vitals) ? vitals : []).length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No vitals recorded yet.
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b text-left text-xs text-gray-500">
+              <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-xs text-gray-500 dark:text-gray-300">
                 <th className="px-3 py-2">Time</th>
                 <th className="px-3 py-2">BP</th>
                 <th className="px-3 py-2">Temp</th>
@@ -1045,7 +1127,7 @@ function VitalsTab({
                 const dia = v.bloodPressureDiastolic ?? v.bpDiastolic;
                 const pulse = v.pulseRate ?? v.pulse;
                 return (
-                  <tr key={v.id} className="border-b last:border-0">
+                  <tr key={v.id} className="border-b border-gray-100 dark:border-gray-700 last:border-0 dark:text-gray-100">
                     <td className="px-3 py-2 text-xs">
                       {formatDateTime(v.recordedAt)}
                     </td>
@@ -1058,7 +1140,7 @@ function VitalsTab({
                     <td className="px-3 py-2">{v.spO2 ?? "—"}</td>
                     <td className="px-3 py-2">{v.painScore ?? "—"}</td>
                     <td className="px-3 py-2">{v.bloodSugar ?? "—"}</td>
-                    <td className="px-3 py-2 text-xs text-gray-600">
+                    <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400">
                       {v.notes || "—"}
                     </td>
                   </tr>
@@ -1089,7 +1171,7 @@ function Input({
   const inputId = useId();
   return (
     <div>
-      <label htmlFor={inputId} className="mb-1 block text-xs font-medium text-gray-600">
+      <label htmlFor={inputId} className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
         {label}
       </label>
       <input
@@ -1099,14 +1181,14 @@ function Input({
         data-testid={testId}
         aria-invalid={error ? "true" : undefined}
         className={
-          "w-full rounded-lg border px-2 py-1.5 text-sm " +
-          (error ? "border-red-400 bg-red-50" : "")
+          "w-full rounded-lg border dark:border-gray-700 px-2 py-1.5 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 " +
+          (error ? "border-red-400 bg-red-50 dark:bg-red-900/20 dark:border-red-700" : "")
         }
       />
       {error && (
         <p
           data-testid={testId ? `${testId}-error` : undefined}
-          className="mt-1 text-[11px] text-red-600"
+          className="mt-1 text-[11px] text-red-600 dark:text-red-400"
         >
           {error}
         </p>
@@ -1257,12 +1339,12 @@ function MedicationsTab({
             <div>
               <label htmlFor="med-order-medicine-search" className="mb-1 block text-sm font-medium">Medicine</label>
               {selectedMed ? (
-                <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2 text-sm">
+                <div className="flex items-center justify-between rounded-lg border dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm dark:text-gray-100">
                   <span>{selectedMed.name}</span>
                   <button
                     type="button"
                     onClick={() => setSelectedMed(null)}
-                    className="text-xs text-red-600"
+                    className="text-xs text-red-600 dark:text-red-400"
                   >
                     Change
                   </button>
@@ -1274,10 +1356,10 @@ function MedicationsTab({
                     placeholder="Search medicines"
                     value={medSearch}
                     onChange={(e) => setMedSearch(e.target.value)}
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                   />
                   {medResults.length > 0 && (
-                    <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
+                    <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
                       {medResults.map((m) => (
                         <button
                           key={m.id}
@@ -1286,7 +1368,7 @@ function MedicationsTab({
                             setSelectedMed(m);
                             setMedResults([]);
                           }}
-                          className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50"
+                          className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
                         >
                           <strong>{m.name}</strong>
                           {m.genericName && ` (${m.genericName})`}
@@ -1305,7 +1387,7 @@ function MedicationsTab({
                   placeholder="e.g. 500mg"
                   value={form.dosage}
                   onChange={(e) => setForm({ ...form, dosage: e.target.value })}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 />
               </div>
               <div>
@@ -1319,7 +1401,7 @@ function MedicationsTab({
                   onChange={(e) =>
                     setForm({ ...form, frequency: e.target.value })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 />
               </div>
               <div>
@@ -1328,14 +1410,14 @@ function MedicationsTab({
                   id="med-order-route"
                   value={form.route}
                   onChange={(e) => setForm({ ...form, route: e.target.value })}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100"
                 >
-                  <option value="ORAL">Oral</option>
-                  <option value="IV">IV</option>
-                  <option value="IM">IM</option>
-                  <option value="SC">SC</option>
-                  <option value="TOPICAL">Topical</option>
-                  <option value="INHALATION">Inhalation</option>
+                  <option value="ORAL" className="bg-white dark:bg-gray-900 dark:text-gray-100">Oral</option>
+                  <option value="IV" className="bg-white dark:bg-gray-900 dark:text-gray-100">IV</option>
+                  <option value="IM" className="bg-white dark:bg-gray-900 dark:text-gray-100">IM</option>
+                  <option value="SC" className="bg-white dark:bg-gray-900 dark:text-gray-100">SC</option>
+                  <option value="TOPICAL" className="bg-white dark:bg-gray-900 dark:text-gray-100">Topical</option>
+                  <option value="INHALATION" className="bg-white dark:bg-gray-900 dark:text-gray-100">Inhalation</option>
                 </select>
               </div>
               <div>
@@ -1349,7 +1431,7 @@ function MedicationsTab({
                   onChange={(e) =>
                     setForm({ ...form, startDate: e.target.value })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:[color-scheme:dark]"
                 />
               </div>
               <div>
@@ -1363,7 +1445,7 @@ function MedicationsTab({
                   onChange={(e) =>
                     setForm({ ...form, endDate: e.target.value })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:[color-scheme:dark]"
                 />
               </div>
             </div>
@@ -1374,7 +1456,7 @@ function MedicationsTab({
                 setForm({ ...form, instructions: e.target.value })
               }
               rows={2}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className="w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
             />
           </div>
           <div className="mt-4 flex justify-end gap-2">
@@ -1404,7 +1486,7 @@ function MedicationsTab({
           <SkeletonTable rows={4} columns={5} />
         </div>
       ) : orders.length === 0 ? (
-        <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
+        <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 dark:text-gray-400 shadow-sm">
           No medication orders.
         </div>
       ) : (
@@ -1438,25 +1520,25 @@ function MedicationsTab({
                         {o.medicineName ?? o.medicine?.name ?? "—"}
                       </h4>
                       {o.medicine?.genericName && (
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
                           {o.medicine.genericName}
                         </p>
                       )}
-                      <p className="mt-1 text-sm">
+                      <p className="mt-1 text-sm dark:text-gray-100">
                         <span className="font-medium">{o.dosage ?? "—"}</span>{" "}
                         · {o.frequency ?? "—"} · {o.route ?? "—"}
                       </p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
                         {o.startDate ?? "—"}
                         {o.endDate ? ` → ${o.endDate}` : " → ongoing"}
                       </p>
                       {o.instructions && (
-                        <p className="mt-1 text-xs italic text-gray-600">
+                        <p className="mt-1 text-xs italic text-gray-600 dark:text-gray-300">
                           {o.instructions}
                         </p>
                       )}
                     </div>
-                    <label className="flex items-center gap-2 text-sm">
+                    <label className="flex items-center gap-2 text-sm dark:text-gray-100">
                       <input
                         type="checkbox"
                         checked={!!o.isActive}
@@ -1467,22 +1549,22 @@ function MedicationsTab({
                   </div>
 
                   {admins.length > 0 && (
-                    <div className="mt-3 border-t pt-3">
-                      <p className="mb-1 text-xs font-semibold text-gray-600">
+                    <div className="mt-3 border-t border-gray-200 dark:border-gray-700 pt-3">
+                      <p className="mb-1 text-xs font-semibold text-gray-600 dark:text-gray-300">
                         Recent Administrations
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {admins.slice(0, 8).map((a) => (
                           <span
                             key={a.id}
-                            className={`rounded px-2 py-0.5 text-xs ${
+                            className={`rounded px-2 py-0.5 text-xs border ${
                               a.status === "ADMINISTERED"
-                                ? "bg-green-100 text-green-700"
+                                ? "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-200 dark:border-green-800"
                                 : a.status === "MISSED"
-                                  ? "bg-red-100 text-red-700"
+                                  ? "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-200 dark:border-red-800"
                                   : a.status === "REFUSED"
-                                    ? "bg-orange-100 text-orange-700"
-                                    : "bg-gray-100 text-gray-700"
+                                    ? "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-200 dark:border-orange-800"
+                                    : "bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600"
                             }`}
                           >
                             {/* Issue #416 — `new Date(...).toLocaleString`
@@ -1823,7 +1905,7 @@ function LabsTab({
           <SkeletonTable rows={4} columns={5} />
         </div>
       ) : orders.length === 0 ? (
-        <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
+        <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 dark:text-gray-400 shadow-sm">
           No lab orders.
         </div>
       ) : (
@@ -1834,29 +1916,29 @@ function LabsTab({
               href={`/dashboard/lab/${o.id}`}
               className="block rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm hover:shadow"
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium dark:text-gray-100 truncate">
                     {o.orderNumber || o.id.slice(0, 8)}
                   </p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
                     {formatDateTime(o.orderedAt)}
                   </p>
                   {o.items && (
-                    <p className="mt-1 text-sm text-gray-600">
+                    <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
                       {o.items.map((i) => i.test.name).join(", ")}
                     </p>
                   )}
                 </div>
                 <span
-                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                  className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
                     o.status === "COMPLETED"
-                      ? "bg-green-100 text-green-700"
+                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-200"
                       : o.status === "IN_PROGRESS"
-                        ? "bg-blue-100 text-blue-700"
+                        ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200"
                         : o.status === "CANCELLED"
-                          ? "bg-red-100 text-red-700"
-                          : "bg-yellow-100 text-yellow-700"
+                          ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200"
+                          : "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-200"
                   }`}
                 >
                   {o.status}
@@ -2023,7 +2105,7 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
                 type="datetime-local"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full border dark:border-gray-700 rounded px-2 py-1 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 [color-scheme:dark]"
+                className="w-full border dark:border-gray-700 rounded px-2 py-1 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:[color-scheme:dark]"
               />
             </div>
             <div>
@@ -2035,7 +2117,7 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
                 type="datetime-local"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full border dark:border-gray-700 rounded px-2 py-1 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 [color-scheme:dark]"
+                className="w-full border dark:border-gray-700 rounded px-2 py-1 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:[color-scheme:dark]"
               />
             </div>
           </div>
@@ -2535,23 +2617,25 @@ function DischargeReadinessModal({
     <div
       className={`flex items-start justify-between rounded-lg border p-3 text-sm ${
         ok
-          ? "border-green-200 bg-green-50"
-          : "border-red-200 bg-red-50"
+          ? "border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/20"
+          : "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20"
       }`}
     >
       <div>
-        <div className={`font-medium ${ok ? "text-green-800" : "text-red-800"}`}>
+        <div className={`font-medium ${ok ? "text-green-800 dark:text-green-200" : "text-red-800 dark:text-red-200"}`}>
           {label}
         </div>
         {detail && (
-          <div className={`text-xs ${ok ? "text-green-700" : "text-red-700"}`}>
+          <div className={`text-xs ${ok ? "text-green-700 dark:text-green-300" : "text-red-700 dark:text-red-300"}`}>
             {detail}
           </div>
         )}
       </div>
       <span
         className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-          ok ? "bg-green-200 text-green-800" : "bg-red-200 text-red-800"
+          ok
+            ? "bg-green-200 text-green-800 dark:bg-green-800/60 dark:text-green-100"
+            : "bg-red-200 text-red-800 dark:bg-red-800/60 dark:text-red-100"
         }`}
       >
         {ok ? "OK" : "Missing"}
@@ -2561,16 +2645,16 @@ function DischargeReadinessModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-gray-800 p-6 shadow-xl">
+      <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-gray-800 dark:text-gray-100 p-6 shadow-xl">
         <h3 className="mb-4 text-lg font-semibold">Discharge Readiness</h3>
         {loading ? (
-          <p className="text-sm text-gray-500">Checking...</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Checking...</p>
         ) : !data ? (
-          <p className="text-sm text-red-600">Failed to load readiness.</p>
+          <p className="text-sm text-red-600 dark:text-red-400">Failed to load readiness.</p>
         ) : (
           <>
             {blocked && (
-              <div className="mb-4 flex items-start gap-2 rounded-lg border-2 border-red-400 bg-red-50 p-3 text-sm text-red-800">
+              <div className="mb-4 flex items-start gap-2 rounded-lg border-2 border-red-400 dark:border-red-700 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-200">
                 <AlertCircle size={18} className="mt-0.5 shrink-0" />
                 <div>
                   <div className="font-bold">Cannot discharge</div>
@@ -2623,7 +2707,7 @@ function DischargeReadinessModal({
               />
             </div>
             {isAdmin && blocked && (
-              <label className="mt-4 flex items-center gap-2 text-sm">
+              <label className="mt-4 flex items-center gap-2 text-sm dark:text-gray-100">
                 <input
                   type="checkbox"
                   checked={force}
@@ -2636,15 +2720,17 @@ function DischargeReadinessModal({
         )}
         <div className="mt-5 flex justify-end gap-2">
           <button
+            type="button"
             onClick={onClose}
-            className="rounded-lg border px-4 py-2 text-sm"
+            className="rounded-lg border dark:border-gray-700 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
           >
             Cancel
           </button>
           <button
+            type="button"
             onClick={onProceed}
             disabled={loading || (blocked && !(isAdmin && force))}
-            className="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-50"
+            className="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-50 dark:bg-red-600 dark:hover:bg-red-500"
           >
             Proceed to Discharge
           </button>
@@ -2810,7 +2896,7 @@ function MarTab({ admissionId }: { admissionId: string }) {
         return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 border-yellow-300";
       case "SCHEDULED":
       default:
-        return "bg-blue-50 text-blue-700 border-blue-200";
+        return "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-800";
     }
   }
 
@@ -2824,7 +2910,7 @@ function MarTab({ admissionId }: { admissionId: string }) {
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="rounded-lg border dark:border-gray-700 px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-gray-100 [color-scheme:dark]"
+            className="rounded-lg border dark:border-gray-700 px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-gray-100 dark:[color-scheme:dark]"
           />
           <button
             onClick={load}
@@ -2834,16 +2920,16 @@ function MarTab({ admissionId }: { admissionId: string }) {
           </button>
         </div>
         <div className="flex items-center gap-2 text-xs">
-          <span className="rounded border border-green-300 bg-green-100 px-2 py-0.5 text-green-800">
+          <span className="rounded border border-green-300 dark:border-green-800 bg-green-100 dark:bg-green-900/30 px-2 py-0.5 text-green-800 dark:text-green-200">
             Administered
           </span>
-          <span className="rounded border border-red-300 bg-red-100 px-2 py-0.5 text-red-800">
+          <span className="rounded border border-red-300 dark:border-red-800 bg-red-100 dark:bg-red-900/30 px-2 py-0.5 text-red-800 dark:text-red-200">
             Missed
           </span>
-          <span className="rounded border border-yellow-300 bg-yellow-100 px-2 py-0.5 text-yellow-800">
+          <span className="rounded border border-yellow-300 dark:border-yellow-800 bg-yellow-100 dark:bg-yellow-900/30 px-2 py-0.5 text-yellow-800 dark:text-yellow-200">
             Refused
           </span>
-          <span className="rounded border border-blue-200 bg-blue-50 px-2 py-0.5 text-blue-700">
+          <span className="rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 text-blue-700 dark:text-blue-200">
             Scheduled
           </span>
         </div>
@@ -2883,8 +2969,8 @@ function MarTab({ admissionId }: { admissionId: string }) {
               {orders.map((o) => (
                 <tr key={o.id} className="border-t border-gray-100 dark:border-gray-700">
                   <td className="sticky left-0 bg-white dark:bg-gray-800 px-4 py-2">
-                    <div className="font-medium">{o.medicineName}</div>
-                    <div className="text-xs text-gray-500">
+                    <div className="font-medium dark:text-gray-100">{o.medicineName}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
                       {o.dosage} · {o.frequency} · {o.route}
                     </div>
                   </td>
@@ -3028,46 +3114,47 @@ function MarAdministerModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white dark:bg-gray-800 p-6 shadow-xl">
+      <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white dark:bg-gray-800 dark:text-gray-100 p-6 shadow-xl">
         <h3 className="mb-4 font-semibold">Record Administration</h3>
-        <div className="mb-3 rounded-lg bg-gray-50 p-3 text-sm">
-          <div className="font-medium">{order.medicineName}</div>
-          <div className="text-xs text-gray-600">
+        <div className="mb-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-3 text-sm">
+          <div className="font-medium dark:text-gray-100">{order.medicineName}</div>
+          <div className="text-xs text-gray-600 dark:text-gray-300">
             {order.dosage} · {order.frequency} · {order.route}
           </div>
-          <div className="mt-1 text-xs text-gray-500">
+          <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Scheduled:{" "}
             {formatDateTime(administration.scheduledAt)}
           </div>
         </div>
         <div className="mb-3">
-          <label htmlFor="mar-admin-status" className="text-xs text-gray-600">Status</label>
+          <label htmlFor="mar-admin-status" className="text-xs text-gray-600 dark:text-gray-300">Status</label>
           <select
             id="mar-admin-status"
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+            className="mt-1 w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100"
           >
-            <option value="ADMINISTERED">Administered</option>
-            <option value="MISSED">Missed</option>
-            <option value="REFUSED">Refused</option>
-            <option value="HELD">Held</option>
+            <option value="ADMINISTERED" className="bg-white dark:bg-gray-900 dark:text-gray-100">Administered</option>
+            <option value="MISSED" className="bg-white dark:bg-gray-900 dark:text-gray-100">Missed</option>
+            <option value="REFUSED" className="bg-white dark:bg-gray-900 dark:text-gray-100">Refused</option>
+            <option value="HELD" className="bg-white dark:bg-gray-900 dark:text-gray-100">Held</option>
           </select>
         </div>
         <div className="mb-4">
-          <label htmlFor="mar-admin-notes" className="text-xs text-gray-600">Notes</label>
+          <label htmlFor="mar-admin-notes" className="text-xs text-gray-600 dark:text-gray-300">Notes</label>
           <textarea
             id="mar-admin-notes"
             rows={2}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+            className="mt-1 w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
           />
         </div>
         <div className="flex justify-end gap-2">
           <button
+            type="button"
             onClick={onClose}
-            className="rounded-lg border px-3 py-1.5 text-sm"
+            className="rounded-lg border dark:border-gray-700 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
           >
             Cancel
           </button>
@@ -3076,7 +3163,7 @@ function MarAdministerModal({
             data-testid="mar-administer-save"
             onClick={save}
             disabled={saving || submitted}
-            className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-600 dark:hover:bg-blue-500"
           >
             {saving ? "Saving..." : submitted ? "Saved" : "Save"}
           </button>
@@ -3203,7 +3290,7 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="rounded-lg border dark:border-gray-700 px-2 py-1 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 [color-scheme:dark]"
+              className="rounded-lg border dark:border-gray-700 px-2 py-1 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:[color-scheme:dark]"
             />
           </div>
           <div className="grid grid-cols-3 gap-3">

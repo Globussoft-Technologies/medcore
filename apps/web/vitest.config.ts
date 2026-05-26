@@ -325,6 +325,12 @@ export default defineConfig({
           functions: 78,
           statements: 98,
         },
+        "src/app/dashboard/reports/page.tsx": {
+          lines: 98,
+          branches: 75,
+          functions: 90,
+          statements: 98,
+        },
       },
     },
   },

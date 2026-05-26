@@ -277,6 +277,12 @@ export default defineConfig({
           functions: 74,
           statements: 89,
         },
+        "src/app/dashboard/complaints/page.tsx": {
+          lines: 99,
+          branches: 88,
+          functions: 100,
+          statements: 99,
+        },
       },
     },
   },

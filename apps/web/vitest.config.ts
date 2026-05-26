@@ -409,6 +409,12 @@ export default defineConfig({
           functions: 67,
           statements: 93,
         },
+        "src/app/dashboard/settings/page.tsx": {
+          lines: 94,
+          branches: 79,
+          functions: 78,
+          statements: 94,
+        },
       },
     },
   },

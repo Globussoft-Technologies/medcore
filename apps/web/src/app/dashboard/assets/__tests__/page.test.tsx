@@ -701,7 +701,7 @@ describe("AssetsPage (Asset Management — full surface)", () => {
 
     // After modal opens, two "Add Asset" buttons exist (header CTA + modal Save).
     // The modal Save is the last one in DOM order.
-    let allAddBtns = screen.getAllByRole("button", { name: /Add Asset/i });
+    const allAddBtns = screen.getAllByRole("button", { name: /Add Asset/i });
     const modalSaveBtn = () => {
       const all = screen.getAllByRole("button", { name: /Add Asset/i });
       return all[all.length - 1]!;

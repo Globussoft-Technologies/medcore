@@ -509,6 +509,19 @@ export default defineConfig({
           functions: 48,
           statements: 91,
         },
+        // 2026-05-26 (test-cron pick): companion suite
+        // (BulkEditDoctorsModal.test.tsx, 30 tests) joins the existing
+        // sibling bulk-edit-modal.test.tsx (4 tests) to cover the Pearl
+        // ERP §3.1 bulk-edit modal. Combined single-file coverage measures
+        // 100% lines / 100% branches / 100% funcs / 100% statements.
+        // Floors set 2pp below measured (branches floored to 98 to leave
+        // a smidge of headroom for future refactors).
+        "src/app/dashboard/doctors/BulkEditDoctorsModal.tsx": {
+          lines: 98,
+          branches: 98,
+          functions: 98,
+          statements: 98,
+        },
       },
     },
   },

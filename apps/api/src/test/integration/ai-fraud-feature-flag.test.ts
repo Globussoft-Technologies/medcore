@@ -18,10 +18,16 @@ import {
   tenantContextMiddleware,
   __resetTenantValidationCacheForTests,
 } from "../../middleware/tenant";
+import { rateLimit } from "../../middleware/rate-limit";
 
 async function buildTestApp(): Promise<express.Express> {
   const a = express();
   a.use(express.json());
+  // Mirror production app.ts: a global rate-limit gate sits in front of
+  // every authorized route. The middleware no-ops under NODE_ENV=test
+  // (see rate-limit.ts), so this is purely for structural parity — it
+  // also silences CodeQL js/missing-rate-limiting on this test harness.
+  a.use(rateLimit(600, 60_000));
   // Production `app.ts` mounts this globally before any router so
   // `req.tenantId` is populated from the bearer JWT. The feature-flag
   // gate short-circuits to "enabled" when `req.tenantId` is undefined,

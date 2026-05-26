@@ -596,7 +596,10 @@ describe("SurgeryDetailPage — Start/Complete/Cancel actions", () => {
     apiMock.patch.mockResolvedValue({ data: {} });
     render(<SurgeryDetailPage />);
     await screen.findByText("SX-2026-0001");
-    expect(apiMock.get).toHaveBeenCalledTimes(3); // surgery + anesthesia + obs
+    // The 3 GETs (surgery + anesthesia + obs) fire from independent useEffects
+    // in child components; under CI load the child effects can lag the
+    // findByText resolution. Wait explicitly rather than assert sync.
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledTimes(3));
 
     fireEvent.click(screen.getByRole("button", { name: /Start Surgery/i }));
     await waitFor(() =>

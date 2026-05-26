@@ -40,14 +40,22 @@ beforeEach(() => {
   saved = {};
   for (const k of ENV_KEYS) {
     saved[k] = process.env[k];
-    delete process.env[k];
+    // NODE_ENV is typed read-only; route through vi.stubEnv. Other keys can be
+    // deleted directly.
+    if (k === "NODE_ENV") {
+      vi.stubEnv("NODE_ENV", "");
+    } else {
+      delete process.env[k];
+    }
   }
   initSpy.mockReset();
   vi.resetModules();
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   for (const k of ENV_KEYS) {
+    if (k === "NODE_ENV") continue; // restored by unstubAllEnvs
     if (saved[k] === undefined) {
       delete process.env[k];
     } else {
@@ -75,7 +83,7 @@ describe("instrumentation.register — Sentry boot wiring", () => {
   it("initializes Sentry with tracesSampleRate 0.1 in the nodejs runtime", async () => {
     process.env.NEXT_PUBLIC_SENTRY_DSN = "https://example@sentry.io/1";
     process.env.NEXT_RUNTIME = "nodejs";
-    process.env.NODE_ENV = "production";
+    vi.stubEnv("NODE_ENV", "production");
     process.env.SENTRY_RELEASE = "abc1234";
 
     const register = await loadRegister();
@@ -93,7 +101,7 @@ describe("instrumentation.register — Sentry boot wiring", () => {
   it("initializes Sentry WITHOUT tracesSampleRate in the edge runtime", async () => {
     process.env.NEXT_PUBLIC_SENTRY_DSN = "https://example@sentry.io/2";
     process.env.NEXT_RUNTIME = "edge";
-    process.env.NODE_ENV = "production";
+    vi.stubEnv("NODE_ENV", "production");
     process.env.SENTRY_RELEASE = "edge-sha";
 
     const register = await loadRegister();
@@ -124,7 +132,7 @@ describe("instrumentation.register — Sentry boot wiring", () => {
   it("uses NODE_ENV when set (e.g. 'staging') rather than the production fallback", async () => {
     process.env.NEXT_PUBLIC_SENTRY_DSN = "https://example@sentry.io/4";
     process.env.NEXT_RUNTIME = "nodejs";
-    process.env.NODE_ENV = "staging";
+    vi.stubEnv("NODE_ENV", "staging");
     const register = await loadRegister();
     await register();
     expect(initSpy.mock.calls[0]?.[0]).toMatchObject({

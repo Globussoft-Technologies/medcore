@@ -841,6 +841,10 @@ describe("SettingsPage — Notifications tab", () => {
     await waitFor(() =>
       expect(apiMock.get).toHaveBeenCalledWith("/notifications/preferences"),
     );
+    // The call having fired doesn't mean its resolved Promise has flushed
+    // through setPrefs yet — wait for an actual channel row to appear so
+    // downstream assertions never race the render under CI load.
+    await screen.findByText("WhatsApp");
   }
 
   it("loads preferences and renders all four channel rows with the friendly label (Issue #873)", async () => {

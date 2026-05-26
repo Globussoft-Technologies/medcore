@@ -192,8 +192,12 @@ describe("TenantOnboardingPage", () => {
   it("renders the page chrome with all 6 steps + tenant name + subdomain after the GETs resolve (ADMIN)", async () => {
     routeApiGet();
     render(<TenantOnboardingPage />);
+    // The chrome mounts immediately under a loading skeleton; wait for the
+    // skeleton to disappear (= both GETs resolved) before asserting on data.
     await waitFor(() =>
-      expect(screen.getByTestId("tenant-onboarding")).toBeInTheDocument(),
+      expect(
+        screen.queryByTestId("tenant-onboarding-loading"),
+      ).not.toBeInTheDocument(),
     );
     expect(screen.getByText("St. Johns")).toBeInTheDocument();
     expect(screen.getByText("stjohns")).toBeInTheDocument();
@@ -368,8 +372,12 @@ describe("TenantOnboardingPage", () => {
       steps: { first_doctor: "2026-03-01T00:00:00.000Z" },
     });
     render(<TenantOnboardingPage />);
+    // Progress only re-computes after both GETs resolve and the loading
+    // skeleton clears; wait for that, not just the page chrome.
     await waitFor(() =>
-      expect(screen.getByTestId("tenant-onboarding")).toBeInTheDocument(),
+      expect(
+        screen.queryByTestId("tenant-onboarding-loading"),
+      ).not.toBeInTheDocument(),
     );
     expect(screen.getByText("50%")).toBeInTheDocument();
     expect(screen.getByText(/3\s*\/\s*6/)).toBeInTheDocument();

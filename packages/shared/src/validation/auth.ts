@@ -93,6 +93,13 @@ export const registerSchema = z.object({
       "LAB_TECH",
     ])
     .optional(),
+  // Gender on the PATIENT self-registration path. Optional so the
+  // historical staff-creation flow (which never sends it) keeps working;
+  // the route handler defaults to "OTHER" only when nothing is supplied.
+  // Without this field, register pages POST gender:"MALE" but Zod silently
+  // strips it and every self-registered patient lands as OTHER in the DB,
+  // which then surfaces on the Rx PDF "Age / Gender" line.
+  gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
 });
 
 export const changePasswordSchema = z.object({

@@ -472,6 +472,17 @@ export default defineConfig({
           functions: 98,
           statements: 96,
         },
+        // 2026-05-26 (test-cron pick): new __tests__/use-dialog.test.tsx
+        // exercises the DialogProvider + useConfirm/usePrompt imperative
+        // hook surface (10 tests). Single-file coverage measured:
+        // 100% lines / 90.69% branches / 100% funcs / 100% statements.
+        // Floors set 2pp below measured (branches floored to 88).
+        "src/lib/use-dialog.tsx": {
+          lines: 98,
+          branches: 88,
+          functions: 98,
+          statements: 98,
+        },
       },
     },
   },

@@ -289,6 +289,12 @@ export default defineConfig({
           functions: 100,
           statements: 99,
         },
+        "src/app/dashboard/wards/page.tsx": {
+          lines: 100,
+          branches: 97,
+          functions: 96,
+          statements: 100,
+        },
       },
     },
   },

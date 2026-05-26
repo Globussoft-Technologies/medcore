@@ -415,6 +415,12 @@ export default defineConfig({
           functions: 78,
           statements: 94,
         },
+        "src/app/dashboard/tenants/[id]/onboarding/page.tsx": {
+          lines: 100,
+          branches: 88,
+          functions: 100,
+          statements: 100,
+        },
       },
     },
   },

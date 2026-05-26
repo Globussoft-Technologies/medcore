@@ -549,6 +549,20 @@ export default defineConfig({
           statements: 98,
         },
         // 2026-05-26 (test-cron pick): new colocated coverage suite for the
+        // marketing top nav (20 tests covering smoke render, brand-logo home
+        // link wiring, all five desktop nav-link hrefs, login + demo CTAs,
+        // mobile-menu toggle open/close lifecycle, drawer-link close-on-click
+        // wiring, and a11y aria-label). Single-file coverage measured:
+        // 100% lines / 100% branches / 100% funcs / 100% statements. Floors
+        // set 2pp below measured per convention (small headroom for future
+        // refactors).
+        "src/app/(marketing)/_components/MarketingNav.tsx": {
+          lines: 98,
+          branches: 98,
+          functions: 98,
+          statements: 98,
+        },
+        // 2026-05-26 (test-cron pick): new colocated coverage suite for the
         // global 404 page (src/app/__tests__/not-found.test.tsx, 8 tests
         // across anon + authed branches + the router.back/push fallback for
         // empty history). Single-file coverage measured: 100% lines /

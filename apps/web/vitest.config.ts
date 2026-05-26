@@ -753,6 +753,21 @@ export default defineConfig({
           functions: 98,
           statements: 95,
         },
+        // 2026-05-26 (test-cron pick): new colocated coverage suite for the
+        // super-admin route-group 404 page
+        // (src/app/super-admin/__tests__/not-found.test.tsx, 6 tests across
+        // the wrapper section + testid, the h1 "Page not found" heading, the
+        // super-admin-specific helper copy, the home CTA testid + copy, the
+        // /super-admin href (with a regression guard against /dashboard), and
+        // the accessible-link-role lookup). Single-file coverage measured:
+        // 100% lines / 100% branches / 100% funcs / 100% statements. Floors
+        // set 2pp below measured per convention.
+        "src/app/super-admin/not-found.tsx": {
+          lines: 98,
+          branches: 98,
+          functions: 98,
+          statements: 98,
+        },
       },
     },
   },

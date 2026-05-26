@@ -575,6 +575,20 @@ export default defineConfig({
           statements: 98,
         },
         // 2026-05-26 (test-cron pick): new colocated coverage suite for the
+        // root-level Next.js error boundary
+        // (src/app/__tests__/global-error.test.tsx, 11 tests across the
+        // chrome, the Try-again reset() wiring, the conditional
+        // error.digest reference line, and the useEffect console.error
+        // logging on mount + on prop change). Single-file coverage
+        // measured: 100% lines / 100% branches / 100% funcs / 100%
+        // statements. Floors set 2pp below measured per convention.
+        "src/app/global-error.tsx": {
+          lines: 98,
+          branches: 98,
+          functions: 98,
+          statements: 98,
+        },
+        // 2026-05-26 (test-cron pick): new colocated coverage suite for the
         // global Cmd+K search palette
         // (apps/web/src/app/dashboard/_components/__tests__/search-palette.test.tsx,
         // 23 tests). Single-file coverage measured: 98.46% lines / 93.25%
@@ -601,6 +615,22 @@ export default defineConfig({
           branches: 98,
           functions: 98,
           statements: 98,
+        },
+        // 2026-05-26 (test-cron pick): new layout.test.tsx companion to the
+        // existing landing.page.test.tsx + page.test.tsx — 13 tests covering
+        // the super-admin shell's loading spinner, RBAC gate (super-admin,
+        // tenant-ADMIN, non-ADMIN, anon), `tenantId ?? null` fallback,
+        // loadSession error-path resilience, sign-out happy + reject paths,
+        // and topbar / main / footer semantics. Single-file coverage:
+        // 97.29% lines / 88.88% branches / 100% funcs / 97.29% statements.
+        // Uncovered remainder is line 76 (SSR fallback for window.location)
+        // and lines 158-159 (the SSR else branch in sign-out) — both
+        // unreachable under jsdom. Floors set 2pp below measured.
+        "src/app/super-admin/layout.tsx": {
+          lines: 95,
+          branches: 86,
+          functions: 98,
+          statements: 95,
         },
       },
     },

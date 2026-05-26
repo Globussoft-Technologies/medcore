@@ -349,6 +349,12 @@ export default defineConfig({
           functions: 86,
           statements: 99,
         },
+        "src/app/dashboard/surgery/page.tsx": {
+          lines: 98,
+          branches: 93,
+          functions: 88,
+          statements: 98,
+        },
       },
     },
   },

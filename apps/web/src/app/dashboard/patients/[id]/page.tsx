@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
@@ -87,6 +87,33 @@ const TIER_COLORS: Record<string, string> = {
   BPL: "bg-orange-100 text-orange-700",
   VIP: "bg-purple-100 text-purple-700",
 };
+
+// Pearl §2.1.3 — row shape returned by GET /consultations/by-patient/:id
+// (extended Consultation row with SOAP fields + diagnosis codes +
+// embedded appointment + doctor refs).
+interface ConsultHistoryRow {
+  id: string;
+  status: string;
+  signedAt: string | null;
+  createdAt: string;
+  subjective: string | null;
+  objective: string | null;
+  assessment: string | null;
+  plan: string | null;
+  icd10Codes: Array<{ code: string; description: string }> | null;
+  snomedCodes: Array<{ code: string; description: string }> | null;
+  appointment: {
+    id: string;
+    date: string;
+    slotStart: string | null;
+    tokenNumber: number | null;
+  };
+  doctor: {
+    id: string;
+    specialization: string | null;
+    user: { name: string };
+  };
+}
 
 interface VisitRecord {
   id: string;
@@ -324,12 +351,50 @@ type TabKey =
 export default function PatientDetailPage() {
   const params = useParams();
   const id = params.id as string;
+  // 2026-05-25 — context-aware back link. When the caller stamps
+  // `?from=<surface>` on the patient-detail URL, surface a "Back to
+  // <surface>" link that returns to that section instead of the
+  // generic "Back to Patients". Currently honored: "queue" (My Queue
+  // / Live Queue page). Other surfaces can opt in by appending the
+  // same query param — extend the switch below.
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const cameFrom = searchParams?.get("from") ?? null;
+  // Echo the previewDoctor param (set by the queue's drawer patient
+  // links) back on the "Back to Queue" link so the drawer reopens to
+  // the same doctor's queue on return.
+  const previewDoctorParam = searchParams?.get("previewDoctor") ?? null;
+  const queueBackHref = previewDoctorParam
+    ? `/dashboard/queue?previewDoctor=${encodeURIComponent(previewDoctorParam)}`
+    : "/dashboard/queue";
+  const backLink =
+    cameFrom === "queue"
+      ? { href: queueBackHref, label: "Back to Queue" }
+      : cameFrom === "admissions"
+        ? { href: "/dashboard/admissions", label: "Back to Admissions" }
+        : cameFrom === "appointments"
+          ? {
+              href: "/dashboard/appointments",
+              label: "Back to Appointments",
+            }
+          : { href: "/dashboard/patients", label: "Back to Patients" };
   const { user } = useAuthStore();
   const promptDialog = usePrompt();
   const [patient, setPatient] = useState<PatientDetail | null>(null);
   const [visits, setVisits] = useState<VisitRecord[]>([]);
   const [stats, setStats] = useState<PatientStats | null>(null);
   const [allergiesAlert, setAllergiesAlert] = useState<Allergy[]>([]);
+  // Pearl §2.1.3 — the "Start Consultation" action only appears if
+  // the patient actually has a live appointment with this doctor
+  // today (BOOKED, CHECKED_IN, or already IN_CONSULTATION). Walk-in
+  // bookings count too — once registered they're regular appointment
+  // rows. Without an appointment there's no token / consult row to
+  // anchor the SOAP draft against, so the button would dead-end.
+  const [activeAppointment, setActiveAppointment] = useState<{
+    id: string;
+    status: string;
+    type: string;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedVisit, setExpandedVisit] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>("360");
@@ -338,7 +403,32 @@ export default function PatientDetailPage() {
   >(null);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  // Pearl §2.1.3 — SOAP consult history drawer. Lazy-loads on first
+  // open; clicking a row expands its SOAP body inline. Distinct from
+  // the legacy "visits" list which only knows about prescriptions.
+  const [consultHistoryOpen, setConsultHistoryOpen] = useState(false);
+  const [consultHistory, setConsultHistory] = useState<ConsultHistoryRow[]>([]);
+  const [consultHistoryLoading, setConsultHistoryLoading] = useState(false);
+  const [expandedConsultId, setExpandedConsultId] = useState<string | null>(null);
   const { t } = useTranslation();
+
+  const openConsultHistory = useCallback(async () => {
+    setConsultHistoryOpen(true);
+    if (consultHistory.length > 0) return;
+    setConsultHistoryLoading(true);
+    try {
+      const res = await api.get<{ data: ConsultHistoryRow[] }>(
+        `/consultations/by-patient/${id}`,
+      );
+      setConsultHistory(res.data ?? []);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to load consult history",
+      );
+    } finally {
+      setConsultHistoryLoading(false);
+    }
+  }, [id, consultHistory.length]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -366,6 +456,28 @@ export default function PatientDetailPage() {
     }
   }, [id]);
 
+  // Pearl §2.1.3 — look up the patient's live appointment for today.
+  // Server-side, the /appointments list auto-scopes to the calling
+  // doctor's own rows (apps/api/src/routes/appointments.ts line 498),
+  // so this returns nothing if there's no doctor↔patient appointment
+  // today — exactly the gating signal we want for the Start
+  // Consultation button. CHECKED_IN/BOOKED/IN_CONSULTATION all qualify
+  // so the doctor can resume an in-progress consult or kick off a
+  // freshly-checked-in patient.
+  const loadActiveAppointment = useCallback(async () => {
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const res = await api.get<{
+        data: Array<{ id: string; status: string; type: string }>;
+      }>(
+        `/appointments?patientId=${id}&date=${today}&status=BOOKED,CHECKED_IN,IN_CONSULTATION&limit=1`,
+      );
+      setActiveAppointment(res.data?.[0] ?? null);
+    } catch {
+      setActiveAppointment(null);
+    }
+  }, [id]);
+
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -384,8 +496,9 @@ export default function PatientDetailPage() {
       setLoading(false);
       loadStats();
       loadAlerts();
+      loadActiveAppointment();
     })();
-  }, [id, loadStats, loadAlerts]);
+  }, [id, loadStats, loadAlerts, loadActiveAppointment]);
 
   // Default tab: Timeline if currently admitted, else 360
   useEffect(() => {
@@ -416,10 +529,10 @@ export default function PatientDetailPage() {
       <div className="p-8 text-center">
         <p className="text-gray-500">Patient not found</p>
         <Link
-          href="/dashboard/patients"
+          href={backLink.href}
           className="mt-4 inline-block text-primary hover:underline"
         >
-          Back to Patients
+          {backLink.label}
         </Link>
       </div>
     );
@@ -464,12 +577,13 @@ export default function PatientDetailPage() {
 
   return (
     <div>
-      {/* Back link */}
+      {/* Back link — points to the surface the user came from. See
+          backLink derivation up top (honours `?from=queue` etc.). */}
       <Link
-        href="/dashboard/patients"
+        href={backLink.href}
         className="no-print mb-4 inline-flex items-center gap-2 text-sm text-gray-600 hover:text-primary"
       >
-        <ArrowLeft size={16} /> Back to Patients
+        <ArrowLeft size={16} /> {backLink.label}
       </Link>
 
       {/* DNR / Advance Directive Banner */}
@@ -655,6 +769,18 @@ export default function PatientDetailPage() {
               >
                 <Printer size={13} /> Fitness Cert
               </button>
+              {/* Pearl §2.1.3 — open the SOAP consult-history drawer.
+                  Sits next to the print/cert buttons so doctors can
+                  pull prior encounters mid-consult without leaving
+                  the patient page. */}
+              <button
+                onClick={openConsultHistory}
+                className="no-print inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-800 hover:bg-indigo-100 dark:border-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-200 dark:hover:bg-indigo-900/50"
+                title="View SOAP consult history"
+                data-testid="patient-consult-history-button"
+              >
+                <ClipboardList size={13} /> Consult History
+              </button>
             </div>
             <div
               data-testid="patient-detail-demographics"
@@ -801,18 +927,55 @@ export default function PatientDetailPage() {
               <Activity size={14} /> Record Vitals
             </button>
           )}
-          {isDoctor && (
-            // Issue #84: button used to link to a non-existent
-            // /dashboard/consultations route (404). Doctors actually start
-            // consultations from the live queue, so route there with the
-            // patient pre-filtered.
-            <Link
-              href={`/dashboard/queue?patientId=${id}`}
+          {/* Pearl §2.1.3 — Start Consultation is gated on the patient
+              having a live appointment with this doctor today. Without
+              an appointment there's no token / consult row to anchor
+              the SOAP draft against, so the button hides instead of
+              dead-ending into the queue page. Clicking flips the
+              appointment to IN_CONSULTATION (if not already) and
+              navigates straight to the dedicated consult UI. */}
+          {isDoctor && activeAppointment && (
+            <button
+              onClick={async () => {
+                try {
+                  if (activeAppointment.status !== "IN_CONSULTATION") {
+                    await api.patch(
+                      `/appointments/${activeAppointment.id}/status`,
+                      { status: "IN_CONSULTATION" },
+                    );
+                  }
+                } catch {
+                  // Non-fatal — the consult page itself can still
+                  // open even if the status flip fails. Worst case
+                  // the doctor finishes the consult and the row
+                  // stays CHECKED_IN.
+                }
+                // Pearl §2.1.3 — forward the *original* source so
+                // the consult page can echo it on its back link. Path:
+                //   Queue → Patient → Consult → Back lands on Patient
+                //   with `?from=queue&previewDoctor=…` intact, and
+                //   that patient page's own Back then returns to the
+                //   queue (preserving the drawer). Without this echo
+                //   the consult Back would drop the user on a
+                //   plain patient profile whose Back went to /patients.
+                const returnFromQs = cameFrom
+                  ? `&returnFrom=${encodeURIComponent(cameFrom)}`
+                  : "";
+                const previewQs = previewDoctorParam
+                  ? `&previewDoctor=${encodeURIComponent(previewDoctorParam)}`
+                  : "";
+                router.push(
+                  `/dashboard/consult/${activeAppointment.id}?from=patient&patientId=${id}${returnFromQs}${previewQs}`,
+                );
+              }}
               data-testid="patient-start-consultation"
               className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700"
             >
-              <Stethoscope size={14} /> Start Consultation
-            </Link>
+              <Stethoscope size={14} />
+              {activeAppointment.status === "IN_CONSULTATION"
+                ? "Resume Consultation"
+                : "Start Consultation"}
+            </button>
           )}
           {isDoctor && (
             <Link
@@ -836,6 +999,22 @@ export default function PatientDetailPage() {
               className="flex items-center gap-1.5 rounded-lg bg-purple-600 px-3 py-1.5 text-sm text-white hover:bg-purple-700"
             >
               <BedDouble size={14} /> Admit
+            </Link>
+          )}
+          {/* Pearl §2.1.3 — second entry point to the SOAP consult
+              history, placed next to the other clinical-action chips
+              (Start Consultation / Write Prescription / Admit). This
+              one navigates to the FULL-PAGE consult history (every
+              encounter expanded, roomy layout for chart review) —
+              distinct from the top-toolbar button which opens the
+              quick-peek drawer. */}
+          {(isDoctor || isAdmin || isNurse) && (
+            <Link
+              href={`/dashboard/patients/${id}/consults`}
+              className="flex items-center gap-1.5 rounded-lg bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-800"
+              data-testid="patient-consult-history-action"
+            >
+              <ClipboardList size={14} /> Consult History
             </Link>
           )}
         </div>
@@ -1069,7 +1248,14 @@ export default function PatientDetailPage() {
           onClose={() => setQuickModal(null)}
           onSaved={() => {
             setQuickModal(null);
+            // Pearl §2.1.3 — re-fetch the page's derived state so the
+            // newly-booked appointment surfaces immediately:
+            //   - loadStats:             updates Upcoming / Total Visits
+            //   - loadActiveAppointment: makes the gated Start
+            //                            Consultation button appear if
+            //                            the booking is for today
             loadStats();
+            loadActiveAppointment();
           }}
         />
       )}
@@ -1097,6 +1283,21 @@ export default function PatientDetailPage() {
           loadStats();
         }}
       />
+
+      {/* Pearl §2.1.3 — SOAP consult-history slide-over drawer. */}
+      {consultHistoryOpen && (
+        <ConsultHistoryDrawer
+          patientId={id}
+          patientName={patient?.user.name ?? ""}
+          rows={consultHistory}
+          loading={consultHistoryLoading}
+          expandedId={expandedConsultId}
+          onToggleExpand={(rowId) =>
+            setExpandedConsultId((curr) => (curr === rowId ? null : rowId))
+          }
+          onClose={() => setConsultHistoryOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -5476,5 +5677,245 @@ function PricingTierBadge({
         </button>
       )}
     </span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Pearl §2.1.3 — slide-over drawer showing the patient's full SOAP
+// consult history. Each row collapses by default and expands to reveal
+// the four SOAP tabs + ICD-10/SNOMED chips when clicked.
+// ─────────────────────────────────────────────────────────────────────
+function ConsultHistoryDrawer({
+  patientId,
+  patientName,
+  rows,
+  loading,
+  expandedId,
+  onToggleExpand,
+  onClose,
+}: {
+  patientId: string;
+  patientName: string;
+  rows: ConsultHistoryRow[];
+  loading: boolean;
+  expandedId: string | null;
+  onToggleExpand: (rowId: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      {/* Panel */}
+      <aside
+        className="fixed right-0 top-0 z-50 flex h-full w-full max-w-xl flex-col bg-white shadow-xl dark:bg-gray-900"
+        role="dialog"
+        aria-labelledby="consult-history-title"
+      >
+        <header className="flex items-start justify-between gap-4 border-b border-gray-200 px-6 py-4 dark:border-gray-700">
+          <div className="min-w-0">
+            <h2
+              id="consult-history-title"
+              className="truncate text-base font-semibold text-gray-900 dark:text-gray-100"
+            >
+              Consult history — {patientName}
+            </h2>
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+              {loading
+                ? "Loading…"
+                : `${rows.length} consult${rows.length === 1 ? "" : "s"} on record`}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {/* Pearl §2.1.3 — escape hatch from the quick-peek drawer
+                to the roomy full-page view. Reuses the same patientId
+                so the destination loads instantly. */}
+            <Link
+              href={`/dashboard/patients/${patientId}/consults`}
+              className="rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 transition hover:border-primary hover:text-primary dark:border-gray-700 dark:text-gray-300"
+              onClick={onClose}
+            >
+              Open full view →
+            </Link>
+            <button
+              onClick={onClose}
+              className="rounded-full p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+              aria-label="Close consult history"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-y-auto p-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {loading ? (
+            <div className="space-y-3">
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center text-center">
+              <ClipboardList
+                size={36}
+                className="mb-3 text-gray-300 dark:text-gray-600"
+              />
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                No SOAP consults recorded yet.
+              </p>
+              <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                Start a consultation from an appointment to populate this.
+              </p>
+            </div>
+          ) : (
+            <ul className="space-y-3">
+              {rows.map((row) => {
+                const isOpen = expandedId === row.id;
+                const isSigned = row.status === "SIGNED";
+                return (
+                  <li
+                    key={row.id}
+                    className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800"
+                  >
+                    <button
+                      onClick={() => onToggleExpand(row.id)}
+                      className="flex w-full items-start justify-between gap-3 p-4 text-left transition hover:bg-gray-50 dark:hover:bg-gray-700/40"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                            {new Date(row.appointment.date).toLocaleDateString()}
+                            {row.appointment.slotStart
+                              ? ` · ${row.appointment.slotStart}`
+                              : ""}
+                          </span>
+                          {isSigned ? (
+                            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200">
+                              ✓ Signed
+                            </span>
+                          ) : (
+                            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
+                              Draft
+                            </span>
+                          )}
+                          {row.appointment.tokenNumber !== null && (
+                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+                              T-{row.appointment.tokenNumber}
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">
+                          {row.doctor.user.name}
+                          {row.doctor.specialization
+                            ? ` · ${row.doctor.specialization}`
+                            : ""}
+                        </p>
+                        {row.assessment && (
+                          <p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">
+                            {row.assessment.split("\n")[0]}
+                          </p>
+                        )}
+                      </div>
+                      <ChevronDown
+                        size={16}
+                        className={`mt-1 shrink-0 text-gray-400 transition-transform ${
+                          isOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+
+                    {isOpen && (
+                      <div className="space-y-3 border-t border-gray-100 px-4 pb-4 pt-3 dark:border-gray-700">
+                        <SoapBlock label="Subjective" value={row.subjective} />
+                        <SoapBlock label="Objective" value={row.objective} />
+                        <SoapBlock label="Assessment" value={row.assessment} />
+                        {(row.icd10Codes?.length ?? 0) > 0 && (
+                          <DiagnosisChips
+                            label="ICD-10"
+                            codes={row.icd10Codes ?? []}
+                            tone="indigo"
+                          />
+                        )}
+                        {(row.snomedCodes?.length ?? 0) > 0 && (
+                          <DiagnosisChips
+                            label="SNOMED CT"
+                            codes={row.snomedCodes ?? []}
+                            tone="teal"
+                          />
+                        )}
+                        <SoapBlock label="Plan" value={row.plan} />
+                        {isSigned && row.signedAt && (
+                          <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                            Signed {new Date(row.signedAt).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function SoapBlock({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null;
+}) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+        {label}
+      </p>
+      <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-gray-800 dark:text-gray-200">
+        {value && value.trim().length > 0 ? value : (
+          <span className="italic text-gray-400 dark:text-gray-500">—</span>
+        )}
+      </p>
+    </div>
+  );
+}
+
+function DiagnosisChips({
+  label,
+  codes,
+  tone,
+}: {
+  label: string;
+  codes: Array<{ code: string; description: string }>;
+  tone: "indigo" | "teal";
+}) {
+  const chipClasses =
+    tone === "indigo"
+      ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200"
+      : "bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-200";
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+        {label}
+      </p>
+      <div className="mt-1 flex flex-wrap gap-1">
+        {codes.map((c) => (
+          <span
+            key={c.code}
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${chipClasses}`}
+          >
+            <span className="font-mono">{c.code}</span>
+            <span>{c.description}</span>
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }

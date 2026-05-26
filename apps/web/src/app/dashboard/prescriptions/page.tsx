@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
@@ -158,6 +159,20 @@ export default function PrescriptionsPage() {
   }, [debouncedSearch, statusFilter, dateFrom, dateTo, pageLimit]);
 
   // Form state
+  // Pearl §2.1.3 — when the consult page deep-links here with
+  // ?patientId=…&appointmentId=…, the form's EntityPickers can't
+  // render their selection chips without a display label too (just
+  // the ID gives them an empty search-mode UI). We pre-fetch the
+  // patient name + appointment label so the chips render immediately.
+  const [initialPatientLabel, setInitialPatientLabel] = useState<string | undefined>(undefined);
+  const [initialAppointmentLabel, setInitialAppointmentLabel] = useState<string | undefined>(undefined);
+  // Pearl §2.1.3 — when the form is opened via the consult-page Pill
+  // icon (URL has `from=consult&appointmentId=…`), surface a "Back to
+  // Consult" link in the form header so the doctor can return to the
+  // SOAP draft in one click. Holds the appointmentId to route to;
+  // null = not from consult, so no back link rendered.
+  const [consultBackAppointmentId, setConsultBackAppointmentId] =
+    useState<string | null>(null);
   const [form, setForm] = useState({
     appointmentId: "",
     patientId: "",
@@ -350,9 +365,52 @@ export default function PrescriptionsPage() {
     const params = new URLSearchParams(window.location.search);
     if (params.get("new") === "1") setShowForm(true);
     const pid = params.get("patientId");
-    if (pid) {
+    const aid = params.get("appointmentId");
+    const fromParam = params.get("from");
+    if (fromParam === "consult" && aid) {
+      setConsultBackAppointmentId(aid);
+    }
+    // Pearl §2.1.3 — the consult page's Pill quick-action links here
+    // with both patientId AND appointmentId so the Rx form arrives
+    // already wired to the right encounter; the doctor doesn't have
+    // to re-pick patient or token.
+    if (pid || aid) {
       setShowForm(true);
-      setForm((f) => ({ ...f, patientId: pid }));
+      setForm((f) => ({
+        ...f,
+        ...(pid ? { patientId: pid } : {}),
+        ...(aid ? { appointmentId: aid } : {}),
+      }));
+      // Hydrate the picker chips with display labels — the IDs alone
+      // aren't enough for EntityPicker to render its "chosen" state.
+      if (pid) {
+        api
+          .get<{
+            data: { user?: { name?: string } };
+          }>(`/patients/${pid}`)
+          .then((r) => {
+            const name = r.data?.user?.name;
+            if (name) setInitialPatientLabel(name);
+          })
+          .catch(() => {});
+      }
+      if (aid) {
+        api
+          .get<{
+            data: {
+              slotStart: string | null;
+              tokenNumber: number | null;
+            };
+          }>(`/appointments/${aid}`)
+          .then((r) => {
+            const slot = r.data?.slotStart ?? "—";
+            const token = r.data?.tokenNumber;
+            setInitialAppointmentLabel(
+              token != null ? `${slot} · T-${token}` : slot,
+            );
+          })
+          .catch(() => {});
+      }
     }
   }, [user?.role]);
 
@@ -1145,22 +1203,37 @@ export default function PrescriptionsPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("dashboard.prescriptions.title")}</h1>
-        {user?.role === "DOCTOR" && (
-          <button
-            onClick={() => {
-              // Toggle: if the form is open (in either mode) close + reset;
-              // otherwise open it in CREATE mode.
-              if (showForm) {
-                resetForm();
-              } else {
-                setShowForm(true);
-              }
-            }}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
-          >
-            Write Prescription
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Pearl §2.1.3 — Back to Consult chip on the prescriptions
+              list header, persists after the doctor closes/submits
+              the Rx form so they can return to the SOAP draft. Shows
+              only when the page was opened from /dashboard/consult. */}
+          {consultBackAppointmentId && (
+            <Link
+              href={`/dashboard/consult/${consultBackAppointmentId}`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition hover:border-primary hover:text-primary dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+              data-testid="rx-back-to-consult"
+            >
+              ← Back to Consult
+            </Link>
+          )}
+          {user?.role === "DOCTOR" && (
+            <button
+              onClick={() => {
+                // Toggle: if the form is open (in either mode) close + reset;
+                // otherwise open it in CREATE mode.
+                if (showForm) {
+                  resetForm();
+                } else {
+                  setShowForm(true);
+                }
+              }}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+            >
+              Write Prescription
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Prescription form */}
@@ -1242,6 +1315,7 @@ export default function PrescriptionsPage() {
                 }}
                 searchPlaceholder="Search patient by name, phone or MR..."
                 testIdPrefix="rx-patient-picker"
+                initialLabel={initialPatientLabel}
                 required
               />
               {formErrors.patientId && (
@@ -1285,6 +1359,7 @@ export default function PrescriptionsPage() {
                   }}
                   searchPlaceholder="Search by token / time"
                   testIdPrefix="rx-appointment-picker"
+                  initialLabel={initialAppointmentLabel}
                   // Issue #194: pre-filtered URL → show today's list on
                   // focus instead of forcing 2+ chars of typing.
                   minQueryLength={0}

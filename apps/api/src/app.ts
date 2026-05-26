@@ -63,6 +63,9 @@ import { medicationRouter } from "./routes/medication";
 import { nurseRoundRouter } from "./routes/nurse-rounds";
 import { ehrRouter } from "./routes/ehr";
 import { icd10Router } from "./routes/icd10";
+// Pearl §2.1.3 — manual SOAP consult screen backend + SNOMED CT lookup.
+import { consultationsRouter } from "./routes/consultations";
+import { snomedRouter } from "./routes/snomed";
 import { uploadsRouter } from "./routes/uploads";
 import { referralRouter } from "./routes/referrals";
 // Pearl ERP Stage 1 §4.1 (gap row 101) — referring-doctor commission
@@ -380,6 +383,8 @@ export function buildApp() {
   app.use("/api/v1/nurse-rounds", nurseRoundRouter);
   app.use("/api/v1/ehr", ehrRouter);
   app.use("/api/v1/icd10", icd10Router);
+  app.use("/api/v1/consultations", consultationsRouter);
+  app.use("/api/v1/snomed", snomedRouter);
   app.use("/api/v1/uploads", uploadsRouter);
   app.use("/api/v1/referrals", referralRouter);
   // Pearl §4.1 — must mount this BEFORE any /:id-shaped handler on the

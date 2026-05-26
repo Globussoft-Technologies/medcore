@@ -131,44 +131,140 @@ router.get(
 );
 
 // ── GET /visits/:patientId ───────────────────────────────────────────────
-// Last 3 prescriptions for this patient. Tenant-scoped — cross-tenant
-// access returns [] (no rows visible through the wrapper).
+// Last 3 visits for this patient — unifies the two surfaces that
+// represent "a doctor encounter":
+//   1. Prescription rows (the original surface — Rx written for a visit)
+//   2. SIGNED Consultation rows (Pearl §2.1.3 — SOAP note finalized
+//      without a Rx, e.g. follow-up, counseling, lifestyle advice)
+//
+// Both are deduped by appointmentId: when the same visit produced both
+// a Rx and a signed SOAP note we keep the Rx (richer item list) and
+// suppress the consultation duplicate. Tenant-scoped via the wrapper.
 router.get(
   "/visits/:patientId",
   validateUuidParams(["patientId"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { patientId } = req.params;
-      const visits = await prisma.prescription.findMany({
-        where: { patientId },
-        orderBy: { createdAt: "desc" },
-        take: VISITS_DEPTH,
-        select: {
-          id: true,
-          createdAt: true,
-          diagnosis: true,
-          advice: true,
-          followUpDate: true,
-          items: {
-            select: {
-              medicineName: true,
-              dosage: true,
-              frequency: true,
-              duration: true,
+
+      const [prescriptions, consultations] = await Promise.all([
+        prisma.prescription.findMany({
+          where: { patientId },
+          orderBy: { createdAt: "desc" },
+          take: VISITS_DEPTH * 2, // over-fetch; we dedupe below
+          select: {
+            id: true,
+            appointmentId: true,
+            createdAt: true,
+            diagnosis: true,
+            advice: true,
+            followUpDate: true,
+            items: {
+              select: {
+                medicineName: true,
+                dosage: true,
+                frequency: true,
+                duration: true,
+              },
             },
           },
-        },
-      });
+        }),
+        prisma.consultation.findMany({
+          where: {
+            appointment: { patientId },
+            status: "SIGNED",
+          },
+          orderBy: { signedAt: "desc" },
+          take: VISITS_DEPTH * 2,
+          select: {
+            id: true,
+            appointmentId: true,
+            createdAt: true,
+            signedAt: true,
+            assessment: true,
+            plan: true,
+            icd10Codes: true,
+          },
+        }),
+      ]);
+
+      // Suppress consultations whose appointment already has a Rx —
+      // the Rx surface is richer (item list with dose/frequency).
+      const rxAppointmentIds = new Set(
+        prescriptions.map((p) => p.appointmentId),
+      );
+
+      // Normalize consultations into the same Visit shape the client
+      // already renders.
+      interface DiagCode {
+        code: string;
+        description: string;
+      }
+      const consultVisits = consultations
+        .filter((c) => !rxAppointmentIds.has(c.appointmentId))
+        .map((c) => {
+          const codes = Array.isArray(c.icd10Codes)
+            ? (c.icd10Codes as unknown as DiagCode[])
+            : [];
+          const diagnosis =
+            codes[0]?.description ??
+            // Fall back to the assessment's first non-empty line, or
+            // a generic label so the card never shows "(no diagnosis)"
+            // when the doctor did record an assessment.
+            (c.assessment
+              ? c.assessment
+                  .split(/\r?\n/)
+                  .map((s) => s.trim())
+                  .find((s) => s && !s.startsWith("## ")) ?? "Consultation note"
+              : "Consultation note");
+          return {
+            id: c.id,
+            createdAt: (c.signedAt ?? c.createdAt).toISOString(),
+            diagnosis,
+            advice: c.plan,
+            followUpDate: null,
+            items: [] as Array<{
+              medicineName: string;
+              dosage: string;
+              frequency: string;
+              duration: string;
+            }>,
+          };
+        });
+
+      // Merge, sort by date desc, take VISITS_DEPTH.
+      const merged = [
+        ...prescriptions.map((p) => ({
+          id: p.id,
+          createdAt: p.createdAt.toISOString(),
+          diagnosis: p.diagnosis,
+          advice: p.advice,
+          followUpDate: p.followUpDate
+            ? p.followUpDate.toISOString()
+            : null,
+          items: p.items,
+        })),
+        ...consultVisits,
+      ]
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        )
+        .slice(0, VISITS_DEPTH);
 
       auditLog(
         req,
         "CONSULT_RAIL_VISITS_READ",
         "consult_rail",
         patientId,
-        { count: visits.length },
+        {
+          count: merged.length,
+          prescriptions: prescriptions.length,
+          consultations: consultVisits.length,
+        },
       ).catch(console.error);
 
-      res.json({ success: true, data: visits, error: null });
+      res.json({ success: true, data: merged, error: null });
     } catch (err) {
       next(err);
     }

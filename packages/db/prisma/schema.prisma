@@ -1833,6 +1833,24 @@ model Consultation {
   doctorId      String
   notes         String?
   findings      String?
+  // Pearl ERP §2.1.3 — SOAP-tabbed manual consult canvas. Each tab
+  // stores free-text per the SOAP convention (Subjective / Objective /
+  // Assessment / Plan). Separate columns (not a single JSON blob) so
+  // analytics can filter / search per-tab without parsing JSON.
+  subjective    String?
+  objective     String?
+  assessment    String?
+  plan          String?
+  // ICD-10 + SNOMED CT diagnosis coding (Pearl §2.1.3). Stored as
+  // JSON arrays of `{ code, description }` objects so the structured
+  // form can show full code+label pairs without an extra join.
+  icd10Codes    Json?
+  snomedCodes   Json?
+  // Lifecycle: DRAFT while the doctor is still editing; SIGNED once
+  // they explicitly finalize. Used by reporting and by the visit
+  // history right-rail to filter only signed visits.
+  status        String   @default("DRAFT") // DRAFT | SIGNED
+  signedAt      DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -1953,6 +1971,23 @@ model Icd10Code {
   @@index([code])
   @@index([category])
   @@map("icd10_codes")
+}
+
+// Pearl ERP §2.1.3 — SNOMED CT concept catalogue (parallel to ICD-10).
+// Mirrors Icd10Code's shape so the /snomed lookup route can use the
+// same AND-of-OR token search. Today seeded with a small starter set
+// of common primary-care concepts; intended to be re-seeded from the
+// licensed C-DAC SNOMED CT distribution once the ETL lands.
+model SnomedCode {
+  id          String   @id @default(uuid())
+  code        String   @unique // SCTID — SNOMED Concept ID
+  description String // Preferred term
+  category    String?
+  createdAt   DateTime @default(now())
+
+  @@index([code])
+  @@index([category])
+  @@map("snomed_codes")
 }
 
 // ─── PRESCRIPTION TEMPLATES ─────────────────────────────

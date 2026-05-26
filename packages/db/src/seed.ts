@@ -44,6 +44,32 @@ async function main() {
   });
   console.log("Created admin:", admin.email);
 
+  // Create Super Admin (Onviqa platform operator).
+  //
+  // The super-admin route group at apps/web/src/app/super-admin/ gates on
+  // `role === "ADMIN" AND tenantId == null` (see super-admin/layout.tsx
+  // line 8 and apps/api/src/routes/tenants.ts requireSuperAdmin). The
+  // tenant-less Admin signals "cross-tenant operator" — distinct from
+  // the per-tenant admin above. NEVER stamp a tenantId on this row, or
+  // the super-admin UI redirects to /dashboard/not-authorized AND the
+  // tenant-scoped Prisma extension silently pins them to one tenant.
+  //
+  // Change `superadmin123` to a strong password before any non-local
+  // deploy — this is dev-seed credential parity with admin@medcore.local.
+  const superAdmin = await prisma.user.upsert({
+    where: { email: "superadmin@medcore.local" },
+    update: { tenantId: null },
+    create: {
+      email: "superadmin@medcore.local",
+      phone: "9999900099",
+      name: "Onviqa Super Admin",
+      passwordHash: hashPassword("superadmin123"),
+      role: Role.ADMIN,
+      tenantId: null,
+    },
+  });
+  console.log("Created super admin:", superAdmin.email);
+
   // Create Doctors
   // Specialization strings here MUST match what the AI triage prompt returns
   // (apps/api/src/services/ai/prompts.ts → TRIAGE_SYSTEM). The triage route's

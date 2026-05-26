@@ -21,6 +21,12 @@ const { prismaMock } = vi.hoisted(() => ({
     prescription: {
       findMany: vi.fn(async () => []),
     },
+    // Pearl §2.1.3 (2026-05-26) — /visits now merges signed
+    // Consultation rows alongside Prescription rows so SOAP-only
+    // visits surface in the right rail's "Last 3 visits" panel.
+    consultation: {
+      findMany: vi.fn(async () => []),
+    },
   } as any,
 }));
 
@@ -112,12 +118,33 @@ describe("GET /api/v1/consult-rail/favourites/:doctorId — derived favourites",
 describe("GET /api/v1/consult-rail/visits/:patientId — last 3 visits", () => {
   beforeEach(() => {
     prismaMock.prescription.findMany.mockReset();
+    prismaMock.consultation.findMany.mockReset();
+    // Default both to empty so tests not exercising one still resolve.
+    prismaMock.prescription.findMany.mockResolvedValue([]);
+    prismaMock.consultation.findMany.mockResolvedValue([]);
   });
 
-  it("returns the prescriptions as-is from the DB (caller passes them through)", async () => {
+  it("returns the prescriptions in the merged shape (consultations empty)", async () => {
+    const now = new Date();
     const rows = [
-      { id: "rx-1", createdAt: new Date(), diagnosis: "A", advice: null, followUpDate: null, items: [] },
-      { id: "rx-2", createdAt: new Date(), diagnosis: "B", advice: null, followUpDate: null, items: [] },
+      {
+        id: "rx-1",
+        appointmentId: "apt-1",
+        createdAt: now,
+        diagnosis: "A",
+        advice: null,
+        followUpDate: null,
+        items: [],
+      },
+      {
+        id: "rx-2",
+        appointmentId: "apt-2",
+        createdAt: now,
+        diagnosis: "B",
+        advice: null,
+        followUpDate: null,
+        items: [],
+      },
     ];
     prismaMock.prescription.findMany.mockResolvedValueOnce(rows);
 
@@ -128,11 +155,151 @@ describe("GET /api/v1/consult-rail/visits/:patientId — last 3 visits", () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data).toHaveLength(2);
-    // Caps at 3 — verify the take param.
+    // Over-fetch (depth * 2) to allow client-side dedupe and re-sort.
     const call = prismaMock.prescription.findMany.mock.calls[0][0];
-    expect(call.take).toBe(3);
+    expect(call.take).toBe(6);
     expect(call.orderBy).toEqual({ createdAt: "desc" });
     expect(call.where).toEqual({ patientId: PAT_ID });
+  });
+
+  it("merges signed consultations alongside prescriptions, sorted by date desc, capped at 3", async () => {
+    const older = new Date("2026-05-01T10:00:00Z");
+    const newer = new Date("2026-05-20T10:00:00Z");
+    const newest = new Date("2026-05-25T10:00:00Z");
+
+    prismaMock.prescription.findMany.mockResolvedValueOnce([
+      {
+        id: "rx-old",
+        appointmentId: "apt-old",
+        createdAt: older,
+        diagnosis: "Old Rx",
+        advice: null,
+        followUpDate: null,
+        items: [],
+      },
+    ]);
+    prismaMock.consultation.findMany.mockResolvedValueOnce([
+      {
+        id: "c-newest",
+        appointmentId: "apt-newest",
+        createdAt: newest,
+        signedAt: newest,
+        assessment: "Headache",
+        plan: "Hydrate",
+        icd10Codes: null,
+      },
+      {
+        id: "c-newer",
+        appointmentId: "apt-newer",
+        createdAt: newer,
+        signedAt: newer,
+        assessment: "Cough",
+        plan: null,
+        icd10Codes: null,
+      },
+    ]);
+
+    const res = await request(buildApp())
+      .get(`/api/v1/consult-rail/visits/${PAT_ID}`)
+      .set("Authorization", `Bearer ${tokenFor("DOCTOR")}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(3);
+    // Date desc — newest signed consult first, then signed consult,
+    // then older prescription.
+    expect(res.body.data[0].id).toBe("c-newest");
+    expect(res.body.data[1].id).toBe("c-newer");
+    expect(res.body.data[2].id).toBe("rx-old");
+  });
+
+  it("suppresses a consultation whose appointmentId already has a prescription (Rx wins)", async () => {
+    const t = new Date("2026-05-20T10:00:00Z");
+    prismaMock.prescription.findMany.mockResolvedValueOnce([
+      {
+        id: "rx-1",
+        appointmentId: "apt-shared",
+        createdAt: t,
+        diagnosis: "From Rx",
+        advice: null,
+        followUpDate: null,
+        items: [{ medicineName: "Paracetamol" }],
+      },
+    ]);
+    prismaMock.consultation.findMany.mockResolvedValueOnce([
+      {
+        id: "c-dup",
+        appointmentId: "apt-shared", // SAME appointmentId as rx-1
+        createdAt: t,
+        signedAt: t,
+        assessment: "Should not surface",
+        plan: null,
+        icd10Codes: null,
+      },
+    ]);
+
+    const res = await request(buildApp())
+      .get(`/api/v1/consult-rail/visits/${PAT_ID}`)
+      .set("Authorization", `Bearer ${tokenFor("DOCTOR")}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0].id).toBe("rx-1");
+  });
+
+  it("only fetches SIGNED consultations (DRAFT never leaks into visits)", async () => {
+    await request(buildApp())
+      .get(`/api/v1/consult-rail/visits/${PAT_ID}`)
+      .set("Authorization", `Bearer ${tokenFor("DOCTOR")}`);
+
+    const call = prismaMock.consultation.findMany.mock.calls[0][0];
+    expect(call.where).toEqual({
+      appointment: { patientId: PAT_ID },
+      status: "SIGNED",
+    });
+    expect(call.orderBy).toEqual({ signedAt: "desc" });
+  });
+
+  it("derives a consultation diagnosis from the first ICD-10 code when present", async () => {
+    prismaMock.consultation.findMany.mockResolvedValueOnce([
+      {
+        id: "c-icd",
+        appointmentId: "apt-icd",
+        createdAt: new Date(),
+        signedAt: new Date(),
+        assessment: "Free-text assessment",
+        plan: null,
+        icd10Codes: [
+          { code: "I10", description: "Essential hypertension" },
+        ],
+      },
+    ]);
+
+    const res = await request(buildApp())
+      .get(`/api/v1/consult-rail/visits/${PAT_ID}`)
+      .set("Authorization", `Bearer ${tokenFor("DOCTOR")}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].diagnosis).toBe("Essential hypertension");
+  });
+
+  it("falls back to first non-header line of assessment when no ICD-10 codes", async () => {
+    prismaMock.consultation.findMany.mockResolvedValueOnce([
+      {
+        id: "c-noicd",
+        appointmentId: "apt-noicd",
+        createdAt: new Date(),
+        signedAt: new Date(),
+        assessment: "## Clinical Impression / Diagnosis\nViral fever",
+        plan: null,
+        icd10Codes: null,
+      },
+    ]);
+
+    const res = await request(buildApp())
+      .get(`/api/v1/consult-rail/visits/${PAT_ID}`)
+      .set("Authorization", `Bearer ${tokenFor("DOCTOR")}`);
+
+    expect(res.body.data[0].diagnosis).toBe("Viral fever");
   });
 
   it("rejects a non-UUID :patientId with a 400", async () => {

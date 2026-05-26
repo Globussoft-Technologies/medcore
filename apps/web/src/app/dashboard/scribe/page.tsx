@@ -2717,19 +2717,29 @@ export default function ScribePage() {
           )}
         </div>
 
-        {/* ── Pearl §2.1.3 (gap row 46) Right rail: favourites + last 3 visits.
+        {/* ── Pearl §2.1.3 (gap row 46) Right rail: last 3 visits.
               Hidden on small screens (the page already crowds at <lg) and
               promoted to a third column at lg+. Click-to-paste wired into the
-              active SOAP draft via handlePasteDiagnosis / handlePasteMedicine. */}
-        <div className="hidden lg:flex">
-          <ConsultRightRail
-            doctorId={selectedAppointment?.doctorId ?? null}
-            patientId={selectedAppointment?.patientId ?? null}
-            token={token}
-            onPasteDiagnosis={handlePasteDiagnosis}
-            onPasteMedicine={handlePasteMedicine}
-          />
-        </div>
+              active SOAP draft via handlePasteDiagnosis / handlePasteMedicine.
+              Only rendered AFTER the scribe session has started (sessionId
+              set) — pre-start it was an empty "No prior visits" panel sitting
+              next to an empty SOAP placeholder, which looked broken. Now it
+              shows up once the doctor actually starts the consult. */}
+        {sessionId && (
+          <div className="hidden lg:flex">
+            <ConsultRightRail
+              doctorId={selectedAppointment?.doctorId ?? null}
+              patientId={selectedAppointment?.patientId ?? null}
+              token={token}
+              onPasteDiagnosis={handlePasteDiagnosis}
+              onPasteMedicine={handlePasteMedicine}
+              // AI scribe is voice/LLM-driven — click-to-paste favourites
+              // aren't part of that workflow. Hide the card; keep the
+              // Last-3-visits panel which is still useful context.
+              hideFavourites
+            />
+          </div>
+        )}
       </div>
     </>
   );

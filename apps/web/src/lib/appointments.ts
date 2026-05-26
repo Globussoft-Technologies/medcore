@@ -102,3 +102,33 @@ export function displayStatusForAppointment(
   if (!start) return appt.status;
   return start.getTime() < nowMs ? "COMPLETED" : appt.status;
 }
+
+/**
+ * Pearl ERP Stage 1 §2.1.2 — render the row's identifier based on the
+ * doctor's configured `appointmentMode`:
+ *
+ *   - `CALLING` → `A-<arrivalSeq>` (arrival-order queue, no token)
+ *   - `TOKEN`   → `T-<tokenNumber>` (sequential per-session tokens)
+ *   - `SLOT`    → `T-<tokenNumber>` if a token was minted, else `—`
+ *                 (slot time is shown in the adjacent TIME column)
+ *
+ * Falls back to whichever scalar is populated when the mode field is
+ * missing on legacy rows so nothing renders blank.
+ */
+export function appointmentRefLabel(appt: {
+  tokenNumber: number | null;
+  arrivalSeq?: number | null;
+  doctor?: { appointmentMode?: "CALLING" | "TOKEN" | "SLOT" | null };
+}): string {
+  const mode = appt.doctor?.appointmentMode;
+  if (mode === "CALLING") {
+    return appt.arrivalSeq != null ? `A-${appt.arrivalSeq}` : "—";
+  }
+  if (mode === "SLOT") {
+    return appt.tokenNumber != null ? `T-${appt.tokenNumber}` : "—";
+  }
+  // TOKEN or unknown — prefer tokenNumber, fall back to arrivalSeq.
+  if (appt.tokenNumber != null) return `T-${appt.tokenNumber}`;
+  if (appt.arrivalSeq != null) return `A-${appt.arrivalSeq}`;
+  return "—";
+}

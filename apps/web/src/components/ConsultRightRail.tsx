@@ -58,6 +58,16 @@ export interface ConsultRightRailProps {
   token: string | null;
   onPasteDiagnosis?: (value: string) => void;
   onPasteMedicine?: (medicine: { name: string; dose?: string; frequency?: string; duration?: string }) => void;
+  // Hide the Favourites card (top diagnoses + top medicines). The AI
+  // scribe page sets this true because the draft is voice/LLM-driven
+  // and the click-to-paste favourites aren't part of that workflow.
+  hideFavourites?: boolean;
+  // Lay the two cards out side-by-side (Favourites | Last 3 visits)
+  // instead of stacked, and drop the narrow column-width cap. Used by
+  // the manual consult page when the rail is rendered as a wide
+  // bottom band on laptop viewports — without this the cards stayed
+  // squeezed into a 288-px column with empty space to the right.
+  horizontal?: boolean;
 }
 
 export function ConsultRightRail({
@@ -66,6 +76,8 @@ export function ConsultRightRail({
   token,
   onPasteDiagnosis,
   onPasteMedicine,
+  hideFavourites = false,
+  horizontal = false,
 }: ConsultRightRailProps) {
   const [favourites, setFavourites] = useState<FavouritesPayload | null>(null);
   const [favLoading, setFavLoading] = useState(false);
@@ -74,8 +86,10 @@ export function ConsultRightRail({
   const [expandedVisitId, setExpandedVisitId] = useState<string | null>(null);
 
   // Fetch derived favourites whenever the doctor changes. Doctor identity
-  // is stable across a session so this typically fires once.
+  // is stable across a session so this typically fires once. Skipped
+  // entirely when hideFavourites is true to avoid an unused HTTP call.
   useEffect(() => {
+    if (hideFavourites) return;
     if (!doctorId || !token) return;
     let cancelled = false;
     setFavLoading(true);
@@ -96,7 +110,7 @@ export function ConsultRightRail({
     return () => {
       cancelled = true;
     };
-  }, [doctorId, token]);
+  }, [doctorId, token, hideFavourites]);
 
   // Re-fetch last-3 visits whenever the active patient changes (selecting a
   // new appointment in the left rail rebinds patientId).
@@ -126,9 +140,14 @@ export function ConsultRightRail({
   return (
     <aside
       data-testid="consult-right-rail"
-      className="flex flex-col gap-3 h-full w-full lg:w-72 lg:max-w-xs"
+      className={
+        horizontal
+          ? "grid w-full grid-cols-1 gap-3 sm:grid-cols-2"
+          : "flex flex-col gap-3 h-full w-full lg:w-72 lg:max-w-xs"
+      }
     >
       {/* ── Favourites ──────────────────────────────────────── */}
+      {!hideFavourites && (
       <div className="bg-white rounded-2xl shadow border border-gray-100 p-4 flex flex-col gap-3 dark:bg-gray-800 dark:border-gray-700">
         <div className="flex items-center gap-2">
           <Star className="w-4 h-4 text-amber-500" />
@@ -196,6 +215,7 @@ export function ConsultRightRail({
           )}
         </div>
       </div>
+      )}
 
       {/* ── Last 3 visits ──────────────────────────────────── */}
       <div className="bg-white rounded-2xl shadow border border-gray-100 p-4 flex flex-col gap-3 flex-1 overflow-hidden dark:bg-gray-800 dark:border-gray-700">

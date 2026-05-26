@@ -24,6 +24,44 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+// Pearl ERP §2.1.3 — SNOMED CT starter set. Common primary-care
+// concepts so the consult-screen Assessment tab autocomplete has real
+// rows to return until the licensed C-DAC SNOMED CT distribution is
+// ETL'd in. Same shape as ICD10_CODES so the seed loop is identical.
+const SNOMED_CODES: Array<{ code: string; description: string; category: string }> = [
+  { code: "38341003", description: "Hypertensive disorder", category: "Circulatory" },
+  { code: "59621000", description: "Essential hypertension", category: "Circulatory" },
+  { code: "44054006", description: "Type 2 diabetes mellitus", category: "Endocrine" },
+  { code: "73211009", description: "Diabetes mellitus", category: "Endocrine" },
+  { code: "46635009", description: "Type 1 diabetes mellitus", category: "Endocrine" },
+  { code: "195967001", description: "Asthma", category: "Respiratory" },
+  { code: "13645005", description: "Chronic obstructive pulmonary disease", category: "Respiratory" },
+  { code: "233604007", description: "Pneumonia", category: "Respiratory" },
+  { code: "10509002", description: "Acute bronchitis", category: "Respiratory" },
+  { code: "62315008", description: "Diarrhea", category: "Digestive" },
+  { code: "422587007", description: "Nausea", category: "Digestive" },
+  { code: "16932000", description: "Nausea and vomiting", category: "Digestive" },
+  { code: "21522001", description: "Abdominal pain", category: "Digestive" },
+  { code: "25064002", description: "Headache", category: "Nervous" },
+  { code: "37796009", description: "Migraine", category: "Nervous" },
+  { code: "84229001", description: "Fatigue", category: "General" },
+  { code: "386661006", description: "Fever", category: "General" },
+  { code: "49727002", description: "Cough", category: "Respiratory" },
+  { code: "267036007", description: "Dyspnea", category: "Respiratory" },
+  { code: "29857009", description: "Chest pain", category: "Circulatory" },
+  { code: "271807003", description: "Skin rash", category: "Skin" },
+  { code: "30746006", description: "Anxiety disorder", category: "Mental" },
+  { code: "35489007", description: "Depressive disorder", category: "Mental" },
+  { code: "82423001", description: "Chronic pain", category: "General" },
+  { code: "162059005", description: "Vertigo", category: "Nervous" },
+  { code: "267102003", description: "Sore throat", category: "Respiratory" },
+  { code: "419076005", description: "Allergic reaction", category: "Immune" },
+  { code: "57676002", description: "Joint pain", category: "Musculoskeletal" },
+  { code: "161891005", description: "Backache", category: "Musculoskeletal" },
+  { code: "271737000", description: "Anaemia", category: "Blood" },
+  { code: "414916001", description: "Obesity", category: "Endocrine" },
+];
+
 const ICD10_CODES: Array<{ code: string; description: string; category: string }> = [
   // Cardiovascular
   { code: "I10", description: "Essential (primary) hypertension", category: "Cardiovascular" },
@@ -407,6 +445,21 @@ async function main() {
     icdCreated += 1;
   }
   console.log(`  Upserted ${icdCreated} ICD-10 codes.`);
+
+  // ─── 1b. SNOMED CT Codes ─────────────────────────────
+  // Pearl §2.1.3 — same upsert pattern as ICD-10 so re-running
+  // db:seed is idempotent and edits to the starter set propagate.
+  console.log(`\nSeeding ${SNOMED_CODES.length} SNOMED CT codes...`);
+  let snomedCreated = 0;
+  for (const c of SNOMED_CODES) {
+    await prisma.snomedCode.upsert({
+      where: { code: c.code },
+      update: { description: c.description, category: c.category },
+      create: c,
+    });
+    snomedCreated += 1;
+  }
+  console.log(`  Upserted ${snomedCreated} SNOMED CT codes.`);
 
   // ─── 2. Prescription Templates ───────────────────────
   console.log(`\nSeeding ${PRESCRIPTION_TEMPLATES.length} prescription templates...`);

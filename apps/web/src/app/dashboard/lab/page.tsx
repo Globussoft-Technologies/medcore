@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Fragment } from "react";
 import Link from "next/link";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
@@ -111,6 +111,28 @@ export default function LabPage() {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showOrderModal, setShowOrderModal] = useState(false);
+  // Pearl §2.1.3 — initial patient + appointment passed from the
+  // consult page's Flask quick-action so the modal opens already
+  // wired to the right encounter. `consultBack` holds the consult
+  // page's appointmentId to render a Back-to-Consult chip in the
+  // modal header (null = not from consult, no back link).
+  const [initialPatientId, setInitialPatientId] = useState<string | null>(null);
+  const [initialAppointmentId, setInitialAppointmentId] =
+    useState<string | null>(null);
+  const [consultBackAppointmentId, setConsultBackAppointmentId] =
+    useState<string | null>(null);
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    if (!searchParams) return;
+    if (searchParams.get("new") !== "1") return;
+    setShowOrderModal(true);
+    const pid = searchParams.get("patientId");
+    const aid = searchParams.get("appointmentId");
+    const fromParam = searchParams.get("from");
+    if (pid) setInitialPatientId(pid);
+    if (aid) setInitialAppointmentId(aid);
+    if (fromParam === "consult" && aid) setConsultBackAppointmentId(aid);
+  }, [searchParams]);
   const [statOnly, setStatOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -135,6 +157,16 @@ export default function LabPage() {
   // Only lab techs and admins may enter results — doctors view, never enter.
   // Mirror of the backend `authorize(LAB_TECH, ADMIN)` on POST /lab/results.
   const canEnterResults = user?.role === "LAB_TECH" || user?.role === "ADMIN";
+  // Pearl §2.1.3 — sample collection + processing transitions are the
+  // lab-tech / nurse workflow. Doctors place the order but should not
+  // perform pre-analytical actions, so the Collect / Process CTAs on
+  // each row hide for them (View link still renders so the doctor can
+  // monitor progress). Mirrors the backend's `authorize(LAB_TECH,
+  // NURSE, ADMIN)` on PATCH /lab/orders/:id/status.
+  const canCollect =
+    user?.role === "LAB_TECH" ||
+    user?.role === "NURSE" ||
+    user?.role === "ADMIN";
 
   async function fetchAIInsights(resultId: string) {
     setAiInsights((m) => ({ ...m, [resultId]: { loading: true } }));
@@ -239,14 +271,29 @@ export default function LabPage() {
           </h1>
           <p className="text-sm text-gray-700 dark:text-gray-300">{t("dashboard.lab.orders")}</p>
         </div>
-        {canOrder && tab === "orders" && (
-          <button
-            onClick={() => setShowOrderModal(true)}
-            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
-          >
-            <Plus size={16} aria-hidden="true" /> {t("dashboard.lab.newOrder")}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Pearl §2.1.3 — Back to Consult chip on the lab list
+              header, persists after the doctor closes/submits the
+              order modal so they can return to the SOAP draft. Shows
+              only when the page was opened from /dashboard/consult. */}
+          {consultBackAppointmentId && (
+            <Link
+              href={`/dashboard/consult/${consultBackAppointmentId}`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition hover:border-primary hover:text-primary dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+              data-testid="lab-back-to-consult"
+            >
+              ← Back to Consult
+            </Link>
+          )}
+          {canOrder && tab === "orders" && (
+            <button
+              onClick={() => setShowOrderModal(true)}
+              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+            >
+              <Plus size={16} aria-hidden="true" /> {t("dashboard.lab.newOrder")}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mb-4 flex items-center gap-2">
@@ -452,8 +499,11 @@ export default function LabPage() {
                               matched), so the pre-analytical "Collect"
                               CTA never rendered. Show it for ORDERED, the
                               actual default state, so LAB_TECH/NURSE can
-                              capture sample-collected before result entry. */}
-                          {o.status === "ORDERED" && (
+                              capture sample-collected before result entry.
+                              Pearl §2.1.3: gated on `canCollect` so the
+                              doctor (who placed the order) doesn't see
+                              pre-analytical CTAs — they only View. */}
+                          {o.status === "ORDERED" && canCollect && (
                             <button
                               data-testid="lab-collect-sample-btn"
                               onClick={() =>
@@ -464,7 +514,7 @@ export default function LabPage() {
                               Collect
                             </button>
                           )}
-                          {o.status === "SAMPLE_COLLECTED" && (
+                          {o.status === "SAMPLE_COLLECTED" && canCollect && (
                             <button
                               onClick={() => updateStatus(o.id, "IN_PROGRESS")}
                               className="rounded bg-indigo-500 px-2 py-1 text-xs text-white hover:bg-indigo-600"
@@ -642,6 +692,9 @@ export default function LabPage() {
         <NewOrderModal
           onClose={() => setShowOrderModal(false)}
           onSaved={loadOrders}
+          initialPatientId={initialPatientId}
+          initialAppointmentId={initialAppointmentId}
+          consultBackAppointmentId={consultBackAppointmentId}
         />
       )}
     </div>
@@ -651,13 +704,43 @@ export default function LabPage() {
 function NewOrderModal({
   onClose,
   onSaved,
+  initialPatientId,
+  initialAppointmentId: _initialAppointmentId,
+  consultBackAppointmentId,
 }: {
   onClose: () => void;
   onSaved: () => void;
+  // Pearl §2.1.3 — pre-fill the order from the consult page's
+  // Flask quick-action so the doctor doesn't re-search the patient.
+  // Currently only patientId is wired into the picker; appointmentId
+  // is plumbed for future per-encounter scoping.
+  initialPatientId?: string | null;
+  initialAppointmentId?: string | null;
+  // If set, the modal header shows a "← Back to Consult" link that
+  // routes to /dashboard/consult/<id>.
+  consultBackAppointmentId?: string | null;
 }) {
   const [patientSearch, setPatientSearch] = useState("");
   const [patientResults, setPatientResults] = useState<Patient[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
+
+  // Pre-fetch the patient when initialPatientId is provided (consult
+  // page flow). Sets `selectedPatient` so the modal opens with the
+  // chip already selected. Silent failure → falls back to manual
+  // search, which is what would have happened without the prefill.
+  useEffect(() => {
+    if (!initialPatientId) return;
+    let cancelled = false;
+    api
+      .get<{ data: Patient }>(`/patients/${initialPatientId}`)
+      .then((r) => {
+        if (!cancelled && r.data) setSelectedPatient(r.data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [initialPatientId]);
   const [tests, setTests] = useState<LabTest[]>([]);
   const [selectedTests, setSelectedTests] = useState<string[]>([]);
   const [notes, setNotes] = useState("");
@@ -754,9 +837,22 @@ function NewOrderModal({
         noValidate
         className="w-full max-h-[90vh] overflow-y-auto max-w-2xl rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
       >
-        <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">
-          New Lab Order
-        </h2>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            New Lab Order
+          </h2>
+          {/* Pearl §2.1.3 — Back to Consult chip, shown only when
+              the modal was opened from the consult page's Flask
+              icon. One-click return to the SOAP draft. */}
+          {consultBackAppointmentId && (
+            <Link
+              href={`/dashboard/consult/${consultBackAppointmentId}`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 transition hover:border-primary hover:text-primary dark:border-gray-700 dark:text-gray-300"
+            >
+              ← Back to Consult
+            </Link>
+          )}
+        </div>
 
         <div className="space-y-4">
           <div>

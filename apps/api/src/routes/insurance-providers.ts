@@ -9,8 +9,15 @@
 // list — reception needs the dropdown when creating claims/preauth.
 //
 // Audit: every mutation writes an INSURANCE_PROVIDER_<ACTION> row.
+//
+// Tenant scoping (2026-05-27): the wrapper auto-filters reads and
+// auto-injects tenantId on writes for every model in
+// `TENANT_SCOPED_MODELS`. InsuranceProvider has a (nullable) `tenantId`
+// column and was added to the set in `packages/db/src/tenant-prisma.ts`,
+// so swapping the raw client for `tenantScopedPrisma` here closes the
+// cross-tenant leak surfaced by insurance-providers.test.ts.
 import { Router, Request, Response, NextFunction } from "express";
-import { prisma } from "@medcore/db";
+import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import {
   Role,
   createInsuranceProviderSchema,

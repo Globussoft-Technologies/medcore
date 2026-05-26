@@ -279,6 +279,13 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   "MedicationIncident",
   // Issue #456 (2026-05-04) — migration 20260504000002
   "AuditLog",
+  // 2026-05-27 — cross-tenant leak fixes (chronic CI red on
+  // insurance-providers.test.ts + referral-commissions.test.ts).
+  // Both rows carry a `tenantId` column but were missing from this set,
+  // so `tenantScopedPrisma` was a no-op and a default-tenant admin (or
+  // any cross-tenant admin) could see another tenant's rows.
+  "InsuranceProvider",
+  "ReferralCommission",
 ]);
 
 /** Operations on which we INJECT `tenantId` into `args.data`. */

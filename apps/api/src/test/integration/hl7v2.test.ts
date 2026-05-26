@@ -48,10 +48,43 @@ let unknownUuid = "00000000-0000-0000-0000-000000000000";
 let tenantBPatientId: string;
 let tenantBLabOrderId: string;
 
+// Default-tenant id — captured in beforeAll, used by the late
+// "feature-flag toggled back on" test so it can re-mint a token tied to
+// the now-stamped admin user.
+let defaultTenantId: string;
+
 describeIfDB("HL7 v2 export endpoints + feature-flag gate (integration)", () => {
   beforeAll(async () => {
     await resetDB();
     __resetFeatureFlagsCacheForTests();
+
+    // ─── Materialize the "default" tenant up front and bind the seed
+    // admin to it BEFORE getAuthToken mints the JWT.
+    //
+    // Without this, admin@test.local has tenantId=null, which means
+    // `req.tenantId` stays undefined on every request and
+    // `tenantScopedPrisma` is a no-op — so the cross-tenant isolation
+    // assertions further down ("default-tenant ADMIN cannot read
+    // tenant-B …") would 200 instead of 404 because the wrapper never
+    // adds a tenant filter for a tenant-less caller. Pinning admin to
+    // "default" stamps every JWT with that tenantId, which the wrapper
+    // then injects into every query → tenant-B rows become invisible.
+    const prisma = await getPrisma();
+    const defaultTenant = await prisma.tenant.upsert({
+      where: { subdomain: "default" },
+      update: { featureFlags: { hl7Inbound: true } },
+      create: {
+        name: "Default Test Tenant",
+        subdomain: "default",
+        featureFlags: { hl7Inbound: true },
+      },
+    });
+    defaultTenantId = defaultTenant.id;
+    await prisma.user.update({
+      where: { email: "admin@test.local" },
+      data: { tenantId: defaultTenantId },
+    });
+
     adminToken = await getAuthToken("ADMIN");
     nurseToken = await getAuthToken("NURSE");
     doctorToken = await getAuthToken("DOCTOR");
@@ -60,8 +93,8 @@ describeIfDB("HL7 v2 export endpoints + feature-flag gate (integration)", () => 
     const mod = await import("../../app");
     app = mod.app;
 
-    // ─── Default-tenant fixtures (admin@test.local lives here by default) ─
-    const prisma = await getPrisma();
+    // ─── Default-tenant fixtures (every row stamped with tenantId so
+    // tenantScopedPrisma can find them under the admin's tenant context).
 
     // Patient → owned User → backing Doctor → Bed → Admission, so
     // /patient/:id can include the latest admission row.
@@ -72,6 +105,7 @@ describeIfDB("HL7 v2 export endpoints + feature-flag gate (integration)", () => 
         phone: "9000010001",
         passwordHash: "x",
         role: "PATIENT",
+        tenantId: defaultTenantId,
       },
     });
     const patient = await prisma.patient.create({
@@ -81,6 +115,7 @@ describeIfDB("HL7 v2 export endpoints + feature-flag gate (integration)", () => 
         gender: "MALE",
         dateOfBirth: new Date("1985-06-15"),
         address: "12 Park Street, Kolkata, WB",
+        tenantId: defaultTenantId,
       },
     });
     patientId = patient.id;
@@ -92,14 +127,25 @@ describeIfDB("HL7 v2 export endpoints + feature-flag gate (integration)", () => 
         phone: "9000010002",
         passwordHash: "x",
         role: "DOCTOR",
+        tenantId: defaultTenantId,
       },
     });
     const doctor = await prisma.doctor.create({
-      data: { userId: docUser.id, specialization: "General", qualification: "MBBS" },
+      data: {
+        userId: docUser.id,
+        specialization: "General",
+        qualification: "MBBS",
+        tenantId: defaultTenantId,
+      },
     });
 
     const ward = await prisma.ward.create({
-      data: { name: "HL7 Export Ward", type: "GENERAL", floor: "1" },
+      data: {
+        name: "HL7 Export Ward",
+        type: "GENERAL",
+        floor: "1",
+        tenantId: defaultTenantId,
+      },
     });
     const bed = await prisma.bed.create({
       data: {
@@ -107,6 +153,7 @@ describeIfDB("HL7 v2 export endpoints + feature-flag gate (integration)", () => 
         bedNumber: "HL7E-01",
         status: "OCCUPIED",
         dailyRate: 100,
+        tenantId: defaultTenantId,
       },
     });
     await prisma.admission.create({
@@ -118,10 +165,12 @@ describeIfDB("HL7 v2 export endpoints + feature-flag gate (integration)", () => 
         reason: "HL7 export test",
         status: "ADMITTED",
         admittedAt: new Date("2026-05-01T09:00:00Z"),
+        tenantId: defaultTenantId,
       },
     });
 
     // Lab test → Lab order (no results) → Lab order WITH results.
+    // LabTest is a catalog table — NOT tenant-scoped — so no tenantId here.
     const cbc = await prisma.labTest.create({
       data: { code: "CBCEXP", name: "Complete Blood Count Export", price: 350 },
     });
@@ -133,6 +182,7 @@ describeIfDB("HL7 v2 export endpoints + feature-flag gate (integration)", () => 
         status: "ORDERED",
         orderedAt: new Date("2026-05-02T10:00:00Z"),
         notes: "HL7 export test order",
+        tenantId: defaultTenantId,
         items: { create: [{ testId: cbc.id }] },
       },
       include: { items: true },
@@ -148,6 +198,7 @@ describeIfDB("HL7 v2 export endpoints + feature-flag gate (integration)", () => 
         orderedAt: new Date("2026-05-02T11:00:00Z"),
         completedAt: new Date("2026-05-02T13:00:00Z"),
         notes: "HL7 export test report",
+        tenantId: defaultTenantId,
         items: { create: [{ testId: cbc.id }] },
       },
       include: { items: true },
@@ -164,6 +215,7 @@ describeIfDB("HL7 v2 export endpoints + feature-flag gate (integration)", () => 
         flag: "NORMAL",
         enteredBy: "test-suite",
         reportedAt: new Date("2026-05-02T13:00:00Z"),
+        tenantId: defaultTenantId,
       },
     });
     await prisma.labResult.create({
@@ -176,6 +228,7 @@ describeIfDB("HL7 v2 export endpoints + feature-flag gate (integration)", () => 
         flag: "HIGH",
         enteredBy: "test-suite",
         reportedAt: new Date("2026-05-02T13:00:00Z"),
+        tenantId: defaultTenantId,
       },
     });
 
@@ -404,9 +457,10 @@ describeIfDB("HL7 v2 export endpoints + feature-flag gate (integration)", () => 
   // ─── Cross-tenant isolation (tenantScopedPrisma surface) ──────────────
 
   it("default-tenant ADMIN cannot read tenant-B patient via /patient/:id (404, not 200)", async () => {
-    // admin@test.local belongs to NO tenant (default); the tenantScopedPrisma
-    // wrapper auto-filters by req.tenantId, so the tenant-B patient is
-    // invisible — and the handler returns the standard 404 path.
+    // admin@test.local is stamped with `defaultTenantId` in beforeAll, so
+    // every JWT carries that tenantId; `tenantScopedPrisma` then injects
+    // `where: { tenantId: defaultTenantId }` on the Patient.findUnique,
+    // and the tenant-B patient row is invisible → handler 404s.
     const res = await request(app)
       .get(`/api/v1/hl7v2/patient/${tenantBPatientId}`)
       .set("Authorization", `Bearer ${adminToken}`);

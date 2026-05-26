@@ -84,9 +84,13 @@ const MATRIX: MatrixRow[] = [
 
   // Appointment CRUD
   {
+    // 2026-05-25: routes/appointments.ts:413 added DOCTOR to the
+    // walk-in authorize() list — solo clinics where the doctor IS the
+    // front desk, and the per-doctor booking-channel UI exposes the
+    // Walk-in option on the doctor's own panel.
     method: "POST",
     path: "/api/v1/appointments/walk-in",
-    rolesAllowed: ["ADMIN", "RECEPTION"],
+    rolesAllowed: ["ADMIN", "RECEPTION", "DOCTOR"],
     body: {},
     label: "walk-in appointment",
   },

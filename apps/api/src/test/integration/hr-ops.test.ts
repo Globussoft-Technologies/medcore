@@ -250,7 +250,9 @@ describeIfDB("HR-ops API (integration)", () => {
       });
     expect(res.status).toBe(200);
     expect(res.body.data.userId).toBe(staffUserId);
-    expect(typeof res.body.data.netPay).toBe("number");
+    // services/payroll.ts → PayrollResult.net is the canonical Net Pay
+    // field. (No `netPay` alias exists — the dashboard reads `.net`.)
+    expect(typeof res.body.data.net).toBe("number");
   });
 
   it("POST /payroll rejects negative basicSalary (Issue #283)", async () => {

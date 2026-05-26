@@ -42,6 +42,12 @@ import { Request, Response, NextFunction } from "express";
 // Issue #954 (2026-05-23): /api/v1/prescriptions takes per-item `medicineName`
 // which must reject HTML — the global stripper was laundering tags. Bypass
 // the whole prescriptions tree so the schema-level refine fires.
+//
+// Issue #292 (2026-05-27): /api/v1/hr-ops/holidays uses createHolidaySchema
+// with `_noHtmlString` refines on name + description. Without the bypass the
+// global stripper turned `Diwali <script>alert(1)</script>` into
+// `Diwali alert(1)` BEFORE the schema saw it, so the refine never fired and
+// the laundered residue was persisted to the holiday calendar.
 const SCHEMA_REJECT_PATHS: readonly string[] = [
   "/api/v1/auth/register",
   "/api/v1/auth/forgot-password",
@@ -50,6 +56,7 @@ const SCHEMA_REJECT_PATHS: readonly string[] = [
   "/api/v1/settings/branding",
   "/api/v1/appointments",
   "/api/v1/prescriptions",
+  "/api/v1/hr-ops/holidays",
 ];
 
 function stripHtmlTags(value: unknown): unknown {

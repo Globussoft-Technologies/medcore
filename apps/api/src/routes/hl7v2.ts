@@ -223,8 +223,14 @@ router.get(
         })),
       };
 
-      // Flatten results, tag each with its parent item's test code/name so the
-      // OBX segment can emit a sensible code without re-querying.
+      // Flatten results. HL7 semantics: OBR-4 carries the requested panel
+      // (e.g. CBCEXP "Complete Blood Count Export"), and OBX-3 carries the
+      // specific analyte / observation identifier per row (e.g. Hemoglobin,
+      // WBC). Per builder convention (services/hl7v2/messages.ts:405), OBX-3
+      // falls back to `parameter` when `testCode`/`testName` are unset — so
+      // we deliberately DO NOT pass the parent panel's code/name here.
+      // Setting them previously stamped every OBX-3 with the panel's
+      // code, hiding the individual analyte name from receivers.
       const hl7Results: HL7LabResult[] = [];
       for (const item of (order.items as any[])) {
         for (const r of (item.results as any[]) ?? []) {
@@ -238,8 +244,6 @@ router.get(
             flag: r.flag,
             verifiedAt: r.verifiedAt,
             reportedAt: r.reportedAt,
-            testCode: item.test.code,
-            testName: item.test.name,
           });
         }
       }

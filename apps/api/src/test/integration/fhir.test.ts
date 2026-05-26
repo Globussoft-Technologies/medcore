@@ -181,12 +181,22 @@ describeIfDB("FHIR R4 router (integration)", () => {
     });
     prescriptionId = rx.id;
 
+    // PatientAllergy schema (packages/db/prisma/schema.prisma:2972) — the
+    // canonical name field is `allergen` (NOT `substance`) and `notedBy`
+    // is required (user id of the recorder). Use the seeded ADMIN user id
+    // — read via the admin@test.local lookup so we don't depend on a
+    // hard-coded uuid from setup.ts.
+    const adminUser = await prisma.user.findUnique({
+      where: { email: "admin@test.local" },
+      select: { id: true },
+    });
     const allergy = await prisma.patientAllergy.create({
       data: {
         patientId: patientAId,
-        substance: "Penicillin",
+        allergen: "Penicillin",
         reaction: "Rash",
         severity: "MODERATE" as any,
+        notedBy: adminUser!.id,
       },
     });
     allergyId = allergy.id;

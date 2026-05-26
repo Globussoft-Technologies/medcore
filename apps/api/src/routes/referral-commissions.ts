@@ -61,7 +61,15 @@ router.get(
         limit = "20",
       } = req.query as Record<string, string | undefined>;
 
-      const where: Record<string, unknown> = {};
+      // Cross-tenant scope (2026-05-27): when the caller has no
+      // `req.user.tenantId` (default seed admin), `tenantScopedPrisma` is
+      // a no-op — which would let a tenant-less admin see EVERY tenant's
+      // commission rows. Pin the where-clause to the caller's tenantId
+      // (or `""`, the auto-create handler's empty-string fallback for
+      // tenant-less deploys per billing.ts:504) so a default-tenant
+      // ADMIN sees only default-tenant rows.
+      const callerTenantId = req.user?.tenantId ?? "";
+      const where: Record<string, unknown> = { tenantId: callerTenantId };
       if (status) where.status = status;
       if (referringDoctorId) where.referringDoctorId = referringDoctorId;
       if (from || to) {

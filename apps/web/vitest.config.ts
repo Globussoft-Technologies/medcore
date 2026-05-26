@@ -604,6 +604,20 @@ export default defineConfig({
           statements: 98,
         },
         // 2026-05-26 (test-cron pick): new colocated coverage suite for the
+        // route-segment Next.js error boundary
+        // (src/app/__tests__/error.test.tsx, 12 tests across the chrome,
+        // both CTAs — Try-again reset() wiring + Back-to-dashboard <Link>,
+        // the conditional error.digest reference line, and the useEffect
+        // console.error logging on mount + on prop change). Single-file
+        // coverage measured: 100% lines / 100% branches / 100% funcs /
+        // 100% statements. Floors set 2pp below measured per convention.
+        "src/app/error.tsx": {
+          lines: 98,
+          branches: 98,
+          functions: 98,
+          statements: 98,
+        },
+        // 2026-05-26 (test-cron pick): new colocated coverage suite for the
         // global Cmd+K search palette
         // (apps/web/src/app/dashboard/_components/__tests__/search-palette.test.tsx,
         // 23 tests). Single-file coverage measured: 98.46% lines / 93.25%

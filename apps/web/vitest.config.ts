@@ -535,6 +535,22 @@ export default defineConfig({
           functions: 98,
           statements: 98,
         },
+        // 2026-05-26 (test-cron pick): new colocated coverage suite for the
+        // global Cmd+K search palette
+        // (apps/web/src/app/dashboard/_components/__tests__/search-palette.test.tsx,
+        // 23 tests). Single-file coverage measured: 98.46% lines / 93.25%
+        // branches / 90.90% funcs / 98.46% statements. Uncovered remainder
+        // is the localStorage try/catch fallback branches (lines 78, 85-86,
+        // 99) which only fire when the browser quota is exhausted or
+        // private-browsing flips the API off — would require monkey-patching
+        // the localStorage prototype in jsdom to exercise. Floors set 2pp
+        // below measured.
+        "src/app/dashboard/_components/search-palette.tsx": {
+          lines: 96,
+          branches: 91,
+          functions: 88,
+          statements: 96,
+        },
       },
     },
   },

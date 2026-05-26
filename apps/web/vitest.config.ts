@@ -578,6 +578,21 @@ export default defineConfig({
           statements: 98,
         },
         // 2026-05-26 (test-cron pick): new colocated coverage suite for the
+        // marketing CTA section band (15 tests covering smoke render,
+        // Container wrap, default heading + subtitle copy, default primary
+        // CTA -> /contact, default secondary CTA -> the live demo URL,
+        // overrides for all six props individually + combined, DOM ordering
+        // primary-before-secondary, and a single <section> wrapper invariant).
+        // Single-file coverage measured: 100% lines / 100% branches /
+        // 100% funcs / 100% statements. Floors set 2pp below measured per
+        // convention (small headroom for future refactors).
+        "src/app/(marketing)/_components/CTASection.tsx": {
+          lines: 98,
+          branches: 98,
+          functions: 98,
+          statements: 98,
+        },
+        // 2026-05-26 (test-cron pick): new colocated coverage suite for the
         // global 404 page (src/app/__tests__/not-found.test.tsx, 8 tests
         // across anon + authed branches + the router.back/push fallback for
         // empty history). Single-file coverage measured: 100% lines /

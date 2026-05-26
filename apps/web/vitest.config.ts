@@ -37,6 +37,12 @@ export default defineConfig({
         // Per-file ratchets — lock in well-covered files so future refactors
         // can't silently regress them. Source: single-file --coverage runs.
         // Format: glob path → {lines, branches, functions, statements}.
+        "src/app/dashboard/ambulance/page.tsx": {
+          lines: 98,
+          branches: 94,
+          functions: 96,
+          statements: 98,
+        },
         "src/app/dashboard/audit/page.tsx": {
           lines: 99,
           branches: 95,
@@ -276,6 +282,72 @@ export default defineConfig({
           branches: 87,
           functions: 74,
           statements: 89,
+        },
+        "src/app/dashboard/complaints/page.tsx": {
+          lines: 99,
+          branches: 88,
+          functions: 100,
+          statements: 99,
+        },
+        "src/app/dashboard/users/page.tsx": {
+          lines: 99,
+          branches: 90,
+          functions: 100,
+          statements: 99,
+        },
+        "src/app/dashboard/wards/page.tsx": {
+          lines: 100,
+          branches: 97,
+          functions: 96,
+          statements: 100,
+        },
+        "src/app/dashboard/vitals/page.tsx": {
+          lines: 99,
+          branches: 97,
+          functions: 100,
+          statements: 99,
+        },
+        "src/app/dashboard/telemedicine/page.tsx": {
+          lines: 97,
+          branches: 85,
+          functions: 86,
+          statements: 97,
+        },
+        "src/app/dashboard/payment-plans/page.tsx": {
+          lines: 100,
+          branches: 98,
+          functions: 88,
+          statements: 100,
+        },
+        "src/app/dashboard/agent-console/page.tsx": {
+          lines: 97,
+          branches: 84,
+          functions: 100,
+          statements: 97,
+        },
+        "src/app/dashboard/assets/page.tsx": {
+          lines: 98,
+          branches: 91,
+          functions: 78,
+          statements: 98,
+        },
+        "src/app/dashboard/reports/page.tsx": {
+          lines: 98,
+          branches: 75,
+          functions: 90,
+          statements: 98,
+        },
+        "src/app/dashboard/admin-console/page.tsx": {
+          lines: 96,
+          branches: 79,
+          functions: 98,
+          statements: 96,
+        },
+        "src/app/dashboard/suppliers/page.tsx": {
+          lines: 99,
+          branches: 88,
+          functions: 86,
+          statements: 99,
         },
       },
     },

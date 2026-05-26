@@ -34,14 +34,15 @@ function Bomb({ boom, message }: { boom: boolean; message?: string }) {
 
 // Helper that throws a non-Error value (string) — exercises the
 // `String(err ?? "Unknown error")` branch in getDerivedStateFromError.
-function StringThrower() {
+// `: never` return annotation prevents TS from inferring `() => void` (which
+// then fails JSX `(props) => ReactNode` validity at the call site).
+function StringThrower(): never {
   throw "raw-string-throw";
 }
 
 // Helper that throws an Error with an empty message — exercises the
 // `?? "Unknown error"` fallback in the render path.
-function EmptyMessageThrower() {
-  // eslint-disable-next-line @typescript-eslint/no-throw-literal
+function EmptyMessageThrower(): never {
   throw new Error("");
 }
 

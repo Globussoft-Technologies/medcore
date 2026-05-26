@@ -208,7 +208,10 @@ describe("VerifyPatientPage (server component)", () => {
     (globalThis as any).fetch = spy;
     await renderPage("patient with spaces/123");
     expect(spy).toHaveBeenCalledTimes(1);
-    const url = String(spy.mock.calls[0][0]);
+    // `vi.fn(async () => Response)` infers a 0-arity signature, so
+    // `mock.calls[0]` types as `[]` and index access fails TS2493. The
+    // runtime arg is the fetch URL; widen via `unknown[]`.
+    const url = String((spy.mock.calls[0] as unknown[])[0]);
     expect(url).toMatch(/\/public\/verify\/patient\/patient%20with%20spaces%2F123$/);
   });
 });

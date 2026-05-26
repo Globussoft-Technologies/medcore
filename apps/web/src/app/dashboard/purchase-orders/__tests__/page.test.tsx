@@ -782,9 +782,21 @@ describe("PurchaseOrdersPage — procurement list / tabs / new-PO modal", () => 
     fireEvent.click(screen.getByRole("button", { name: /New PO/ }));
     await screen.findByRole("heading", { name: /New Purchase Order/ });
 
-    fireEvent.change(screen.getByLabelText(/Supplier/), {
-      target: { value: "sup-1" },
-    });
+    // Wait for the supplier <option> to populate from the async GET before
+    // dispatching the change event — otherwise on slower CI runs the select
+    // still only has the placeholder option and the change silently falls
+    // back to "", which lets the "Select a supplier" validation fire first
+    // (masking the tax-range error we want to assert).
+    const supplierSelect = (await screen.findByLabelText(
+      /Supplier/,
+    )) as HTMLSelectElement;
+    await waitFor(() =>
+      expect(
+        within(supplierSelect).queryByRole("option", { name: "Acme" }),
+      ).not.toBeNull(),
+    );
+    fireEvent.change(supplierSelect, { target: { value: "sup-1" } });
+
     const descInput = screen.getAllByRole("textbox").find((i) => {
       const el = i as HTMLInputElement;
       return el.type === "text" && el.value === "";

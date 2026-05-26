@@ -443,7 +443,11 @@ describe("AI KPIs dashboard page", () => {
       });
 
       await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-      const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+      // `vi.fn(async () => ...)` infers a 0-arity signature, so `mock.calls`
+      // typing is `Array<[]>`. The actual runtime call carries the URL+init
+      // pair from the production code path — cast through `unknown` to
+      // re-widen for the assertions below.
+      const [url, opts] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
       expect(url).toMatch(/\/ai\/kpis\/export\?from=.+&to=.+/);
       expect((opts.headers as Record<string, string>).Authorization).toBe(
         "Bearer tok-admin",

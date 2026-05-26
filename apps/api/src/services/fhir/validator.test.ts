@@ -158,7 +158,7 @@ describe("validateResource — top-level structural guards", () => {
   });
 
   it("flags missing id", () => {
-    const result = validateResource({ resourceType: "Patient", ...validPatient(), id: "" });
+    const result = validateResource({ ...validPatient(), id: "" });
     expect(result.valid).toBe(false);
     expect(result.issues.some((i) => i.path === "id")).toBe(true);
   });

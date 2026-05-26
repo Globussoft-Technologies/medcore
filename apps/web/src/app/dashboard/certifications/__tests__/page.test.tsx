@@ -55,10 +55,16 @@ vi.mock("next/navigation", () => ({
 import CertificationsPage from "../page";
 
 // Helpers — build dates relative to today so the expiry-bucket assertions
-// remain stable regardless of wall-clock drift.
+// remain stable regardless of wall-clock drift. We anchor on LOCAL MIDNIGHT
+// (matching page.tsx's `daysUntil()` which snaps `now` to 00:00 before
+// diffing). Anchoring on `Date.now()` (any time of day) drifted the day
+// count by +/- 1 when the suite ran late in the evening UTC, making
+// "Expired 10d ago" / "15d left" assertions flake on CI.
 const ms = 86_400_000;
 function isoDaysFromNow(days: number): string {
-  return new Date(Date.now() + days * ms).toISOString();
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  return new Date(midnight.getTime() + days * ms).toISOString();
 }
 
 function certRow(overrides: Partial<any> = {}) {

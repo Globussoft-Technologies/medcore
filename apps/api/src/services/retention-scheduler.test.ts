@@ -48,11 +48,14 @@ beforeEach(() => {
   // Without this, the registered interval keeps living on the fake-timer
   // queue across test cases and pollutes call counts.
   originalSetInterval = global.setInterval;
+  // The DOM `TimerHandler` overload and Node's `setInterval` overload aren't
+  // structurally assignable to each other (`Timeout` vs `number` return).
+  // Cast through `unknown` so the wrapper installs cleanly under either lib.
   global.setInterval = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
     const id = originalSetInterval(handler as (...a: unknown[]) => void, timeout, ...args);
     activeIntervals.push(id);
     return id;
-  }) as typeof setInterval;
+  }) as unknown as typeof setInterval;
 });
 
 afterEach(() => {

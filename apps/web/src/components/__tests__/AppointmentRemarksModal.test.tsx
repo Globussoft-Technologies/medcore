@@ -107,7 +107,11 @@ const REPLY_REMARK = {
 
 describe("AppointmentRemarksModal (Pearl §2.1.7)", () => {
   let onClose: ReturnType<typeof vi.fn>;
-  let confirmSpy: ReturnType<typeof vi.spyOn>;
+  // `vi.spyOn(window, "confirm")` produces a narrower overloaded MockInstance
+  // shape than the bare `ReturnType<typeof vi.spyOn>` generic; `any` here is
+  // load-bearing for the lifecycle assignment in beforeEach.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let confirmSpy: any;
 
   beforeEach(() => {
     cleanup();

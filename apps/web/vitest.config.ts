@@ -409,6 +409,16 @@ export default defineConfig({
           functions: 88,
           statements: 98,
         },
+        // 2026-05-26 (test-cron pick): brand-new colocated suite covers the
+        // Rx queue + writer surface (44 tests). Uncovered remainder is the
+        // SignaturePad canvas component (jsdom lacks getContext) and the
+        // RenalDoseModal sub-modal. Floor set 2pp below measured.
+        "src/app/dashboard/prescriptions/page.tsx": {
+          lines: 76,
+          branches: 71,
+          functions: 66,
+          statements: 76,
+        },
         "src/app/dashboard/bloodbank/page.tsx": {
           lines: 93,
           branches: 84,

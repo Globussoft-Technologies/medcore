@@ -25,9 +25,18 @@ export default function WritePrescriptionRedirectPage() {
 
   useEffect(() => {
     const patientId = searchParams.get("patientId");
+    // Pearl §2.1.3 — the consult-page Pill icon ALSO sends
+    // appointmentId + from=consult so the destination page can pre-fill
+    // the appointment chip and render a "Back to Consult" link.
+    // Forward both through the redirect; without this they were
+    // silently dropped and the doctor saw no way back.
+    const appointmentId = searchParams.get("appointmentId");
+    const fromParam = searchParams.get("from");
     const params = new URLSearchParams();
     params.set("new", "1");
     if (patientId) params.set("patientId", patientId);
+    if (appointmentId) params.set("appointmentId", appointmentId);
+    if (fromParam) params.set("from", fromParam);
     router.replace(`/dashboard/prescriptions?${params.toString()}`);
   }, [router, searchParams]);
 

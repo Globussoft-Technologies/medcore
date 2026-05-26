@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
@@ -9,6 +10,7 @@ import { useConfirm } from "@/lib/use-dialog";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { formatDate, formatDateTime } from "@/lib/format";
 import {
+  appointmentRefLabel,
   displayStatusForAppointment,
   formatAppointmentTime,
 } from "@/lib/appointments";
@@ -83,14 +85,32 @@ function availableChannelsFor(doctor: {
 
 interface Appointment {
   id: string;
-  tokenNumber: number;
+  tokenNumber: number | null;
+  // Pearl §2.1.2 — CALLING-mode appointments use an arrival counter
+  // instead of a token. Returned from the backend as an int on
+  // CALLING rows, null on TOKEN/SLOT rows. Combined with the
+  // doctor's appointmentMode (below), the row knows which identifier
+  // to render in the # column ("T-7" vs "A-3" vs the slot time).
+  arrivalSeq?: number | null;
   date: string;
   slotStart: string | null;
   type: string;
   status: string;
   priority: string;
   patient: { user: { name: string; phone: string }; mrNumber?: string };
-  doctor: { user: { name: string } };
+  doctor: {
+    user: { name: string };
+    appointmentMode?: "CALLING" | "TOKEN" | "SLOT";
+  };
+  // Pearl §2.1.3 — projected from the appointment's Consultation row
+  // (1:1 via appointmentId). Lets the row hide Re-consult / Complete
+  // once the doctor has signed the SOAP note, even on the rare case
+  // where appointment.status drifted from the consult lifecycle.
+  consultation?: {
+    id: string;
+    status: string;
+    signedAt: string | null;
+  } | null;
 }
 
 interface Slot {
@@ -427,6 +447,7 @@ export default function AppointmentsPage() {
   const { user } = useAuthStore();
   const { t } = useTranslation();
   const confirm = useConfirm();
+  const router = useRouter();
   const isPatient = user?.role === "PATIENT";
 
   // Issue #491 (2026-05-03): every "future-date" input on this page (book a
@@ -1064,6 +1085,29 @@ export default function AppointmentsPage() {
         return;
       }
       const s = res.data.slot;
+      // Patient gate — same contract as bookAppointment() (line 758).
+      // Without it, clicking "Next Available" lets a staff user open the
+      // Confirm dialog without ever picking a patient, and the dialog
+      // renders Patient = "—". Patients (self-booking) are exempt — they
+      // book for themselves via `mePatient`.
+      //
+      // UX note: don't pre-light the Patient field red here. The red is
+      // reserved for actual slot-click attempts that fail the guard
+      // (see bookAppointment line 758). On the Next-Available path we
+      // open the booking panel CLEAN, with just a toast pointing the
+      // user at the picker — the field turns red only if they then
+      // click a slot / Next Available again without picking.
+      if (!isPatient && patientIdInput.trim().length === 0) {
+        toast.error(
+          t(
+            "dashboard.appointments.pickPatientFirst",
+            "Please pick a patient first, then try Next Available again.",
+          ),
+        );
+        // Bring the picker into view by opening the booking panel.
+        setShowBooking(true);
+        return;
+      }
       if (
         !(await confirm({
           title: "Proceed to book?",
@@ -1439,6 +1483,7 @@ export default function AppointmentsPage() {
           onClose={() => setRemarksTarget(null)}
         />
       )}
+
 
       {/* Reschedule modal */}
       {reschedTarget && (
@@ -2266,7 +2311,11 @@ export default function AppointmentsPage() {
                         />
                       </th>
                     )}
-                    <th className="px-4 py-3">{t("dashboard.appointments.col.token")}</th>
+                    {/* Pearl §2.1.2 — neutral "#" header since rows
+                        can mix CALLING (A-…), TOKEN (T-…) and SLOT
+                        (—) appointments under different doctors. The
+                        cell formats per row via appointmentRefLabel(). */}
+                    <th className="px-4 py-3">#</th>
                     {!isPatient && <th className="px-4 py-3">{t("dashboard.appointments.col.patient")}</th>}
                     <th className="px-4 py-3">{t("dashboard.appointments.col.doctor")}</th>
                     <th className="px-4 py-3">{t("dashboard.appointments.col.date")}</th>
@@ -2312,14 +2361,16 @@ export default function AppointmentsPage() {
                         <td className="px-4 py-3">
                           <input
                             type="checkbox"
-                            aria-label={`Select appointment ${apt.tokenNumber}`}
+                            aria-label={`Select appointment ${appointmentRefLabel(apt)}`}
                             checked={selectedIds.has(apt.id)}
                             onChange={() => toggleSelect(apt.id)}
                             className="h-4 w-4 cursor-pointer accent-primary"
                           />
                         </td>
                       )}
-                      <td className="px-4 py-3 font-bold">{apt.tokenNumber}</td>
+                      <td className="px-4 py-3 font-bold">
+                        {appointmentRefLabel(apt)}
+                      </td>
                       {!isPatient && (
                         <td className="px-4 py-3">
                           <p className="font-medium">{apt.patient.user.name}</p>
@@ -2423,22 +2474,87 @@ export default function AppointmentsPage() {
                           )}
                           {!isPatient && apt.status === "CHECKED_IN" && (
                             <button
-                              onClick={() => updateStatus(apt.id, "IN_CONSULTATION")}
+                              onClick={async () => {
+                                // Pearl §2.1.3 — Start Consult now does
+                                // BOTH: flip the appointment to
+                                // IN_CONSULTATION (server-side state)
+                                // AND open the dedicated 3-column
+                                // SOAP consult page so the doctor can
+                                // actually capture the encounter. Pre-
+                                // §2.1.3 this only flipped the status,
+                                // which left the consult itself with
+                                // nowhere to go in the UI.
+                                await updateStatus(apt.id, "IN_CONSULTATION");
+                                router.push(
+                                  `/dashboard/consult/${apt.id}?from=appointments`,
+                                );
+                              }}
                               aria-label={`Start consultation for ${apt.patient.user.name}`}
                               className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"
                             >
                               {t("dashboard.actions.startConsult")}
                             </button>
                           )}
-                          {!isPatient && apt.status === "IN_CONSULTATION" && (
-                            <button
-                              onClick={() => updateStatus(apt.id, "COMPLETED")}
-                              aria-label={`Mark consultation complete for ${apt.patient.user.name}`}
-                              className="rounded bg-gray-700 px-2 py-1 text-xs text-white hover:bg-gray-800"
-                            >
-                              {t("dashboard.actions.complete")}
-                            </button>
-                          )}
+                          {/* Pearl §2.1.3 — once IN_CONSULTATION the
+                              doctor needs to be able to RESUME the
+                              SOAP consult page (e.g. they navigated
+                              back to this list mid-encounter to look
+                              up something else). Re-consult opens the
+                              consult UI without touching status; the
+                              adjacent Complete button still finalizes
+                              the appointment.
+                              Both buttons hide if the consultation is
+                              already SIGNED — the encounter is done,
+                              so re-opening / completing again is wrong
+                              (the consult itself is read-only and the
+                              appointment should already be COMPLETED). */}
+                          {!isPatient &&
+                            apt.status === "IN_CONSULTATION" &&
+                            apt.consultation?.status !== "SIGNED" && (
+                              <button
+                                onClick={() =>
+                                  router.push(
+                                    `/dashboard/consult/${apt.id}?from=appointments`,
+                                  )
+                                }
+                                aria-label={`Resume consultation for ${apt.patient.user.name}`}
+                                className="rounded bg-indigo-600 px-2 py-1 text-xs text-white hover:bg-indigo-700"
+                              >
+                                Re-consult
+                              </button>
+                            )}
+                          {!isPatient &&
+                            apt.status === "IN_CONSULTATION" &&
+                            apt.consultation?.status !== "SIGNED" && (
+                              <button
+                                onClick={() =>
+                                  updateStatus(apt.id, "COMPLETED")
+                                }
+                                aria-label={`Mark consultation complete for ${apt.patient.user.name}`}
+                                className="rounded bg-gray-700 px-2 py-1 text-xs text-white hover:bg-gray-800"
+                              >
+                                {t("dashboard.actions.complete")}
+                              </button>
+                            )}
+                          {/* Stale-row recovery: if consultation is
+                              SIGNED but appointment somehow didn't
+                              advance, surface a single "Mark Complete"
+                              button so staff can resolve the row in
+                              one click — no editor needed since the
+                              consult itself is read-only. */}
+                          {!isPatient &&
+                            apt.status === "IN_CONSULTATION" &&
+                            apt.consultation?.status === "SIGNED" && (
+                              <button
+                                onClick={() =>
+                                  updateStatus(apt.id, "COMPLETED")
+                                }
+                                aria-label={`Mark complete for ${apt.patient.user.name}`}
+                                className="rounded bg-emerald-600 px-2 py-1 text-xs text-white hover:bg-emerald-700"
+                              >
+                                Mark Complete
+                              </button>
+                            )}
                         </div>
                       </td>
                       )}

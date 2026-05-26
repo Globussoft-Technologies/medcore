@@ -402,9 +402,15 @@ router.post(
 );
 
 // POST /api/v1/appointments/walk-in — register walk-in
+// Allowed roles: RECEPTION + ADMIN (front-desk) + DOCTOR (solo clinics
+// where the doctor IS the front desk, and the per-doctor booking-channel
+// UI in apps/web exposes the Walk-in option on the doctor's own panel).
+// The standard /book route below is open to any authed role; gating
+// /walk-in to just front-desk roles was inconsistent and silently 403'd
+// the Walk-in button when a doctor clicked it (2026-05-25).
 router.post(
   "/walk-in",
-  authorize(Role.RECEPTION, Role.ADMIN),
+  authorize(Role.RECEPTION, Role.ADMIN, Role.DOCTOR),
   validate(walkInSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -616,6 +622,17 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
             include: { user: { select: { name: true } } },
           },
           vitals: true,
+          // Pearl §2.1.3 — include the consultation status so the
+          // appointments table can hide the Re-consult / Complete
+          // buttons once the doctor has SIGNED the encounter. The
+          // sign endpoint now atomically completes the appointment
+          // too, but this projection is a defensive fallback for any
+          // rows where appointment.status drifted from the
+          // consultation lifecycle (e.g. pre-§2.1.3 data, partial
+          // tenant-scope failure).
+          consultation: {
+            select: { id: true, status: true, signedAt: true },
+          },
         },
         skip,
         take,

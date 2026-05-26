@@ -302,8 +302,12 @@ export default function AdmissionsPage() {
       filterable: true,
       render: (a) => (
         <div>
+          {/* Pearl §2.1.4 — clicking the patient name opens the
+              patient profile (not the admission detail — that opens
+              via View Chart on the right). The `from=admissions`
+              hint lets the profile's Back button return here. */}
           <Link
-            href={`/dashboard/admissions/${a.id}`}
+            href={`/dashboard/patients/${a.patient.id}?from=admissions`}
             className="font-medium text-primary hover:underline dark:text-blue-400"
             onClick={(e) => e.stopPropagation()}
           >

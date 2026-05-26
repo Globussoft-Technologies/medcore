@@ -372,6 +372,7 @@ cd apps/mobile && npx expo start
 
 | Role | Email | Password |
 |---|---|---|
+| Super Admin | `superadmin@medcore.local` | `superadmin123` |
 | Admin | `admin@medcore.local` | `admin123` |
 | Doctor | `dr.sharma@medcore.local` | `doctor123` |
 | Nurse | `nurse@medcore.local` | `nurse123` |

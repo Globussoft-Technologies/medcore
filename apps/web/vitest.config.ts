@@ -495,6 +495,20 @@ export default defineConfig({
           functions: 98,
           statements: 98,
         },
+        // 2026-05-26 (test-cron pick): new colocated coverage suite for the
+        // marketing About page (24 tests) complements the sibling
+        // src/app/(marketing)/__tests__/about.page.test.tsx suite. Combined
+        // single-file coverage: 93.36% lines / 80% branches / 50% funcs /
+        // 93.36% statements. Uncovered remainder is the getInitials() helper
+        // + the fallback-avatar branch (no-image team member) — both
+        // unreachable via the production team data (all 3 members have
+        // images). Floors set 2pp below measured.
+        "src/app/(marketing)/about/page.tsx": {
+          lines: 91,
+          branches: 78,
+          functions: 48,
+          statements: 91,
+        },
       },
     },
   },

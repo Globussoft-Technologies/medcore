@@ -283,6 +283,12 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        "src/app/dashboard/analytics/page.tsx": {
+          lines: 91,
+          branches: 65,
+          functions: 77,
+          statements: 91,
+        },
         "src/app/dashboard/duty-roster/page.tsx": {
           lines: 99,
           branches: 97,
@@ -414,6 +420,12 @@ export default defineConfig({
           branches: 79,
           functions: 78,
           statements: 94,
+        },
+        "src/app/dashboard/tenants/[id]/onboarding/page.tsx": {
+          lines: 100,
+          branches: 88,
+          functions: 100,
+          statements: 100,
         },
       },
     },

@@ -242,6 +242,8 @@ export default function PatientLoginPage() {
           {info}
         </p>
       ) : null}
+
+      <p className="text-center text-sm text-slate-600">New patient? <a href="/patient/register" data-testid="patient-login-register-link" className="font-medium text-slate-900 underline-offset-2 hover:underline">Create an account</a></p>
     </section>
   );
 }

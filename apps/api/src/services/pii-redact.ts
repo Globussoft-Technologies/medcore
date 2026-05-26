@@ -24,16 +24,15 @@ type AnyVisitor = Record<string, unknown> & {
   idProofNumber?: string | null;
 };
 
-// Return type is `T & { idProofNumber: string | null }` (not just `T`) — the
-// function ALWAYS spreads in a masked `idProofNumber`, even when the input
-// omits the field. The earlier `(visitor: T): T` lied about that and broke
-// callers that passed inputs without `idProofNumber` (TS2339 on `safe.idProofNumber`).
+// Return type widens to `T & { idProofNumber: string | null }` because the
+// function always sets `idProofNumber` on the output (normalising missing
+// inputs to null). Without the explicit return shape, callers whose input
+// type doesn't declare `idProofNumber` (e.g. test fixtures) get TS2339 when
+// they read `safe.idProofNumber` on the result.
 export function redactVisitorPII<T extends AnyVisitor>(
   visitor: T,
 ): T & { idProofNumber: string | null } {
-  if (!visitor || typeof visitor !== "object") {
-    return visitor as T & { idProofNumber: string | null };
-  }
+  if (!visitor || typeof visitor !== "object") return visitor as T & { idProofNumber: string | null };
   return {
     ...visitor,
     idProofNumber: maskIdNumber(visitor.idProofNumber ?? null),

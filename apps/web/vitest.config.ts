@@ -67,6 +67,12 @@ export default defineConfig({
           functions: 94,
           statements: 99,
         },
+        "src/app/dashboard/billing/page.tsx": {
+          lines: 97,
+          branches: 82,
+          functions: 81,
+          statements: 97,
+        },
         "src/app/dashboard/purchase-orders/[id]/page.tsx": {
           lines: 99,
           branches: 93,
@@ -133,6 +139,12 @@ export default defineConfig({
           functions: 100,
           statements: 98,
         },
+        "src/app/dashboard/patients/page.tsx": {
+          lines: 99,
+          branches: 90,
+          functions: 91,
+          statements: 99,
+        },
         "src/app/dashboard/scheduled-reports/page.tsx": {
           lines: 100,
           branches: 95,
@@ -144,6 +156,18 @@ export default defineConfig({
           branches: 95,
           functions: 92,
           statements: 99,
+        },
+        "src/app/dashboard/surgery/[id]/page.tsx": {
+          lines: 99,
+          branches: 82,
+          functions: 83,
+          statements: 99,
+        },
+        "src/app/dashboard/emergency/page.tsx": {
+          lines: 95,
+          branches: 83,
+          functions: 82,
+          statements: 95,
         },
         "src/app/dashboard/lab-intel/page.tsx": {
           lines: 97,
@@ -199,6 +223,12 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        "src/app/dashboard/lab/[orderId]/page.tsx": {
+          lines: 98,
+          branches: 81,
+          functions: 81,
+          statements: 98,
+        },
         "src/app/dashboard/ai/chart-search/page.tsx": {
           lines: 99,
           branches: 89,
@@ -234,6 +264,12 @@ export default defineConfig({
           branches: 98,
           functions: 96,
           statements: 100,
+        },
+        "src/app/dashboard/antenatal/[id]/page.tsx": {
+          lines: 93,
+          branches: 83,
+          functions: 71,
+          statements: 93,
         },
         "src/app/dashboard/admissions/page.tsx": {
           lines: 97,
@@ -348,6 +384,36 @@ export default defineConfig({
           branches: 88,
           functions: 86,
           statements: 99,
+        },
+        "src/app/dashboard/surgery/page.tsx": {
+          lines: 98,
+          branches: 93,
+          functions: 88,
+          statements: 98,
+        },
+        "src/app/dashboard/ai-booking/page.tsx": {
+          lines: 94,
+          branches: 81,
+          functions: 87,
+          statements: 94,
+        },
+        "src/app/dashboard/pharmacy/page.tsx": {
+          lines: 98,
+          branches: 90,
+          functions: 88,
+          statements: 98,
+        },
+        "src/app/dashboard/bloodbank/page.tsx": {
+          lines: 93,
+          branches: 84,
+          functions: 67,
+          statements: 93,
+        },
+        "src/app/dashboard/settings/page.tsx": {
+          lines: 94,
+          branches: 79,
+          functions: 78,
+          statements: 94,
         },
       },
     },

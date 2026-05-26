@@ -695,6 +695,32 @@ export default defineConfig({
           functions: 98,
           statements: 98,
         },
+        // 2026-05-26 (test-cron pick): new colocated coverage suite for the
+        // Pearl ERP Stage 1 §2.1.3 ConsultHistoryDrawer right-side drawer
+        // (apps/web/src/components/__tests__/ConsultHistoryDrawer.test.tsx,
+        // 29 tests across closed/open lifecycle, both mode kinds (patient +
+        // appointment) fetch wiring, loading state, empty state, 404-as-
+        // empty special-casing for "no consultation notes" + "not yet
+        // finalized" error messages, generic error red block, missing-data
+        // ?? [] normalization on both response shapes, close affordances
+        // (X + backdrop), count badge, SIGNED vs DRAFT pill, doctor +
+        // specialization + slotStart suffix, em-dash + createdAt fallback,
+        // SoapBlock plain-text fallback AND `## <label>` markdown-parser
+        // branch, ICD-10 + SNOMED CodeRow chips, and effect re-fire on
+        // mode change). Single-file coverage measured: 100% lines /
+        // 96.51% branches / 100% funcs / 100% statements. Uncovered
+        // remainder is the all-codes guard inside ConsultationCard's
+        // `empty` calculation (lines 209-210) and the conjoined "codes
+        // section opens" branch (line 253) — both require a row that has
+        // ONLY codes set (no SOAP, no notes, no findings) which the
+        // current production data shape never produces. Floors set 2pp
+        // below measured per convention.
+        "src/components/ConsultHistoryDrawer.tsx": {
+          lines: 98,
+          branches: 94,
+          functions: 98,
+          statements: 98,
+        },
         // 2026-05-26 (test-cron pick): new layout.test.tsx companion to the
         // existing landing.page.test.tsx + page.test.tsx — 13 tests covering
         // the super-admin shell's loading spinner, RBAC gate (super-admin,

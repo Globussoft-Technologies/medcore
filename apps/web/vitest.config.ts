@@ -43,6 +43,18 @@ export default defineConfig({
           functions: 96,
           statements: 98,
         },
+        // Ratcheted 2026-05-26 by the test-cron after colocated coverage spec
+        // landed (apps/web/src/app/dashboard/appointments/__tests__/page.test.tsx).
+        // Combined with the older suite at apps/web/src/app/dashboard/__tests__/
+        // appointments.page.test.tsx the file now sits at lines 83.33%, branches
+        // 78.96%, functions 65%, statements 83.33%. Floors set to
+        // Math.floor(actual - 2pp). Raise as coverage grows; never lower.
+        "src/app/dashboard/appointments/page.tsx": {
+          lines: 81,
+          branches: 76,
+          functions: 63,
+          statements: 81,
+        },
         "src/app/dashboard/audit/page.tsx": {
           lines: 99,
           branches: 95,
@@ -276,6 +288,19 @@ export default defineConfig({
           branches: 91,
           functions: 90,
           statements: 97,
+        },
+        // 2026-05-26 (test-cron pick): brand-new colocated suite covers the
+        // IPD admission detail surface (40 tests across 7 sub-tabs + modals).
+        // Single-file --coverage measured 88.27/73.03/69.29 (lines/branches/
+        // funcs). Floors set 2pp below the measured numbers per convention.
+        // Uncovered remainder is the discharge-readiness "blocked + force"
+        // branch, the MedReconciliation full save flow, the trauma-shaped
+        // Discharged status pill, and a handful of transitional toasts.
+        "src/app/dashboard/admissions/[id]/page.tsx": {
+          lines: 86,
+          branches: 71,
+          functions: 67,
+          statements: 86,
         },
         "src/app/dashboard/analytics/reports/page.tsx": {
           lines: 100,

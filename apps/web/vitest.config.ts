@@ -367,6 +367,12 @@ export default defineConfig({
           functions: 88,
           statements: 98,
         },
+        "src/app/dashboard/ai-booking/page.tsx": {
+          lines: 94,
+          branches: 81,
+          functions: 87,
+          statements: 94,
+        },
       },
     },
   },

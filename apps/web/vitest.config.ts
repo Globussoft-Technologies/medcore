@@ -301,6 +301,18 @@ export default defineConfig({
           functions: 100,
           statements: 99,
         },
+        "src/app/dashboard/telemedicine/page.tsx": {
+          lines: 97,
+          branches: 85,
+          functions: 86,
+          statements: 97,
+        },
+        "src/app/dashboard/payment-plans/page.tsx": {
+          lines: 100,
+          branches: 98,
+          functions: 88,
+          statements: 100,
+        },
       },
     },
   },

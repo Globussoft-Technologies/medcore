@@ -213,7 +213,7 @@ export default function AdmissionDetailPage({
     `flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition ${
       tab === t
         ? "border-primary text-primary"
-        : "border-transparent text-gray-500 hover:text-gray-800"
+        : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100"
     }`;
 
   return (
@@ -221,7 +221,7 @@ export default function AdmissionDetailPage({
       <div className="no-print">
         <Link
           href="/dashboard/admissions"
-          className="mb-4 inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-800"
+          className="mb-4 inline-flex items-center gap-1 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white"
         >
           <ArrowLeft size={14} /> Back to Admissions
         </Link>
@@ -233,7 +233,7 @@ export default function AdmissionDetailPage({
             <h1 className="text-2xl font-bold">
               {admission.patient.user.name}
             </h1>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-500 dark:text-gray-300">
               MR: {admission.patient.mrNumber} · Admission:{" "}
               {admission.admissionNumber}
             </p>
@@ -496,15 +496,15 @@ function OverviewTab({
             <div className="space-y-2 text-sm">
               {bill.breakdown.map((b, i) => (
                 <div key={i} className="flex justify-between">
-                  <span className="text-gray-600">
+                  <span className="text-gray-600 dark:text-gray-300">
                     {b.label} × {b.days}d @ ₹{b.ratePerDay}
                   </span>
-                  <span className="font-medium">₹{b.amount.toLocaleString()}</span>
+                  <span className="font-medium dark:text-gray-100">₹{b.amount.toLocaleString()}</span>
                 </div>
               ))}
-              <div className="mt-2 flex justify-between border-t pt-2 text-base">
-                <span className="font-semibold">Total ({bill.days} days)</span>
-                <span className="font-bold text-primary">
+              <div className="mt-2 flex justify-between border-t dark:border-gray-700 pt-2 text-base">
+                <span className="font-semibold dark:text-gray-100">Total ({bill.days} days)</span>
+                <span className="font-bold text-primary dark:text-blue-300">
                   ₹{bill.grandTotal.toLocaleString()}
                 </span>
               </div>
@@ -733,8 +733,8 @@ function Field({
 }) {
   return (
     <div className={fullWidth ? "sm:col-span-2" : ""}>
-      <dt className="text-xs text-gray-500">{label}</dt>
-      <dd className="mt-0.5 text-sm">{value}</dd>
+      <dt className="text-xs text-gray-500 dark:text-gray-400">{label}</dt>
+      <dd className="mt-0.5 text-sm dark:text-gray-100">{value}</dd>
     </div>
   );
 }
@@ -1954,7 +1954,7 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
         <div>
           <div
             className={`text-sm font-semibold ${
-              active ? "text-red-800" : "text-gray-700"
+              active ? "text-red-800 dark:text-red-300" : "text-gray-700 dark:text-gray-100"
             }`}
           >
             {active
@@ -1988,7 +1988,7 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
           )}
           <button
             onClick={() => setEditing(!editing)}
-            className="text-xs px-2 py-1 border rounded bg-white dark:bg-gray-800 dark:border-gray-600"
+            className="text-xs px-2 py-1 border rounded bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
           >
             {editing ? "Cancel" : active ? "Update" : "Set"}
           </button>
@@ -1999,10 +1999,10 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
           <select
             value={type}
             onChange={(e) => setType(e.target.value)}
-            className="w-full border rounded px-2 py-1 text-sm"
+            className="w-full border dark:border-gray-700 rounded px-2 py-1 text-sm bg-white dark:bg-gray-900 dark:text-gray-100"
           >
             {ISOLATION_TYPES.map((t) => (
-              <option key={t} value={t}>
+              <option key={t} value={t} className="bg-white dark:bg-gray-900 dark:text-gray-100">
                 {t.replace(/_/g, " ")}
               </option>
             ))}
@@ -2011,11 +2011,11 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
             placeholder="Reason"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            className="w-full border rounded px-2 py-1 text-sm"
+            className="w-full border dark:border-gray-700 rounded px-2 py-1 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
           />
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label htmlFor="isolation-start" className="block text-[11px] text-gray-600 mb-0.5">
+              <label htmlFor="isolation-start" className="block text-[11px] text-gray-600 dark:text-gray-300 mb-0.5">
                 Start date / time
               </label>
               <input
@@ -2023,11 +2023,11 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
                 type="datetime-local"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full border rounded px-2 py-1 text-sm"
+                className="w-full border dark:border-gray-700 rounded px-2 py-1 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 [color-scheme:dark]"
               />
             </div>
             <div>
-              <label htmlFor="isolation-end" className="block text-[11px] text-gray-600 mb-0.5">
+              <label htmlFor="isolation-end" className="block text-[11px] text-gray-600 dark:text-gray-300 mb-0.5">
                 End date / time (optional)
               </label>
               <input
@@ -2035,13 +2035,13 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
                 type="datetime-local"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full border rounded px-2 py-1 text-sm"
+                className="w-full border dark:border-gray-700 rounded px-2 py-1 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 [color-scheme:dark]"
               />
             </div>
           </div>
           <button
             onClick={() => apply(false)}
-            className="px-3 py-1 text-sm bg-blue-600 text-white rounded"
+            className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded"
           >
             Save
           </button>
@@ -2212,19 +2212,19 @@ function MedReconciliationButton({
     list: MedItem[],
     setter: (v: MedItem[]) => void
   ) => (
-    <div className="flex-1 min-w-0 border rounded p-3 bg-slate-50">
+    <div className="flex-1 min-w-0 border dark:border-gray-700 rounded p-3 bg-slate-50 dark:bg-gray-900">
       <div className="flex items-center justify-between mb-2">
-        <h4 className="font-semibold text-sm">{title}</h4>
+        <h4 className="font-semibold text-sm dark:text-gray-100">{title}</h4>
         <button
           onClick={() => addItem(setter, list)}
-          className="text-xs text-blue-600"
+          className="text-xs text-blue-600 dark:text-blue-400"
         >
           + Add
         </button>
       </div>
       <ul className="space-y-2 max-h-80 overflow-y-auto">
         {list.length === 0 && (
-          <li className="text-xs text-slate-400">None</li>
+          <li className="text-xs text-slate-400 dark:text-slate-500">None</li>
         )}
         {list.map((m, i) => (
           <li key={i} className="flex items-center gap-1">
@@ -2236,7 +2236,7 @@ function MedReconciliationButton({
                 setter(next);
               }}
               placeholder="Name"
-              className="flex-1 border rounded px-1 py-0.5 text-xs"
+              className="flex-1 border dark:border-gray-700 rounded px-1 py-0.5 text-xs bg-white dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
             />
             <input
               value={m.dosage || ""}
@@ -2246,7 +2246,7 @@ function MedReconciliationButton({
                 setter(next);
               }}
               placeholder="Dose"
-              className="w-16 border rounded px-1 py-0.5 text-xs"
+              className="w-16 border dark:border-gray-700 rounded px-1 py-0.5 text-xs bg-white dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
             />
             <button
               onClick={() => setter(list.filter((_, j) => j !== i))}
@@ -2264,7 +2264,7 @@ function MedReconciliationButton({
     <>
       <button
         onClick={openModal}
-        className="p-3 rounded-lg border-2 border-dashed border-blue-300 bg-blue-50 hover:bg-blue-100 text-sm font-medium text-blue-800"
+        className="p-3 rounded-lg border-2 border-dashed border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-sm font-medium text-blue-800 dark:text-blue-300"
       >
         {type === "ADMISSION"
           ? "Reconcile Medications (on Admission)"
@@ -2272,15 +2272,20 @@ function MedReconciliationButton({
       </button>
       {open && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-5xl max-h-[90vh] overflow-y-auto p-6">
+          <div className="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-lg w-full max-w-5xl max-h-[90vh] overflow-y-auto p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">
                 Medication Reconciliation - {type}
               </h2>
-              <button onClick={() => setOpen(false)}>Close</button>
+              <button
+                onClick={() => setOpen(false)}
+                className="text-sm text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+              >
+                Close
+              </button>
             </div>
             {loading ? (
-              <div className="p-6 text-center text-slate-500">
+              <div className="p-6 text-center text-slate-500 dark:text-slate-400">
                 Loading suggestions...
               </div>
             ) : (
@@ -2295,7 +2300,7 @@ function MedReconciliationButton({
                 placeholder="Reconciliation notes"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                className="w-full border rounded p-2 text-sm"
+                className="w-full border dark:border-gray-700 rounded p-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 rows={2}
               />
             </div>
@@ -2310,7 +2315,7 @@ function MedReconciliationButton({
             <div className="flex justify-end gap-2 mt-4">
               <button
                 onClick={() => setOpen(false)}
-                className="px-3 py-2 text-sm"
+                className="px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
               >
                 Cancel
               </button>
@@ -2406,7 +2411,7 @@ function BelongingsCard({ admissionId }: { admissionId: string }) {
   return (
     <div className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-700">Patient Belongings</h3>
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-100">Patient Belongings</h3>
         {rec.items.length > 0 && (
           <button
             onClick={checkoutAll}
@@ -2445,24 +2450,24 @@ function BelongingsCard({ admissionId }: { admissionId: string }) {
           placeholder="Item name"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
-          className="flex-1 min-w-[120px] border rounded px-2 py-1 text-sm"
+          className="flex-1 min-w-[120px] border dark:border-gray-700 rounded px-2 py-1 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
         />
         <input
           placeholder="Description"
           value={newDesc}
           onChange={(e) => setNewDesc(e.target.value)}
-          className="flex-1 min-w-[120px] border rounded px-2 py-1 text-sm"
+          className="flex-1 min-w-[120px] border dark:border-gray-700 rounded px-2 py-1 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
         />
         <input
           placeholder="Value"
           type="number"
           value={newVal}
           onChange={(e) => setNewVal(e.target.value)}
-          className="w-20 border rounded px-2 py-1 text-sm"
+          className="w-20 border dark:border-gray-700 rounded px-2 py-1 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
         />
         <button
           onClick={add}
-          className="px-3 py-1 text-sm bg-blue-600 text-white rounded"
+          className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded"
         >
           Add
         </button>
@@ -2813,17 +2818,17 @@ function MarTab({ admissionId }: { admissionId: string }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <label htmlFor="mar-date" className="text-sm text-gray-600">Date:</label>
+          <label htmlFor="mar-date" className="text-sm text-gray-600 dark:text-gray-300">Date:</label>
           <input
             id="mar-date"
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="rounded-lg border px-2 py-1 text-sm"
+            className="rounded-lg border dark:border-gray-700 px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-gray-100 [color-scheme:dark]"
           />
           <button
             onClick={load}
-            className="rounded-lg border px-3 py-1 text-sm"
+            className="rounded-lg border dark:border-gray-700 px-3 py-1 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
           >
             Refresh
           </button>
@@ -2846,27 +2851,27 @@ function MarTab({ admissionId }: { admissionId: string }) {
 
       <div className="overflow-x-auto rounded-xl bg-white dark:bg-gray-800 shadow-sm">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading MAR...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading MAR...</div>
         ) : orders.length === 0 ? (
-          <div className="p-8 text-center text-gray-400">
+          <div className="p-8 text-center text-gray-400 dark:text-gray-500">
             No medication orders for this admission.
           </div>
         ) : (
           <table className="min-w-full text-sm">
-            <thead className="bg-gray-50">
+            <thead className="bg-gray-50 dark:bg-gray-900/50">
               <tr>
-                <th className="sticky left-0 bg-gray-50 px-4 py-2 text-left font-medium text-gray-600">
+                <th className="sticky left-0 bg-gray-50 dark:bg-gray-900/50 px-4 py-2 text-left font-medium text-gray-600 dark:text-gray-300">
                   Medication
                 </th>
                 {slots.length === 0 ? (
-                  <th className="px-3 py-2 text-center text-xs text-gray-400">
+                  <th className="px-3 py-2 text-center text-xs text-gray-400 dark:text-gray-500">
                     No scheduled doses on this day
                   </th>
                 ) : (
                   slots.map((s) => (
                     <th
                       key={s}
-                      className="px-3 py-2 text-center font-medium text-gray-600"
+                      className="px-3 py-2 text-center font-medium text-gray-600 dark:text-gray-300"
                     >
                       {s}
                     </th>
@@ -3192,42 +3197,42 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
       <div className="lg:col-span-2 space-y-4">
         <div className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm">
           <div className="mb-3 flex items-center gap-2">
-            <label htmlFor="io-date" className="text-sm text-gray-600">Date:</label>
+            <label htmlFor="io-date" className="text-sm text-gray-600 dark:text-gray-300">Date:</label>
             <input
               id="io-date"
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="rounded-lg border px-2 py-1 text-sm"
+              className="rounded-lg border dark:border-gray-700 px-2 py-1 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 [color-scheme:dark]"
             />
           </div>
           <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-center">
-              <div className="text-xs text-green-700">Intake</div>
-              <div className="text-xl font-bold text-green-800">
+            <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 p-3 text-center">
+              <div className="text-xs text-green-700 dark:text-green-300">Intake</div>
+              <div className="text-xl font-bold text-green-800 dark:text-green-200">
                 {totalIntake} ml
               </div>
             </div>
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-center">
-              <div className="text-xs text-amber-700">Output</div>
-              <div className="text-xl font-bold text-amber-800">
+            <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 text-center">
+              <div className="text-xs text-amber-700 dark:text-amber-300">Output</div>
+              <div className="text-xl font-bold text-amber-800 dark:text-amber-200">
                 {totalOutput} ml
               </div>
             </div>
             <div
               className={`rounded-lg border p-3 text-center ${
                 balance >= 0
-                  ? "border-blue-200 bg-blue-50"
-                  : "border-red-200 bg-red-50"
+                  ? "border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20"
+                  : "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20"
               }`}
             >
               <div
-                className={`text-xs ${balance >= 0 ? "text-blue-700" : "text-red-700"}`}
+                className={`text-xs ${balance >= 0 ? "text-blue-700 dark:text-blue-300" : "text-red-700 dark:text-red-300"}`}
               >
                 Balance
               </div>
               <div
-                className={`text-xl font-bold ${balance >= 0 ? "text-blue-800" : "text-red-800"}`}
+                className={`text-xl font-bold ${balance >= 0 ? "text-blue-800 dark:text-blue-200" : "text-red-800 dark:text-red-200"}`}
               >
                 {balance >= 0 ? "+" : ""}
                 {balance} ml
@@ -3246,9 +3251,9 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
               <SkeletonTable rows={4} columns={4} />
             </div>
           ) : rows.length === 0 ? (
-            <p className="text-sm text-gray-400">No events recorded.</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500">No events recorded.</p>
           ) : (
-            <ul className="divide-y divide-gray-100 text-sm">
+            <ul className="divide-y divide-gray-100 dark:divide-gray-700 text-sm">
               {rows.map((r) => {
                 const isIntake = r.type.startsWith("INTAKE");
                 return (
@@ -3261,21 +3266,21 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
                         <span
                           className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                             isIntake
-                              ? "bg-green-100 text-green-700"
-                              : "bg-amber-100 text-amber-700"
+                              ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                              : "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
                           }`}
                         >
                           {r.type.replace("_", " ")}
                         </span>
-                        <span className="font-medium">{r.amountMl} ml</span>
+                        <span className="font-medium dark:text-gray-100">{r.amountMl} ml</span>
                       </div>
                       {r.description && (
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
                           {r.description}
                         </div>
                       )}
                     </div>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
                       {formatTime(r.recordedAt)}
                     </div>
                   </li>
@@ -3292,15 +3297,15 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
           noValidate
           className="h-fit rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm"
         >
-          <h3 className="mb-3 text-sm font-semibold">Record I/O</h3>
+          <h3 className="mb-3 text-sm font-semibold dark:text-gray-100">Record I/O</h3>
           <div className="space-y-3">
             <div>
-              <label htmlFor="io-type" className="text-xs text-gray-600">Type</label>
+              <label htmlFor="io-type" className="text-xs text-gray-600 dark:text-gray-300">Type</label>
               <select
                 id="io-type"
                 value={form.type}
                 onChange={(e) => setForm({ ...form, type: e.target.value })}
-                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100"
               >
                 {IO_TYPES.map((t) => (
                   <option key={t.value} value={t.value}>
@@ -3310,7 +3315,7 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
               </select>
             </div>
             <div>
-              <label htmlFor="io-amount" className="text-xs text-gray-600">Volume (mL) *</label>
+              <label htmlFor="io-amount" className="text-xs text-gray-600 dark:text-gray-300">Volume (mL) *</label>
               {/*
                 Issue #458 — drop HTML5 `type="number"`/`min`/`max`/`required`
                 so the React-side `amountError` toast/inline-error wins the
@@ -3329,38 +3334,38 @@ function IntakeOutputTab({ admissionId }: { admissionId: string }) {
                   setForm({ ...form, amountMl: e.target.value })
                 }
                 className={
-                  "mt-1 w-full rounded-lg border px-3 py-2 text-sm " +
-                  (amountError ? "border-red-400 bg-red-50" : "")
+                  "mt-1 w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 " +
+                  (amountError ? "border-red-400 bg-red-50 dark:bg-red-900/20" : "")
                 }
               />
               {amountError && (
                 <p
                   data-testid="io-amount-error"
-                  className="mt-1 text-[11px] text-red-600"
+                  className="mt-1 text-[11px] text-red-600 dark:text-red-400"
                 >
                   {amountError}
                 </p>
               )}
             </div>
             <div>
-              <label htmlFor="io-description" className="text-xs text-gray-600">Description</label>
+              <label htmlFor="io-description" className="text-xs text-gray-600 dark:text-gray-300">Description</label>
               <input
                 id="io-description"
                 value={form.description}
                 onChange={(e) =>
                   setForm({ ...form, description: e.target.value })
                 }
-                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
               />
             </div>
             <div>
-              <label htmlFor="io-notes" className="text-xs text-gray-600">Notes</label>
+              <label htmlFor="io-notes" className="text-xs text-gray-600 dark:text-gray-300">Notes</label>
               <textarea
                 id="io-notes"
                 rows={2}
                 value={form.notes}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
               />
             </div>
             <button

@@ -9,6 +9,7 @@ import { usePrompt } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Autocomplete } from "@/components/Autocomplete";
 import { InfoIcon } from "@/components/Tooltip";
+import { TablePagination } from "@/components/TablePagination";
 import { Plus, Scissors } from "lucide-react";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { SkeletonTable } from "@/components/Skeleton";
@@ -133,6 +134,8 @@ export default function SurgeryPage() {
   const [toDate, setToDate] = useState<string>("");
   const [sortKey, setSortKey] = useState<SortKey>("scheduledAt");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   // Form
   const [doctors, setDoctors] = useState<Doctor[]>([]);
@@ -237,6 +240,20 @@ export default function SurgeryPage() {
     });
     return copy;
   })();
+
+  // Client-side pagination over the sorted in-memory page (capped at 100
+  // server-side). Reset to page 1 whenever the result set or ordering changes
+  // so the user never lands on an out-of-range page.
+  const totalPages = Math.max(1, Math.ceil(sortedSurgeries.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedSurgeries = sortedSurgeries.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [tab, fromDate, toDate, sortKey, sortDir, surgeries.length]);
 
   function toggleSort(k: SortKey) {
     if (sortKey === k) {
@@ -594,14 +611,14 @@ export default function SurgeryPage() {
               </tr>
             </thead>
             <tbody>
-              {sortedSurgeries.map((s) => {
+              {pagedSurgeries.map((s) => {
                 const effective = effectiveStatus(s);
                 return (
                   <tr key={s.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
                     <td className="px-4 py-3 font-medium">
                       <Link
                         href={`/dashboard/surgery/${s.id}`}
-                        className="text-primary hover:underline"
+                        className="text-primary hover:underline dark:text-blue-400"
                       >
                         {s.caseNumber}
                       </Link>
@@ -676,6 +693,20 @@ export default function SurgeryPage() {
               })}
             </tbody>
           </table>
+        )}
+
+        {!loading && sortedSurgeries.length > 0 && (
+          <TablePagination
+            page={currentPage}
+            totalPages={totalPages}
+            pageSize={pageSize}
+            totalItems={sortedSurgeries.length}
+            onPageChange={setPage}
+            onPageSizeChange={(n) => {
+              setPage(1);
+              setPageSize(n);
+            }}
+          />
         )}
       </div>
 

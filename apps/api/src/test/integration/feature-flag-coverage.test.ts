@@ -41,11 +41,18 @@ interface RouteProbe {
 
 const ROUTES: RouteProbe[] = [
   {
+    // Probes POST /inbound with no body. Avoid GET /patient/:id /
+    // GET /lab-order/:id — those handlers `sendError(res, 404, …)` when
+    // the row doesn't exist, which is indistinguishable from the gate's
+    // 404 and causes the "flag=true → non-404" assertion to flake even
+    // when the gate is wired correctly. POST /inbound on an empty body
+    // returns 415 (unsupported content-type) — clearly non-404 — so the
+    // gate's verdict is the only way the response can be 404.
     flag: "hl7Inbound",
     mountPath: "/api/v1/hl7v2",
     importRouter: async () => (await import("../../routes/hl7v2")).hl7v2Router,
-    probeMethod: "get",
-    probePath: "/patient/00000000-0000-0000-0000-000000000000",
+    probeMethod: "post",
+    probePath: "/inbound",
   },
   {
     flag: "aiCoaching",
@@ -115,6 +122,21 @@ const ROUTES: RouteProbe[] = [
 async function buildAppFor(route: RouteProbe): Promise<express.Express> {
   const app = express();
   app.use(express.json());
+  // Mount the tenant context resolver BEFORE the gated router. Without it,
+  // `req.tenantId` stays undefined and `isFeatureEnabled(undefined, …)`
+  // short-circuits to `true` (see services/feature-flags.ts:54) — every
+  // request slips past the gate and the test sees 200 where 404 was
+  // expected. The full app wires this in app.ts; the per-route mini-app
+  // here must do the same.
+  //
+  // CodeQL false-positive note: `js/missing-rate-limiting` flags this
+  // because the production router we mount carries `authorize(...)` calls
+  // and the test app does not also mount rate-limiting. Rate limiting in a
+  // throw-away vitest fixture that never binds to a port and never accepts
+  // real traffic serves no security purpose; production rate limiting
+  // lives in app.ts where it actually matters.
+  const { tenantContextMiddleware } = await import("../../middleware/tenant");
+  app.use(tenantContextMiddleware); // lgtm[js/missing-rate-limiting]
   app.use(route.mountPath, await route.importRouter());
   const { errorHandler } = await import("../../middleware/error");
   app.use(errorHandler);

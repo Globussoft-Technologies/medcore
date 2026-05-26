@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
@@ -118,6 +119,14 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("all");
   const [openActionsFor, setOpenActionsFor] = useState<string | null>(null);
+  // The table is wrapped in `overflow-x-auto`, which the browser couples to
+  // overflow-y — so an `absolute` popover inside the table gets clipped and
+  // the container grows a scrollbar instead of overlaying. We render the
+  // popover via a React portal at viewport coordinates so it sits above the
+  // page chrome no matter what the table's overflow does. `actionsRect`
+  // stores the trigger's bounding rect at click time; the popover positions
+  // itself relative to it and flips above when there isn't room below.
+  const [actionsRect, setActionsRect] = useState<DOMRect | null>(null);
 
   // Summary card stats
   const [summary, setSummary] = useState<{
@@ -389,10 +398,10 @@ export default function BillingPage() {
   }
 
   const statusColors: Record<string, string> = {
-    PENDING: "bg-red-100 text-red-700",
-    PARTIAL: "bg-yellow-100 text-yellow-700",
-    PAID: "bg-green-100 text-green-700",
-    REFUNDED: "bg-gray-100 text-gray-500",
+    PENDING: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200",
+    PARTIAL: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-200",
+    PAID: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200",
+    REFUNDED: "bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300",
     // Issue #859: refund-due credit state — purple-tinted so it stands
     // apart from the green PAID badge and Reception can spot it at a
     // glance in the list.
@@ -500,25 +509,25 @@ export default function BillingPage() {
         <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
             <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500">Total Outstanding</p>
-            <p className="mt-1 text-2xl font-bold text-red-600">
+            <p className="mt-1 text-2xl font-bold text-red-600 dark:text-red-400">
               {fmtMoney(summary.totalOutstanding)}
             </p>
           </div>
           <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
             <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500">Today&apos;s Collection</p>
-            <p className="mt-1 text-2xl font-bold text-green-600">
+            <p className="mt-1 text-2xl font-bold text-green-600 dark:text-green-400">
               {fmtMoney(summary.todayCollection)}
             </p>
           </div>
           <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
             <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500">This Month&apos;s Revenue</p>
-            <p className="mt-1 text-2xl font-bold text-primary">
+            <p className="mt-1 text-2xl font-bold text-primary dark:text-blue-300">
               {fmtMoney(summary.monthRevenue)}
             </p>
           </div>
           <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
             <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500">Refunds This Month</p>
-            <p className="mt-1 text-2xl font-bold text-orange-500">
+            <p className="mt-1 text-2xl font-bold text-orange-500 dark:text-orange-400">
               {fmtMoney(summary.monthRefunds)}
             </p>
           </div>
@@ -574,7 +583,7 @@ export default function BillingPage() {
                 {outstanding.map((r) => (
                   <tr key={r.invoiceId} className="border-b border-gray-100 last:border-0 dark:border-gray-700">
                     <td className="px-4 py-3 font-mono text-sm">
-                      <Link href={`/dashboard/billing/${r.invoiceId}`} className="text-primary hover:underline">
+                      <Link href={`/dashboard/billing/${r.invoiceId}`} className="text-primary dark:text-blue-300 hover:underline">
                         {r.invoiceNumber}
                       </Link>
                     </td>
@@ -651,7 +660,7 @@ export default function BillingPage() {
               {enrichedInvoices.map((inv) => (
                 <tr key={inv.id} className="border-b border-gray-100 last:border-0 dark:border-gray-700">
                   <td className="px-4 py-3 font-mono text-sm">
-                    <Link href={`/dashboard/billing/${inv.id}`} className="text-primary hover:underline">
+                    <Link href={`/dashboard/billing/${inv.id}`} className="text-primary dark:text-blue-300 hover:underline">
                       {inv.invoiceNumber}
                     </Link>
                   </td>
@@ -721,91 +730,147 @@ export default function BillingPage() {
                     </span>
                   </td>
                   {isStaff && (
-                    <td className="relative px-4 py-3">
+                    <td className="px-4 py-3">
                       <button
+                        type="button"
                         aria-label={`Actions menu for invoice ${inv.invoiceNumber}`}
                         onClick={(e) => {
                           e.stopPropagation();
-                          setOpenActionsFor(openActionsFor === inv.id ? null : inv.id);
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          if (openActionsFor === inv.id) {
+                            setOpenActionsFor(null);
+                            setActionsRect(null);
+                          } else {
+                            setActionsRect(rect);
+                            setOpenActionsFor(inv.id);
+                          }
                         }}
-                        className="rounded p-1.5 hover:bg-gray-100"
+                        className="rounded p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
                       >
                         <MoreHorizontal size={16} aria-hidden="true" />
                       </button>
-                      {openActionsFor === inv.id && (
-                        <div
-                          onClick={(e) => e.stopPropagation()}
-                          className="absolute right-4 top-10 z-10 w-52 rounded-lg border bg-white py-1 shadow-lg"
-                        >
-                          {inv.displayStatus !== "PAID" && (
-                            <button
-                              onClick={() => {
-                                setPayInv(inv);
-                                setOpenActionsFor(null);
-                              }}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50"
-                            >
-                              <Receipt size={14} /> Record Payment
-                            </button>
-                          )}
-                          {inv.displayStatus !== "PAID" && razorpay.enabled && (
-                            <Link
-                              href={`/dashboard/billing/${inv.id}`}
-                              onClick={() => setOpenActionsFor(null)}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50"
-                            >
-                              <Globe size={14} />
-                              <span>Pay Online</span>
-                              {razorpay.isTestMode && (
-                                <span className="ml-auto rounded bg-yellow-300 px-1 py-0.5 text-[10px] font-bold text-yellow-900">
-                                  TEST
-                                </span>
-                              )}
-                            </Link>
-                          )}
-                          {inv.netPaid > 0 && (
-                            <button
-                              onClick={() => {
-                                setRefundInv(inv);
-                                setRefundAmount(String(inv.netPaid));
-                                setOpenActionsFor(null);
-                              }}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50"
-                            >
-                              <Undo2 size={14} /> Record Refund
-                            </button>
-                          )}
-                          {inv.displayStatus !== "PAID" &&
-                            inv.displayStatus !== "REFUNDED" && (
-                              <button
-                                onClick={() => {
-                                  setDiscInv(inv);
-                                  setOpenActionsFor(null);
-                                }}
-                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50"
-                              >
-                                <Percent size={14} /> Apply Discount
-                              </button>
-                            )}
-                          <Link
-                            href={`/dashboard/billing/${inv.id}`}
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50"
-                          >
-                            <Printer size={14} /> Print Invoice
-                          </Link>
-                          {inv.balance > 0 && (
-                            <button
-                              onClick={() => {
-                                sendReminder({ ...inv, balance: inv.balance });
-                                setOpenActionsFor(null);
-                              }}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50"
-                            >
-                              <BellRing size={14} /> Send Reminder
-                            </button>
-                          )}
-                        </div>
-                      )}
+                      {openActionsFor === inv.id &&
+                        actionsRect &&
+                        typeof window !== "undefined" &&
+                        createPortal(
+                          (() => {
+                            const POPOVER_W = 208; // w-52
+                            const POPOVER_H_EST = 240; // ~6 items × 40
+                            const flipAbove =
+                              window.innerHeight - actionsRect.bottom < POPOVER_H_EST;
+                            const top = flipAbove
+                              ? actionsRect.top - POPOVER_H_EST - 4
+                              : actionsRect.bottom + 4;
+                            const left = Math.max(
+                              8,
+                              Math.min(
+                                actionsRect.right - POPOVER_W,
+                                window.innerWidth - POPOVER_W - 8,
+                              ),
+                            );
+                            return (
+                              <>
+                                {/* Click-outside catcher */}
+                                <div
+                                  className="fixed inset-0 z-40"
+                                  onClick={() => {
+                                    setOpenActionsFor(null);
+                                    setActionsRect(null);
+                                  }}
+                                />
+                                <div
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{ position: "fixed", top, left, width: POPOVER_W }}
+                                  className="z-50 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 py-1 shadow-lg text-gray-700 dark:text-gray-100"
+                                >
+                                  {inv.displayStatus !== "PAID" && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setPayInv(inv);
+                                        setOpenActionsFor(null);
+                                        setActionsRect(null);
+                                      }}
+                                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
+                                    >
+                                      <Receipt size={14} /> Record Payment
+                                    </button>
+                                  )}
+                                  {inv.displayStatus !== "PAID" && razorpay.enabled && (
+                                    <Link
+                                      href={`/dashboard/billing/${inv.id}`}
+                                      onClick={() => {
+                                        setOpenActionsFor(null);
+                                        setActionsRect(null);
+                                      }}
+                                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
+                                    >
+                                      <Globe size={14} />
+                                      <span>Pay Online</span>
+                                      {razorpay.isTestMode && (
+                                        <span className="ml-auto rounded bg-yellow-300 px-1 py-0.5 text-[10px] font-bold text-yellow-900">
+                                          TEST
+                                        </span>
+                                      )}
+                                    </Link>
+                                  )}
+                                  {inv.netPaid > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setRefundInv(inv);
+                                        setRefundAmount(String(inv.netPaid));
+                                        setOpenActionsFor(null);
+                                        setActionsRect(null);
+                                      }}
+                                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
+                                    >
+                                      <Undo2 size={14} /> Record Refund
+                                    </button>
+                                  )}
+                                  {inv.displayStatus !== "PAID" &&
+                                    inv.displayStatus !== "REFUNDED" && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setDiscInv(inv);
+                                          setOpenActionsFor(null);
+                                          setActionsRect(null);
+                                        }}
+                                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
+                                      >
+                                        <Percent size={14} /> Apply Discount
+                                      </button>
+                                    )}
+                                  <Link
+                                    href={`/dashboard/billing/${inv.id}`}
+                                    onClick={() => {
+                                      setOpenActionsFor(null);
+                                      setActionsRect(null);
+                                    }}
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
+                                  >
+                                    <Printer size={14} /> Print Invoice
+                                  </Link>
+                                  {inv.balance > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        sendReminder({ ...inv, balance: inv.balance });
+                                        setOpenActionsFor(null);
+                                        setActionsRect(null);
+                                      }}
+                                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
+                                    >
+                                      <BellRing size={14} /> Send Reminder
+                                    </button>
+                                  )}
+                                </div>
+                              </>
+                            );
+                          })(),
+                          document.body,
+                        )}
                     </td>
                   )}
                 </tr>
@@ -820,14 +885,14 @@ export default function BillingPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div
             onClick={(e) => e.stopPropagation()}
-            className="mx-4 w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-2xl"
+            className="mx-4 w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white dark:bg-gray-800 dark:text-gray-100 p-6 shadow-2xl"
           >
             <h2 className="mb-4 text-lg font-bold">
               Record Payment — {payInv.invoiceNumber}
             </h2>
             <div className="space-y-3">
               <div>
-                <label htmlFor="bill-pay-amount" className="mb-1 block text-xs text-gray-500">Amount (Rs.)</label>
+                <label htmlFor="bill-pay-amount" className="mb-1 block text-xs text-gray-500 dark:text-gray-300">Amount (Rs.)</label>
                 <input
                   id="bill-pay-amount"
                   type="number"
@@ -835,20 +900,20 @@ export default function BillingPage() {
                   min="0.01"
                   value={payAmount}
                   onChange={(e) => setPayAmount(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                   autoFocus
                 />
               </div>
               <div>
-                <label htmlFor="bill-pay-mode" className="mb-1 block text-xs text-gray-500">Mode</label>
+                <label htmlFor="bill-pay-mode" className="mb-1 block text-xs text-gray-500 dark:text-gray-300">Mode</label>
                 <select
                   id="bill-pay-mode"
                   value={payMode}
                   onChange={(e) => setPayMode(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100"
                 >
                   {["CASH", "CARD", "UPI", "ONLINE", "INSURANCE"].map((m) => (
-                    <option key={m} value={m}>
+                    <option key={m} value={m} className="bg-white dark:bg-gray-900 dark:text-gray-100">
                       {m}
                     </option>
                   ))}
@@ -857,15 +922,17 @@ export default function BillingPage() {
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <button
+                type="button"
                 onClick={() => setPayInv(null)}
-                className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+                className="rounded-lg px-4 py-2 text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={submitRecordPayment}
                 disabled={paySubmitting || !payAmount}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50 dark:bg-blue-600 dark:hover:bg-blue-500"
               >
                 {paySubmitting ? "Saving..." : "Save Payment"}
               </button>
@@ -879,14 +946,14 @@ export default function BillingPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div
             onClick={(e) => e.stopPropagation()}
-            className="mx-4 w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-2xl"
+            className="mx-4 w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white dark:bg-gray-800 dark:text-gray-100 p-6 shadow-2xl"
           >
             <h2 className="mb-4 text-lg font-bold">
               Issue Refund — {refundInv.invoiceNumber}
             </h2>
             <div className="space-y-3">
               <div>
-                <label htmlFor="bill-refund-amount" className="mb-1 block text-xs text-gray-500">Amount (Rs.)</label>
+                <label htmlFor="bill-refund-amount" className="mb-1 block text-xs text-gray-500 dark:text-gray-300">Amount (Rs.)</label>
                 <input
                   id="bill-refund-amount"
                   type="number"
@@ -894,32 +961,32 @@ export default function BillingPage() {
                   min="0.01"
                   value={refundAmount}
                   onChange={(e) => setRefundAmount(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                   autoFocus
                 />
               </div>
               <div>
-                <label htmlFor="bill-refund-mode" className="mb-1 block text-xs text-gray-500">Mode</label>
+                <label htmlFor="bill-refund-mode" className="mb-1 block text-xs text-gray-500 dark:text-gray-300">Mode</label>
                 <select
                   id="bill-refund-mode"
                   value={refundMode}
                   onChange={(e) => setRefundMode(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100"
                 >
                   {["CASH", "CARD", "UPI", "ONLINE", "INSURANCE"].map((m) => (
-                    <option key={m} value={m}>
+                    <option key={m} value={m} className="bg-white dark:bg-gray-900 dark:text-gray-100">
                       {m}
                     </option>
                   ))}
                 </select>
               </div>
               <div>
-                <label htmlFor="bill-refund-reason" className="mb-1 block text-xs text-gray-500">Reason</label>
+                <label htmlFor="bill-refund-reason" className="mb-1 block text-xs text-gray-500 dark:text-gray-300">Reason</label>
                 <textarea
                   id="bill-refund-reason"
                   value={refundReason}
                   onChange={(e) => setRefundReason(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                   rows={3}
                   placeholder="Reason for refund"
                 />
@@ -927,12 +994,14 @@ export default function BillingPage() {
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <button
+                type="button"
                 onClick={() => setRefundInv(null)}
-                className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+                className="rounded-lg px-4 py-2 text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={submitRefund}
                 disabled={
                   refundSubmitting ||
@@ -940,7 +1009,7 @@ export default function BillingPage() {
                   !refundReason ||
                   parseFloat(refundAmount) <= 0
                 }
-                className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50"
+                className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50 dark:bg-orange-600 dark:hover:bg-orange-500"
               >
                 {refundSubmitting ? "Saving..." : "Issue Refund"}
               </button>
@@ -954,7 +1023,7 @@ export default function BillingPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div
             onClick={(e) => e.stopPropagation()}
-            className="mx-4 w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 shadow-2xl"
+            className="mx-4 w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white dark:bg-gray-800 dark:text-gray-100 p-6 shadow-2xl"
           >
             <h2 className="mb-4 text-lg font-bold">
               Apply Discount — {discInv.invoiceNumber}
@@ -962,28 +1031,30 @@ export default function BillingPage() {
             <div className="space-y-3">
               <div className="flex gap-2">
                 <button
+                  type="button"
                   onClick={() => setDiscType("percentage")}
                   className={`flex-1 rounded-lg px-3 py-2 text-sm ${
                     discType === "percentage"
-                      ? "bg-primary text-white"
-                      : "bg-gray-100 text-gray-600"
+                      ? "bg-primary text-white dark:bg-blue-600"
+                      : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-200"
                   }`}
                 >
                   Percentage
                 </button>
                 <button
+                  type="button"
                   onClick={() => setDiscType("flat")}
                   className={`flex-1 rounded-lg px-3 py-2 text-sm ${
                     discType === "flat"
-                      ? "bg-primary text-white"
-                      : "bg-gray-100 text-gray-600"
+                      ? "bg-primary text-white dark:bg-blue-600"
+                      : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-200"
                   }`}
                 >
                   Flat Amount
                 </button>
               </div>
               <div>
-                <label htmlFor="bill-disc-value" className="mb-1 block text-xs text-gray-500">
+                <label htmlFor="bill-disc-value" className="mb-1 block text-xs text-gray-500 dark:text-gray-300">
                   {discType === "percentage" ? "Percentage (%)" : "Flat Amount (Rs.)"}
                 </label>
                 <input
@@ -993,17 +1064,17 @@ export default function BillingPage() {
                   min="0"
                   value={discValue}
                   onChange={(e) => setDiscValue(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                   autoFocus
                 />
               </div>
               <div>
-                <label htmlFor="bill-disc-reason" className="mb-1 block text-xs text-gray-500">Reason</label>
+                <label htmlFor="bill-disc-reason" className="mb-1 block text-xs text-gray-500 dark:text-gray-300">Reason</label>
                 <textarea
                   id="bill-disc-reason"
                   value={discReason}
                   onChange={(e) => setDiscReason(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                   rows={2}
                   placeholder="e.g. senior citizen discount"
                 />
@@ -1011,12 +1082,14 @@ export default function BillingPage() {
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <button
+                type="button"
                 onClick={() => setDiscInv(null)}
-                className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+                className="rounded-lg px-4 py-2 text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={submitDiscount}
                 disabled={
                   discSubmitting ||
@@ -1024,7 +1097,7 @@ export default function BillingPage() {
                   !discReason ||
                   parseFloat(discValue) < 0
                 }
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50 dark:bg-blue-600 dark:hover:bg-blue-500"
               >
                 {discSubmitting ? "Saving..." : "Apply Discount"}
               </button>

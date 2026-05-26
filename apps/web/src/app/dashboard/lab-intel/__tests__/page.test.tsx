@@ -564,7 +564,16 @@ describe("LabIntelPage dashboard surface", () => {
     // So no `lab-intel-error` banner — instead, aggregates falls back to `?? 0`,
     // and the criticals + deviations sections still render their respective data.
     expect(screen.queryByTestId("lab-intel-error")).not.toBeInTheDocument();
-    expect(screen.getByTestId("lab-intel-kpi-criticals")).toHaveTextContent("0");
+    // waitFor — the previous `waitFor(get called 3 times)` resolves as soon as
+    // the three api.get calls have been initiated, but not after the
+    // .catch(...).then(setAggregates/setLoading) tail has run. Until that tail
+    // resolves, `loading=true && !aggregates=true` so KpiTile renders the
+    // Skeleton (no "0" text) instead of the value cell.
+    await waitFor(() => {
+      expect(screen.getByTestId("lab-intel-kpi-criticals")).toHaveTextContent(
+        "0",
+      );
+    });
     // Criticals + deviations still loaded → "Aanya Sharma" appears in BOTH
     // sections, so we assert at least one occurrence.
     await waitFor(() => {

@@ -422,9 +422,15 @@ describe("Admin Console dashboard page", () => {
 
     render(<AdminConsolePage />);
 
-    // SLA Overdue Complaints tile shows 3.
-    const slaLink = await screen.findByRole("link", { name: /SLA Overdue/i });
-    expect(within(slaLink).getByText("3")).toBeInTheDocument();
+    // SLA Overdue Complaints tile shows 3. The link mounts immediately with
+    // the initial complaints=[] state (value "0"), so we must waitFor the
+    // post-fetch setComplaints to land before asserting the count — a bare
+    // findByRole returns on the first paint and the synchronous getByText
+    // races the async state update.
+    await waitFor(() => {
+      const slaLink = screen.getByRole("link", { name: /SLA Overdue/i });
+      expect(within(slaLink).getByText("3")).toBeInTheDocument();
+    });
   });
 
   it("lists Low-Blood-Stock groups whose summed components fall below 3", async () => {
@@ -447,8 +453,13 @@ describe("Admin Console dashboard page", () => {
 
     render(<AdminConsolePage />);
 
-    const lowLink = await screen.findByRole("link", { name: /Low Blood Stock/i });
-    expect(within(lowLink).getByText("2")).toBeInTheDocument();
+    // Same race-prone shape as the SLA tile: the link mounts immediately
+    // with bloodGroups=[] (value "0"), so waitFor the post-fetch state
+    // update before asserting the count.
+    await waitFor(() => {
+      const lowLink = screen.getByRole("link", { name: /Low Blood Stock/i });
+      expect(within(lowLink).getByText("2")).toBeInTheDocument();
+    });
   });
 
   it("flattens the /shifts/roster object-shape grouped-by-shift and counts only DOCTOR roles for the Doctors-On-Duty bar", async () => {
@@ -755,8 +766,11 @@ describe("Admin Console dashboard page", () => {
     );
     expect(screen.getAllByTestId("skeleton-card-stub").length).toBe(3);
 
-    // Resolve the gating endpoint.
-    resolveLeaves?.({ data: [] });
+    // Resolve the gating endpoint. The cast re-widens — TS's control-flow
+    // analysis narrows the local `let` back to `null` here because the
+    // assignment in the mockImplementation lives in an async callback that
+    // hasn't run synchronously by this point in the type-checker's view.
+    (resolveLeaves as ((v: any) => void) | null)?.({ data: [] });
 
     await waitFor(() =>
       expect(

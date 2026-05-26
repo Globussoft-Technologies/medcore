@@ -1208,7 +1208,7 @@ describe("AmbulancePage", () => {
 
     // The Complete modal's Cancel is the last Cancel button in the DOM
     // (trip cards each have their own Cancel button).
-    let cancels = screen.getAllByRole("button", { name: /^cancel$/i });
+    const cancels = screen.getAllByRole("button", { name: /^cancel$/i });
     fireEvent.click(cancels[cancels.length - 1]);
     await waitFor(() =>
       expect(

@@ -222,7 +222,7 @@ This is the marketing-side companion to Module 2's lead pipeline. Module 4 is wh
 ### 5.3 Patient login
 
 - Patient logs in to their own portal via phone OTP.
-- Optional: link ABHA via Aadhaar OTP at first login.
+- Optional: link ABHA via Aadhaar OTP at f irst login.
 - Patient session is *a separate JWT scope* from staff users — patients cannot access any staff endpoint.
 - Forgot-phone recovery via in-clinic identity verification.
 - Password-less by default (OTP every session is friction; we use refresh tokens with 30-day lifetime).

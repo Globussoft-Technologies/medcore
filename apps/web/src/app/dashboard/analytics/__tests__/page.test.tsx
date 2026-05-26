@@ -809,8 +809,10 @@ describe("AnalyticsPage dashboard (ADMIN/RECEPTION analytics overview)", () => {
     await waitFor(() => expect(anchorClickSpy).toHaveBeenCalled());
     // Fetch was called with the Authorization bearer header.
     expect(fetchSpy).toHaveBeenCalled();
-    const fetchArgs = fetchSpy.mock.calls[0];
-    expect((fetchArgs[1] as any).headers.Authorization).toBe(
+    // `vi.fn(async () => ...)` has zero declared params, so `mock.calls[0]`
+    // is typed `[]`; cast through `unknown` to the actual fetch call shape.
+    const fetchArgs = fetchSpy.mock.calls[0] as unknown as [string, any];
+    expect(fetchArgs[1].headers.Authorization).toBe(
       "Bearer fake-bearer-token",
     );
     expect(lastAnchor!.download).toMatch(/^revenue-.*\.csv$/);

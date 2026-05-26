@@ -536,6 +536,19 @@ export default defineConfig({
           statements: 98,
         },
         // 2026-05-26 (test-cron pick): new colocated coverage suite for the
+        // marketing footer (15 tests covering smoke render, both brand logos,
+        // all four nav-column headings + every link href, social aria-labels +
+        // svg structure, and the dynamic copyright year via a pinned Date
+        // spy). Single-file coverage measured: 100% lines / 100% branches /
+        // 100% funcs / 100% statements. Floors set 2pp below measured per
+        // convention (small headroom for future refactors).
+        "src/app/(marketing)/_components/MarketingFooter.tsx": {
+          lines: 98,
+          branches: 98,
+          functions: 98,
+          statements: 98,
+        },
+        // 2026-05-26 (test-cron pick): new colocated coverage suite for the
         // global 404 page (src/app/__tests__/not-found.test.tsx, 8 tests
         // across anon + authed branches + the router.back/push fallback for
         // empty history). Single-file coverage measured: 100% lines /

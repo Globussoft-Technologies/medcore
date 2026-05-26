@@ -536,6 +536,18 @@ export default defineConfig({
           statements: 98,
         },
         // 2026-05-26 (test-cron pick): new colocated coverage suite for the
+        // global 404 page (src/app/__tests__/not-found.test.tsx, 8 tests
+        // across anon + authed branches + the router.back/push fallback for
+        // empty history). Single-file coverage measured: 100% lines /
+        // 100% branches / 100% funcs / 100% statements. Floors set 2pp
+        // below measured per convention.
+        "src/app/not-found.tsx": {
+          lines: 98,
+          branches: 98,
+          functions: 98,
+          statements: 98,
+        },
+        // 2026-05-26 (test-cron pick): new colocated coverage suite for the
         // global Cmd+K search palette
         // (apps/web/src/app/dashboard/_components/__tests__/search-palette.test.tsx,
         // 23 tests). Single-file coverage measured: 98.46% lines / 93.25%

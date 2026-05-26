@@ -295,6 +295,12 @@ export default defineConfig({
           functions: 96,
           statements: 100,
         },
+        "src/app/dashboard/vitals/page.tsx": {
+          lines: 99,
+          branches: 97,
+          functions: 100,
+          statements: 99,
+        },
       },
     },
   },

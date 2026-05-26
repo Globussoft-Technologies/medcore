@@ -18,7 +18,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
-import { ArrowLeft, FileText, User, Calendar, Stethoscope } from "lucide-react";
+import { ArrowLeft, FileText, User, Calendar } from "lucide-react";
 
 interface DiagnosisCode {
   code: string;
@@ -274,19 +274,6 @@ function FullConsultCard({ c }: { c: ConsultationRow }) {
           >
             {c.status === "SIGNED" ? "✓ Signed" : "Draft"}
           </span>
-          {/* Edit/continue link only meaningful for staff — patients
-              hit a 403 trying to open the consult editor. Showing
-              unconditionally is safe; the staff-only consult page
-              gates server-side. */}
-          {c.appointment?.id && (
-            <Link
-              href={`/dashboard/consult/${c.appointment.id}`}
-              className="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-700 transition hover:border-primary hover:text-primary dark:border-gray-700 dark:text-gray-300"
-            >
-              <Stethoscope className="mr-1 inline h-3 w-3" />
-              Open consult
-            </Link>
-          )}
         </div>
       </header>
 
@@ -308,7 +295,16 @@ function FullConsultCard({ c }: { c: ConsultationRow }) {
               {c.findings && (
                 <SoapTile label="Findings (legacy)" body={c.findings} />
               )}
-              {c.notes && <SoapTile label="Notes (legacy)" body={c.notes} />}
+              {c.notes &&
+                (parseLegacyAIScribeNote(c.notes) ? (
+                  // Old AI-scribe notes were dumped into `notes` as
+                  // "[AI Scribe — Doctor Approved]\n\nSubjective:
+                  // {...JSON...}\nObjective: {...}\nAssessment: …\n
+                  // Plan: {...}". Parse and render structured.
+                  <LegacyAIScribeNote raw={c.notes} />
+                ) : (
+                  <SoapTile label="Notes (legacy)" body={c.notes} />
+                ))}
             </div>
           )}
           {hasCodes && (
@@ -327,15 +323,58 @@ function FullConsultCard({ c }: { c: ConsultationRow }) {
   );
 }
 
+// Parse a SOAP column's body that the consult editor writes as
+// markdown-sectioned text (`## Chief Complaint\n…\n\n## HPI\n…`) into
+// an array of { label, body } pairs for nicer rendering. Falls back to
+// a single section with the original body so legacy plain-text rows
+// don't render as a confusing empty block.
+function parseSoapSubsections(
+  text: string,
+): Array<{ label: string | null; body: string }> {
+  const out: Array<{ label: string | null; body: string }> = [];
+  const regex = /^## (.+?)\r?\n([\s\S]*?)(?=\r?\n## |$)/gm;
+  let m: RegExpExecArray | null;
+  let anyMatched = false;
+  while ((m = regex.exec(text)) !== null) {
+    const label = m[1].trim();
+    const body = m[2].trim();
+    if (body) out.push({ label, body });
+    anyMatched = true;
+  }
+  if (!anyMatched) {
+    const trimmed = text.trim();
+    if (trimmed) out.push({ label: null, body: trimmed });
+  }
+  return out;
+}
+
 function SoapTile({ label, body }: { label: string; body: string }) {
+  const subs = parseSoapSubsections(body);
   return (
-    <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900/40">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800/60">
+      {/* Parent SOAP section label (Subjective / Objective / …) */}
+      <p className="border-b border-gray-100 pb-2 text-[10px] font-bold uppercase tracking-[0.15em] text-primary dark:border-gray-700 dark:text-blue-300">
         {label}
       </p>
-      <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-gray-800 dark:text-gray-200">
-        {body}
-      </p>
+      {/* Sub-sections rendered as a definition-list-style stack:
+            label = small-caps muted accent, body = main text colour.
+            The visual difference between the SOAP heading (bold caps,
+            colored, underlined) and the sub-label (smaller caps,
+            muted) makes the hierarchy obvious in both themes. */}
+      <dl className="mt-3 space-y-3">
+        {subs.map((s, i) => (
+          <div key={i}>
+            {s.label && (
+              <dt className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                {s.label}
+              </dt>
+            )}
+            <dd className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-gray-900 dark:text-gray-100">
+              {s.body}
+            </dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }
@@ -369,4 +408,217 @@ function CodeChips({
       ))}
     </div>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Legacy AI Scribe note renderer.
+//
+// Pre-§2.1.3, AI-scribe finalize dumped the SOAP draft as a single
+// "[AI Scribe — Doctor Approved]\n\nSubjective: {…JSON…}\nObjective:
+// {…}\nAssessment: free text\nPlan: {…}" blob into Consultation.notes.
+// Without parsing, the consult history rendered the raw JSON.
+//
+// `parseLegacyAIScribeNote` returns a structured view of those rows,
+// or null if the text is plain prose (newer rows just write to
+// subjective/objective/assessment/plan columns directly).
+// ─────────────────────────────────────────────────────────────────────
+interface LegacyAIScribePayload {
+  approved: boolean;
+  subjective: Record<string, unknown> | null;
+  objective: Record<string, unknown> | null;
+  assessment: string | null;
+  plan: Record<string, unknown> | null;
+}
+
+function parseLegacyAIScribeNote(
+  text: string | null | undefined,
+): LegacyAIScribePayload | null {
+  if (!text) return null;
+  if (!/\[AI Scribe/i.test(text)) return null;
+
+  const out: LegacyAIScribePayload = {
+    approved: /Doctor Approved/i.test(text),
+    subjective: null,
+    objective: null,
+    assessment: null,
+    plan: null,
+  };
+
+  // Split on the four section markers. Each section's value can
+  // span multiple lines (JSON pretty-printed or wrapped).
+  const sections = ["Subjective", "Objective", "Assessment", "Plan"];
+  for (let i = 0; i < sections.length; i++) {
+    const name = sections[i];
+    const next = sections.slice(i + 1).join("|");
+    const re = next
+      ? new RegExp(`${name}:\\s*([\\s\\S]*?)(?=\\n(?:${next}):|$)`, "i")
+      : new RegExp(`${name}:\\s*([\\s\\S]*?)$`, "i");
+    const m = text.match(re);
+    if (!m) continue;
+    const raw = m[1].trim();
+    if (!raw) continue;
+    if (name === "Assessment") {
+      out.assessment = raw;
+      continue;
+    }
+    // Subjective / Objective / Plan are JSON-encoded.
+    if (raw.startsWith("{") || raw.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (name === "Subjective") out.subjective = parsed;
+        else if (name === "Objective") out.objective = parsed;
+        else if (name === "Plan") out.plan = parsed;
+      } catch {
+        // Malformed JSON — leave as null; caller falls back to raw.
+      }
+    }
+  }
+
+  // If we couldn't extract ANY section, treat as "not parseable" so
+  // the caller renders the raw blob (better than an empty panel).
+  if (!out.subjective && !out.objective && !out.assessment && !out.plan) {
+    return null;
+  }
+  return out;
+}
+
+function LegacyAIScribeNote({ raw }: { raw: string }) {
+  const parsed = parseLegacyAIScribeNote(raw);
+  if (!parsed) return <SoapTile label="Notes (legacy)" body={raw} />;
+  return (
+    <div className="md:col-span-2 rounded-xl border border-amber-200 bg-amber-50/40 p-4 shadow-sm dark:border-amber-700/50 dark:bg-amber-900/10">
+      <div className="mb-3 flex items-center gap-2 border-b border-amber-200 pb-2 dark:border-amber-700/40">
+        <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-amber-700 dark:text-amber-300">
+          AI Scribe note (legacy)
+        </p>
+        {parsed.approved && (
+          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+            ✓ Doctor approved
+          </span>
+        )}
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        {parsed.subjective && (
+          <LegacyAIScribeSection
+            title="Subjective"
+            entries={readableEntries(parsed.subjective)}
+          />
+        )}
+        {parsed.objective && (
+          <LegacyAIScribeSection
+            title="Objective"
+            entries={readableEntries(parsed.objective)}
+          />
+        )}
+        {parsed.assessment && (
+          <LegacyAIScribeSection
+            title="Assessment"
+            entries={[{ label: "Impression", body: parsed.assessment }]}
+          />
+        )}
+        {parsed.plan && (
+          <LegacyAIScribeSection
+            title="Plan"
+            entries={readableEntries(parsed.plan)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LegacyAIScribeSection({
+  title,
+  entries,
+}: {
+  title: string;
+  entries: Array<{ label: string; body: string }>;
+}) {
+  if (entries.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800/60">
+      <p className="border-b border-gray-100 pb-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-primary dark:border-gray-700 dark:text-blue-300">
+        {title}
+      </p>
+      <dl className="mt-2 space-y-2">
+        {entries.map((e, i) => (
+          <div key={i}>
+            <dt className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              {e.label}
+            </dt>
+            <dd className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-gray-900 dark:text-gray-100">
+              {e.body}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+// Normalize a parsed AI-scribe section object into a readable
+// label/value list. Skips internal-only fields (confidence,
+// evidenceSpan), formats arrays/objects sensibly.
+function readableEntries(
+  obj: Record<string, unknown>,
+): Array<{ label: string; body: string }> {
+  const HIDDEN = new Set(["confidence", "evidenceSpan"]);
+  const out: Array<{ label: string; body: string }> = [];
+  for (const [key, value] of Object.entries(obj)) {
+    if (HIDDEN.has(key)) continue;
+    if (value === null || value === undefined) continue;
+    const label = humaniseKey(key);
+    const body = formatValue(value);
+    if (!body) continue;
+    out.push({ label, body });
+  }
+  return out;
+}
+
+function humaniseKey(key: string): string {
+  // chiefComplaint → Chief Complaint, hpi → HPI, etc.
+  if (key === "hpi") return "History of Present Illness";
+  const spaced = key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function formatValue(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "";
+    // Array of strings (allergies / investigations / referrals etc).
+    if (value.every((v) => typeof v === "string")) {
+      return (value as string[]).filter(Boolean).join(", ");
+    }
+    // Array of medication-like objects: name · dose · frequency · duration.
+    if (value.every((v) => v && typeof v === "object")) {
+      return (value as Array<Record<string, unknown>>)
+        .map((m) => {
+          const parts: string[] = [];
+          if (typeof m.name === "string") parts.push(m.name);
+          if (typeof m.dose === "string" && m.dose) parts.push(m.dose);
+          if (typeof m.frequency === "string" && m.frequency)
+            parts.push(m.frequency);
+          if (typeof m.duration === "string" && m.duration)
+            parts.push(m.duration);
+          const head = parts.join(" · ");
+          const note =
+            typeof m.notes === "string" && m.notes
+              ? ` — ${m.notes}`
+              : "";
+          return head + note;
+        })
+        .filter(Boolean)
+        .join("\n");
+    }
+    return JSON.stringify(value);
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value);
 }

@@ -266,15 +266,52 @@ function ConsultationCard({ c }: { c: ConsultationRow }) {
   );
 }
 
+// Parse the on-wire SOAP column (markdown `## <label>` headers) into
+// per-subsection chunks for nicer rendering. Falls back to a single
+// chunk on plain-text legacy rows so nothing renders blank.
+function parseSoapSubsections(
+  text: string,
+): Array<{ label: string | null; body: string }> {
+  const out: Array<{ label: string | null; body: string }> = [];
+  const regex = /^## (.+?)\r?\n([\s\S]*?)(?=\r?\n## |$)/gm;
+  let m: RegExpExecArray | null;
+  let anyMatched = false;
+  while ((m = regex.exec(text)) !== null) {
+    const label = m[1].trim();
+    const body = m[2].trim();
+    if (body) out.push({ label, body });
+    anyMatched = true;
+  }
+  if (!anyMatched) {
+    const trimmed = text.trim();
+    if (trimmed) out.push({ label: null, body: trimmed });
+  }
+  return out;
+}
+
 function SoapBlock({ label, body }: { label: string; body: string }) {
+  const subs = parseSoapSubsections(body);
   return (
     <div>
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+      {/* Parent SOAP label — colored + underlined to stand out from
+          the sub-labels below it. */}
+      <p className="border-b border-gray-100 pb-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-primary dark:border-gray-700 dark:text-blue-300">
         {label}
       </p>
-      <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-gray-800 dark:text-gray-200">
-        {body}
-      </p>
+      <dl className="mt-2 space-y-2">
+        {subs.map((s, i) => (
+          <div key={i}>
+            {s.label && (
+              <dt className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                {s.label}
+              </dt>
+            )}
+            <dd className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-gray-900 dark:text-gray-100">
+              {s.body}
+            </dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }

@@ -139,6 +139,12 @@ export default defineConfig({
           functions: 100,
           statements: 98,
         },
+        "src/app/dashboard/patients/page.tsx": {
+          lines: 99,
+          branches: 90,
+          functions: 91,
+          statements: 99,
+        },
         "src/app/dashboard/scheduled-reports/page.tsx": {
           lines: 100,
           branches: 95,

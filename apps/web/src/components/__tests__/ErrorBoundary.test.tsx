@@ -34,13 +34,13 @@ function Bomb({ boom, message }: { boom: boolean; message?: string }) {
 
 // Helper that throws a non-Error value (string) — exercises the
 // `String(err ?? "Unknown error")` branch in getDerivedStateFromError.
-function StringThrower() {
+function StringThrower(): React.ReactElement {
   throw "raw-string-throw";
 }
 
 // Helper that throws an Error with an empty message — exercises the
 // `?? "Unknown error"` fallback in the render path.
-function EmptyMessageThrower() {
+function EmptyMessageThrower(): React.ReactElement {
   // eslint-disable-next-line @typescript-eslint/no-throw-literal
   throw new Error("");
 }

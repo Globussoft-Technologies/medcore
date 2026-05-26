@@ -142,7 +142,8 @@ function ok(invoices: InvoiceRow[]) {
 }
 
 describe("Bills dashboard page", () => {
-  let openSpy: ReturnType<typeof vi.spyOn>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let openSpy: any;
 
   beforeEach(() => {
     apiMock.get.mockReset();

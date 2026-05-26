@@ -630,8 +630,9 @@ describe("MySchedulePage", () => {
     );
 
     // The certifications endpoint must never be hit.
-    const certCalls = apiMock.get.mock.calls.filter(([url]: [string]) =>
-      url.startsWith("/hr-ops/certifications")
+    const certCalls = apiMock.get.mock.calls.filter(
+      ([url]: unknown[]) =>
+        typeof url === "string" && url.startsWith("/hr-ops/certifications"),
     );
     expect(certCalls).toHaveLength(0);
   });

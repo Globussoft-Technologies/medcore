@@ -337,8 +337,9 @@ describe("SchedulePage", () => {
       expect(apiMock.get).toHaveBeenCalledWith("/doctors");
     });
 
-    const scheduleCalls = apiMock.get.mock.calls.filter(([url]: [string]) =>
-      url.includes("/schedule")
+    const scheduleCalls = apiMock.get.mock.calls.filter(
+      ([url]: unknown[]) =>
+        typeof url === "string" && url.includes("/schedule"),
     );
     expect(scheduleCalls).toHaveLength(0);
   });

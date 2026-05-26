@@ -107,7 +107,8 @@ const REPLY_REMARK = {
 
 describe("AppointmentRemarksModal (Pearl §2.1.7)", () => {
   let onClose: ReturnType<typeof vi.fn>;
-  let confirmSpy: ReturnType<typeof vi.spyOn>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let confirmSpy: any;
 
   beforeEach(() => {
     cleanup();

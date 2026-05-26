@@ -443,7 +443,7 @@ describe("AI KPIs dashboard page", () => {
       });
 
       await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-      const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const [url, opts] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
       expect(url).toMatch(/\/ai\/kpis\/export\?from=.+&to=.+/);
       expect((opts.headers as Record<string, string>).Authorization).toBe(
         "Bearer tok-admin",

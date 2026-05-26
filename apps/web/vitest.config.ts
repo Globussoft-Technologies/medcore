@@ -563,6 +563,18 @@ export default defineConfig({
           functions: 88,
           statements: 96,
         },
+        // 2026-05-26 (test-cron pick): new colocated coverage suite for the
+        // shared TablePagination footer (apps/web/src/components/__tests__/
+        // TablePagination.test.tsx, 22 tests). Single-file coverage measured:
+        // 100% lines / 100% branches / 100% funcs / 100% statements. Floors
+        // set 2pp below measured (branches floored to 98 to leave a smidge
+        // of headroom for future refactors).
+        "src/components/TablePagination.tsx": {
+          lines: 98,
+          branches: 98,
+          functions: 98,
+          statements: 98,
+        },
       },
     },
   },

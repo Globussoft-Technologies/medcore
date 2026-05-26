@@ -265,6 +265,12 @@ export default defineConfig({
           functions: 96,
           statements: 100,
         },
+        "src/app/dashboard/antenatal/[id]/page.tsx": {
+          lines: 93,
+          branches: 83,
+          functions: 71,
+          statements: 93,
+        },
         "src/app/dashboard/admissions/page.tsx": {
           lines: 97,
           branches: 91,

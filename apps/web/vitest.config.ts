@@ -157,6 +157,12 @@ export default defineConfig({
           functions: 92,
           statements: 99,
         },
+        "src/app/dashboard/surgery/[id]/page.tsx": {
+          lines: 99,
+          branches: 82,
+          functions: 83,
+          statements: 99,
+        },
         "src/app/dashboard/emergency/page.tsx": {
           lines: 95,
           branches: 83,
@@ -384,6 +390,12 @@ export default defineConfig({
           branches: 81,
           functions: 87,
           statements: 94,
+        },
+        "src/app/dashboard/pharmacy/page.tsx": {
+          lines: 98,
+          branches: 90,
+          functions: 88,
+          statements: 98,
         },
       },
     },

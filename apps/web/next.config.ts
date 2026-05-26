@@ -47,6 +47,47 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async headers() {
+    return [
+      // The patient SW lives at /sw.js but registers with scope "/patient".
+      // Without this header the browser rejects the registration with a
+      // SecurityError ("scope is outside the SW's path"), the registration
+      // .catch() logs to the console, and Lighthouse's errors-in-console
+      // audit scores 0 on every patient route.
+      // Also send no-store: the SW file itself must never be cached, so a
+      // redeploy reliably ships the new worker (matches the registration's
+      // `updateViaCache: "none"` setting).
+      {
+        source: "/sw.js",
+        headers: [
+          { key: "Service-Worker-Allowed", value: "/patient" },
+          { key: "Cache-Control", value: "no-store, must-revalidate" },
+        ],
+      },
+      // Next.js content-hashes /_next/static/* filenames, so they're safe to
+      // cache forever. Without this, Lighthouse flags uses-long-cache-ttl
+      // and cache-insight on every page.
+      {
+        source: "/_next/static/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+      // Patient PWA icon assets are also versioned by URL — long-cache them.
+      {
+        source: "/icon-:size*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

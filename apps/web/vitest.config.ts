@@ -403,6 +403,12 @@ export default defineConfig({
           functions: 88,
           statements: 98,
         },
+        "src/app/dashboard/bloodbank/page.tsx": {
+          lines: 93,
+          branches: 84,
+          functions: 67,
+          statements: 93,
+        },
       },
     },
   },

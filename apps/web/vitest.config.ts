@@ -175,6 +175,21 @@ export default defineConfig({
           functions: 83,
           statements: 99,
         },
+        // 2026-05-26 (test-cron pick): new colocated coverage suite for the
+        // surgery detail route-segment error boundary (Issue #86)
+        // (apps/web/src/app/dashboard/surgery/[id]/__tests__/error.test.tsx,
+        // 14 tests across chrome + role=alert + headline + message fallback +
+        // Retry reset() wiring + Back-to-Surgery link href + conditional
+        // error.digest reference line + useEffect console.error logging on
+        // mount + on prop change). Single-file coverage measured: 100% lines /
+        // 100% branches / 100% funcs / 100% statements. Floors set 2pp below
+        // measured per convention.
+        "src/app/dashboard/surgery/[id]/error.tsx": {
+          lines: 98,
+          branches: 98,
+          functions: 98,
+          statements: 98,
+        },
         "src/app/dashboard/emergency/page.tsx": {
           lines: 95,
           branches: 83,

@@ -52,7 +52,7 @@ beforeEach(() => {
     const id = originalSetInterval(handler as (...a: unknown[]) => void, timeout, ...args);
     activeIntervals.push(id);
     return id;
-  }) as typeof setInterval;
+  }) as unknown as typeof setInterval;
 });
 
 afterEach(() => {

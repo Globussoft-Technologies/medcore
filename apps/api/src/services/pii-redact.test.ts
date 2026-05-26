@@ -176,7 +176,10 @@ describe("redactVisitorPII — flat visitor objects", () => {
   });
 
   it("normalizes a MISSING idProofNumber field to null on output", () => {
-    const visitor = { id: "v2", name: "Anjali" };
+    const visitor: { id: string; name: string; idProofNumber?: string | null } = {
+      id: "v2",
+      name: "Anjali",
+    };
     const safe = redactVisitorPII(visitor);
     expect(safe.idProofNumber).toBeNull();
     expect(safe.id).toBe("v2");
@@ -271,7 +274,7 @@ describe("redactVisitorPII — idempotency", () => {
   });
 
   it("redacting a missing-field input twice still yields null", () => {
-    const visitor = { id: "v8" };
+    const visitor: { id: string; idProofNumber?: string | null } = { id: "v8" };
     const once = redactVisitorPII(visitor);
     const twice = redactVisitorPII(once);
     expect(twice.idProofNumber).toBeNull();

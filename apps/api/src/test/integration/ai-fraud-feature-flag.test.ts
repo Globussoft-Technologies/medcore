@@ -11,11 +11,23 @@ import { it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import express from "express";
 import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
-import { __resetFeatureFlagsCacheForTests } from "../../services/feature-flags";
+import {
+  __resetFeatureFlagsCacheForTests,
+} from "../../services/feature-flags";
+import {
+  tenantContextMiddleware,
+  __resetTenantValidationCacheForTests,
+} from "../../middleware/tenant";
 
 async function buildTestApp(): Promise<express.Express> {
   const a = express();
   a.use(express.json());
+  // Production `app.ts` mounts this globally before any router so
+  // `req.tenantId` is populated from the bearer JWT. The feature-flag
+  // gate short-circuits to "enabled" when `req.tenantId` is undefined,
+  // so without this the disabled-flag assertion would silently pass
+  // through to the handler and return 200/2xx instead of 404.
+  a.use(tenantContextMiddleware);
   const { aiFraudRouter } = await import("../../routes/ai-fraud");
   a.use("/api/v1/ai/fraud", aiFraudRouter);
   const { errorHandler } = await import("../../middleware/error");
@@ -30,6 +42,7 @@ describeIfDB("AI Fraud feature-flag gate (Pearl §S2.6 — integration)", () => 
   beforeAll(async () => {
     await resetDB();
     __resetFeatureFlagsCacheForTests();
+    __resetTenantValidationCacheForTests();
     // Materialize a tenant + bind the admin user to it so req.tenantId
     // is non-null (isFeatureEnabled short-circuits to `true` otherwise).
     const prisma = await getPrisma();
@@ -50,6 +63,7 @@ describeIfDB("AI Fraud feature-flag gate (Pearl §S2.6 — integration)", () => 
 
   afterAll(() => {
     __resetFeatureFlagsCacheForTests();
+    __resetTenantValidationCacheForTests();
   });
 
   it("returns 200/2xx on POST /scan when tenant.featureFlags.aiFraud is true", async () => {

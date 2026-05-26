@@ -23,6 +23,10 @@ import request from "supertest";
 import express from "express";
 import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
 import { __resetFeatureFlagsCacheForTests } from "../../services/feature-flags";
+import {
+  tenantContextMiddleware,
+  __resetTenantValidationCacheForTests,
+} from "../../middleware/tenant";
 import type { FeatureKey } from "@medcore/shared";
 
 interface RouteProbe {
@@ -115,6 +119,12 @@ const ROUTES: RouteProbe[] = [
 async function buildAppFor(route: RouteProbe): Promise<express.Express> {
   const app = express();
   app.use(express.json());
+  // Production `app.ts` mounts this globally before any router so
+  // `req.tenantId` is populated from the bearer JWT. The feature-flag
+  // gate short-circuits to "enabled" when `req.tenantId` is undefined,
+  // so without this the disabled-flag assertion would silently pass
+  // through to the handler and return 200/2xx instead of 404.
+  app.use(tenantContextMiddleware);
   app.use(route.mountPath, await route.importRouter());
   const { errorHandler } = await import("../../middleware/error");
   app.use(errorHandler);
@@ -140,6 +150,7 @@ describeIfDB("Stage-2 feature-flag coverage (Pearl audit fix-up #3 — 2026-05-2
   beforeAll(async () => {
     await resetDB();
     __resetFeatureFlagsCacheForTests();
+    __resetTenantValidationCacheForTests();
     const prisma = await getPrisma();
     let tenant = await prisma.tenant.findUnique({ where: { subdomain: "default" } });
     if (!tenant) {
@@ -157,6 +168,7 @@ describeIfDB("Stage-2 feature-flag coverage (Pearl audit fix-up #3 — 2026-05-2
 
   afterAll(async () => {
     __resetFeatureFlagsCacheForTests();
+    __resetTenantValidationCacheForTests();
     // Restore default-true state so later test files don't see lingering
     // false overrides on shared tenant row.
     const prisma = await getPrisma();

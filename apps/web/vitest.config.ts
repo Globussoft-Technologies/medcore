@@ -664,6 +664,24 @@ export default defineConfig({
           statements: 98,
         },
         // 2026-05-26 (test-cron pick): new colocated coverage suite for the
+        // App Router sitemap (src/app/__tests__/sitemap.test.ts, 15 tests
+        // across the default-export shape, fresh-Date-per-invocation
+        // invariant, every public marketing URL is absolute under the
+        // production host + free of dashboard/api/internal leakage, every
+        // entry carries the four required Sitemap keys, the changeFrequency
+        // + priority contract (home 1.0/weekly, features + pricing
+        // 0.9/monthly, solutions + contact 0.8/monthly, about 0.5/monthly,
+        // login + register 0.3/yearly), and the sitemap.org enum + [0,1]
+        // priority-range invariants). Single-file coverage measured: 100%
+        // lines / 100% branches / 100% funcs / 100% statements. Floors set
+        // 2pp below measured per convention.
+        "src/app/sitemap.ts": {
+          lines: 98,
+          branches: 98,
+          functions: 98,
+          statements: 98,
+        },
+        // 2026-05-26 (test-cron pick): new colocated coverage suite for the
         // patient PWA scoped 404 page
         // (src/app/patient/__tests__/not-found.test.tsx, 6 tests covering
         // the section testid, the Page-not-found <h1>, the helper copy,

@@ -331,6 +331,18 @@ export default defineConfig({
           functions: 90,
           statements: 98,
         },
+        "src/app/dashboard/admin-console/page.tsx": {
+          lines: 96,
+          branches: 79,
+          functions: 98,
+          statements: 96,
+        },
+        "src/app/dashboard/suppliers/page.tsx": {
+          lines: 99,
+          branches: 88,
+          functions: 86,
+          statements: 99,
+        },
       },
     },
   },

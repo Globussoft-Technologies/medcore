@@ -767,7 +767,7 @@ describe("SurgeryDetailPage — PreOpChecklistCard", () => {
     await screen.findByText(/0\/5 complete/);
     const checkboxes = screen
       .getAllByRole("checkbox")
-      .filter((cb: HTMLInputElement) => !cb.disabled);
+      .filter((cb) => !(cb as HTMLInputElement).disabled);
     // The first checkbox is consent (per items[] order).
     fireEvent.click(checkboxes[0]);
     await waitFor(() =>
@@ -807,7 +807,7 @@ describe("SurgeryDetailPage — PreOpChecklistCard", () => {
     await screen.findByText(/0\/5 complete/);
     const checkboxes = screen
       .getAllByRole("checkbox")
-      .filter((cb: HTMLInputElement) => !cb.disabled);
+      .filter((cb) => !(cb as HTMLInputElement).disabled);
     fireEvent.click(checkboxes[0]);
     await waitFor(() =>
       expect(toastMock.error).toHaveBeenCalledWith("preop failed"),
@@ -820,8 +820,8 @@ describe("SurgeryDetailPage — PreOpChecklistCard", () => {
     render(<SurgeryDetailPage />);
     await screen.findByText(/0\/5 complete/);
     const checkboxes = screen.getAllByRole("checkbox");
-    checkboxes.forEach((cb: HTMLInputElement) => {
-      expect(cb.disabled).toBe(true);
+    checkboxes.forEach((cb) => {
+      expect((cb as HTMLInputElement).disabled).toBe(true);
     });
   });
 });
@@ -1199,12 +1199,19 @@ describe("SurgeryDetailPage — PacuObservationsCard", () => {
     render(<SurgeryDetailPage />);
     await screen.findByText(/PACU Recovery/);
     // JSX renders BP as split text nodes ({sys}/{dia}) — query by element
-    // whose textContent matches.
-    const bps = Array.from(document.querySelectorAll(".font-semibold, td"))
-      .map((el) => el.textContent?.trim())
-      .filter(Boolean);
-    expect(bps).toContain("118/78");
-    expect(bps).toContain("120/80");
+    // whose textContent matches. The "PACU Recovery" heading renders
+    // immediately regardless of loading state, so findByText returns
+    // before setRows lands the GET /observations response. Wrap the
+    // synchronous DOM scan in waitFor so the retry covers the async
+    // state update — otherwise the table body is still the loading
+    // skeleton and bps[] only contains header labels.
+    await waitFor(() => {
+      const bps = Array.from(document.querySelectorAll(".font-semibold, td"))
+        .map((el) => el.textContent?.trim())
+        .filter(Boolean);
+      expect(bps).toContain("118/78");
+      expect(bps).toContain("120/80");
+    });
   });
 
   it("Add observation POSTs the parsed shape and reloads", async () => {

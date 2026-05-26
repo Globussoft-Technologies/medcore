@@ -483,6 +483,18 @@ export default defineConfig({
           functions: 98,
           statements: 98,
         },
+        // 2026-05-26 (test-cron pick): companion test file
+        // (OnboardingTour.test.tsx) lands navigation / Esc / click-outside /
+        // open-close lifecycle / role fallback coverage on top of the
+        // existing OnboardingTour.skip.test.tsx (Issue #122 + #502 flags).
+        // Combined single-file coverage measures 100% lines / 83.63%
+        // branches / 100% funcs / 100% statements. Floors set 2pp below.
+        "src/components/OnboardingTour.tsx": {
+          lines: 98,
+          branches: 81,
+          functions: 98,
+          statements: 98,
+        },
       },
     },
   },

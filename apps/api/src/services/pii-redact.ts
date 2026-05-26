@@ -24,15 +24,24 @@ type AnyVisitor = Record<string, unknown> & {
   idProofNumber?: string | null;
 };
 
-export function redactVisitorPII<T extends AnyVisitor>(visitor: T): T {
-  if (!visitor || typeof visitor !== "object") return visitor;
+// Return type widens to `T & { idProofNumber: string | null }` because the
+// function always sets `idProofNumber` on the output (normalising missing
+// inputs to null). Without the explicit return shape, callers whose input
+// type doesn't declare `idProofNumber` (e.g. test fixtures) get TS2339 when
+// they read `safe.idProofNumber` on the result.
+export function redactVisitorPII<T extends AnyVisitor>(
+  visitor: T,
+): T & { idProofNumber: string | null } {
+  if (!visitor || typeof visitor !== "object") return visitor as T & { idProofNumber: string | null };
   return {
     ...visitor,
     idProofNumber: maskIdNumber(visitor.idProofNumber ?? null),
   };
 }
 
-export function redactVisitorListPII<T extends AnyVisitor>(visitors: T[]): T[] {
+export function redactVisitorListPII<T extends AnyVisitor>(
+  visitors: T[],
+): Array<T & { idProofNumber: string | null }> {
   if (!Array.isArray(visitors)) return visitors;
   return visitors.map((v) => redactVisitorPII(v));
 }

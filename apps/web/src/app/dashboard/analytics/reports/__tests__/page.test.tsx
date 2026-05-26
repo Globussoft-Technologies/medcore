@@ -595,8 +595,8 @@ describe("Report Builder dashboard page (admin-only)", () => {
       .mockImplementation(() => undefined);
     let capturedBlob: Blob | null = null;
     const origCreateObjectURL = URL.createObjectURL;
-    createObjectURLSpy.mockImplementation((b: Blob) => {
-      capturedBlob = b;
+    createObjectURLSpy.mockImplementation((b: Blob | MediaSource) => {
+      capturedBlob = b as Blob;
       return "blob:mock-json";
     });
     const anchorClickSpy = vi.fn();
@@ -621,8 +621,10 @@ describe("Report Builder dashboard page (admin-only)", () => {
     await waitFor(() => expect(anchorClickSpy).toHaveBeenCalled());
     expect(lastAnchor!.download).toMatch(/^revenue-report-.*\.json$/);
     expect(capturedBlob).toBeTruthy();
-    // Decode the blob to assert payload shape.
-    const text = await (capturedBlob as Blob).text();
+    // Decode the blob to assert payload shape. The cast through `unknown`
+    // suppresses TS2352 — the closure in `mockImplementation` mutates
+    // `capturedBlob` to a non-null Blob, but TS's narrowing can't see that.
+    const text = await (capturedBlob as unknown as Blob).text();
     const parsed = JSON.parse(text);
     expect(parsed.report.type).toBe("revenue");
     expect(parsed.report.groupBy).toBe("day");

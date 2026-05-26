@@ -142,7 +142,13 @@ function ok(invoices: InvoiceRow[]) {
 }
 
 describe("Bills dashboard page", () => {
-  let openSpy: ReturnType<typeof vi.spyOn>;
+  // `vi.spyOn(window, "open")` produces a narrower overloaded MockInstance
+  // shape than the bare `ReturnType<typeof vi.spyOn>` generic; using the
+  // inferred type via ReturnType<typeof vi.spyOn<Window, "open">> would also
+  // work but is more brittle to vitest@2 type-shape churn. `any` here is
+  // load-bearing for the lifecycle assignment in beforeEach.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let openSpy: any;
 
   beforeEach(() => {
     apiMock.get.mockReset();

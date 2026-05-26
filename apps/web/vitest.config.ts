@@ -522,6 +522,19 @@ export default defineConfig({
           functions: 98,
           statements: 98,
         },
+        // 2026-05-26 (test-cron pick): new colocated coverage suite for the
+        // marketing "Request a Demo" EnquiryForm (11 tests covering render,
+        // client-side schema rejection per field, happy POST, NEXT_PUBLIC_API_URL
+        // override, structured 400 server errors, generic-error fallback,
+        // network failure, and in-flight submitting state). Single-file
+        // coverage: 100% lines / 94.82% branches / 100% funcs / 100% statements.
+        // Floors set 2pp below measured.
+        "src/app/(marketing)/contact/EnquiryForm.tsx": {
+          lines: 98,
+          branches: 92,
+          functions: 98,
+          statements: 98,
+        },
       },
     },
   },

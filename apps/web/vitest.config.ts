@@ -578,6 +578,21 @@ export default defineConfig({
           statements: 98,
         },
         // 2026-05-26 (test-cron pick): new colocated coverage suite for the
+        // marketing FeatureCard tile (10 tests covering smoke render, the
+        // required slots (icon / h3 title / p description), both branches of
+        // the optional-href ternary (Link wrapper vs bare div), and structural
+        // invariants (one icon + one heading + one paragraph per card, and the
+        // entire tile being clickable when href is set). Single-file coverage
+        // measured: 100% lines / 100% branches / 100% funcs / 100% statements.
+        // Floors set 2pp below measured per convention (small headroom for
+        // future refactors).
+        "src/app/(marketing)/_components/FeatureCard.tsx": {
+          lines: 98,
+          branches: 98,
+          functions: 98,
+          statements: 98,
+        },
+        // 2026-05-26 (test-cron pick): new colocated coverage suite for the
         // marketing CTA section band (15 tests covering smoke render,
         // Container wrap, default heading + subtitle copy, default primary
         // CTA -> /contact, default secondary CTA -> the live demo URL,

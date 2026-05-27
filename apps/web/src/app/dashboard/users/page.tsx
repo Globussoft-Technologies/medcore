@@ -57,12 +57,25 @@ export default function UsersPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [showForm, setShowForm] = useState(false);
+  // Issue #991 (UI follow-up): the API treats `address` and
+  // `emergencyContact` as `.optional()` for non-PATIENT roles (the
+  // server-side gate in /register only fires when role === PATIENT),
+  // but the form previously hid them entirely. Exposing them gives
+  // the admin a place to capture next-of-kin / postal details at
+  // create time without a follow-up edit. Fields are optional, but
+  // emergency contact is "all-or-nothing" client-side because the
+  // wire schema requires `name` + `phone` + `relationship` together
+  // when the object is sent.
   const [form, setForm] = useState({
     name: "",
     email: "",
     phone: "",
     password: "",
     role: "DOCTOR",
+    address: "",
+    emergencyContactName: "",
+    emergencyContactPhone: "",
+    emergencyContactRelationship: "",
   });
   const [formError, setFormError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({});
@@ -110,6 +123,32 @@ export default function UsersPage() {
       errs.password = "Password must be at least 8 characters";
     else if (!/[A-Za-z]/.test(form.password) || !/\d/.test(form.password))
       errs.password = "Password must contain at least one letter and one digit";
+
+    // Issue #991 (UI follow-up): address is optional, but if provided
+    // must meet the 5-character floor the server enforces post-parse.
+    const addrTrim = form.address.trim();
+    if (addrTrim.length > 0 && addrTrim.length < 5) {
+      errs.address = "Address must be at least 5 characters";
+    } else if (addrTrim.length > 500) {
+      errs.address = "Address must be at most 500 characters";
+    }
+
+    // Emergency contact: optional, but all-or-nothing. The API's
+    // emergencyContactSchema requires name + phone + relationship
+    // together; we mirror that here so a half-filled sub-form gets
+    // an inline message instead of a 400 round-trip.
+    const ecName = form.emergencyContactName.trim();
+    const ecPhone = form.emergencyContactPhone.trim();
+    const ecRel = form.emergencyContactRelationship.trim();
+    const ecAnyFilled = !!(ecName || ecPhone || ecRel);
+    if (ecAnyFilled) {
+      if (!ecName) errs.emergencyContactName = "Required when any emergency-contact field is filled";
+      if (!ecPhone) errs.emergencyContactPhone = "Required when any emergency-contact field is filled";
+      else if (!/^\+?\d{10,15}$/.test(ecPhone))
+        errs.emergencyContactPhone = "Emergency phone must be 10–15 digits (optional + prefix)";
+      if (!ecRel) errs.emergencyContactRelationship = "Required when any emergency-contact field is filled";
+    }
+
     return errs;
   }
 
@@ -150,22 +189,66 @@ export default function UsersPage() {
     setSubmitting(true);
 
     try {
-      await api.post("/auth/register", {
+      // Issue #991 (UI follow-up): include address + emergencyContact in
+      // the wire body only when populated. Both are optional on the
+      // /register schema for non-PATIENT roles. The all-or-nothing
+      // validator above guarantees we never send a partially-filled
+      // emergencyContact object (which the server would reject with a
+      // sub-field 400).
+      const addrTrim = form.address.trim();
+      const ecName = form.emergencyContactName.trim();
+      const ecPhone = form.emergencyContactPhone.trim();
+      const ecRel = form.emergencyContactRelationship.trim();
+      const payload: Record<string, unknown> = {
         name: form.name,
         email: form.email,
         phone: form.phone,
         password: form.password,
         role: form.role,
-      });
+      };
+      if (addrTrim.length >= 5) {
+        payload.address = addrTrim;
+      }
+      if (ecName && ecPhone && ecRel) {
+        payload.emergencyContact = {
+          name: ecName,
+          phone: ecPhone,
+          relationship: ecRel,
+        };
+      }
+      await api.post("/auth/register", payload);
       setShowForm(false);
-      setForm({ name: "", email: "", phone: "", password: "", role: "DOCTOR" });
+      setForm({
+        name: "",
+        email: "",
+        phone: "",
+        password: "",
+        role: "DOCTOR",
+        address: "",
+        emergencyContactName: "",
+        emergencyContactPhone: "",
+        emergencyContactRelationship: "",
+      });
       loadUsers();
     } catch (err) {
       // Issue #67: surface zod-style backend errors per-field instead of
       // showing a generic "Validation failed" toast.
+      // Issue #991 (UI follow-up): the server returns Zod nested paths
+      // like "emergencyContact.name" for the sub-fields. Remap those to
+      // the flat form keys (emergencyContactName, etc.) so the inline
+      // error renders next to the right input.
       const fields = extractFieldErrors(err);
       if (fields) {
-        setFieldErrors(fields);
+        const SERVER_TO_FORM: Record<string, string> = {
+          "emergencyContact.name": "emergencyContactName",
+          "emergencyContact.phone": "emergencyContactPhone",
+          "emergencyContact.relationship": "emergencyContactRelationship",
+        };
+        const remapped: FieldErrorMap = {};
+        for (const [k, v] of Object.entries(fields)) {
+          remapped[SERVER_TO_FORM[k] ?? k] = v;
+        }
+        setFieldErrors(remapped);
         setFormError("");
       } else {
         setFormError(
@@ -460,6 +543,155 @@ export default function UsersPage() {
               </select>
             </div>
           </div>
+
+          {/* Issue #991 (UI follow-up): optional Address + Emergency Contact.
+              Both are .optional() on the server schema for non-PATIENT
+              roles, so the form treats them as optional too. The
+              address minimum (5 chars) and the emergency-contact
+              all-or-nothing rule mirror the server validation so
+              partial input is caught client-side before a round trip. */}
+          <div className="mt-6 border-t pt-4 dark:border-slate-700">
+            <h3 className="mb-1 text-sm font-medium text-slate-700 dark:text-slate-300">
+              Optional details
+            </h3>
+            <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+              Capture postal + next-of-kin information now, or skip and add
+              it later via Edit.
+            </p>
+
+            <div className="grid grid-cols-1 gap-4">
+              <div>
+                <label
+                  htmlFor="staff-address"
+                  className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
+                  data-testid="label-staff-address"
+                >
+                  Address
+                  <span className="ml-1 font-normal text-slate-400">(optional)</span>
+                </label>
+                <textarea
+                  id="staff-address"
+                  rows={2}
+                  placeholder="Street, area, city, PIN"
+                  value={form.address}
+                  onChange={(e) => setForm({ ...form, address: e.target.value })}
+                  className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                  data-testid="staff-address-input"
+                  aria-invalid={fieldErrors.address ? true : undefined}
+                  maxLength={500}
+                />
+                {fieldErrors.address ? (
+                  <p
+                    className="mt-1 text-xs text-danger"
+                    data-testid="error-address"
+                  >
+                    {fieldErrors.address}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    If provided, must be 5–500 characters.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <fieldset className="mt-4">
+              <legend className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                Emergency contact
+                <span className="ml-1 font-normal text-slate-400">(optional — all three fields required if any is filled)</span>
+              </legend>
+              <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div>
+                  <label
+                    htmlFor="staff-ec-name"
+                    className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
+                  >
+                    Name
+                  </label>
+                  <input
+                    id="staff-ec-name"
+                    placeholder="Contact name"
+                    value={form.emergencyContactName}
+                    onChange={(e) =>
+                      setForm({ ...form, emergencyContactName: e.target.value })
+                    }
+                    className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                    data-testid="staff-ec-name-input"
+                    aria-invalid={fieldErrors.emergencyContactName ? true : undefined}
+                    maxLength={100}
+                  />
+                  {fieldErrors.emergencyContactName && (
+                    <p
+                      className="mt-1 text-xs text-danger"
+                      data-testid="error-ec-name"
+                    >
+                      {fieldErrors.emergencyContactName}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label
+                    htmlFor="staff-ec-phone"
+                    className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
+                  >
+                    Phone
+                  </label>
+                  <input
+                    id="staff-ec-phone"
+                    inputMode="tel"
+                    placeholder="10-15 digits"
+                    value={form.emergencyContactPhone}
+                    onChange={(e) =>
+                      setForm({ ...form, emergencyContactPhone: e.target.value })
+                    }
+                    className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                    data-testid="staff-ec-phone-input"
+                    aria-invalid={fieldErrors.emergencyContactPhone ? true : undefined}
+                  />
+                  {fieldErrors.emergencyContactPhone && (
+                    <p
+                      className="mt-1 text-xs text-danger"
+                      data-testid="error-ec-phone"
+                    >
+                      {fieldErrors.emergencyContactPhone}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label
+                    htmlFor="staff-ec-rel"
+                    className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
+                  >
+                    Relationship
+                  </label>
+                  <input
+                    id="staff-ec-rel"
+                    placeholder="e.g. Spouse, Parent"
+                    value={form.emergencyContactRelationship}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        emergencyContactRelationship: e.target.value,
+                      })
+                    }
+                    className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                    data-testid="staff-ec-rel-input"
+                    aria-invalid={fieldErrors.emergencyContactRelationship ? true : undefined}
+                    maxLength={50}
+                  />
+                  {fieldErrors.emergencyContactRelationship && (
+                    <p
+                      className="mt-1 text-xs text-danger"
+                      data-testid="error-ec-rel"
+                    >
+                      {fieldErrors.emergencyContactRelationship}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </fieldset>
+          </div>
+
           <div className="mt-4 flex gap-2">
             <button
               type="submit"

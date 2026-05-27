@@ -18,6 +18,10 @@ vi.mock("@/components/PatientServiceWorkerRegistration", () => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: replaceMock, push: vi.fn() }),
+  // PatientLayoutShell calls usePathname() to pick bare-vs-staff chrome.
+  // Return "/patient" so the bare-shell branch is exercised in the
+  // "does NOT mount the dashboard sidebar" assertion below.
+  usePathname: () => "/patient",
 }));
 
 vi.mock("@/lib/api", () => ({

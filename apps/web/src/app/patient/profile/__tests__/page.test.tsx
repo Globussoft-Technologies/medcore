@@ -280,12 +280,27 @@ describe("Patient profile page — gap #5 piece 3e", () => {
     fireEvent.change(nameInput, { target: { value: "Different Name" } });
     expect(nameInput.value).toBe("Different Name");
 
-    fireEvent.click(screen.getByTestId("patient-profile-cancel-btn"));
-    // 2026-05-27: wrap in waitFor — handleCancel's `setForm(initialForm)` +
-    // adjacent setSubmitState/setSubmitError/setFieldErrors land across React
-    // 19's automatic batch boundary, and the synchronous read of
-    // nameInput.value races the input's controlled-value re-render under
-    // vitest+jsdom. The retry covers the post-click commit.
+    // 2026-05-27: wait for the Cancel button to actually become enabled
+    // before clicking. The button is `disabled={!dirty}`; under React 19's
+    // batched-update model the `dirty` recompute can land on a later
+    // microtask than the input-value commit, so a synchronous click can
+    // hit the still-disabled button and be silently swallowed — leaving
+    // the field stuck on "Different Name" forever and timing out the
+    // waitFor below. Guarding on `not.toBeDisabled` ensures we click only
+    // after the controlled re-render has flushed.
+    const cancelBtn = screen.getByTestId(
+      "patient-profile-cancel-btn",
+    ) as HTMLButtonElement;
+    await waitFor(() => {
+      expect(cancelBtn).not.toBeDisabled();
+    });
+
+    fireEvent.click(cancelBtn);
+    // handleCancel's `setForm(initialForm)` + adjacent setSubmitState/
+    // setSubmitError/setFieldErrors land across React 19's automatic batch
+    // boundary, and the synchronous read of nameInput.value races the
+    // input's controlled-value re-render under vitest+jsdom. The retry
+    // covers the post-click commit.
     await waitFor(() => {
       expect(nameInput.value).toBe("Anand Kumar");
     });

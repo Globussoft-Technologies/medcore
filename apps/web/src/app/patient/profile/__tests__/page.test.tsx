@@ -281,7 +281,14 @@ describe("Patient profile page — gap #5 piece 3e", () => {
     expect(nameInput.value).toBe("Different Name");
 
     fireEvent.click(screen.getByTestId("patient-profile-cancel-btn"));
-    expect(nameInput.value).toBe("Anand Kumar");
+    // 2026-05-27: wrap in waitFor — handleCancel's `setForm(initialForm)` +
+    // adjacent setSubmitState/setSubmitError/setFieldErrors land across React
+    // 19's automatic batch boundary, and the synchronous read of
+    // nameInput.value races the input's controlled-value re-render under
+    // vitest+jsdom. The retry covers the post-click commit.
+    await waitFor(() => {
+      expect(nameInput.value).toBe("Anand Kumar");
+    });
   });
 
   it("Save / Cancel / ABHA-link CTAs carry the 44px touch-target invariant", async () => {
